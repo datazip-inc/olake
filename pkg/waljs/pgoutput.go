@@ -32,13 +32,7 @@ func (p *pgoutputReplicator) Socket() *Socket {
 }
 
 func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
-	var slot ReplicationSlot
-	if err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, p.socket.ReplicationSlot)); err != nil {
-		return fmt.Errorf("failed to get replication slot: %s", err)
-	}
-	p.socket.CurrentWalPosition = slot.CurrentLSN
-
-	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, p.socket.ReplicationSlot, p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
+	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, fmt.Sprintf("%q", p.socket.ReplicationSlot), p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
 	if err != nil {
 		return fmt.Errorf("failed to start replication: %v", err)
@@ -57,7 +51,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			return nil
 		default:
 			if !messageReceived && p.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > p.socket.initialWaitTime {
-				return fmt.Errorf("%s, try increasing it or do full load", constants.NoRecordsFoundError)
+				return fmt.Errorf("%w, try increasing it or do full load", constants.ErrNonRetryable)
 			}
 
 			if p.transactionCompleted && p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
@@ -71,7 +65,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			cancel()
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					return fmt.Errorf("no records found in given initial wait time, try increasing it or do full load")
+					return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrNonRetryable)
 				}
 
 				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {
