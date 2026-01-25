@@ -163,13 +163,12 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 		// filter schema by selected columns if this is the first writer thread for this stream
 		// the first writer thread for this stream will have a TypeSchema
-		schemaToPass := streamArtifact.schema
+		filteredSchema := streamArtifact.schema
 		if streamArtifact.schema == nil {
-			filteredSchema := types.FilterSchemaBySelectedColumns(stream)
-			schemaToPass = filteredSchema
+			filteredSchema = types.FilterSchemaBySelectedColumns(stream)
 		}
 
-		output, err := writerThread.Setup(ctx, stream, schemaToPass, opts)
+		output, err := writerThread.Setup(ctx, stream, filteredSchema, opts)
 		if err != nil {
 			return fmt.Errorf("failed to setup the writer thread: %s", err)
 		}
