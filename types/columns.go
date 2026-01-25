@@ -44,7 +44,7 @@ func (sc *SelectedColumns) setUnSelectedColumnsMap(oldStream *Stream) {
 		if !ok {
 			return true
 		}
-		// Only add to UnSelectedMap if column exists in old schema AND is not selected
+		// add to UnSelectedMap if column exists in old schema and is not selected
 		if _, exists := sc.SelectedMap[colName]; !exists {
 			sc.UnSelectedMap[colName] = struct{}{}
 		}

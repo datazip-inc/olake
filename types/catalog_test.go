@@ -62,6 +62,13 @@ func createSelectedColumns(columns []string) *SelectedColumns {
 	return sc
 }
 
+func createColumnsMetadata(columns []string, oldStream *Stream) *SelectedColumns {
+	sc := createSelectedColumns(columns)
+	sc.setUnSelectedColumnsMap(oldStream)
+	sc.SetAllSelectedColumnsFlag()
+	return sc
+}
+
 func compareCatalogs(t *testing.T, expected, actual *Catalog, testName string) {
 	assert.Equal(t, len(expected.Streams), len(actual.Streams))
 
@@ -388,7 +395,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      true,
 							Normalization:   true,
-							SelectedColumns: createSelectedColumns([]string{"id", "_olake_id", "_olake_timestamp", "_op_type", "_cdc_timestamp"}),
+							SelectedColumns: createColumnsMetadata([]string{"id", "_olake_id", "_olake_timestamp", "_op_type", "_cdc_timestamp"}, &Stream{Schema: oldSchema()}),
 							SyncNewColumns:  false,
 						},
 					},
@@ -483,7 +490,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      true,
 							Normalization:   true,
-							SelectedColumns: createSelectedColumns([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type", "updated_at"}),
+							SelectedColumns: createColumnsMetadata([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type", "updated_at"}, &Stream{Schema: oldSchema()}),
 						},
 					},
 				},
@@ -570,7 +577,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      true,
 							Normalization:   true,
-							SelectedColumns: createSelectedColumns([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type"}),
+							SelectedColumns: createColumnsMetadata([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type"}, &Stream{Schema: oldSchema()}),
 						},
 					},
 				},
@@ -668,7 +675,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							PartitionRegex:  "user_partition",
 							Filter:          "test_filter > 10",
 							Normalization:   true,
-							SelectedColumns: createSelectedColumns([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type"}),
+							SelectedColumns: createColumnsMetadata([]string{"id", "name", "_olake_id", "_olake_timestamp", "_op_type"}, &Stream{Schema: oldSchema()}),
 						},
 					},
 				},
