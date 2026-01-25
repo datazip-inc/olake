@@ -139,6 +139,11 @@ func (e *Elasticsearch) Close() {
 	logger.Info("Closing Elasticsearch connection")
 }
 
+// CloseConnection closes the Elasticsearch connection (alternative method name for compatibility)
+func (e *Elasticsearch) CloseConnection() {
+	e.Close()
+}
+
 func (e *Elasticsearch) Type() string {
 	return string(constants.Elasticsearch)
 }
