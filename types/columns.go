@@ -46,9 +46,7 @@ func (sc *SelectedColumns) checkAllColumnsSelected(newStream *Stream) bool {
 		return true
 	}
 
-	var (
-		schemaColumnCount int
-	)
+	var schemaColumnCount int
 
 	newStream.Schema.Properties.Range(func(key, _ interface{}) bool {
 		schemaColumnCount++
