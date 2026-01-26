@@ -15,8 +15,27 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// tlsConfigMutex ensures thread-safe registration of TLS configurations
-var tlsConfigMutex sync.Mutex
+var (
+	tlsConfigMutex sync.Mutex
+
+	// Java JDBC SSL params incompatible with Go MySQL driver (cause error 1193)
+	javaJDBCSSLParams = []string{
+		"useSSL",
+		"requireSSL",
+		"verifyServerCertificate",
+		"sslMode",
+		"trustCertificateKeyStoreUrl",
+		"trustCertificateKeyStoreType",
+		"trustCertificateKeyStorePassword",
+		"clientCertificateKeyStoreUrl",
+		"clientCertificateKeyStoreType",
+		"clientCertificateKeyStorePassword",
+		"fallbackToSystemTrustStore",
+		"fallbackToSystemKeyStore",
+		"tlsCiphersuites",
+		"tlsVersions",
+	}
+)
 
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
@@ -39,11 +58,10 @@ type CDC struct {
 
 // URI generates the connection URI for the MySQL database
 func (c *Config) URI() string {
-	// Set default port if not specified
 	if c.Port == 0 {
 		c.Port = 3306
 	}
-	// Construct host string
+
 	hostStr := c.Host
 	if c.Host == "" {
 		hostStr = "localhost"
@@ -65,20 +83,17 @@ func (c *Config) URI() string {
 		case utils.SSLModeRequire:
 			cfg.TLSConfig = "skip-verify"
 		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
-			// Note: verify-full (verify-identity) requires certificates with Subject Alternative Names (SAN).
-			// Certificates using only the legacy Common Name (CN) field will be rejected.
 			tlsConfig, err := c.buildTLSConfig()
 			if err != nil {
-				logger.Errorf("Failed to build TLS config: %v", err)
+				logger.Errorf("failed to build TLS config: %v", err)
 				cfg.Addr = "invalid-ssl-config:0"
 				cfg.TLSConfig = "false"
 			} else {
-				// Unique TLS config name to avoid conflicts with multiple connections
 				tlsConfigName := "mysql_" + utils.ULID()
 				tlsConfigMutex.Lock()
 				if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
 					tlsConfigMutex.Unlock()
-					logger.Errorf("Failed to register TLS config: %v", err)
+					logger.Errorf("failed to register TLS config: %v", err)
 					cfg.Addr = "invalid-ssl-config:0"
 					cfg.TLSConfig = "false"
 				} else {
@@ -94,6 +109,9 @@ func (c *Config) URI() string {
 			cfg.Params = make(map[string]string)
 		}
 		maps.Copy(cfg.Params, c.JDBCURLParams)
+		for _, key := range javaJDBCSSLParams {
+			delete(cfg.Params, key)
+		}
 	}
 
 	return cfg.FormatDSN()
@@ -119,13 +137,18 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 		}
 	}
 
+	serverName := c.Host
+	if serverName == "" {
+		serverName = "localhost"
+	}
+
 	tlsConfig := &tls.Config{
 		RootCAs:    rootCertPool,
 		MinVersion: tls.VersionTLS12,
+		ServerName: serverName,
 	}
 
 	if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA {
-		// verify-ca: Verify the server's CA certificate but not the hostname
 		tlsConfig.InsecureSkipVerify = true
 		tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 			if len(rawCerts) == 0 {
@@ -136,12 +159,11 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 				return fmt.Errorf("failed to parse server certificate: %w", err)
 			}
 
-			// Handle certificate chains with intermediate CAs
 			intermediates := x509.NewCertPool()
 			for i := 1; i < len(rawCerts); i++ {
 				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
 				if err != nil {
-					logger.Warnf("Failed to parse intermediate certificate at position %d: %v", i, err)
+					logger.Warnf("failed to parse intermediate certificate at position %d: %v", i, err)
 					continue
 				}
 				intermediates.AddCert(intermediateCert)
@@ -177,12 +199,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("host should not contain http or https: %s", c.Host)
 	}
 
-	// Validate port
 	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port number: must be between 1 and 65535")
 	}
 
-	// Validate required fields
 	if c.Username == "" {
 		return fmt.Errorf("username is required")
 	}
@@ -190,19 +210,16 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("password is required")
 	}
 
-	// Optional database name, default to 'mysql'
 	if c.Database == "" {
 		c.Database = "mysql"
 	}
 
-	// Set default number of threads if not provided
 	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
+		c.MaxThreads = constants.DefaultThreadCount
 	}
 
-	// Set default retry count if not provided
 	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
+		c.RetryCount = constants.DefaultRetryCount
 	}
 
 	// Validate SSL configuration if provided
@@ -211,7 +228,6 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("failed to validate SSL config: %s", err)
 		}
 
-		// MySQL-specific SSL validation: for verify-ca and verify-full, ensure ServerCA is present
 		if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA || c.SSLConfiguration.Mode == utils.SSLModeVerifyFull {
 			if c.SSLConfiguration.ServerCA == "" {
 				return fmt.Errorf("'ssl.server_ca' is required for verify-ca and verify-full modes")
