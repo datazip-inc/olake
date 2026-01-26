@@ -17,7 +17,7 @@ type CDCChange struct {
 	Stream    types.StreamInterface
 	Timestamp time.Time
 	Kind      string
-	Data      map[string]interface{}
+	Data      map[string]any
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
@@ -59,30 +59,6 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) GetKafkaInterface() (KafkaInterface, bool) {
-	kafkaInterface, ok := a.driver.(KafkaInterface)
-	return kafkaInterface, ok
-}
-
-// CDCSupported checks if CDC is supported for a specific stream.
-func (a *AbstractDriver) CDCSupported(ctx context.Context, stream *types.Stream) bool {
-	// MSSQL requires table-level CDC check
-	if a.driver.Type() == string(constants.MSSQL) {
-		if mssqlDriver, ok := a.driver.(interface {
-			IsTableCDCEnabled(ctx context.Context, namespace, name string) (bool, error)
-		}); ok {
-			enabled, err := mssqlDriver.IsTableCDCEnabled(ctx, stream.Namespace, stream.Name)
-			if err != nil {
-				logger.Warnf("failed to check table-level CDC support for %s.%s: %s, falling back to CDC not supported", stream.Namespace, stream.Name, err)
-				return false
-			}
-			return enabled
-		}
-	}
-	// For other drivers, use database-level check
-	return a.driver.CDCSupported()
-}
-
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// set max connections
 	if a.driver.MaxConnections() > 0 {
@@ -95,10 +71,10 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	}
 	var streamMap sync.Map
 
-	utils.ConcurrentInGroup(a.GlobalConnGroup, streams, func(ctx context.Context, stream string) error {
+	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream string) error {
 		streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: failed to produce schema for stream %s: %s", constants.ErrNonRetryable, stream, err)
 		}
 		streamMap.Store(streamSchema.ID(), streamSchema)
 		return nil
@@ -111,23 +87,24 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	var finalStreams []*types.Stream
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
-		if convStream.SupportedSyncModes.Len() == 0 {
-			convStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-		}
-		convStream.SyncMode = utils.Ternary(convStream.SyncMode == "", types.FULLREFRESH, convStream.SyncMode).(types.SyncMode)
 
 		// add default columns
 		for column, typ := range DefaultColumns {
+			if column == constants.CdcTimestamp && !a.supportsCdcColumn() {
+				continue
+			}
 			convStream.UpsertField(column, typ, true)
 		}
 
-		_, isKafkaDriver := a.GetKafkaInterface()
-		if a.CDCSupported(ctx, convStream) && !isKafkaDriver {
-			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
+		// priority to default sync mode (cdc -> incremental -> strict_cdc)
+		if convStream.SupportedSyncModes.Exists(types.CDC) && a.driver.CDCSupported() {
 			convStream.SyncMode = types.CDC
+		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
+			convStream.SyncMode = types.INCREMENTAL
+		} else if convStream.SupportedSyncModes.Exists(types.STRICTCDC) {
+			convStream.SyncMode = types.STRICTCDC
 		} else {
-			// remove cdc column as it is not supported
-			convStream.Schema.Properties.Delete(constants.CdcTimestamp)
+			convStream.SyncMode = types.FULLREFRESH
 		}
 
 		// add default stream properties
@@ -216,4 +193,107 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		return fmt.Errorf("error occurred while waiting for connections: %s", err)
 	}
 	return nil
+}
+
+// waitForBackfillCompletion waits for all backfill processes to complete and processes each completed stream
+func (a *AbstractDriver) waitForBackfillCompletion(mainCtx context.Context, backfillWaitChannel chan string, streams []types.StreamInterface, processStream func(streamID string) error) error {
+	backfilledStreams := make([]string, 0, len(streams))
+	for len(backfilledStreams) < len(streams) {
+		select {
+		case <-mainCtx.Done():
+			// if main context stuck in error
+			return mainCtx.Err()
+		case <-a.GlobalConnGroup.Ctx().Done():
+			// if global conn group stuck in error
+			return constants.ErrGlobalContextGroup
+		case streamID, ok := <-backfillWaitChannel:
+			if !ok {
+				return fmt.Errorf("backfill channel closed unexpectedly")
+			}
+			backfilledStreams = append(backfilledStreams, streamID)
+
+			if processStream != nil {
+				if err := processStream(streamID); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// generateThreadID creates a unique thread ID for a stream
+func generateThreadID(streamID string, suffix string) string {
+	withSuffix := fmt.Sprintf("%s_%s_%s", streamID, utils.ULID(), suffix)
+	withoutSuffix := fmt.Sprintf("%s_%s", streamID, utils.ULID())
+	return utils.Ternary(suffix != "", withSuffix, withoutSuffix).(string)
+}
+
+// handleWriterCleanup is a helper that creates a defer function for common writer cleanup operations
+// It handles writer close (single or multiple), panic recovery, and calls the provided postProcess function
+// The err parameter should be a pointer to the error variable that will be returned from the function
+// The cancel parameter is used to cancel the context when an error occurs, so other threads can detect the failure
+// The writer parameter can be either:
+//   - *destination.WriterThread for a single writer
+//   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
+//
+// The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, postProcess func(ctx context.Context) error) func() {
+	return func() {
+		// Cancel context if there's an error, so other threads using this context can detect the failure
+		if *err != nil {
+			cancel()
+		}
+
+		// Close writer(s)
+		var closeErr error
+		switch w := writer.(type) {
+		case *destination.WriterThread:
+			if threadErr := w.Close(ctx); threadErr != nil {
+				closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
+			}
+		case map[string]*destination.WriterThread:
+			// Multiple writers keyed by stream ID
+			for streamID, inserter := range w {
+				if inserter != nil {
+					if threadErr := inserter.Close(ctx); threadErr != nil {
+						closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
+					}
+				}
+			}
+		default:
+			closeErr = fmt.Errorf("unsupported writer type")
+		}
+
+		if closeErr != nil {
+			*err = utils.Ternary(*err == nil, closeErr, fmt.Errorf("%s: prev error: %w", closeErr, *err)).(error)
+		}
+
+		// check for panics before post-processing
+		if r := recover(); r != nil {
+			*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
+		}
+
+		// cancel context if error occurred after closing writers
+		if *err != nil {
+			cancel()
+		}
+
+		postErr := postProcess(ctx)
+		if postErr != nil {
+			*err = utils.Ternary(*err == nil, postErr, fmt.Errorf("%s: prev error: %w", postErr, *err)).(error)
+		}
+
+		if *err != nil && threadID != "" {
+			*err = fmt.Errorf("thread[%s]: %s", threadID, *err)
+		}
+	}
+}
+
+func (a *AbstractDriver) supportsCdcColumn() bool {
+	if a.driver.CDCSupported() && a.driver.Type() != string(constants.Kafka) {
+		// kafka driver does not support cdc column
+		return true
+	}
+	return false
 }
