@@ -12,13 +12,19 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalState, streams []types.StreamInterface) (*binlog.Connection, error) {
-	if !m.CDCSupport {
-		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
+func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, error) {
+	savedState := m.state.GetGlobal()
+	if savedState == nil || savedState.State == nil {
+		return nil, fmt.Errorf("invalid global state; state is missing")
 	}
 
-	// validate global state
-	if globalState.ServerID == 0 {
+	var mySQLGlobalState MySQLGlobalState
+	if err := utils.Unmarshal(savedState.State, &mySQLGlobalState); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
+	}
+
+	// validate server id
+	if mySQLGlobalState.ServerID == 0 {
 		return nil, fmt.Errorf("invalid global state; server_id is missing")
 	}
 	// TODO: Support all flavour of mysql
@@ -33,7 +39,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 	}
 
 	config := &binlog.Config{
-		ServerID:        globalState.ServerID,
+		ServerID:        mySQLGlobalState.ServerID,
 		Flavor:          "mysql",
 		Host:            m.config.Host,
 		Port:            uint16(m.config.Port),
@@ -47,7 +53,11 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, globalState MySQLGlobalSt
 		TLSConfig:       tlsConfig,
 	}
 
-	return binlog.NewConnection(ctx, config, globalState.State.Position, streams, m.dataTypeConverter)
+	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, m.streams, m.dataTypeConverter)
+}
+
+func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
+	return true, false, false
 }
 
 func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
@@ -63,34 +73,34 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		// reinit state
 		globalState = m.state.GetGlobal()
 	}
-
-	var mySQLGlobalState MySQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mySQLGlobalState); err != nil {
-		return fmt.Errorf("failed to unmarshal global state: %s", err)
-	}
-
-	conn, err := m.prepareBinlogConn(ctx, mySQLGlobalState, streams)
-	if err != nil {
-		return fmt.Errorf("failed to prepare binlog conn: %s", err)
-	}
-	m.BinlogConn = conn
+	m.streams = streams
 	return nil
 }
 
-func (m *MySQL) StreamChanges(ctx context.Context, _ types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, OnMessage abstract.CDCMsgFn) error {
+	conn, err := m.prepareBinlogConn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to prepare binlog conn: %s", err)
+	}
+
+	// persist binlog connection for post cdc
+	m.BinlogConn = conn
+
 	return m.BinlogConn.StreamMessages(ctx, m.client, OnMessage)
 }
 
-func (m *MySQL) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
-	if noErr {
+func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
+	defer m.BinlogConn.Cleanup()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
 			State: binlog.Binlog{
 				Position: m.BinlogConn.CurrentPos,
 			},
 		})
-		// TODO: Research about acknowledgment of binlogs in mysql and mssql
+		return nil
 	}
-	m.BinlogConn.Cleanup()
-	return nil
 }
