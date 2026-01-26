@@ -122,6 +122,41 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 	return query.String()
 }
 
+// NextChunkEndQueryPartition returns a query to calculate the next chunk boundary within a specific MySQL partition.
+// This uses keyset pagination (WHERE with PK comparison) instead of OFFSET for better performance.
+// The query finds the first row that is chunkSize rows ahead of the current value within the partition.
+func NextChunkEndQueryPartition(stream types.StreamInterface, partitionName string, columns []string, chunkSize int64) string {
+	quotedCols := QuoteColumns(columns, constants.MySQL)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	quotedPartitionName := QuoteIdentifier(partitionName, constants.MySQL)
+
+	var query strings.Builder
+	// SELECT with quoted and concatenated values
+	fmt.Fprintf(&query, "SELECT CONCAT_WS(',', %s) AS key_str FROM (SELECT %s FROM %s PARTITION (%s)",
+		strings.Join(quotedCols, ", "),
+		strings.Join(quotedCols, ", "),
+		quotedTable,
+		quotedPartitionName,
+	)
+	// WHERE clause for lexicographic "greater than"
+	query.WriteString(" WHERE ")
+	for currentColIndex := 0; currentColIndex < len(columns); currentColIndex++ {
+		if currentColIndex > 0 {
+			query.WriteString(" OR ")
+		}
+		query.WriteString("(")
+		for equalityColIndex := 0; equalityColIndex < currentColIndex; equalityColIndex++ {
+			fmt.Fprintf(&query, "%s = ? AND ", quotedCols[equalityColIndex])
+		}
+		fmt.Fprintf(&query, "%s > ?", quotedCols[currentColIndex])
+		query.WriteString(")")
+	}
+	// ORDER + LIMIT
+	fmt.Fprintf(&query, " ORDER BY %s", strings.Join(quotedCols, ", "))
+	fmt.Fprintf(&query, " LIMIT 1 OFFSET %d) AS subquery", chunkSize)
+	return query.String()
+}
+
 // PostgreSQL-Specific Queries
 // TODO: Rewrite queries for taking vars as arguments while execution.
 // PostgresRowCountQuery returns the query to fetch the estimated row count in PostgreSQL
@@ -454,6 +489,31 @@ func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
 	)
 }
 
+// MinMaxQueryMySQLPartition returns the query to fetch MIN and MAX values of columns within a specific MySQL partition.
+// This leverages partition pruning for much better performance on partitioned tables.
+func MinMaxQueryMySQLPartition(stream types.StreamInterface, partitionName string, columns []string) string {
+	quotedCols := QuoteColumns(columns, constants.MySQL)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(quotedCols, ", "))
+
+	orderAsc := strings.Join(quotedCols, ", ")
+	descCols := make([]string, len(quotedCols))
+	for i, col := range quotedCols {
+		descCols[i] = col + " DESC"
+	}
+	orderDesc := strings.Join(descCols, ", ")
+	quotedPartitionName := QuoteIdentifier(partitionName, constants.MySQL)
+
+	return fmt.Sprintf(`
+    SELECT
+        (SELECT %s FROM %s PARTITION (%s) ORDER BY %s LIMIT 1) AS min_value,
+        (SELECT %s FROM %s PARTITION (%s) ORDER BY %s LIMIT 1) AS max_value
+    `,
+		concatCols, quotedTable, quotedPartitionName, orderAsc,
+		concatCols, quotedTable, quotedPartitionName, orderDesc,
+	)
+}
+
 // MySQLDiscoverTablesQuery returns the query to discover tables in a MySQL database
 func MySQLDiscoverTablesQuery() string {
 	return `
@@ -547,6 +607,31 @@ func MySQLTableColumnsQuery() string {
 		FROM INFORMATION_SCHEMA.COLUMNS 
 		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? 
 		ORDER BY ORDINAL_POSITION
+	`
+}
+
+// MySQLIsPartitionedQuery returns the query to check if a MySQL table is partitioned.
+// It counts how many partitions exist for the given table.
+func MySQLIsPartitionedQuery() string {
+	return `
+		SELECT COUNT(*) 
+		FROM INFORMATION_SCHEMA.PARTITIONS 
+		WHERE TABLE_SCHEMA = ? 
+		AND TABLE_NAME = ?
+		AND PARTITION_NAME IS NOT NULL
+	`
+}
+
+// MySQLListPartitionsQuery returns the query to fetch all partition names for a MySQL table.
+// Returns partition names ordered by partition ordinal position.
+func MySQLListPartitionsQuery() string {
+	return `
+		SELECT PARTITION_NAME 
+		FROM INFORMATION_SCHEMA.PARTITIONS 
+		WHERE TABLE_SCHEMA = ? 
+		AND TABLE_NAME = ?
+		AND PARTITION_NAME IS NOT NULL
+		ORDER BY PARTITION_ORDINAL_POSITION
 	`
 }
 
