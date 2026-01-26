@@ -70,15 +70,15 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("failed to get MSSQL current max LSN: %w", err)
 	}
 
+	// check if CDC is enabled for each stream
 	for _, stream := range streams {
-		// check if CDC is enabled for each stream
 		enabled, err := m.validateCDCStream(ctx, stream.Namespace(), stream.Name())
 		if err != nil {
 			return fmt.Errorf("failed to validate CDC for stream %s.%s: %s", stream.Namespace(), stream.Name(), err)
 		}
 
 		if !enabled {
-			return fmt.Errorf("CDC is not enabled for table %s.%s", stream.Namespace(), stream.Name())
+			return fmt.Errorf("CDC is not enabled for stream %s.%s", stream.Namespace(), stream.Name())
 		}
 
 		// Initialize LSN for each stream if not present
@@ -128,19 +128,19 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 	// Note: we expect column-level data loss (e.g., new columns missing)
 	// in the LSN range between the DDL and when the new capture instance becomes active.
 	var selectedCapture *captureInstance
-	for captureIdx := len(captures) - 1; captureIdx >= 0; captureIdx-- {
+	for captureIdx := len(captureInstances) - 1; captureIdx >= 0; captureIdx-- {
 		// Skip if this capture started after fromLSN
-		if captures[captureIdx].startLSN > fromLSN {
+		if captureInstances[captureIdx].startLSN > lsnInState {
 			continue
 		}
 
 		// Select the capture instance
-		selectedCapture = &captures[captureIdx]
+		selectedCapture = &captureInstances[captureIdx]
 
 		// If a newer capture instance exists, restrict the targetLSN to the newer instance's startLSN
 		nextCaptureIdx := captureIdx + 1
-		if nextCaptureIdx < len(captures) && targetLSN > captures[nextCaptureIdx].startLSN {
-			newerCapture := captures[nextCaptureIdx]
+		if nextCaptureIdx < len(captureInstances) && targetLSN > captureInstances[nextCaptureIdx].startLSN {
+			newerCapture := captureInstances[nextCaptureIdx]
 			logger.Warnf("Newer capture instance [%s] detected for stream %s at LSN %s, but not using it in this sync. Clamping targetLSN to %s. It will be picked up in the next CDC sync", newerCapture.instanceName, stream.ID(), newerCapture.startLSN, newerCapture.startLSN)
 			targetLSN = newerCapture.startLSN
 		}
