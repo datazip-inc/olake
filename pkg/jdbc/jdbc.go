@@ -296,18 +296,77 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 // buildChunkConditionMySQL builds the condition for a chunk in MySQL
 func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
-	colTuple := "(" + strings.Join(quotedCols, ", ") + ")"
+
+	splitBoundaryValues := func(boundary any) []string {
+		if boundary == nil {
+			return nil
+		}
+		str := utils.ConvertToString(boundary)
+		parts := strings.Split(str, ",")
+		for i, part := range parts {
+			parts[i] = strings.TrimSpace(part)
+		}
+		return parts
+	}
+
+	// buildBound creates the expanded logic for (col1, col2) > (val1, val2)
+	// which becomes (col1 > val1) OR (col1 = val1 AND col2 >= val2)
+	buildBound := func(values []string, isLower bool) string {
+		if len(values) == 0 {
+			return ""
+		}
+		orGroups := make([]string, 0, len(quotedCols))
+		for i := 0; i < len(quotedCols); i++ {
+			andConds := make([]string, 0, i+1)
+			for j := 0; j < i; j++ {
+				if j < len(values) {
+					andConds = append(andConds, fmt.Sprintf("%s = %s", quotedCols[j], QuoteLiteral(values[j])))
+				}
+			}
+
+			var op string
+			if isLower {
+				op = ">"
+				if i == len(quotedCols)-1 {
+					op = ">="
+				}
+			} else {
+				op = "<"
+			}
+
+			if i < len(values) {
+				andConds = append(andConds, fmt.Sprintf("%s %s %s", quotedCols[i], op, QuoteLiteral(values[i])))
+			}
+			if len(andConds) > 0 {
+				orGroups = append(orGroups, "("+strings.Join(andConds, " AND ")+")")
+			}
+		}
+		if len(orGroups) == 0 {
+			return ""
+		}
+		return "(" + strings.Join(orGroups, " OR ") + ")"
+	}
+
+	lowerValues := splitBoundaryValues(chunk.Min)
+	upperValues := splitBoundaryValues(chunk.Max)
 
 	chunkCond := ""
 	switch {
 	case chunk.Min != nil && chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", colTuple, FormatSQLTuple(chunk.Min), colTuple, FormatSQLTuple(chunk.Max))
+		lower := buildBound(lowerValues, true)
+		upper := buildBound(upperValues, false)
+		if lower != "" && upper != "" {
+			chunkCond = fmt.Sprintf("(%s) AND (%s)", lower, upper)
+		} else {
+			// fallback if one bound is somehow empty
+			chunkCond = lower + upper
+		}
 	case chunk.Min != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s)", colTuple, FormatSQLTuple(chunk.Min))
+		chunkCond = buildBound(lowerValues, true)
 	case chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s < (%s)", colTuple, FormatSQLTuple(chunk.Max))
+		chunkCond = buildBound(upperValues, false)
 	}
-	// Both filter and chunk cond both should exist
+
 	if extraFilter != "" && chunkCond != "" {
 		return fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
 	}
