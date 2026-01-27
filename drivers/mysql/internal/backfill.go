@@ -283,7 +283,7 @@ func (m *MySQL) splitPartitionedTableIntoChunks(ctx context.Context, stream type
 			query := jdbc.NextChunkEndQueryPartition(stream, partitionName, pkColumns, chunkSize)
 			currentVal := partitionMin
 			for {
-				columns := strings.Split(utils.ConvertToString(currentVal), "\x1f")
+				columns := strings.Split(utils.ConvertToString(currentVal), ",")
 				args := make([]interface{}, 0)
 				for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
 					for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {

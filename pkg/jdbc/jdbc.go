@@ -75,20 +75,14 @@ func QuoteLiteral(val any) string {
 	return fmt.Sprintf("'%s'", escaped)
 }
 
-// FormatSQLTuple converts a delimited string of values into a SQL tuple (v1, v2, ...)
+// FormatSQLTuple converts a comma-separated string of values into a SQL tuple (v1, v2, ...)
 func FormatSQLTuple(val any) string {
 	if val == nil {
 		return "NULL"
 	}
 
 	str := utils.ConvertToString(val)
-	// Try splitting by unit separator first (new standard), fall back to comma (compatibility)
-	var parts []string
-	if strings.Contains(str, "\x1f") {
-		parts = strings.Split(str, "\x1f")
-	} else {
-		parts = strings.Split(str, ",")
-	}
+	parts := strings.Split(str, ",")
 	quotedParts := make([]string, len(parts))
 	for i, part := range parts {
 		quotedParts[i] = QuoteLiteral(strings.TrimSpace(part))
@@ -117,7 +111,7 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 //
 // Output:
 //
-//	SELECT CONCAT_WS('\x1f', id, created_at) AS key_str FROM (
+//	SELECT CONCAT_WS(',', id, created_at) AS key_str FROM (
 //	  SELECT (id, created_at)
 //	  FROM `mydb`.`users`
 //	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
@@ -130,7 +124,7 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
-	fmt.Fprintf(&query, "SELECT CONCAT_WS('\\x1f', %s) AS key_str FROM (SELECT %s FROM %s",
+	fmt.Fprintf(&query, "SELECT CONCAT_WS(',', %s) AS key_str FROM (SELECT %s FROM %s",
 		strings.Join(quotedCols, ", "),
 		strings.Join(quotedCols, ", "),
 		quotedTable,
@@ -165,7 +159,7 @@ func NextChunkEndQueryPartition(stream types.StreamInterface, partitionName stri
 
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
-	fmt.Fprintf(&query, "SELECT CONCAT_WS('\\x1f', %s) AS key_str FROM (SELECT %s FROM %s PARTITION (%s)",
+	fmt.Fprintf(&query, "SELECT CONCAT_WS(',', %s) AS key_str FROM (SELECT %s FROM %s PARTITION (%s)",
 		strings.Join(quotedCols, ", "),
 		strings.Join(quotedCols, ", "),
 		quotedTable,
@@ -512,7 +506,7 @@ func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
 	quotedCols := QuoteColumns(columns, constants.MySQL)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	concatCols := fmt.Sprintf("CONCAT_WS('\\x1f', %s)", strings.Join(quotedCols, ", "))
+	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(quotedCols, ", "))
 
 	orderAsc := strings.Join(quotedCols, ", ")
 	descCols := make([]string, len(quotedCols))
@@ -535,7 +529,7 @@ func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
 func MinMaxQueryMySQLPartition(stream types.StreamInterface, partitionName string, columns []string) string {
 	quotedCols := QuoteColumns(columns, constants.MySQL)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	concatCols := fmt.Sprintf("CONCAT_WS('\\x1f', %s)", strings.Join(quotedCols, ", "))
+	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(quotedCols, ", "))
 
 	orderAsc := strings.Join(quotedCols, ", ")
 	descCols := make([]string, len(quotedCols))
