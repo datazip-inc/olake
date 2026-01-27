@@ -166,7 +166,13 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		return nil
 	}
 
-	return i.writer.Close(ctx)
+	select {
+	case <-ctx.Done():
+		// skip commit in case of context cancellation
+		return ctx.Err()
+	default:
+		return i.writer.Close(ctx)
+	}
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {

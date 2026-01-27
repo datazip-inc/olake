@@ -197,9 +197,9 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error {
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("context closed")
+		return ctx.Err()
 	case <-wt.group.Ctx().Done():
-		// if group context is done, return the group err
+		// if group context is done, return the group err (retry error as there can be rate limits on s3)
 		return wt.group.Block()
 	default:
 		wt.stats.ReadCount.Add(1)
@@ -260,12 +260,25 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
-func (wt *WriterThread) Close(ctx context.Context) error {
+func (wt *WriterThread) Close(ctx context.Context) (err error) {
 	select {
 	case <-ctx.Done():
-		return fmt.Errorf("context closed")
+		err := wt.writer.Close(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to close writer: %s", err)
+		}
+		return nil
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
+		defer func() {
+			wt.streamArtifact.mu.Lock()
+			defer wt.streamArtifact.mu.Unlock()
+
+			closeErr := wt.writer.Close(ctx)
+			if closeErr != nil {
+				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
+			}
+		}()
 
 		wt.group.Add(func(ctx context.Context) error {
 			return wt.flush(ctx, wt.buffer)
@@ -274,11 +287,7 @@ func (wt *WriterThread) Close(ctx context.Context) error {
 		if err := wt.group.Block(); err != nil {
 			return fmt.Errorf("failed to flush data while closing: %s", err)
 		}
-
-		wt.streamArtifact.mu.Lock()
-		defer wt.streamArtifact.mu.Unlock()
-
-		return wt.writer.Close(ctx)
+		return nil
 	}
 }
 

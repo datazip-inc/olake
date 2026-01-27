@@ -14,7 +14,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
+func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
 	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 
@@ -33,7 +33,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			// Reset only mentioned cursor state while preserving other state values
 			a.state.ResetCursor(stream.Self())
 
-			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(ctx, stream)
+			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(mainCtx, stream)
 			if err != nil {
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
@@ -50,73 +50,62 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 			}
 		}
 
-		return a.Backfill(ctx, backfillWaitChannel, pool, stream)
+		return a.Backfill(mainCtx, backfillWaitChannel, pool, stream)
 	})
 	if err != nil {
 		return fmt.Errorf("backfill failed: %s", err)
 	}
 
 	// Wait for all backfill processes to complete
-	backfilledStreams := make([]string, 0, len(streams))
-	for len(backfilledStreams) < len(streams) {
-		select {
-		case <-ctx.Done():
-			// if main context stuck in error
-			return ctx.Err()
-		case <-a.GlobalConnGroup.Ctx().Done():
-			// if global conn group stuck in error
-			return nil
-		case streamID, ok := <-backfillWaitChannel:
-			if !ok {
-				return fmt.Errorf("backfill channel closed unexpectedly")
+	err = a.waitForBackfillCompletion(mainCtx, backfillWaitChannel, streams, func(streamID string) error {
+		a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(gCtx context.Context) (err error) {
+			index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
+			stream := streams[index]
+			primaryCursor, secondaryCursor := stream.Cursor()
+			// TODO: make inremental state consistent save it as string and typecast while reading
+			// get cursor column from state and typecast it to cursor column type for comparisons
+			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
+			if err != nil {
+				return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
 			}
-			backfilledStreams = append(backfilledStreams, streamID)
-			a.GlobalConnGroup.Add(func(ctx context.Context) (err error) {
-				index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				stream := streams[index]
-				primaryCursor, secondaryCursor := stream.Cursor()
-				// TODO: make inremental state consistent save it as string and typecast while reading
-				// get cursor column from state and typecast it to cursor column type for comparisons
-				maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
-				if err != nil {
-					return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
-				}
-				threadID := fmt.Sprintf("%s_%s", stream.ID(), utils.ULID())
-				inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
-				if err != nil {
-					return fmt.Errorf("failed to create new writer thread: %s", err)
-				}
-				logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
-				defer func() {
-					if threadErr := inserter.Close(ctx); threadErr != nil {
-						err = fmt.Errorf("failed to insert incremental record of stream %s, insert func error: %s, thread error: %s", streamID, err, threadErr)
-					}
 
-					// check for panics before saving state
-					if r := recover(); r != nil {
-						err = fmt.Errorf("panic recovered in incremental sync: %v, prev error: %s", r, err)
-					}
+			// create incremental context, so that main context not affected if incremental retries
+			incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
+			defer incrementalCtxCancel()
 
-					// set state (no comparison)
-					if err == nil {
-						a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
-						a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
-					} else {
-						err = fmt.Errorf("thread[%s]: %s", threadID, err)
+			threadID := generateThreadID(stream.ID(), "")
+			inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
+			if err != nil {
+				return fmt.Errorf("failed to create new writer thread: %s", err)
+			}
+
+			logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
+
+			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID,
+				func(ctx context.Context) error {
+					if ctx.Err() != nil {
+						return ctx.Err()
 					}
-				}()
-				return RetryOnBackoff(a.driver.MaxRetries(), constants.DefaultRetryTimeout, func() error {
-					return a.driver.StreamIncrementalChanges(ctx, stream, func(ctx context.Context, record map[string]any) error {
-						maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
-						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
-						id := utils.GetKeysHash(record, pk...)
-						return inserter.Push(ctx, types.CreateRawRecord(id, record, "u", nil))
-					})
-				})
+					// Save cursor state on success
+					a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
+					a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
+					return nil
+				})()
+
+			// No retry logic here - retry happens at Read level
+			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
+				maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
+				return inserter.Push(ctx, types.CreateRawRecord(utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...), record, "u", nil))
 			})
-		}
+		})
+		return nil
+	})
+	if err == constants.ErrGlobalContextGroup {
+		// err will be captured in err group block statement
+		return nil
 	}
-	return nil
+
+	return err
 }
 
 // RefomratCursorValue to parse the cursor value to the correct type
