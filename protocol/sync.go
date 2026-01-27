@@ -143,9 +143,9 @@ var syncCmd = &cobra.Command{
 		state.LogWithLock()
 		// TODO: record count also contain records which arrived in retry attempts, need to remove them
 		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
-		filteredRecoredCount := pool.GetStats().RecordsFiltered.Load()
-		if filteredRecoredCount > 0 {
-			logger.Infof("Total records filtered: %d", filteredRecoredCount)
+		filteredRecordsCount := pool.GetStats().RecordsFiltered.Load()
+		if filteredRecordsCount > 0 {
+			logger.Infof("Total records filtered: %d", filteredRecordsCount)
 		}
 		return nil
 	},

@@ -71,6 +71,11 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 	return primaryCursor, secondaryCursor
 }
 
+// GetFilter returns the filter input for the stream
+// If the filter input is not nil and has conditions, it returns the filter input
+// If the filter input is nil or has no conditions, it returns the legacy filter input
+// If the legacy filter input is empty, it returns true and nil
+// If the legacy filter input is not empty, it returns false and the error
 func (s *ConfiguredStream) GetFilter() (FilterInput, bool, error) {
 	//new filter input
 	if s.StreamMetadata.FilterInput != nil && len(s.StreamMetadata.FilterInput.Conditions) > 0 {

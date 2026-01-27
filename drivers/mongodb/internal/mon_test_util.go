@@ -104,7 +104,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		}
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert document")
-		// insert a filtered doc
+		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 		filteredDoc := bson.M{
 			"id":           999,
 			"id_cursor":    -1,
@@ -215,7 +215,7 @@ func insertTestData(t *testing.T, ctx context.Context, collection *mongo.Collect
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
 	}
-	// insert a filtered doc
+	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 	filteredDoc := bson.M{
 		"id":           999,
 		"id_cursor":    -1,

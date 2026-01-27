@@ -405,15 +405,11 @@ func buildMongoCondition(cond types.FilterCondition) bson.D {
 	}
 
 	var value interface{}
-
 	switch v := cond.Value.(type) {
-
 	case nil:
 		value = nil
-
 	case primitive.ObjectID:
 		value = v
-
 	case string:
 		// try ObjectID only if column is _id
 		if cond.Column == "_id" && len(v) == 24 {

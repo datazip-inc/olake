@@ -112,6 +112,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 			TotalRecordsToSync: atomic.Int64{},
 			ThreadCount:        atomic.Int64{},
 			ReadCount:          atomic.Int64{},
+			RecordsFiltered:    atomic.Int64{},
 		},
 		config:    config.WriterConfig,
 		init:      newfunc,
@@ -233,12 +234,12 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	// create flush context
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	recodsCountBeforeFiltering := len(buf)
+	recordsCountBeforeFiltering := len(buf)
 	evolution, buf, threadSchema, err := wt.writer.FlattenAndCleanData(flushCtx, buf)
 	if err != nil {
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
-	wt.stats.RecordsFiltered.Add(int64(recodsCountBeforeFiltering - len(buf)))
+	wt.stats.RecordsFiltered.Add(int64(recordsCountBeforeFiltering - len(buf)))
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
 		wt.streamArtifact.mu.Lock()

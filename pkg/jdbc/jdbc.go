@@ -22,10 +22,8 @@ func QuoteIdentifier(identifier string, driver constants.DriverType) string {
 	switch driver {
 	case constants.MySQL:
 		return fmt.Sprintf("`%s`", identifier) // MySQL uses backticks for quoting identifiers
-	case constants.Postgres, constants.DB2:
+	case constants.Postgres, constants.DB2, constants.Oracle:
 		return fmt.Sprintf("%q", identifier)
-	case constants.Oracle:
-		return fmt.Sprintf("%q", strings.ToUpper(identifier))
 	case constants.MSSQL:
 		return fmt.Sprintf("[%s]", identifier)
 	default:
@@ -1075,11 +1073,8 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 }
 
 // ParseFilter converts a filter string to a valid SQL WHERE condition, also appends the threshold filter if present
-func SQLFilter(
-	stream types.StreamInterface,
-	driver string,
-	thresholdFilter string,
-) (string, error) {
+func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter string) (string, error) {
+	// buildCondition builds the SQL condition for a single filter condition
 	buildCondition := func(cond types.FilterCondition, driver string) (string, error) {
 		var driverType constants.DriverType
 		switch driver {
@@ -1145,11 +1140,9 @@ func SQLFilter(
 
 		return fmt.Sprintf("%s %s %s", quotedColumn, cond.Operator, valueSQL), nil
 	}
-
-	// ---------- get canonical filter ----------
 	filter, _, err := stream.GetFilter()
 	if err != nil {
-		return "", fmt.Errorf("failed to parse stream filter: %w", err)
+		return "", fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 
 	// ---------- build SQL ----------
@@ -1173,10 +1166,7 @@ func SQLFilter(
 			}
 			conditions = append(conditions, formatted)
 		}
-		finalFilter = strings.Join(
-			conditions,
-			fmt.Sprintf(" %s ", strings.ToUpper(filter.LogicalOperator)),
-		)
+		finalFilter = strings.Join(conditions, fmt.Sprintf(" %s ", strings.ToUpper(filter.LogicalOperator)))
 	}
 
 	// ---------- threshold merge ----------

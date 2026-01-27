@@ -117,7 +117,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
-		// insert a filtered doc
+		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 		filteredQuery := fmt.Sprintf(`
 			INSERT INTO %s (
 			id_cursor, id, id_bigint,
@@ -236,7 +236,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
 	}
-	// insert a filtered doc
+	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 	filteredQuery := fmt.Sprintf(`
 		INSERT INTO %s (
 			id_cursor, id, id_bigint,

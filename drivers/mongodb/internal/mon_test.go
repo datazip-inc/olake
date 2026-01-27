@@ -21,20 +21,20 @@ func TestMongodbIntegration(t *testing.T) {
 		CursorField:                      "id_cursor:id_int",
 		PartitionRegex:                   "/{_id,identity}",
 		FilterInput: `{
-                    "logical_operator": "And",
-                    "conditions": [
-                        {
-                            "column": "id_double",
-                            "operator": "<",
-                            "value": 239834.89
-                        },
-                        {
-                            "column": "id_timestamp",
-                            "operator": ">=",
-                            "value": "2022-07-01T15:30:00.000+00:00"
-                        }
-                    ]
-                }`,
+			"logical_operator": "And",
+			"conditions": [
+				{
+					"column": "id_double",
+					"operator": "<",
+					"value": 239834.89
+				},
+				{
+					"column": "id_timestamp",
+					"operator": ">=",
+					"value": "2022-07-01T15:30:00.000+00:00"
+				}
+			]
+		}`,
 	}
 	testConfig.TestIntegration(t)
 }

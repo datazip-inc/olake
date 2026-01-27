@@ -13,6 +13,13 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
+// parsedCondition holds a fully-typed condition
+type parsedCondition struct {
+	column   string
+	operator string
+	value    any
+}
+
 // FilterRecords applies filtering ONLY for new filters.
 // For legacy filters, records are returned unchanged.
 func FilterRecords(
@@ -62,13 +69,6 @@ func FilterRecords(
 		}
 	}
 	return filterConcurrently(ctx, records, conditions, filter.LogicalOperator)
-}
-
-// parsedCondition holds a fully-typed condition
-type parsedCondition struct {
-	column   string
-	operator string
-	value    any
 }
 
 // resolveColumnType resolves datatype from schema (iceberg or parquet)
