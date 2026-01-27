@@ -23,6 +23,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		}
 		// set state chunks
 		a.state.SetChunks(stream.Self(), chunksSet)
+
 	}
 	chunks := chunksSet.Array()
 	if len(chunks) == 0 {

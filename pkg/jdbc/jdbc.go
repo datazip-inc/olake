@@ -63,6 +63,39 @@ func QuoteColumns(columns []string, driver constants.DriverType) []string {
 	return quoted
 }
 
+// QuoteLiteral returns a properly escaped and quoted string literal for SQL
+func QuoteLiteral(val any) string {
+	if val == nil {
+		return "NULL"
+	}
+
+	str := utils.ConvertToString(val)
+	// Escape single quotes for SQL safety
+	escaped := strings.ReplaceAll(str, "'", "''")
+	return fmt.Sprintf("'%s'", escaped)
+}
+
+// FormatSQLTuple converts a delimited string of values into a SQL tuple (v1, v2, ...)
+func FormatSQLTuple(val any) string {
+	if val == nil {
+		return "NULL"
+	}
+
+	str := utils.ConvertToString(val)
+	// Try splitting by unit separator first (new standard), fall back to comma (compatibility)
+	var parts []string
+	if strings.Contains(str, "\x1f") {
+		parts = strings.Split(str, "\x1f")
+	} else {
+		parts = strings.Split(str, ",")
+	}
+	quotedParts := make([]string, len(parts))
+	for i, part := range parts {
+		quotedParts[i] = QuoteLiteral(strings.TrimSpace(part))
+	}
+	return strings.Join(quotedParts, ", ")
+}
+
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a Postgres table
 func MinMaxQuery(stream types.StreamInterface, column string) string {
 	quotedColumn := QuoteIdentifier(column, constants.Postgres)
@@ -84,8 +117,8 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 //
 // Output:
 //
-//	SELECT CONCAT_WS(',', id, created_at) AS key_str FROM (
-//	  SELECT (',', id, created_at)
+//	SELECT CONCAT_WS('\x1f', id, created_at) AS key_str FROM (
+//	  SELECT (id, created_at)
 //	  FROM `mydb`.`users`
 //	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
 //	  ORDER BY id, created_at
@@ -97,7 +130,7 @@ func NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkSize
 
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
-	fmt.Fprintf(&query, "SELECT CONCAT_WS(',', %s) AS key_str FROM (SELECT %s FROM %s",
+	fmt.Fprintf(&query, "SELECT CONCAT_WS('\\x1f', %s) AS key_str FROM (SELECT %s FROM %s",
 		strings.Join(quotedCols, ", "),
 		strings.Join(quotedCols, ", "),
 		quotedTable,
@@ -132,7 +165,7 @@ func NextChunkEndQueryPartition(stream types.StreamInterface, partitionName stri
 
 	var query strings.Builder
 	// SELECT with quoted and concatenated values
-	fmt.Fprintf(&query, "SELECT CONCAT_WS(',', %s) AS key_str FROM (SELECT %s FROM %s PARTITION (%s)",
+	fmt.Fprintf(&query, "SELECT CONCAT_WS('\\x1f', %s) AS key_str FROM (SELECT %s FROM %s PARTITION (%s)",
 		strings.Join(quotedCols, ", "),
 		strings.Join(quotedCols, ", "),
 		quotedTable,
@@ -271,21 +304,14 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFi
 	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
 	colTuple := "(" + strings.Join(quotedCols, ", ") + ")"
 
-	buildSQLTuple := func(val any) string {
-		parts := strings.Split(val.(string), ",")
-		for i, part := range parts {
-			parts[i] = fmt.Sprintf("'%s'", strings.TrimSpace(part))
-		}
-		return strings.Join(parts, ", ")
-	}
 	chunkCond := ""
 	switch {
 	case chunk.Min != nil && chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", colTuple, buildSQLTuple(chunk.Min), colTuple, buildSQLTuple(chunk.Max))
+		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", colTuple, FormatSQLTuple(chunk.Min), colTuple, FormatSQLTuple(chunk.Max))
 	case chunk.Min != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s)", colTuple, buildSQLTuple(chunk.Min))
+		chunkCond = fmt.Sprintf("%s >= (%s)", colTuple, FormatSQLTuple(chunk.Min))
 	case chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s < (%s)", colTuple, buildSQLTuple(chunk.Max))
+		chunkCond = fmt.Sprintf("%s < (%s)", colTuple, FormatSQLTuple(chunk.Max))
 	}
 	// Both filter and chunk cond both should exist
 	if extraFilter != "" && chunkCond != "" {
@@ -464,14 +490,29 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
+
+	// Use partition pruning if partition name is specified
+	if chunk.PartitionName != "" {
+		quotedPartitionName := QuoteIdentifier(chunk.PartitionName, constants.MySQL)
+		if condition != "" {
+			return fmt.Sprintf("SELECT * FROM %s PARTITION (%s) WHERE %s", quotedTable, quotedPartitionName, condition)
+		}
+		// If condition is empty, just select from partition
+		return fmt.Sprintf("SELECT * FROM %s PARTITION (%s)", quotedTable, quotedPartitionName)
+	}
+
+	if condition != "" {
+		return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
+	}
+	// If condition is empty, select all
+	return fmt.Sprintf("SELECT * FROM %s", quotedTable)
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
 func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
 	quotedCols := QuoteColumns(columns, constants.MySQL)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(quotedCols, ", "))
+	concatCols := fmt.Sprintf("CONCAT_WS('\\x1f', %s)", strings.Join(quotedCols, ", "))
 
 	orderAsc := strings.Join(quotedCols, ", ")
 	descCols := make([]string, len(quotedCols))
@@ -494,7 +535,7 @@ func MinMaxQueryMySQL(stream types.StreamInterface, columns []string) string {
 func MinMaxQueryMySQLPartition(stream types.StreamInterface, partitionName string, columns []string) string {
 	quotedCols := QuoteColumns(columns, constants.MySQL)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	concatCols := fmt.Sprintf("CONCAT_WS(',', %s)", strings.Join(quotedCols, ", "))
+	concatCols := fmt.Sprintf("CONCAT_WS('\\x1f', %s)", strings.Join(quotedCols, ", "))
 
 	orderAsc := strings.Join(quotedCols, ", ")
 	descCols := make([]string, len(quotedCols))
@@ -1550,22 +1591,14 @@ func DB2PKChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 	}
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
 
-	buildSQLTuple := func(val any) string {
-		parts := strings.Split(val.(string), ",")
-		for i, part := range parts {
-			parts[i] = fmt.Sprintf("'%s'", strings.TrimSpace(part))
-		}
-		return strings.Join(parts, ", ")
-	}
-
 	chunkCond := ""
 	switch {
 	case chunk.Min != nil && chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", columns, buildSQLTuple(chunk.Min), columns, buildSQLTuple(chunk.Max))
+		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", columns, FormatSQLTuple(chunk.Min), columns, FormatSQLTuple(chunk.Max))
 	case chunk.Min != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s)", columns, buildSQLTuple(chunk.Min))
+		chunkCond = fmt.Sprintf("%s >= (%s)", columns, FormatSQLTuple(chunk.Min))
 	case chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s < (%s)", columns, buildSQLTuple(chunk.Max))
+		chunkCond = fmt.Sprintf("%s < (%s)", columns, FormatSQLTuple(chunk.Max))
 	}
 
 	if extraFilter != "" && chunkCond != "" {
