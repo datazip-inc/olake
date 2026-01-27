@@ -24,12 +24,12 @@ func TestOracleIntegration(t *testing.T) {
                     "logical_operator": "And",
                     "conditions": [
                         {
-                            "column": "col_double_precision",
+                            "column": "COL_DOUBLE_PRECISION",
                             "operator": "<",
                             "value": 239834.89
                         },
                         {
-                            "column": "col_timestamp",
+                            "column": "COL_TIMESTAMP",
                             "operator": ">=",
                             "value": "2022-07-01T15:30:00.000+00:00"
                         }
