@@ -439,6 +439,12 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
+	// Reset state file to ensure CDC starts from a fresh LSN after table recreate
+	resetState := resetStateFileCommand(*cfg.TestConfig)
+	if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
+		return fmt.Errorf("failed to reset state for CDC (%d): %s\n%s", code, err, out)
+	}
+
 	testCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
@@ -516,6 +522,12 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
+	}
+
+	// Reset state file to ensure CDC starts from a fresh LSN after table recreate
+	resetState := resetStateFileCommand(*cfg.TestConfig)
+	if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
+		return fmt.Errorf("failed to reset state for CDC (%d): %s\n%s", code, err, out)
 	}
 
 	testCases := []syncTestCase{

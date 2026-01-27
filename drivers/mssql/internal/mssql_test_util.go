@@ -178,6 +178,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "update":
 		updateRow := fmt.Sprintf(`
 			UPDATE dbo.%s SET
+				id_cursor = 7,
 				col_bigint = 20,
 				col_decimal = 543.25,
 				col_money = 9.7500,
@@ -193,13 +194,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_varchar_nullable = 'nullable updated',
 				col_datetime2_nullable = '2024-07-01 15:30:00',
 				created_at = '2024-07-01 15:30:00'
-			WHERE id = 1;
+			WHERE id = 6;
 		`, integrationTestTable)
 		_, err := db.ExecContext(ctx, updateRow)
 		require.NoError(t, err, "failed to update CDC row")
 
 	case "delete":
-		_, err := db.ExecContext(ctx, fmt.Sprintf(`DELETE FROM dbo.%s WHERE id = 1;`, integrationTestTable))
+		_, err := db.ExecContext(ctx, fmt.Sprintf(`DELETE FROM dbo.%s WHERE id = 6;`, integrationTestTable))
 		require.NoError(t, err, "failed to delete CDC row")
 
 	case "evolve-schema":
@@ -305,8 +306,8 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"col_bit": false,
 
 	// money
-	"col_smallmoney": "1.2500",
-	"col_money":      "9.7500",
+	"col_smallmoney": float64(1.25),
+	"col_money":      float64(9.75),
 
 	// strings
 	"col_char":     "char_val__",
