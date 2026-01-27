@@ -319,7 +319,7 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 		if k.config.Protocol.SSL.ClientCert != "" && k.config.Protocol.SSL.ClientKey != "" {
 			cert, err := tls.X509KeyPair([]byte(k.config.Protocol.SSL.ClientCert), []byte(k.config.Protocol.SSL.ClientKey))
 			if err != nil {
-				return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
+				return nil, fmt.Errorf("failed to load client certificate/key: %s", err)
 			}
 			tlsConfig.Certificates = []tls.Certificate{cert}
 		}
@@ -372,7 +372,7 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 		GroupIDs: []string{k.consumerGroupID},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("DescribeGroups failed: %w", err)
+		return nil, fmt.Errorf("DescribeGroups failed: %s", err)
 	}
 
 	var assigned []types.PartitionKey

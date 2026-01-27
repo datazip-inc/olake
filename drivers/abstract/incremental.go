@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -11,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
@@ -81,12 +83,12 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
 
-			a.state.SetCursor(stream.Self(), primaryCursor, typeutils.FormatCursorValue(maxPrimaryCursorValue))
+			a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
 			if maxPrimaryCursorValue == nil {
 				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
 			}
 			if secondaryCursor != "" {
-				a.state.SetCursor(stream.Self(), secondaryCursor, typeutils.FormatCursorValue(maxSecondaryCursorValue))
+				a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
 				if maxSecondaryCursorValue == nil {
 					logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
 				}
@@ -131,9 +133,9 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 					if ctx.Err() != nil {
 						return ctx.Err()
 					}
-					a.state.SetCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", primaryCursor), typeutils.FormatCursorValue(maxPrimaryCursorValue))
+					a.state.SetCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", primaryCursor), a.FormatCursorValue(maxPrimaryCursorValue))
 					if secondaryCursor != "" {
-						a.state.SetCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", secondaryCursor), typeutils.FormatCursorValue(maxSecondaryCursorValue))
+						a.state.SetCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", secondaryCursor), a.FormatCursorValue(maxSecondaryCursorValue))
 					}
 					return nil
 				},
@@ -203,10 +205,26 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 	return primaryCursorValue, secondaryCursorValue
 }
 
+// FormatCursorValue is used to make time format and object id format consistent to be saved in state
+func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
+	switch v := cursorValue.(type) {
+	case time.Time:
+		// db2 timestamp does NOT store timezone information. Applying v.UTC() changes the actual time value for db2.
+		if a.driver.Type() == string(constants.DB2) {
+			return v.Format(constants.DB2StateTimestampFormat)
+		}
+		return v.UTC().Format(constants.DefaultStateTimestampFormat)
+	case primitive.ObjectID:
+		return v.Hex()
+	default:
+		return cursorValue
+	}
+}
+
 func (a *AbstractDriver) commitIncrementalState(stream types.StreamInterface, primaryCursor string, primaryValue any, secondaryCursor string, secondaryValue any) {
-	a.state.SetCursor(stream.Self(), primaryCursor, typeutils.FormatCursorValue(primaryValue))
+	a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(primaryValue))
 	if secondaryCursor != "" {
-		a.state.SetCursor(stream.Self(), secondaryCursor, typeutils.FormatCursorValue(secondaryValue))
+		a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(secondaryValue))
 		a.state.DeleteCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", secondaryCursor))
 	}
 	a.state.DeleteCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", primaryCursor))

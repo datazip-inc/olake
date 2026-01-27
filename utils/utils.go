@@ -469,8 +469,12 @@ func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f fu
 
 		if attempts > 1 && cur != attempts-1 {
 			logger.Infof("retry attempt[%d], retrying after %.2f seconds due to err: %s", cur+1, sleep.Seconds(), err)
-			time.Sleep(sleep)
-			sleep = sleep * 2
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(sleep):
+				sleep = sleep * 2
+			}
 		}
 	}
 

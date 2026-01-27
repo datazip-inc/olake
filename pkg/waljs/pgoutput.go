@@ -155,7 +155,7 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 
 		// Convert according to OID to string
 		typeName := oidToString(colType)
-		val, err := p.socket.changeFilter.converter(col.Data, typeName)
+		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, err
 		}

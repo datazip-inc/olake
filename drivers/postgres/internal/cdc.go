@@ -44,13 +44,9 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 		return fmt.Errorf("failed to get slot position: %s", err)
 	}
 
-	currentLSN := slot.CurrentLSN.String()
-
-	logger.Infof("Current LSN: %s", currentLSN)
-
 	globalState := p.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
-		p.state.SetGlobal(waljs.WALState{LSN: currentLSN})
+		p.state.SetGlobal(waljs.WALState{LSN: slot.CurrentLSN.String()})
 		p.state.ResetStreams()
 		return waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String())
 	}
