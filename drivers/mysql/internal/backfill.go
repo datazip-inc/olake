@@ -113,7 +113,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 
-	logger.Infof("fghj %s", stream.ID())
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 	if chunkColumn != "" {
 		pkColumns = []string{chunkColumn}
@@ -124,8 +123,9 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	var (
 		ok   bool
 		step int64
+		minVal any
+		maxVal any
 	)
-	var minVal, maxVal any
 
 	if stream.GetStream().SourceDefinedPrimaryKey.Len() > 0 || chunkColumn != "" {
 		err = jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
@@ -143,7 +143,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		ok, step = shouldUseEvenDistribution(minVal, maxVal, approxRowCount, chunkSize)
 	}
 
-	logger.Infof("fghjdbzjsbi %s", stream.ID())
 	//  EVEN distribution
 	if len(pkColumns) == 1 && ok {
 		logger.Infof("Splitting evenly for stream %s using step %d (min: %v, max: %v)", stream.ID(), step, minVal, maxVal)
