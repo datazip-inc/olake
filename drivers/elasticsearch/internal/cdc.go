@@ -19,6 +19,6 @@ func (e *Elasticsearch) StreamChanges(_ context.Context, _ types.StreamInterface
 }
 
 // PostCDC finalizes CDC state. CDC is not supported for Elasticsearch.
-func (e *Elasticsearch) PostCDC(_ context.Context, _ types.StreamInterface, _ bool, _ string) error {
+func (e *Elasticsearch) PostCDC(_ context.Context, _ int) error {
 	return fmt.Errorf("CDC is not supported for Elasticsearch")
 }
