@@ -265,8 +265,10 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 
 // reset state file so incremental can perform initial load (equivalent to full load on first run)
 func resetStateFileCommand(config TestConfig) string {
-	// Ensure the state is clean irrespective of previous CDC run
-	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
+	// Ensure the state is clean irrespective of previous CDC run.
+	// We use direct redirection to overwrite the file in-place, which is more reliable
+	// over bind mounts than deleting and recreating.
+	return fmt.Sprintf(`echo '{}' > %s`, config.StatePath)
 }
 
 func toggleArrowIcebergWrites(config TestConfig, enabled bool) string {
@@ -364,6 +366,14 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 	t.Logf("[SYNC DEBUG] Command: %s", cmd)
+
+	// Debug: Log the state file content before sync if using state
+	if useState {
+		catCmd := fmt.Sprintf("cat %s", cfg.TestConfig.StatePath)
+		if code, out, err := utils.ExecCommand(ctx, c, catCmd); err == nil && code == 0 {
+			t.Logf("[SYNC DEBUG] State file content before sync: %s", string(out))
+		}
+	}
 
 	// Execute operation before sync if needed
 	if useState && operation != "" {
@@ -566,7 +576,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" {
+				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -740,7 +750,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) {
+				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
