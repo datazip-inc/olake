@@ -8,7 +8,7 @@ on:
       - '**/*.java'
   pull_request:
     branches:
-        - "*"
+      - "*"
     paths:
       - '**/*.go'
       - '**/*.java'
