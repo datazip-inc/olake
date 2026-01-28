@@ -88,7 +88,7 @@ jobs:
 
     - name: Create destination
       run: |
-        echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/destination.json
+        echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/iceberg_destination.json
     
     - name: Get Last Successful Run ID
       id: last_run
