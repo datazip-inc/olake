@@ -2,6 +2,7 @@ services:
   mssql:
     image: mcr.microsoft.com/mssql/server:2022-CU16-ubuntu-22.04
     container_name: olake-mssql
+    user: root
     platform: linux/amd64
     environment:
       - ACCEPT_EULA=Y

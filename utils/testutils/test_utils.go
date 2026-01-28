@@ -266,8 +266,7 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 // reset state file so incremental can perform initial load (equivalent to full load on first run)
 func resetStateFileCommand(config TestConfig) string {
 	// Ensure the state is clean irrespective of previous CDC run.
-	// We use direct redirection to overwrite the file in-place, which is more reliable
-	return fmt.Sprintf(`echo '{}' > %s`, config.StatePath)
+	return fmt.Sprintf(`echo '{}' > %s && sync`, config.StatePath)
 }
 
 func toggleArrowIcebergWrites(config TestConfig, enabled bool) string {

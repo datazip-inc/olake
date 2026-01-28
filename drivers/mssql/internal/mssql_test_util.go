@@ -96,23 +96,37 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err = db.ExecContext(ctx, createTable)
 		require.NoError(t, err, "failed to create integration test table")
 
-		// Enable CDC for table
+		// Always drop existing capture instance first to ensure fresh start_lsn
+		// This handles cases where the capture instance wasn't properly cleaned up
+		dropExistingCDC := fmt.Sprintf(`
+			IF EXISTS (
+				SELECT 1
+				FROM cdc.change_tables
+				WHERE capture_instance = N'%s'
+			)
+			BEGIN
+				EXEC sys.sp_cdc_disable_table
+					@source_schema = N'dbo',
+					@source_name   = N'%s',
+					@capture_instance = N'%s';
+			END;
+		`, captureInstance, integrationTestTable, captureInstance)
+		_, _ = db.ExecContext(ctx, dropExistingCDC)
+
+		// Enable CDC for table - always create fresh capture instance
 		enableTableCDC := fmt.Sprintf(`
-				IF NOT EXISTS (
-					SELECT 1
-					FROM cdc.change_tables
-					WHERE source_object_id = OBJECT_ID('dbo.%s')
-				)
-				BEGIN
-					EXEC sys.sp_cdc_enable_table
-						@source_schema = N'dbo',
-						@source_name   = N'%s',
-						@capture_instance = N'%s',
-						@role_name     = NULL
-				END;
-				`, integrationTestTable, integrationTestTable, captureInstance)
+			EXEC sys.sp_cdc_enable_table
+				@source_schema = N'dbo',
+				@source_name   = N'%s',
+				@capture_instance = N'%s',
+				@role_name     = NULL
+		`, integrationTestTable, captureInstance)
 		_, err = db.ExecContext(ctx, enableTableCDC)
 		require.NoError(t, err, "failed to enable CDC on integration test table")
+
+		// Wait for CDC to fully initialize - the capture instance needs time to
+		// register its start_lsn properly before any sync operations
+		time.Sleep(10 * time.Second)
 
 	case "drop":
 		// Disable CDC before dropping table to ensure capture instance is cleaned up
