@@ -36,11 +36,49 @@
       "description": "Database server listening port",
       "default": 3306
     },
-    "tls_skip_verify": {
-      "type": "boolean",
-      "title": "Skip TLS Verification",
-      "description": "Determines if TLS certificate verification should be skipped for secure connections",
-      "default": true
+    "jdbc_url_params": {
+      "type": "object",
+      "title": "JDBC URL Parameters",
+      "description": "Additional connection parameters for the Go MySQL driver",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "ssl": {
+      "type": "object",
+      "title": "SSL Configuration",
+      "description": "SSL/TLS configuration for secure database connections",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "title": "SSL Mode",
+          "description": "The SSL/TLS mode to use for the connection",
+          "enum": [
+            "disable",
+            "require",
+            "verify-ca",
+            "verify-full"
+          ],
+          "default": "disable"
+        },
+        "server_ca": {
+          "type": "string",
+          "title": "Server CA Certificate",
+          "description": "CA certificate content (PEM format) for server verification"
+        },
+        "client_cert": {
+          "type": "string",
+          "title": "Client Certificate",
+          "description": "Client certificate content (PEM format) for mutual TLS authentication"
+        },
+        "client_key": {
+          "type": "string",
+          "title": "Client Key",
+          "description": "Client private key content (PEM format) for mutual TLS authentication"
+        }
+      },
+      "required": [
+        "mode"
+      ]
     },
     "update_method": {
       "title": "Update Method",
