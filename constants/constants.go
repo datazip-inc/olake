@@ -49,6 +49,7 @@ const (
 	MSSQL    DriverType = "mssql"
 )
 
+var FilterInFullRefreshDrivers = []DriverType{S3, Kafka}
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}

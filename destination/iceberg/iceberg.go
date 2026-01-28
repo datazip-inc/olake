@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -351,16 +352,32 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return diffThreadSchema.Load(), schemaMap, err
 	}
 
+	filter, isLegacy, err := i.stream.GetFilter()
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
+	}
+
 	if !i.stream.NormalizationEnabled() {
-		return false, records, i.schema, nil
+		// Q: do we need to add filter in case of normalization false?
+		filtered, err := destination.FilterRecords(ctx, records, filter, isLegacy, i.schema)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+		}
+		return false, filtered, i.schema, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
+	if !i.options.Backfill || slices.Contains(constants.FilterInFullRefreshDrivers, i.options.DriverType) {
+		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, i.schema)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+		}
+	}
 
-	return schemaDifference, records, recordsSchema, err
+	return schemaDifference, records, recordsSchema, nil
 }
 
 // compares with global schema and update schema in destination accordingly

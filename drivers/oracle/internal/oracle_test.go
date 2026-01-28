@@ -20,6 +20,21 @@ func TestOracleIntegration(t *testing.T) {
 		DestinationDB:                    "oracle_myuser",
 		CursorField:                      "COL_CURSOR:COL_SMALLINT",
 		PartitionRegex:                   "/{id, identity}",
+		FilterInput: `{
+                    "logical_operator": "And",
+                    "conditions": [
+                        {
+                            "column": "COL_DOUBLE_PRECISION",
+                            "operator": "<",
+                            "value": 239834.89
+                        },
+                        {
+                            "column": "COL_TIMESTAMP",
+                            "operator": ">=",
+                            "value": "2022-07-01T15:30:00.000+00:00"
+                        }
+                    ]
+                }`,
 	}
 	testConfig.TestIntegration(t)
 }

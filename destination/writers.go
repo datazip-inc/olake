@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -22,6 +23,7 @@ type (
 		Number     int64
 		Backfill   bool
 		ThreadID   string
+		DriverType constants.DriverType
 	}
 
 	ThreadOptions func(opt *Options)
@@ -33,6 +35,7 @@ type (
 	Stats struct {
 		TotalRecordsToSync atomic.Int64 // total record that are required to sync
 		ReadCount          atomic.Int64 // records that got read
+		RecordsFiltered    atomic.Int64 // records that got filtered
 		ThreadCount        atomic.Int64 // total number of writer threads
 	}
 
@@ -82,6 +85,11 @@ func WithThreadID(threadID string) ThreadOptions {
 		opt.ThreadID = threadID
 	}
 }
+func WithDriverType(driverType constants.DriverType) ThreadOptions {
+	return func(opt *Options) {
+		opt.DriverType = driverType
+	}
+}
 
 func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
@@ -104,6 +112,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 			TotalRecordsToSync: atomic.Int64{},
 			ThreadCount:        atomic.Int64{},
 			ReadCount:          atomic.Int64{},
+			RecordsFiltered:    atomic.Int64{},
 		},
 		config:    config.WriterConfig,
 		init:      newfunc,
@@ -225,12 +234,12 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	// create flush context
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-
+	recordsCountBeforeFiltering := len(buf)
 	evolution, buf, threadSchema, err := wt.writer.FlattenAndCleanData(flushCtx, buf)
 	if err != nil {
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
-
+	wt.stats.RecordsFiltered.Add(int64(recordsCountBeforeFiltering - len(buf)))
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
 		wt.streamArtifact.mu.Lock()

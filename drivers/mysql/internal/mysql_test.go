@@ -20,6 +20,21 @@ func TestMySQLIntegration(t *testing.T) {
 		DestinationDB:                    "mysql_olake_mysql_test",
 		CursorField:                      "id_cursor:id_smallint",
 		PartitionRegex:                   "/{id,identity}",
+		FilterInput: `{
+                    "logical_operator": "And",
+                    "conditions": [
+                        {
+                            "column": "price_double",
+                            "operator": "<",
+                            "value": 239834.89
+                        },
+                        {
+                            "column": "created_timestamp",
+                            "operator": ">=",
+                            "value": "2022-07-01T15:30:00.000+00:00"
+                        }
+                    ]
+                }`,
 	}
 	testConfig.TestIntegration(t)
 }

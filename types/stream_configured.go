@@ -14,19 +14,6 @@ type ConfiguredStream struct {
 	Stream         *Stream        `json:"stream,omitempty"`
 }
 
-// Condition represents a single condition in a filter
-type Condition struct {
-	Column   string
-	Operator string
-	Value    string
-}
-
-// Filter represents the parsed filter
-type Filter struct {
-	Conditions      []Condition // a > b, a < b
-	LogicalOperator string      // condition[0] and/or condition[1], single and/or supported
-}
-
 func (s *ConfiguredStream) ID() string {
 	return s.Stream.ID()
 }
@@ -84,10 +71,22 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 	return primaryCursor, secondaryCursor
 }
 
-func (s *ConfiguredStream) GetFilter() (Filter, error) {
+// GetFilter returns the filter input for the stream
+// If the filter input is not nil and has conditions, it returns the filter input
+// If the filter input is nil or has no conditions, it returns the legacy filter input
+// If the legacy filter input is empty, it returns true and nil
+// If the legacy filter input is not empty, it returns false and the error
+func (s *ConfiguredStream) GetFilter() (FilterInput, bool, error) {
+	//new filter input
+	if s.StreamMetadata.FilterInput != nil && len(s.StreamMetadata.FilterInput.Conditions) > 0 {
+		s.StreamMetadata.FilterInput.LogicalOperator = utils.Reformat(s.StreamMetadata.FilterInput.LogicalOperator)
+		return *s.StreamMetadata.FilterInput, false, nil
+	}
+
+	// legacy filter input
 	filter := strings.TrimSpace(s.StreamMetadata.Filter)
 	if filter == "" {
-		return Filter{}, nil
+		return FilterInput{}, true, nil
 	}
 	// FilterRegex supports the following filter patterns:
 	// Single condition:
@@ -107,11 +106,11 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+)))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
-		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
+		return FilterInput{}, true, fmt.Errorf("invalid filter format: %s", filter)
 	}
 
-	var conditions []Condition
-	conditions = append(conditions, Condition{
+	var conditions []FilterCondition
+	conditions = append(conditions, FilterCondition{
 		Column:   utils.ExtractColumnName(matches[1], matches[2]),
 		Operator: matches[3],
 		Value:    matches[4],
@@ -120,17 +119,17 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	// Check if there's a logical operator (and/or)
 	logicalOp := matches[5]
 	if logicalOp != "" {
-		conditions = append(conditions, Condition{
+		conditions = append(conditions, FilterCondition{
 			Column:   utils.ExtractColumnName(matches[6], matches[7]),
 			Operator: matches[8],
 			Value:    matches[9],
 		})
 	}
 
-	return Filter{
+	return FilterInput{
 		Conditions:      conditions,
 		LogicalOperator: logicalOp,
-	}, nil
+	}, true, nil
 }
 
 // Validate Configured Stream with Source Stream
@@ -154,7 +153,7 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
 	}
 
-	_, err := s.GetFilter()
+	_, _, err := s.GetFilter()
 	if err != nil {
 		return fmt.Errorf("failed to parse filter %s: %s", s.StreamMetadata.Filter, err)
 	}
