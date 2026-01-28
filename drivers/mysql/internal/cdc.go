@@ -27,7 +27,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, erro
 	if mySQLGlobalState.ServerID == 0 {
 		return nil, fmt.Errorf("invalid global state; server_id is missing")
 	}
-	// TODO: Support all flavour of mysql
+
 	// Build TLS config if SSL is configured
 	var tlsConfig *tls.Config
 	if m.config.SSLConfiguration != nil && m.config.SSLConfiguration.Mode != utils.SSLModeDisable {

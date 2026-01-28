@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"strings"
-	"sync"
 
 	"github.com/go-sql-driver/mysql"
 
@@ -15,27 +14,23 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-var (
-	tlsConfigMutex sync.Mutex
-
-	// Java JDBC SSL params incompatible with Go MySQL driver (cause error 1193)
-	javaJDBCSSLParams = []string{
-		"useSSL",
-		"requireSSL",
-		"verifyServerCertificate",
-		"sslMode",
-		"trustCertificateKeyStoreUrl",
-		"trustCertificateKeyStoreType",
-		"trustCertificateKeyStorePassword",
-		"clientCertificateKeyStoreUrl",
-		"clientCertificateKeyStoreType",
-		"clientCertificateKeyStorePassword",
-		"fallbackToSystemTrustStore",
-		"fallbackToSystemKeyStore",
-		"tlsCiphersuites",
-		"tlsVersions",
-	}
-)
+// Java JDBC SSL params incompatible with Go MySQL driver (cause "Error 1193: Unknown system variable" if not filtered from jdbc_url_params)
+var javaJDBCSSLParams = []string{
+	"useSSL",
+	"requireSSL",
+	"verifyServerCertificate",
+	"sslMode",
+	"trustCertificateKeyStoreUrl",
+	"trustCertificateKeyStoreType",
+	"trustCertificateKeyStorePassword",
+	"clientCertificateKeyStoreUrl",
+	"clientCertificateKeyStoreType",
+	"clientCertificateKeyStorePassword",
+	"fallbackToSystemTrustStore",
+	"fallbackToSystemKeyStore",
+	"tlsCiphersuites",
+	"tlsVersions",
+}
 
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
@@ -58,10 +53,12 @@ type CDC struct {
 
 // URI generates the connection URI for the MySQL database
 func (c *Config) URI() string {
+	// Set default port if not specified
 	if c.Port == 0 {
 		c.Port = 3306
 	}
 
+	// Construct host string
 	hostStr := c.Host
 	if c.Host == "" {
 		hostStr = "localhost"
@@ -90,14 +87,11 @@ func (c *Config) URI() string {
 				cfg.TLSConfig = "false"
 			} else {
 				tlsConfigName := "mysql_" + utils.ULID()
-				tlsConfigMutex.Lock()
 				if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
-					tlsConfigMutex.Unlock()
 					logger.Errorf("failed to register TLS config: %v", err)
 					cfg.Addr = "invalid-ssl-config:0"
 					cfg.TLSConfig = "false"
 				} else {
-					tlsConfigMutex.Unlock()
 					cfg.TLSConfig = tlsConfigName
 				}
 			}
@@ -199,10 +193,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("host should not contain http or https: %s", c.Host)
 	}
 
+	// Validate port
 	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port number: must be between 1 and 65535")
 	}
 
+	// Validate required fields
 	if c.Username == "" {
 		return fmt.Errorf("username is required")
 	}
@@ -210,16 +206,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("password is required")
 	}
 
+	// Optional database name, default to 'mysql'
 	if c.Database == "" {
 		c.Database = "mysql"
 	}
 
+	// Set default number of threads if not provided
 	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
 	}
 
+	// Set default retry count if not provided
 	if c.RetryCount <= 0 {
-		c.RetryCount = constants.DefaultRetryCount
+		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
 
 	// Validate SSL configuration if provided
