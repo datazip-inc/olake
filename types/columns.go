@@ -119,7 +119,7 @@ func FilterDataBySelectedColumns(data map[string]interface{}, stream StreamInter
 
 // collectColumnsFromSchema collects all columns from a schema
 func collectColumnsFromSchema(schema *TypeSchema) []string {
-	var columns []string
+	columns := []string{}
 	schema.Properties.Range(func(key, _ interface{}) bool {
 		if colName, ok := key.(string); ok {
 			columns = append(columns, colName)
