@@ -13,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/linkedin/goavro/v2"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -188,17 +189,15 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 
 		var data map[string]interface{}
 		if message.Value != nil {
-			// decode message value
-			decoder := json.NewDecoder(bytes.NewReader(message.Value))
-			// to avoid automatic conversion of numbers to float64
-			decoder.UseNumber()
-			if err := decoder.Decode(&data); err != nil {
-				logger.Warnf("failed to unmarshal message value: %s", err)
+			var key string
+			data, key, err = k.parseKafkaData(message)
+			if err != nil {
+				logger.Warnf("failed to parse message at offset %d: %s", message.Offset, err)
 				continue
 			}
 			data[Partition] = message.Partition
 			data[Offset] = message.Offset
-			data[Key] = string(message.Key)
+			data[Key] = key
 			data[KafkaTimestamp], err = typeutils.ReformatDate(message.Time, true)
 			if err != nil {
 				return fmt.Errorf("failed to reformat date: %s", err)
@@ -214,4 +213,117 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 		}
 	}
 	return nil
+}
+
+func (k *Kafka) parseKafkaData(message kafka.Message) (map[string]interface{}, string, error) {
+	// helper to parse data bytes (value or key)
+	parseData := func(data []byte) (interface{}, error) {
+		// if data is not in confluent wire format, it is assumed to be standard json currently
+		if isConfluentWireFormat(data) {
+			if k.schemaRegistryClient == nil {
+				return decodeJSONMessage(data[5:])
+			}
+
+			// get schemaID
+			schemaID, err := extractSchemaID(data)
+			if err != nil {
+				return nil, err
+			}
+
+			// fetch schema
+			schema, err := k.schemaRegistryClient.FetchSchema(schemaID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch schema %d: %w", schemaID, err)
+			}
+
+			// decode data based on format
+			switch schema.SchemaType {
+			case types.SchemaTypeAvro:
+				decoded, err := decodeAvroMessage(data[5:], schema.Codec)
+				if err != nil {
+					return nil, err
+				}
+				if record, ok := decoded.(map[string]interface{}); ok {
+					return record, nil
+				}
+				// For keys or non-record values, it might be primitive
+				return decoded, nil
+			case types.SchemaTypeJSON:
+				return decodeJSONMessage(data[5:])
+			default:
+				return nil, fmt.Errorf("unsupported schema type: %s", schema.SchemaType)
+			}
+		}
+
+		return decodeJSONMessage(data)
+	}
+
+	// 1. Parse Message Value
+	var messageValue map[string]interface{}
+	if message.Value != nil {
+		valDecoded, err := parseData(message.Value)
+		if err != nil {
+			return nil, "", err
+		}
+		if vm, ok := valDecoded.(map[string]interface{}); ok {
+			messageValue = vm
+		} else {
+			return nil, "", fmt.Errorf("expected map[string]interface{} for message value, got %T", valDecoded)
+		}
+	}
+
+	// 2. Parse Message Key
+	var keyValue string
+	if len(message.Key) > 0 {
+		parsedKey, err := parseData(message.Key)
+		if err != nil {
+			// standard fallback: raw key as string
+			logger.Warnf("failed to parse key at offset %d: %s, using raw string", message.Offset, err)
+			keyValue = string(message.Key)
+		} else {
+			switch v := parsedKey.(type) {
+			case string:
+				keyValue = v
+			case []byte:
+				keyValue = string(v)
+			default:
+				bytes, err := json.Marshal(v)
+				if err != nil {
+					logger.Warnf("failed to marshal decoded key at offset %d: %s, using raw string", message.Offset, err)
+					keyValue = string(message.Key)
+				} else {
+					keyValue = string(bytes)
+				}
+			}
+		}
+	}
+
+	return messageValue, keyValue, nil
+}
+
+// decode kafka json message
+func decodeJSONMessage(value []byte) (map[string]interface{}, error) {
+	var data map[string]interface{}
+
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	// use json.Number to avoid automatic conversion of numbers to float64
+	decoder.UseNumber()
+
+	if err := decoder.Decode(&data); err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// decode kafka avro binary message
+func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
+	nativeDatum, _, err := codec.NativeFromBinary(data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode Avro: %w", err)
+	}
+
+	if record, ok := nativeDatum.(map[string]interface{}); ok {
+		return typeutils.ConvertAvroRecord(record), nil
+	}
+	return nativeDatum, nil
 }

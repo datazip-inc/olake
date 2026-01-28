@@ -8,12 +8,20 @@ import (
 )
 
 type Config struct {
-	BootstrapServers            string         `json:"bootstrap_servers"`
-	ConsumerGroupID             string         `json:"consumer_group_id,omitempty"`
-	Protocol                    ProtocolConfig `json:"protocol"`
-	MaxThreads                  int            `json:"max_threads"`
-	RetryCount                  int            `json:"backoff_retry_count"`
-	ThreadsEqualTotalPartitions bool           `json:"threads_equal_total_partitions,omitempty"`
+	BootstrapServers            string                `json:"bootstrap_servers"`
+	ConsumerGroupID             string                `json:"consumer_group_id,omitempty"`
+	Protocol                    ProtocolConfig        `json:"protocol"`
+	MaxThreads                  int                   `json:"max_threads"`
+	RetryCount                  int                   `json:"backoff_retry_count"`
+	ThreadsEqualTotalPartitions bool                  `json:"threads_equal_total_partitions,omitempty"`
+	SchemaRegistry              *SchemaRegistryConfig `json:"schema_registry,omitempty"`
+}
+
+// currently supporting confluent schema registry
+type SchemaRegistryConfig struct {
+	Endpoint string `json:"endpoint"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 type ProtocolConfig struct {

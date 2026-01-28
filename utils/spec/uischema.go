@@ -265,7 +265,8 @@ const KafkaUISchema = `{
     "ui:grid": [
       { "bootstrap_servers": 12, "consumer_group_id": 12 },
       { "threads_equal_total_partitions": 12, "max_threads": 12 },
-      { "backoff_retry_count": 12, "protocol": 12 }
+      { "backoff_retry_count": 12, "protocol": 12 },
+      { "schema_registry": 24 }
     ],
     "protocol": {
       "ui:grid": [
@@ -312,6 +313,19 @@ const KafkaUISchema = `{
       },
       "ui:options": {
         "title": false
+      }
+    },
+    "schema_registry": {
+      "ui:options": {
+        "title": false,
+        "description": false
+      },
+      "ui:grid": [
+        { "endpoint": 12, "username": 12 },
+        { "password": 12 }
+      ],
+      "password": {
+        "ui:widget": "password"
       }
     },
     "threads_equal_total_partitions": {

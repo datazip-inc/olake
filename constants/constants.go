@@ -58,3 +58,6 @@ var SkipCDCDrivers = []DriverType{Oracle, DB2}
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
+
+// InternalKafkaTopics are internal kafka topics (created due to external services) to be skipped
+var InternalKafkaTopics = []string{"__amazon_msk_canary", "_schemas"}
