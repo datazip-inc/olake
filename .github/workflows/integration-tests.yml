@@ -3,15 +3,12 @@ on:
   push:
     branches:
       - "master"
-      - "feat/require-approval-for-integration-tests"
     paths:
       - '**/*.go'
       - '**/*.java'
   pull_request:
     branches:
-      - "master"
-      - "staging"
-      - "feat/require-approval-for-integration-tests"
+        - "*"
     paths:
       - '**/*.go'
       - '**/*.java'
