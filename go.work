@@ -4,12 +4,13 @@ toolchain go1.23.7
 
 use (
 	.
+	./drivers/elasticsearch
+	./drivers/kafka
 	./drivers/mongodb
 	./drivers/mysql
-	./drivers/postgres
 	./drivers/oracle
+	./drivers/postgres
 	./drivers/s3
-	./drivers/kafka
 	./drivers/mssql
 	./drivers/db2
 )

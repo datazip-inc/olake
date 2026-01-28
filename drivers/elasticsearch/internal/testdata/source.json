@@ -1,0 +1,10 @@
+{
+  "host": "localhost",
+  "port": 9200,
+  "username": "elastic",
+  "password": "changeme",
+  "use_ssl": false,
+  "index": "olake_test_integration",
+  "max_threads": 5,
+  "retry_count": 2
+}
