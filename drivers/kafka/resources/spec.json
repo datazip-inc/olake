@@ -183,6 +183,29 @@
             "title": "Threads Equal Total Partitions",
             "description": "If true, number of threads will be set equal to total partitions (overrides max_threads)",
             "default": true
+        },
+        "schema_registry": {
+            "type": "object",
+            "title": "Schema Registry Configuration",
+            "description": "Confluent Schema Registry settings for Avro message deserialization",
+            "properties": {
+                "endpoint": {
+                    "type": "string",
+                    "title": "Schema Registry Endpoint",
+                    "description": "Schema Registry URL (e.g., http://localhost:8081)"
+                },
+                "username": {
+                    "type": "string",
+                    "title": "Username",
+                    "description": "Username for Schema Registry authentication (optional)"
+                },
+                "password": {
+                    "type": "string",
+                    "title": "Password",
+                    "description": "Password for Schema Registry authentication (optional)"
+                }
+            },
+            "required": ["endpoint"]
         }
     },
     "required": [
