@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - "master"
+      - "feat/require-approval-for-integration-tests"
     paths:
       - '**/*.go'
       - '**/*.java'
