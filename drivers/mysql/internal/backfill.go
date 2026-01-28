@@ -34,7 +34,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 	// Begin transaction with repeatable read isolation
-	return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
+	return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
 		// Build query for the chunk
 		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
@@ -96,7 +96,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// Takes the user defined batch size as chunkSize
 	// TODO: common-out the chunking logic for db2, mssql, mysql
 	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
-		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
+		return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
 			// Get primary key column using the provided function
 			pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 			if chunkColumn != "" {
@@ -159,7 +159,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		})
 	}
 	limitOffsetChunking := func(chunks *types.Set[types.Chunk]) error {
-		return jdbc.WithIsolation(ctx, m.client, func(tx *sql.Tx) error {
+		return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
 			chunks.Insert(types.Chunk{
 				Min: nil,
 				Max: utils.ConvertToString(chunkSize),

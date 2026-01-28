@@ -104,8 +104,8 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 
 	enumMap := tableMap.EnumStrValueMap()
 
-	// TODO: float values from binlog are not always same as the output of select * from db,
-	// need to typecast it to the datatype of the column for consistency with db.
+	// NOTE: For MySQL CDC (binlog-based), FLOAT values are read directly from the binlog and may
+	// differ from SELECT output due to SQL-layer formatting/rounding.
 	record := make(map[string]interface{})
 	for i, val := range row {
 		if tableMap.IsEnumColumn(i) && val != nil {
