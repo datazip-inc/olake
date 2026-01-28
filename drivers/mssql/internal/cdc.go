@@ -70,15 +70,15 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("failed to get MSSQL current max LSN: %w", err)
 	}
 
+	// check if CDC is enabled for each stream
 	for _, stream := range streams {
-		// check if CDC is enabled for each stream
 		enabled, err := m.validateCDCStream(ctx, stream.Namespace(), stream.Name())
 		if err != nil {
 			return fmt.Errorf("failed to validate CDC for stream %s.%s: %s", stream.Namespace(), stream.Name(), err)
 		}
 
 		if !enabled {
-			return fmt.Errorf("CDC is not enabled for table %s.%s", stream.Namespace(), stream.Name())
+			return fmt.Errorf("CDC is not enabled for stream %s.%s", stream.Namespace(), stream.Name())
 		}
 
 		// Initialize LSN for each stream if not present
@@ -116,16 +116,36 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 
 	// TODO: research how to handle schema evolution
 
-	// Select the newest capture instance whose startLSN is <= fromLSN.
-	// This allows seamless continuation across CDC capture re-creation
-	// during schema evolution.
+	// When multiple capture instances exist for the same table (due to schema
+	// evolution), pick the newest instance whose startLSN is <= fromLSN.
+	// This guarantees we continue from an instance that was valid at our last
+	// processed LSN.
+	//
+	// If there is a newer capture instance after the one we select, clamp
+	// targetLSN to that newer instance's startLSN so we do not read rows that
+	// conceptually belong to the new schema from the old capture instance.
+	//
+	// Note: we expect column-level data loss (e.g., new columns missing)
+	// in the LSN range between the DDL and when the new capture instance becomes active.
 	var selectedCapture *captureInstance
-	for i := len(captureInstances) - 1; i >= 0; i-- {
-		// LSNs are fixed-length hex strings and can be compared lexicographically
-		if captureInstances[i].startLSN <= lsnInState {
-			selectedCapture = &captureInstances[i]
-			break
+	for captureIdx := len(captureInstances) - 1; captureIdx >= 0; captureIdx-- {
+		// Skip if this capture started after fromLSN
+		if captureInstances[captureIdx].startLSN > lsnInState {
+			continue
 		}
+
+		// Select the capture instance
+		selectedCapture = &captureInstances[captureIdx]
+
+		// If a newer capture instance exists, restrict the targetLSN to the newer instance's startLSN
+		nextCaptureIdx := captureIdx + 1
+		if nextCaptureIdx < len(captureInstances) && targetLSN > captureInstances[nextCaptureIdx].startLSN {
+			newerCapture := captureInstances[nextCaptureIdx]
+			logger.Warnf("Newer capture instance [%s] detected for stream %s at LSN %s, but not using it in this sync. Clamping targetLSN to %s. It will be picked up in the next CDC sync", newerCapture.instanceName, stream.ID(), newerCapture.startLSN, newerCapture.startLSN)
+			targetLSN = newerCapture.startLSN
+		}
+
+		break
 	}
 
 	if selectedCapture == nil {
@@ -190,7 +210,8 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 	}
 
 	// Query CDC rows for this capture instance between the two LSNs.
-	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCGetChangesQuery(capture.instanceName), fromLSNBytes, toLSNBytes)
+	query := jdbc.MSSQLCDCGetChangesQuery(capture.instanceName)
+	rows, err := m.client.QueryContext(ctx, query, fromLSNBytes, toLSNBytes)
 	if err != nil {
 		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
 	}
