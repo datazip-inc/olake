@@ -267,7 +267,6 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 func resetStateFileCommand(config TestConfig) string {
 	// Ensure the state is clean irrespective of previous CDC run.
 	// We use direct redirection to overwrite the file in-place, which is more reliable
-	// over bind mounts than deleting and recreating.
 	return fmt.Sprintf(`echo '{}' > %s`, config.StatePath)
 }
 
@@ -365,16 +364,6 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 ) error {
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
-	t.Logf("[SYNC DEBUG] Command: %s", cmd)
-
-	// Debug: Log the state file content before sync if using state
-	if useState {
-		catCmd := fmt.Sprintf("cat %s", cfg.TestConfig.StatePath)
-		if code, out, err := utils.ExecCommand(ctx, c, catCmd); err == nil && code == 0 {
-			t.Logf("[SYNC DEBUG] State file content before sync: %s", string(out))
-		}
-	}
-
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
@@ -386,9 +375,8 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	// Run sync command
 	code, out, err := utils.ExecCommand(ctx, c, cmd)
-	t.Logf("[SYNC DEBUG] Sync Output:\n%s", string(out))
 	if err != nil || code != 0 {
-		return fmt.Errorf("sync failed (%d): %s", code, err)
+		return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 	}
 
 	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)

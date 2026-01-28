@@ -7,9 +7,6 @@
     "ssl": {
         "mode": "disable"
     },
-    "update_method": {
-        "initial_wait_time": 120
-    },
     "max_threads": 10,
     "retry_count": 3
 }

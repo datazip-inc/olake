@@ -31,11 +31,11 @@ var GlobalTypeMapping = map[string]string{
 	"decimal": "double",
 	"numeric": "double",
 	"float4":  "float",
+	"money":   "float",
 
 	"double":           "double",
 	"float8":           "double",
 	"double precision": "double",
-	"number":           "double",
 
 	// Boolean Types
 	"bool":    "boolean",
