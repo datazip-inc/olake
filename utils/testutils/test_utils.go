@@ -232,7 +232,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 	}
 	streamConditions := make([]string, len(stream))
 	for i, s := range stream {
-		s = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(s), s).(string)
+		s = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(s), s).(string)
 		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 	}
 	condition := strings.Join(streamConditions, " or ")
@@ -261,7 +261,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
 func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
 	// in case of Oracle, the stream names are in uppercase in stream.json
-	streamName = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(streamName), streamName).(string)
+	streamName = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
 	// map/select pattern updates nested array members
 	return fmt.Sprintf(
@@ -299,6 +299,10 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T, testTa
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "drop", false)
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "create", false)
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "add", false)
+	if cfg.TestConfig.Driver == string(constants.DB2) {
+		// to populate stats for DB2
+		cfg.ExecuteQuery(ctx, t, []string{testTable}, "populate-stats", false)
+	}
 	return nil
 }
 
@@ -769,7 +773,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image: "golang:1.24.0",
+			Image:         "golang:1.24.0",
+			ImagePlatform: "linux/amd64",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
@@ -842,7 +847,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Run("Sync", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image: "golang:1.24.0",
+			Image:         "golang:1.24.0",
+			ImagePlatform: "linux/amd64",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
