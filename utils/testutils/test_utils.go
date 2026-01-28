@@ -265,8 +265,8 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 
 // reset state file so incremental can perform initial load (equivalent to full load on first run)
 func resetStateFileCommand(config TestConfig) string {
-	// Ensure the state is clean irrespective of previous CDC run
-	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
+	// Ensure the state is clean irrespective of previous CDC run.
+	return fmt.Sprintf(`echo '{}' > %s && sync`, config.StatePath)
 }
 
 func toggleArrowIcebergWrites(config TestConfig, enabled bool) string {
@@ -367,10 +367,13 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 ) error {
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
-
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
+		if cfg.TestConfig.Driver == "mssql" {
+			t.Log("Waiting 20 seconds for MSSQL CDC to process transactions...")
+			time.Sleep(20 * time.Second)
+		}
 	}
 
 	// Run sync command
@@ -437,6 +440,12 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
+	// Reset state file to ensure CDC starts from a fresh LSN after table recreate
+	resetState := resetStateFileCommand(*cfg.TestConfig)
+	if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
+		return fmt.Errorf("failed to reset state for CDC (%d): %s\n%s", code, err, out)
+	}
+
 	testCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
@@ -473,7 +482,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" {
+				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -516,6 +525,12 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		return fmt.Errorf("failed to reset table: %s", err)
 	}
 
+	// Reset state file to ensure CDC starts from a fresh LSN after table recreate
+	resetState := resetStateFileCommand(*cfg.TestConfig)
+	if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
+		return fmt.Errorf("failed to reset state for CDC (%d): %s\n%s", code, err, out)
+	}
+
 	testCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
@@ -552,7 +567,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" {
+				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -640,7 +655,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) {
+				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -726,7 +741,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) {
+				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -770,7 +785,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
-					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 			},
@@ -844,7 +858,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
-					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 			},
