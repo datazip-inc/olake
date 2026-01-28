@@ -142,7 +142,7 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
-        run: go test -v -p 5 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
+        run: go test -v -p 6 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
       - name: Cleanup
         if: always()
         run: |
