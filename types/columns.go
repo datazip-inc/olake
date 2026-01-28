@@ -157,11 +157,10 @@ func schemasHaveSameColumns(oldSchema, newSchema *TypeSchema) bool {
 // 1. if selectedColumns property is not present or empty, initialize with columns from new schema
 // 2. if selectedColumns property is present and not empty, filter the selected columns to only those present in both old and new schemas
 // 3. if the old and new schemas have same columns, so no need to check for presence in both old and new schemas
-// 4. adds newly discovered columns to the selected_columns list in case of sync_new_columns is true
-// 5. ensure mandatory columns are included
-// 6. set the selected columns map
-// 7. set the unselected columns map
-// 8. set the all selected flag
+// 4. ensure mandatory columns are included
+// 5. set the selected columns map
+// 6. set the unselected columns map
+// 7. set the all selected flag
 func MergeSelectedColumns(
 	metadata *StreamMetadata,
 	oldStream *Stream,
@@ -224,7 +223,7 @@ func MergeSelectedColumns(
 		}
 	}
 
-	// adds newly discovered columns to the selected_columns list in case of sync_new_columns is true
+	// automatically add newly discovered columns during discover command to the selected_columns list when sync_new_columns is true
 	if metadata.SyncNewColumns {
 		_, newAddedColumns := getColumnsDelta(oldSchema, newSchema)
 		for _, newCol := range newAddedColumns {
