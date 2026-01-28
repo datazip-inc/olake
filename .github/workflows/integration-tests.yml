@@ -1,6 +1,11 @@
 name: Integration Tests
 on:
   push:
+    branches:
+      - "master"
+    paths:
+      - '**/*.go'
+      - '**/*.java'
   pull_request:
     branches:
       - "*"
@@ -15,7 +20,7 @@ jobs:
   integration-tests:
     environment: integration_tests
     runs-on: 32gb-runner
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
