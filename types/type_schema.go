@@ -145,6 +145,49 @@ func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 
 	return icebergFields
 }
+
+// FilterSchemaBySelectedColumns filters schema based on the following rules:
+// - sync_new_columns=true:
+//   - Specific schema columns selected: Only selected columns sync; newly added columns are automatically included
+//   - All schema columns selected: All columns sync, including newly added columns.
+//
+// - sync_new_columns=false:
+//   - Specific schema columns selected: Only explicitly selected columns sync
+//   - All schema columns selected: All existing columns sync; newly added columns are NOT synced
+func FilterSchemaBySelectedColumns(stream StreamInterface) *TypeSchema {
+	schema := stream.Schema()
+	selectedMap := stream.Self().StreamMetadata.SelectedColumns.GetSelectedColumnsMap()
+	unSelectedMap := stream.Self().StreamMetadata.SelectedColumns.GetUnSelectedColumnsMap()
+	allSelected := stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag()
+	syncNewColumns := stream.Self().StreamMetadata.SyncNewColumns
+
+	if allSelected {
+		return schema
+	}
+
+	filtered := NewTypeSchema()
+	schema.Properties.Range(func(key, value interface{}) bool {
+		colName, ok := key.(string)
+		if !ok {
+			return true
+		}
+		if syncNewColumns {
+			// include all columns except those in unSelectedMap
+			// this ensures all columns that are new are selected by default
+			if _, excluded := unSelectedMap[colName]; !excluded {
+				filtered.Properties.Store(colName, value)
+			}
+		} else {
+			// include only columns that are selected
+			if _, exists := selectedMap[colName]; exists {
+				filtered.Properties.Store(colName, value)
+			}
+		}
+		return true
+	})
+	return filtered
+}
+
 func (t *TypeSchema) HasDestinationColumnName() bool {
 	found := false
 	t.Properties.Range(func(_, value interface{}) bool {

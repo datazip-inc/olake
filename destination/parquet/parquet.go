@@ -139,19 +139,20 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 		return p.schema, nil
 	}
 
-	if schema != nil {
-		fields, ok := schema.(typeutils.Fields)
-		if !ok {
-			return nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
-		}
+	if fields, ok := schema.(typeutils.Fields); ok {
 		p.schema = fields.Clone()
 		return fields, nil
 	}
 
-	fields := make(typeutils.Fields)
-	fields.FromSchema(stream.Schema())
-	p.schema = fields.Clone() // update schema
-	return fields, nil
+	// the first writer thread for this stream will have a TypeSchema
+	if filteredSchema, ok := schema.(*types.TypeSchema); ok {
+		fields := make(typeutils.Fields)
+		fields.FromSchema(filteredSchema)
+		p.schema = fields.Clone()
+		return fields, nil
+	}
+
+	return nil, fmt.Errorf("failed to convert schema[%T] to typeutils.Fields", schema)
 }
 
 // Write writes a record to the Parquet file.

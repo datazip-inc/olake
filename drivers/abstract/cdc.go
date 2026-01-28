@@ -122,9 +122,14 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 			writers[change.Stream.ID()] = writer
 			logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, change.Stream.ID())
 		}
+
+		olakeID := utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...)
+
+		filteredData := types.FilterDataBySelectedColumns(change.Data, change.Stream)
+
 		return writer.Push(ctx, types.CreateRawRecord(
-			utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
-			change.Data,
+			olakeID,
+			filteredData,
 			mapChangeKindToOperationType(change.Kind),
 			&change.Timestamp,
 		))
