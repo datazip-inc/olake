@@ -65,15 +65,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			Stream: stream,
 		})
 
-		// Collect selected columns from schema
-		selectedColumns := make([]string, 0)
-		stream.Schema.Properties.Range(func(key, _ interface{}) bool {
-			if columnName, ok := key.(string); ok {
-				selectedColumns = append(selectedColumns, columnName)
-			}
-			return true
-		})
-
+		selectedColumns := collectColumnsFromSchema(stream.Schema)
 		selectedCols := &SelectedColumns{
 			Columns: selectedColumns,
 		}
