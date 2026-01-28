@@ -39,8 +39,9 @@ type GlobalState struct {
 
 // Chunk struct that holds status, min, and max values
 type Chunk struct {
-	Min any `json:"min"`
-	Max any `json:"max"`
+	Min    any    `json:"min"`
+	Max    any    `json:"max"`
+	Status string `json:"status,omitempty"`
 }
 
 type StreamState struct {
@@ -188,6 +189,22 @@ func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
 	s.LogState()
 }
 
+func (s *State) DeleteCursor(stream *ConfiguredStream, key string) {
+	if key == "" {
+		return
+	}
+	s.Lock()
+	defer s.Unlock()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		s.Streams[index].State.Delete(key)
+	}
+	s.LogState()
+}
+
 // GetStateChunks retrieves all chunks from the state.
 func (s *State) GetChunks(stream *ConfiguredStream) *Set[Chunk] {
 	s.RLock()
@@ -229,6 +246,35 @@ func (s *State) SetChunks(stream *ConfiguredStream, chunks *Set[Chunk]) {
 		s.Streams = append(s.Streams, newStream)
 	}
 	s.LogState()
+}
+
+// UpdateChunkStatusToPreparing updates the status of a specific chunk to preparing, this is to make sure that the chunk is not processed again
+func (s *State) UpdateChunkStatusToPreparing(stream *ConfiguredStream, chunk *Chunk) {
+	s.Lock()
+	defer func() {
+		s.LogState()
+		s.Unlock()
+	}()
+
+	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
+		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
+	})
+	if contains {
+		stateChunks, loaded := s.Streams[index].State.Load(ChunksKey)
+		if loaded {
+			castedStateChunks, _ := stateChunks.(*Set[Chunk])
+
+			// Removing the old chunk object which has only primary and secondary key
+			chunkEmpty := *chunk
+			castedStateChunks.Remove(chunkEmpty)
+
+			// Update status and insert new chunk
+			chunk.Status = "preparing"
+			castedStateChunks.Insert(*chunk)
+
+			s.Streams[index].State.Store(ChunksKey, castedStateChunks)
+		}
+	}
 }
 
 // remove chunk returns remaining chunk count after removing the chunk

@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"sort"
 	"time"
@@ -44,15 +45,21 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		backfillCtx, backfillCtxCancel := context.WithCancel(gCtx)
 		defer backfillCtxCancel()
 
-		threadID := generateThreadID(stream.ID(), fmt.Sprintf("min[%v]-max[%v]", chunk.Min, chunk.Max))
+		keys := fmt.Sprintf("%v%v", chunk.Min, chunk.Max)
+		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(keys)))
+		threadID := generateThreadID(stream.ID(), hash)
 		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
 
-		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
-
 		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID,
+			func(ctx context.Context) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return nil
+			},
 			func(ctx context.Context) error {
 				if ctx.Err() != nil {
 					return ctx.Err()
@@ -64,7 +71,23 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 				}
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				return nil
-			})()
+			}, nil)()
+
+		// Check status if chunk was in preparing state
+		if chunk.Status == "preparing" {
+			committed, err := inserter.IsThreadCommitted(backfillCtx, threadID)
+			if err != nil {
+				return fmt.Errorf("failed to check commit status: %s", err)
+			}
+			if committed {
+				logger.Infof("Thread[%s]: chunk min[%s] max[%s] already committed, skipping", threadID, chunk.Min, chunk.Max)
+				return nil
+			}
+		}
+
+		// Set status to preparing
+		a.state.UpdateChunkStatusToPreparing(stream.Self(), &chunk)
+		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			// persist cdc timestamp for cdc full load

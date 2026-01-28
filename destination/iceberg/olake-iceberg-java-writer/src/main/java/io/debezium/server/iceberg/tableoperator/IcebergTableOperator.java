@@ -157,55 +157,53 @@ public class IcebergTableOperator {
     }
   
     try {
+      Transaction transaction = table.newTransaction();
+
+      // 1. Stage Property Update - mark thread as committed
+      transaction.updateProperties()
+          .set(threadId, "committed")
+          .commit();
+
+      // 2. Stage Data Commit
       if (!hasAnyDeletes) {
-        AppendFiles append = table.newAppend();
-  
+        AppendFiles appendFiles = transaction.newAppend();
+        
         for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
           ArrayList<DataFile> dataFiles = unit.second();
           if (dataFiles == null || dataFiles.isEmpty()) {
             continue;
           }
           for (DataFile df : dataFiles) {
-            append.appendFile(df);
+            appendFiles.appendFile(df);
           }
         }
-  
-        append.commit();
-  
-        LOGGER.info("Append-only commit success: {} data files ({} deletes) for thread: {}",
-            totalDataFiles, totalDeleteFiles, threadId);
-  
+        
+        appendFiles.commit();
       } else {
-        Transaction txn = table.newTransaction();
+        // RowDelta path (has delete files)
+        RowDelta rowDelta = transaction.newRowDelta();
+        
         for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
           ArrayList<DeleteFile> eqDeletes = unit.first();
           ArrayList<DataFile> dataFiles = unit.second();
   
-          int del = (eqDeletes == null) ? 0 : eqDeletes.size();
-          int df = (dataFiles == null) ? 0 : dataFiles.size();
-  
-          if (del == 0 && df == 0) {
-            continue;
+          if (dataFiles != null && !dataFiles.isEmpty()) {
+            dataFiles.forEach(rowDelta::addRows);
           }
   
-          RowDelta delta = txn.newRowDelta();
-
-          if (dataFiles != null) {
-            dataFiles.forEach(delta::addRows);
+          if (eqDeletes != null && !eqDeletes.isEmpty()) {
+            eqDeletes.forEach(rowDelta::addDeletes);
           }
-
-          if (eqDeletes != null) {
-            eqDeletes.forEach(delta::addDeletes);
-          }
-  
-          delta.commit();
         }
-  
-        txn.commitTransaction();
-  
-        LOGGER.info("Txn commit success: {} data files + {} equality delete files for thread: {}",
-            totalDataFiles, totalDeleteFiles, threadId);
+        
+        rowDelta.commit();
       }
+
+      // 3. Final Commit to Catalog (Creates ONE metadata file)
+      transaction.commitTransaction();
+
+      LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
+          totalDataFiles, totalDeleteFiles, threadId);
   
       filesToCommit.clear();
   

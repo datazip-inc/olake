@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/datazip-inc/olake/constants"
@@ -19,7 +20,17 @@ import (
 //   - Parallel: Process all streams simultaneously after all backfills complete
 //   - Concurrent: Start each stream's CDC immediately after its backfill completes (can overlap)
 func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
-	// run pre cdc of drivers
+	// This needs to run before PreCDC so that if all streams are committed,
+	// we can update current LSN from next_cdc_pos before driver initializes CDC
+	isRecoveryMode, processingSet, err := a.PrepareRecovery(mainCtx, pool, streams)
+	if err != nil {
+		return fmt.Errorf("failed to prepare recovery for driver[%s]: %s", a.driver.Type(), err)
+	}
+	// Store for streamChanges to use
+	a.recoveryMode = isRecoveryMode
+	a.recoveryProcessingSet = processingSet
+
+	// run pre cdc of drivers (initializes driver state, connections, etc.)
 	if err := a.driver.PreCDC(mainCtx, streams); err != nil {
 		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", a.driver.Type(), err)
 	}
@@ -32,7 +43,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 	// - waitForBackfillCompletion waits for all signals before starting CDC
 	backfillCompletionChannel := make(chan string, len(streams))
 	defer close(backfillCompletionChannel)
-	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
+	err = utils.ForEach(streams, func(stream types.StreamInterface) error {
 		isStrictCDC := stream.GetStream().SyncMode == types.STRICTCDC
 		if a.state.HasCompletedBackfill(stream.Self()) || isStrictCDC {
 			logger.Infof("backfill %s for stream[%s], skipping", utils.Ternary(isStrictCDC, "not enabled", "completed").(string), stream.ID())
@@ -95,8 +106,26 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 //   - For MongoDB: index into the streams array
 //   - For Kafka: reader ID
 //   - For Postgres: ignored (uses global replication slot)
+//
+// Recovery Mode: If recoveryMode=true, only streams in recoveryProcessingSet are synced (up to target position set by PrepareRecovery).
 func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int) (err error) {
 	writers := make(map[string]*destination.WriterThread)
+
+	// Type assertions done once for driver specific methods
+	global2PC, supportsGlobalPosition2PC := a.driver.(GlobalPosition2PC)
+	perStream2PC, supportsPerStreamPosition2PC := a.driver.(PerStreamPosition2PC)
+
+	// Get starting position once at the beginning for consistent thread IDs
+	// For global position drivers (MySQL/Postgres), use GetCDCStartPosition
+	// For per-stream drivers (MongoDB), use change.Position per stream
+	var startingPosition string
+	if supportsGlobalPosition2PC {
+		startingPosition = global2PC.GetCDCStartPosition()
+	}
+
+	// Use recovery state prepared by PrepareRecovery
+	isRecoveryMode := a.recoveryMode
+	processingSet := a.recoveryProcessingSet
 
 	// create cdc context, so that main context not affected if cdc retries
 	cdcCtx, cdcCtxCancel := context.WithCancel(mainCtx)
@@ -104,23 +133,85 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "",
 		func(ctx context.Context) error {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+
+			// In recovery mode, don't update global next_cdc_pos and processing_streams
+			// We use the existing state from previous run until recovery completes
+			if isRecoveryMode {
+				return nil
+			}
+
+			// Saving next cdc position for mongodb 2pc (per-stream pattern)
+			if supportsPerStreamPosition2PC {
+				for streamID := range writers {
+					perStream2PC.SaveNextCDCPositionForStream(streamID)
+				}
+			}
+
+			// Normal mode: Save the final CDC position and processing streams to state
+			// This is for 2PC recovery - if writers fail, we know where to restart from
+			if supportsGlobalPosition2PC {
+				streamIDs := make([]string, 0, len(writers))
+				for streamID := range writers {
+					streamIDs = append(streamIDs, streamID)
+				}
+				// Save the final CDC position and processing streams to state
+				// To identify the next position to start from in case of failure
+				cdcPosition := global2PC.GetCDCPosition()
+				global2PC.SetNextCDCPosition(cdcPosition)
+				// Stores the yet to be committed streams to state
+				global2PC.SetProcessingStreams(streamIDs)
+			}
+			return nil
+		},
+		func(ctx context.Context) error {
 			postCDCErr := a.driver.PostCDC(ctx, streamIndex)
 			if postCDCErr != nil {
 				return fmt.Errorf("post cdc error: %s", postCDCErr)
 			}
 			return nil
+		},
+		func(streamID string) {
+			// After successful commit: update _data from next_data (MongoDB 2PC - per-stream pattern)
+			if supportsPerStreamPosition2PC {
+				perStream2PC.CommitCDCPositionForStream(streamID)
+			}
+			// Remove stream from processing after successful commit (Postgres and MySQL 2PC - global pattern)
+			if supportsGlobalPosition2PC {
+				global2PC.RemoveProcessingStream(streamID)
+			}
 		})()
 
 	return a.driver.StreamChanges(cdcCtx, streamIndex, func(ctx context.Context, change CDCChange) error {
-		writer := writers[change.Stream.ID()]
+		streamID := change.Stream.ID()
+
+		// In recovery mode, only sync streams that are in the processing array
+		if isRecoveryMode && !processingSet[streamID] {
+			return nil // Skip this stream - not in processing array
+		}
+
+		writer := writers[streamID]
 		if writer == nil {
-			threadID := generateThreadID(change.Stream.ID(), "")
+			logger.Infof("Creating new writer thread for stream index: %d, stream ID: %s, position: %s", streamIndex, streamID, change.Position)
+			// Use startingPosition (global for MySQL/Postgres) or change.Position (per-stream for MongoDB)
+			positionForHash := startingPosition
+			if positionForHash == "" {
+				positionForHash = change.Position // MongoDB per-stream position
+			}
+			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(positionForHash)))
+			threadID := fmt.Sprintf("%s_%s", streamID, hash)
+
+			logger.Debugf("Thread[%s]: creating CDC writer for stream %s", threadID, streamID)
+
 			writer, err = pool.NewWriter(ctx, change.Stream, destination.WithThreadID(threadID))
 			if err != nil {
-				return fmt.Errorf("failed to create writer for stream %s: %s", change.Stream.ID(), err)
+				return fmt.Errorf("failed to create writer for stream %s: %s", streamID, err)
 			}
-			writers[change.Stream.ID()] = writer
-			logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, change.Stream.ID())
+
+			writers[streamID] = writer
+			logger.Infof("Thread[%s]: created CDC writer for stream %s", threadID, streamID)
 		}
 		return writer.Push(ctx, types.CreateRawRecord(
 			utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
@@ -142,4 +233,166 @@ func mapChangeKindToOperationType(kind string) string {
 	default: // "insert", "create", etc.
 		return "c"
 	}
+}
+
+// PrepareRecovery checks processing streams commit status and prepares recovery state.
+// Returns: isRecoveryMode (true if uncommitted streams exist), processingSet (map for O(1) lookup)
+// If all streams are committed, updates current position from next_cdc_pos and clears processing array from state.
+func (a *AbstractDriver) PrepareRecovery(ctx context.Context, pool *destination.WriterPool, streams []types.StreamInterface) (bool, map[string]bool, error) {
+	global2PC, supportsGlobalPosition2PC := a.driver.(GlobalPosition2PC)
+	perStream2PC, supportsPerStreamPosition2PC := a.driver.(PerStreamPosition2PC)
+	posAck, supportsPositionAcknowledgment := a.driver.(PositionAcknowledgment)
+
+	// First, check per-stream recovery (MongoDB next_data pattern)
+	// This handles streams that have next_data but may/may not be committed
+	if supportsPerStreamPosition2PC {
+		for _, stream := range streams {
+			if err := perStream2PC.CheckPerStreamRecovery(ctx, pool, stream); err != nil {
+				return false, nil, fmt.Errorf("failed per-stream recovery check for %s: %s", stream.ID(), err)
+			}
+		}
+	}
+
+	// Now check global processing streams (MySQL/Postgres pattern)
+	var processingStreams []string
+	if supportsGlobalPosition2PC {
+		processingStreams = global2PC.GetProcessingStreams()
+	}
+	if len(processingStreams) == 0 {
+		// No processing streams, but check if next_cdc_pos exists
+		// This means all streams were committed but state wasn't fully cleaned
+		var nextPos string
+		if supportsGlobalPosition2PC {
+			nextPos = global2PC.GetNextCDCPosition()
+		}
+		if nextPos != "" {
+			// Acknowledge the position to source (for Postgres LSN acknowledgment)
+			if supportsPositionAcknowledgment {
+				if err := posAck.AcknowledgeCDCPosition(ctx, nextPos); err != nil {
+					logger.Warnf("Failed to acknowledge CDC position during recovery: %s", err)
+				}
+			}
+			// Update current position from next_cdc_pos and clear it
+			if supportsGlobalPosition2PC {
+				global2PC.SetCurrentCDCPosition(nextPos)
+				global2PC.SetNextCDCPosition("")
+			}
+			logger.Infof("Recovery complete: updated current CDC position to %s", nextPos)
+		}
+		return false, nil, nil // No recovery needed
+	}
+
+	// Get starting position for thread ID generation (only for global position drivers)
+	startingPosition := ""
+	if supportsGlobalPosition2PC {
+		startingPosition = global2PC.GetCDCStartPosition()
+		if startingPosition == "" {
+			logger.Warnf("Cannot prepare recovery: no starting position available")
+			return false, nil, nil
+		}
+	}
+
+	logger.Infof("Preparing recovery for %d processing streams", len(processingStreams))
+
+	// Build stream lookup map
+	streamMap := make(map[string]types.StreamInterface)
+	for _, stream := range streams {
+		streamMap[stream.ID()] = stream
+	}
+
+	// Check each processing stream's commit status
+	for _, streamID := range processingStreams {
+		stream, ok := streamMap[streamID]
+		if !ok {
+			logger.Warnf("Processing stream %s not found in streams list, removing", streamID)
+			if supportsGlobalPosition2PC {
+				global2PC.RemoveProcessingStream(streamID)
+			}
+			continue
+		}
+
+		// Generate same thread ID as we would during CDC
+		// For global position drivers, use startingPosition; for per-stream, this won't be called
+		var threadID string
+		if startingPosition != "" {
+			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(startingPosition)))
+			threadID = fmt.Sprintf("%s_%s", streamID, hash)
+		} else {
+			// This shouldn't happen for global position drivers, but handle gracefully
+			logger.Warnf("No starting position for recovery thread ID generation for stream %s", streamID)
+			return false, nil, fmt.Errorf("cannot generate thread ID without starting position")
+		}
+
+		// Create a temporary writer to check commit status
+		writer, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to create writer for recovery check: %s", err)
+		}
+
+		committed, err := writer.IsThreadCommitted(ctx, threadID)
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to check commit status for stream %s: %s", streamID, err)
+		}
+		if closeErr := writer.Close(ctx); closeErr != nil {
+			logger.Warnf("Failed to close recovery check writer for stream %s: %s", streamID, closeErr)
+		}
+
+		if committed {
+			logger.Infof("Stream %s (thread %s) already committed, removing from processing", streamID, threadID)
+			if supportsGlobalPosition2PC {
+				global2PC.RemoveProcessingStream(streamID)
+			}
+		}
+	}
+
+	// Check if all streams were committed
+	var remainingProcessing []string
+	if supportsGlobalPosition2PC {
+		remainingProcessing = global2PC.GetProcessingStreams()
+	}
+	if len(remainingProcessing) == 0 {
+		// All committed - acknowledge and update current position from next_cdc_pos
+		var nextPos string
+		if supportsGlobalPosition2PC {
+			nextPos = global2PC.GetNextCDCPosition()
+		}
+		if nextPos != "" {
+			// Acknowledge the position to source FIRST (for Postgres LSN acknowledgment)
+			if supportsPositionAcknowledgment {
+				if err := posAck.AcknowledgeCDCPosition(ctx, nextPos); err != nil {
+					logger.Warnf("Failed to acknowledge CDC position during recovery: %s", err)
+				}
+			}
+			if supportsGlobalPosition2PC {
+				global2PC.SetCurrentCDCPosition(nextPos)
+				logger.Infof("All streams committed, updated current CDC position to: %s", nextPos)
+			}
+		}
+		if supportsGlobalPosition2PC {
+			global2PC.SetNextCDCPosition("")    // Clear next position
+			global2PC.SetProcessingStreams(nil) // Clear processing array
+		}
+		logger.Info("Recovery complete, all streams committed")
+		return false, nil, nil // No recovery mode needed
+	}
+
+	// Build processingSet for O(1) lookup in streamChanges
+	processingSet := make(map[string]bool)
+	for _, streamID := range remainingProcessing {
+		processingSet[streamID] = true
+	}
+
+	// Set target position for bounded sync
+	var nextPos string
+	if supportsGlobalPosition2PC {
+		nextPos = global2PC.GetNextCDCPosition()
+		if nextPos != "" {
+			logger.Infof("Recovery mode: will sync %d streams to target position %s", len(remainingProcessing), nextPos)
+			global2PC.SetTargetCDCPosition(nextPos)
+		} else {
+			logger.Infof("Recovery mode: will sync %d streams to latest (no target position)", len(remainingProcessing))
+		}
+	}
+
+	return true, processingSet, nil
 }

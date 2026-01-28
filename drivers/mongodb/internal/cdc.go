@@ -2,12 +2,14 @@ package driver
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -18,6 +20,9 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
+
+// Ensure Mongo implements PerStreamPosition2PC interface
+var _ abstract.PerStreamPosition2PC = (*Mongo)(nil)
 
 const (
 	maxAwait               = 2 * time.Second
@@ -100,7 +105,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 		}
 
 		if hasNext {
-			if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
+			if err := m.handleChangeDoc(ctx, cursor, stream, prevResumeToken.(string), OnMessage); err != nil {
 				return err
 			}
 		}
@@ -151,7 +156,7 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 	return nil
 }
 
-func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, startingResumeToken string, OnMessage abstract.CDCMsgFn) error {
 	var record CDCDocument
 	if err := cursor.Decode(&record); err != nil {
 		return fmt.Errorf("error while decoding: %s", err)
@@ -174,6 +179,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Timestamp: ts,
 		Data:      record.FullDocument,
 		Kind:      record.OperationType,
+		Position:  startingResumeToken,
 	}
 
 	if err := OnMessage(ctx, change); err != nil {
@@ -191,14 +197,98 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		val, ok := m.cdcCursor.Load(m.streams[streamIndex].ID())
+		finalToken := m.streams[streamIndex].ID()
+		val, ok := m.cdcCursor.Load(finalToken)
 		if ok {
 			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
 		} else {
-			logger.Warnf("no resume token found for stream: %s", m.streams[streamIndex].ID())
+			logger.Warnf("no resume token found for stream: %s", finalToken)
 		}
 		return nil
 	}
+}
+
+// GetCDCPositionForStream returns the current CDC position for a specific stream
+func (m *Mongo) GetCDCPositionForStream(streamID string) string {
+	val, ok := m.cdcCursor.Load(streamID)
+	if ok {
+		return val.(string)
+	}
+	return ""
+}
+
+// SaveNextCDCPositionForStream saves current position as next_data before commit (for 2PC)
+func (m *Mongo) SaveNextCDCPositionForStream(streamID string) {
+	val, ok := m.cdcCursor.Load(streamID)
+	if ok {
+		// Save current position as next_data in state
+		for _, stream := range m.streams {
+			if stream.ID() == streamID {
+				m.state.SetCursor(stream.Self(), "next_data", val)
+				logger.Debugf("Saved next_data for stream %s: %s", streamID, val)
+				break
+			}
+		}
+	}
+}
+
+// CommitCDCPositionForStream moves next_data to _data after successful commit
+func (m *Mongo) CommitCDCPositionForStream(streamID string) {
+	for _, stream := range m.streams {
+		if stream.ID() == streamID {
+			nextData := m.state.GetCursor(stream.Self(), "next_data")
+			if nextData != nil {
+				// Move next_data to _data
+				m.state.SetCursor(stream.Self(), cdcCursorField, nextData)
+				// Clear next_data by deleting the key
+				m.state.DeleteCursor(stream.Self(), "next_data")
+				logger.Debugf("Committed _data for stream %s: %s", streamID, nextData)
+			}
+			break
+		}
+	}
+}
+
+// CheckPerStreamRecovery checks if next_data exists for this stream, verifies commit status, and updates or rollbacks.
+// This implements 2PC recovery for MongoDB per-stream positions.
+func (m *Mongo) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
+	nextData := m.state.GetCursor(stream.Self(), "next_data")
+	if nextData == nil {
+		return nil // No recovery needed for this stream
+	}
+
+	currentData := m.state.GetCursor(stream.Self(), cdcCursorField)
+
+	// Generate threadID using _data (the position at which we started the sync)
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(currentData.(string))))
+	threadID := fmt.Sprintf("%s_%s", stream.ID(), hash)
+
+	// Create temporary writer to check commit status
+	writer, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+	if err != nil {
+		return fmt.Errorf("failed to create writer for recovery check: %s", err)
+	}
+
+	committed, err := writer.IsThreadCommitted(ctx, threadID)
+	if err != nil {
+		return fmt.Errorf("failed to check commit status for stream %s: %s", stream.ID(), err)
+	}
+	if closeErr := writer.Close(ctx); closeErr != nil {
+		logger.Warnf("Failed to close recovery check writer for stream %s: %s", stream.ID(), closeErr)
+	}
+
+	if committed {
+		// Thread committed successfully - move next_data to _data
+		logger.Infof("Recovery: Stream %s (thread %s) committed, updating _data to %s", stream.ID(), threadID, nextData)
+		m.state.SetCursor(stream.Self(), cdcCursorField, nextData)
+		m.state.DeleteCursor(stream.Self(), "next_data")
+	} else {
+		// Thread not committed - rollback by removing next_data (keep old _data)
+		logger.Infof("Recovery: Stream %s (thread %s) not committed, rolling back (keeping _data=%s)", stream.ID(), threadID, currentData)
+		m.state.DeleteCursor(stream.Self(), "next_data")
+	}
+
+	return nil
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
