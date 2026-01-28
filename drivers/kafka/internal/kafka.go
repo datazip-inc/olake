@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -31,13 +33,14 @@ const (
 )
 
 type Kafka struct {
-	config            *Config
-	dialer            *kafka.Dialer
-	adminClient       *kafka.Client
-	state             *types.State
-	consumerGroupID   string
-	readerManager     *kafkapkg.ReaderManager
-	checkpointMessage sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
+	config               *Config
+	dialer               *kafka.Dialer
+	adminClient          *kafka.Client
+	state                *types.State
+	consumerGroupID      string
+	readerManager        *kafkapkg.ReaderManager
+	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
+	schemaRegistryClient *kafkapkg.SchemaRegistryClient
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -100,6 +103,17 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	}
 
 	k.dialer = dialer
+
+	// initialize confluent schema registry client if configured
+	if k.config.SchemaRegistry != nil && k.config.SchemaRegistry.Endpoint != "" {
+		k.schemaRegistryClient = kafkapkg.NewSchemaRegistryClient(
+			k.config.SchemaRegistry.Endpoint,
+			k.config.SchemaRegistry.Username,
+			k.config.SchemaRegistry.Password,
+		)
+		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
+	}
+
 	return nil
 }
 
@@ -119,6 +133,10 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 
 	var topicNames []string
 	for _, topic := range resp.Topics {
+		// skip internal topics
+		if topic.Internal || slices.Contains(constants.InternalKafkaTopics, topic.Name) {
+			continue
+		}
 		topicNames = append(topicNames, topic.Name)
 	}
 	return topicNames, nil
@@ -185,6 +203,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
+			messageCount++
 			if record.Data != nil {
 				mu.Lock()
 				// resolve data for schema
@@ -193,11 +212,10 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				if err != nil {
 					return true, err
 				}
-				messageCount++
 			}
 
-			// stop if hit 1000 messages or reach the last known offset
-			shouldExit := messageCount >= 1000 || record.Message.Offset >= partitionDetails.LastOffset
+			// stop if hit 10000 messages or reach the last known offset
+			shouldExit := messageCount >= 10000 || record.Message.Offset >= partitionDetails.LastOffset
 			return shouldExit, nil
 		})
 		return nil
@@ -394,4 +412,21 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 	}
 
 	return assigned, nil
+}
+
+// extractSchemaID extracts schema ID from Confluent wire format message
+// Wire format: [magic byte (0x00)] [4-byte schema ID (big-endian)] [payload]
+func extractSchemaID(data []byte) (uint32, error) {
+	if len(data) < 5 {
+		return 0, fmt.Errorf("message too short for wire format: need at least 5 bytes, got %d", len(data))
+	}
+	if data[0] != 0x00 {
+		return 0, fmt.Errorf("invalid magic byte: expected 0x00, got 0x%02x", data[0])
+	}
+	return binary.BigEndian.Uint32(data[1:5]), nil
+}
+
+// isConfluentWireFormat checks if data starts with Confluent wire format magic byte
+func isConfluentWireFormat(data []byte) bool {
+	return len(data) >= 5 && data[0] == 0x00
 }
