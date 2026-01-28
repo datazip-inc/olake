@@ -31,7 +31,6 @@ func (sc *SelectedColumns) setSelectedColumnsMap() {
 }
 
 // setUnSelectedColumnsMap sets the unselected columns map
-
 func (sc *SelectedColumns) setUnSelectedColumnsMap(oldStream *Stream) {
 	sc.UnSelectedMap = make(map[string]struct{})
 
@@ -203,7 +202,6 @@ func MergeSelectedColumns(
 	}
 
 	// if the old and new schemas have same columns, so no need to check for presence in both old and new schemas
-	// and call ensureMandatoryColumns to ensure mandatory columns are included
 	if schemasHaveSameColumns(oldSchema, newSchema) {
 		finalizeSelectedColumns()
 		return
