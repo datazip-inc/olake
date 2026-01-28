@@ -167,6 +167,12 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 	if err != nil && ctx.Err() == nil {
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if d.CDCSupported() {
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return stream, nil
 }
 
