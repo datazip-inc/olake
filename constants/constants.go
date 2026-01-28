@@ -34,6 +34,7 @@ const (
 	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
 	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
 	DefaultStateTimestampFormat = "2006-01-02T15:04:05.000000000Z"
+	TestConstantsPath           = "TEST_CONSTANTS_PATH"
 )
 
 type DriverType string
