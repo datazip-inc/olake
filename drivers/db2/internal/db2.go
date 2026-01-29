@@ -36,7 +36,7 @@ func (d *DB2) Setup(ctx context.Context) error {
 	dsn := d.config.BuildDSN()
 	client, err := sqlx.Open("go_ibm_db", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to open db2 connection: %w", err)
+		return fmt.Errorf("failed to open db2 connection: %s", err)
 	}
 
 	client.SetMaxOpenConns(d.config.MaxThreads)
@@ -45,7 +45,7 @@ func (d *DB2) Setup(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping db2: %w", err)
+		return fmt.Errorf("failed to ping db2: %s", err)
 	}
 
 	d.client = client
@@ -95,7 +95,7 @@ func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
 
 	rows, err := d.client.QueryContext(ctx, jdbc.DB2DiscoveryQuery())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tables: %w", err)
+		return nil, fmt.Errorf("failed to list tables: %s", err)
 	}
 	defer rows.Close()
 
@@ -103,13 +103,13 @@ func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
 	for rows.Next() {
 		var schema, name string
 		if err := rows.Scan(&schema, &name); err != nil {
-			return nil, fmt.Errorf("failed to scan table row: %w", err)
+			return nil, fmt.Errorf("failed to scan table row: %s", err)
 		}
 		streamNames = append(streamNames, fmt.Sprintf("%s.%s", schema, name))
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over table rows: %w", err)
+		return nil, fmt.Errorf("error iterating over table rows: %s", err)
 	}
 
 	return streamNames, nil
@@ -129,7 +129,7 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 
 		rows, err := d.client.QueryContext(ctx, jdbc.DB2TableSchemaAndPrimaryKeysQuery(), schemaName, tableName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query column metadata: %w", err)
+			return nil, fmt.Errorf("failed to query column metadata: %s", err)
 		}
 		defer rows.Close()
 
@@ -142,7 +142,7 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 			)
 
 			if err := rows.Scan(&columnName, &dataType, &isNullable, &pkColumn); err != nil {
-				return nil, fmt.Errorf("failed to scan column: %w", err)
+				return nil, fmt.Errorf("failed to scan column: %s", err)
 			}
 
 			stream.WithCursorField(columnName)
@@ -165,8 +165,14 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 
 	stream, err := populateStreams(ctx, streamName)
 	if err != nil && ctx.Err() == nil {
-		return nil, fmt.Errorf("failed to process table[%s]: %w", streamName, err)
+		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if d.CDCSupported() {
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return stream, nil
 }
 
