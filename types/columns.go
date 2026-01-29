@@ -90,7 +90,8 @@ func FilterDataBySelectedColumns(data map[string]interface{}, stream StreamInter
 	selectedCols := stream.Self().StreamMetadata.SelectedColumns
 	syncNewColumns := stream.Self().StreamMetadata.SyncNewColumns
 	allSelected := selectedCols.GetAllSelectedColumnsFlag()
-	isCDC := stream.GetSyncMode() == CDC || stream.GetSyncMode() == STRICTCDC
+	streamSyncMode := stream.GetSyncMode()
+	isCDC := streamSyncMode == CDC || streamSyncMode == STRICTCDC
 
 	if allSelected {
 		if !isCDC {
