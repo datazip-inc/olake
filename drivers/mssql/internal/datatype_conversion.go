@@ -4,6 +4,9 @@ import "github.com/datazip-inc/olake/types"
 
 // TODO: add support for utf-8 invalid and binary datatypes
 
+// rowversion, timestamp (rowversion synonym), geometry, and geography can produce
+// binary or non-UTF-8 values; mapping them to string cause sync to fail.
+
 // mssqlTypeToDataTypes maps SQL Server types to internal data types.
 var mssqlTypeToDataTypes = map[string]types.DataType{
 	// Integer types
