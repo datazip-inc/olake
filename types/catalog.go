@@ -49,17 +49,6 @@ type StreamMetadata struct {
 	FilterInput *FilterInput `json:"filter_input,omitempty"`
 }
 
-type FilterInput struct {
-	LogicalOperator string            `json:"logical_operator,omitempty"`
-	Conditions      []FilterCondition `json:"conditions,omitempty"`
-}
-
-type FilterCondition struct {
-	Column   string `json:"column,omitempty"`
-	Operator string `json:"operator,omitempty"`
-	Value    any    `json:"value,omitempty"`
-}
-
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`

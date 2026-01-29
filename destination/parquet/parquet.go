@@ -351,13 +351,8 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 
-	if !p.stream.NormalizationEnabled() && !p.options.Backfill {
-		// Q: do we need to add filter in case of normalization false?
-		filtered, err := destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
-		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
-		}
-		return false, filtered, nil, nil
+	if !p.stream.NormalizationEnabled() {
+		return false, records, p.schema, nil
 	}
 
 	if len(records) == 0 {
@@ -421,7 +416,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}); err != nil {
 		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
 	}
-	if !p.options.Backfill || slices.Contains(constants.FilterInFullRefreshDrivers, p.options.DriverType) {
+	if !p.options.Backfill || slices.Contains(constants.FullRefreshPostReadFilterDrivers, p.options.DriverType) {
 		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)

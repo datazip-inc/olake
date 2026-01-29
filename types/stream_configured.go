@@ -14,6 +14,17 @@ type ConfiguredStream struct {
 	Stream         *Stream        `json:"stream,omitempty"`
 }
 
+type FilterInput struct {
+	LogicalOperator string            `json:"logical_operator,omitempty"`
+	Conditions      []FilterCondition `json:"conditions,omitempty"`
+}
+
+type FilterCondition struct {
+	Column   string `json:"column,omitempty"`
+	Operator string `json:"operator,omitempty"`
+	Value    any    `json:"value,omitempty"`
+}
+
 func (s *ConfiguredStream) ID() string {
 	return s.Stream.ID()
 }

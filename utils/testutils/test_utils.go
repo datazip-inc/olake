@@ -238,11 +238,6 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 	condition := strings.Join(streamConditions, " or ")
 	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 
-	// Default to empty string if filterInput is not provided
-	if filterInput == "" {
-		filterInput = "{}"
-	}
-
 	jqExpr := fmt.Sprintf(
 		`jq --argjson filter '%s' '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s" | .filter_input = $filter)) }' %s > %s && mv %s %s`,
 		filterInput,

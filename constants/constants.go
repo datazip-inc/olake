@@ -49,7 +49,8 @@ const (
 	MSSQL    DriverType = "mssql"
 )
 
-var FilterInFullRefreshDrivers = []DriverType{S3, Kafka}
+// Drivers where filters are applied in memory after full refresh data is read.
+var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}

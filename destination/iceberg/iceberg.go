@@ -358,19 +358,14 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}
 
 	if !i.stream.NormalizationEnabled() {
-		// Q: do we need to add filter in case of normalization false?
-		filtered, err := destination.FilterRecords(ctx, records, filter, isLegacy, i.schema)
-		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
-		}
-		return false, filtered, i.schema, nil
+		return false, records, i.schema, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
 	if err != nil {
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
-	if !i.options.Backfill || slices.Contains(constants.FilterInFullRefreshDrivers, i.options.DriverType) {
+	if !i.options.Backfill || slices.Contains(constants.FullRefreshPostReadFilterDrivers, i.options.DriverType) {
 		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, i.schema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)

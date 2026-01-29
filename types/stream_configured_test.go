@@ -30,7 +30,47 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 		},
 		{
-			name:   "numeric value parsed as int64",
+			name:   "double quoted column name",
+			filter: `"user-id" > 5`,
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "user-id", Operator: ">", Value: "5"},
+				},
+			},
+		},
+		{
+			name:   "unquoted column with underscores",
+			filter: "user_id != 0 and user_name = john_doe",
+			expected: FilterInput{
+				LogicalOperator: "and",
+				Conditions: []FilterCondition{
+					{Column: "user_id", Operator: "!=", Value: "0"},
+					{Column: "user_name", Operator: "=", Value: "john_doe"},
+				},
+			},
+		},
+		{
+			name:   "double quoted column with spaces",
+			filter: `"column name" != "some value"`,
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "column name", Operator: "!=", Value: `"some value"`},
+				},
+			},
+		},
+		{
+			name:   "two conditions with AND - mixed quotes",
+			filter: `"user-id" > 5 and status = "active"`,
+			expected: FilterInput{
+				LogicalOperator: "and",
+				Conditions: []FilterCondition{
+					{Column: "user-id", Operator: ">", Value: "5"},
+					{Column: "status", Operator: "=", Value: `"active"`},
+				},
+			},
+		},
+		{
+			name:   "all operators test",
 			filter: "age >= 18",
 			expected: FilterInput{
 				Conditions: []FilterCondition{
@@ -39,34 +79,79 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 		},
 		{
-			name:   "float value parsed as float64",
-			filter: "price > 99.99",
+			name:        "invalid filter format",
+			filter:      "invalid filter format",
+			expectError: true,
+		},
+		{
+			name:        "unclosed quotes",
+			filter:      `"unclosed > 5`,
+			expectError: true,
+		},
+		{
+			name:        "too many conditions",
+			filter:      "a > 5 and b < 10 and c = 3",
+			expectError: true,
+		},
+		{
+			name:   "compact comparison without spaces",
+			filter: "a>b",
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{Column: "price", Operator: ">", Value: "99.99"},
+					{Column: "a", Operator: ">", Value: "b"},
 				},
 			},
 		},
 		{
-			name:   "boolean value",
-			filter: "is_active = true",
+			name:   "mixed quoted and unquoted columns with logical operator",
+			filter: `"a" >b and a < c`,
 			expected: FilterInput{
+				LogicalOperator: "and",
 				Conditions: []FilterCondition{
-					{Column: "is_active", Operator: "=", Value: "true"},
+					{Column: "a", Operator: ">", Value: "b"},
+					{Column: "a", Operator: "<", Value: "c"},
 				},
 			},
 		},
 		{
-			name:   "quoted string preserved",
-			filter: `name = "john doe"`,
+			name:        "invalid operator sequence",
+			filter:      `"a" >>>= b`,
+			expectError: true,
+		},
+		{
+			name:   "negative number value",
+			filter: "temperature < -10",
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{Column: "name", Operator: "=", Value: "\"john doe\""},
+					{Column: "temperature", Operator: "<", Value: "-10"},
 				},
 			},
 		},
 		{
-			name:   "two conditions with AND",
+			name:   "decimal number with leading dot",
+			filter: "ratio >= .5",
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "ratio", Operator: ">=", Value: ".5"},
+				},
+			},
+		},
+		{
+			name:        "decimal number with trailing dot invalid",
+			filter:      "count = 5.",
+			expectError: true,
+		},
+		{
+			name:   "quoted empty string value",
+			filter: `name != ""`,
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "name", Operator: "!=", Value: `""`},
+				},
+			},
+		},
+		{
+			name:   "lowercase and operator",
 			filter: "a > 1 and b < 2",
 			expected: FilterInput{
 				LogicalOperator: "and",
@@ -77,63 +162,260 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			},
 		},
 		{
-			name:   "two conditions with OR uppercase",
-			filter: "a = 1 OR b = 2",
+			name:   "lowercase or operator",
+			filter: "x = 1 or y = 2",
 			expected: FilterInput{
-				LogicalOperator: "OR",
+				LogicalOperator: "or",
 				Conditions: []FilterCondition{
-					{Column: "a", Operator: "=", Value: "1"},
-					{Column: "b", Operator: "=", Value: "2"},
+					{Column: "x", Operator: "=", Value: "1"},
+					{Column: "y", Operator: "=", Value: "2"},
 				},
 			},
 		},
 		{
-			name:        "invalid filter",
+			name:   "column with numbers",
+			filter: "column123 = value456",
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "column123", Operator: "=", Value: "value456"},
+				},
+			},
+		},
+		{
+			name:   "excessive whitespace",
+			filter: "  a   >   b   and   c   <   d  ",
+			expected: FilterInput{
+				LogicalOperator: "and",
+				Conditions: []FilterCondition{
+					{Column: "a", Operator: ">", Value: "b"},
+					{Column: "c", Operator: "<", Value: "d"},
+				},
+			},
+		},
+		{
+			name:   "no spaces around operators",
+			filter: "a>5and b<10",
+			expected: FilterInput{
+				LogicalOperator: "and",
+				Conditions: []FilterCondition{
+					{Column: "a", Operator: ">", Value: "5"},
+					{Column: "b", Operator: "<", Value: "10"},
+				},
+			},
+		},
+		{
+			name:   "quoted value with spaces",
+			filter: `description = "hello world"`,
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "description", Operator: "=", Value: `"hello world"`},
+				},
+			},
+		},
+		{
+			name:   "all different operators in sequence",
+			filter: "a = 1 and b != 2",
+			expected: FilterInput{
+				LogicalOperator: "and",
+				Conditions: []FilterCondition{
+					{Column: "a", Operator: "=", Value: "1"},
+					{Column: "b", Operator: "!=", Value: "2"},
+				},
+			},
+		},
+		{
+			name:   "greater than or equal with decimal",
+			filter: "price >= 99.99",
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "price", Operator: ">=", Value: "99.99"},
+				},
+			},
+		},
+		{
+			name:   "less than or equal with integer",
+			filter: "age <= 100",
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "age", Operator: "<=", Value: "100"},
+				},
+			},
+		},
+		{
+			name:   "quoted column with dot notation",
+			filter: `"user.email" = "test@example.com"`,
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "user.email", Operator: "=", Value: `"test@example.com"`},
+				},
+			},
+		},
+		{
+			name:   "uppercase AND operator",
+			filter: "a > 1 AND b < 2",
+			expected: FilterInput{
+				LogicalOperator: "AND",
+				Conditions: []FilterCondition{
+					{Column: "a", Operator: ">", Value: "1"},
+					{Column: "b", Operator: "<", Value: "2"},
+				},
+			},
+		},
+		{
+			name:   "uppercase OR operator",
+			filter: "a > 1 OR b < 2",
+			expected: FilterInput{
+				LogicalOperator: "OR",
+				Conditions: []FilterCondition{
+					{Column: "a", Operator: ">", Value: "1"},
+					{Column: "b", Operator: "<", Value: "2"},
+				},
+			},
+		},
+		{
+			name:        "missing operator",
+			filter:      "column value",
+			expectError: true,
+		},
+		{
+			name:        "only column name",
+			filter:      "column",
+			expectError: true,
+		},
+		{
+			name:        "only operator",
+			filter:      ">",
+			expectError: true,
+		},
+		{
+			name:        "missing value",
+			filter:      "column >",
+			expectError: true,
+		},
+		{
+			name:        "missing column",
+			filter:      "> value",
+			expectError: true,
+		},
+		{
+			name:        "mixed logical operators",
+			filter:      "a = 1 and b = 2 or c = 3",
+			expectError: true,
+		},
+		{
+			name:        "invalid operator combination",
+			filter:      "a >< b",
+			expectError: true,
+		},
+		{
+			name:        "double equals invalid",
+			filter:      "a == b",
+			expectError: true,
+		},
+		{
+			name:        "sql style not equal unsupported",
+			filter:      "a <> b",
+			expectError: true,
+		},
+		{
+			name:        "logical operator without second condition",
+			filter:      "a = 1 and",
+			expectError: true,
+		},
+		{
+			name:        "logical operator without first condition",
+			filter:      "and b = 2",
+			expectError: true,
+		},
+		{
+			name:        "special characters in unquoted column",
+			filter:      "user-name = john",
+			expectError: true,
+		},
+		{
+			name:        "space in unquoted column",
+			filter:      "user name = john",
+			expectError: true,
+		},
+		{
+			name:        "dot in unquoted column",
+			filter:      "user.name = john",
+			expectError: true,
+		},
+		{
+			name:        "multiple equals invalid",
 			filter:      "a === b",
 			expectError: true,
 		},
 		{
-			name:        "too many conditions",
-			filter:      "a = 1 and b = 2 and c = 3",
+			name:        "positive number with plus sign",
+			filter:      "score > +10",
 			expectError: true,
 		},
 		{
+			name:   "scientific notation",
+			filter: "temperature >= 1e3",
+			expected: FilterInput{
+				Conditions: []FilterCondition{
+					{Column: "temperature", Operator: ">=", Value: "1e3"},
+				},
+			},
+		},
+		{
 			name:   "NULL literal",
-			filter: "deleted_at = NULL",
+			filter: "status = NULL",
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{Column: "deleted_at", Operator: "=", Value: "NULL"},
+					{Column: "status", Operator: "=", Value: "NULL"},
 				},
 			},
 		},
 		{
-			name:   "negative number",
-			filter: "temp < -10",
+			name:   "empty quoted column",
+			filter: `"" = value`,
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{Column: "temp", Operator: "<", Value: "-10"},
+					{Column: "", Operator: "=", Value: "value"},
 				},
 			},
 		},
 		{
-			name:   "scientific notation kept as string",
-			filter: "value >= 1e3",
-			expected: FilterInput{
-				Conditions: []FilterCondition{
-					{Column: "value", Operator: ">=", Value: "1e3"},
-				},
-			},
+			name:        "escaped quotes unsupported",
+			filter:      `"col\"name" = "val\"ue"`,
+			expectError: true,
+		},
+		{
+			name:        "non ascii column unquoted",
+			filter:      "café = oui",
+			expectError: true,
+		},
+		{
+			name:        "trailing garbage",
+			filter:      "a = b junk",
+			expectError: true,
 		},
 		{
 			name:   "very long column name",
-			filter: strings.Repeat("col", 100) + " = 1",
+			filter: strings.Repeat("longcol", 100) + " = 1",
 			expected: FilterInput{
 				Conditions: []FilterCondition{
-					{
-						Column:   strings.Repeat("col", 100),
-						Operator: "=",
-						Value:    "1",
-					},
+					{Column: strings.Repeat("longcol", 100), Operator: "=", Value: "1"},
+				},
+			},
+		},
+		{
+			name:        "logical operator with trailing comma",
+			filter:      "a > 1   and   , b < 2",
+			expectError: true,
+		},
+		{
+			name:   "mixed case logical operator",
+			filter: "a > 1 And b < 2",
+			expected: FilterInput{
+				LogicalOperator: "And",
+				Conditions: []FilterCondition{
+					{Column: "a", Operator: ">", Value: "1"},
+					{Column: "b", Operator: "<", Value: "2"},
 				},
 			},
 		},
@@ -160,12 +442,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 			require.Len(t, result.Conditions, len(tt.expected.Conditions))
 
 			for i := range tt.expected.Conditions {
-				exp := tt.expected.Conditions[i]
-				act := result.Conditions[i]
-
-				assert.Equal(t, exp.Column, act.Column)
-				assert.Equal(t, exp.Operator, act.Operator)
-				assert.Equal(t, exp.Value, act.Value)
+				assert.Equal(t, tt.expected.Conditions[i], result.Conditions[i])
 			}
 		})
 	}
