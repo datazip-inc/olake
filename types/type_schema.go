@@ -160,9 +160,16 @@ func FilterSchemaBySelectedColumns(stream StreamInterface) *TypeSchema {
 	unSelectedMap := stream.Self().StreamMetadata.SelectedColumns.GetUnSelectedColumnsMap()
 	allSelected := stream.Self().StreamMetadata.SelectedColumns.GetAllSelectedColumnsFlag()
 	syncNewColumns := stream.Self().StreamMetadata.SyncNewColumns
+	isCDC := stream.GetSyncMode() == CDC || stream.GetSyncMode() == STRICTCDC
 
 	if allSelected {
-		return schema
+		if !isCDC {
+			return schema
+		}
+
+		if isCDC && syncNewColumns {
+			return schema
+		}
 	}
 
 	filtered := NewTypeSchema()
