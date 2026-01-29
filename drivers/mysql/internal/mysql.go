@@ -74,7 +74,12 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if m.sshClient != nil {
 		logger.Info("Connecting to MySQL via SSH tunnel")
 
-		cfg, err := mysql.ParseDSN(m.config.URI())
+		uri, err := m.config.URI()
+		if err != nil {
+			return fmt.Errorf("failed to setup config uri: %s", err)
+		}
+
+		cfg, err := mysql.ParseDSN(uri)
 		if err != nil {
 			return fmt.Errorf("failed to parse mysql DSN: %s", err)
 		}
@@ -90,7 +95,12 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			return fmt.Errorf("failed to open tunneled database connection: %s", err)
 		}
 	} else {
-		client, err = sqlx.Open("mysql", m.config.URI())
+		uri, err := m.config.URI()
+		if err != nil {
+			return fmt.Errorf("failed to setup config uri: %s", err)
+		}
+
+		client, err = sqlx.Open("mysql", uri)
 		if err != nil {
 			return fmt.Errorf("failed to open database connection: %s", err)
 		}

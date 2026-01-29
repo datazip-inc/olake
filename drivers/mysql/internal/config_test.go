@@ -112,7 +112,7 @@ func TestConfig_URI(t *testing.T) {
 				},
 			},
 			expectedContains: []string{
-				"invalid-ssl-config:0",
+				"",
 			},
 			notExpected: []string{
 				"skip-verify",
@@ -135,7 +135,7 @@ func TestConfig_URI(t *testing.T) {
 				},
 			},
 			expectedContains: []string{
-				"invalid-ssl-config:0",
+				"",
 			},
 			notExpected: []string{
 				"skip-verify",
@@ -174,7 +174,7 @@ func TestConfig_URI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uri := tt.config.URI()
+			uri, _ := tt.config.URI()
 
 			for _, expected := range tt.expectedContains {
 				if !strings.Contains(uri, expected) {

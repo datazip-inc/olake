@@ -14,24 +14,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// Java JDBC SSL params incompatible with Go MySQL driver (cause "Error 1193: Unknown system variable" if not filtered from jdbc_url_params)
-var javaJDBCSSLParams = []string{
-	"useSSL",
-	"requireSSL",
-	"verifyServerCertificate",
-	"sslMode",
-	"trustCertificateKeyStoreUrl",
-	"trustCertificateKeyStoreType",
-	"trustCertificateKeyStorePassword",
-	"clientCertificateKeyStoreUrl",
-	"clientCertificateKeyStoreType",
-	"clientCertificateKeyStorePassword",
-	"fallbackToSystemTrustStore",
-	"fallbackToSystemKeyStore",
-	"tlsCiphersuites",
-	"tlsVersions",
-}
-
 // Config represents the configuration for connecting to a MySQL database
 type Config struct {
 	Host             string            `json:"hosts"`
@@ -52,7 +34,7 @@ type CDC struct {
 }
 
 // URI generates the connection URI for the MySQL database
-func (c *Config) URI() string {
+func (c *Config) URI() (string, error) {
 	// Set default port if not specified
 	if c.Port == 0 {
 		c.Port = 3306
@@ -82,15 +64,11 @@ func (c *Config) URI() string {
 		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
 			tlsConfig, err := c.buildTLSConfig()
 			if err != nil {
-				logger.Errorf("failed to build TLS config: %v", err)
-				cfg.Addr = "invalid-ssl-config:0"
-				cfg.TLSConfig = "false"
+				return "", fmt.Errorf("failed to build TLS config: %s", err)
 			} else {
 				tlsConfigName := "mysql_" + utils.ULID()
 				if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
-					logger.Errorf("failed to register TLS config: %v", err)
-					cfg.Addr = "invalid-ssl-config:0"
-					cfg.TLSConfig = "false"
+					return "", fmt.Errorf("failed to register TLS config: %s", err)
 				} else {
 					cfg.TLSConfig = tlsConfigName
 				}
@@ -98,17 +76,16 @@ func (c *Config) URI() string {
 		}
 	}
 
+	// Note: It is not recommended to pass Java JDBC params to the MySQL go driver,
+	// as these are two different ecosystems
 	if len(c.JDBCURLParams) > 0 {
 		if cfg.Params == nil {
 			cfg.Params = make(map[string]string)
 		}
 		maps.Copy(cfg.Params, c.JDBCURLParams)
-		for _, key := range javaJDBCSSLParams {
-			delete(cfg.Params, key)
-		}
 	}
 
-	return cfg.FormatDSN()
+	return cfg.FormatDSN(), nil
 }
 
 // buildTLSConfig builds a custom TLS configuration for certificate-based SSL
@@ -132,10 +109,6 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 	}
 
 	serverName := c.Host
-	if serverName == "" {
-		serverName = "localhost"
-	}
-
 	tlsConfig := &tls.Config{
 		RootCAs:    rootCertPool,
 		MinVersion: tls.VersionTLS12,
