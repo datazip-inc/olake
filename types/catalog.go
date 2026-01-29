@@ -94,8 +94,8 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 	createStreamMap := func(catalog *Catalog) map[string]*ConfiguredStream {
 		streamMap := make(map[string]*ConfiguredStream)
-		for _, st := range catalog.Streams {
-			streamMap[st.Stream.ID()] = st
+		for _, stream := range catalog.Streams {
+			streamMap[stream.Stream.ID()] = stream
 		}
 		return streamMap
 	}
