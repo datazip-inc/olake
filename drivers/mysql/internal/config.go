@@ -39,7 +39,6 @@ func (c *Config) URI() (string, error) {
 	if c.Port == 0 {
 		c.Port = 3306
 	}
-
 	// Construct host string
 	hostStr := c.Host
 	if c.Host == "" {
@@ -59,9 +58,7 @@ func (c *Config) URI() (string, error) {
 		switch c.SSLConfiguration.Mode {
 		case utils.SSLModeDisable:
 			cfg.TLSConfig = "false"
-		case utils.SSLModeRequire:
-			cfg.TLSConfig = "skip-verify"
-		case utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
+		case utils.SSLModeRequire, utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
 			tlsConfig, err := c.buildTLSConfig()
 			if err != nil {
 				return "", fmt.Errorf("failed to build TLS config: %s", err)
@@ -112,12 +109,13 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		RootCAs:    rootCertPool,
 		MinVersion: tls.VersionTLS12,
-		ServerName: serverName,
 	}
 
+	// For verify-ca mode: verify certificate chain but NOT hostname
+	// This is done by skipping hostname verification only
 	if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA {
 		tlsConfig.InsecureSkipVerify = true
-		tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+		tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
 			if len(rawCerts) == 0 {
 				return fmt.Errorf("no server certificate provided")
 			}
@@ -145,6 +143,9 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 			}
 			return nil
 		}
+	} else {
+		// For verify-full mode: verify both certificate chain AND hostname
+		tlsConfig.ServerName = serverName
 	}
 
 	if c.SSLConfiguration.ClientCert != "" && c.SSLConfiguration.ClientKey != "" {

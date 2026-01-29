@@ -14,6 +14,7 @@ func TestConfig_URI(t *testing.T) {
 		config           *Config
 		expectedContains []string
 		notExpected      []string
+		expectError      bool
 	}{
 		// Ensures JDBC URL parameters are propagated into the DSN.
 		{
@@ -53,7 +54,7 @@ func TestConfig_URI(t *testing.T) {
 				"tls=false",
 			},
 		},
-		// Confirms TLS uses skip-verify for require mode.
+		// Confirms TLS uses custom config for require mode (not skip-verify directly).
 		{
 			name: "with SSL required",
 			config: &Config{
@@ -67,7 +68,7 @@ func TestConfig_URI(t *testing.T) {
 				},
 			},
 			expectedContains: []string{
-				"tls=skip-verify",
+				"tls=mysql_",
 			},
 		},
 		// Verifies JDBC params and TLS are both applied together.
@@ -92,12 +93,12 @@ func TestConfig_URI(t *testing.T) {
 			},
 			expectedContains: []string{
 				"charset=utf8mb4",
-				"tls=skip-verify",
+				"tls=mysql_",
 				"mysql.example.com:3306",
 				"appdb",
 			},
 		},
-		// Rejects invalid CA data and marks URI as invalid without falling back to skip-verify.
+		// Rejects invalid CA data and returns an error.
 		{
 			name: "with invalid CA certificate",
 			config: &Config{
@@ -111,14 +112,9 @@ func TestConfig_URI(t *testing.T) {
 					ServerCA: "-----BEGIN CERTIFICATE-----\nINVALID_CERTIFICATE_DATA\n-----END CERTIFICATE-----",
 				},
 			},
-			expectedContains: []string{
-				"",
-			},
-			notExpected: []string{
-				"skip-verify",
-			},
+			expectError: true,
 		},
-		// Rejects invalid client cert/key and does not fall back to skip-verify.
+		// Rejects invalid client cert/key and returns an error.
 		{
 			name: "with invalid client certificate",
 			config: &Config{
@@ -134,11 +130,32 @@ func TestConfig_URI(t *testing.T) {
 					ClientKey:  "not a key",
 				},
 			},
+			expectError: true,
+		},
+		// Uses verify-ca with valid CA certificate.
+		{
+			name: "with verify-ca and valid CA certificate",
+			config: func() *Config {
+				certs := generateTestCerts()
+				return &Config{
+					Host:     "db.internal",
+					Port:     3306,
+					Username: "secureuser",
+					Password: "securepass",
+					Database: "secured",
+					SSLConfiguration: &utils.SSLConfig{
+						Mode:     utils.SSLModeVerifyCA,
+						ServerCA: certs.CACert,
+					},
+				}
+			}(),
 			expectedContains: []string{
-				"",
+				"db.internal:3306",
+				"secured",
+				"tls=mysql_",
 			},
 			notExpected: []string{
-				"skip-verify",
+				"tls=skip-verify",
 			},
 		},
 		// Uses verify-full (verify-identity) with provided CA and client credentials and keeps TLS config name unique.
@@ -174,7 +191,17 @@ func TestConfig_URI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uri, _ := tt.config.URI()
+			uri, err := tt.config.URI()
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("failed to generate URI: %s", err)
+				return
+			}
 
 			for _, expected := range tt.expectedContains {
 				if !strings.Contains(uri, expected) {
