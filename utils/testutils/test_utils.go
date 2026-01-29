@@ -265,8 +265,8 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 
 // reset state file so incremental can perform initial load (equivalent to full load on first run)
 func resetStateFileCommand(config TestConfig) string {
-	// Ensure the state is clean irrespective of previous CDC run.
-	return fmt.Sprintf(`echo '{}' > %s && sync`, config.StatePath)
+	// Ensure the state is clean irrespective of previous CDC run
+	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
 }
 
 func toggleArrowIcebergWrites(config TestConfig, enabled bool) string {
@@ -367,6 +367,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 ) error {
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
+
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
@@ -517,12 +518,6 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
-	}
-
-	// Reset state file to ensure CDC starts from a fresh LSN after table recreate
-	resetState := resetStateFileCommand(*cfg.TestConfig)
-	if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
-		return fmt.Errorf("failed to reset state for CDC (%d): %s\n%s", code, err, out)
 	}
 
 	testCases := []syncTestCase{
@@ -779,6 +774,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
+					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 			},
@@ -852,6 +848,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
+					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 			},
