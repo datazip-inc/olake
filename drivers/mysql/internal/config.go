@@ -62,14 +62,13 @@ func (c *Config) URI() (string, error) {
 			tlsConfig, err := c.buildTLSConfig()
 			if err != nil {
 				return "", fmt.Errorf("failed to build TLS config: %s", err)
-			} else {
-				tlsConfigName := "mysql_" + utils.ULID()
-				if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
-					return "", fmt.Errorf("failed to register TLS config: %s", err)
-				} else {
-					cfg.TLSConfig = tlsConfigName
-				}
 			}
+			
+			tlsConfigName := "mysql_" + utils.ULID()
+			if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
+				return "", fmt.Errorf("failed to register TLS config: %s", err)
+			}
+			cfg.TLSConfig = tlsConfigName
 		}
 	}
 
