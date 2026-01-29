@@ -58,6 +58,8 @@
 | MySQL → Iceberg      | 3,38,005 RPS    | 2.83× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
 | MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | 2,61,793 RPS    | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
+| Kafka → Iceberg      | NA              | NA                                   | NA                   |
+
 
 #### CDC
 
@@ -67,7 +69,7 @@
 | MySQL → Iceberg      | 51,867 RPS      | 1.85× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
 | MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
-
+| Kafka → Iceberg      | 1,54,320 MPS    | 1.8x faster than Flink               | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)  |
 
 
 
@@ -204,6 +206,9 @@ Below are other different ways you can run OLake:
 - [x] Filters for Full Load and Incremental 
 - [ ] Real-time Streaming Mode (Kafka)
 - [ ] Iceberg V3 Support
+- [ ] MSSQL as Source
+- [ ] DB2 as Source
+- [ ] ClickHouse as Source
 
 📌 Check out our [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and the [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track what's next. If you have ideas or feedback, please share them in our [GitHub Discussions](https://github.com/datazip-inc/olake/discussions) or by opening an issue.
 
