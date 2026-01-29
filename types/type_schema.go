@@ -174,9 +174,9 @@ func FilterSchemaBySelectedColumns(stream StreamInterface) *TypeSchema {
 	}
 
 	filtered := NewTypeSchema()
-	schema.Properties.Range(func(key, value interface{}) bool {
-		colName, ok := key.(string)
-		if !ok {
+	schema.Properties.Range(func(col, value interface{}) bool {
+		colName, isColTypeString := col.(string)
+		if !isColTypeString {
 			return true
 		}
 		if syncNewColumns {

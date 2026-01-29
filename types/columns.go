@@ -38,9 +38,9 @@ func (sc *SelectedColumns) setUnSelectedColumnsMap(oldStream *Stream) {
 		return
 	}
 
-	oldStream.Schema.Properties.Range(func(key, _ interface{}) bool {
-		colName, ok := key.(string)
-		if !ok {
+	oldStream.Schema.Properties.Range(func(col, _ interface{}) bool {
+		colName, isColTypeString := col.(string)
+		if !isColTypeString {
 			return true
 		}
 		// add to UnSelectedMap if column exists in old schema and is not selected
@@ -108,17 +108,17 @@ func FilterDataBySelectedColumns(data map[string]interface{}, stream StreamInter
 		// emit all columns except those that are unselected
 		// this ensures all columns that are new are selected by default
 		unSelectedMap := selectedCols.GetUnSelectedColumnsMap()
-		for key, value := range data {
-			if _, excluded := unSelectedMap[key]; !excluded {
-				filtered[key] = value
+		for col, value := range data {
+			if _, excluded := unSelectedMap[col]; !excluded {
+				filtered[col] = value
 			}
 		}
 	} else {
 		// emit only columns that are selected
 		selectedMap := selectedCols.GetSelectedColumnsMap()
-		for key, value := range data {
-			if _, exists := selectedMap[key]; exists {
-				filtered[key] = value
+		for col, value := range data {
+			if _, exists := selectedMap[col]; exists {
+				filtered[col] = value
 			}
 		}
 	}
@@ -128,8 +128,8 @@ func FilterDataBySelectedColumns(data map[string]interface{}, stream StreamInter
 // collectColumnsFromSchema collects all columns from a schema
 func collectColumnsFromSchema(schema *TypeSchema) []string {
 	columns := []string{}
-	schema.Properties.Range(func(key, _ interface{}) bool {
-		if colName, ok := key.(string); ok {
+	schema.Properties.Range(func(col, _ interface{}) bool {
+		if colName, isColTypeString := col.(string); isColTypeString {
 			columns = append(columns, colName)
 		}
 		return true
@@ -257,13 +257,16 @@ func getColumnsDelta(oldSchema, newSchema *TypeSchema) ([]string, []string) {
 		newAdded []string
 	)
 
-	newSchema.Properties.Range(func(k, _ interface{}) bool {
-		col := k.(string)
+	newSchema.Properties.Range(func(col, _ interface{}) bool {
+		colName, isColTypeString := col.(string)
+		if !isColTypeString {
+			return true
+		}
 
-		if _, exists := oldSchema.Properties.Load(col); exists {
-			common = append(common, col)
+		if _, exists := oldSchema.Properties.Load(colName); exists {
+			common = append(common, colName)
 		} else {
-			newAdded = append(newAdded, col)
+			newAdded = append(newAdded, colName)
 		}
 		return true
 	})
@@ -315,10 +318,10 @@ func (sc *SelectedColumns) ensureMandatoryColumns(oldStream, newStream *Stream) 
 
 	// Add source defined primary key columns
 	if newStream.SourceDefinedPrimaryKey != nil {
-		for _, pk := range newStream.SourceDefinedPrimaryKey.Array() {
-			if _, exists := selectedMap[pk]; !exists {
-				sc.Columns = append(sc.Columns, pk)
-				selectedMap[pk] = struct{}{}
+		for _, primaryKey := range newStream.SourceDefinedPrimaryKey.Array() {
+			if _, exists := selectedMap[primaryKey]; !exists {
+				sc.Columns = append(sc.Columns, primaryKey)
+				selectedMap[primaryKey] = struct{}{}
 			}
 		}
 	}

@@ -139,13 +139,13 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 		return p.schema, nil
 	}
 
-	if fields, ok := schema.(typeutils.Fields); ok {
+	if fields, isFields := schema.(typeutils.Fields); isFields {
 		p.schema = fields.Clone()
 		return fields, nil
 	}
 
 	// the first writer thread for this stream will have a TypeSchema
-	if filteredSchema, ok := schema.(*types.TypeSchema); ok {
+	if filteredSchema, isTypeSchema := schema.(*types.TypeSchema); isTypeSchema {
 		fields := make(typeutils.Fields)
 		fields.FromSchema(filteredSchema)
 		p.schema = fields.Clone()
