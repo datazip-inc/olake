@@ -163,14 +163,9 @@ func FilterSchemaBySelectedColumns(stream StreamInterface) *TypeSchema {
 	streamSyncMode := stream.GetSyncMode()
 	isCDC := streamSyncMode == CDC || streamSyncMode == STRICTCDC
 
-	if allSelected {
-		if !isCDC {
-			return schema
-		}
-
-		if isCDC && syncNewColumns {
-			return schema
-		}
+	// Skip filtering when all columns are selected and (not CDC, or CDC with sync_new_columns).
+	if allSelected && (!isCDC || syncNewColumns) {
+		return schema
 	}
 
 	filtered := NewTypeSchema()
