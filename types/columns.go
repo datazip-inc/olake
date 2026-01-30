@@ -137,34 +137,10 @@ func collectColumnsFromSchema(schema *TypeSchema) []string {
 	return columns
 }
 
-// schemasHaveSameColumns checks if two schemas have the same columns
-// Returns true if both schemas have identical column sets (ignoring order)
-func schemasHaveSameColumns(oldSchema, newSchema *TypeSchema) bool {
-	oldSchemaColumns := collectColumnsFromSchema(oldSchema)
-	newSchemaColumns := collectColumnsFromSchema(newSchema)
-
-	if len(oldSchemaColumns) != len(newSchemaColumns) {
-		return false
-	}
-
-	oldSchemaColumnsMap := make(map[string]struct{})
-	for _, col := range oldSchemaColumns {
-		oldSchemaColumnsMap[col] = struct{}{}
-	}
-
-	for _, col := range newSchemaColumns {
-		if _, exists := oldSchemaColumnsMap[col]; !exists {
-			return false
-		}
-	}
-
-	return true
-}
-
 // MergeSelectedColumns merges the selected columns based on the following rules:
 // 1. if selectedColumns property is not present or empty, initialize with columns from new schema
 // 2. if selectedColumns property is present and not empty, filter the selected columns to only those present in both old and new schemas
-// 3. if the old and new schemas have same columns, so no need to check for presence in both old and new schemas
+// 3. if sync_new_columns is true, add newly discovered columns to the selected columns
 // 4. ensure mandatory columns are included
 // 5. set the selected columns map
 // 6. set the unselected columns map
@@ -209,53 +185,15 @@ func MergeSelectedColumns(
 		return
 	}
 
-	// if the old and new schemas have same columns, so no need to check for presence in both old and new schemas
-	if schemasHaveSameColumns(oldSchema, newSchema) {
-		finalizeSelectedColumns()
-		return
-	}
+	var newSelectedColumns []string
 
-	// when selectedColumns property is present and not empty
-	var preservedSelectedColumns []string
-	preservedSelectedColumnsMap := make(map[string]struct{})
-	for _, previouslySelectedCol := range metadata.SelectedColumns.Columns {
-		// check if the column exists in both old and new schemas
-		_, existsInOld := oldSchema.Properties.Load(previouslySelectedCol)
-		_, existsInNew := newSchema.Properties.Load(previouslySelectedCol)
-		if existsInOld && existsInNew {
-			// don't add duplicate columns
-			if _, exists := preservedSelectedColumnsMap[previouslySelectedCol]; !exists {
-				preservedSelectedColumns = append(preservedSelectedColumns, previouslySelectedCol)
-				preservedSelectedColumnsMap[previouslySelectedCol] = struct{}{}
-			}
+	previouslySelectedColumnsMap := make(map[string]struct{})
+	for _, col := range metadata.SelectedColumns.Columns {
+		// prevent duplicate columns
+		if _, exists := previouslySelectedColumnsMap[col]; !exists {
+			previouslySelectedColumnsMap[col] = struct{}{}
 		}
 	}
-
-	// automatically add newly discovered columns during discover command to the selected_columns list when sync_new_columns is true
-	if metadata.SyncNewColumns {
-		_, newAddedColumns := getColumnsDelta(oldSchema, newSchema)
-		for _, newCol := range newAddedColumns {
-			if _, exists := preservedSelectedColumnsMap[newCol]; !exists {
-				preservedSelectedColumns = append(preservedSelectedColumns, newCol)
-				preservedSelectedColumnsMap[newCol] = struct{}{}
-			}
-		}
-	}
-
-	metadata.SelectedColumns = &SelectedColumns{
-		Columns: preservedSelectedColumns,
-	}
-
-	finalizeSelectedColumns()
-}
-
-// getColumnsDelta compares oldSchema and newSchema to identify column differences.
-// Returns common columns (present in both) and newly added columns (only in newSchema).
-func getColumnsDelta(oldSchema, newSchema *TypeSchema) ([]string, []string) {
-	var (
-		common   []string
-		newAdded []string
-	)
 
 	newSchema.Properties.Range(func(col, _ interface{}) bool {
 		colName, isColTypeString := col.(string)
@@ -263,15 +201,27 @@ func getColumnsDelta(oldSchema, newSchema *TypeSchema) ([]string, []string) {
 			return true
 		}
 
-		if _, exists := oldSchema.Properties.Load(colName); exists {
-			common = append(common, colName)
-		} else {
-			newAdded = append(newAdded, colName)
+		_, existsInOld := oldSchema.Properties.Load(colName)
+		_, wasPreviouslySelected := previouslySelectedColumnsMap[colName]
+
+		// preserves previously selected columns that exist in both old and new schemas
+		if wasPreviouslySelected && existsInOld {
+			newSelectedColumns = append(newSelectedColumns, colName)
 		}
+
+		// add newly discovered columns when sync_new_columns is true
+		if metadata.SyncNewColumns && !existsInOld {
+			newSelectedColumns = append(newSelectedColumns, colName)
+		}
+
 		return true
 	})
 
-	return common, newAdded
+	metadata.SelectedColumns = &SelectedColumns{
+		Columns: newSelectedColumns,
+	}
+
+	finalizeSelectedColumns()
 }
 
 // ensureMandatoryColumns ensures that mandatory columns are always in SelectedColumns:
