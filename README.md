@@ -178,6 +178,12 @@ Below are other different ways you can run OLake:
 
 ---
 
+#### Upgrading from legacy `docker-compose.yml`
+
+To upgrade from legacy `docker-compose.yml` that was used before **Jan 30th 2026** , follow this [documentation](https://olake.io/docs/install/olake-ui/#:~:text=To%20move%20from,Legacy%20Setup.).
+
+---
+
 ### Playground
 
 1. [OLake + Apache Iceberg + REST Catalog + Presto](https://olake.io/docs/playground/olake-iceberg-presto)
