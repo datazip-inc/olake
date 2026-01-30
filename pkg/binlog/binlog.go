@@ -38,6 +38,7 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		Charset:         config.Charset,
 		VerifyChecksum:  config.VerifyChecksum,
 		HeartbeatPeriod: config.HeartbeatPeriod,
+		TLSConfig:       config.TLSConfig,
 	}
 
 	if config.SSHClient != nil {

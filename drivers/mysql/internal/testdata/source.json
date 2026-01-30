@@ -4,7 +4,6 @@
   "password": "secret1234",
   "database": "olake_mysql_test",
   "port": 3306,
-  "tls_skip_verify": true,
   "update_method": {
     "initial_wait_time": 10
   },
