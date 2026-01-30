@@ -109,33 +109,26 @@ const MySQLUISchema = `{
     { "ssh_config": 12 }
   ],
   "ssl": {
-    "ui:options": {
-      "title": false,
-      "description": false
-    },
+    "ui:options": { "description": false, "label": false },
     "ui:grid": [
-      { "mode": 12 },
-      { "server_ca": 12 },
-      { "client_cert": 12 },
-      { "client_key": 12 }
+      { "mode": 24 },
+      { "server_ca": 24 },
+      { "client_cert": 12, "client_key": 12 }
     ],
+    "mode": {
+      "ui:widget": "select"
+    },
     "server_ca": {
       "ui:widget": "textarea",
-      "ui:options": {
-        "rows": 1
-      }
+      "ui:options": { "rows": 1 }
     },
     "client_cert": {
       "ui:widget": "textarea",
-      "ui:options": {
-        "rows": 1
-      }
+      "ui:options": { "rows": 1 }
     },
     "client_key": {
       "ui:widget": "textarea",
-      "ui:options": {
-        "rows": 1
-      }
+      "ui:options": { "rows": 1 }
     }
   },
   "update_method": {
