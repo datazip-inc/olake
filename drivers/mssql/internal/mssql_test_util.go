@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -128,9 +129,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err = db.ExecContext(ctx, enableTableCDC)
 		require.NoError(t, err, "failed to enable CDC on integration test table")
 
-		// Wait for CDC to fully initialize - the capture instance needs time to
-		// register its start_lsn properly before any sync operations
-		time.Sleep(10 * time.Second)
+		// Wait until current_max_lsn >= start_lsn of the capture instance so CDC is ready for sync
+		verifyCDCEnabled(t, ctx, db, captureInstance)
 
 	case "drop":
 		// Disable CDC before dropping table to ensure capture instance is cleaned up
@@ -233,6 +233,43 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
+}
+
+// verifyCDCEnabled polls until sys.fn_cdc_get_max_lsn() >= start_lsn of the
+// given capture instance, so the capture instance is ready for CDC sync.
+func verifyCDCEnabled(t *testing.T, ctx context.Context, db *sqlx.DB, captureInstance string) {
+	t.Helper()
+	const (
+		pollInterval = 500 * time.Millisecond
+		timeout      = 30 * time.Second
+	)
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var startLSN []byte
+		qStart := fmt.Sprintf(`
+			SELECT start_lsn FROM cdc.change_tables WHERE capture_instance = N'%s'
+		`, captureInstance)
+		if err := db.QueryRowContext(ctx, qStart).Scan(&startLSN); err != nil {
+			t.Logf("verifyCDCEnabled: get start_lsn: %v", err)
+			time.Sleep(pollInterval)
+			continue
+		}
+		var currentMaxLSN []byte
+		if err := db.QueryRowContext(ctx, "SELECT sys.fn_cdc_get_max_lsn()").Scan(&currentMaxLSN); err != nil {
+			t.Logf("verifyCDCEnabled: get max_lsn: %v", err)
+			time.Sleep(pollInterval)
+			continue
+		}
+		startHex := hex.EncodeToString(startLSN)
+		currentHex := hex.EncodeToString(currentMaxLSN)
+		if currentHex >= startHex {
+			return
+		}
+		time.Sleep(pollInterval)
+	}
+
+	t.Fatalf("CDC capture instance %s not ready within %v (current_max_lsn never reached start_lsn)", captureInstance, timeout)
 }
 
 func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName string) {
