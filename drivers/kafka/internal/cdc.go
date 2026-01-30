@@ -233,7 +233,7 @@ func (k *Kafka) parseKafkaData(message kafka.Message) (map[string]interface{}, s
 			// fetch schema
 			schema, err := k.schemaRegistryClient.FetchSchema(schemaID)
 			if err != nil {
-				return nil, fmt.Errorf("failed to fetch schema %d: %w", schemaID, err)
+				return nil, fmt.Errorf("failed to fetch schema %d: %s", schemaID, err)
 			}
 
 			// decode data based on format
@@ -268,7 +268,7 @@ func (k *Kafka) parseKafkaData(message kafka.Message) (map[string]interface{}, s
 		if vm, ok := valDecoded.(map[string]interface{}); ok {
 			messageValue = vm
 		} else {
-			return nil, "", fmt.Errorf("expected map[string]interface{} for message value, got %T", valDecoded)
+			return nil, "", fmt.Errorf("expected format for message value is not supported, got %s", valDecoded)
 		}
 	}
 
@@ -319,7 +319,7 @@ func decodeJSONMessage(value []byte) (map[string]interface{}, error) {
 func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 	nativeDatum, _, err := codec.NativeFromBinary(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode Avro: %w", err)
+		return nil, fmt.Errorf("failed to decode Avro: %s", err)
 	}
 
 	if record, ok := nativeDatum.(map[string]interface{}); ok {
