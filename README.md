@@ -128,7 +128,7 @@ OLake UI is a web-based interface for managing OLake jobs, sources, destinations
 Run the UI, connect your source DB, and start syncing in minutes. 
 
 ```sh
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
+curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose-v1.yml | docker compose -f - up -d
 ```
 
 **Access the UI:**
