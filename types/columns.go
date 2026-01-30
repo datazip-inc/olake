@@ -93,14 +93,9 @@ func FilterDataBySelectedColumns(data map[string]interface{}, stream StreamInter
 	streamSyncMode := stream.GetSyncMode()
 	isCDC := streamSyncMode == CDC || streamSyncMode == STRICTCDC
 
-	if allSelected {
-		if !isCDC {
-			return data
-		}
-
-		if isCDC && syncNewColumns {
-			return data
-		}
+	// Skip filtering when all columns are selected and (not CDC, or CDC with sync_new_columns).
+	if allSelected && (!isCDC || syncNewColumns) {
+		return data
 	}
 
 	filtered := make(map[string]interface{})
