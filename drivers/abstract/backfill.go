@@ -38,16 +38,64 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		return typeutils.Compare(chunks[i].Min, chunks[j].Min) < 0
 	})
 
-	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
+	// Helper to generate threadID for a chunk
+	threadIDCache := make(map[string]string)
+	getThreadID := func(chunk types.Chunk) string {
+		keys := fmt.Sprintf("%v%v", chunk.Min, chunk.Max)
+		if id, ok := threadIDCache[keys]; ok {
+			return id
+		}
+		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(keys)))
+		id := generateThreadID(stream.ID(), hash)
+		threadIDCache[keys] = id
+		return id
+	}
+
+	// Pre-check: Verify commit status for all chunks, if chunk is committed, skip it
+	statusCheckCtx, statusCheckCancel := context.WithCancel(mainCtx)
+	defer statusCheckCancel()
+
+	checker, err := pool.NewWriter(statusCheckCtx, stream, destination.WithBackfill(true), destination.WithThreadID("status_checker_"+stream.ID()))
+	if err != nil {
+		return fmt.Errorf("failed to create status checker writer: %s", err)
+	}
+	defer checker.Close(statusCheckCtx)
+
+	var chunksToProcess []types.Chunk
+	for _, chunk := range chunks {
+		threadID := getThreadID(chunk)
+
+		committed, err := checker.IsThreadCommitted(statusCheckCtx, threadID)
+		if err != nil {
+			return fmt.Errorf("failed to check commit status for thread[%s]: %s", threadID, err)
+		}
+
+		if committed {
+			logger.Infof("Thread[%s]: chunk min[%s] max[%s] already committed, skipping", threadID, chunk.Min, chunk.Max)
+			// Remove from state immediately
+			chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
+			if chunksLeft == 0 && backfilledStreams != nil {
+				backfilledStreams <- stream.ID()
+			}
+			continue
+		}
+
+		chunksToProcess = append(chunksToProcess, chunk)
+	}
+
+	if len(chunksToProcess) == 0 {
+		logger.Infof("All chunks for stream[%s] are already committed", stream.ID())
+		return nil
+	}
+
+	logger.Infof("Processing %d chunks for stream[%s]", len(chunksToProcess), stream.ID())
 
 	chunkProcessor := func(gCtx context.Context, _ int, chunk types.Chunk) (err error) {
 		// create backfill context, so that main context not affected if backfill retries
 		backfillCtx, backfillCtxCancel := context.WithCancel(gCtx)
 		defer backfillCtxCancel()
 
-		keys := fmt.Sprintf("%v%v", chunk.Min, chunk.Max)
-		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(keys)))
-		threadID := generateThreadID(stream.ID(), hash)
+		threadID := getThreadID(chunk)
 		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
@@ -73,20 +121,6 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 				return nil
 			}, nil)()
 
-		// Check status if chunk was in preparing state
-		if chunk.Status == "preparing" {
-			committed, err := inserter.IsThreadCommitted(backfillCtx, threadID)
-			if err != nil {
-				return fmt.Errorf("failed to check commit status: %s", err)
-			}
-			if committed {
-				logger.Infof("Thread[%s]: chunk min[%s] max[%s] already committed, skipping", threadID, chunk.Min, chunk.Max)
-				return nil
-			}
-		}
-
-		// Set status to preparing
-		a.state.UpdateChunkStatusToPreparing(stream.Self(), &chunk)
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
@@ -100,6 +134,6 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp))
 		})
 	}
-	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)
+	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunksToProcess, a.driver.MaxRetries(), chunkProcessor)
 	return nil
 }
