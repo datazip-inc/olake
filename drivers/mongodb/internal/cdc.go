@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -170,9 +171,13 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Data:      record.FullDocument,
 		Kind:      record.OperationType,
 	}
-
+	var tokenString string
 	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
 		m.cdcCursor.Store(stream.ID(), resumeToken.Lookup(cdcCursorField).StringValue())
+		tokenString = resumeToken.Lookup(cdcCursorField).StringValue()
+		if record.FullDocument != nil {
+			record.FullDocument[constants.CDCResumeToken] = tokenString
+		}
 	}
 	return OnMessage(ctx, change)
 }

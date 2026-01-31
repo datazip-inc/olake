@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -33,7 +34,7 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 }
 
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
-func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, callback abstract.CDCMsgFn) error {
+func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, callback abstract.CDCMsgFn, cdcFileName string, cdcFilePosition uint64) error {
 	schemaName := string(e.Table.Schema)
 	tableName := string(e.Table.Table)
 	stream, exists := f.streams[schemaName+"."+tableName]
@@ -52,7 +53,6 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 	default:
 		return nil
 	}
-
 	columnTypes := make([]string, len(e.Table.ColumnType))
 	for i, ct := range e.Table.ColumnType {
 		columnTypes[i] = mysqlTypeName(ct)
@@ -88,6 +88,8 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 			Kind:      operationType,
 			Data:      record,
 		}
+		record[constants.CDCBinlogFileName] = cdcFileName
+		record[constants.CDCBinlogFilePosition] = cdcFilePosition
 		if err := callback(ctx, change); err != nil {
 			return err
 		}

@@ -33,6 +33,19 @@ var DefaultColumns = map[string]types.DataType{
 	constants.CdcTimestamp:   types.TimestampMicro,
 }
 
+var cdcColumns = map[string]map[string]types.DataType{
+	string(constants.MySQL): {
+		constants.CDCBinlogFileName:     types.String,
+		constants.CDCBinlogFilePosition: types.Int64,
+	},
+	string(constants.Postgres): {
+		constants.CDCLSN:				 types.String,
+	},
+	string(constants.MongoDB): {
+		constants.CDCResumeToken:		 types.String,
+	},
+}
+
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
 	return &AbstractDriver{
 		driver:          driver,
@@ -105,6 +118,10 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 		if a.driver.CDCSupported() && !isKafkaDriver {
 			convStream.WithSyncMode(types.CDC, types.STRICTCDC)
 			convStream.SyncMode = types.CDC
+			//inserting cdc columns
+			for column, dtype := range cdcColumns[string(a.driver.Type())] {
+				convStream.UpsertField(column, dtype, true)
+			}
 		} else {
 			// remove cdc column as it is not supported
 			convStream.Schema.Properties.Delete(constants.CdcTimestamp)

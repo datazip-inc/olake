@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  mysql-server:
+    image: mysql:8.0
+    container_name: mysql-ssl-server
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: testdb
+      MYSQL_USER: olake_user
+      MYSQL_PASSWORD: olake_password
+    volumes:
+      # Mount certs to a safe location (NOT /var/lib/mysql)
+      - ./certs:/etc/mysql/certs
+      - ./my.cnf:/etc/mysql/conf.d/ssl.cnf
+    ports:
+      - "3306:3306"
+    networks:
+      - ssl-network
+
+  mysql-client:
+    image: mysql:8.0
+    container_name: mysql-ssl-tester
+    # Keep container alive for testing
+    command: tail -f /dev/null
+    volumes:
+      # Mount certs so client can access CA
+      - ./certs:/certs
+    depends_on:
+      - mysql-server
+    networks:
+      - ssl-network
+
+networks:
+  ssl-network:

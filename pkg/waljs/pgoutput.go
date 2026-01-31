@@ -90,10 +90,10 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				if err != nil {
 					return fmt.Errorf("failed to parse XLogData: %v", err)
 				}
+				p.socket.ClientXLogPos = xld.WALStart
 				if err := p.processPgoutputWAL(ctx, xld.WALData, insertFn); err != nil {
 					return err
 				}
-				p.socket.ClientXLogPos = xld.WALStart
 				messageReceived = true
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
@@ -185,7 +185,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 	if err != nil {
 		return err
 	}
-
+	values[constants.CDCLSN] = p.socket.ClientXLogPos.String()
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "insert", Data: values})
 }
 
@@ -204,7 +204,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 	if err != nil {
 		return err
 	}
-
+	values[constants.CDCLSN] = p.socket.ClientXLogPos.String()
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "update", Data: values})
 }
 
@@ -223,7 +223,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 	if err != nil {
 		return err
 	}
-
+	values[constants.CDCLSN] = p.socket.ClientXLogPos.String()
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "delete", Data: values})
 }
 
