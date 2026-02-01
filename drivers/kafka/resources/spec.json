@@ -193,19 +193,52 @@
                     "type": "string",
                     "title": "Schema Registry Endpoint",
                     "description": "Schema Registry URL (e.g., http://localhost:8081)"
-                },
-                "username": {
-                    "type": "string",
-                    "title": "Username",
-                    "description": "Username for Schema Registry authentication (optional)"
-                },
-                "password": {
-                    "type": "string",
-                    "title": "Password",
-                    "description": "Password for Schema Registry authentication (optional)"
                 }
             },
-            "required": ["endpoint"]
+            "required": ["endpoint"],
+            "oneOf": [
+                {
+                    "title": "No Authentication",
+                    "properties": {
+                        "endpoint": true
+                    },
+                    "additionalProperties": false
+                },
+                {
+                    "title": "Username & Password",
+                    "properties": {
+                        "endpoint": true,
+                        "username": {
+                            "type": "string",
+                            "title": "Username",
+                            "description": "Username for Schema Registry authentication",
+                            "minLength": 1
+                        },
+                        "password": {
+                            "type": "string",
+                            "title": "Password",
+                            "description": "Password for Schema Registry authentication",
+                            "minLength": 1
+                        }
+                    },
+                    "required": ["username", "password"],
+                    "additionalProperties": false
+                },
+                {
+                    "title": "Bearer Token",
+                    "properties": {
+                        "endpoint": true,
+                        "bearer_token": {
+                            "type": "string",
+                            "title": "Bearer Token",
+                            "description": "Bearer token for Schema Registry authentication",
+                            "minLength": 1
+                        }
+                    },
+                    "required": ["bearer_token"],
+                    "additionalProperties": false
+                }
+            ]
         }
     },
     "required": [

@@ -342,10 +342,14 @@ const KafkaUISchema = `{
         "description": false
       },
       "ui:grid": [
-        { "endpoint": 12, "username": 12 },
-        { "password": 12 }
+        { "endpoint": 24 },
+        { "username": 12, "password": 12 },
+        { "bearer_token": 24 }
       ],
       "password": {
+        "ui:widget": "password"
+      },
+      "bearer_token": {
         "ui:widget": "password"
       }
     },

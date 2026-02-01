@@ -36,8 +36,10 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// set basic auth if credentials provided
-	if c.Username != "" && c.Password != "" {
+	// Set authentication headers (if bearer token is present, it takes priority over basic auth)
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+	} else if c.Username != "" && c.Password != "" {
 		req.SetBasicAuth(c.Username, c.Password)
 	}
 	req.Header.Set("Accept", "application/vnd.schemaregistry.v1+json")

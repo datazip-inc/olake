@@ -305,6 +305,7 @@ func decodeJSONMessage(value []byte) (map[string]interface{}, error) {
 	return data, nil
 }
 
+// TODO: we need to handle when multiple type are present in avro schema, need to find the super type in driver level (through LCA)
 // decode kafka avro binary message
 func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 	nativeDatum, _, err := codec.NativeFromBinary(data)

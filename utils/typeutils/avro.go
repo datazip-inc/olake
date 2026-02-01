@@ -24,8 +24,6 @@ func ConvertAvroValue(v interface{}) interface{} {
 		// Avro decimal logical type → float64
 		f, _ := val.Float64()
 		return f
-	case []byte:
-		return string(val)
 	case map[string]interface{}:
 		// Handle Avro union types - goavro returns map with type name as key
 		if len(val) == 1 {
