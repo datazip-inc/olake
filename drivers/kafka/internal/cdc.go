@@ -3,6 +3,7 @@ package driver
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -225,10 +226,7 @@ func (k *Kafka) parseKafkaData(message kafka.Message) (map[string]interface{}, s
 			}
 
 			// get schemaID
-			schemaID, err := extractSchemaID(data)
-			if err != nil {
-				return nil, err
-			}
+			schemaID := binary.BigEndian.Uint32(data[1:5])
 
 			// fetch schema
 			schema, err := k.schemaRegistryClient.FetchSchema(schemaID)
@@ -239,15 +237,7 @@ func (k *Kafka) parseKafkaData(message kafka.Message) (map[string]interface{}, s
 			// decode data based on format
 			switch schema.SchemaType {
 			case types.SchemaTypeAvro:
-				decoded, err := decodeAvroMessage(data[5:], schema.Codec)
-				if err != nil {
-					return nil, err
-				}
-				if record, ok := decoded.(map[string]interface{}); ok {
-					return record, nil
-				}
-				// For keys or non-record values, it might be primitive
-				return decoded, nil
+				return decodeAvroMessage(data[5:], schema.Codec)
 			case types.SchemaTypeJSON:
 				return decodeJSONMessage(data[5:])
 			default:

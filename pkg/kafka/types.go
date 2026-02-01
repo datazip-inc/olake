@@ -40,9 +40,9 @@ type CustomGroupBalancer struct {
 
 // SchemaRegistryClient holds the schema registry client information
 type SchemaRegistryClient struct {
-	endpoint   string
-	username   string
-	password   string
+	Endpoint   string `json:"endpoint"`
+	Username   string `json:"username,omitempty"`
+	Password   string `json:"password,omitempty"`
 	httpClient *http.Client
 	schemaMap  sync.Map // map[uint32]*RegisteredSchema (key -> schemaID)
 }

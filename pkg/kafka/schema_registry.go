@@ -11,14 +11,13 @@ import (
 	"github.com/linkedin/goavro/v2"
 )
 
-func NewSchemaRegistryClient(endpoint, username, password string) *SchemaRegistryClient {
-	return &SchemaRegistryClient{
-		endpoint: endpoint,
-		username: username,
-		password: password,
-		httpClient: &http.Client{
+// Init initializes the HTTP client for the SchemaRegistryClient.
+// Call this after JSON deserialization to set up the httpClient.
+func (c *SchemaRegistryClient) Init() {
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{
 			Timeout: 30 * time.Second,
-		},
+		}
 	}
 }
 
@@ -31,15 +30,15 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 	}
 
 	// fetch schema from registry
-	url := fmt.Sprintf("%s/schemas/ids/%d", c.endpoint, schemaID)
+	url := fmt.Sprintf("%s/schemas/ids/%d", c.Endpoint, schemaID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// set basic auth if credentials provided
-	if c.username != "" && c.password != "" {
-		req.SetBasicAuth(c.username, c.password)
+	if c.Username != "" && c.Password != "" {
+		req.SetBasicAuth(c.Username, c.Password)
 	}
 	req.Header.Set("Accept", "application/vnd.schemaregistry.v1+json")
 

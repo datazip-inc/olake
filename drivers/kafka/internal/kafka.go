@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/binary"
 	"fmt"
 	"regexp"
 	"slices"
@@ -106,11 +105,8 @@ func (k *Kafka) Setup(ctx context.Context) error {
 
 	// initialize confluent schema registry client if configured
 	if k.config.SchemaRegistry != nil && k.config.SchemaRegistry.Endpoint != "" {
-		k.schemaRegistryClient = kafkapkg.NewSchemaRegistryClient(
-			k.config.SchemaRegistry.Endpoint,
-			k.config.SchemaRegistry.Username,
-			k.config.SchemaRegistry.Password,
-		)
+		k.config.SchemaRegistry.Init()
+		k.schemaRegistryClient = k.config.SchemaRegistry
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
 	}
 
@@ -414,19 +410,8 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 	return assigned, nil
 }
 
-// extractSchemaID extracts schema ID from Confluent wire format message
-// Wire format: [magic byte (0x00)] [4-byte schema ID (big-endian)] [payload]
-func extractSchemaID(data []byte) (uint32, error) {
-	if len(data) < 5 {
-		return 0, fmt.Errorf("message too short for wire format: need at least 5 bytes, got %d", len(data))
-	}
-	if data[0] != 0x00 {
-		return 0, fmt.Errorf("invalid magic byte: expected 0x00, got 0x%02x", data[0])
-	}
-	return binary.BigEndian.Uint32(data[1:5]), nil
-}
-
 // isConfluentWireFormat checks if data starts with Confluent wire format magic byte
+// Wire format: [magic byte (0x00)] [4-byte schema ID (big-endian)] [payload]
 func isConfluentWireFormat(data []byte) bool {
 	return len(data) >= 5 && data[0] == 0x00
 }
