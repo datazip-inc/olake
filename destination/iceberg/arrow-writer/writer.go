@@ -3,6 +3,7 @@ package arrowwriter
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -29,6 +30,8 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
+	payload        any
+	syncMode       string
 }
 
 type Writer struct {
@@ -63,7 +66,7 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
+func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, payload any, syncMode string) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
 		partitionInfo: partitionInfo,
 		schema:        schema,
@@ -73,6 +76,8 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
+		payload:       payload,
+		syncMode:      syncMode,
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -342,7 +347,13 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 			ThreadId:      w.server.ServerID(),
 			DestTableName: w.stream.GetDestinationTable(),
 			FileMetadata:  orderedFiles,
+			SyncMode:      w.syncMode,
 		},
+	}
+
+	if w.payload != nil {
+		payloadBytes, _ := json.Marshal(w.payload)
+		commitRequest.Metadata.Payload = string(payloadBytes)
 	}
 
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
