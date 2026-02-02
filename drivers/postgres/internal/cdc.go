@@ -142,32 +142,6 @@ func (p *Postgres) GetCDCStartPosition() string {
 	return walState.LSN
 }
 
-func (p *Postgres) SetNextCDCPosition(position string) {
-	// Read existing state to preserve other fields
-	var walState waljs.WALState
-	globalState := p.state.GetGlobal()
-	if globalState != nil && globalState.State != nil {
-		if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-			logger.Warnf("Failed to unmarshal global state for SetNextCDCPosition: %s", err)
-		}
-	}
-	walState.NextCDCPos = position
-	p.state.SetGlobal(walState)
-	logger.Infof("Set next_cdc_pos in state: %s", position)
-}
-
-func (p *Postgres) GetNextCDCPosition() string {
-	globalState := p.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return ""
-	}
-	var walState waljs.WALState
-	if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-		return ""
-	}
-	return walState.NextCDCPos
-}
-
 func (p *Postgres) SetCurrentCDCPosition(position string) {
 	var walState waljs.WALState
 	globalState := p.state.GetGlobal()
@@ -179,22 +153,6 @@ func (p *Postgres) SetCurrentCDCPosition(position string) {
 	walState.LSN = position
 	p.state.SetGlobal(walState)
 	logger.Infof("Set current CDC position (LSN) in state: %s", position)
-}
-
-func (p *Postgres) SetProcessingStreams(streamIDs []string) {
-	globalState := p.state.GetGlobal()
-	if globalState == nil {
-		logger.Warnf("SetProcessingStreams called but global state is nil")
-		return
-	}
-	var walState waljs.WALState
-	if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-		logger.Warnf("Failed to unmarshal global state for SetProcessingStreams: %s", err)
-		return
-	}
-	walState.Processing = streamIDs
-	p.state.SetGlobal(walState)
-	logger.Infof("Set processing streams in state: %v", streamIDs)
 }
 
 func (p *Postgres) RemoveProcessingStream(streamID string) {

@@ -146,34 +146,6 @@ func (m *MySQL) GetCDCStartPosition() string {
 	return fmt.Sprintf("%s:%d", mysqlState.State.Position.Name, mysqlState.State.Position.Pos)
 }
 
-func (m *MySQL) SetNextCDCPosition(position string) {
-	globalState := m.state.GetGlobal()
-	if globalState == nil {
-		logger.Warnf("SetNextCDCPosition called but global state is nil")
-		return
-	}
-	var mysqlState MySQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
-		logger.Warnf("Failed to unmarshal global state for SetNextCDCPosition: %s", err)
-		return
-	}
-	mysqlState.NextCDCPos = position
-	m.state.SetGlobal(mysqlState)
-	logger.Infof("Set next_cdc_pos in state: %s", position)
-}
-
-func (m *MySQL) GetNextCDCPosition() string {
-	globalState := m.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return ""
-	}
-	var mysqlState MySQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
-		return ""
-	}
-	return mysqlState.NextCDCPos
-}
-
 func (m *MySQL) SetCurrentCDCPosition(position string) {
 	globalState := m.state.GetGlobal()
 	if globalState == nil {
@@ -204,22 +176,6 @@ func (m *MySQL) SetCurrentCDCPosition(position string) {
 	mysqlState.State.Position.Pos = pos
 	m.state.SetGlobal(mysqlState)
 	logger.Infof("Set current CDC position in state: %s", position)
-}
-
-func (m *MySQL) SetProcessingStreams(streamIDs []string) {
-	globalState := m.state.GetGlobal()
-	if globalState == nil {
-		logger.Warnf("SetProcessingStreams called but global state is nil")
-		return
-	}
-	var mysqlState MySQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
-		logger.Warnf("Failed to unmarshal global state for SetProcessingStreams: %s", err)
-		return
-	}
-	mysqlState.Processing = streamIDs
-	m.state.SetGlobal(mysqlState)
-	logger.Infof("Set processing streams in state: %v", streamIDs)
 }
 
 func (m *MySQL) RemoveProcessingStream(streamID string) {

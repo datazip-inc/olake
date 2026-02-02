@@ -22,6 +22,8 @@ type (
 		Number     int64
 		Backfill   bool
 		ThreadID   string
+		SyncMode   string
+		Payload    any
 	}
 
 	ThreadOptions func(opt *Options)
@@ -80,6 +82,18 @@ func WithBackfill(backfill bool) ThreadOptions {
 func WithThreadID(threadID string) ThreadOptions {
 	return func(opt *Options) {
 		opt.ThreadID = threadID
+	}
+}
+
+func WithSyncMode(mode string) ThreadOptions {
+	return func(opt *Options) {
+		opt.SyncMode = mode
+	}
+}
+
+func WithPayload(payload any) ThreadOptions {
+	return func(opt *Options) {
+		opt.Payload = payload
 	}
 }
 
@@ -283,8 +297,8 @@ func (wt *WriterThread) Close(ctx context.Context) (err error) {
 	}
 }
 
-// IsThreadCommitted checks if the thread is already committed
-func (wt *WriterThread) IsThreadCommitted(ctx context.Context, threadID string) (bool, error) {
+// IsThreadCommitted checks if the thread is committed, and returns the payload
+func (wt *WriterThread) IsThreadCommitted(ctx context.Context, threadID string) (string, error) {
 	return wt.writer.ThreadStatus(ctx, threadID)
 }
 

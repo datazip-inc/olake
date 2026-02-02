@@ -29,6 +29,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
@@ -41,6 +42,10 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
@@ -72,6 +77,9 @@ public class IcebergTableOperator {
   static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1,
       Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
+  private static final ObjectMapper mapper = new ObjectMapper();
+
+
   @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
   String cdcSourceTsMsField;
   @ConfigProperty(name = "debezium.sink.iceberg.upsert-op-field", defaultValue = "_op_type")
@@ -115,7 +123,7 @@ public class IcebergTableOperator {
    * @param threadId The thread ID to commit
    * @throws RuntimeException if commit fails
    */
-  public void commitThread(String threadId, Table table) {
+  public void commitThread(String threadId, String syncMode, String payload, Table table) {
     if (table == null) {
       LOGGER.warn("No table found for thread: {}", threadId);
       return;
@@ -160,9 +168,23 @@ public class IcebergTableOperator {
       Transaction transaction = table.newTransaction();
 
       // 1. Stage Property Update - mark thread as committed
-      transaction.updateProperties()
-          .set(threadId, "committed")
-          .commit();
+      UpdateProperties updateProperties = transaction.updateProperties();
+      
+      
+      if (syncMode == null || syncMode.equals("backfill") || syncMode.isEmpty()) {
+          // Standard backfill item commit
+          updateProperties.set(threadId, "committed");
+      } else if (syncMode.equals("backfill_check")) {
+          // No-op: this mode is used only for checking status, no commit actions needed.
+      } else if (syncMode.equals("cdc")) {
+          String key = "olake_2pc_cdc";
+          updateJsonState(table, updateProperties, key, threadId, syncMode, payload);
+      } else if (syncMode.equals("incremental")) {
+          String key = "olake_2pc_incremental";
+          updateJsonState(table, updateProperties, key, threadId, syncMode, payload);
+      }
+      
+      updateProperties.commit();
 
       // 2. Stage Data Commit
       if (!hasAnyDeletes) {
@@ -421,6 +443,77 @@ public class IcebergTableOperator {
                partitionData.set(i, value);
           }
 
-          return partitionData;
-     }
+         return partitionData;
+  }
+
+  private void updateJsonState(Table table, UpdateProperties updateProperties, String key, String threadId, String syncMode, String payload) {
+      try {
+          String currentValue = table.properties().get(key);
+          ObjectNode rootNode;
+          if (currentValue != null) {
+              rootNode = (ObjectNode) mapper.readTree(currentValue);
+          } else {
+              rootNode = mapper.createObjectNode();
+          }
+          rootNode.put("latest_threadId", threadId);
+
+          if (payload != null && !payload.isEmpty()) {
+              JsonNode payloadNode = mapper.readTree(payload);
+              if ("incremental".equals(syncMode)) {
+                  ObjectNode nextCursorValue;
+                  if (rootNode.has("next_cursor_value")) {
+                      nextCursorValue = (ObjectNode) rootNode.get("next_cursor_value");
+                  } else {
+                      nextCursorValue = rootNode.putObject("next_cursor_value");
+                  }
+                  
+                  if (payloadNode.isObject()) {
+                       // Merge values
+                       payloadNode.fields().forEachRemaining(entry -> nextCursorValue.set(entry.getKey(), entry.getValue()));
+                  }
+              } else if ("cdc".equals(syncMode)) {
+                   if (payloadNode.isObject()) {
+                       // Merge payload directly into root node
+                       payloadNode.fields().forEachRemaining(entry -> rootNode.set(entry.getKey(), entry.getValue()));
+                   }
+               }
+          }
+
+          updateProperties.set(key, mapper.writeValueAsString(rootNode));
+      } catch (JsonProcessingException e) {
+          LOGGER.error("Failed to update JSON state for key: " + key, e);
+          throw new RuntimeException("Failed to update JSON state", e);
+      }
+  }
+
+  public String getCommitState(String threadId, String syncMode, Table table) {
+      if (syncMode == null || "backfill".equals(syncMode) || syncMode.isEmpty()) {
+          String propertyValue = null;
+          if (table != null) {
+              propertyValue = table.properties().get(threadId);
+          }
+          return (propertyValue != null && "committed".equals(propertyValue)) ? "committed" : null;
+      }
+      
+      String key = "cdc".equals(syncMode) ? "olake_2pc_cdc" : "olake_2pc_incremental";
+      
+      String propertyValue = null;
+      if (table != null) {
+          propertyValue = table.properties().get(key);
+      }
+
+      if (propertyValue == null) {
+          return null;
+      }
+
+      try {
+          JsonNode rootNode = mapper.readTree(propertyValue);
+          if (rootNode.has("latest_threadId") && threadId.equals(rootNode.get("latest_threadId").asText())) {
+              return propertyValue;
+          }
+      } catch (JsonProcessingException e) {
+          LOGGER.error("Failed to parse JSON state for key: " + key, e);
+      }
+      return null;
+  }
 }

@@ -17,23 +17,17 @@ type Config interface {
 // GlobalPosition2PC is for drivers that use a global CDC position shared across all streams (MySQL, Postgres).
 // These drivers need bounded sync because all streams share the same LSN/binlog position.
 type GlobalPosition2PC interface {
-	GetCDCPosition() string                  // returns current CDC position (binlog pos for MySQL, LSN for Postgres)
-	GetCDCStartPosition() string             // returns starting CDC position from state (for predictable thread IDs)
-	SetCurrentCDCPosition(position string)   // updates the current CDC position in state (for recovery)
-	SetNextCDCPosition(position string)      // sets the next CDC position in state (for 2PC recovery)
-	GetNextCDCPosition() string              // returns the next CDC position from state (for recovery)
-	SetTargetCDCPosition(position string)    // sets target position for bounded recovery sync (empty = use latest)
-	GetTargetCDCPosition() string            // returns target position (empty = use latest)
-	SetProcessingStreams(streamIDs []string) // sets the stream IDs currently being processed (for 2PC recovery)
-	RemoveProcessingStream(streamID string)  // removes a stream from processing after successful commit
-	GetProcessingStreams() []string          // returns stream IDs currently in processing state (for recovery)
+	GetCDCPosition() string                // returns current CDC position (binlog pos for MySQL, LSN for Postgres)
+	GetCDCStartPosition() string           // returns starting CDC position from state (for predictable thread IDs)
+	SetCurrentCDCPosition(position string) // updates the current CDC position in state (for recovery)
+	SetTargetCDCPosition(position string)  // sets target position for bounded recovery sync (empty = use latest)
+	GetTargetCDCPosition() string          // returns target position (empty = use latest)
 }
 
 // PerStreamPosition2PC is for drivers that use per-stream CDC positions (MongoDB).
 // Each stream has its own resume token, so recovery works like incremental sync - no bounded sync needed.
 type PerStreamPosition2PC interface {
-	SaveNextCDCPositionForStream(streamID string)                                                                 // saves current position as next_data for that stream (before commit)
-	CommitCDCPositionForStream(streamID string)                                                                   // after commit succeeds, moves next_data to _data and clears next_data
+	GetCDCPositionForStream(streamID string) string                                                               //
 	CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error // checks next_data, verifies commit, updates or rollbacks _data
 }
 

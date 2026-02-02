@@ -239,7 +239,7 @@ func generateThreadID(streamID, hash string) string {
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
 //
 // The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, preProcess func(ctx context.Context) error, postProcess func(ctx context.Context) error, onStreamCommit func(streamID string)) func() {
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, preProcess func(ctx context.Context) error, postProcess func(ctx context.Context) error) func() {
 	return func() {
 		// Cancel context if there's an error, so other threads using this context can detect the failure
 		if *err != nil {
@@ -264,9 +264,6 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 				if inserter != nil {
 					if threadErr := inserter.Close(ctx); threadErr != nil {
 						closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
-					} else if onStreamCommit != nil {
-						// Successfully committed, remove from processing
-						onStreamCommit(streamID)
 					}
 				}
 			}

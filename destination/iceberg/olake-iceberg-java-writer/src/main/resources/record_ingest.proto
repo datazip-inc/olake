@@ -24,6 +24,8 @@ message IcebergPayload {
     string thread_id = 2;
     optional string identifier_field = 3;
     repeated SchemaField schema = 4;
+    string payload = 6;
+    string sync_mode = 7;
   }
 
   message SchemaField {
@@ -101,6 +103,8 @@ message ArrowPayload {
     string thread_id = 2;
     repeated FileMetadata file_metadata = 3;
     optional FileUploadRequest file_upload = 4;
+    string payload = 6;
+    string sync_mode = 7;
   }
 
   Metadata metadata = 2;

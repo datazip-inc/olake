@@ -591,9 +591,8 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 }
 
 // ThreadStatus returns whether a thread has been committed to the destination.
-// NOTE: Parquet destination does NOT support 2PC recovery.
-func (p *Parquet) ThreadStatus(_ context.Context, _ string) (bool, error) {
-	return false, nil
+func (p *Parquet) ThreadStatus(_ context.Context, _ string) (string, error) {
+	return "", nil
 }
 
 func init() {

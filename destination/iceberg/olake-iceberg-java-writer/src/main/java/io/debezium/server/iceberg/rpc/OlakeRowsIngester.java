@@ -73,8 +73,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
             switch (request.getType()) {
                 case COMMIT:
-                    LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
-                    icebergTableOperator.commitThread(threadId, this.icebergTable);
+                    icebergTableOperator.commitThread(threadId, metadata.getSyncMode(), metadata.getPayload(), this.icebergTable);
                     sendResponse(responseObserver, requestId + " Successfully committed data for thread " + threadId);
                     LOGGER.debug("{} Successfully committed data for thread: {}", requestId, threadId);
                     break;
@@ -112,12 +111,12 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     
                 case CHECK_THREAD_STATUS:
                     this.icebergTable.refresh();
-                    String propertyValue = this.icebergTable.properties().get(threadId);
-                    boolean committed = propertyValue != null && propertyValue.equals("committed");
+                    String commitState = icebergTableOperator.getCommitState(threadId, metadata.getSyncMode(), this.icebergTable);
+                    boolean committed = commitState != null;
                     
                     RecordIngest.RecordIngestResponse statusResponse = RecordIngest.RecordIngestResponse.newBuilder()
                         .setSuccess(committed)
-                        .setResult(String.valueOf(committed))
+                        .setResult(committed ? commitState : "")
                         .build();
                     responseObserver.onNext(statusResponse);
                     responseObserver.onCompleted();

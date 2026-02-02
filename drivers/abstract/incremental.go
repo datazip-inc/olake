@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -25,48 +26,8 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 		prevSecondaryCursor := a.state.GetCursor(stream.Self(), secondaryCursor)
 
 		// Check for potential recovery from previous run
-		nextPrimaryCursorKey := fmt.Sprintf("olake_next_cursor_%s", primaryCursor)
-		if nextPrimaryCursorVal := a.state.GetCursor(stream.Self(), nextPrimaryCursorKey); nextPrimaryCursorVal != nil {
-			nextPrim, err := ReformatCursorValue(primaryCursor, nextPrimaryCursorVal, stream)
-			if err == nil {
-				var nextSec any
-				if secondaryCursor != "" {
-					nextSecKey := fmt.Sprintf("olake_next_cursor_%s", secondaryCursor)
-					if val := a.state.GetCursor(stream.Self(), nextSecKey); val != nil {
-						nextSec, _ = ReformatCursorValue(secondaryCursor, val, stream)
-					}
-				}
+		prevPrimaryCursor, prevSecondaryCursor = a.incrementalRecovery(mainCtx, pool, stream, primaryCursor, secondaryCursor, prevPrimaryCursor, prevSecondaryCursor)
 
-				startPrim, rErr := ReformatCursorValue(primaryCursor, prevPrimaryCursor, stream)
-				var startSec any
-				if rErr == nil && secondaryCursor != "" {
-					startSec, rErr = ReformatCursorValue(secondaryCursor, prevSecondaryCursor, stream)
-				}
-
-				if rErr == nil {
-					rawCtx := fmt.Sprintf("primaryCursor_%v_secondaryCursor_%v", startPrim, startSec)
-					hash := sha256.Sum256([]byte(rawCtx))
-					threadID := fmt.Sprintf("%s_%x", stream.ID(), hash)
-					logger.Debugf("Recovering incremental state for stream %s with threadID %s", stream.ID(), threadID)
-
-					inserter, err := pool.NewWriter(mainCtx, stream, destination.WithThreadID(threadID))
-					if err == nil {
-						committed, err := inserter.IsThreadCommitted(mainCtx, threadID)
-						_ = inserter.Close(mainCtx)
-						if err == nil && committed {
-							logger.Infof("Recovering committed state for stream %s", stream.ID())
-
-							a.commitIncrementalState(stream, primaryCursor, nextPrim, secondaryCursor, nextSec)
-
-							prevPrimaryCursor = nextPrim
-							if secondaryCursor != "" {
-								prevSecondaryCursor = nextSec
-							}
-						}
-					}
-				}
-			}
-		}
 		if a.state.HasCompletedBackfill(stream.Self()) && (prevPrimaryCursor != nil && (secondaryCursor == "" || prevSecondaryCursor != nil)) {
 			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
 			backfillWaitChannel <- stream.ID()
@@ -83,16 +44,19 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
 
-			a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
+			cursors := map[string]any{
+				primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue),
+			}
 			if maxPrimaryCursorValue == nil {
 				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
 			}
 			if secondaryCursor != "" {
-				a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
+				cursors[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
 				if maxSecondaryCursorValue == nil {
 					logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
 				}
 			}
+			a.state.SetCursors(stream.Self(), cursors)
 		}
 
 		return a.Backfill(mainCtx, backfillWaitChannel, pool, stream)
@@ -118,10 +82,19 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
 			defer incrementalCtxCancel()
 
-			rawCtx := fmt.Sprintf("primaryCursor_%v_secondaryCursor_%v", maxPrimaryCursorValue, maxSecondaryCursorValue)
+			rawCtx := fmt.Sprintf("primaryCursor_%v_secondaryCursor_%v", a.FormatCursorValue(maxPrimaryCursorValue), a.FormatCursorValue(maxSecondaryCursorValue))
 			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(rawCtx)))
 			threadID := generateThreadID(stream.ID(), hash)
-			inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
+
+			// Use a map reference for payload so we can update it dynamically inside the loop
+			payload := map[string]string{
+				primaryCursor: fmt.Sprintf("%v", a.FormatCursorValue(maxPrimaryCursorValue)),
+			}
+			if secondaryCursor != "" {
+				payload[secondaryCursor] = fmt.Sprintf("%v", a.FormatCursorValue(maxSecondaryCursorValue))
+			}
+
+			inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID), destination.WithSyncMode("incremental"), destination.WithPayload(payload))
 			if err != nil {
 				return fmt.Errorf("failed to create new writer thread: %s", err)
 			}
@@ -133,9 +106,10 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 					if ctx.Err() != nil {
 						return ctx.Err()
 					}
-					a.state.SetCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", primaryCursor), a.FormatCursorValue(maxPrimaryCursorValue))
+					// Update payload with final cursor values before committing
+					payload[primaryCursor] = fmt.Sprintf("%v", a.FormatCursorValue(maxPrimaryCursorValue))
 					if secondaryCursor != "" {
-						a.state.SetCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", secondaryCursor), a.FormatCursorValue(maxSecondaryCursorValue))
+						payload[secondaryCursor] = fmt.Sprintf("%v", a.FormatCursorValue(maxSecondaryCursorValue))
 					}
 					return nil
 				},
@@ -146,7 +120,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 					// Save cursor state on success
 					a.commitIncrementalState(stream, primaryCursor, maxPrimaryCursorValue, secondaryCursor, maxSecondaryCursorValue)
 					return nil
-				}, nil)()
+				})()
 
 			// No retry logic here - retry happens at Read level
 			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
@@ -225,7 +199,77 @@ func (a *AbstractDriver) commitIncrementalState(stream types.StreamInterface, pr
 	a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(primaryValue))
 	if secondaryCursor != "" {
 		a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(secondaryValue))
-		a.state.DeleteCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", secondaryCursor))
 	}
-	a.state.DeleteCursor(stream.Self(), fmt.Sprintf("olake_next_cursor_%s", primaryCursor))
+}
+
+// incrementalRecovery checks for committed state from a previous run and updates the state if found.
+func (a *AbstractDriver) incrementalRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface, primaryCursor, secondaryCursor string, prevPrimaryCursor, prevSecondaryCursor any) (any, any) {
+	statePrimaryCursor, err := ReformatCursorValue(primaryCursor, prevPrimaryCursor, stream)
+	var stateSecondaryCursor any
+	if err == nil && secondaryCursor != "" {
+		stateSecondaryCursor, err = ReformatCursorValue(secondaryCursor, prevSecondaryCursor, stream)
+	}
+
+	if err != nil {
+		logger.Warnf("Skipping recovery check for stream %s due to cursor format error: %s", stream.ID(), err)
+		return prevPrimaryCursor, prevSecondaryCursor
+	}
+
+	rawCtx := fmt.Sprintf("primaryCursor_%v_secondaryCursor_%v", a.FormatCursorValue(statePrimaryCursor), a.FormatCursorValue(stateSecondaryCursor))
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(rawCtx)))
+	threadID := generateThreadID(stream.ID(), hash)
+
+	inserter, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
+	if err != nil {
+		logger.Warnf("Skipping recovery check: failed to create writer for stream %s: %s", stream.ID(), err)
+		return prevPrimaryCursor, prevSecondaryCursor
+	}
+
+	statePayload, err := inserter.IsThreadCommitted(ctx, threadID)
+	_ = inserter.Close(ctx)
+
+	if err != nil || statePayload == "" {
+		return prevPrimaryCursor, prevSecondaryCursor
+	}
+
+	var payloadMap map[string]any
+	if err := json.Unmarshal([]byte(statePayload), &payloadMap); err != nil {
+		logger.Warnf("Failed to unmarshal recovery payload for stream %s: %s", stream.ID(), err)
+		return prevPrimaryCursor, prevSecondaryCursor
+	}
+
+	// Helper to extract value from payload, checking both top-level and nested "next_cursor_value"
+	getValue := func(key string) any {
+		if val, ok := payloadMap[key]; ok {
+			return val
+		}
+		if nextCursorVal, ok := payloadMap["next_cursor_value"]; ok {
+			if nestedMap, ok := nextCursorVal.(map[string]any); ok {
+				if val, ok := nestedMap[key]; ok {
+					return val
+				}
+			}
+		}
+		return nil
+	}
+
+	// Extract max cursors from payload using the actual cursor names as keys
+	recoveredPrimaryCursor := getValue(primaryCursor)
+	if recoveredPrimaryCursor == nil || recoveredPrimaryCursor == "" {
+		return prevPrimaryCursor, prevSecondaryCursor
+	}
+
+	var recoveredSecondaryCursor any
+	if secondaryCursor != "" {
+		recoveredSecondaryCursor = getValue(secondaryCursor)
+	}
+
+	// Update state directly - atomic update
+	cursors := map[string]any{primaryCursor: recoveredPrimaryCursor}
+	if secondaryCursor != "" {
+		cursors[secondaryCursor] = recoveredSecondaryCursor
+	}
+	a.state.SetCursors(stream.Self(), cursors)
+
+	return recoveredPrimaryCursor, recoveredSecondaryCursor
 }
