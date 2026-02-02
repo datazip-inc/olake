@@ -337,15 +337,14 @@ const KafkaUISchema = `{
       }
     },
     "schema_registry": {
-      "ui:options": {
-        "title": false,
-        "description": false
-      },
       "ui:grid": [
         { "endpoint": 24 },
         { "username": 12, "password": 12 },
         { "bearer_token": 24 }
       ],
+      "ui:options": {
+        "title": false
+      },
       "password": {
         "ui:widget": "password"
       },

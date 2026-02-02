@@ -185,29 +185,32 @@
             "default": true
         },
         "schema_registry": {
-            "type": "object",
             "title": "Schema Registry Configuration",
             "description": "Confluent Schema Registry settings for Avro message deserialization",
-            "properties": {
-                "endpoint": {
-                    "type": "string",
-                    "title": "Schema Registry Endpoint",
-                    "description": "Schema Registry URL (e.g., http://localhost:8081)"
-                }
-            },
-            "required": ["endpoint"],
             "oneOf": [
                 {
+                    "type": "object",
                     "title": "No Authentication",
                     "properties": {
-                        "endpoint": true
+                        "endpoint": {
+                            "type": "string",
+                            "title": "Schema Registry Endpoint",
+                            "description": "Schema Registry URL (e.g., http://localhost:8081)"
+                        }
                     },
-                    "additionalProperties": false
+                    "required": [
+                        "endpoint"
+                    ]
                 },
                 {
+                    "type": "object",
                     "title": "Username & Password",
                     "properties": {
-                        "endpoint": true,
+                        "endpoint": {
+                            "type": "string",
+                            "title": "Schema Registry Endpoint",
+                            "description": "Schema Registry URL (e.g., http://localhost:8081)"
+                        },
                         "username": {
                             "type": "string",
                             "title": "Username",
@@ -221,13 +224,21 @@
                             "minLength": 1
                         }
                     },
-                    "required": ["username", "password"],
-                    "additionalProperties": false
+                    "required": [
+                        "endpoint",
+                        "username",
+                        "password"
+                    ]
                 },
                 {
+                    "type": "object",
                     "title": "Bearer Token",
                     "properties": {
-                        "endpoint": true,
+                        "endpoint": {
+                            "type": "string",
+                            "title": "Schema Registry Endpoint",
+                            "description": "Schema Registry URL (e.g., http://localhost:8081)"
+                        },
                         "bearer_token": {
                             "type": "string",
                             "title": "Bearer Token",
@@ -235,8 +246,10 @@
                             "minLength": 1
                         }
                     },
-                    "required": ["bearer_token"],
-                    "additionalProperties": false
+                    "required": [
+                        "endpoint",
+                        "bearer_token"
+                    ]
                 }
             ]
         }
