@@ -218,9 +218,13 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		})
 		return nil
 	})
-	// if any error occurs or all messages failed to parse, return error
-	if err != nil || parsedMessageCount == 0 {
+	if err != nil {
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
+	}
+
+	// check if all messages failed to parse
+	if parsedMessageCount == 0 {
+		return stream, fmt.Errorf("failed to produce schema for topic %s: all sampled messages failed to parse", streamName)
 	}
 
 	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
