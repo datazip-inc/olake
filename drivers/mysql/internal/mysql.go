@@ -306,3 +306,10 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 
 	return true, nil
 }
+
+func (m *MySQL) GetCDCColumns() map[string]types.DataType {
+	return map[string]types.DataType{
+		constants.CDCBinlogFileName: types.String,
+		constants.CDCBinlogFilePos:  types.Int64,
+	}
+}

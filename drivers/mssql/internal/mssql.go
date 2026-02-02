@@ -309,3 +309,10 @@ func (m *MSSQL) validateCDCStream(ctx context.Context, namespace, name string) (
 	}
 	return true, nil
 }
+
+func (m *MSSQL) GetCDCColumns() map[string]types.DataType {
+	return map[string]types.DataType{
+		constants.CDCStartLSN: types.String,
+		constants.CDCSeqVal:   types.String,
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -124,16 +125,10 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 }
 
 func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastOplogTime primitive.Timestamp) error {
-	finalToken := cursor.ResumeToken()
-	if finalToken == nil {
-		return fmt.Errorf("no resume token available for stream %s after TryNext", stream.ID())
-	}
-
-	rawToken, err := finalToken.LookupErr(cdcCursorField)
+	token, err := GetResumeToken(cursor, stream.ID())
 	if err != nil {
-		return fmt.Errorf("%s field not found in resume token: %s", cdcCursorField, err)
+		return err
 	}
-	token := rawToken.StringValue()
 
 	// check pointing post batch resume token
 	m.cdcCursor.Store(stream.ID(), token)
@@ -168,12 +163,18 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		record.WallTime.Time(), // millisecond precision
 		time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
 	).(time.Time)
-
+	token, err := GetResumeToken(cursor, stream.ID())
+	if err != nil {
+		return err
+	}
 	change := abstract.CDCChange{
 		Stream:    stream,
 		Timestamp: ts,
 		Data:      record.FullDocument,
 		Kind:      record.OperationType,
+		ExtraColumns: map[string]any{
+			constants.CDCResumeToken: token,
+		},
 	}
 
 	if err := OnMessage(ctx, change); err != nil {
@@ -259,4 +260,25 @@ func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 		T: binary.BigEndian.Uint32(dataBytes[1:5]),
 		I: binary.BigEndian.Uint32(dataBytes[5:9]),
 	}, nil
+}
+
+// GetResumeToken extracts and validates the resume token string from a change stream cursor
+func GetResumeToken(cursor *mongo.ChangeStream, streamID string) (string, error) {
+	finalToken := cursor.ResumeToken()
+	if finalToken == nil {
+		return "", fmt.Errorf("no resume token available for stream %s", streamID)
+	}
+
+	rawToken, err := finalToken.LookupErr(cdcCursorField)
+	if err != nil {
+		return "", fmt.Errorf("%s field not found in resume token for stream %s: %w",
+			cdcCursorField, streamID, err)
+	}
+
+	token := rawToken.StringValue()
+	if token == "" {
+		return "", fmt.Errorf("empty resume token value for stream %s", streamID)
+	}
+
+	return token, nil
 }

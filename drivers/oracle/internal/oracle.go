@@ -218,3 +218,7 @@ func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interf
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, oracleTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
 }
+
+func (o *Oracle) GetCDCColumns() map[string]types.DataType {
+	return nil
+}

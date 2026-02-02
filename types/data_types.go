@@ -60,6 +60,28 @@ var RawSchema = map[string]DataType{
 	constants.OlakeID:         String,
 }
 
+func GetDriverSpecificRawSchema(driverType constants.DriverType) map[string]DataType {
+	baseRawSchema := map[string]DataType{
+		constants.OlakeID:        String,
+		constants.OlakeTimestamp: Timestamp,
+		constants.OpType:         String,
+		constants.CdcTimestamp:   Timestamp,
+	}
+	switch driverType {
+	case constants.MySQL:
+		baseRawSchema[constants.CDCBinlogFileName] = String
+		baseRawSchema[constants.CDCBinlogFilePos] = Int64
+	case constants.Postgres:
+		baseRawSchema[constants.CDCLSN] = String
+	case constants.MongoDB:
+		baseRawSchema[constants.CDCResumeToken] = String
+	case constants.MSSQL:
+		baseRawSchema[constants.CDCStartLSN] = String
+		baseRawSchema[constants.CDCSeqVal] = String
+	}
+	return baseRawSchema
+}
+
 type Record map[string]any
 
 type RawRecord struct {
@@ -68,25 +90,49 @@ type RawRecord struct {
 	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
 	OperationType  string         `parquet:"_op_type"`       // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
 	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
+	ExtraColumns   map[string]any `parquet:"extra_columns,json"`
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time) RawRecord {
+func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time, extraColumns map[string]any) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
 		Data:          data,
 		OperationType: operationType,
 		CdcTimestamp:  cdcTimestamp,
+		ExtraColumns:  extraColumns,
 	}
 }
 
-func GetParquetRawSchema() *parquet.Schema {
-	return parquet.NewSchema("RawRecord", parquet.Group{
+func GetParquetRawSchema(driverType constants.DriverType) *parquet.Schema {
+
+	// Base schema – common for all drivers
+	schemaFields := parquet.Group{
 		"data":             parquet.JSON(),
 		"_olake_id":        parquet.String(),
 		"_olake_timestamp": parquet.Timestamp(parquet.Microsecond),
 		"_op_type":         parquet.String(),
 		"_cdc_timestamp":   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
-	})
+	}
+
+	// Add driver-specific CDC fields
+	switch driverType {
+
+	case constants.MySQL:
+		schemaFields[constants.CDCBinlogFileName] = parquet.Optional(parquet.String())
+		schemaFields[constants.CDCBinlogFilePos] = parquet.Optional(parquet.Int(64))
+
+	case constants.Postgres:
+		schemaFields[constants.CDCLSN] = parquet.Optional(parquet.String())
+
+	case constants.MongoDB:
+		schemaFields[constants.CDCResumeToken] = parquet.Optional(parquet.String())
+
+	case constants.MSSQL:
+		schemaFields[constants.CDCStartLSN] = parquet.Optional(parquet.String())
+		schemaFields[constants.CDCSeqVal] = parquet.Optional(parquet.String())
+	}
+
+	return parquet.NewSchema("RawRecord", schemaFields)
 }
 
 func (d DataType) ToNewParquet() parquet.Node {

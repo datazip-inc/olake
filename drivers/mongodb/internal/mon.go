@@ -271,3 +271,9 @@ func filterMongoObject(doc bson.M) {
 		}
 	}
 }
+
+func (m *Mongo) GetCDCColumns() map[string]types.DataType {
+	return map[string]types.DataType{
+		constants.CDCResumeToken: types.String,
+	}
+}

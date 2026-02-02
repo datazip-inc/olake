@@ -264,12 +264,14 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 				if record.CdcTimestamp != nil {
 					val = record.CdcTimestamp
 				}
-			default:
+			case constants.StringifiedData:
 				if normalization {
 					val = record.Data[field.Name]
 				} else {
 					val = record.Data
 				}
+			default:
+				val = record.ExtraColumns[field.Name]
 			}
 
 			if val == nil {

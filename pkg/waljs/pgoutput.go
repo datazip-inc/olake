@@ -180,7 +180,13 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "insert", Data: values})
+	return insertFn(ctx, abstract.CDCChange{
+		Stream:       stream,
+		Timestamp:    p.txnCommitTime,
+		Kind:         "insert",
+		Data:         values,
+		ExtraColumns: map[string]any{constants.CDCLSN: p.socket.ClientXLogPos.String()},
+	})
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
@@ -199,7 +205,13 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "update", Data: values})
+	return insertFn(ctx, abstract.CDCChange{
+		Stream:       stream,
+		Timestamp:    p.txnCommitTime,
+		Kind:         "update",
+		Data:         values,
+		ExtraColumns: map[string]any{constants.CDCLSN: p.socket.ClientXLogPos.String()},
+	})
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
@@ -218,7 +230,13 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "delete", Data: values})
+	return insertFn(ctx, abstract.CDCChange{
+		Stream:       stream,
+		Timestamp:    p.txnCommitTime,
+		Kind:         "delete",
+		Data:         values,
+		ExtraColumns: map[string]any{constants.CDCLSN: p.socket.ClientXLogPos.String()},
+	})
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

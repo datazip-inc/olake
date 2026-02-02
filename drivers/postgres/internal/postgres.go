@@ -260,3 +260,9 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, pgTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
 }
+
+func (p *Postgres) GetCDCColumns() map[string]types.DataType {
+	return map[string]types.DataType{
+		constants.CDCLSN: types.String,
+	}
+}

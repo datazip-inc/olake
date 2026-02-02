@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
@@ -248,6 +249,10 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 			Timestamp: time.Now().UTC(),
 			Kind:      operationType,
 			Data:      record,
+			ExtraColumns: map[string]any{
+				constants.CDCLSN:    hex.EncodeToString(record["__$start_lsn"].([]byte)),
+				constants.CDCSeqVal: record["__$seqval"].(string),
+			},
 		}); err != nil {
 			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}

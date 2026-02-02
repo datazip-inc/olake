@@ -196,3 +196,7 @@ func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface
 
 	return typeutils.ReformatValue(olakeType, value)
 }
+
+func (d *DB2) GetCDCColumns() map[string]types.DataType {
+	return nil
+}
