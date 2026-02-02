@@ -996,8 +996,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 
 	var selectRows []types.Row
 	var queryErr error
-	maxRetries := 5
-	retryDelay := 2 * time.Second
+	maxRetries := 6
+	retryDelay := 3 * time.Second
 	attempt := 0
 	queryErr = utils.RetryOnBackoff(ctx, maxRetries, retryDelay, func(ctx context.Context) error {
 		attempt++
