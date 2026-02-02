@@ -1,0 +1,330 @@
+services:
+  # -------------------------
+  # Postgres (primary + loader)
+  # -------------------------
+  primary_postgres:
+    container_name: primary_postgres               # Set an explicit name for the container.
+    image: postgres:15                             # Use the official Postgres version 15 image.
+    profiles: ["postgres"]
+    hostname: primary_postgres                     # Define the hostname within the network.
+    ports:
+      - "5431:5432"                               # Map port 5432 inside the container to 5431 on the host.
+    environment:
+      POSTGRES_USER: main                          # Set the default Postgres username.
+      POSTGRES_PASSWORD: password                  # Set the password for the Postgres user.
+      POSTGRES_DB: main                            # Create a default database named "main".
+    # Start Postgres with logical replication enabled (pgoutput is native; no plugin install required).
+    command: >
+      bash -c "exec docker-entrypoint.sh postgres -c wal_level=logical -c max_wal_senders=10 -c max_replication_slots=10 -c wal_sender_timeout=0"
+    # Explanation of the command:
+      # 1. Use exec to run the default docker-entrypoint script provided by the Postgres image.
+      # 2. Start Postgres with additional configuration parameters:
+      #    - wal_level=logical: Enable logical replication.
+      #    - max_wal_senders=10: Allow up to 10 concurrent WAL sender processes.
+      #    - max_replication_slots=10: Allow up to 10 replication slots for logical decoding.
+      #    - wal_sender_timeout=0: Disable sender timeout so long-running snapshots do not drop the connection.
+    volumes:
+      - pg-data:/var/lib/postgresql/data          # Use a named volume (pg-data) to persist Postgres data.
+    networks:
+      - pg-cluster                                 # Connect the container to the custom network "pg-cluster".
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "main", "-d", "main"]  # Healthcheck command to check if Postgres is ready.
+      interval: 10s                                # Run the healthcheck every 10 seconds.
+      timeout: 5s                                  # Set a timeout of 5 seconds for the healthcheck command.
+      retries: 10                                  # Retry the healthcheck up to 10 times before declaring unhealthy.
+
+  # Data loader service to perform operations against the Postgres database.
+  pg-data-loader:
+    image: postgres:15                             # Use the same version of Postgres to ensure compatible client tools.
+    container_name: pg-data-loader             # Set a custom name for clarity.
+    profiles: ["postgres"]
+    environment:
+      PGUSER: main                                 # Set the default Postgres user for the client.
+      PGPASSWORD: password                         # Set the password for the Postgres user.
+      PGDATABASE: main                             # Connect to the "main" database.
+    depends_on:
+      primary_postgres:
+        condition: service_healthy               # Wait until the primary_postgres service passes its health check.
+    entrypoint: >
+      bash -c " 
+        echo \"Waiting for Postgres to be ready...\"; 
+        # Poll until Postgres is reachable.
+        until pg_isready -h primary_postgres -p 5432 -U main -d main; do 
+          echo \"Waiting...\"; 
+          sleep 2; 
+        done; 
+        echo \"Creating test table sample_data...\"; 
+        # Execute a SQL command to create a table if it doesn't exist.
+        psql -h primary_postgres -U main -d main -c \"CREATE TABLE IF NOT EXISTS sample_data (id SERIAL PRIMARY KEY, str_col TEXT, num_col INT);\"; 
+        echo \"Inserting one test row...\"; 
+        # Insert a sample row into the table.
+        psql -h primary_postgres -U main -d main -c \"INSERT INTO sample_data (str_col, num_col) VALUES ('Hello world', 123);\"; 
+        echo \"Creating publication and logical replication slot...\"; 
+        # Create a publication and a logical replication slot using the pgoutput plugin.
+        psql -h primary_postgres -U main -d main -c \"CREATE PUBLICATION olake_publication FOR ALL TABLES WITH (publish = 'insert,update,delete,truncate');\"; 
+        psql -h primary_postgres -U main -d main -c \"SELECT * FROM pg_create_logical_replication_slot('postgres_slot', 'pgoutput');\"; 
+        echo \"Done. Data and replication slot should now exist.\" 
+      "
+    # Explanation of the entrypoint:
+    # - Wait until Postgres is ready to accept connections using pg_isready.
+    # - Create a table named "sample_data" with three columns: id, str_col, and num_col.
+    # - Insert a sample row into the table.
+    # - Create a publication and a logical replication slot named "postgres_slot" using the pgoutput plugin.
+    restart: "no"                                  # Do not automatically restart the container after completion.
+    networks:
+      - pg-cluster                                # Connect to the same custom network "pg-cluster".
+
+  # -------------------------
+  # MongoDB (init keyfile + primary + loader)
+  # -------------------------
+  init-keyfile:
+    image: mongo:8.0                                 # Use MongoDB version 8.0 as the base image.
+    container_name: init_keyfile                     # Explicit container name for easier identification.
+    profiles: ["mongo"]
+    command: >                                       # Execute a shell command on container startup.
+      sh -c "
+      # Check if the keyfile does not already exist.
+      if [ ! -f /etc/mongodb/pki/keyfile ]; then
+        echo 'Generating keyfile...';
+        # Generate a random keyfile using OpenSSL with base64 encoding and save it to the expected location.
+        # Then set the file permission to read-only (400) for security.
+        openssl rand -base64 756 > /etc/mongodb/pki/keyfile && chmod 400 /etc/mongodb/pki/keyfile;
+      else
+        # If the keyfile already exists, output a message.
+        echo 'Keyfile already exists.';
+      fi
+      "
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume that stores the keyfile.
+    networks:
+      - mongo-cluster                                 # Connect this container to the defined mongo-cluster network.
+    restart: "no"                                     # This container should not restart automatically.
+
+  # Primary MongoDB container that sets up a replica set and creates an admin user.
+  primary_mongo:
+    container_name: primary_mongo                     # Set an explicit name for the primary MongoDB container.
+    image: mongo:8.0                                  # Use MongoDB version 8.0 as the container image.
+    profiles: ["mongo"]
+    hostname: primary_mongo                           # Set the hostname within the container network.
+    ports:
+      - "27017:27017"                                 # Expose port 27017 for MongoDB connections (host:container mapping).
+    depends_on:
+      - init-keyfile                                  # Ensure the keyfile initialization service runs before this service.
+    volumes:
+      - mongo-keyfile-vol:/etc/mongodb/pki            # Mount the volume to share the generated keyfile.
+    command: |                                        # Execute a series of shell commands using a multi-line script.
+      bash -c '
+      echo "Waiting for keyfile..."
+      # Wait until the keyfile is available before proceeding.
+      while [ ! -f /etc/mongodb/pki/keyfile ]; do sleep 1; done
+      
+      echo "Keyfile found, starting mongod without authentication first..."
+      # Start MongoDB in the background with replication enabled without initially requiring authentication.
+      mongod --replSet rs0 --bind_ip_all --port 27017 &
+      
+      # Store the process ID of the started mongod instance.
+      MONGO_PID=$!
+      
+      echo "Waiting for MongoDB to start..."
+      # Poll the MongoDB process until it is ready to accept connections.
+      until mongosh --port 27017 --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+        sleep 2
+      done
+      
+      echo "Initializing replica set..."
+      # Initialize the replica set with a single member and set its host address.
+      # Note: host.docker.internal provides a host network reference.
+      mongosh --port 27017 --eval "rs.initiate({_id: \"rs0\", members: [{_id: 0, host: \"host.docker.internal:27017\"}]})"
+      
+      echo "Waiting for replica set to initialize..."
+      # Allow some time for the replica set configuration to propagate.
+      sleep 5
+      
+      echo "Creating admin user..."
+      # Create an admin user with root privileges in the admin database.
+      mongosh --port 27017 --eval "
+        db = db.getSiblingDB(\"admin\");
+        db.createUser({
+          user: \"admin\",
+          pwd: \"password\",
+          roles: [{ role: \"root\", db: \"admin\" }]
+        });
+      "
+    
+      echo "Stopping MongoDB to restart with authentication..."
+      # Stop the previously started MongoDB instance by killing its process.
+      kill $MONGO_PID
+      wait $MONGO_PID
+      
+      echo "Starting MongoDB with authentication..."
+      # Restart MongoDB ensuring that authentication is enabled by providing the keyfile.
+      exec mongod --replSet rs0 --bind_ip_all --port 27017 --keyFile /etc/mongodb/pki/keyfile
+      '
+    healthcheck:
+      test: ["CMD", "mongosh", "--port", "27017", "--eval", "db.adminCommand('ping')"]  # Healthcheck command to verify MongoDB is reachable.
+      interval: 10s                                   # Check health status every 10 seconds.
+      timeout: 10s                                    # Timeout if no response is received within 10 seconds.
+      retries: 10                                     # Attempt up to 10 retries before marking the container as unhealthy.
+    networks:
+      - mongo-cluster                                 # Connect this container to the mongo-cluster network.
+
+  # Data loader service that imports sample Reddit JSON data into the MongoDB.
+  mongo_data-loader:
+    image: mongo:8.0                                  # Use MongoDB image to leverage mongoimport tool.
+    container_name: mongo_data-loader                # Explicit container name for clarity.
+    profiles: ["mongo"]
+    depends_on:
+      primary_mongo:
+        condition: service_healthy                  # Wait for the primary MongoDB service to be healthy before starting.
+    entrypoint: |                                   # Custom entrypoint script to run the data loading commands.
+      bash -c '
+      echo "Waiting for MongoDB admin user to be ready..."
+      # Keep checking until the MongoDB admin user is available and accepting connections.
+      until mongosh --host primary_mongo --username "admin" --password "password" --authenticationDatabase admin --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; do
+        echo "Waiting for admin authentication to be ready..."
+        sleep 2
+      done
+      
+      # Update package lists and install additional utilities (curl, wget, jq) needed for fetching and processing data.
+      apt-get update && apt-get install -y curl wget jq
+      
+      echo "Downloading Sample Reddit data..."
+      # Download sample Reddit data in JSON format from a remote GitHub repository into a temporary file.
+      curl -s "https://raw.githubusercontent.com/datazip-inc/olake-docs/refs/heads/master/static/reddit.json" >> /tmp/reddit.json
+      
+      echo "Importing Sample Reddit data into the reddit database, funny collection..."
+      # Use mongoimport to load the JSON data into the MongoDB database named "reddit" and collection named "funny".
+      mongoimport --host primary_mongo --username "admin" --password "password" --authenticationDatabase admin --db reddit --collection funny --file /tmp/reddit.json --jsonArray
+      
+      echo "Sample Reddit data import complete!"
+      '
+    restart: "no"                                    # The container will not restart automatically after the data is loaded.
+    networks:
+      - mongo-cluster                                 # Connect to the mongo-cluster network.
+
+  # -------------------------
+  # MySQL (primary + init user + loaders)
+  # -------------------------
+  primary_mysql:
+    container_name: primary_mysql # Name the container "primary_mysql" for easy reference.
+    image: mysql:8.0 # Use the MySQL 8.0 image.
+    profiles: ["mysql"]
+    hostname: primary_mysql # Set the container hostname to "primary_mysql".
+    ports:
+      - "3306:3306" # Expose port 3306 on both host and container.
+    environment:
+      MYSQL_ROOT_PASSWORD: password # Root password for MySQL.
+      MYSQL_DATABASE: main # Create a default database named "main" at startup.
+    # Enable Change Data Capture (CDC) by setting necessary MySQL replication options.
+    command:
+      - "--server-id=1" # Set a unique server identifier for replication.
+      - "--log-bin=mysql-bin" # Enable binary logging (needed for replication and CDC).
+      - "--binlog-format=ROW" # Use ROW format to record every change in each row.
+      - "--local-infile=1" # Enable local data loading for importing files.
+      - "--binlog_expire_logs_seconds=604800" # Set binary log expiration to 7 days (604800 seconds).
+      - "--skip-host-cache" # Disable host cache for DNS resolution.
+      - "--skip-name-resolve" # Disable DNS host name resolution to improve performance.
+
+    volumes:
+      - mysql-data:/var/lib/mysql # Mount persistent storage volume for MySQL data.
+    networks:
+      - mysql-cluster # Connect the container to the custom network "mysql-cluster".
+    healthcheck:
+      test: [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-ppassword",
+        ] # Healthcheck command to ensure MySQL is responsive.
+      interval: 10s # Check health every 10 seconds.
+      timeout: 5s # Each health check attempt must complete within 5 seconds.
+      retries: 10 # Allow up to 10 retries before marking the container as unhealthy.
+
+  # Service to initialize the replication (CDC) user.
+  init-cdc-user:
+    image: mysql:8.0 # Use the same MySQL 8.0 image for consistency.
+    container_name: init_cdc_user # Name the container "init_cdc_user" for identification.
+    profiles: ["mysql"]
+    depends_on:
+      - primary_mysql # Ensure the primary MySQL service starts before creating the user.
+    entrypoint: >
+      bash -c "echo 'Creating replication user...';
+               sleep 10;               # Wait for MySQL to finish initial setup.
+               mysql -h primary_mysql -P 3306 -u root -ppassword -e \"
+                 CREATE USER IF NOT EXISTS 'cdc_user'@'%' IDENTIFIED BY 'cdc_password';
+                 GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'cdc_user'@'%';
+                 FLUSH PRIVILEGES;\";
+               echo 'Setting global binlog_row_metadata to FULL...';
+               mysql -h primary_mysql -P 3306 -u root -ppassword -e \"SET GLOBAL binlog_row_metadata = 'FULL';\";
+               echo 'Replication user created and global binlog_row_metadata set.'"
+    networks:
+      - mysql-cluster # Connect to the same MySQL network.
+    restart: "no" # Do not restart this container automatically.
+
+  # Service to load sample data into the main database.
+  mysql-data-loader:
+    image: ubuntu:20.04 # Use Ubuntu 20.04 for running the data loading commands.
+    container_name: mysql-data-loader # Name the container for clarity.
+    profiles: ["mysql"]
+    depends_on:
+      primary_mysql:
+        condition: service_healthy # Wait until the primary MySQL container passes its healthcheck.
+    entrypoint: >
+      bash -c "apt-get update -qq && apt-get install -y mysql-client && \
+      echo 'Waiting for MySQL to be ready...'; \
+      until mysqladmin ping -h primary_mysql -P 3306 -u root -ppassword; do echo 'Waiting...'; sleep 2; done; \
+      echo 'Creating table sample_table...'; \
+      mysql -h primary_mysql -P 3306 -u root -ppassword main -e 'CREATE TABLE IF NOT EXISTS sample_table (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255));'; \
+      echo 'Inserting sample data...'; \
+      mysql -h primary_mysql -P 3306 -u root -ppassword main -e 'INSERT INTO sample_table (name) VALUES (\"sample_data\");'; \
+      echo 'Data insertion complete!'; \
+      tail -f /dev/null"
+
+    restart: "no" # Do not restart this container after execution.
+    networks:
+      - mysql-cluster # Use the same network for connectivity.
+
+  # Service to check for the existence and functionality of MySQL binary logs.
+  binlog-checker:
+    image: ubuntu:20.04 # Use Ubuntu 20.04 to run the binary log checking commands.
+    container_name: binlog_checker # Name this container for identification.
+    profiles: ["mysql"]
+    depends_on:
+      - primary_mysql # Ensure primary MySQL is running before checking binlogs.
+    entrypoint: >
+      bash -c "export DEBIAN_FRONTEND=noninteractive && \
+               apt-get update -qq && \
+               apt-get install -y mysql-server-core-8.0 && \
+               # Terminate any automatically started mysqld process in this container (if present).
+               pkill mysqld || true && \
+               sleep 10 && \
+               echo 'Listing MySQL binaries in /usr/bin:' && ls -l /usr/bin/mysql* && \
+               echo 'Attempting to run mysqlbinlog:' && \
+               # Attempt to execute mysqlbinlog command on the first binary log file.
+               /usr/bin/mysqlbinlog /var/lib/mysql/mysql-bin.000001 || echo 'mysqlbinlog not found!'"  # If mysqlbinlog is unavailable, print a message.
+    volumes:
+      - mysql-data:/var/lib/mysql # Mount the MySQL data volume to access binary logs.
+    networks:
+      - mysql-cluster # Connect to the same custom network.
+    restart: "no" # Do not restart this container automatically.
+
+
+# -------------------------
+# Networks
+# -------------------------
+networks:
+  pg-cluster:
+  mongo-cluster:
+  mysql-cluster:
+
+# -------------------------
+# Volumes (persistent storage)
+# -------------------------
+volumes:
+  pg-data:
+  mongo-keyfile-vol:
+  mysql-data:
