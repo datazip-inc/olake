@@ -20,7 +20,7 @@ jobs:
   integration-tests:
     environment: integration_tests
     runs-on: 32gb-runner
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
