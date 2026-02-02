@@ -996,36 +996,32 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 
 	var selectRows []types.Row
 	var queryErr error
-	maxRetries := 20
-	retryDelay := 5 * time.Second
+	maxRetries := 5
+	retryDelay := 2 * time.Second
+	attempt := 0
+	queryErr = utils.RetryOnBackoff(ctx, maxRetries, retryDelay, func(ctx context.Context) error {
+		attempt++
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
-		if attempt > 0 {
-			time.Sleep(retryDelay)
-		}
-		var selectQueryDf sql.DataFrame
-		// This is to check if the table exists in destination, as race condition might cause table to not be created yet
-		selectQueryDf, queryErr = spark.Sql(ctx, selectQuery)
-		if queryErr != nil {
-			t.Logf("Query attempt %d failed: %v", attempt+1, queryErr)
-			continue
+		selectQueryDf, err := spark.Sql(ctx, selectQuery)
+		if err != nil {
+			t.Logf("Query attempt %d/%d failed (Sql error): %v", attempt, maxRetries, err)
+			return err
 		}
 
 		// To ensure stale data is not being used for verification
-		selectRows, queryErr = selectQueryDf.Collect(ctx)
-		if queryErr != nil {
-			t.Logf("Query attempt %d failed (Collect error): %v", attempt+1, queryErr)
-			continue
+		selectRows, err = selectQueryDf.Collect(ctx)
+		if err != nil {
+			t.Logf("Query attempt %d/%d failed (Collect error): %v", attempt, maxRetries, err)
+			return err
 		}
-		if len(selectRows) > 0 {
-			queryErr = nil
-			break
+		if len(selectRows) == 0 {
+			err = fmt.Errorf("stale data: query succeeded but returned 0 rows for _op_type = '%s'", opSymbol)
+			t.Logf("Query attempt %d/%d failed: %v", attempt, maxRetries, err)
+			return err
 		}
 
-		// for every type of operation, op symbol will be different, using that to ensure data is not stale
-		queryErr = fmt.Errorf("stale data: query succeeded but returned 0 rows for _op_type = '%s'", opSymbol)
-		t.Logf("Query attempt %d/%d failed: %v", attempt+1, maxRetries, queryErr)
-	}
+		return nil
+	})
 
 	require.NoError(t, queryErr, "Failed to collect data rows from Iceberg after %d attempts: %v", maxRetries, queryErr)
 	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
