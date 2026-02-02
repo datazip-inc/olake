@@ -13,11 +13,11 @@ import (
 )
 
 type CDCChange struct {
-	Stream    types.StreamInterface
-	Timestamp time.Time
-	Kind      string
-	Data      map[string]any
-	CDCChange map[string]any
+	Stream          types.StreamInterface
+	Timestamp       time.Time
+	Kind            string
+	Data            map[string]any
+	ExtraCDCColumns map[string]any
 }
 
 type AbstractDriver struct { //nolint:gosec,revive

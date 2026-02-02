@@ -121,7 +121,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, callba
 
 			case *replication.RowsEvent:
 				messageReceived = true
-				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, callback, c.CurrentPos.Name, uint64(ev.Header.LogPos)); err != nil {
+				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, callback, c.CurrentPos.Name); err != nil {
 					return err
 				}
 			}

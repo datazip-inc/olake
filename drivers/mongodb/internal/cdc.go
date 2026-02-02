@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/bsontype"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
@@ -126,19 +125,10 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 }
 
 func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastOplogTime primitive.Timestamp) error {
-	finalToken := cursor.ResumeToken()
-	if finalToken == nil {
-		return fmt.Errorf("no resume token available for stream %s after TryNext", stream.ID())
-	}
-
-	rawToken, err := finalToken.LookupErr(cdcCursorField)
+	token, err := extractAndStoreResumeToken(m,cursor,stream)
 	if err != nil {
-		return fmt.Errorf("%s field not found in resume token: %s", cdcCursorField, err)
+		logger.Errorf("failed to decode resume token for stream %s: %s", stream.ID(), err)
 	}
-	token := rawToken.StringValue()
-
-	// check pointing post batch resume token
-	m.cdcCursor.Store(stream.ID(), token)
 
 	streamOpTime, err := decodeResumeTokenOpTime(token)
 	if err != nil {
@@ -171,26 +161,19 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
 	).(time.Time)
 	var cdcChange = make(map[string]any)
-	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
-		rawVal := resumeToken.Lookup(cdcCursorField)
-		var tokenStr string
-		if rawVal.Type == bsontype.Binary {
-			_, data := rawVal.Binary()
-			tokenStr = hex.EncodeToString(data)
-		} else {
-			tokenStr = rawVal.StringValue()
-		}
-		m.cdcCursor.Store(stream.ID(), tokenStr)
+	_, err:= extractAndStoreResumeToken(m,cursor,stream)
+	if err != nil {
+		return fmt.Errorf("failed to extract and store resume token for stream %s: %s", stream.ID(), err)
 	}
 	if val, ok := m.cdcCursor.Load(stream.ID()); ok {
 		cdcChange[constants.CDCResumeToken] = val
 	}
 	change := abstract.CDCChange{
-		Stream:    stream,
-		Timestamp: ts,
-		Data:      record.FullDocument,
-		Kind:      record.OperationType,
-		CDCChange: cdcChange,
+		Stream:          stream,
+		Timestamp:       ts,
+		Data:            record.FullDocument,
+		Kind:            record.OperationType,
+		ExtraCDCColumns: cdcChange,
 	}
 	return OnMessage(ctx, change)
 }
@@ -268,4 +251,23 @@ func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 		T: binary.BigEndian.Uint32(dataBytes[1:5]),
 		I: binary.BigEndian.Uint32(dataBytes[5:9]),
 	}, nil
+}
+
+func extractAndStoreResumeToken(m *Mongo,cursor *mongo.ChangeStream,stream types.StreamInterface) (string, error) {
+	finalToken := cursor.ResumeToken()
+	if finalToken == nil {
+		return "", fmt.Errorf("no resume token available for stream %s", stream.ID())
+	}
+
+	rawToken, err := finalToken.LookupErr(cdcCursorField)
+	if err != nil {
+		return "", fmt.Errorf("%s field not found in resume token: %w", cdcCursorField, err)
+	}
+
+	token := rawToken.StringValue()
+
+	// checkpoint resume token
+	m.cdcCursor.Store(stream.ID(), token)
+
+	return token, nil
 }

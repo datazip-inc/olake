@@ -81,7 +81,7 @@ func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFi
 			Kind:      ch.Kind,
 			Timestamp: changes.Timestamp.Time,
 			Data:      changesMap,
-			CDCChange: map[string]any{
+			ExtraCDCColumns: map[string]any{
 				constants.CDCLSN: nextLSN.String(),
 			},
 		}); err != nil {

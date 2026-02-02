@@ -34,14 +34,14 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 }
 
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
-func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, callback abstract.CDCMsgFn, logName string, logPos uint64) error {
+func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, callback abstract.CDCMsgFn, logName string) error {
 	schemaName := string(e.Table.Schema)
 	tableName := string(e.Table.Table)
 	stream, exists := f.streams[schemaName+"."+tableName]
 	if !exists {
 		return nil
 	}
-
+	logPos := uint64(ev.Header.LogPos)
 	var operationType string
 	switch ev.Header.EventType {
 	case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
@@ -88,9 +88,9 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 			Timestamp: timestamp,
 			Kind:      operationType,
 			Data:      record,
-			CDCChange: map[string]any{
+			ExtraCDCColumns: map[string]any{
 				constants.CDCBinlogFileName: logName,
-				constants.CDCBinlogFilePos:  int64(logPos),
+				constants.CDCBinlogFilePos:  logPos,
 			},
 		}
 		if err := callback(ctx, change); err != nil {

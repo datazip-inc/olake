@@ -127,7 +127,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 			change.Data,
 			mapChangeKindToOperationType(change.Kind),
 			&change.Timestamp,
-			change.CDCChange,
+			change.ExtraCDCColumns,
 		))
 	})
 }
