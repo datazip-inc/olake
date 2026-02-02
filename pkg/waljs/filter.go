@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -80,6 +81,9 @@ func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFi
 			Kind:      ch.Kind,
 			Timestamp: changes.Timestamp.Time,
 			Data:      changesMap,
+			CDCChange: map[string]any{
+				constants.CDCLSN: nextLSN.String(),
+			},
 		}); err != nil {
 			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %s", err)
 		}

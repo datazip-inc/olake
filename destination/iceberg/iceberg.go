@@ -213,7 +213,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
 	protoSchema := icebergRawSchema()
-	record := types.CreateRawRecord(destinationDB, map[string]any{"name": "olake"}, "r", &currentTime)
+	record := types.CreateRawRecord(destinationDB, map[string]any{"name": "olake"}, "r", &currentTime, nil)
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
 		return fmt.Errorf("failed to create raw data column buffer: %s", err)
@@ -308,7 +308,11 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			if record.CdcTimestamp != nil {
 				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 			}
-
+			if record.CDCChange != nil {
+				for k, v := range record.CDCChange {
+					records[idx].Data[k] = v
+				}
+			}
 			flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)

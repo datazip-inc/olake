@@ -2,6 +2,7 @@ package parquet
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -104,7 +105,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		if p.stream.NormalizationEnabled() {
 			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[types.RawRecord](pqFile, types.GetParquetRawSchema(), pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[any](pqFile, types.GetParquetRawSchema(), pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = &FileMetadata{
@@ -177,7 +178,22 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if p.stream.NormalizationEnabled() {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 		} else {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
+			dataBytes, _ := json.Marshal(record.Data)
+			recordMap := map[string]any{
+				constants.StringifiedData: string(dataBytes),
+				constants.OlakeID:         record.OlakeID,
+				constants.OlakeTimestamp:  record.OlakeTimestamp,
+				constants.OpType:          record.OperationType,
+			}
+			if record.CdcTimestamp != nil {
+				recordMap[constants.CdcTimestamp] = *record.CdcTimestamp
+			}
+			if record.CDCChange != nil {
+				for k, v := range record.CDCChange {
+					recordMap[k] = v
+				}
+			}
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{recordMap})
 		}
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
@@ -253,12 +269,7 @@ func (p *Parquet) closePqFiles() error {
 		filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
 
 		// Close writers
-		var err error
-		if p.stream.NormalizationEnabled() {
-			err = parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
-		} else {
-			err = parquetFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
-		}
+		var err = parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
 		if err != nil {
 			return fmt.Errorf("failed to close writer: %s", err)
 		}
@@ -329,7 +340,12 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		if record.CdcTimestamp != nil {
 			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 		}
-
+		if record.CDCChange != nil {
+			for k, v := range record.CDCChange {
+				records[idx].Data[k] = v
+			}
+			records[idx].CDCChange = nil
+		}
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)

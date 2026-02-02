@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -33,7 +34,7 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 }
 
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
-func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, callback abstract.CDCMsgFn) error {
+func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, callback abstract.CDCMsgFn, logName string, logPos uint64) error {
 	schemaName := string(e.Table.Schema)
 	tableName := string(e.Table.Table)
 	stream, exists := f.streams[schemaName+"."+tableName]
@@ -81,12 +82,16 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		// Use microsecond-precision timestamp from GTID event (MySQL 8.0.1+) if available,
 		// otherwise fall back to second-precision header timestamp
 		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
-
+		
 		change := abstract.CDCChange{
 			Stream:    stream,
 			Timestamp: timestamp,
 			Kind:      operationType,
 			Data:      record,
+			CDCChange: map[string]any{
+				constants.CDCBinlogFileName: logName,
+				constants.CDCBinlogFilePos:  int64(logPos),
+			},
 		}
 		if err := callback(ctx, change); err != nil {
 			return err

@@ -17,6 +17,7 @@ type CDCChange struct {
 	Timestamp time.Time
 	Kind      string
 	Data      map[string]interface{}
+	CDCChange map[string]any
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
@@ -124,6 +125,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 }
 
 func (a *AbstractDriver) Setup(ctx context.Context) error {
+	types.KeepOnlyCDCColumns(string(a.driver.Type()))
 	return a.driver.Setup(ctx)
 }
 

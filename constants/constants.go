@@ -34,6 +34,13 @@ const (
 	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
 	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
 	DefaultStateTimestampFormat = "2006-01-02T15:04:05.000000000Z"
+	//CDC COLUMNS
+	CDCResumeToken    = "_cdc_resume_token"
+	CDCBinlogFileName = "_cdc_binlog_file_name"
+	CDCBinlogFilePos  = "_cdc_binlog_file_pos"
+	CDCLSN            = "_cdc_lsn"
+	CDCStartLSN       = "_cdc_start_lsn"
+	CDCSeqVal         = "_cdc_seqval"
 )
 
 type DriverType string

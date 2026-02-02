@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"go.mongodb.org/mongo-driver/bson/bsontype"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -163,16 +165,27 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		record.WallTime.Time(), // millisecond precision
 		time.UnixMilli(int64(record.ClusterTime.T)*1000+int64(record.ClusterTime.I)), // seconds only
 	).(time.Time)
-
+	var cdcChange = make(map[string]any)
+	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
+		rawVal := resumeToken.Lookup(cdcCursorField)
+		var tokenStr string
+		if rawVal.Type == bsontype.Binary {
+			_, data := rawVal.Binary()
+			tokenStr = hex.EncodeToString(data)
+		} else {
+			tokenStr = rawVal.StringValue()
+		}
+		m.cdcCursor.Store(stream.ID(), tokenStr)
+	}
+	if val, ok := m.cdcCursor.Load(stream.ID()); ok {
+		cdcChange[constants.CDCResumeToken] = val
+	}
 	change := abstract.CDCChange{
 		Stream:    stream,
 		Timestamp: ts,
 		Data:      record.FullDocument,
 		Kind:      record.OperationType,
-	}
-
-	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
-		m.cdcCursor.Store(stream.ID(), resumeToken.Lookup(cdcCursorField).StringValue())
+		CDCChange: cdcChange,
 	}
 	return OnMessage(ctx, change)
 }

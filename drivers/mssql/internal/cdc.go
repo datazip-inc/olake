@@ -5,7 +5,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"time"
-
+	
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
@@ -227,7 +228,9 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 			}
 			operationType = operationTypeFromCDCCode(opCode)
 		}
-
+		var cdcChange = make(map[string]any)
+		cdcChange[constants.CDCStartLSN] =toHexString(record["__$start_lsn"])
+		cdcChange[constants.CDCSeqVal] = toHexString(record["__$seqval"])
 		// Remove metadata columns
 		delete(record, "__$operation")
 		delete(record, "__$start_lsn")
@@ -240,6 +243,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 			Timestamp: time.Now().UTC(),
 			Kind:      operationType,
 			Data:      record,
+			CDCChange: cdcChange,
 		}); err != nil {
 			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}
@@ -296,5 +300,17 @@ func operationTypeFromCDCCode(code int32) string {
 		return "update"
 	default:
 		return "update"
+	}
+}
+
+func toHexString(v any) string {
+	switch t := v.(type) {
+	case []byte:
+		return hex.EncodeToString(t)
+	case string:
+		// Convert the raw string's bytes to hex string
+		return hex.EncodeToString([]byte(t))
+	default:
+		return ""
 	}
 }

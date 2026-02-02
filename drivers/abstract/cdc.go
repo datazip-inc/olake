@@ -92,6 +92,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 								change.Data,
 								opType,
 								&change.Timestamp,
+								change.CDCChange,
 							))
 						})
 					})
@@ -148,6 +149,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 						message.Data,
 						"c", // kafka message is always a create operation
 						&message.Timestamp,
+						message.CDCChange,
 					))
 				})
 			})
@@ -196,6 +198,7 @@ func (a *AbstractDriver) RunChangeStream(ctx context.Context, pool *destination.
 					change.Data,
 					opType,
 					&change.Timestamp,
+					change.CDCChange,
 				))
 			})
 		})

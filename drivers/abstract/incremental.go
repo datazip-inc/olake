@@ -110,7 +110,7 @@ func (a *AbstractDriver) Incremental(ctx context.Context, pool *destination.Writ
 						maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
 						pk := stream.GetStream().SourceDefinedPrimaryKey.Array()
 						id := utils.GetKeysHash(record, pk...)
-						return inserter.Push(ctx, types.CreateRawRecord(id, record, "u", nil))
+						return inserter.Push(ctx, types.CreateRawRecord(id, record, "u", nil, nil))
 					})
 				})
 			})

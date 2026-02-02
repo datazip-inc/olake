@@ -59,6 +59,30 @@ var RawSchema = map[string]DataType{
 	constants.OpType:          String,
 	constants.OlakeID:         String,
 }
+var CDCColumns = map[string]map[string]DataType{
+	string(constants.MySQL): {
+		constants.CDCBinlogFileName: String,
+		constants.CDCBinlogFilePos:  Int64,
+	},
+	string(constants.Postgres): {
+		constants.CDCLSN: String,
+	},
+	string(constants.MongoDB): {
+		constants.CDCResumeToken: String,
+	},
+	string(constants.MSSQL): {
+		constants.CDCStartLSN: String,
+		constants.CDCSeqVal:   String,
+	},
+}
+
+func init() {
+	for _, cols := range CDCColumns {
+		for col, dtype := range cols {
+			RawSchema[col] = dtype
+		}
+	}
+}
 
 type Record map[string]any
 
@@ -68,25 +92,26 @@ type RawRecord struct {
 	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
 	OperationType  string         `parquet:"_op_type"`       // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
 	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
+	CDCChange      map[string]any `parquet:"_cdc_change"` 
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time) RawRecord {
+func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time, cdcChange map[string]any) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
 		Data:          data,
 		OperationType: operationType,
 		CdcTimestamp:  cdcTimestamp,
+		CDCChange:     cdcChange,
 	}
 }
 
 func GetParquetRawSchema() *parquet.Schema {
-	return parquet.NewSchema("RawRecord", parquet.Group{
-		"data":             parquet.JSON(),
-		"_olake_id":        parquet.String(),
-		"_olake_timestamp": parquet.Timestamp(parquet.Microsecond),
-		"_op_type":         parquet.String(),
-		"_cdc_timestamp":   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
-	})
+	fields := make(parquet.Group)
+	// Dynamically add all fields from RawSchema (includes data, _olake_id, and driver-specific CDC columns)
+	for col, dtype := range RawSchema {
+		fields[col] = dtype.ToNewParquet()
+	}
+	return parquet.NewSchema("RawRecord", fields)
 }
 
 func (d DataType) ToNewParquet() parquet.Node {
@@ -154,4 +179,18 @@ func IcebergTypeToDatatype(d string) DataType {
 	default:
 		return String
 	}
+}
+
+func KeepOnlyCDCColumns(driver string) {
+    for drv, cols := range CDCColumns {
+        // If this is the current driver, keep its columns (do nothing)
+        if drv == driver {
+            continue
+        }
+        
+        // For every other driver, remove their columns from the main schema
+        for col := range cols {
+            delete(RawSchema, col)
+        }
+    }
 }

@@ -78,7 +78,7 @@ func (a *AbstractDriver) Backfill(ctx context.Context, backfilledStreams chan st
 					cdcTimestamp = &t
 				}
 
-				return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp))
+				return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp, nil))
 			})
 		})
 	}

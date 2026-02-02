@@ -182,6 +182,11 @@ func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPay
 	if record.CdcTimestamp != nil {
 		dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: record.CdcTimestamp.UTC().UnixMilli()}}
 	}
+	if record.CDCChange != nil {
+		for k, v := range record.CDCChange {
+			dataMap[k] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", v)}}
+		}
+	}
 
 	bytesData, err := json.Marshal(record.Data)
 	if err != nil {
