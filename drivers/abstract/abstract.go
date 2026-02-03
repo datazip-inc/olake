@@ -13,11 +13,11 @@ import (
 )
 
 type CDCChange struct {
-	Stream       types.StreamInterface
-	Timestamp    time.Time
-	Kind         string
-	Data         map[string]any
-	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
+	Stream     types.StreamInterface
+	Timestamp  time.Time
+	Kind       string
+	Data       map[string]any
+	CDCColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
 }
 
 type AbstractDriver struct { //nolint:gosec,revive

@@ -87,16 +87,16 @@ type RawRecord struct {
 	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
 	OperationType  string         `parquet:"_op_type"`       // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
 	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
-	ExtraColumns   map[string]any `parquet:"extra_columns,json"`
+	CDCColumns     map[string]any `parquet:"cdc_columns,json"`
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time, extraColumns map[string]any) RawRecord {
+func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time, cdcColumns map[string]any) RawRecord {
 	return RawRecord{
 		OlakeID:       olakeID,
 		Data:          data,
 		OperationType: operationType,
 		CdcTimestamp:  cdcTimestamp,
-		ExtraColumns:  extraColumns,
+		CDCColumns:    cdcColumns,
 	}
 }
 
