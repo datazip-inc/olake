@@ -1064,6 +1064,12 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 
 			}
 		}
+		if !isCDC && icebergMap[constants.CdcTimestamp] != nil {
+			ts, ok := normalizeToTime(icebergMap[constants.CdcTimestamp])
+			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, icebergMap[constants.CdcTimestamp])
+			require.Equal(t, time.Unix(0, 0), ts)
+		}
+
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
@@ -1222,7 +1228,13 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 				}
 			}
 		}
+		if !isCDC && parquetMap[constants.CdcTimestamp] != nil {
+			ts, ok := normalizeToTime(parquetMap[constants.CdcTimestamp])
+			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, parquetMap[constants.CdcTimestamp])
+			require.Equal(t, time.Unix(0, 0), ts)
+		}
 	}
+
 	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
 
 	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", viewName)
