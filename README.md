@@ -56,9 +56,9 @@
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
 | Postgres → Iceberg   | 5,80,113 RPS    | 12.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
 | MySQL → Iceberg      | 3,38,005 RPS    | 2.83× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
-| Oracle → Iceberg     | 5,26,337 RPS (2.11 hrs, < $6) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
-| Kafka → Iceberg      | 1,54,320 RPS (Batch Load) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
+| MongoDB → Iceberg    | 37,879 RPS              | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| Oracle → Iceberg     | 5,26,337 RPS  | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
+| Kafka → Iceberg      | 1,54,320 RPS (Bounded Incremental) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
 
 #### CDC
 
@@ -78,7 +78,7 @@
 ### 🔧 Supported Sources and Destinations
 
 
-#### Sources
+#### Sources (Databases and S3)
 
 
 | Source        | Full Load    |  CDC          | Incremental       | Notes                       | Documentation               |
@@ -89,8 +89,14 @@
 | Oracle        | ✅           | WIP  | ✅                |  JDBC based Full Load & Incremental                |  [Oracle Docs](https://olake.io/docs/connectors/oracle/overview) |
 | DB2          | ✅           | -    | ✅                | JDBC based Full Load & Incremental                 | [DB2 Docs](https://olake.io/docs/connectors/db2/) |
 | MSSQL        | ✅           | ✅   | ✅                | Full Load, CDC & Incremental                        | [MSSQL Docs](https://olake.io/docs/connectors/mssql/) |
-| Kafka        | ✅           | -    | ✅                | Consumer Group Based Incremental (Append Only)      | [Kafka Docs](https://olake.io/docs/connectors/kafka) |
 | S3           | ✅           | -    | ✅                | Ingests from Amazon S3 or S3-compatible (MinIO, LocalStack) | [S3 Docs](https://olake.io/docs/connectors/s3/) |
+
+#### Sources (Kafka)
+
+
+| Source | Bounded Incremental | Notes                             | Documentation |
+|--------|--------------------|-----------------------------------|---------------|
+| Kafka  | ✅                 | Latest offset bounded incremental sync | [Kafka Docs](https://olake.io/docs/connectors/kafka) |
 
 
 #### Destinations
