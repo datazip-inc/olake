@@ -99,7 +99,6 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 }
 
 func GetParquetRawSchema(driverType constants.DriverType) *parquet.Schema {
-
 	// Base schema – common for all drivers
 	schemaFields := parquet.Group{
 		"data":             parquet.JSON(),
@@ -111,7 +110,6 @@ func GetParquetRawSchema(driverType constants.DriverType) *parquet.Schema {
 
 	// Add driver-specific CDC fields
 	switch driverType {
-
 	case constants.MySQL:
 		schemaFields[constants.CDCBinlogFileName] = parquet.Optional(parquet.String())
 		schemaFields[constants.CDCBinlogFilePos] = parquet.Optional(parquet.Int(64))
