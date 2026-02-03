@@ -17,11 +17,8 @@
     <a href="https://olake.io/slack/">
     <img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"/>
     </a>
-    <a href="https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md">
+    <a href="https://olake.io/docs/community/contributing/">
         <img alt="Contribute to OLake" src="https://img.shields.io/badge/Contribute-OLake-2563eb"/>
-    </a>
-     <a href="https://hacktoberfest.com/">
-        <img alt="Hacktoberfest 2025" src="https://img.shields.io/badge/Hacktoberfest-2025%20🎃-orange"/>
     </a>
 </p>
 
@@ -59,7 +56,7 @@ The **OLake S3 source connector** enables data ingestion from **Amazon S3** and 
 | MySQL → Iceberg      | 3,38,005 RPS    | 2.83× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
 | MongoDB → Iceberg    | 37,879 RPS              | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | 5,26,337 RPS  | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
-| Kafka → Iceberg      | 1,54,320 RPS (Bounded Incremental) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
+| Kafka → Iceberg      | 1,54,320 RPS (Bounded Incremental) | 1.8x faster than Flink                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
 
 #### CDC
 
@@ -213,8 +210,8 @@ Below are other different ways you can run OLake:
 
 - [x] Oracle Full Load Support
 - [x] Oracle Incremental
-- [x] Filters for Full Load and Incremental 
-- [ ] Real-time Streaming Mode (Kafka)
+- [x] Filters for Full Load and Incremental
+- [ ] Compaction & other table optimisations (In-progress)
 - [ ] Iceberg V3 Support
 
 📌 Check out our [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and the [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track what's next. If you have ideas or feedback, please share them in our [GitHub Discussions](https://github.com/datazip-inc/olake/discussions) or by opening an issue.
