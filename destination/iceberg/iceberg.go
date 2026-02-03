@@ -101,7 +101,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
 		var requestPayload proto.IcebergPayload
-		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema(i.options.DriverType, i.stream.GetSyncMode() == types.CDC)).([]*proto.IcebergPayload_SchemaField)
+		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema(i.options.DriverType, i.stream.GetSyncMode() == types.CDC || i.stream.GetSyncMode() == types.STRICTCDC)).([]*proto.IcebergPayload_SchemaField)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
@@ -314,8 +314,8 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			if record.CdcTimestamp != nil {
 				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 			}
-			if record.ExtraColumns != nil {
-				for key, value := range record.ExtraColumns {
+			if record.CDCColumns != nil {
+				for key, value := range record.CDCColumns {
 					records[idx].Data[key] = value
 				}
 			}

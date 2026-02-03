@@ -172,7 +172,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Timestamp: ts,
 		Data:      record.FullDocument,
 		Kind:      record.OperationType,
-		ExtraColumns: map[string]any{
+		CDCColumns: map[string]any{
 			constants.CDCResumeToken: token,
 		},
 	}

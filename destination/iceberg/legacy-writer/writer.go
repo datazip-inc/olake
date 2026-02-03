@@ -182,8 +182,8 @@ func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPay
 	if record.CdcTimestamp != nil {
 		dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: record.CdcTimestamp.UTC().UnixMilli()}}
 	}
-	if record.ExtraColumns != nil {
-		for k, v := range record.ExtraColumns {
+	if record.CDCColumns != nil {
+		for k, v := range record.CDCColumns {
 			if k == constants.CDCBinlogFilePos {
 				dataMap[k] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: v.(int64)}}
 				continue
