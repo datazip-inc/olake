@@ -5,7 +5,19 @@
     <br>OLake
 </h1>
 
-<p align="center">The fastest open-source tool for replicating databases to Apache Iceberg. OLake, an easy-to-use web interface and a CLI for efficient, scalable, & real-time data ingestion. Visit <a href="https://olake.io/docs" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
+<p align="center">
+  <strong>OLake</strong> is a high-performance, open-source data ingestion engine for replicating databases, S3, and Kafka into
+  <strong>Apache Iceberg</strong> (or plain Parquet).
+  <br/>
+  Built for scalable, real-time pipelines, OLake provides a simple web UI and CLI - used to ingest into vendor-lock-in free Iceberg tables supporting all the query-engines/warehouses.
+  <br/><br/>
+  Read the docs and benchmarks at
+  <a href="https://olake.io/docs" target="_blank">olake.io/docs</a>.
+  Join our active community on
+  <a href="https://olake.io/slack/" target="_blank">Slack</a>.
+</p>
+
+
 
 <p align="center">
     <a href="https://github.com/datazip-inc/olake/issues">
@@ -24,8 +36,7 @@
 
 ## OLake — Super-fast Sync to Apache Iceberg
 
-**OLake** is an open-source data integration platform for replicating and streaming data from **transactional databases** such as **PostgreSQL, MySQL, MongoDB, Oracle, DB2, and MSSQL**, as well as **event-streaming systems like Apache Kafka**, into open data lakehouse formats such as **Apache Iceberg** — delivering blazing-fast performance with minimal infrastructure cost.
-The **OLake S3 source connector** enables data ingestion from **Amazon S3** and S3-compatible storage systems, including **MinIO** and **LocalStack**.
+**OLake** supports replication from **transactional databases** such as **PostgreSQL, MySQL, MongoDB, Oracle, DB2, and MSSQL**, **event-streaming systems like Apache Kafka** and **Object-store like S3**, into open data lakehouse formats such as **Apache Iceberg** or **Plain Parquet** — delivering blazing-fast performance with minimal infrastructure cost.
 
 <h1 align="center" style="border-bottom: none">
     <a href="https://datazip.io/olake" target="_blank">
@@ -38,11 +49,13 @@ The **OLake S3 source connector** enables data ingestion from **Amazon S3** and 
 
 ### 🚀 Why OLake?
 
-- 🧠 **Smart sync**: Full + CDC replication with automatic schema discovery  
+- 🧠 **Smart sync**: Full + CDC replication with automatic schema discovery & schema evolution 
 - ⚡ **High throughput**: 580K RPS (Postgres) & 338K RPS (MySQL)
+- ➡️ **Exactly once delivery & Arrow writes**: Accuracy with speed.
 - 💾 **Iceberg-native**: Supports Glue, Hive, JDBC, REST catalogs  
 - 🖥️ **Self-serve UI**: Deploy via Docker Compose and sync in minutes  
 - 💸 **Infra-light**: No Spark, no Flink, no Kafka, no Debezium
+- 🗜️ **Iceberg Table Optimization (Coming soon)**: Compaction tailored for CDC ingestion
 
 ---
 
