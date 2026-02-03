@@ -27,7 +27,8 @@
 
 ## OLake — Super-fast Sync to Apache Iceberg
 
-> **OLake** is an open-source connector for replicating data from transactional databases like **PostgreSQL, MySQL, MongoDB, Oracle, DB2, MSSQL & Kafka** to open data lakehouse formats like **Apache Iceberg** — at blazing speeds and minimal infrastructure cost. The **OLake S3 source** connector ingests data from **Amazon S3** or S3-compatible storage (MinIO, LocalStack).
+**OLake** is an open-source data integration platform for replicating and streaming data from **transactional databases** such as **PostgreSQL, MySQL, MongoDB, Oracle, DB2, and MSSQL**, as well as **event-streaming systems like Apache Kafka**, into open data lakehouse formats such as **Apache Iceberg** — delivering blazing-fast performance with minimal infrastructure cost.
+The **OLake S3 source connector** enables data ingestion from **Amazon S3** and S3-compatible storage systems, including **MinIO** and **LocalStack**.
 
 <h1 align="center" style="border-bottom: none">
     <a href="https://datazip.io/olake" target="_blank">
