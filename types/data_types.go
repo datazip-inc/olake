@@ -61,12 +61,7 @@ var RawSchema = map[string]DataType{
 }
 
 func GetDriverSpecificRawSchema(driverType constants.DriverType) map[string]DataType {
-	baseRawSchema := map[string]DataType{
-		constants.OlakeID:        String,
-		constants.OlakeTimestamp: Timestamp,
-		constants.OpType:         String,
-		constants.CdcTimestamp:   Timestamp,
-	}
+	baseRawSchema := RawSchema
 	switch driverType {
 	case constants.MySQL:
 		baseRawSchema[constants.CDCBinlogFileName] = String

@@ -20,6 +20,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/schema"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
@@ -249,7 +250,7 @@ func createPositionalDeleteArrowRecord(posDeletes []PositionalDelete, allocator 
 func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool, olakeTimestamp time.Time) (arrow.Record, error) {
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
-
+	logger.Debugf("Creating arrow record with schema: %s", schema.String())
 	for _, record := range records {
 		for idx, field := range schema.Fields() {
 			var val any
@@ -264,14 +265,16 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 				if record.CdcTimestamp != nil {
 					val = record.CdcTimestamp
 				}
-			case constants.StringifiedData:
+			case constants.CDCBinlogFileName, constants.CDCBinlogFilePos, constants.CDCLSN, constants.CDCResumeToken, constants.CDCStartLSN, constants.CDCSeqVal:
+				if record.ExtraColumns != nil {
+					val = record.ExtraColumns[field.Name]
+				}
+			default:
 				if normalization {
 					val = record.Data[field.Name]
 				} else {
 					val = record.Data
 				}
-			default:
-				val = record.ExtraColumns[field.Name]
 			}
 
 			if val == nil {
