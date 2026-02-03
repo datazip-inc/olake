@@ -56,7 +56,7 @@
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
 | Postgres → Iceberg   | 5,80,113 RPS    | 12.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
 | MySQL → Iceberg      | 3,38,005 RPS    | 2.83× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | 83,333 RPS      | 6× faster than Fivetran              | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | 5,26,337 RPS (2.11 hrs, < $6) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
 | Kafka → Iceberg      | 1,54,320 RPS (Batch Load) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
 
@@ -66,10 +66,8 @@
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
 | Postgres → Iceberg   | 41,390 RPS      | 1.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
 | MySQL → Iceberg      | 51,867 RPS      | 1.85× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | 35,694 RPS      | 6.7× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
-| Kafka → Iceberg      | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
-
 
 
 
