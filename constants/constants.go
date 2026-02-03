@@ -21,7 +21,7 @@ const (
 	OpType                 = "_op_type"
 	CdcTimestamp           = "_cdc_timestamp"
 	// driver specific cdc columns
-	CDCResumeToken        = "_cdc_resume_token"
+	CDCResumeToken        = "_cdc_resume_token" //nolint:gosec // false positive: DB field name
 	CDCBinlogFileName     = "_cdc_binlog_file_name"
 	CDCBinlogFilePos      = "_cdc_binlog_file_pos"
 	CDCLSN                = "_cdc_lsn"
