@@ -34,6 +34,10 @@ type CDCDocument struct {
 	DocumentKey   map[string]any      `json:"documentKey"`
 }
 
+func (m *Mongo) ChangeStreamConfig() (bool, bool, bool) {
+	return false, false, true // concurrent change streams supported, stream can start after finishing full load
+}
+
 func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) error {
 	for _, stream := range streams {
 		collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
@@ -54,12 +58,13 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 			}
 		}
-		m.cdcCursor.Store(stream.ID(), prevResumeToken)
 	}
+	m.streams = streams
 	return nil
 }
 
-func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage abstract.CDCMsgFn) error {
+	stream := m.streams[streamIndex]
 	// lastOplogTime is the latest timestamp of any operation applied in the MongoDB cluster
 	lastOplogTime, err := m.getClusterOpTime(ctx, m.config.Database)
 	if err != nil {
@@ -74,13 +79,13 @@ func (m *Mongo) StreamChanges(ctx context.Context, stream types.StreamInterface,
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	// Seed resume token from previously saved cursor (if any)
-	resumeToken, ok := m.cdcCursor.Load(stream.ID())
-	if !ok {
+	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
+	if prevResumeToken == nil {
 		return fmt.Errorf("resume token not found for stream: %s", stream.ID())
 	}
-	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: resumeToken})
-	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), resumeToken)
+
+	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
+	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
@@ -171,22 +176,29 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Kind:      record.OperationType,
 	}
 
+	if err := OnMessage(ctx, change); err != nil {
+		return err
+	}
+
 	if resumeToken := cursor.ResumeToken(); resumeToken != nil {
 		m.cdcCursor.Store(stream.ID(), resumeToken.Lookup(cdcCursorField).StringValue())
 	}
-	return OnMessage(ctx, change)
+	return nil
 }
 
-func (m *Mongo) PostCDC(ctx context.Context, stream types.StreamInterface, noErr bool, _ string) error {
-	if noErr {
-		val, ok := m.cdcCursor.Load(stream.ID())
+func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		val, ok := m.cdcCursor.Load(m.streams[streamIndex].ID())
 		if ok {
-			m.state.SetCursor(stream.Self(), cdcCursorField, val)
+			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
 		} else {
-			logger.Warnf("no resume token found for stream: %s", stream.ID())
+			logger.Warnf("no resume token found for stream: %s", m.streams[streamIndex].ID())
 		}
+		return nil
 	}
-	return nil
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
