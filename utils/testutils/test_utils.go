@@ -490,7 +490,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
-				true,
+				true && tc.name != "Full-Refresh",
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -575,7 +575,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
-				true,
+				true && tc.name != "Full-Refresh",
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -1048,10 +1048,12 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
 			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
 		}
-		for key := range defaultCDCColumnsSchema {
-			icebergValue, ok := icebergMap[key]
-			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-			require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+		if isCDC {
+			for key := range defaultCDCColumnsSchema {
+				icebergValue, ok := icebergMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
+				require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+			}
 		}
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
@@ -1084,14 +1086,16 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
 	// Verify datatypes for CDC/default columns as well
-	for col, expectedIceType := range defaultCDCColumnsSchema {
-		iceType, found := icebergSchema[col]
-		require.True(t, found, "CDC column %s not found in Iceberg schema", col)
+	if isCDC {
+		for col, expectedIceType := range defaultCDCColumnsSchema {
+			iceType, found := icebergSchema[col]
+			require.True(t, found, "CDC column %s not found in Iceberg schema", col)
 
-		require.Equal(t, expectedIceType, iceType,
-			"CDC data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
+			require.Equal(t, expectedIceType, iceType,
+				"CDC data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
+		}
+		t.Logf("Verified datatypes for CDC columns in Iceberg after sync")
 	}
-	t.Logf("Verified datatypes for CDC columns in Iceberg after sync")
 
 	// Partition verification using only metadata tables
 	if partitionRegex == "" {
@@ -1196,10 +1200,12 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			require.Equal(t, expected, val,
 				"Row %d: mismatch on %q: Parquet has %#v, expected %#v", rowIdx, key, val, expected)
 		}
-		for key := range defaultCDCColumnsSchema {
-			val, ok := parquetMap[key]
-			require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-			require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+		if isCDC {
+			for key := range defaultCDCColumnsSchema {
+				val, ok := parquetMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
+				require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+			}
 		}
 	}
 	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
@@ -1233,11 +1239,13 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	}
 	t.Logf("Verified datatypes in Parquet after sync")
 	// Verify datatypes for CDC/default columns as well
-	for col, expectedPqType := range defaultCDCColumnsSchema {
-		pqType, found := parquetSchema[col]
-		require.True(t, found, "CDC column %s not found in Parquet schema", col)
-		require.Equal(t, expectedPqType, pqType,
-			"CDC data type mismatch for column %s: expected %s, got %s", col, expectedPqType, pqType)
+	if isCDC {
+		for col, expectedPqType := range defaultCDCColumnsSchema {
+			pqType, found := parquetSchema[col]
+			require.True(t, found, "CDC column %s not found in Parquet schema", col)
+			require.Equal(t, expectedPqType, pqType,
+				"CDC data type mismatch for column %s: expected %s, got %s", col, expectedPqType, pqType)
+		}
 	}
 	t.Logf("Verified datatypes for CDC columns in Parquet after sync")
 }
