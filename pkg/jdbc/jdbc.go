@@ -429,6 +429,9 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+	if condition == "" {
+		condition = utils.Ternary(extraFilter != "", extraFilter, "1 = 1").(string)
+	}
 	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
 }
 

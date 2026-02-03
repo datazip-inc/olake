@@ -43,9 +43,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 		// Get cxhunks from state or calculate new ones
 		var stmt string
-		if chunk.Min == nil && chunk.Max == nil && filter == "" {
-			stmt = fmt.Sprintf("SELECT * FROM `%s`.`%s`", stream.Namespace(), stream.Name())
-		} else if chunkColumn != "" {
+		if chunkColumn != "" {
 			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
 		} else if len(pkColumns) > 0 {
 			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
@@ -98,12 +96,12 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 
 	var (
-		ok     bool
-		step   int64
-		minVal any
-		maxVal any
-		minf   float64
-		maxf   float64
+		isEvenDistribution bool
+		step               int64
+		minVal             any			//to define lower range of the chunk
+		maxVal             any			//to define upper range of the chunk
+		minFloat           float64
+		maxFloat           float64
 	)
 
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -123,7 +121,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		}
 	}
 	if len(pkColumns) == 1 {
-		ok, step, minf, maxf = shouldUseEvenDistribution(minVal, maxVal, approxRowCount, chunkSize)
+		isEvenDistribution, step, minFloat, maxFloat = shouldUseEvenDistribution(minVal, maxVal, approxRowCount, chunkSize)
 	}
 	// Takes the user defined batch size as chunkSize
 	// TODO: common-out the chunking logic for db2, mssql, mysql
@@ -200,6 +198,8 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return nil
 		})
 	}
+
+	//used mathematical calculation to split the chunks for cases where the distribution factor is within the range
 	splitEvenlyForInt := func(minf, maxf float64, chunks *types.Set[types.Chunk], step float64) {
 		if minf+step > maxf {
 			chunks.Insert(types.Chunk{
@@ -221,8 +221,8 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			Max: nil,
 		})
 	}
-	if len(pkColumns) == 1 && ok {
-		splitEvenlyForInt(minf, maxf, chunks, float64(step))
+	if len(pkColumns) == 1 && isEvenDistribution {
+		splitEvenlyForInt(minFloat, maxFloat, chunks, float64(step))
 	} else if len(pkColumns) > 0 {
 		err = splitViaPrimaryKey(stream, chunks)
 	} else {
@@ -241,16 +241,15 @@ func shouldUseEvenDistribution(minVal any, maxVal any, approxRowCount int64, chu
 	if approxRowCount == 0 {
 		return false, 0, 0, 0
 	}
-	minF, err1 := typeutils.ReformatFloat64(minVal)
-	maxF, err2 := typeutils.ReformatFloat64(maxVal)
+	minFloat, err1 := typeutils.ReformatFloat64(minVal)
+	maxFloat, err2 := typeutils.ReformatFloat64(maxVal)
 	if err1 != nil || err2 != nil {
 		return false, 0, 0, 0
 	}
-	distributionFactor := (maxF - minF + 1) / float64(approxRowCount)
-	if distributionFactor < constants.DistributionLower ||
-		distributionFactor > constants.DistributionUpper {
+	distributionFactor := (maxFloat - minFloat + 1) / float64(approxRowCount)
+	if distributionFactor < constants.DistributionLower || distributionFactor > constants.DistributionUpper {
 		return false, 0, 0, 0
 	}
 	step := int64(math.Max(distributionFactor*float64(chunkSize), 1))
-	return true, step, minF, maxF
+	return true, step, minFloat, maxFloat
 }
