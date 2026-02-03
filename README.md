@@ -27,7 +27,7 @@
 
 ## OLake — Super-fast Sync to Apache Iceberg
 
-> **OLake** is an open-source connector for replicating data from transactional databases like **PostgreSQL, MySQL, MongoDB, Oracle & Kafka** to open data lakehouse formats like **Apache Iceberg** — at blazing speeds and minimal infrastructure cost.
+> **OLake** is an open-source connector for replicating data from transactional databases like **PostgreSQL, MySQL, MongoDB, Oracle, DB2, MSSQL & Kafka** to open data lakehouse formats like **Apache Iceberg** — at blazing speeds and minimal infrastructure cost. The **OLake S3 source** connector ingests data from **Amazon S3** or S3-compatible storage (MinIO, LocalStack).
 
 <h1 align="center" style="border-bottom: none">
     <a href="https://datazip.io/olake" target="_blank">
@@ -41,7 +41,7 @@
 ### 🚀 Why OLake?
 
 - 🧠 **Smart sync**: Full + CDC replication with automatic schema discovery  
-- ⚡ **High throughput**: 319K RPS (Postgres) & 338K RPS (MySQL)
+- ⚡ **High throughput**: 580K RPS (Postgres) & 338K RPS (MySQL)
 - 💾 **Iceberg-native**: Supports Glue, Hive, JDBC, REST catalogs  
 - 🖥️ **Self-serve UI**: Deploy via Docker Compose and sync in minutes  
 - 💸 **Infra-light**: No Spark, no Flink, no Kafka, no Debezium
@@ -54,10 +54,11 @@
 
 | Source → Destination | Full Load       | Relative Performance (Full Load)    | Full Report                                                  |
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
-| Postgres → Iceberg   | 3,19,562 RPS    | 6.8× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| Postgres → Iceberg   | 5,80,113 RPS    | 12.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
 | MySQL → Iceberg      | 3,38,005 RPS    | 2.83× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
-| Oracle → Iceberg     | 2,61,793 RPS    | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
+| MongoDB → Iceberg    | 83,333 RPS      | 6× faster than Fivetran              | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| Oracle → Iceberg     | 5,26,337 RPS (2.11 hrs, < $6) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
+| Kafka → Iceberg      | 1,54,320 RPS (Batch Load) | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
 
 #### CDC
 
@@ -65,8 +66,9 @@
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
 | Postgres → Iceberg   | 41,390 RPS      | 1.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
 | MySQL → Iceberg      | 51,867 RPS      | 1.85× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| MongoDB → Iceberg    | 35,694 RPS      | 6.7× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
+| Kafka → Iceberg      | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
 
 
 
@@ -87,7 +89,10 @@
 | MySQL         | ✅           | ✅            | ✅                | Binlog-based CDC            | [MySQL Docs](https://olake.io/docs/connectors/mysql/overview) |
 | MongoDB       | ✅           | ✅            | ✅                | Oplog-based CDC             |[MongoDB Docs](https://olake.io/docs/connectors/mongodb/overview) |
 | Oracle        | ✅           | WIP  | ✅                |  JDBC based Full Load & Incremental                |  [Oracle Docs](https://olake.io/docs/connectors/oracle/overview) |
-| Kafka        | ✅ | -  | ✅                | Consumer Group Based Incremental (Append Only)  |  [Kafka Docs](https://olake.io/docs/connectors/kafka)  |
+| DB2          | ✅           | -    | ✅                | JDBC based Full Load & Incremental                 | [DB2 Docs](https://olake.io/docs/connectors/db2/) |
+| MSSQL        | ✅           | ✅   | ✅                | Full Load, CDC & Incremental                        | [MSSQL Docs](https://olake.io/docs/connectors/mssql/) |
+| Kafka        | ✅           | -    | ✅                | Consumer Group Based Incremental (Append Only)      | [Kafka Docs](https://olake.io/docs/connectors/kafka) |
+| S3           | ✅           | -    | ✅                | Ingests from Amazon S3 or S3-compatible (MinIO, LocalStack) | [S3 Docs](https://olake.io/docs/connectors/s3/) |
 
 
 #### Destinations
@@ -184,6 +189,8 @@ Below are other different ways you can run OLake:
 2. [OLake + Apache Iceberg + AWS Glue + Trino](https://olake.io/iceberg/olake-iceberg-trino)
 3. [OLake + Apache Iceberg + AWS Glue + Athena](https://olake.io/iceberg/olake-iceberg-athena)
 4. [OLake + Apache Iceberg + AWS Glue + Snowflake](https://olake.io/iceberg/olake-glue-snowflake)
+5. [OLake + Apache Iceberg + REST Catalog + Spark](https://olake.io/docs/getting-started/playground/)
+
 
 ---
 
