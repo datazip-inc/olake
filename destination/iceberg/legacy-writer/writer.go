@@ -184,6 +184,10 @@ func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPay
 	}
 	if record.ExtraColumns != nil {
 		for k, v := range record.ExtraColumns {
+			if k == constants.CDCBinlogFilePos {
+				dataMap[k] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: v.(int64)}}
+				continue
+			}
 			dataMap[k] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", v)}}
 		}
 	}
