@@ -1053,6 +1053,13 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 				icebergValue, ok := icebergMap[key]
 				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
 				require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				if key == constants.CdcTimestamp {
+					ts, ok := icebergValue.(time.Time)
+					require.Truef(t, ok, "Row %d: expected %q to be time.Time, got %T", rowIdx, key, icebergValue)
+					minAllowed := time.Now().Add(-1 * time.Hour)
+					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
+				}
+
 			}
 		}
 	}
@@ -1205,6 +1212,12 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 				val, ok := parquetMap[key]
 				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
 				require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				if key == constants.CdcTimestamp {
+					ts, ok := val.(time.Time)
+					require.Truef(t, ok, "Row %d: expected %q to be time.Time, got %T", rowIdx, key, val)
+					minAllowed := time.Now().Add(-1 * time.Hour)
+					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
+				}
 			}
 		}
 	}
