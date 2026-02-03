@@ -47,6 +47,7 @@ func (s *ConfiguredStream) Namespace() string {
 	return s.Stream.Namespace
 }
 
+// TODO: remove cdc columns in case of incremntal and full refresh sync modes
 func (s *ConfiguredStream) Schema() *TypeSchema {
 	return s.Stream.Schema
 }

@@ -101,7 +101,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
 		var requestPayload proto.IcebergPayload
-		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema(i.options.DriverType)).([]*proto.IcebergPayload_SchemaField)
+		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema(i.options.DriverType, i.stream.GetSyncMode() == types.CDC)).([]*proto.IcebergPayload_SchemaField)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
@@ -204,7 +204,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
 			DestTableName: destinationDB,
-			Schema:        icebergRawSchema(i.options.DriverType),
+			Schema:        icebergRawSchema(i.options.DriverType, false),
 		},
 	}
 
@@ -218,7 +218,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
-	protoSchema := icebergRawSchema(i.options.DriverType)
+	protoSchema := icebergRawSchema(i.options.DriverType, false)
 	record := types.CreateRawRecord(destinationDB, map[string]any{"name": "olake"}, "r", &currentTime, nil)
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
@@ -588,10 +588,10 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 }
 
 // returns raw schema in iceberg format
-func icebergRawSchema(driverType constants.DriverType) []*proto.IcebergPayload_SchemaField {
+func icebergRawSchema(driverType constants.DriverType, isCDC bool) []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
 
-	for key, typ := range types.GetDriverSpecificRawSchema(driverType) {
+	for key, typ := range types.GetDriverSpecificRawSchema(driverType, isCDC) {
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: typ.ToIceberg(),
 			Key:     key,

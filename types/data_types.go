@@ -54,25 +54,27 @@ var TypeWeights = map[DataType]int{
 
 var RawSchema = map[string]DataType{
 	constants.StringifiedData: String,
-	constants.CdcTimestamp:    Timestamp,
 	constants.OlakeTimestamp:  Timestamp,
 	constants.OpType:          String,
 	constants.OlakeID:         String,
 }
 
-func GetDriverSpecificRawSchema(driverType constants.DriverType) map[string]DataType {
+func GetDriverSpecificRawSchema(driverType constants.DriverType, isCDC bool) map[string]DataType {
 	baseRawSchema := RawSchema
-	switch driverType {
-	case constants.MySQL:
-		baseRawSchema[constants.CDCBinlogFileName] = String
-		baseRawSchema[constants.CDCBinlogFilePos] = Int64
-	case constants.Postgres:
-		baseRawSchema[constants.CDCLSN] = String
-	case constants.MongoDB:
-		baseRawSchema[constants.CDCResumeToken] = String
-	case constants.MSSQL:
-		baseRawSchema[constants.CDCStartLSN] = String
-		baseRawSchema[constants.CDCSeqVal] = String
+	if isCDC {
+		baseRawSchema[constants.CdcTimestamp] = Timestamp
+		switch driverType {
+		case constants.MySQL:
+			baseRawSchema[constants.CDCBinlogFileName] = String
+			baseRawSchema[constants.CDCBinlogFilePos] = Int64
+		case constants.Postgres:
+			baseRawSchema[constants.CDCLSN] = String
+		case constants.MongoDB:
+			baseRawSchema[constants.CDCResumeToken] = String
+		case constants.MSSQL:
+			baseRawSchema[constants.CDCStartLSN] = String
+			baseRawSchema[constants.CDCSeqVal] = String
+		}
 	}
 	return baseRawSchema
 }
@@ -98,31 +100,33 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 	}
 }
 
-func GetParquetRawSchema(driverType constants.DriverType) *parquet.Schema {
+func GetParquetRawSchema(driverType constants.DriverType, isCDC bool) *parquet.Schema {
 	// Base schema – common for all drivers
 	schemaFields := parquet.Group{
 		"data":             parquet.JSON(),
 		"_olake_id":        parquet.String(),
 		"_olake_timestamp": parquet.Timestamp(parquet.Microsecond),
 		"_op_type":         parquet.String(),
-		"_cdc_timestamp":   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
 	}
 
 	// Add driver-specific CDC fields
-	switch driverType {
-	case constants.MySQL:
-		schemaFields[constants.CDCBinlogFileName] = parquet.Optional(parquet.String())
-		schemaFields[constants.CDCBinlogFilePos] = parquet.Optional(parquet.Int(64))
+	if isCDC {
+		schemaFields["_cdc_timestamp"] = parquet.Optional(parquet.Timestamp(parquet.Microsecond))
+		switch driverType {
+		case constants.MySQL:
+			schemaFields[constants.CDCBinlogFileName] = parquet.Optional(parquet.String())
+			schemaFields[constants.CDCBinlogFilePos] = parquet.Optional(parquet.Int(64))
 
-	case constants.Postgres:
-		schemaFields[constants.CDCLSN] = parquet.Optional(parquet.String())
+		case constants.Postgres:
+			schemaFields[constants.CDCLSN] = parquet.Optional(parquet.String())
 
-	case constants.MongoDB:
-		schemaFields[constants.CDCResumeToken] = parquet.Optional(parquet.String())
+		case constants.MongoDB:
+			schemaFields[constants.CDCResumeToken] = parquet.Optional(parquet.String())
 
-	case constants.MSSQL:
-		schemaFields[constants.CDCStartLSN] = parquet.Optional(parquet.String())
-		schemaFields[constants.CDCSeqVal] = parquet.Optional(parquet.String())
+		case constants.MSSQL:
+			schemaFields[constants.CDCStartLSN] = parquet.Optional(parquet.String())
+			schemaFields[constants.CDCSeqVal] = parquet.Optional(parquet.String())
+		}
 	}
 
 	return parquet.NewSchema("RawRecord", schemaFields)

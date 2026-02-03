@@ -105,7 +105,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		if p.stream.NormalizationEnabled() {
 			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[any](pqFile, types.GetParquetRawSchema(p.options.DriverType), pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[any](pqFile, types.GetParquetRawSchema(p.options.DriverType, p.stream.GetSyncMode() == types.CDC), pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = append(p.partitionedFiles[basePath], &FileMetadata{
