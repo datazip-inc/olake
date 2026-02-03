@@ -105,7 +105,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		if p.stream.NormalizationEnabled() {
 			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[any](pqFile, types.GetParquetRawSchema(p.options.DriverType, p.stream.GetSyncMode() == types.CDC), pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[any](pqFile, types.GetParquetRawSchema(p.options.DriverType, p.stream.GetSyncMode() == types.CDC || p.stream.GetSyncMode() == types.STRICTCDC), pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = append(p.partitionedFiles[basePath], &FileMetadata{
@@ -190,8 +190,8 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 			if record.CdcTimestamp != nil {
 				recordMap[constants.CdcTimestamp] = *record.CdcTimestamp
 			}
-			if record.ExtraColumns != nil {
-				for k, v := range record.ExtraColumns {
+			if record.CDCColumns != nil {
+				for k, v := range record.CDCColumns {
 					recordMap[k] = v
 				}
 			}
@@ -374,11 +374,11 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		if record.CdcTimestamp != nil {
 			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 		}
-		if record.ExtraColumns != nil {
-			for k, v := range record.ExtraColumns {
+		if record.CDCColumns != nil {
+			for k, v := range record.CDCColumns {
 				records[idx].Data[k] = v
 			}
-			records[idx].ExtraColumns = nil
+			records[idx].CDCColumns = nil
 		}
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {

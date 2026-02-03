@@ -88,7 +88,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 			Timestamp: timestamp,
 			Kind:      operationType,
 			Data:      record,
-			ExtraColumns: map[string]any{
+			CDCColumns: map[string]any{
 				constants.CDCBinlogFileName: pos.Name,
 				constants.CDCBinlogFilePos:  int64(ev.Header.LogPos), // Use the event position
 			},

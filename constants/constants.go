@@ -20,26 +20,26 @@ const (
 	OlakeTimestamp         = "_olake_timestamp"
 	OpType                 = "_op_type"
 	CdcTimestamp           = "_cdc_timestamp"
-	// driver specific cdc columns
-	CDCResumeToken        = "_cdc_resume_token" //nolint:gosec // false positive: DB field name
-	CDCBinlogFileName     = "_cdc_binlog_file_name"
-	CDCBinlogFilePos      = "_cdc_binlog_file_pos"
-	CDCLSN                = "_cdc_lsn"
-	CDCStartLSN           = "_cdc_start_lsn"
-	CDCSeqVal             = "_cdc_seqval"
-	StringifiedData       = "data"
-	DefaultReadPreference = "secondaryPreferred"
-	EncryptionKey         = "OLAKE_ENCRYPTION_KEY"
-	ConfigFolder          = "CONFIG_FOLDER"
-	StatePath             = "STATE_PATH"
-	StreamsPath           = "STREAMS_PATH"
-	DifferencePath        = "DIFFERENCE_STREAMS_PATH"
+	StringifiedData        = "data"
+	DefaultReadPreference  = "secondaryPreferred"
+	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
+	ConfigFolder           = "CONFIG_FOLDER"
+	StatePath              = "STATE_PATH"
+	StreamsPath            = "STREAMS_PATH"
+	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
 	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
 	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
 	DefaultStateTimestampFormat = "2006-01-02T15:04:05.000000000Z"
+	// driver specific cdc columns
+	CDCResumeToken    = "_cdc_resume_token"     //nolint:gosec // false positive: DB field name MongoDB resume token
+	CDCBinlogFileName = "_cdc_binlog_file_name" // MySQL binlog file name
+	CDCBinlogFilePos  = "_cdc_binlog_file_pos"  // MySQL binlog file position
+	CDCLSN            = "_cdc_lsn"              // Postgres LSN
+	CDCStartLSN       = "_cdc_start_lsn"        // MSSQL start LSN
+	CDCSeqVal         = "_cdc_seqval"           // MSSQL seqval
 )
 
 type DriverType string

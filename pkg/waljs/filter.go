@@ -77,11 +77,11 @@ func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFi
 		}
 
 		if err := OnFiltered(ctx, abstract.CDCChange{
-			Stream:       stream,
-			Kind:         ch.Kind,
-			Timestamp:    changes.Timestamp.Time,
-			Data:         changesMap,
-			ExtraColumns: map[string]any{constants.CDCLSN: changes.NextLSN},
+			Stream:     stream,
+			Kind:       ch.Kind,
+			Timestamp:  changes.Timestamp.Time,
+			Data:       changesMap,
+			CDCColumns: map[string]any{constants.CDCLSN: changes.NextLSN},
 		}); err != nil {
 			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %s", err)
 		}
