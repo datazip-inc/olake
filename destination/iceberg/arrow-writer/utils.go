@@ -264,9 +264,7 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 					val = record.CdcTimestamp
 				}
 			case constants.CDCBinlogFileName, constants.CDCBinlogFilePos, constants.CDCLSN, constants.CDCResumeToken, constants.CDCStartLSN, constants.CDCSeqVal:
-				if record.CDCColumns != nil {
-					val = record.CDCColumns[field.Name]
-				}
+				val = record.CDCColumns[field.Name]
 			default:
 				if normalization {
 					val = record.Data[field.Name]

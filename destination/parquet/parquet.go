@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -190,11 +191,8 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 			if record.CdcTimestamp != nil {
 				recordMap[constants.CdcTimestamp] = *record.CdcTimestamp
 			}
-			if record.CDCColumns != nil {
-				for k, v := range record.CDCColumns {
-					recordMap[k] = v
-				}
-			}
+			maps.Copy(recordMap, record.CDCColumns)
+
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{recordMap})
 		}
 		if err != nil {
