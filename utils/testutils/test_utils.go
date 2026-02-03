@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/datazip-inc/olake/constants"
@@ -490,7 +491,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
-				true && tc.name != "Full-Refresh",
+				tc.name != "Full-Refresh",
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -575,7 +576,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
-				true && tc.name != "Full-Refresh",
+				tc.name != "Full-Refresh",
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -663,7 +664,8 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
-				false); err != nil {
+				false,
+			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
 		})
@@ -1054,8 +1056,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
 				require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
 				if key == constants.CdcTimestamp {
-					ts, ok := icebergValue.(time.Time)
-					require.Truef(t, ok, "Row %d: expected %q to be time.Time, got %T", rowIdx, key, icebergValue)
+					ts, ok := normalizeToTime(icebergValue)
+					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, icebergValue, icebergValue)
 					minAllowed := time.Now().Add(-1 * time.Hour)
 					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
 				}
@@ -1213,8 +1215,8 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
 				require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
 				if key == constants.CdcTimestamp {
-					ts, ok := val.(time.Time)
-					require.Truef(t, ok, "Row %d: expected %q to be time.Time, got %T", rowIdx, key, val)
+					ts, ok := normalizeToTime(val)
+					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
 					minAllowed := time.Now().Add(-1 * time.Hour)
 					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
 				}
@@ -1493,4 +1495,17 @@ func extractFirstPartitionColFromRows(rows []types.Row) string {
 	}
 
 	return ""
+}
+
+func normalizeToTime(v interface{}) (time.Time, bool) {
+	switch ts := v.(type) {
+	case time.Time:
+		return ts, true
+	case arrow.Timestamp:
+		// Spark Connect can return Arrow-native timestamp values. In this codebase,
+		// Arrow timestamps are represented as microseconds since unix epoch.
+		return time.Unix(0, int64(ts)*int64(time.Microsecond)).UTC(), true
+	default:
+		return time.Time{}, false
+	}
 }
