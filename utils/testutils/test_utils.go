@@ -1067,7 +1067,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		if !isCDC && icebergMap[constants.CdcTimestamp] != nil {
 			ts, ok := normalizeToTime(icebergMap[constants.CdcTimestamp])
 			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, icebergMap[constants.CdcTimestamp])
-			require.Equal(t, time.Unix(0, 0), ts)
+			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
+			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
 		}
 
 	}
@@ -1231,7 +1232,8 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		if !isCDC && parquetMap[constants.CdcTimestamp] != nil {
 			ts, ok := normalizeToTime(parquetMap[constants.CdcTimestamp])
 			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, parquetMap[constants.CdcTimestamp])
-			require.Equal(t, time.Unix(0, 0), ts)
+			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
+			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
 		}
 	}
 
