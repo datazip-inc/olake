@@ -37,14 +37,15 @@ type FileMetadata struct {
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
 type Parquet struct {
-	options          *destination.Options
-	config           *Config
-	stream           types.StreamInterface
-	basePath         string                     // construct with streamNamespace/streamName
-	partitionedFiles map[string][]*FileMetadata // mapping of basePath/{regex} -> pqFiles
-	s3Client         *s3.S3
-	s3Uploader       *s3manager.Uploader
-	schema           typeutils.Fields
+	options            *destination.Options
+	config             *Config
+	stream             types.StreamInterface
+	basePath           string                     // construct with streamNamespace/streamName
+	partitionedFiles   map[string][]*FileMetadata // mapping of basePath/{regex} -> pqFiles
+	s3Client           *s3.S3
+	s3Uploader         *s3manager.Uploader
+	schema             typeutils.Fields // used for both normalized and raw mode
+	cdcColumnsDetected bool             // flag to skip CDC column detection after first batch
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
@@ -102,12 +103,8 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		return fmt.Errorf("failed to create parquet file writer: %s", err)
 	}
 
-	writer := func() any {
-		if p.stream.NormalizationEnabled() {
-			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
-		}
-		return pqgo.NewGenericWriter[any](pqFile, types.GetParquetRawSchema(p.options.DriverType, p.stream.GetSyncMode() == types.CDC || p.stream.GetSyncMode() == types.STRICTCDC), pqgo.Compression(&pqgo.Snappy))
-	}()
+	// Use p.schema for both normalized and raw mode
+	writer := pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
 
 	p.partitionedFiles[basePath] = append(p.partitionedFiles[basePath], &FileMetadata{
 		fileName: fileName,
@@ -138,6 +135,10 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	}
 
 	if !p.stream.NormalizationEnabled() {
+		// Initialize schema with base raw columns (data, _olake_id, _olake_timestamp, _op_type, _cdc_timestamp)
+		for col, typ := range types.GetRawSchema(p.stream.GetSyncMode() == types.CDC || p.stream.GetSyncMode() == types.STRICTCDC) {
+			p.schema[col] = typeutils.NewField(typ)
+		}
 		return p.schema, nil
 	}
 
@@ -355,7 +356,32 @@ func (p *Parquet) Close(ctx context.Context) error {
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
-		return false, records, nil, nil
+		// Skip CDC column detection if already done
+		if p.cdcColumnsDetected {
+			return false, records, p.schema, nil
+		}
+
+		// Extract driver-specific CDC columns from first batch and evolve schema if needed
+		schemaDiff := false
+
+		for _, record := range records {
+			// Check if any CDC column is missing from schema
+			for colName, colValue := range record.CDCColumns {
+				if _, exists := p.schema[colName]; !exists {
+					// New CDC column detected, add to schema
+					detectedType := typeutils.TypeFromValue(colValue)
+					p.schema[colName] = typeutils.NewField(detectedType)
+					schemaDiff = true
+				}
+			}
+			// All records from same driver have same CDC columns, check only first record with CDC columns
+			break
+		}
+
+		// Mark CDC columns as detected (even if none found, no need to check again)
+		p.cdcColumnsDetected = true
+
+		return schemaDiff, records, p.schema, nil
 	}
 
 	if len(records) == 0 {
@@ -372,12 +398,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		if record.CdcTimestamp != nil {
 			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 		}
-		if record.CDCColumns != nil {
-			for k, v := range record.CDCColumns {
-				records[idx].Data[k] = v
-			}
-			records[idx].CDCColumns = nil
-		}
+		maps.Copy(records[idx].Data, record.Data)
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
@@ -426,10 +447,6 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
 func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
-	if !p.stream.NormalizationEnabled() {
-		return false, nil
-	}
-
 	logger.Infof("Thread[%s]: schema evolution detected", p.options.ThreadID)
 
 	// create new partition files for all paths as prev are of no use

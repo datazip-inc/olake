@@ -3,6 +3,7 @@ package iceberg
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"runtime"
 	"strings"
@@ -23,13 +24,14 @@ import (
 )
 
 type Iceberg struct {
-	options       *destination.Options
-	config        *Config
-	stream        types.StreamInterface
-	partitionInfo []internal.PartitionInfo // ordered slice to preserve partition column order
-	server        *serverInstance          // Java server instance
-	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
-	writer        Writer                   // writer instance
+	options            *destination.Options
+	config             *Config
+	stream             types.StreamInterface
+	partitionInfo      []internal.PartitionInfo // ordered slice to preserve partition column order
+	server             *serverInstance          // Java server instance
+	schema             map[string]string        // schema for current thread associated with Java writer (col -> type)
+	writer             Writer                   // writer instance
+	cdcColumnsDetected bool                     // flag to skip CDC column detection after first batch
 
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
@@ -101,7 +103,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
 		var requestPayload proto.IcebergPayload
-		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema(i.options.DriverType, i.stream.GetSyncMode() == types.CDC || i.stream.GetSyncMode() == types.STRICTCDC)).([]*proto.IcebergPayload_SchemaField)
+		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema(stream.GetSyncMode() == types.CDC || stream.GetSyncMode() == types.STRICTCDC)).([]*proto.IcebergPayload_SchemaField)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
@@ -204,7 +206,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
 			DestTableName: destinationDB,
-			Schema:        icebergRawSchema(i.options.DriverType, false),
+			Schema:        icebergRawSchema(false),
 		},
 	}
 
@@ -218,7 +220,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
-	protoSchema := icebergRawSchema(i.options.DriverType, false)
+	protoSchema := icebergRawSchema(false)
 	record := types.CreateRawRecord(destinationDB, map[string]any{"name": "olake"}, "r", &currentTime, nil)
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
@@ -314,11 +316,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			if record.CdcTimestamp != nil {
 				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 			}
-
-			for k, v := range record.CDCColumns {
-				records[idx].Data[k] = v
-			}
-
+			maps.Copy(records[idx].Data, record.CDCColumns)
 			flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
@@ -356,7 +354,34 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}
 
 	if !i.stream.NormalizationEnabled() {
-		return false, records, i.schema, nil
+		// Skip CDC column detection if already done
+		if i.cdcColumnsDetected {
+			return false, records, i.schema, nil
+		}
+
+		// Extract driver-specific CDC columns from first batch and evolve schema if needed
+		schemaMap := copySchema(i.schema)
+		schemaDiff := false
+
+		for _, record := range records {
+			// Check if any CDC column is missing from schema
+			for colName, colValue := range record.CDCColumns {
+				if _, exists := schemaMap[colName]; !exists {
+					// New CDC column detected, add to schema
+					detectedType := typeutils.TypeFromValue(colValue)
+					schemaMap[colName] = detectedType.ToIceberg()
+					schemaDiff = true
+				}
+			}
+			// All records from same driver have same CDC columns, check only first record with CDC columns
+			break
+		}
+		logger.Debugf("&&&&****Thread[%s]: schemaMap: %v", i.options.ThreadID, schemaMap)
+
+		// Mark CDC columns as detected (even if none found, no need to check again)
+		i.cdcColumnsDetected = true
+
+		return schemaDiff, records, schemaMap, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
@@ -369,11 +394,8 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 // compares with global schema and update schema in destination accordingly
 func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSchema any) (any, error) {
-	if !i.stream.NormalizationEnabled() {
-		return i.schema, nil
-	}
-
 	// cases as local thread schema has detected changes w.r.t. batch records schema
+	// Note: Schema evolution is also needed for raw mode (normalization=false) to add driver-specific CDC columns
 	//  	i.  iceberg table already have changes (i.e. no difference with global schema), in this case
 	//		    only refresh table in iceberg for this thread.
 	// 		ii. Schema difference is detected w.r.t. iceberg table (i.e. global schema), in this case
@@ -587,10 +609,10 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 }
 
 // returns raw schema in iceberg format
-func icebergRawSchema(driverType constants.DriverType, isCDC bool) []*proto.IcebergPayload_SchemaField {
+func icebergRawSchema(isCDC bool) []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
 
-	for key, typ := range types.GetDriverSpecificRawSchema(driverType, isCDC) {
+	for key, typ := range types.GetRawSchema(isCDC) {
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: typ.ToIceberg(),
 			Key:     key,
