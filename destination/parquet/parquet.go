@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -416,7 +415,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}); err != nil {
 		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
 	}
-	if !p.options.Backfill || slices.Contains(constants.FullRefreshPostReadFilterDrivers, p.options.DriverType) {
+	if p.options.ApplyFilter {
 		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
