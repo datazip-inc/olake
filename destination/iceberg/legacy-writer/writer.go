@@ -182,15 +182,15 @@ func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPay
 	if record.CdcTimestamp != nil {
 		dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: record.CdcTimestamp.UTC().UnixMilli()}}
 	}
-	if record.CDCColumns != nil {
-		for k, v := range record.CDCColumns {
-			if k == constants.CDCBinlogFilePos {
-				dataMap[k] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: v.(int64)}}
-				continue
-			}
-			dataMap[k] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", v)}}
+
+	for k, v := range record.CDCColumns {
+		if k == constants.CDCBinlogFilePos {
+			dataMap[k] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: v.(int64)}}
+			continue
 		}
+		dataMap[k] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", v)}}
 	}
+
 	bytesData, err := json.Marshal(record.Data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal data in normalization: %s", err)

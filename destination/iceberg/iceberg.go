@@ -314,10 +314,9 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			if record.CdcTimestamp != nil {
 				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 			}
-			if record.CDCColumns != nil {
-				for key, value := range record.CDCColumns {
-					records[idx].Data[key] = value
-				}
+
+			for k, v := range record.CDCColumns {
+				records[idx].Data[k] = v
 			}
 
 			flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
