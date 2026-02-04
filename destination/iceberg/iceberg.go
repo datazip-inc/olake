@@ -373,10 +373,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 					schemaDiff = true
 				}
 			}
-			// All records from same driver have same CDC columns, check only first record with CDC columns
-			break
 		}
-		logger.Debugf("&&&&****Thread[%s]: schemaMap: %v", i.options.ThreadID, schemaMap)
 
 		// Mark CDC columns as detected (even if none found, no need to check again)
 		i.cdcColumnsDetected = true

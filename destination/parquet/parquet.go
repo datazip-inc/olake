@@ -374,8 +374,6 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 					schemaDiff = true
 				}
 			}
-			// All records from same driver have same CDC columns, check only first record with CDC columns
-			break
 		}
 
 		// Mark CDC columns as detected (even if none found, no need to check again)
@@ -398,8 +396,9 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		if record.CdcTimestamp != nil {
 			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
 		}
-		maps.Copy(records[idx].Data, record.Data)
-		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+		// Copy CDC columns (e.g., _cdc_binlog_file_name, _cdc_binlog_file_pos)
+		maps.Copy(records[idx].Data, record.CDCColumns)
+		flattenedRecord, err := typeutils.NewFlattener().Flatten(records[idx].Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
 		}
