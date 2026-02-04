@@ -398,7 +398,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 		// Copy CDC columns (e.g., _cdc_binlog_file_name, _cdc_binlog_file_pos)
 		maps.Copy(records[idx].Data, record.CDCColumns)
-		flattenedRecord, err := typeutils.NewFlattener().Flatten(records[idx].Data)
+		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
 		}
