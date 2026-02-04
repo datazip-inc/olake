@@ -6,7 +6,6 @@ import (
 	"sort"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -46,7 +45,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		defer backfillCtxCancel()
 
 		threadID := generateThreadID(stream.ID(), fmt.Sprintf("min[%v]-max[%v]", chunk.Min, chunk.Max))
-		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
+		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}

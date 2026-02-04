@@ -59,22 +59,10 @@ var RawSchema = map[string]DataType{
 	constants.OlakeID:         String,
 }
 
-func GetDriverSpecificRawSchema(driverType constants.DriverType, isCDC bool) map[string]DataType {
+func GetRawSchema(isCDC bool) map[string]DataType {
 	baseRawSchema := RawSchema
 	if isCDC {
 		baseRawSchema[constants.CdcTimestamp] = Timestamp
-		switch driverType {
-		case constants.MySQL:
-			baseRawSchema[constants.CDCBinlogFileName] = String
-			baseRawSchema[constants.CDCBinlogFilePos] = Int64
-		case constants.Postgres:
-			baseRawSchema[constants.CDCLSN] = String
-		case constants.MongoDB:
-			baseRawSchema[constants.CDCResumeToken] = String
-		case constants.MSSQL:
-			baseRawSchema[constants.CDCStartLSN] = String
-			baseRawSchema[constants.CDCSeqVal] = String
-		}
 	}
 	return baseRawSchema
 }
@@ -98,38 +86,6 @@ func CreateRawRecord(olakeID string, data map[string]any, operationType string, 
 		CdcTimestamp:  cdcTimestamp,
 		CDCColumns:    cdcColumns,
 	}
-}
-
-func GetParquetRawSchema(driverType constants.DriverType, isCDC bool) *parquet.Schema {
-	// Base schema – common for all drivers
-	schemaFields := parquet.Group{
-		"data":             parquet.JSON(),
-		"_olake_id":        parquet.String(),
-		"_olake_timestamp": parquet.Timestamp(parquet.Microsecond),
-		"_op_type":         parquet.String(),
-	}
-
-	// Add driver-specific CDC fields
-	if isCDC {
-		schemaFields["_cdc_timestamp"] = parquet.Optional(parquet.Timestamp(parquet.Microsecond))
-		switch driverType {
-		case constants.MySQL:
-			schemaFields[constants.CDCBinlogFileName] = parquet.Optional(parquet.String())
-			schemaFields[constants.CDCBinlogFilePos] = parquet.Optional(parquet.Int(64))
-
-		case constants.Postgres:
-			schemaFields[constants.CDCLSN] = parquet.Optional(parquet.String())
-
-		case constants.MongoDB:
-			schemaFields[constants.CDCResumeToken] = parquet.Optional(parquet.String())
-
-		case constants.MSSQL:
-			schemaFields[constants.CDCStartLSN] = parquet.Optional(parquet.String())
-			schemaFields[constants.CDCSeqVal] = parquet.Optional(parquet.String())
-		}
-	}
-
-	return parquet.NewSchema("RawRecord", schemaFields)
 }
 
 func (d DataType) ToNewParquet() parquet.Node {
