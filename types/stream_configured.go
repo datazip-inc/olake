@@ -82,11 +82,21 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 	return primaryCursor, secondaryCursor
 }
 
-// GetFilter returns the filter input for the stream
-// If the filter input is not nil and has conditions, it returns the filter input
-// If the filter input is nil or has no conditions, it returns the legacy filter input
-// If the legacy filter input is empty, it returns true and nil
-// If the legacy filter input is not empty, it returns false and the error
+// GetFilter returns the configured filter for this stream in a normalized form.
+//
+// The returned FilterInput is always the parsed representation of the filter:
+//   - If StreamMetadata.FilterInput is set and has at least one condition,
+//     that value is returned as-is (after normalizing the logical operator),
+//     and isLegacy is false.
+//   - Otherwise, the legacy string-based StreamMetadata.Filter is parsed into
+//     a FilterInput using the legacy regex parser. In this case isLegacy is true.
+//
+// Return values:
+//   - FilterInput: parsed filter definition (may be empty if no filter is configured)
+//   - isLegacy:   true if the filter came from the legacy string field, false if it
+//     came from the new structured FilterInput field
+//   - error:      non-nil only if the legacy string filter is non-empty and fails
+//     to parse; new structured filters do not return parse errors here.
 func (s *ConfiguredStream) GetFilter() (FilterInput, bool, error) {
 	//new filter input
 	if s.StreamMetadata.FilterInput != nil && len(s.StreamMetadata.FilterInput.Conditions) > 0 {

@@ -1440,3 +1440,156 @@ func TestFilterRecords_LargeDataset(t *testing.T) {
 	}
 	assert.Len(t, result, expectedCount)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: Delete Operations Always Synced (CDC-Safe Behavior)
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("delete operations bypass filter conditions", func(t *testing.T) {
+		// Create records with different operation types
+		// Filter condition: status = "active" (would normally exclude "inactive" records)
+		records := []types.RawRecord{
+			types.CreateRawRecord("id1", map[string]any{"status": "active", "id": int64(1)}, "c", nil),   // create - should match filter
+			types.CreateRawRecord("id2", map[string]any{"status": "inactive", "id": int64(2)}, "c", nil), // create - should NOT match filter
+			types.CreateRawRecord("id3", map[string]any{"status": "active", "id": int64(3)}, "u", nil),   // update - should match filter
+			types.CreateRawRecord("id4", map[string]any{"status": "inactive", "id": int64(4)}, "u", nil), // update - should NOT match filter
+			types.CreateRawRecord("id5", map[string]any{"status": "active", "id": int64(5)}, "d", nil),   // delete - should ALWAYS match (bypass filter)
+			types.CreateRawRecord("id6", map[string]any{"status": "inactive", "id": int64(6)}, "d", nil), // delete - should ALWAYS match (bypass filter)
+			types.CreateRawRecord("id7", map[string]any{"id": int64(7)}, "d", nil),                       // delete with missing status - should ALWAYS match
+		}
+
+		filter := types.FilterInput{
+			LogicalOperator: "AND",
+			Conditions: []types.FilterCondition{
+				{Column: "status", Operator: "=", Value: "active"},
+			},
+		}
+		schema := makeIcebergSchema(map[string]string{
+			"status": "string",
+			"id":     "long",
+		})
+
+		result, err := FilterRecords(ctx, records, filter, false, schema)
+		require.NoError(t, err)
+
+		// Expected results:
+		// - id1: create with status="active" → matches filter ✓
+		// - id2: create with status="inactive" → filtered out ✗
+		// - id3: update with status="active" → matches filter ✓
+		// - id4: update with status="inactive" → filtered out ✗
+		// - id5: delete with status="active" → always synced ✓
+		// - id6: delete with status="inactive" → always synced ✓
+		// - id7: delete with missing status → always synced ✓
+		// Total: 5 records (2 creates/updates + 3 deletes)
+		assert.Len(t, result, 5, "delete operations should always be synced regardless of filter")
+
+		// Verify all delete operations are present
+		deleteOps := 0
+		for _, r := range result {
+			if r.OperationType == "d" {
+				deleteOps++
+			}
+		}
+		assert.Equal(t, 3, deleteOps, "all 3 delete operations should be included")
+
+		// Verify non-delete operations are filtered correctly
+		nonDeleteOps := 0
+		for _, r := range result {
+			if r.OperationType != "d" {
+				nonDeleteOps++
+				assert.Equal(t, "active", r.Data["status"], "non-delete operations should match filter")
+			}
+		}
+		assert.Equal(t, 2, nonDeleteOps, "only 2 non-delete operations should match filter")
+	})
+
+	t.Run("delete operations with complex AND filter", func(t *testing.T) {
+		// Complex filter that would exclude most records
+		records := []types.RawRecord{
+			types.CreateRawRecord("id1", map[string]any{"age": int64(25), "city": "NYC"}, "c", nil),
+			types.CreateRawRecord("id2", map[string]any{"age": int64(20), "city": "LA"}, "d", nil),  // delete - should bypass
+			types.CreateRawRecord("id3", map[string]any{"age": int64(30), "city": "NYC"}, "d", nil), // delete - should bypass
+		}
+
+		filter := types.FilterInput{
+			LogicalOperator: "AND",
+			Conditions: []types.FilterCondition{
+				{Column: "age", Operator: ">=", Value: 30},
+				{Column: "city", Operator: "=", Value: "NYC"},
+			},
+		}
+		schema := makeIcebergSchema(map[string]string{
+			"age":  "long",
+			"city": "string",
+		})
+
+		result, err := FilterRecords(ctx, records, filter, false, schema)
+		require.NoError(t, err)
+
+		// Expected: id1 filtered out (age=25 < 30), id2 and id3 are deletes so always included
+		assert.Len(t, result, 2, "only delete operations should be included")
+		for _, r := range result {
+			assert.Equal(t, "d", r.OperationType, "all results should be delete operations")
+		}
+	})
+
+	t.Run("delete operations with OR filter", func(t *testing.T) {
+		records := []types.RawRecord{
+			types.CreateRawRecord("id1", map[string]any{"status": "pending"}, "c", nil),
+			types.CreateRawRecord("id2", map[string]any{"status": "canceled"}, "d", nil), // delete - should bypass
+			types.CreateRawRecord("id3", map[string]any{"status": "completed"}, "c", nil),
+		}
+
+		filter := types.FilterInput{
+			LogicalOperator: "OR",
+			Conditions: []types.FilterCondition{
+				{Column: "status", Operator: "=", Value: "pending"},
+				{Column: "status", Operator: "=", Value: "completed"},
+			},
+		}
+		schema := makeIcebergSchema(map[string]string{"status": "string"})
+
+		result, err := FilterRecords(ctx, records, filter, false, schema)
+		require.NoError(t, err)
+
+		// Expected: id1 matches (pending), id2 is delete (always included), id3 matches (completed)
+		assert.Len(t, result, 3, "all records should be included (2 match OR, 1 is delete)")
+	})
+
+	t.Run("delete operations with missing filter columns", func(t *testing.T) {
+		// Delete operations in MongoDB CDC only contain document key, not full fields
+		// This simulates that scenario
+		records := []types.RawRecord{
+			types.CreateRawRecord("id1", map[string]any{"_id": "doc1"}, "d", nil), // delete with only key
+			types.CreateRawRecord("id2", map[string]any{"_id": "doc2"}, "d", nil), // delete with only key
+			types.CreateRawRecord("id3", map[string]any{"status": "active", "_id": "doc3"}, "c", nil),
+		}
+
+		filter := types.FilterInput{
+			LogicalOperator: "AND",
+			Conditions: []types.FilterCondition{
+				{Column: "status", Operator: "=", Value: "active"},
+			},
+		}
+		schema := makeIcebergSchema(map[string]string{
+			"status": "string",
+			"_id":    "string",
+		})
+
+		result, err := FilterRecords(ctx, records, filter, false, schema)
+		require.NoError(t, err)
+
+		// Expected: id1 and id2 are deletes (always included), id3 matches filter
+		assert.Len(t, result, 3, "delete operations should be included even without filter columns")
+		for _, r := range result {
+			if r.OperationType == "d" {
+				// Verify delete operations don't have status field (CDC scenario)
+				_, hasStatus := r.Data["status"]
+				assert.False(t, hasStatus, "delete operations may not have filter columns")
+			}
+		}
+	})
+}

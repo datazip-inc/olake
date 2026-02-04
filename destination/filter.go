@@ -143,7 +143,7 @@ func filterConcurrently(
 	return filtered, err
 }
 
-// matches evaluates AND / OR logic
+// matches evaluates AND / OR logic from filter conditions
 func matches(
 	record types.RawRecord,
 	conditions []parsedCondition,
@@ -166,7 +166,7 @@ func matches(
 	return isAnd
 }
 
-// evaluate compares values using typeutils.Compare
+// evaluate compares values using typeutils.Compare from filter conditions
 func evaluate(recordVal, filterVal any, operator string) bool {
 	if recordVal == nil || filterVal == nil {
 		switch operator {
