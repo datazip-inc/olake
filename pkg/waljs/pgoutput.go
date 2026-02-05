@@ -19,25 +19,28 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// walChange represents a single WAL change event within a transaction
 type walChange struct {
 	kind       string
 	relationID uint32
 	data       any
 }
 
+// transactionBatch groups all changes within a single transaction
 type transactionBatch struct {
 	commitTime time.Time
 	changes    []walChange
 }
 
+// pgoutputReplicator implements Replicator for pgoutput
 type pgoutputReplicator struct {
 	socket               *Socket
 	publication          string
 	workerCount          int
-	txnCommitTime        time.Time
-	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage
-	relationMu           sync.RWMutex
-	transactionCompleted bool
+	txnCommitTime        time.Time                             // transaction commit time
+	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
+	relationMu           sync.RWMutex                          // protects relationIDToMsgMap in parallel mode
+	transactionCompleted bool                                  // if both begin and commit message received, then transaction is completed
 }
 
 func newPgoutputReplicator(socket *Socket, publication string, workerCount int) *pgoutputReplicator {
@@ -57,7 +60,7 @@ func (p *pgoutputReplicator) Socket() *Socket {
 }
 
 func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
-	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, fmt.Sprintf("%q", p.socket.ReplicationSlot), p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
+	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, p.socket.ReplicationSlot, p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
 	if err != nil {
 		return fmt.Errorf("failed to start replication: %v", err)
@@ -74,6 +77,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 func (p *pgoutputReplicator) streamChangesSequential(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
 	cdcStartTime := time.Now()
 	messageReceived := false
+	// transactionCompleted default true
 	p.transactionCompleted = true
 
 	for {
@@ -90,6 +94,7 @@ func (p *pgoutputReplicator) streamChangesSequential(ctx context.Context, db *sq
 				return nil
 			}
 
+			// receive message with timeout
 			msgCtx, cancel := context.WithTimeout(ctx, p.socket.initialWaitTime)
 			msg, err := p.socket.pgConn.ReceiveMessage(msgCtx)
 			cancel()
@@ -97,6 +102,7 @@ func (p *pgoutputReplicator) streamChangesSequential(ctx context.Context, db *sq
 				if errors.Is(err, context.DeadlineExceeded) {
 					return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrNonRetryable)
 				}
+
 				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {
 					return nil
 				}
@@ -137,6 +143,9 @@ func (p *pgoutputReplicator) streamChangesSequential(ctx context.Context, db *sq
 	}
 }
 
+// streamChangesParallel processes WAL changes using multiple workers.
+// A single receiver goroutine batches changes per transaction, then dispatches
+// complete transaction batches to worker goroutines for concurrent processing.
 func (p *pgoutputReplicator) streamChangesParallel(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
 	batchChan := make(chan *transactionBatch, p.workerCount*2)
 
@@ -156,9 +165,12 @@ func (p *pgoutputReplicator) streamChangesParallel(ctx context.Context, db *sqlx
 	return g.Wait()
 }
 
+// receiveAndBatch reads WAL messages and groups them into transaction batches.
+// Each batch is sent to batchChan for processing by worker goroutines.
 func (p *pgoutputReplicator) receiveAndBatch(ctx context.Context, db *sqlx.DB, batchChan chan<- *transactionBatch) error {
 	cdcStartTime := time.Now()
 	messageReceived := false
+	// transactionCompleted default true
 	transactionCompleted := true
 	var currentBatch *transactionBatch
 
@@ -168,7 +180,7 @@ func (p *pgoutputReplicator) receiveAndBatch(ctx context.Context, db *sqlx.DB, b
 			return nil
 		default:
 			if !messageReceived && p.socket.initialWaitTime > 0 && time.Since(cdcStartTime) > p.socket.initialWaitTime {
-				return fmt.Errorf("%s, try increasing it or do full load", constants.NoRecordsFoundError)
+				return fmt.Errorf("%w, try increasing it or do full load", constants.ErrNonRetryable)
 			}
 
 			if transactionCompleted && p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
@@ -176,13 +188,15 @@ func (p *pgoutputReplicator) receiveAndBatch(ctx context.Context, db *sqlx.DB, b
 				return nil
 			}
 
+			// receive message with timeout
 			msgCtx, cancel := context.WithTimeout(ctx, p.socket.initialWaitTime)
 			msg, err := p.socket.pgConn.ReceiveMessage(msgCtx)
 			cancel()
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
-					return fmt.Errorf("no records found in given initial wait time, try increasing it or do full load")
+					return fmt.Errorf("%w: no records found in given initial wait time, try increasing it or do full load", constants.ErrNonRetryable)
 				}
+
 				if errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "EOF") {
 					return nil
 				}
@@ -280,6 +294,9 @@ func (p *pgoutputReplicator) receiveAndBatch(ctx context.Context, db *sqlx.DB, b
 	}
 }
 
+// batchWorker processes transaction batches received from batchChan.
+// Each worker processes one batch at a time, ensuring all changes within
+// a transaction are applied in order.
 func (p *pgoutputReplicator) batchWorker(ctx context.Context, batchChan <-chan *transactionBatch, insertFn abstract.CDCMsgFn) error {
 	for {
 		select {
@@ -296,6 +313,7 @@ func (p *pgoutputReplicator) batchWorker(ctx context.Context, batchChan <-chan *
 	}
 }
 
+// processBatch processes all changes within a single transaction batch
 func (p *pgoutputReplicator) processBatch(ctx context.Context, batch *transactionBatch, insertFn abstract.CDCMsgFn) error {
 	for _, change := range batch.changes {
 		p.relationMu.RLock()
@@ -342,6 +360,7 @@ func (p *pgoutputReplicator) processBatch(ctx context.Context, batch *transactio
 	return nil
 }
 
+// processWALSequential processes a single WAL message in sequential mode
 func (p *pgoutputReplicator) processWALSequential(ctx context.Context, walData []byte, insertFn abstract.CDCMsgFn) error {
 	logicalMsg, err := pglogrepl.Parse(walData)
 	if err != nil {

@@ -2,7 +2,7 @@ package waljs
 
 import (
 	"context"
-	"sync"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,7 +10,28 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/jackc/pglogrepl"
+	"github.com/stretchr/testify/require"
 )
+
+// newTestReplicator creates a pgoutputReplicator with a mock socket for testing
+func newTestReplicator(t *testing.T, tableName string, workerCount int) (*pgoutputReplicator, types.StreamInterface) {
+	t.Helper()
+
+	stream := &mockStream{id: tableName}
+	socket := &Socket{
+		changeFilter: ChangeFilter{
+			tables: map[string]types.StreamInterface{
+				tableName: stream,
+			},
+			converter: func(value interface{}, _ string) (interface{}, error) {
+				return value, nil
+			},
+		},
+	}
+
+	r := newPgoutputReplicator(socket, "test_pub", workerCount)
+	return r, stream
+}
 
 func TestNewPgoutputReplicator(t *testing.T) {
 	tests := []struct {
@@ -27,27 +48,13 @@ func TestNewPgoutputReplicator(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r := newPgoutputReplicator(nil, "test_pub", tt.workerCount)
-			if r.workerCount != tt.expectedWorkerCount {
-				t.Errorf("expected workerCount %d, got %d", tt.expectedWorkerCount, r.workerCount)
-			}
+			require.Equal(t, tt.expectedWorkerCount, r.workerCount, "unexpected workerCount")
 		})
 	}
 }
 
 func TestProcessBatch(t *testing.T) {
-	stream := &mockStream{id: "public.users"}
-	socket := &Socket{
-		changeFilter: ChangeFilter{
-			tables: map[string]types.StreamInterface{
-				"public.users": stream,
-			},
-			converter: func(value interface{}, _ string) (interface{}, error) {
-				return value, nil
-			},
-		},
-	}
-
-	r := newPgoutputReplicator(socket, "test_pub", 1)
+	r, _ := newTestReplicator(t, "public.users", 1)
 	r.relationIDToMsgMap[1] = &pglogrepl.RelationMessage{
 		RelationID:   1,
 		Namespace:    "public",
@@ -70,42 +77,113 @@ func TestProcessBatch(t *testing.T) {
 	}
 
 	var receivedChanges []abstract.CDCChange
-	var mu sync.Mutex
-	insertFn := func(ctx context.Context, change abstract.CDCChange) error {
-		mu.Lock()
+	insertFn := func(_ context.Context, change abstract.CDCChange) error {
 		receivedChanges = append(receivedChanges, change)
-		mu.Unlock()
 		return nil
 	}
 
 	err := r.processBatch(context.Background(), batch, insertFn)
-	if err != nil {
-		t.Fatalf("processBatch failed: %v", err)
-	}
-
-	if len(receivedChanges) != 1 {
-		t.Fatalf("expected 1 change, got %d", len(receivedChanges))
-	}
-
-	if receivedChanges[0].Kind != "insert" {
-		t.Errorf("expected kind 'insert', got '%s'", receivedChanges[0].Kind)
-	}
+	require.NoError(t, err, "processBatch should not return error")
+	require.Len(t, receivedChanges, 1, "expected exactly 1 change")
+	require.Equal(t, "insert", receivedChanges[0].Kind, "unexpected change kind")
 }
 
-func TestBatchWorkerProcessesMultipleBatches(t *testing.T) {
-	stream := &mockStream{id: "public.orders"}
-	socket := &Socket{
-		changeFilter: ChangeFilter{
-			tables: map[string]types.StreamInterface{
-				"public.orders": stream,
-			},
-			converter: func(value interface{}, _ string) (interface{}, error) {
-				return value, nil
+func TestProcessBatchSkipsUnknownStreams(t *testing.T) {
+	r, _ := newTestReplicator(t, "public.users", 1)
+	// register relation for a table NOT in the change filter
+	r.relationIDToMsgMap[99] = &pglogrepl.RelationMessage{
+		RelationID:   99,
+		Namespace:    "public",
+		RelationName: "unknown_table",
+		Columns:      []*pglogrepl.RelationMessageColumn{{Name: "id", DataType: 23}},
+	}
+
+	batch := &transactionBatch{
+		commitTime: time.Now(),
+		changes: []walChange{
+			{
+				kind:       "insert",
+				relationID: 99,
+				data: &pglogrepl.InsertMessage{
+					RelationID: 99,
+					Tuple:      &pglogrepl.TupleData{Columns: []*pglogrepl.TupleDataColumn{{Data: []byte("1")}}},
+				},
 			},
 		},
 	}
 
-	r := newPgoutputReplicator(socket, "test_pub", 2)
+	var count int
+	insertFn := func(_ context.Context, change abstract.CDCChange) error {
+		count++
+		return nil
+	}
+
+	err := r.processBatch(context.Background(), batch, insertFn)
+	require.NoError(t, err, "processBatch should skip unknown streams without error")
+	require.Equal(t, 0, count, "no changes should be emitted for unknown streams")
+}
+
+func TestProcessBatchUnknownRelationID(t *testing.T) {
+	r, _ := newTestReplicator(t, "public.users", 1)
+	// do NOT register any relation, so relation ID lookup fails
+
+	batch := &transactionBatch{
+		commitTime: time.Now(),
+		changes: []walChange{
+			{
+				kind:       "insert",
+				relationID: 999,
+				data: &pglogrepl.InsertMessage{
+					RelationID: 999,
+					Tuple:      &pglogrepl.TupleData{Columns: []*pglogrepl.TupleDataColumn{{Data: []byte("1")}}},
+				},
+			},
+		},
+	}
+
+	insertFn := func(_ context.Context, _ abstract.CDCChange) error {
+		return nil
+	}
+
+	err := r.processBatch(context.Background(), batch, insertFn)
+	require.Error(t, err, "processBatch should error on unknown relation ID")
+	require.Contains(t, err.Error(), "unknown relation id")
+}
+
+func TestProcessBatchInsertFnError(t *testing.T) {
+	r, _ := newTestReplicator(t, "public.users", 1)
+	r.relationIDToMsgMap[1] = &pglogrepl.RelationMessage{
+		RelationID:   1,
+		Namespace:    "public",
+		RelationName: "users",
+		Columns:      []*pglogrepl.RelationMessageColumn{{Name: "id", DataType: 23}},
+	}
+
+	batch := &transactionBatch{
+		commitTime: time.Now(),
+		changes: []walChange{
+			{
+				kind:       "insert",
+				relationID: 1,
+				data: &pglogrepl.InsertMessage{
+					RelationID: 1,
+					Tuple:      &pglogrepl.TupleData{Columns: []*pglogrepl.TupleDataColumn{{Data: []byte("1")}}},
+				},
+			},
+		},
+	}
+
+	expectedErr := fmt.Errorf("downstream write failure")
+	insertFn := func(_ context.Context, _ abstract.CDCChange) error {
+		return expectedErr
+	}
+
+	err := r.processBatch(context.Background(), batch, insertFn)
+	require.ErrorIs(t, err, expectedErr, "processBatch should propagate insertFn errors")
+}
+
+func TestBatchWorkerProcessesMultipleBatches(t *testing.T) {
+	r, _ := newTestReplicator(t, "public.orders", 2)
 	r.relationIDToMsgMap[2] = &pglogrepl.RelationMessage{
 		RelationID:   2,
 		Namespace:    "public",
@@ -116,58 +194,51 @@ func TestBatchWorkerProcessesMultipleBatches(t *testing.T) {
 	batchChan := make(chan *transactionBatch, 10)
 	var processedCount atomic.Int32
 
-	insertFn := func(ctx context.Context, change abstract.CDCChange) error {
+	insertFn := func(_ context.Context, _ abstract.CDCChange) error {
 		processedCount.Add(1)
 		return nil
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	go func() {
-		for i := 0; i < 5; i++ {
-			batchChan <- &transactionBatch{
-				commitTime: time.Now(),
-				changes: []walChange{
-					{
-						kind:       "insert",
-						relationID: 2,
-						data: &pglogrepl.InsertMessage{
-							RelationID: 2,
-							Tuple:      &pglogrepl.TupleData{Columns: []*pglogrepl.TupleDataColumn{{Data: []byte("1")}}},
-						},
+	// send 5 batches
+	for i := 0; i < 5; i++ {
+		batchChan <- &transactionBatch{
+			commitTime: time.Now(),
+			changes: []walChange{
+				{
+					kind:       "insert",
+					relationID: 2,
+					data: &pglogrepl.InsertMessage{
+						RelationID: 2,
+						Tuple:      &pglogrepl.TupleData{Columns: []*pglogrepl.TupleDataColumn{{Data: []byte("1")}}},
 					},
 				},
-			}
+			},
 		}
-		close(batchChan)
-	}()
-
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-	}()
-
-	_ = r.batchWorker(ctx, batchChan, insertFn)
-
-	if processedCount.Load() != 5 {
-		t.Errorf("expected 5 processed changes, got %d", processedCount.Load())
 	}
+	close(batchChan)
+
+	err := r.batchWorker(context.Background(), batchChan, insertFn)
+	require.NoError(t, err, "batchWorker should process all batches without error")
+	require.Equal(t, int32(5), processedCount.Load(), "expected 5 processed changes")
+}
+
+func TestBatchWorkerStopsOnContextCancel(t *testing.T) {
+	r, _ := newTestReplicator(t, "public.orders", 1)
+
+	batchChan := make(chan *transactionBatch, 10)
+	insertFn := func(_ context.Context, _ abstract.CDCChange) error {
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	err := r.batchWorker(ctx, batchChan, insertFn)
+	require.NoError(t, err, "batchWorker should return nil on context cancellation")
 }
 
 func TestTransactionBatchMaintainsOrder(t *testing.T) {
-	stream := &mockStream{id: "public.items"}
-	socket := &Socket{
-		changeFilter: ChangeFilter{
-			tables: map[string]types.StreamInterface{
-				"public.items": stream,
-			},
-			converter: func(value interface{}, _ string) (interface{}, error) {
-				return value, nil
-			},
-		},
-	}
-
-	r := newPgoutputReplicator(socket, "test_pub", 1)
+	r, _ := newTestReplicator(t, "public.items", 1)
 	r.relationIDToMsgMap[3] = &pglogrepl.RelationMessage{
 		RelationID:   3,
 		Namespace:    "public",
@@ -185,24 +256,49 @@ func TestTransactionBatchMaintainsOrder(t *testing.T) {
 	}
 
 	var order []string
-	insertFn := func(ctx context.Context, change abstract.CDCChange) error {
+	insertFn := func(_ context.Context, change abstract.CDCChange) error {
 		order = append(order, change.Kind)
 		return nil
 	}
 
 	err := r.processBatch(context.Background(), batch, insertFn)
-	if err != nil {
-		t.Fatalf("processBatch failed: %v", err)
-	}
-
-	expectedOrder := []string{"insert", "update", "delete"}
-	for i, kind := range order {
-		if kind != expectedOrder[i] {
-			t.Errorf("at index %d: expected '%s', got '%s'", i, expectedOrder[i], kind)
-		}
-	}
+	require.NoError(t, err, "processBatch should not return error")
+	require.Equal(t, []string{"insert", "update", "delete"}, order, "changes should maintain transaction order")
 }
 
+func TestProcessBatchNilTuple(t *testing.T) {
+	r, _ := newTestReplicator(t, "public.users", 1)
+	r.relationIDToMsgMap[1] = &pglogrepl.RelationMessage{
+		RelationID:   1,
+		Namespace:    "public",
+		RelationName: "users",
+		Columns:      []*pglogrepl.RelationMessageColumn{{Name: "id", DataType: 23}},
+	}
+
+	// delete with nil OldTuple should not panic
+	batch := &transactionBatch{
+		commitTime: time.Now(),
+		changes: []walChange{
+			{
+				kind:       "delete",
+				relationID: 1,
+				data:       &pglogrepl.DeleteMessage{RelationID: 1, OldTuple: nil},
+			},
+		},
+	}
+
+	var receivedChanges []abstract.CDCChange
+	insertFn := func(_ context.Context, change abstract.CDCChange) error {
+		receivedChanges = append(receivedChanges, change)
+		return nil
+	}
+
+	err := r.processBatch(context.Background(), batch, insertFn)
+	require.NoError(t, err, "processBatch should handle nil tuple without error")
+	require.Len(t, receivedChanges, 1, "expected 1 change even with nil tuple")
+}
+
+// mockStream implements types.StreamInterface for testing
 type mockStream struct {
 	id string
 }

@@ -27,9 +27,11 @@ type Config struct {
 // Capture Write Ahead Logs
 type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
-	InitialWaitTime int    `json:"initial_wait_time"`
-	Publication     string `json:"publication"`
-	WALWorkerCount  int    `json:"wal_worker_count"`
+	// initial wait time must be in range [120,2400), default value 1200
+	InitialWaitTime int `json:"initial_wait_time"`
+	// Publications used when OutputPlugin is pgoutput
+	Publication    string `json:"publication"`
+	WALWorkerCount int    `json:"wal_worker_count"`
 }
 
 func (c *Config) Validate() error {
