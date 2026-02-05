@@ -63,7 +63,7 @@ func (k *Kafka) Type() string {
 
 func (k *Kafka) MaxConnections() int {
 	// return number of readers if available else default
-	if k.readerManager != nil && k.readerManager.GetReaderCount() > 0 {
+	if k.readerManager != nil {
 		return k.readerManager.GetReaderCount()
 	}
 	return k.config.MaxThreads
