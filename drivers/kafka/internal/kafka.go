@@ -178,7 +178,6 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	}
 
 	var mu sync.Mutex
-	parsedMessage := false
 	// get messages from partitions for schema discovery
 	err = utils.Concurrent(ctx, offsetsResp.Topics[streamName], len(offsetsResp.Topics[streamName]), func(ctx context.Context, partitionDetails kafka.PartitionOffsets, _ int) error {
 		// skip empty partitions
@@ -209,7 +208,6 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			messageCount++
 			if record.Data != nil {
 				mu.Lock()
-				parsedMessage = true
 				// resolve data for schema
 				err := typeutils.Resolve(stream, record.Data)
 				mu.Unlock()
@@ -228,13 +226,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
 	}
 
-	// check if any message or none were parsed
-	if !parsedMessage {
-		return stream, fmt.Errorf("failed to produce schema for topic %s: all sampled messages failed to parse", streamName)
-	}
-
 	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
-
 	return stream, nil
 }
 
