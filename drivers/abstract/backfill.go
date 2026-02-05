@@ -39,6 +39,8 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 
+	filterDataBySelectedColumnsFn := types.FilterDataBySelectedColumns(stream)
+
 	chunkProcessor := func(gCtx context.Context, _ int, chunk types.Chunk) (err error) {
 		// create backfill context, so that main context not affected if backfill retries
 		backfillCtx, backfillCtxCancel := context.WithCancel(gCtx)
@@ -65,10 +67,10 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				return nil
 			})()
+
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-
-			filteredData := types.FilterDataBySelectedColumns(data, stream)
+			filteredData := filterDataBySelectedColumnsFn(data)
 
 			// persist cdc timestamp for cdc full load
 			var cdcTimestamp *time.Time

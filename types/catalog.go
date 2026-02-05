@@ -38,14 +38,14 @@ type StatusRow struct {
 }
 
 type StreamMetadata struct {
-	ChunkColumn     string           `json:"chunk_column,omitempty"`
-	PartitionRegex  string           `json:"partition_regex"`
-	StreamName      string           `json:"stream_name"`
-	AppendMode      bool             `json:"append_mode,omitempty"`
-	Normalization   bool             `json:"normalization"`
-	Filter          string           `json:"filter,omitempty"`
-	SelectedColumns *SelectedColumns `json:"selected_columns"`
-	SyncNewColumns  bool             `json:"sync_new_columns"`
+	ChunkColumn      string           `json:"chunk_column,omitempty"`
+	PartitionRegex   string           `json:"partition_regex"`
+	StreamName       string           `json:"stream_name"`
+	AppendMode       bool             `json:"append_mode,omitempty"`
+	Normalization    bool             `json:"normalization"`
+	Filter           string           `json:"filter,omitempty"`
+	SelectedColumns  *SelectedColumns `json:"selected_columns"`
+	MandatoryColumns []string         `json:"mandatory_columns"`
 }
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
@@ -67,15 +67,18 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 
 		selectedColumns := collectColumnsFromSchema(stream.Schema)
 		selectedCols := &SelectedColumns{
-			Columns: selectedColumns,
+			Config: Config{
+				Columns:        selectedColumns,
+				SyncNewColumns: false,
+			},
 		}
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:      stream.Name,
-			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization:   IsDriverRelational(driver),
-			SelectedColumns: selectedCols,
-			SyncNewColumns:  false,
+			StreamName:       stream.Name,
+			AppendMode:       utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+			Normalization:    IsDriverRelational(driver),
+			SelectedColumns:  selectedCols,
+			MandatoryColumns: ComputeMandatoryColumns(stream, stream), // here we are passing the same stream for old and new because we are not yet merging the streams
 		})
 	}
 
@@ -137,6 +140,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 			newStream.Stream.CursorField = oldStream.Stream.CursorField
 			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
 			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
+			newStream.StreamMetadata.MandatoryColumns = ComputeMandatoryColumns(oldStream.Stream, newStream.Stream)
 			return nil
 		}
 
@@ -249,7 +253,6 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// partition regex difference
 			// filter difference
 			// append mode change
-			// selected columns change
 			// destination database change
 			// cursor field change , Format: "primary_cursor:secondary_cursor"
 			// sync mode change
@@ -263,7 +266,6 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
-					(oldMetadata.SyncNewColumns != newMetadata.SyncNewColumns) ||
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
 					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
 					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable) ||

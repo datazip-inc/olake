@@ -97,6 +97,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 //   - For Postgres: ignored (uses global replication slot)
 func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int) (err error) {
 	writers := make(map[string]*destination.WriterThread)
+	filterDataBySelectedColumnsFns := make(map[string]func(map[string]interface{}) map[string]interface{})
 
 	// create cdc context, so that main context not affected if cdc retries
 	cdcCtx, cdcCtxCancel := context.WithCancel(mainCtx)
@@ -125,7 +126,12 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 		olakeID := utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 
-		filteredData := types.FilterDataBySelectedColumns(change.Data, change.Stream)
+		filterDataBySelectedColumnsFn, exists := filterDataBySelectedColumnsFns[change.Stream.ID()]
+		if !exists {
+			filterDataBySelectedColumnsFn = types.FilterDataBySelectedColumns(change.Stream)
+			filterDataBySelectedColumnsFns[change.Stream.ID()] = filterDataBySelectedColumnsFn
+		}
+		filteredData := filterDataBySelectedColumnsFn(change.Data)
 
 		return writer.Push(ctx, types.CreateRawRecord(
 			olakeID,
