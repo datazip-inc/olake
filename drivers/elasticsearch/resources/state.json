@@ -1,0 +1,14 @@
+{
+  "type": "STREAM",
+  "version": 1,
+  "streams": [
+    {
+      "stream": "test-incremental-timestamp",
+      "namespace": "elasticsearch",
+      "sync_mode": "incremental",
+      "state": {
+        "timestamp_field": 1769026162494
+      }
+    }
+  ]
+}

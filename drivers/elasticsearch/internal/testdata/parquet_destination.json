@@ -1,0 +1,12 @@
+{
+  "type": "PARQUET",
+  "writer": {
+    "s3_endpoint": "http://localhost:9090",
+    "aws_access_key": "minio",
+    "aws_secret_key": "minio123",
+    "aws_region": "us-east-1",
+    "s3_path_style": true,
+    "s3_bucket": "warehouse",
+    "s3_prefix": "elasticsearch_data"
+  }
+}

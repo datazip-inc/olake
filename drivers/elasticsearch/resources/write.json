@@ -1,0 +1,6 @@
+{
+  "type": "PARQUET",
+  "writer": {
+    "local_path": "./examples/elasticsearch-output"
+  }
+}

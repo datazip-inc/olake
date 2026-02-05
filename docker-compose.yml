@@ -1,11 +1,230 @@
+version: "3.8"
+
 services:
-  mongodb_sync:
-    image: olakego/source-mongodb:latest
-    command: >
-      sync
-      --config /mnt/config/config.json
-      --catalog /mnt/config/catalog.json
-      --destination /mnt/config/writer.json
-      --state /mnt/config/state.json
+  # Elasticsearch cluster
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.1
+    container_name: elasticsearch
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=es-docker-cluster
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     volumes:
-      - ./drivers/mongodb/examples:/mnt/config
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    networks:
+      - olake-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # MinIO for S3-compatible storage
+  minio:
+    image: minio/minio:RELEASE.2025-04-03T14-56-28Z
+    container_name: minio
+    environment:
+      - MINIO_ROOT_USER=minio
+      - MINIO_ROOT_PASSWORD=minio123
+    ports:
+      - "9090:9000"
+      - "9091:9001"
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - olake-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # MinIO client to create buckets
+  minio-setup:
+    image: minio/mc:RELEASE.2025-04-03T17-07-56Z
+    container_name: minio-setup
+    depends_on:
+      - minio
+    networks:
+      - olake-net
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc config host add minio http://minio:9000 minio minio123) do echo '...waiting...' && sleep 1; done;
+      /usr/bin/mc mb minio/warehouse --ignore-existing;
+      /usr/bin/mc policy set public minio/warehouse;
+      exit 0;
+      "
+
+  # PostgreSQL for Iceberg catalog
+  postgres:
+    image: postgres:15
+    container_name: iceberg-postgres
+    environment:
+      - POSTGRES_USER=iceberg
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=iceberg
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - olake-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U iceberg -d iceberg"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Iceberg REST catalog
+  iceberg-rest:
+    image: tabulario/iceberg-rest:0.7.0
+    container_name: iceberg-rest
+    depends_on:
+      - postgres
+    environment:
+      - CATALOG_WAREHOUSE=s3://warehouse/
+      - CATALOG_IO__IMPL=org.apache.iceberg.aws.s3.S3FileIO
+      - CATALOG_S3_ENDPOINT=http://minio:9000
+      - CATALOG_S3_ACCESS__KEY__ID=minio
+      - CATALOG_S3_SECRET__ACCESS__KEY=minio123
+      - CATALOG_S3_PATH__STYLE__ACCESS=true
+      - CATALOG_JDBC_URL=jdbc:postgresql://postgres:5432/iceberg
+      - CATALOG_JDBC_USER=iceberg
+      - CATALOG_JDBC_PASSWORD=password
+    ports:
+      - "8181:8181"
+    networks:
+      - olake-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/v1/config"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Elasticsearch data loader
+  elasticsearch-setup:
+    image: curlimages/curl:latest
+    container_name: elasticsearch-setup
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - olake-net
+    command: >
+      /bin/sh -c "
+      echo 'Setting up Elasticsearch test data...'
+      
+      # Create test indices with comprehensive data types
+      curl -X PUT 'http://elasticsearch:9200/test-comprehensive' -H 'Content-Type: application/json' -d '{
+        \"mappings\": {
+          \"properties\": {
+            \"id\": {\"type\": \"keyword\"},
+            \"string_field\": {\"type\": \"text\"},
+            \"keyword_field\": {\"type\": \"keyword\"},
+            \"integer_field\": {\"type\": \"integer\"},
+            \"long_field\": {\"type\": \"long\"},
+            \"float_field\": {\"type\": \"float\"},
+            \"double_field\": {\"type\": \"double\"},
+            \"boolean_field\": {\"type\": \"boolean\"},
+            \"date_field\": {\"type\": \"date\"},
+            \"timestamp_field\": {\"type\": \"date\", \"format\": \"epoch_millis\"},
+            \"cursor_timestamp\": {\"type\": \"date\"},
+            \"cursor_bigint\": {\"type\": \"long\"},
+            \"nested_object\": {\"type\": \"object\"},
+            \"array_field\": {\"type\": \"text\"},
+            \"geo_point_field\": {\"type\": \"geo_point\"},
+            \"ip_field\": {\"type\": \"ip\"},
+            \"binary_field\": {\"type\": \"binary\"}
+          }
+        }
+      }'
+      
+      # Insert test documents with all data types
+      for i in \$(seq 1 100); do
+        timestamp=\$((1640995200000 + i * 3600000))
+        curl -X POST 'http://elasticsearch:9200/test-comprehensive/_doc' -H 'Content-Type: application/json' -d \"{
+          \\\"id\\\": \\\"doc_\$i\\\",
+          \\\"string_field\\\": \\\"Sample text \$i\\\",
+          \\\"keyword_field\\\": \\\"keyword_\$i\\\",
+          \\\"integer_field\\\": \$i,
+          \\\"long_field\\\": \$((i * 1000)),
+          \\\"float_field\\\": \$(echo \"\$i * 1.5\" | bc -l),
+          \\\"double_field\\\": \$(echo \"\$i * 2.7\" | bc -l),
+          \\\"boolean_field\\\": \$((i % 2 == 0)),
+          \\\"date_field\\\": \\\"2024-01-\$(printf %02d \$((i % 28 + 1)))T10:00:00Z\\\",
+          \\\"timestamp_field\\\": \$timestamp,
+          \\\"cursor_timestamp\\\": \\\"2024-01-\$(printf %02d \$((i % 28 + 1)))T\$(printf %02d \$((i % 24))):00:00Z\\\",
+          \\\"cursor_bigint\\\": \$((1000000 + i)),
+          \\\"nested_object\\\": {\\\"nested_field\\\": \\\"nested_value_\$i\\\"},
+          \\\"array_field\\\": [\\\"item1_\$i\\\", \\\"item2_\$i\\\"],
+          \\\"geo_point_field\\\": {\\\"lat\\\": \$(echo \"40.7 + \$i * 0.001\" | bc -l), \\\"lon\\\": \$(echo \"-74.0 + \$i * 0.001\" | bc -l)},
+          \\\"ip_field\\\": \\\"192.168.1.\$((i % 255 + 1))\\\",
+          \\\"binary_field\\\": \\\"dGVzdCBkYXRh\\\"}\"
+      done
+      
+      # Create incremental test index
+      curl -X PUT 'http://elasticsearch:9200/test-incremental-timestamp' -H 'Content-Type: application/json' -d '{
+        \"mappings\": {
+          \"properties\": {
+            \"id\": {\"type\": \"keyword\"},
+            \"message\": {\"type\": \"text\"},
+            \"timestamp\": {\"type\": \"date\"},
+            \"counter\": {\"type\": \"long\"}
+          }
+        }
+      }'
+      
+      # Insert initial incremental data
+      for i in \$(seq 1 50); do
+        curl -X POST 'http://elasticsearch:9200/test-incremental-timestamp/_doc' -H 'Content-Type: application/json' -d \"{
+          \\\"id\\\": \\\"inc_\$i\\\",
+          \\\"message\\\": \\\"Initial message \$i\\\",
+          \\\"timestamp\\\": \\\"2024-01-\$(printf %02d \$((i % 28 + 1)))T\$(printf %02d \$((i % 24))):00:00Z\\\",
+          \\\"counter\\\": \$i}\"
+      done
+      
+      # Create bigint cursor test index
+      curl -X PUT 'http://elasticsearch:9200/test-incremental-bigint' -H 'Content-Type: application/json' -d '{
+        \"mappings\": {
+          \"properties\": {
+            \"id\": {\"type\": \"keyword\"},
+            \"sequence_id\": {\"type\": \"long\"},
+            \"data\": {\"type\": \"text\"}
+          }
+        }
+      }'
+      
+      # Insert bigint cursor data
+      for i in \$(seq 1 30); do
+        curl -X POST 'http://elasticsearch:9200/test-incremental-bigint/_doc' -H 'Content-Type: application/json' -d \"{
+          \\\"id\\\": \\\"seq_\$i\\\",
+          \\\"sequence_id\\\": \$((1000 + i)),
+          \\\"data\\\": \\\"Sequence data \$i\\\"}\"
+      done
+      
+      # Refresh indices
+      curl -X POST 'http://elasticsearch:9200/_refresh'
+      
+      echo 'Elasticsearch test data setup complete!'
+      "
+
+networks:
+  olake-net:
+    driver: bridge
+
+volumes:
+  elasticsearch-data:
+  minio-data:
+  postgres-data:
