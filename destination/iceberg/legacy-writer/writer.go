@@ -174,9 +174,7 @@ func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPay
 }
 
 func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord_FieldValue, error) {
-
 	switch iceType {
-
 	case "boolean":
 		v, err := typeutils.ReformatBool(val)
 		if err != nil {

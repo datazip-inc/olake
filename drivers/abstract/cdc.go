@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -126,9 +127,10 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		olakeColumns := map[string]any{
 			constants.OlakeID:        utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
 			constants.OpType:         mapChangeKindToOperationType(change.Kind),
-			constants.CdcTimestamp:   &change.Timestamp,
+			constants.CdcTimestamp:   change.Timestamp,
 			constants.OlakeTimestamp: time.Now().UTC(),
 		}
+		maps.Copy(olakeColumns, change.CDCColumns)
 		return writer.Push(ctx, types.CreateRawRecord(change.Data, olakeColumns))
 	})
 }

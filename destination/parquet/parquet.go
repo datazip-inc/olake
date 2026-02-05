@@ -179,18 +179,12 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if p.stream.NormalizationEnabled() {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 		} else {
-			dataBytes, err := json.Marshal(record.Data)
-			if err != nil {
+			dataBytes, merr := json.Marshal(record.Data)
+			if merr != nil {
 				return fmt.Errorf("failed to marshal data: %s", err)
 			}
 			recordsMap := map[string]any{constants.StringifiedData: string(dataBytes)}
 			maps.Copy(recordsMap, record.OlakeColumns)
-
-			// Normalize olake/system columns to their declared schema types (similar to normalized mode).
-			// This ensures parquet-go gets concrete values (e.g., time.Time rather than pointers).
-			if err := typeutils.ReformatRecord(p.schema, recordsMap); err != nil {
-				return fmt.Errorf("failed to reformat raw record for parquet: %w", err)
-			}
 
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{recordsMap})
 		}

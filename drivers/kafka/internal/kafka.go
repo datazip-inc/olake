@@ -395,7 +395,3 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 
 	return assigned, nil
 }
-
-func (k *Kafka) GetCDCColumns() map[string]types.DataType {
-	return nil
-}
