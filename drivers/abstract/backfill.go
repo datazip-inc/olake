@@ -68,17 +68,15 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			})()
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-			// persist cdc timestamp for cdc full load
-			var cdcTimestamp *time.Time
-			if stream.GetSyncMode() == types.CDC {
-				t := time.Unix(0, 0)
-				cdcTimestamp = &t
-			}
 			olakeColumns := map[string]any{
 				constants.OlakeID:        olakeID,
 				constants.OpType:         "r",
-				constants.CdcTimestamp:   cdcTimestamp,
 				constants.OlakeTimestamp: time.Now().UTC(),
+			}
+
+			// Add CDC specific columns only for CDC mode
+			if stream.GetSyncMode() == types.CDC {
+				olakeColumns[constants.CdcTimestamp] = time.Unix(0, 0)
 			}
 			return inserter.Push(ctx, types.CreateRawRecord(data, olakeColumns))
 		})
