@@ -121,6 +121,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 					MergeSelectedColumns(&metadata, oldStream, newStream)
 
+					metadata.MandatoryColumns = ComputeMandatoryColumns(oldStream, newStream)
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
 				return nil
@@ -140,7 +141,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 			newStream.Stream.CursorField = oldStream.Stream.CursorField
 			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
 			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
-			newStream.StreamMetadata.MandatoryColumns = ComputeMandatoryColumns(oldStream.Stream, newStream.Stream)
 			return nil
 		}
 
