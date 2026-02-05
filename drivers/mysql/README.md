@@ -36,7 +36,12 @@ Add MySql credentials in following format in `config.json` file. [More details.]
     "update_method": {
       "initial_wait_time": 10
      },
-    "tls_skip_verify": true,
+    "jdbc_url_params": {
+      "timeout": "10s"
+    },
+    "ssl": {
+      "mode": "disable"
+    },
     "max_threads":10,
     "backoff_retry_count": 2,
     "ssh_config":{
