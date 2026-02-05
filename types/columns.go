@@ -124,7 +124,7 @@ func collectColumnsFromSchemaAsSet(schema *TypeSchema) *Set[string] {
 		}
 		return true
 	})
-	return NewSet[string](columns...)
+	return NewSet(columns...)
 }
 
 // collectColumnsFromSchema collects all columns from a schema
@@ -136,10 +136,9 @@ func collectColumnsFromSchema(schema *TypeSchema) []string {
 // 1. if selectedColumns property is not present or empty, initialize with columns from new schema
 // 2. if selectedColumns property is present and not empty, filter the selected columns to only those present in both old and new schemas
 // 3. if sync_new_columns is true, add newly discovered columns to the selected columns
-// 4. ensure mandatory columns are included
-// 5. set the selected columns set
-// 6. set the unselected columns set
-// 7. set the all selected flag
+// 4. set the selected columns set
+// 5. set the unselected columns set
+// 6. set the all selected flag
 func MergeSelectedColumns(
 	metadata *StreamMetadata,
 	oldStream *Stream,
@@ -189,7 +188,7 @@ func MergeSelectedColumns(
 		return
 	}
 
-	previouslySelectedColumnsSet := NewSet[string](metadata.SelectedColumns.Config.Columns...)
+	previouslySelectedColumnsSet := NewSet(metadata.SelectedColumns.Config.Columns...)
 
 	// preserves previously selected columns that exist in both old and new schemas
 	preservedColumnsSet := previouslySelectedColumnsSet.Intersection(oldSchemaColumnsSet).Intersection(newSchemaColumnsSet)
