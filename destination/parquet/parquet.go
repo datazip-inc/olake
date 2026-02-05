@@ -179,8 +179,8 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if p.stream.NormalizationEnabled() {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 		} else {
-			dataBytes, err := json.Marshal(record.Data)
-			if err != nil {
+			dataBytes, merr := json.Marshal(record.Data)
+			if merr != nil {
 				return fmt.Errorf("failed to marshal data: %s", err)
 			}
 			recordsMap := map[string]any{constants.StringifiedData: string(dataBytes)}
