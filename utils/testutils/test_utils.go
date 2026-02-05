@@ -995,7 +995,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	t.Logf("Executing query: %s", selectQuery)
 
 	var selectRows []types.Row
-	queryErr := utils.RetryOnBackoff(ctx, 10, 150*time.Millisecond, func(ctx context.Context) error {
+	queryErr := utils.RetryOnBackoff(ctx, 13, 20*time.Millisecond, func(ctx context.Context) error {
 		var selectQueryDf sql.DataFrame
 		var err error
 
