@@ -225,6 +225,8 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	if m.CDCSupported() {
+		stream.UpsertField(constants.CDCBinlogFileName, types.String, true)
+		stream.UpsertField(constants.CDCBinlogFilePos, types.Int64, true)
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 
@@ -305,11 +307,4 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	}
 
 	return true, nil
-}
-
-func (m *MySQL) GetCDCColumns() map[string]types.DataType {
-	return map[string]types.DataType{
-		constants.CDCBinlogFileName: types.String,
-		constants.CDCBinlogFilePos:  types.Int64,
-	}
 }

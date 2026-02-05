@@ -24,14 +24,13 @@ import (
 )
 
 type Iceberg struct {
-	options            *destination.Options
-	config             *Config
-	stream             types.StreamInterface
-	partitionInfo      []internal.PartitionInfo // ordered slice to preserve partition column order
-	server             *serverInstance          // Java server instance
-	schema             map[string]string        // schema for current thread associated with Java writer (col -> type)
-	writer             Writer                   // writer instance
-	cdcColumnsDetected bool                     // flag to skip CDC column detection after first batch
+	options       *destination.Options
+	config        *Config
+	stream        types.StreamInterface
+	partitionInfo []internal.PartitionInfo // ordered slice to preserve partition column order
+	server        *serverInstance          // Java server instance
+	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
+	writer        Writer                   // writer instance
 
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
@@ -103,7 +102,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
 		var requestPayload proto.IcebergPayload
-		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema(stream.GetSyncMode() == types.CDC || stream.GetSyncMode() == types.STRICTCDC)).([]*proto.IcebergPayload_SchemaField)
+		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
@@ -206,7 +205,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
 			DestTableName: destinationDB,
-			Schema:        icebergRawSchema(false),
+			Schema:        icebergRawSchema(),
 		},
 	}
 
@@ -220,8 +219,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
-	protoSchema := icebergRawSchema(false)
-	record := types.CreateRawRecord(destinationDB, map[string]any{"name": "olake"}, "r", &currentTime, nil)
+	protoSchema := icebergRawSchema()
+	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime})
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
 		return fmt.Errorf("failed to create raw data column buffer: %s", err)
@@ -309,20 +308,12 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		// parallel flatten data and detect schema difference
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-			// set pre configured fields
-			records[idx].Data[constants.OlakeID] = record.OlakeID
-			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
-			records[idx].Data[constants.OpType] = record.OperationType
-			if record.CdcTimestamp != nil {
-				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
-			}
-			maps.Copy(records[idx].Data, record.CDCColumns)
-			flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+			flattenRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}
-			records[idx].Data = flattenedRecord
-
+			records[idx].Data = flattenRecord
+			maps.Copy(records[idx].Data, record.OlakeColumns)
 			// if schema difference is not detected, detect schema difference
 			if !diffThreadSchema.Load() {
 				// when detectChange is true, the function does not modify schema parameter
@@ -354,31 +345,14 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}
 
 	if !i.stream.NormalizationEnabled() {
-		// Skip CDC column detection if already done
-		if i.cdcColumnsDetected {
-			return false, records, i.schema, nil
-		}
-
-		// Extract driver-specific CDC columns from first batch and evolve schema if needed
-		schemaMap := copySchema(i.schema)
-		schemaDiff := false
-
-		for _, record := range records {
-			// Check if any CDC column is missing from schema
-			for colName, colValue := range record.CDCColumns {
-				if _, exists := schemaMap[colName]; !exists {
-					// New CDC column detected, add to schema
-					detectedType := typeutils.TypeFromValue(colValue)
-					schemaMap[colName] = detectedType.ToIceberg()
-					schemaDiff = true
-				}
+		finalSchema := copySchema(i.schema)
+		for key, value := range records[0].OlakeColumns {
+			detectedType := typeutils.TypeFromValue(value)
+			if _, exists := i.schema[key]; !exists {
+				finalSchema[key] = detectedType.ToIceberg()
 			}
 		}
-
-		// Mark CDC columns as detected (even if none found, no need to check again)
-		i.cdcColumnsDetected = true
-
-		return schemaDiff, records, schemaMap, nil
+		return len(finalSchema) > len(i.schema), records, finalSchema, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
@@ -392,7 +366,6 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 // compares with global schema and update schema in destination accordingly
 func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSchema any) (any, error) {
 	// cases as local thread schema has detected changes w.r.t. batch records schema
-	// Note: Schema evolution is also needed for raw mode (normalization=false) to add driver-specific CDC columns
 	//  	i.  iceberg table already have changes (i.e. no difference with global schema), in this case
 	//		    only refresh table in iceberg for this thread.
 	// 		ii. Schema difference is detected w.r.t. iceberg table (i.e. global schema), in this case
@@ -606,10 +579,9 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 }
 
 // returns raw schema in iceberg format
-func icebergRawSchema(isCDC bool) []*proto.IcebergPayload_SchemaField {
+func icebergRawSchema() []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
-
-	for key, typ := range types.GetRawSchema(isCDC) {
+	for key, typ := range types.RawSchema {
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: typ.ToIceberg(),
 			Key:     key,

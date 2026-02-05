@@ -6,6 +6,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -73,8 +74,13 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 				t := time.Unix(0, 0)
 				cdcTimestamp = &t
 			}
-
-			return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp, nil))
+			olakeColumns := map[string]any{
+				constants.OlakeID:        olakeID,
+				constants.OpType:         "r",
+				constants.CdcTimestamp:   cdcTimestamp,
+				constants.OlakeTimestamp: time.Now().UTC(),
+			}
+			return inserter.Push(ctx, types.CreateRawRecord(data, olakeColumns))
 		})
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)

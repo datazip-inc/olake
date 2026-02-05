@@ -1,8 +1,6 @@
 package types
 
 import (
-	"time"
-
 	"github.com/datazip-inc/olake/constants"
 	"github.com/parquet-go/parquet-go"
 )
@@ -54,37 +52,19 @@ var TypeWeights = map[DataType]int{
 
 var RawSchema = map[string]DataType{
 	constants.StringifiedData: String,
-	constants.OlakeTimestamp:  Timestamp,
-	constants.OpType:          String,
-	constants.OlakeID:         String,
-}
-
-func GetRawSchema(isCDC bool) map[string]DataType {
-	baseRawSchema := RawSchema
-	if isCDC {
-		baseRawSchema[constants.CdcTimestamp] = Timestamp
-	}
-	return baseRawSchema
 }
 
 type Record map[string]any
 
 type RawRecord struct {
-	Data           map[string]any `parquet:"data,json"`
-	OlakeID        string         `parquet:"_olake_id"`
-	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
-	OperationType  string         `parquet:"_op_type"`       // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
-	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
-	CDCColumns     map[string]any `parquet:"cdc_columns,json"`
+	Data         map[string]any `parquet:"data,json"`
+	OlakeColumns map[string]any `parquet:"olake_columns,json"`
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time, cdcColumns map[string]any) RawRecord {
+func CreateRawRecord(data map[string]any, olakeColumns map[string]any) RawRecord {
 	return RawRecord{
-		OlakeID:       olakeID,
-		Data:          data,
-		OperationType: operationType,
-		CdcTimestamp:  cdcTimestamp,
-		CDCColumns:    cdcColumns,
+		Data:         data,
+		OlakeColumns: olakeColumns,
 	}
 }
 

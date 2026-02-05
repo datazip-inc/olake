@@ -39,5 +39,4 @@ type DriverInterface interface {
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, identifier int, processFn CDCMsgFn) error
 	PostCDC(ctx context.Context, identifier int) error // to save state
-	GetCDCColumns() map[string]types.DataType
 }
