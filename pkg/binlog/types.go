@@ -23,6 +23,7 @@ type Config struct {
 	InitialWaitTime time.Duration
 	SSHClient       *ssh.Client
 	TLSConfig       *tls.Config
+	TimestampStringLocation *time.Location
 }
 
 // BinlogState holds the current binlog position.

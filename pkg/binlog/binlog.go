@@ -29,16 +29,17 @@ type Connection struct {
 // NewConnection creates a new binlog connection starting from the given position.
 func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
 	syncerConfig := replication.BinlogSyncerConfig{
-		ServerID:        config.ServerID,
-		Flavor:          config.Flavor,
-		Host:            config.Host,
-		Port:            config.Port,
-		User:            config.User,
-		Password:        config.Password,
-		Charset:         config.Charset,
-		VerifyChecksum:  config.VerifyChecksum,
-		HeartbeatPeriod: config.HeartbeatPeriod,
-		TLSConfig:       config.TLSConfig,
+		ServerID:                config.ServerID,
+		Flavor:                  config.Flavor,
+		Host:                    config.Host,
+		Port:                    config.Port,
+		User:                    config.User,
+		Password:                config.Password,
+		Charset:                 config.Charset,
+		VerifyChecksum:          config.VerifyChecksum,
+		HeartbeatPeriod:         config.HeartbeatPeriod,
+		TLSConfig:               config.TLSConfig,
+		TimestampStringLocation: config.TimestampStringLocation,
 	}
 
 	if config.SSHClient != nil {
