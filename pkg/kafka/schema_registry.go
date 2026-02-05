@@ -33,7 +33,7 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 	url := fmt.Sprintf("%s/schemas/ids/%d", c.Endpoint, schemaID)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %s", err)
 	}
 
 	// Set authentication headers (if bearer token is present, it takes priority over basic auth)
@@ -46,7 +46,7 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch schema: %w", err)
+		return nil, fmt.Errorf("failed to fetch schema: %s", err)
 	}
 	defer resp.Body.Close()
 
@@ -59,7 +59,7 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 		SchemaType string `json:"schemaType"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&schemaResp); err != nil {
-		return nil, fmt.Errorf("failed to decode schema response: %w", err)
+		return nil, fmt.Errorf("failed to decode schema response: %s", err)
 	}
 
 	// determine schema type
@@ -69,7 +69,6 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 	schemaType = utils.Ternary(schemaType == "", types.SchemaTypeAvro, schemaType).(types.SchemaType)
 
 	registered := &types.RegisteredSchema{
-		Schema:     schemaResp.Schema,
 		SchemaType: schemaType,
 	}
 
@@ -77,7 +76,7 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 	if schemaType == types.SchemaTypeAvro {
 		codec, err := goavro.NewCodec(schemaResp.Schema)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create Avro codec for schema ID %d: %w", schemaID, err)
+			return nil, fmt.Errorf("failed to create Avro codec for schema ID %d: %s", schemaID, err)
 		}
 		registered.Codec = codec
 	}

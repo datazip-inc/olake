@@ -29,7 +29,13 @@ const (
 	Offset         = "_kafka_offset"
 	Partition      = "_kafka_partition"
 	KafkaTimestamp = "_kafka_timestamp"
+
+	// ConfluentWireFormatMagicByte is the magic byte prefix for Confluent Schema Registry wire format
+	ConfluentWireFormatMagicByte = 0x00
 )
+
+// InternalKafkaTopics are internal kafka topics (created due to external services) to be skipped
+var InternalKafkaTopics = []string{"__amazon_msk_canary", "_schemas"}
 
 type Kafka struct {
 	config               *Config
@@ -130,7 +136,7 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 	var topicNames []string
 	for _, topic := range resp.Topics {
 		// skip internal topics
-		if topic.Internal || slices.Contains(constants.InternalKafkaTopics, topic.Name) {
+		if topic.Internal || slices.Contains(InternalKafkaTopics, topic.Name) {
 			continue
 		}
 		topicNames = append(topicNames, topic.Name)
@@ -172,7 +178,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	}
 
 	var mu sync.Mutex
-	parsedMessageCount := 0
+	parsedMessage := false
 	// get messages from partitions for schema discovery
 	err = utils.Concurrent(ctx, offsetsResp.Topics[streamName], len(offsetsResp.Topics[streamName]), func(ctx context.Context, partitionDetails kafka.PartitionOffsets, _ int) error {
 		// skip empty partitions
@@ -203,7 +209,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			messageCount++
 			if record.Data != nil {
 				mu.Lock()
-				parsedMessageCount++
+				parsedMessage = true
 				// resolve data for schema
 				err := typeutils.Resolve(stream, record.Data)
 				mu.Unlock()
@@ -222,8 +228,8 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
 	}
 
-	// check if all messages failed to parse
-	if parsedMessageCount == 0 {
+	// check if any message or none were parsed
+	if !parsedMessage {
 		return stream, fmt.Errorf("failed to produce schema for topic %s: all sampled messages failed to parse", streamName)
 	}
 
@@ -420,5 +426,5 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 // isConfluentWireFormat checks if data starts with Confluent wire format magic byte
 // Wire format: [magic byte (0x00)] [4-byte schema ID (big-endian)] [payload]
 func isConfluentWireFormat(data []byte) bool {
-	return len(data) >= 5 && data[0] == 0x00
+	return len(data) >= 5 && data[0] == ConfluentWireFormatMagicByte
 }

@@ -36,6 +36,5 @@ type KafkaRecord struct {
 // RegisteredSchema holds the schema information
 type RegisteredSchema struct {
 	SchemaType SchemaType
-	Schema     string
 	Codec      *goavro.Codec // Only for Avro schemas
 }
