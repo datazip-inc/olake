@@ -37,15 +37,14 @@ type FileMetadata struct {
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
 type Parquet struct {
-	options            *destination.Options
-	config             *Config
-	stream             types.StreamInterface
-	basePath           string                     // construct with streamNamespace/streamName
-	partitionedFiles   map[string][]*FileMetadata // mapping of basePath/{regex} -> pqFiles
-	s3Client           *s3.S3
-	s3Uploader         *s3manager.Uploader
-	schema             typeutils.Fields // used for both normalized and raw mode
-	cdcColumnsDetected bool             // flag to skip CDC column detection after first batch
+	options          *destination.Options
+	config           *Config
+	stream           types.StreamInterface
+	basePath         string                     // construct with streamNamespace/streamName
+	partitionedFiles map[string][]*FileMetadata // mapping of basePath/{regex} -> pqFiles
+	s3Client         *s3.S3
+	s3Uploader       *s3manager.Uploader
+	schema           typeutils.Fields
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
@@ -135,8 +134,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	}
 
 	if !p.stream.NormalizationEnabled() {
-		// Initialize schema with base raw columns (data, _olake_id, _olake_timestamp, _op_type, _cdc_timestamp)
-		for col, typ := range types.GetRawSchema(p.stream.GetSyncMode() == types.CDC || p.stream.GetSyncMode() == types.STRICTCDC) {
+		for col, typ := range types.RawSchema {
 			p.schema[col] = typeutils.NewField(typ)
 		}
 		return p.schema, nil
@@ -161,8 +159,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
-		record.OlakeTimestamp = time.Now().UTC()
-		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
+		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeColumns[constants.OlakeTimestamp].(time.Time))
 		partitionFiles, exists := p.partitionedFiles[partitionedPath]
 		if !exists {
 			err := p.createNewPartitionFile(partitionedPath)
@@ -182,19 +179,20 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if p.stream.NormalizationEnabled() {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 		} else {
-			dataBytes, _ := json.Marshal(record.Data)
-			recordMap := map[string]any{
-				constants.StringifiedData: string(dataBytes),
-				constants.OlakeID:         record.OlakeID,
-				constants.OlakeTimestamp:  record.OlakeTimestamp,
-				constants.OpType:          record.OperationType,
+			dataBytes, err := json.Marshal(record.Data)
+			if err != nil {
+				return fmt.Errorf("failed to marshal data: %s", err)
 			}
-			if record.CdcTimestamp != nil {
-				recordMap[constants.CdcTimestamp] = *record.CdcTimestamp
-			}
-			maps.Copy(recordMap, record.CDCColumns)
+			recordsMap := map[string]any{constants.StringifiedData: string(dataBytes)}
+			maps.Copy(recordsMap, record.OlakeColumns)
 
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{recordMap})
+			// Normalize olake/system columns to their declared schema types (similar to normalized mode).
+			// This ensures parquet-go gets concrete values (e.g., time.Time rather than pointers).
+			if err := typeutils.ReformatRecord(p.schema, recordsMap); err != nil {
+				return fmt.Errorf("failed to reformat raw record for parquet: %w", err)
+			}
+
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{recordsMap})
 		}
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
@@ -279,7 +277,7 @@ func (p *Parquet) closePqFiles(ctx context.Context, closeOnError bool) error {
 			filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
 
 			// Close writers
-			var err = parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
+			err := parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
 			if err != nil {
 				return fmt.Errorf("failed to close writer: %s", err)
 			}
@@ -356,30 +354,18 @@ func (p *Parquet) Close(ctx context.Context) error {
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
-		// Skip CDC column detection if already done
-		if p.cdcColumnsDetected {
-			return false, records, p.schema, nil
-		}
-
-		// Extract driver-specific CDC columns from first batch and evolve schema if needed
-		schemaDiff := false
-
-		for _, record := range records {
-			// Check if any CDC column is missing from schema
-			for colName, colValue := range record.CDCColumns {
-				if _, exists := p.schema[colName]; !exists {
-					// New CDC column detected, add to schema
-					detectedType := typeutils.TypeFromValue(colValue)
-					p.schema[colName] = typeutils.NewField(detectedType)
-					schemaDiff = true
-				}
+		finalSchema := p.schema.Clone()
+		for key, value := range records[0].OlakeColumns {
+			detectedType := typeutils.TypeFromValue(value)
+			if _, columnExist := finalSchema[key]; !columnExist {
+				finalSchema[key] = typeutils.NewField(detectedType)
 			}
 		}
-
-		// Mark CDC columns as detected (even if none found, no need to check again)
-		p.cdcColumnsDetected = true
-
-		return schemaDiff, records, p.schema, nil
+		change := len(finalSchema) > len(p.schema)
+		p.schema = finalSchema
+		logger.Debugf("****Thread[%s]: final schema: %v", p.options.ThreadID, finalSchema)
+		// expecting schema change as new columns are added for olake generated columns
+		return change, records, p.schema, nil
 	}
 
 	if len(records) == 0 {
@@ -390,14 +376,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 		// Add common fields
-		records[idx].Data[constants.OlakeID] = record.OlakeID
-		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
-		records[idx].Data[constants.OpType] = record.OperationType
-		if record.CdcTimestamp != nil {
-			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
-		}
-		// Copy CDC columns (e.g., _cdc_binlog_file_name, _cdc_binlog_file_pos)
-		maps.Copy(records[idx].Data, record.CDCColumns)
+		maps.Copy(records[idx].Data, record.OlakeColumns)
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)

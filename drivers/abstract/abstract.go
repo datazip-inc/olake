@@ -96,12 +96,6 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			convStream.UpsertField(column, typ, true)
 		}
 
-		if a.supportsCdcColumn() {
-			for column, typ := range a.driver.GetCDCColumns() {
-				convStream.UpsertField(column, typ, true)
-			}
-		}
-
 		// priority to default sync mode (cdc -> incremental -> strict_cdc)
 		if convStream.SupportedSyncModes.Exists(types.CDC) && a.driver.CDCSupported() {
 			convStream.SyncMode = types.CDC

@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -122,13 +123,13 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 			writers[change.Stream.ID()] = writer
 			logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, change.Stream.ID())
 		}
-		return writer.Push(ctx, types.CreateRawRecord(
-			utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
-			change.Data,
-			mapChangeKindToOperationType(change.Kind),
-			&change.Timestamp,
-			change.CDCColumns,
-		))
+		olakeColumns := map[string]any{
+			constants.OlakeID:        utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
+			constants.OpType:         mapChangeKindToOperationType(change.Kind),
+			constants.CdcTimestamp:   &change.Timestamp,
+			constants.OlakeTimestamp: time.Now().UTC(),
+		}
+		return writer.Push(ctx, types.CreateRawRecord(change.Data, olakeColumns))
 	})
 }
 
