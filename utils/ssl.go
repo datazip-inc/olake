@@ -34,14 +34,6 @@ func (sc *SSLConfig) Validate() error {
 		if sc.ServerCA == "" {
 			return errors.New("'ssl.server_ca' is required parameter")
 		}
-
-		if sc.ClientCert == "" {
-			return errors.New("'ssl.client_cert' is required parameter")
-		}
-
-		if sc.ClientKey == "" {
-			return errors.New("'ssl.client_key' is required parameter")
-		}
 	}
 
 	return nil
