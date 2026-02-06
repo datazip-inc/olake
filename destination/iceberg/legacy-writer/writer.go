@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -140,10 +141,7 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPayload_SchemaField) ([]*proto.IcebergPayload_IceRecord_FieldValue, error) {
 	// 1. Start with a copy of OlakeColumns (already prepared upstream)
 	dataMap := make(map[string]any, len(record.OlakeColumns)+1)
-
-	for k, v := range record.OlakeColumns {
-		dataMap[k] = v
-	}
+	maps.Copy(dataMap, record.OlakeColumns)
 
 	// 2. Add stringified data as a single column
 	bytesData, err := json.Marshal(record.Data)
@@ -164,7 +162,7 @@ func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPay
 
 		fv, err := toProtoFieldValue(field.IceType, value)
 		if err != nil {
-			return nil, fmt.Errorf("field[%s]: %w", field.Key, err)
+			return nil, fmt.Errorf("field[%s]: %s", field.Key, err)
 		}
 
 		protoColumnsValue = append(protoColumnsValue, fv)
@@ -178,7 +176,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "boolean":
 		v, err := typeutils.ReformatBool(val)
 		if err != nil {
-			return nil, fmt.Errorf("bool convert: %w", err)
+			return nil, fmt.Errorf("bool convert: %s", err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: v},
@@ -187,7 +185,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "int":
 		v, err := typeutils.ReformatInt32(val)
 		if err != nil {
-			return nil, fmt.Errorf("int convert: %w", err)
+			return nil, fmt.Errorf("int convert: %s", err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_IntValue{IntValue: v},
@@ -196,7 +194,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "long":
 		v, err := typeutils.ReformatInt64(val)
 		if err != nil {
-			return nil, fmt.Errorf("long convert: %w", err)
+			return nil, fmt.Errorf("long convert: %s", err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: v},
@@ -205,7 +203,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "float":
 		v, err := typeutils.ReformatFloat32(val)
 		if err != nil {
-			return nil, fmt.Errorf("float convert: %w", err)
+			return nil, fmt.Errorf("float convert: %s", err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_FloatValue{FloatValue: v},
@@ -214,7 +212,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "double":
 		v, err := typeutils.ReformatFloat64(val)
 		if err != nil {
-			return nil, fmt.Errorf("double convert: %w", err)
+			return nil, fmt.Errorf("double convert: %s", err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: v},
@@ -223,7 +221,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "timestamptz":
 		t, err := typeutils.ReformatDate(val, true)
 		if err != nil {
-			return nil, fmt.Errorf("timestamp convert: %w", err)
+			return nil, fmt.Errorf("timestamp convert: %s", err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: t.UnixMilli()},

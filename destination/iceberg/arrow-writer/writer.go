@@ -163,27 +163,28 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		}
 
 		writer.data = append(writer.data, rec)
-
+		recordOpType := rec.OlakeColumns[constants.OpType].(string)
+		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
 		// Track deletes for upsert operations (d, u, c all need delete handling)
-		if w.upsertMode && (rec.OlakeColumns[constants.OpType] == "d" || rec.OlakeColumns[constants.OpType] == "u" || rec.OlakeColumns[constants.OpType] == "c") {
+		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "c") {
 			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
-			if _, exists := writer.olakeIDPosition[rec.OlakeColumns[constants.OlakeID].(string)]; !exists {
+			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
 				// first time, add to equality deletes and track position
-				writer.equalityDeletes = append(writer.equalityDeletes, rec.OlakeColumns[constants.OlakeID].(string))
-				writer.olakeIDPosition[rec.OlakeColumns[constants.OlakeID].(string)] = PositionalDelete{
+				writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
+				writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
 					FilePath: writer.dataWriter.filePath,
 					Position: filePosition,
 				}
 			} else {
 				// duplicates, add prev position to positional deletes (n-1 logic)
 				// the latest (nth) occurrence is kept in the map but not added to deletes
-				prev := writer.olakeIDPosition[rec.OlakeColumns[constants.OlakeID].(string)]
+				prev := writer.olakeIDPosition[recordOlakeID]
 				writer.positionalDeletes = append(writer.positionalDeletes, PositionalDelete{
 					FilePath: prev.FilePath,
 					Position: prev.Position,
 				})
-				writer.olakeIDPosition[rec.OlakeColumns[constants.OlakeID].(string)] = PositionalDelete{
+				writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
 					FilePath: writer.dataWriter.filePath,
 					Position: filePosition,
 				}
