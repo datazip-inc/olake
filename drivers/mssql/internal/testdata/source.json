@@ -8,5 +8,5 @@
         "mode": "disable"
     },
     "max_threads": 10,
-    "retry_count": 3
+    "retry_count": 0
 }
