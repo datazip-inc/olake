@@ -11,14 +11,32 @@ import (
 	"github.com/linkedin/goavro/v2"
 )
 
-// Init initializes the HTTP client for the SchemaRegistryClient.
-// Call this after JSON deserialization to set up the httpClient.
+// Init initializes the HTTP client for the SchemaRegistryClient
 func (c *SchemaRegistryClient) Init() {
 	if c.httpClient == nil {
 		c.httpClient = &http.Client{
 			Timeout: 30 * time.Second,
 		}
 	}
+}
+
+// schemaRegistryGetRequest makes an authenticated HTTP GET request to the schema registry
+func (c *SchemaRegistryClient) schemaRegistryGetRequest(path string) (*http.Response, error) {
+	url := fmt.Sprintf("%s%s", c.Endpoint, path)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %s", err)
+	}
+
+	// Set authentication headers (bearer token takes priority over basic auth)
+	if c.BearerToken != "" {
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.BearerToken))
+	} else if c.Username != "" && c.Password != "" {
+		req.SetBasicAuth(c.Username, c.Password)
+	}
+	req.Header.Set("Accept", "application/vnd.schemaregistry.v1+json")
+
+	return c.httpClient.Do(req)
 }
 
 // TODO: fetch schema by subject strategy if needed (e.g. latest, version specific)
@@ -30,21 +48,7 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 	}
 
 	// fetch schema from registry
-	url := fmt.Sprintf("%s/schemas/ids/%d", c.Endpoint, schemaID)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %s", err)
-	}
-
-	// Set authentication headers (if bearer token is present, it takes priority over basic auth)
-	if c.BearerToken != "" {
-		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.BearerToken))
-	} else if c.Username != "" && c.Password != "" {
-		req.SetBasicAuth(c.Username, c.Password)
-	}
-	req.Header.Set("Accept", "application/vnd.schemaregistry.v1+json")
-
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.schemaRegistryGetRequest(fmt.Sprintf("/schemas/ids/%d", schemaID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch schema: %s", err)
 	}
@@ -84,4 +88,25 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 	// cache the schema
 	c.schemaMap.Store(schemaID, registered)
 	return registered, nil
+}
+
+// Validate validates the schema registry connection using lightweight /subject request
+func (c *SchemaRegistryClient) Validate() error {
+	resp, err := c.schemaRegistryGetRequest("/subjects")
+	if err != nil {
+		return fmt.Errorf("failed to connect to schema registry: %s", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return fmt.Errorf("schema registry authentication failed: invalid credentials")
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("schema registry authentication failed: access forbidden")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("schema registry returned unexpected status: %d", resp.StatusCode)
+	}
+
+	return nil
 }

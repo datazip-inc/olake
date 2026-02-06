@@ -112,6 +112,9 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	// initialize confluent schema registry client if configured
 	if k.config.SchemaRegistry != nil {
 		k.config.SchemaRegistry.Init()
+		if err := k.config.SchemaRegistry.Validate(); err != nil {
+			return fmt.Errorf("schema registry validation failed: %s", err)
+		}
 		k.schemaRegistryClient = k.config.SchemaRegistry
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
 	}

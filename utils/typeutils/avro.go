@@ -4,17 +4,17 @@ import (
 	"math/big"
 )
 
-// convertAvroRecord recursively converts Avro record to JSON-compatible map
-func ConvertAvroRecord(record map[string]interface{}) map[string]interface{} {
+// ExtractAvroRecord recursively extracts Avro record to JSON-compatible map
+func ExtractAvroRecord(record map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{}, len(record))
 	for k, v := range record {
-		result[k] = ConvertAvroValue(v)
+		result[k] = ExtractAvroValue(v)
 	}
 	return result
 }
 
-// convertAvroValue converts Avro-decoded values to JSON-compatible types
-func ConvertAvroValue(v interface{}) interface{} {
+// ExtractAvroValue extracts Avro-decoded values to JSON-compatible types
+func ExtractAvroValue(v interface{}) interface{} {
 	if v == nil {
 		return nil
 	}
@@ -28,14 +28,14 @@ func ConvertAvroValue(v interface{}) interface{} {
 		// Handle Avro union types - goavro returns map with type name as key
 		if len(val) == 1 {
 			for _, unionVal := range val {
-				return ConvertAvroValue(unionVal)
+				return ExtractAvroValue(unionVal)
 			}
 		}
-		return ConvertAvroRecord(val)
+		return ExtractAvroRecord(val)
 	case []interface{}:
 		result := make([]interface{}, len(val))
 		for i, elem := range val {
-			result[i] = ConvertAvroValue(elem)
+			result[i] = ExtractAvroValue(elem)
 		}
 		return result
 	default:

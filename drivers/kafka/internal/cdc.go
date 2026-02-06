@@ -258,7 +258,7 @@ func (k *Kafka) parseKafkaData(message kafka.Message) (map[string]interface{}, s
 		if vm, ok := valDecoded.(map[string]interface{}); ok {
 			messageValue = vm
 		} else {
-			return nil, "", fmt.Errorf("expected format for message value is not supported, got %s", valDecoded)
+			return nil, "", fmt.Errorf("expected format for message value is not supported, got %s of type %T", valDecoded, valDecoded)
 		}
 	}
 
@@ -313,7 +313,7 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 	}
 
 	if record, ok := nativeDatum.(map[string]interface{}); ok {
-		return typeutils.ConvertAvroRecord(record), nil
+		return typeutils.ExtractAvroRecord(record), nil
 	}
 	return nativeDatum, nil
 }
