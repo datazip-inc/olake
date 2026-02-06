@@ -4,18 +4,18 @@ import (
 	"fmt"
 
 	"github.com/datazip-inc/olake/constants"
-	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
+	"github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/utils"
 )
 
 type Config struct {
-	BootstrapServers            string                         `json:"bootstrap_servers"`
-	ConsumerGroupID             string                         `json:"consumer_group_id,omitempty"`
-	Protocol                    ProtocolConfig                 `json:"protocol"`
-	MaxThreads                  int                            `json:"max_threads"`
-	RetryCount                  int                            `json:"backoff_retry_count"`
-	ThreadsEqualTotalPartitions bool                           `json:"threads_equal_total_partitions,omitempty"`
-	SchemaRegistry              *kafkapkg.SchemaRegistryClient `json:"schema_registry,omitempty"`
+	BootstrapServers            string                      `json:"bootstrap_servers"`
+	ConsumerGroupID             string                      `json:"consumer_group_id,omitempty"`
+	Protocol                    ProtocolConfig              `json:"protocol"`
+	MaxThreads                  int                         `json:"max_threads"`
+	RetryCount                  int                         `json:"backoff_retry_count"`
+	ThreadsEqualTotalPartitions bool                        `json:"threads_equal_total_partitions,omitempty"`
+	SchemaRegistry              *kafka.SchemaRegistryClient `json:"schema_registry,omitempty"`
 }
 
 type ProtocolConfig struct {
