@@ -434,15 +434,13 @@ func TestCDCNotSupported(t *testing.T) {
 	})
 
 	t.Run("StreamChanges returns error", func(t *testing.T) {
-		stream := types.NewStream("test", "s3", nil)
-		err := s.StreamChanges(ctx, stream.Wrap(0), nil)
+		err := s.StreamChanges(ctx, 0, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "CDC is not supported")
 	})
 
 	t.Run("PostCDC returns error", func(t *testing.T) {
-		stream := types.NewStream("test", "s3", nil)
-		err := s.PostCDC(ctx, stream.Wrap(0), true, "reader-1")
+		err := s.PostCDC(ctx, 0)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "CDC is not supported")
 	})

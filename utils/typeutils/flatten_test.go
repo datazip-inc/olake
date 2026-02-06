@@ -1,6 +1,7 @@
 package typeutils
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -498,6 +499,16 @@ func TestFlattenInternal(t *testing.T) {
 			},
 			expected: types.Record{
 				"all_numbers": `{"float32":3.14,"float64":3.14,"int":42,"int16":-42,"int32":423425,"int64":42425463733234,"int8":-42,"uint":42,"uint16":42,"uint32":42,"uint64":42,"uint8":42}`,
+			},
+			expectError: false,
+		},
+		// replicates scenario when Kafka driver parses JSON with decoder.UseNumber() for number handling
+		{
+			name:  "json.Number from Kafka UseNumber",
+			key:   "json_number",
+			value: json.Number("12345678901234567890"),
+			expected: types.Record{
+				"json_number": json.Number("12345678901234567890"),
 			},
 			expectError: false,
 		},

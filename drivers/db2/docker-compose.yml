@@ -1,0 +1,11 @@
+services:
+  db2:
+    image: icr.io/db2_community/db2
+    container_name: db2-test
+    restart: always
+    privileged: true
+    env_file: .env_list
+    ports:
+      - "50000:50000"
+    volumes:
+      - /data/db2:/database

@@ -47,7 +47,7 @@ type Replicator interface {
 	StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error
 }
 
-func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
+func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
 	// Build PostgreSQL connection config
 	connURL := config.Connection
 	q := connURL.Query()
@@ -97,11 +97,6 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	logger.Infof("SystemID:%s Timeline:%d XLogPos:%s Database:%s",
 		sysident.SystemID, sysident.Timeline, sysident.XLogPos, sysident.DBName)
 
-	slot, err := getSlotPosition(ctx, db, config.ReplicationSlotName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get slot position: %s", err)
-	}
-
 	// Create and return final connection object
 	socket := &Socket{
 		pgConn:             pgConn,
@@ -120,13 +115,6 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 	default:
 		return &wal2jsonReplicator{socket: socket}, nil
 	}
-}
-
-func getSlotPosition(ctx context.Context, db *sqlx.DB, replicationSlotName string) (ReplicationSlot, error) {
-	// Get replication slot position
-	var slot ReplicationSlot
-	err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, replicationSlotName))
-	return slot, err
 }
 
 // advanceLSN advances the logical replication position to the current WAL position.
@@ -171,12 +159,13 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 		select {
 		case <-timeoutCtx.Done():
 			// stop waiting after 5 minutes or if parent ctx is canceled
-			return fmt.Errorf("%s", constants.LSNNotUpdatedError)
+			return fmt.Errorf("%w: %s", constants.ErrNonRetryable, "LSN not updated after 5 minutes")
 		case <-ticker.C:
-			slot, err := getSlotPosition(timeoutCtx, db, socket.ReplicationSlot)
+			slot, err := GetSlotPosition(ctx, db, socket.ReplicationSlot)
 			if err != nil {
 				return fmt.Errorf("failed to get slot position: %s", err)
 			}
+
 			if slot.LSN == walPosition {
 				return nil
 			}
@@ -189,4 +178,11 @@ func Cleanup(ctx context.Context, socket *Socket) {
 	if socket.pgConn != nil {
 		_ = socket.pgConn.Close(ctx)
 	}
+}
+
+func GetSlotPosition(ctx context.Context, db *sqlx.DB, replicationSlotName string) (ReplicationSlot, error) {
+	// Get replication slot position
+	var slot ReplicationSlot
+	err := db.GetContext(ctx, &slot, fmt.Sprintf(ReplicationSlotTempl, replicationSlotName))
+	return slot, err
 }

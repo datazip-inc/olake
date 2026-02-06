@@ -24,7 +24,6 @@ import (
 
 const (
 	userIDFile            = "user_id"
-	version               = "0.0.0"
 	ipNotFoundPlaceholder = "NA"
 	proxTrackURL          = "https://analytics.olake.io/mp/track"
 )
@@ -60,7 +59,6 @@ func Init() {
 		if disabled {
 			return
 		}
-
 		ip := getOutboundIP()
 		telemetry = &Telemetry{
 			httpClient: &http.Client{Timeout: 5 * time.Second},
@@ -68,7 +66,7 @@ func Init() {
 			platform: platformInfo{
 				OS:           runtime.GOOS,
 				Arch:         runtime.GOARCH,
-				OlakeVersion: version,
+				OlakeVersion: getOlakeCLIVersion(),
 				DeviceCPU:    fmt.Sprintf("%d cores", runtime.NumCPU()),
 			},
 			ipAddress: ip,
@@ -296,4 +294,13 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 		return nil
 	})
 	return count
+}
+
+// getOlakeCLIVersion() extracts the olake version from the ENV embedded in the olake image
+func getOlakeCLIVersion() string {
+	version := os.Getenv("DRIVER_VERSION")
+	if version == "" {
+		return "Not Available"
+	}
+	return version
 }

@@ -22,12 +22,12 @@ import (
 )
 
 type MSSQL struct {
-	client      *sqlx.DB
-	config      *Config
-	state       *types.State
-	capturesMap map[string][]captureInstance
-	lsnMap      sync.Map
-
+	client       *sqlx.DB
+	config       *Config
+	state        *types.State
+	capturesMap  map[string][]captureInstance
+	lsnMap       sync.Map
+	streams      []types.StreamInterface
 	cdcSupported bool
 }
 
@@ -237,6 +237,12 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	if err != nil && ctx.Err() == nil {
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if m.CDCSupported() {
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return stream, nil
 }
 
@@ -288,8 +294,8 @@ func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 	return isEnabled, nil
 }
 
-// isStreamCDCEnabled checks if CDC is enabled for a specific table.
-func (m *MSSQL) isStreamCDCEnabled(ctx context.Context, namespace, name string) (bool, error) {
+// validateCDCStream verifies if the stream is CDC enabled in mssql.
+func (m *MSSQL) validateCDCStream(ctx context.Context, namespace, name string) (bool, error) {
 	if !m.cdcSupported {
 		return false, nil
 	}
