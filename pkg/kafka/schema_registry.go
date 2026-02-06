@@ -105,7 +105,7 @@ func (c *SchemaRegistryClient) Validate() error {
 		return fmt.Errorf("schema registry authentication failed: access forbidden")
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("schema registry unexpected status: %d", resp.StatusCode)
+		return fmt.Errorf("schema registry returned unexpected status: %d", resp.StatusCode)
 	}
 
 	return nil
