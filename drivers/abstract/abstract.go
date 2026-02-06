@@ -75,6 +75,10 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 		if err != nil {
 			return fmt.Errorf("%w: failed to produce schema for stream %s: %s", constants.ErrNonRetryable, stream, err)
 		}
+		// skip streams (case: when all messages failed to parse in kafka)
+		if streamSchema == nil {
+			return nil
+		}
 		streamMap.Store(streamSchema.ID(), streamSchema)
 		return nil
 	})

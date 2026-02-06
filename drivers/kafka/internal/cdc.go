@@ -62,7 +62,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstr
 	// get reader
 	reader := k.readerManager.GetReader(readerID)
 	if reader == nil {
-		return fmt.Errorf("reader not found for readerID %s", readerID)
+		return fmt.Errorf("reader not found for readerID %d", readerID)
 	}
 
 	// track processing state
@@ -305,7 +305,7 @@ func decodeJSONMessage(value []byte) (map[string]interface{}, error) {
 	return data, nil
 }
 
-// TODO: we need to handle when multiple type are present in avro schema, need to find the super type in driver level (through LCA)
+// TODO: for avro, we use decode messages to get stream properties, directly use the avro schema to get stream properties
 // decode kafka avro binary message
 func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 	nativeDatum, _, err := codec.NativeFromBinary(data)
