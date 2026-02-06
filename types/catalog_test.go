@@ -99,7 +99,7 @@ func createSelectedColumns(isCDC bool, columns []string) *SelectedColumns {
 	return sc
 }
 
-func createSelectedColumnsRuntimeMetadata(isCDC bool, columns []string, oldStream *Stream) *SelectedColumns {
+func createSelectedColumnsWithRuntime(isCDC bool, columns []string, oldStream *Stream) *SelectedColumns {
 	sc := createSelectedColumns(isCDC, columns)
 	sc.Runtime.setSelectedColumnsSet(&sc.Config)
 	sc.Runtime.setUnSelectedColumnsSet(&sc.Config, oldStream)
@@ -461,7 +461,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:           "test_filter > 10",
 							AppendMode:       true,
 							Normalization:    true,
-							SelectedColumns:  createSelectedColumnsRuntimeMetadata(true, []string{"id"}, &Stream{Schema: oldSchema()}),
+							SelectedColumns:  createSelectedColumnsWithRuntime(true, []string{"id"}, &Stream{Schema: oldSchema()}),
 							MandatoryColumns: createMandatoryColumns(true, []string{"id"}),
 						},
 					},
@@ -559,7 +559,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:           "test_filter > 10",
 							AppendMode:       true,
 							Normalization:    true,
-							SelectedColumns:  createSelectedColumnsRuntimeMetadata(false, []string{"id", "name"}, &Stream{Schema: oldSchema()}),
+							SelectedColumns:  createSelectedColumnsWithRuntime(false, []string{"id", "name"}, &Stream{Schema: oldSchema()}),
 							MandatoryColumns: createMandatoryColumns(false, []string{"id", "updated_at"}),
 						},
 					},
@@ -651,7 +651,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:           "test_filter > 10",
 							AppendMode:       true,
 							Normalization:    true,
-							SelectedColumns:  createSelectedColumnsRuntimeMetadata(false, []string{"id", "name"}, &Stream{Schema: oldSchema()}),
+							SelectedColumns:  createSelectedColumnsWithRuntime(false, []string{"id", "name"}, &Stream{Schema: oldSchema()}),
 							MandatoryColumns: createMandatoryColumns(false, []string{"id"}),
 						},
 					},
@@ -755,7 +755,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							PartitionRegex:   "user_partition",
 							Filter:           "test_filter > 10",
 							Normalization:    true,
-							SelectedColumns:  createSelectedColumnsRuntimeMetadata(false, []string{"id", "name"}, &Stream{Schema: oldSchema()}),
+							SelectedColumns:  createSelectedColumnsWithRuntime(false, []string{"id", "name"}, &Stream{Schema: oldSchema()}),
 							MandatoryColumns: createMandatoryColumns(false, []string{"id"}),
 						},
 					},
