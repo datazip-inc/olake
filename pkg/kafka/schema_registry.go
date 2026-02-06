@@ -38,7 +38,7 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 
 	// Set authentication headers (if bearer token is present, it takes priority over basic auth)
 	if c.BearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.BearerToken)
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.BearerToken))
 	} else if c.Username != "" && c.Password != "" {
 		req.SetBasicAuth(c.Username, c.Password)
 	}
