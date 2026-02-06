@@ -102,8 +102,9 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		return fmt.Errorf("failed to create parquet file writer: %s", err)
 	}
 
-	// Use p.schema for both normalized and raw mode
-	writer := pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
+	writer := func() any {
+		return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(!p.stream.NormalizationEnabled()), pqgo.Compression(&pqgo.Snappy))
+	}()
 
 	p.partitionedFiles[basePath] = append(p.partitionedFiles[basePath], &FileMetadata{
 		fileName: fileName,
@@ -134,9 +135,6 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	}
 
 	if !p.stream.NormalizationEnabled() {
-		for col, typ := range types.RawSchema {
-			p.schema[col] = typeutils.NewField(typ)
-		}
 		return p.schema, nil
 	}
 
@@ -348,18 +346,7 @@ func (p *Parquet) Close(ctx context.Context) error {
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
-		finalSchema := p.schema.Clone()
-		for key, value := range records[0].OlakeColumns {
-			detectedType := typeutils.TypeFromValue(value)
-			if _, columnExist := finalSchema[key]; !columnExist {
-				finalSchema[key] = typeutils.NewField(detectedType)
-			}
-		}
-		change := len(finalSchema) > len(p.schema)
-		p.schema = finalSchema
-		logger.Debugf("****Thread[%s]: final schema: %v", p.options.ThreadID, finalSchema)
-		// expecting schema change as new columns are added for olake generated columns
-		return change, records, p.schema, nil
+		return false, records, nil, nil
 	}
 
 	if len(records) == 0 {
@@ -419,6 +406,10 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
 func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
+	if !p.stream.NormalizationEnabled() {
+		return false, nil
+	}
+
 	logger.Infof("Thread[%s]: schema evolution detected", p.options.ThreadID)
 
 	// create new partition files for all paths as prev are of no use

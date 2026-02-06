@@ -251,11 +251,15 @@ func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, sc
 	for _, record := range records {
 		for idx, field := range schema.Fields() {
 			var val any
+
+			// Check OlakeColumns first (CDC columns, _olake_id, _olake_timestamp, etc.)
 			if olakeVal, exists := record.OlakeColumns[field.Name]; exists {
 				val = olakeVal
 			} else if normalization {
+				//  For normalized tables, get field from Data
 				val = record.Data[field.Name]
-			} else {
+			} else if field.Name == constants.StringifiedData {
+				//  For non-normalized tables, the "data" column contains entire record.Data as JSON
 				val = record.Data
 			}
 

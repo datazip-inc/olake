@@ -47,12 +47,6 @@ func (s *ConfiguredStream) Namespace() string {
 	return s.Stream.Namespace
 }
 
-// TODO: Currently, if CDC is configured and available for the source,
-// CDC-specific columns are detected during discovery and included in the generated schema.
-// As a result, these columns are created in the destination even when the selected
-// sync mode is full refresh or incremental (non-CDC). This behavior should be revised
-// so that CDC columns are added only when CDC sync mode is explicitly enabled.
-
 func (s *ConfiguredStream) Schema() *TypeSchema {
 	return s.Stream.Schema
 }
