@@ -263,7 +263,7 @@ func verifyCDCEnabled(t *testing.T, ctx context.Context, db *sqlx.DB, captureIns
 		}
 		startLSNHex := hex.EncodeToString(startLSN)
 		currentMaxLSNHex := hex.EncodeToString(currentMaxLSN)
-		if startLSNHex >= currentMaxLSNHex {
+		if currentMaxLSNHex >= startLSNHex {
 			return
 		}
 		time.Sleep(pollInterval)
