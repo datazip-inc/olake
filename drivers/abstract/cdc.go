@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -97,6 +98,10 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 //   - For Postgres: ignored (uses global replication slot)
 func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int) (err error) {
 	writers := make(map[string]*destination.WriterThread)
+	// per-stream mutexes: allow concurrent writes to different streams while
+	// serializing writes within the same stream (required for thread-safe Push)
+	var writersMu sync.Mutex
+	streamMus := make(map[string]*sync.Mutex)
 
 	// create cdc context, so that main context not affected if cdc retries
 	cdcCtx, cdcCtxCancel := context.WithCancel(mainCtx)
@@ -112,16 +117,28 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		})()
 
 	return a.driver.StreamChanges(cdcCtx, streamIndex, func(ctx context.Context, change CDCChange) error {
-		writer := writers[change.Stream.ID()]
+		streamID := change.Stream.ID()
+
+		// get or create writer and per-stream mutex under writersMu
+		writersMu.Lock()
+		writer := writers[streamID]
 		if writer == nil {
-			threadID := generateThreadID(change.Stream.ID(), "")
+			threadID := generateThreadID(streamID, "")
 			writer, err = pool.NewWriter(ctx, change.Stream, destination.WithThreadID(threadID))
 			if err != nil {
-				return fmt.Errorf("failed to create writer for stream %s: %s", change.Stream.ID(), err)
+				writersMu.Unlock()
+				return fmt.Errorf("failed to create writer for stream %s: %s", streamID, err)
 			}
-			writers[change.Stream.ID()] = writer
-			logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, change.Stream.ID())
+			writers[streamID] = writer
+			streamMus[streamID] = &sync.Mutex{}
+			logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, streamID)
 		}
+		sMu := streamMus[streamID]
+		writersMu.Unlock()
+
+		// per-stream lock: different streams push concurrently
+		sMu.Lock()
+		defer sMu.Unlock()
 		return writer.Push(ctx, types.CreateRawRecord(
 			utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
 			change.Data,

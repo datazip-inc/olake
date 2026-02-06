@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/jackc/pglogrepl"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 // newTestReplicator creates a pgoutputReplicator with a mock socket for testing
@@ -296,6 +297,52 @@ func TestProcessBatchNilTuple(t *testing.T) {
 	err := r.processBatch(context.Background(), batch, insertFn)
 	require.NoError(t, err, "processBatch should handle nil tuple without error")
 	require.Len(t, receivedChanges, 1, "expected 1 change even with nil tuple")
+}
+
+func TestConcurrentBatchWorkers(t *testing.T) {
+	r, _ := newTestReplicator(t, "public.users", 4)
+	r.relationIDToMsgMap[1] = &pglogrepl.RelationMessage{
+		RelationID:   1,
+		Namespace:    "public",
+		RelationName: "users",
+		Columns:      []*pglogrepl.RelationMessageColumn{{Name: "id", DataType: 23}},
+	}
+
+	const totalBatches = 100
+
+	var callCount atomic.Int64
+	insertFn := func(_ context.Context, _ abstract.CDCChange) error {
+		callCount.Add(1)
+		return nil
+	}
+
+	batchChan := make(chan *transactionBatch, 8)
+
+	g, gCtx := errgroup.WithContext(context.Background())
+	for i := 0; i < r.workerCount; i++ {
+		g.Go(func() error {
+			return r.batchWorker(gCtx, batchChan, insertFn)
+		})
+	}
+
+	for i := 0; i < totalBatches; i++ {
+		batchChan <- &transactionBatch{
+			commitTime: time.Now(),
+			changes: []walChange{{
+				kind:       "insert",
+				relationID: 1,
+				data: &pglogrepl.InsertMessage{
+					RelationID: 1,
+					Tuple:      &pglogrepl.TupleData{Columns: []*pglogrepl.TupleDataColumn{{Data: []byte("1")}}},
+				},
+			}},
+		}
+	}
+	close(batchChan)
+
+	err := g.Wait()
+	require.NoError(t, err)
+	require.Equal(t, int64(totalBatches), callCount.Load(), "every batch should produce exactly one insertFn call")
 }
 
 // mockStream implements types.StreamInterface for testing
