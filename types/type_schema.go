@@ -146,12 +146,14 @@ func (t *TypeSchema) ToIceberg(onlyOlakeColumns bool) []*proto.IcebergPayload_Sc
 
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
-		if onlyOlakeColumns && !prop.OlakeColumn {
+		colName := prop.getDestinationColumnName(key.(string))
+		// skip columns already present in RawSchema or non-olake columns when onlyOlakeColumns is set
+		if _, exists := RawSchema[colName]; exists || (onlyOlakeColumns && !prop.OlakeColumn) {
 			return true
 		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
-			Key:     prop.getDestinationColumnName(key.(string)),
+			Key:     colName,
 		})
 		return true
 	})
