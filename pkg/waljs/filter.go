@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -77,11 +76,11 @@ func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFi
 		}
 
 		if err := OnFiltered(ctx, abstract.CDCChange{
-			Stream:     stream,
-			Kind:       ch.Kind,
-			Timestamp:  changes.Timestamp.Time,
-			Data:       changesMap,
-			CDCColumns: map[string]any{constants.CDCLSN: changes.NextLSN},
+			Stream:       stream,
+			Kind:         ch.Kind,
+			Timestamp:    changes.Timestamp.Time,
+			Data:         changesMap,
+			ExtraColumns: map[string]any{CDCLSN: changes.NextLSN},
 		}); err != nil {
 			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %s", err)
 		}

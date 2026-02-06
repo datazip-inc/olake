@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
@@ -122,12 +123,13 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 }
 
 func (t *TypeSchema) ToParquet(onlyOlakeColumns bool) *parquet.Schema {
+	// keeping default columns parquet schema for backward compatibility for olake columns
 	groupNode := parquet.Group{
-		"data":             parquet.JSON(),
-		"_olake_id":        parquet.String(),
-		"_olake_timestamp": parquet.Timestamp(parquet.Microsecond),
-		"_op_type":         parquet.String(),
-		"_cdc_timestamp":   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
+		constants.StringifiedData: parquet.JSON(),
+		constants.OlakeID:         parquet.String(),
+		constants.OlakeTimestamp:  parquet.Timestamp(parquet.Microsecond),
+		constants.OpType:          parquet.String(),
+		constants.CdcTimestamp:    parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
 	}
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
@@ -142,21 +144,25 @@ func (t *TypeSchema) ToParquet(onlyOlakeColumns bool) *parquet.Schema {
 }
 
 func (t *TypeSchema) ToIceberg(onlyOlakeColumns bool) []*proto.IcebergPayload_SchemaField {
-	icebergFields := GetIcebergRawSchema()
-
+	var icebergFields []*proto.IcebergPayload_SchemaField
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
-		colName := prop.getDestinationColumnName(key.(string))
-		// skip columns already present in RawSchema or non-olake columns when onlyOlakeColumns is set
-		if _, exists := RawSchema[colName]; exists || (onlyOlakeColumns && !prop.OlakeColumn) {
+		// skip non-olake columns if onlyOlakeColumns is set to true
+		if onlyOlakeColumns && !prop.OlakeColumn {
 			return true
 		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
-			Key:     colName,
+			Key:     prop.getDestinationColumnName(key.(string)),
 		})
 		return true
 	})
+	if onlyOlakeColumns {
+		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+			IceType: "string",
+			Key:     constants.StringifiedData,
+		})
+	}
 	return icebergFields
 }
 func (t *TypeSchema) HasDestinationColumnName() bool {

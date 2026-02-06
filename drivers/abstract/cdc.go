@@ -130,7 +130,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 			constants.CdcTimestamp:   change.Timestamp,
 			constants.OlakeTimestamp: time.Now().UTC(),
 		}
-		maps.Copy(olakeColumns, change.CDCColumns)
+		maps.Copy(olakeColumns, change.ExtraColumns)
 		return writer.Push(ctx, types.CreateRawRecord(change.Data, olakeColumns))
 	})
 }

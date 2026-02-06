@@ -62,8 +62,8 @@ var RawSchema = map[string]DataType{
 type Record map[string]any
 
 type RawRecord struct {
-	Data         map[string]any `parquet:"data,json"`
-	OlakeColumns map[string]any `parquet:"olake_columns,json"`
+	Data         map[string]any `json:"data"`
+	OlakeColumns map[string]any `json:"olake_columns"`
 }
 
 func CreateRawRecord(data map[string]any, olakeColumns map[string]any) RawRecord {

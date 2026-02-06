@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
@@ -15,6 +14,9 @@ import (
 
 const (
 	cdcCursorKey = "lsn"
+
+	CDCStartLSN = "_cdc_start_lsn" // MSSQL start LSN
+	CDCSeqVal   = "_cdc_seqval"    // MSSQL seqval
 )
 
 // CDC capture instance for a table
@@ -237,8 +239,8 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 			operationType = operationTypeFromCDCCode(opCode)
 		}
 		extraColumns := map[string]any{
-			constants.CDCStartLSN: fmt.Sprintf("%x", record["__$start_lsn"]),
-			constants.CDCSeqVal:   fmt.Sprintf("%x", record["__$seqval"])}
+			CDCStartLSN: fmt.Sprintf("%x", record["__$start_lsn"]),
+			CDCSeqVal:   fmt.Sprintf("%x", record["__$seqval"])}
 		// Remove metadata columns
 		delete(record, "__$operation")
 		delete(record, "__$start_lsn")
@@ -247,11 +249,11 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 
 		// Emit one normalized CDC change event.
 		if err := processFn(ctx, abstract.CDCChange{
-			Stream:     stream,
-			Timestamp:  time.Now().UTC(),
-			Kind:       operationType,
-			Data:       record,
-			CDCColumns: extraColumns,
+			Stream:       stream,
+			Timestamp:    time.Now().UTC(),
+			Kind:         operationType,
+			Data:         record,
+			ExtraColumns: extraColumns,
 		}); err != nil {
 			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}

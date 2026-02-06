@@ -33,13 +33,6 @@ const (
 	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
 	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
 	DefaultStateTimestampFormat = "2006-01-02T15:04:05.000000000Z"
-	// driver specific cdc columns
-	CDCResumeToken    = "_cdc_resume_token"     //nolint:gosec // false positive: DB field name MongoDB resume token
-	CDCBinlogFileName = "_cdc_binlog_file_name" // MySQL binlog file name
-	CDCBinlogFilePos  = "_cdc_binlog_file_pos"  // MySQL binlog file position
-	CDCLSN            = "_cdc_lsn"              // Postgres LSN
-	CDCStartLSN       = "_cdc_start_lsn"        // MSSQL start LSN
-	CDCSeqVal         = "_cdc_seqval"           // MSSQL seqval
 )
 
 type DriverType string

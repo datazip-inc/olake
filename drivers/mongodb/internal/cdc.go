@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -23,6 +22,7 @@ import (
 const (
 	maxAwait               = 2 * time.Second
 	changeStreamRetryDelay = 500 * time.Millisecond
+	CDCResumeToken         = "_cdc_resume_token" //nolint:gosec // false positive: DB field name MongoDB resume token
 )
 
 var ErrIdleTermination = errors.New("change stream terminated due to idle timeout")
@@ -172,8 +172,8 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Timestamp: ts,
 		Data:      record.FullDocument,
 		Kind:      record.OperationType,
-		CDCColumns: map[string]any{
-			constants.CDCResumeToken: token,
+		ExtraColumns: map[string]any{
+			CDCResumeToken: token,
 		},
 	}
 
@@ -271,7 +271,7 @@ func GetResumeToken(cursor *mongo.ChangeStream, streamID string) (string, error)
 
 	rawToken, err := finalToken.LookupErr(cdcCursorField)
 	if err != nil {
-		return "", fmt.Errorf("%s field not found in resume token for stream %s: %w",
+		return "", fmt.Errorf("%s field not found in resume token for stream %s: %s",
 			cdcCursorField, streamID, err)
 	}
 
