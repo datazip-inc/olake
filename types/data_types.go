@@ -52,6 +52,10 @@ var TypeWeights = map[DataType]int{
 
 var RawSchema = map[string]DataType{
 	constants.StringifiedData: String,
+	constants.CdcTimestamp:    Timestamp,
+	constants.OlakeTimestamp:  Timestamp,
+	constants.OpType:          String,
+	constants.OlakeID:         String,
 }
 
 type Record map[string]any

@@ -93,7 +93,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			if column == constants.CdcTimestamp && !a.supportsCdcColumn() {
 				continue
 			}
-			convStream.UpsertField(column, typ, true)
+			convStream.UpsertField(column, typ, true, true)
 		}
 
 		// priority to default sync mode (cdc -> incremental -> strict_cdc)

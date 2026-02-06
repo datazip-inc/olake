@@ -224,7 +224,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", column.dataType, streamName, column.name)
 				datatype = types.String
 			}
-			stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"))
+			stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"), false)
 
 			if column.isPrimaryKey {
 				stream.WithPrimaryKey(column.name)
@@ -240,8 +240,8 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	if m.CDCSupported() {
-		stream.UpsertField(constants.CDCStartLSN, types.String, true)
-		stream.UpsertField(constants.CDCSeqVal, types.String, true)
+		stream.UpsertField(constants.CDCStartLSN, types.String, true, true)
+		stream.UpsertField(constants.CDCSeqVal, types.String, true, true)
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 

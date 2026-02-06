@@ -102,7 +102,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
 		var requestPayload proto.IcebergPayload
-		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
+		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled())
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
@@ -345,14 +345,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}
 
 	if !i.stream.NormalizationEnabled() {
-		finalSchema := copySchema(i.schema)
-		for key, value := range records[0].OlakeColumns {
-			detectedType := typeutils.TypeFromValue(value)
-			if _, exists := i.schema[key]; !exists {
-				finalSchema[key] = detectedType.ToIceberg()
-			}
-		}
-		return len(finalSchema) > len(i.schema), records, finalSchema, nil
+		return false, records, i.schema, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
@@ -365,6 +358,9 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 // compares with global schema and update schema in destination accordingly
 func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSchema any) (any, error) {
+	if !i.stream.NormalizationEnabled() {
+		return i.schema, nil
+	}
 	// cases as local thread schema has detected changes w.r.t. batch records schema
 	//  	i.  iceberg table already have changes (i.e. no difference with global schema), in this case
 	//		    only refresh table in iceberg for this thread.
