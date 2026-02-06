@@ -329,37 +329,32 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// resolveMySQLTimeZone picks an effective timezone from MySQL vars and returns a *time.Location
-// for interpreting TIMESTAMP values (e.g. CDC binlog). Precedence: session, then global, then
-// system abbreviation; otherwise UTC.
+// TODO: Add consistent timezone detection for CDC of other drivers as well.
+// resolveMySQLTimeZone returns a *time.Location for interpreting TIMESTAMP values (e.g. CDC binlog).
+// Precedence: session > global > system; "SYSTEM" is skipped so the next level is used.
+// Invalid or missing IANA names fall back to UTC.
 func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string) *time.Location {
+	// Strip surrounding quotes so "'Asia/Tokyo'" or "\"UTC\"" from jdbc params become valid IANA names.
 	normalize := func(s string) string {
-		s = strings.TrimSpace(s)
-		// Strip surrounding quotes so "'Asia/Tokyo'" or "\"UTC\"" from jdbc params become valid IANA names.
-		return strings.Trim(s, `'"`)
+		return strings.Trim(strings.TrimSpace(s), `'"`)
 	}
 	session := normalize(sessionTimezone)
 	global := normalize(globalTimezone)
 	system := normalize(systemTimezone)
 
-	candidate := ""
-	if session != "" && !strings.EqualFold(session, "SYSTEM") {
-		candidate = session
-	} else if global != "" && !strings.EqualFold(global, "SYSTEM") {
-		candidate = global
+	var name string
+	switch {
+	case session != "" && !strings.EqualFold(session, "SYSTEM"):
+		name = session
+	case global != "" && !strings.EqualFold(global, "SYSTEM"):
+		name = global
+	default:
+		name = system
 	}
 
-	fromNamed := func(name string) *time.Location {
-		name = normalize(name)
-		loc, err := time.LoadLocation(name)
-		if err != nil {
-			return time.UTC
-		}
-		return loc
+	loc, err := time.LoadLocation(name)
+	if name == "" || err != nil {
+		return time.UTC
 	}
-
-	if candidate != "" {
-		return fromNamed(candidate)
-	}
-	return fromNamed(system)
+	return loc
 }
