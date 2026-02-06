@@ -2,6 +2,7 @@ package types
 
 import (
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/parquet-go/parquet-go"
 )
 
@@ -72,6 +73,17 @@ func CreateRawRecord(data map[string]any, olakeColumns map[string]any) RawRecord
 	}
 }
 
+// returns raw schema in iceberg format
+func GetIcebergRawSchema() []*proto.IcebergPayload_SchemaField {
+	var icebergFields []*proto.IcebergPayload_SchemaField
+	for key, typ := range RawSchema {
+		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+			IceType: typ.ToIceberg(),
+			Key:     key,
+		})
+	}
+	return icebergFields
+}
 func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
 

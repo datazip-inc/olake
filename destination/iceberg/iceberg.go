@@ -205,7 +205,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
 			DestTableName: destinationDB,
-			Schema:        icebergRawSchema(),
+			Schema:        types.GetIcebergRawSchema(),
 		},
 	}
 
@@ -219,7 +219,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
-	protoSchema := icebergRawSchema()
+	protoSchema := types.GetIcebergRawSchema()
 	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime})
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
@@ -572,18 +572,6 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 		fields[name] = types[1]
 	}
 	return fields, nil
-}
-
-// returns raw schema in iceberg format
-func icebergRawSchema() []*proto.IcebergPayload_SchemaField {
-	var icebergFields []*proto.IcebergPayload_SchemaField
-	for key, typ := range types.RawSchema {
-		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
-			IceType: typ.ToIceberg(),
-			Key:     key,
-		})
-	}
-	return icebergFields
 }
 
 func getCommonAncestorType(d1, d2 string) string {
