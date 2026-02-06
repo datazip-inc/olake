@@ -305,7 +305,6 @@ func decodeJSONMessage(value []byte) (map[string]interface{}, error) {
 	return data, nil
 }
 
-// TODO: for avro, we use decode messages to get stream properties, directly use the avro schema to get stream properties
 // decode kafka avro binary message
 func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 	nativeDatum, _, err := codec.NativeFromBinary(data)

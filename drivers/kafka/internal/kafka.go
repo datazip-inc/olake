@@ -144,6 +144,7 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 	return topicNames, nil
 }
 
+// TODO: for avro, we use decode messages to get stream properties similar to JSON, we should directly use the avro schema to get stream properties
 func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	logger.Infof("producing schema for topic [%s]", streamName)
 	stream := types.NewStream(streamName, "topics", nil)
