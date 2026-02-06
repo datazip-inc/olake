@@ -114,7 +114,7 @@ func TestProcessBatchSkipsUnknownStreams(t *testing.T) {
 	}
 
 	var count int
-	insertFn := func(_ context.Context, change abstract.CDCChange) error {
+	insertFn := func(_ context.Context, _ abstract.CDCChange) error {
 		count++
 		return nil
 	}
@@ -350,17 +350,17 @@ type mockStream struct {
 	id string
 }
 
-func (m *mockStream) ID() string                                      { return m.id }
-func (m *mockStream) Self() *types.ConfiguredStream                   { return nil }
-func (m *mockStream) Name() string                                    { return m.id }
-func (m *mockStream) Namespace() string                               { return "public" }
-func (m *mockStream) Schema() *types.TypeSchema                       { return nil }
-func (m *mockStream) GetStream() *types.Stream                        { return &types.Stream{} }
-func (m *mockStream) GetSyncMode() types.SyncMode                     { return types.CDC }
-func (m *mockStream) GetFilter() (types.Filter, error)                { return types.Filter{}, nil }
-func (m *mockStream) SupportedSyncModes() *types.Set[types.SyncMode]  { return nil }
-func (m *mockStream) Cursor() (string, string)                        { return "", "" }
-func (m *mockStream) Validate(source *types.Stream) error             { return nil }
-func (m *mockStream) NormalizationEnabled() bool                      { return false }
-func (m *mockStream) GetDestinationDatabase(icebergDB *string) string { return "" }
-func (m *mockStream) GetDestinationTable() string                     { return m.id }
+func (m *mockStream) ID() string                                     { return m.id }
+func (m *mockStream) Self() *types.ConfiguredStream                  { return nil }
+func (m *mockStream) Name() string                                   { return m.id }
+func (m *mockStream) Namespace() string                              { return "public" }
+func (m *mockStream) Schema() *types.TypeSchema                      { return nil }
+func (m *mockStream) GetStream() *types.Stream                       { return &types.Stream{} }
+func (m *mockStream) GetSyncMode() types.SyncMode                    { return types.CDC }
+func (m *mockStream) GetFilter() (types.Filter, error)               { return types.Filter{}, nil }
+func (m *mockStream) SupportedSyncModes() *types.Set[types.SyncMode] { return nil }
+func (m *mockStream) Cursor() (string, string)                       { return "", "" }
+func (m *mockStream) Validate(_ *types.Stream) error                 { return nil }
+func (m *mockStream) NormalizationEnabled() bool                     { return false }
+func (m *mockStream) GetDestinationDatabase(_ *string) string        { return "" }
+func (m *mockStream) GetDestinationTable() string                    { return m.id }
