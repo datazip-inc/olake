@@ -118,10 +118,8 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	}
 
 	var resolved *time.Location
-	if m.config.JDBCURLParams["time_zone"] != "" {
-		if tzOverride := strings.TrimSpace(m.config.JDBCURLParams["time_zone"]); tzOverride != "" {
-			resolved = resolveMySQLTimeZone(tzOverride, tzOverride, tzOverride)
-		}
+	if tzOverride := strings.TrimSpace(m.config.JDBCURLParams["time_zone"]); tzOverride != "" {
+		resolved = resolveMySQLTimeZone(tzOverride, tzOverride, tzOverride)
 	}
 	if resolved == nil {
 		query := jdbc.MySQLTimeZoneQuery()
@@ -338,6 +336,7 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 	normalize := func(s string) string {
 		return strings.Trim(strings.TrimSpace(s), `'"`)
 	}
+
 	session := normalize(sessionTimezone)
 	global := normalize(globalTimezone)
 	system := normalize(systemTimezone)
@@ -353,7 +352,7 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 	}
 
 	loc, err := time.LoadLocation(name)
-	if name == "" || err != nil {
+	if err != nil {
 		return time.UTC
 	}
 	return loc
