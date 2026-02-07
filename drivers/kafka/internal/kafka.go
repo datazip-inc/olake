@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -28,16 +29,23 @@ const (
 	Offset         = "_kafka_offset"
 	Partition      = "_kafka_partition"
 	KafkaTimestamp = "_kafka_timestamp"
+
+	// ConfluentWireFormatMagicByte is the magic byte prefix for Confluent Schema Registry wire format
+	ConfluentWireFormatMagicByte = 0x00
 )
 
+// InternalKafkaTopics are internal kafka topics (created due to external services) to be skipped
+var InternalKafkaTopics = []string{"__amazon_msk_canary", "_schemas"}
+
 type Kafka struct {
-	config            *Config
-	dialer            *kafka.Dialer
-	adminClient       *kafka.Client
-	state             *types.State
-	consumerGroupID   string
-	readerManager     *kafkapkg.ReaderManager
-	checkpointMessage sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
+	config               *Config
+	dialer               *kafka.Dialer
+	adminClient          *kafka.Client
+	state                *types.State
+	consumerGroupID      string
+	readerManager        *kafkapkg.ReaderManager
+	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
+	schemaRegistryClient *kafkapkg.SchemaRegistryClient
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -55,7 +63,7 @@ func (k *Kafka) Type() string {
 
 func (k *Kafka) MaxConnections() int {
 	// return number of readers if available else default
-	if k.readerManager != nil && k.readerManager.GetReaderCount() > 0 {
+	if k.readerManager != nil {
 		return k.readerManager.GetReaderCount()
 	}
 	return k.config.MaxThreads
@@ -100,6 +108,17 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	}
 
 	k.dialer = dialer
+
+	// initialize confluent schema registry client if configured
+	if k.config.SchemaRegistry != nil {
+		k.config.SchemaRegistry.Init()
+		if err := k.config.SchemaRegistry.Validate(); err != nil {
+			return fmt.Errorf("schema registry validation failed: %s", err)
+		}
+		k.schemaRegistryClient = k.config.SchemaRegistry
+		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
+	}
+
 	return nil
 }
 
@@ -119,11 +138,16 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 
 	var topicNames []string
 	for _, topic := range resp.Topics {
+		// skip internal topics
+		if topic.Internal || slices.Contains(InternalKafkaTopics, topic.Name) {
+			continue
+		}
 		topicNames = append(topicNames, topic.Name)
 	}
 	return topicNames, nil
 }
 
+// TODO: for avro, we use decode messages to get stream properties similar to JSON, we should directly use the avro schema to get stream properties
 func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	logger.Infof("producing schema for topic [%s]", streamName)
 	stream := types.NewStream(streamName, "topics", nil)
@@ -185,6 +209,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
+			messageCount++
 			if record.Data != nil {
 				mu.Lock()
 				// resolve data for schema
@@ -193,11 +218,10 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				if err != nil {
 					return true, err
 				}
-				messageCount++
 			}
 
-			// stop if hit 1000 messages or reach the last known offset
-			shouldExit := messageCount >= 1000 || record.Message.Offset >= partitionDetails.LastOffset
+			// stop if hit 10000 messages or reach the last known offset
+			shouldExit := messageCount >= 10000 || record.Message.Offset >= partitionDetails.LastOffset
 			return shouldExit, nil
 		})
 		return nil
@@ -207,7 +231,6 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	}
 
 	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
-
 	return stream, nil
 }
 
@@ -394,4 +417,10 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 	}
 
 	return assigned, nil
+}
+
+// isConfluentWireFormat checks if data starts with Confluent wire format magic byte
+// Wire format: [magic byte (0x00)] [4-byte schema ID (big-endian)] [payload]
+func isConfluentWireFormat(data []byte) bool {
+	return len(data) >= 5 && data[0] == ConfluentWireFormatMagicByte
 }

@@ -315,7 +315,7 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	}
 
 	// Add _last_modified_time as a cursor field for incremental sync
-	inferredStream.UpsertField(lastModifiedField, types.String, false)
+	inferredStream.UpsertField(lastModifiedField, types.String, false, false)
 	inferredStream.WithCursorField(lastModifiedField)
 
 	inferredStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)

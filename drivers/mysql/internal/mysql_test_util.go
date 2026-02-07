@@ -345,3 +345,8 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"status":                 "enum",
 	"priority":               "enum",
 }
+var ExpectedMySQLDefaultCDCColumnsSchema = map[string]string{
+	"_cdc_timestamp":        "timestamp",
+	"_cdc_binlog_file_name": "string",
+	"_cdc_binlog_file_pos":  "bigint",
+}
