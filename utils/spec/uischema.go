@@ -283,61 +283,82 @@ const S3UISchema = `{
 }`
 
 const KafkaUISchema = `{
+  "ui:grid": [
+    { "bootstrap_servers": 12, "consumer_group_id": 12 },
+    { "threads_equal_total_partitions": 12, "max_threads": 12 },
+    { "backoff_retry_count": 12, "protocol": 12 },
+    { "use_schema_registry": 24 },
+    { "schema_registry": 24 }
+  ],
+  "protocol": {
     "ui:grid": [
-      { "bootstrap_servers": 12, "consumer_group_id": 12 },
-      { "threads_equal_total_partitions": 12, "max_threads": 12 },
-      { "backoff_retry_count": 12, "protocol": 12 }
+      { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
+      { "tls_skip_verify": 24 },
+      { "ssl": 24 }
     ],
-    "protocol": {
+    "sasl_jaas_config": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    },
+    "tls_skip_verify": {
+      "ui:widget": "boolean"
+    },
+    "ssl": {
+      "ui:options": {
+        "title": false,
+        "description": false
+      },
       "ui:grid": [
-        { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
-        { "tls_skip_verify": 24 },
-        { "ssl": 24 }
+        { "server_ca": 12, "client_cert": 12 },
+        { "client_key": 12 }
       ],
-      "sasl_jaas_config": {
+      "server_ca": {
         "ui:widget": "textarea",
         "ui:options": {
           "rows": 1
         }
       },
-      "tls_skip_verify": {
-        "ui:widget": "boolean"
-      },
-      "ssl": {
+      "client_cert": {
+        "ui:widget": "textarea",
         "ui:options": {
-          "title": false,
-          "description": false
-        },
-        "ui:grid": [
-          { "server_ca": 12, "client_cert": 12 },
-          { "client_key": 12 }
-        ],
-        "server_ca": {
-          "ui:widget": "textarea",
-          "ui:options": {
-            "rows": 1
-          }
-        },
-        "client_cert": {
-          "ui:widget": "textarea",
-          "ui:options": {
-            "rows": 1
-          }
-        },
-        "client_key": {
-          "ui:widget": "textarea",
-          "ui:options": {
-            "rows": 1
-          }
+          "rows": 1
         }
       },
-      "ui:options": {
-        "title": false
+      "client_key": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
       }
     },
-    "threads_equal_total_partitions": {
-      "ui:widget": "boolean"
+    "ui:options": {
+      "title": false
     }
+  },
+  "use_schema_registry": {
+    "ui:widget": "boolean"
+  },
+  "schema_registry": {
+    "ui:options": {
+      "title": false
+    },
+    "ui:grid": [
+      { "endpoint": 12, "auth_type": 12 },
+      { "username": 12, "password": 12 },
+      { "bearer_token": 24 }
+    ],
+    "password": {
+      "ui:widget": "password"
+    },
+    "bearer_token": {
+      "ui:widget": "password"
+    }
+  },
+  "threads_equal_total_partitions": {
+    "ui:widget": "boolean"
+  }
 }`
 
 const ParquetUISchema = `{
