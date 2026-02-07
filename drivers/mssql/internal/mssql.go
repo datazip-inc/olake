@@ -224,7 +224,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", column.dataType, streamName, column.name)
 				datatype = types.String
 			}
-			stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"))
+			stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"), false)
 
 			if column.isPrimaryKey {
 				stream.WithPrimaryKey(column.name)
@@ -240,6 +240,8 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	if m.CDCSupported() {
+		stream.UpsertField(CDCStartLSN, types.String, true, true)
+		stream.UpsertField(CDCSeqVal, types.String, true, true)
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 
@@ -308,11 +310,4 @@ func (m *MSSQL) validateCDCStream(ctx context.Context, namespace, name string) (
 		return false, fmt.Errorf("failed to check table CDC enablement for %s.%s: %s", namespace, name, err)
 	}
 	return true, nil
-}
-
-func (m *MSSQL) GetCDCColumns() map[string]types.DataType {
-	return map[string]types.DataType{
-		constants.CDCStartLSN: types.String,
-		constants.CDCSeqVal:   types.String,
-	}
 }

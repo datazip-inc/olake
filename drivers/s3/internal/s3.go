@@ -315,7 +315,7 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	}
 
 	// Add _last_modified_time as a cursor field for incremental sync
-	inferredStream.UpsertField(lastModifiedField, types.String, false)
+	inferredStream.UpsertField(lastModifiedField, types.String, false, false)
 	inferredStream.WithCursorField(lastModifiedField)
 
 	inferredStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
@@ -492,8 +492,4 @@ func getDecompressedReader(body io.Reader, key string) (io.Reader, error) {
 func (s *S3) CloseConnection() {
 	logger.Info("Closing S3 connection")
 	// S3 client doesn't require explicit cleanup
-}
-
-func (s *S3) GetCDCColumns() map[string]types.DataType {
-	return nil
 }

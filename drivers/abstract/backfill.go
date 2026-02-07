@@ -46,7 +46,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		defer backfillCtxCancel()
 
 		threadID := generateThreadID(stream.ID(), fmt.Sprintf("min[%v]-max[%v]", chunk.Min, chunk.Max))
-		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
+		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
@@ -68,14 +68,17 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			})()
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-			// persist cdc timestamp for cdc full load
-			var cdcTimestamp *time.Time
-			if stream.GetSyncMode() == types.CDC {
-				t := time.Unix(0, 0)
-				cdcTimestamp = &t
+			olakeColumns := map[string]any{
+				constants.OlakeID:        olakeID,
+				constants.OpType:         "r",
+				constants.OlakeTimestamp: time.Now().UTC(),
 			}
 
-			return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp, nil))
+			// Add CDC specific columns only for CDC mode
+			if stream.GetSyncMode() == types.CDC {
+				olakeColumns[constants.CdcTimestamp] = time.Unix(0, 0)
+			}
+			return inserter.Push(ctx, types.CreateRawRecord(data, olakeColumns))
 		})
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)

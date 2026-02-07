@@ -209,7 +209,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				datatype = types.String
 			}
-			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable))
+			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable), false)
 
 			// Mark primary keys
 			if columnKey == "PRI" {
@@ -225,6 +225,8 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	if m.CDCSupported() {
+		stream.UpsertField(binlog.CDCBinlogFileName, types.String, true, true)
+		stream.UpsertField(binlog.CDCBinlogFilePos, types.Int64, true, true)
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 
@@ -305,11 +307,4 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	}
 
 	return true, nil
-}
-
-func (m *MySQL) GetCDCColumns() map[string]types.DataType {
-	return map[string]types.DataType{
-		constants.CDCBinlogFileName: types.String,
-		constants.CDCBinlogFilePos:  types.Int64,
-	}
 }

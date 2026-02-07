@@ -1,9 +1,8 @@
 package types
 
 import (
-	"time"
-
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/parquet-go/parquet-go"
 )
 
@@ -54,84 +53,37 @@ var TypeWeights = map[DataType]int{
 
 var RawSchema = map[string]DataType{
 	constants.StringifiedData: String,
+	constants.CdcTimestamp:    Timestamp,
 	constants.OlakeTimestamp:  Timestamp,
 	constants.OpType:          String,
 	constants.OlakeID:         String,
 }
 
-func GetDriverSpecificRawSchema(driverType constants.DriverType, isCDC bool) map[string]DataType {
-	baseRawSchema := RawSchema
-	if isCDC {
-		baseRawSchema[constants.CdcTimestamp] = Timestamp
-		switch driverType {
-		case constants.MySQL:
-			baseRawSchema[constants.CDCBinlogFileName] = String
-			baseRawSchema[constants.CDCBinlogFilePos] = Int64
-		case constants.Postgres:
-			baseRawSchema[constants.CDCLSN] = String
-		case constants.MongoDB:
-			baseRawSchema[constants.CDCResumeToken] = String
-		case constants.MSSQL:
-			baseRawSchema[constants.CDCStartLSN] = String
-			baseRawSchema[constants.CDCSeqVal] = String
-		}
-	}
-	return baseRawSchema
-}
-
 type Record map[string]any
 
 type RawRecord struct {
-	Data           map[string]any `parquet:"data,json"`
-	OlakeID        string         `parquet:"_olake_id"`
-	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
-	OperationType  string         `parquet:"_op_type"`       // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
-	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
-	CDCColumns     map[string]any `parquet:"cdc_columns,json"`
+	Data         map[string]any `json:"data"`
+	OlakeColumns map[string]any `json:"olake_columns"`
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time, cdcColumns map[string]any) RawRecord {
+func CreateRawRecord(data map[string]any, olakeColumns map[string]any) RawRecord {
 	return RawRecord{
-		OlakeID:       olakeID,
-		Data:          data,
-		OperationType: operationType,
-		CdcTimestamp:  cdcTimestamp,
-		CDCColumns:    cdcColumns,
+		Data:         data,
+		OlakeColumns: olakeColumns,
 	}
 }
 
-func GetParquetRawSchema(driverType constants.DriverType, isCDC bool) *parquet.Schema {
-	// Base schema – common for all drivers
-	schemaFields := parquet.Group{
-		"data":             parquet.JSON(),
-		"_olake_id":        parquet.String(),
-		"_olake_timestamp": parquet.Timestamp(parquet.Microsecond),
-		"_op_type":         parquet.String(),
+// returns raw schema in iceberg format
+func GetIcebergRawSchema() []*proto.IcebergPayload_SchemaField {
+	var icebergFields []*proto.IcebergPayload_SchemaField
+	for key, typ := range RawSchema {
+		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+			IceType: typ.ToIceberg(),
+			Key:     key,
+		})
 	}
-
-	// Add driver-specific CDC fields
-	if isCDC {
-		schemaFields["_cdc_timestamp"] = parquet.Optional(parquet.Timestamp(parquet.Microsecond))
-		switch driverType {
-		case constants.MySQL:
-			schemaFields[constants.CDCBinlogFileName] = parquet.Optional(parquet.String())
-			schemaFields[constants.CDCBinlogFilePos] = parquet.Optional(parquet.Int(64))
-
-		case constants.Postgres:
-			schemaFields[constants.CDCLSN] = parquet.Optional(parquet.String())
-
-		case constants.MongoDB:
-			schemaFields[constants.CDCResumeToken] = parquet.Optional(parquet.String())
-
-		case constants.MSSQL:
-			schemaFields[constants.CDCStartLSN] = parquet.Optional(parquet.String())
-			schemaFields[constants.CDCSeqVal] = parquet.Optional(parquet.String())
-		}
-	}
-
-	return parquet.NewSchema("RawRecord", schemaFields)
+	return icebergFields
 }
-
 func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
 

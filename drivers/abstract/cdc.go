@@ -3,6 +3,8 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"maps"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -115,20 +117,21 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		writer := writers[change.Stream.ID()]
 		if writer == nil {
 			threadID := generateThreadID(change.Stream.ID(), "")
-			writer, err = pool.NewWriter(ctx, change.Stream, destination.WithThreadID(threadID), destination.WithDriverType(constants.DriverType(a.driver.Type())))
+			writer, err = pool.NewWriter(ctx, change.Stream, destination.WithThreadID(threadID))
 			if err != nil {
 				return fmt.Errorf("failed to create writer for stream %s: %s", change.Stream.ID(), err)
 			}
 			writers[change.Stream.ID()] = writer
 			logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, change.Stream.ID())
 		}
-		return writer.Push(ctx, types.CreateRawRecord(
-			utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
-			change.Data,
-			mapChangeKindToOperationType(change.Kind),
-			&change.Timestamp,
-			change.CDCColumns,
-		))
+		olakeColumns := map[string]any{
+			constants.OlakeID:        utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
+			constants.OpType:         mapChangeKindToOperationType(change.Kind),
+			constants.CdcTimestamp:   change.Timestamp,
+			constants.OlakeTimestamp: time.Now().UTC(),
+		}
+		maps.Copy(olakeColumns, change.ExtraColumns)
+		return writer.Push(ctx, types.CreateRawRecord(change.Data, olakeColumns))
 	})
 }
 

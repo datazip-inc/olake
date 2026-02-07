@@ -5,13 +5,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+)
+
+const (
+	CDCBinlogFileName = "_cdc_binlog_file_name" // MySQL binlog file name
+	CDCBinlogFilePos  = "_cdc_binlog_file_pos"  // MySQL binlog file position
+
 )
 
 // ChangeFilter filters binlog events based on the specified streams.
@@ -88,9 +93,9 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 			Timestamp: timestamp,
 			Kind:      operationType,
 			Data:      record,
-			CDCColumns: map[string]any{
-				constants.CDCBinlogFileName: pos.Name,
-				constants.CDCBinlogFilePos:  int64(ev.Header.LogPos), // Use the event position
+			ExtraColumns: map[string]any{
+				CDCBinlogFileName: pos.Name,
+				CDCBinlogFilePos:  pos.Pos, // Use the event position
 			},
 		}
 		if err := callback(ctx, change); err != nil {

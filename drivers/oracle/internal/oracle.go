@@ -189,7 +189,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 			datatype = types.String
 		}
 
-		stream.UpsertField(columnName, datatype, strings.EqualFold("Y", isNullable))
+		stream.UpsertField(columnName, datatype, strings.EqualFold("Y", isNullable), false)
 	}
 
 	query = jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)
@@ -217,8 +217,4 @@ func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interf
 	}
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, oracleTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
-}
-
-func (o *Oracle) GetCDCColumns() map[string]types.DataType {
-	return nil
 }
