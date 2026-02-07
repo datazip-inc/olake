@@ -7,7 +7,6 @@ import (
 	"io"
 	"sort"
 	"strconv"
-	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
@@ -246,30 +245,22 @@ func createPositionalDeleteArrowRecord(posDeletes []PositionalDelete, allocator 
 	return recordBuilder.NewRecord()
 }
 
-func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool, olakeTimestamp time.Time) (arrow.Record, error) {
+func createArrowRecord(records []types.RawRecord, allocator memory.Allocator, schema *arrow.Schema, normalization bool) (arrow.Record, error) {
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
-
 	for _, record := range records {
 		for idx, field := range schema.Fields() {
 			var val any
-			switch field.Name {
-			case constants.OlakeID:
-				val = record.OlakeID
-			case constants.OlakeTimestamp:
-				val = olakeTimestamp
-			case constants.OpType:
-				val = record.OperationType
-			case constants.CdcTimestamp:
-				if record.CdcTimestamp != nil {
-					val = record.CdcTimestamp
-				}
-			default:
-				if normalization {
-					val = record.Data[field.Name]
-				} else {
-					val = record.Data
-				}
+
+			// Check OlakeColumns first (CDC columns, _olake_id, _olake_timestamp, etc.)
+			if olakeVal, exists := record.OlakeColumns[field.Name]; exists {
+				val = olakeVal
+			} else if normalization {
+				//  For normalized tables, get field from Data
+				val = record.Data[field.Name]
+			} else if field.Name == constants.StringifiedData {
+				//  For non-normalized tables, the "data" column contains entire record.Data as JSON
+				val = record.Data
 			}
 
 			if val == nil {
