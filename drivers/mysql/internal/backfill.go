@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"strings"
 
@@ -94,11 +95,19 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 
+	var avgSchemaSize int64
+	avgSchemaSizeQuery := jdbc.MySQLTableSizeQuery()
+	err = m.client.QueryRowContext(ctx, avgSchemaSizeQuery, stream.Name()).Scan(&avgSchemaSize)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get avg schema size: %s", err)
+	}
+	expectedChunks := (avgSchemaSize + chunkSize - 1) / chunkSize
+
 	var (
 		isEvenDistribution bool
 		step               int64
-		minVal             any			//to define lower range of the chunk
-		maxVal             any			//to define upper range of the chunk
+		minVal             any //to define lower range of the chunk
+		maxVal             any //to define upper range of the chunk
 		minFloat           float64
 		maxFloat           float64
 	)
@@ -198,15 +207,12 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		})
 	}
 
-	//used mathematical calculation to split the chunks for cases where the distribution factor is within the range
+	//used mathematical calculation to split the chunks for cases where the distribution factor is within the range when pk is numeric
 	splitEvenlyForInt := func(minf, maxf float64, chunks *types.Set[types.Chunk], step float64) {
-		if minf+step > maxf {
-			chunks.Insert(types.Chunk{
-				Min: nil,
-				Max: nil,
-			})
-			return
-		}
+		chunks.Insert(types.Chunk{
+			Min: nil,
+			Max: utils.ConvertToString(minf),
+		})
 		prev := minf
 		for next := minf + step; next <= maxf; next += step {
 			chunks.Insert(types.Chunk{
@@ -220,9 +226,49 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			Max: nil,
 		})
 	}
+
+	//used mathematical calculation to split the chunks for cases where the pk columns size is 1 and pk data type is string
+	splitEvenlyForString := func(minVal, maxVal any, expectedChunks int64) {
+		maxValBaseN, err1 := convertStringToIntBaseN(utils.ConvertToString(maxVal))
+		minValBaseN, err2 := convertStringToIntBaseN(utils.ConvertToString(minVal))
+		if err1 != nil || err2 != nil {
+			return
+		}
+		if expectedChunks <= 0 {
+			expectedChunks = 1
+		}
+		maxCopy := new(big.Int).Set(&maxValBaseN)
+		chunkdiff := maxValBaseN.Sub(maxCopy, &minValBaseN)
+		chunkdiff.Div(chunkdiff, big.NewInt(expectedChunks))
+		if chunkdiff.Cmp(big.NewInt(0)) == 0 {
+			chunks.Insert(types.Chunk{
+				Min: nil,
+				Max: nil,
+			})
+			return
+		}
+		prev := &minValBaseN
+		chunks.Insert(types.Chunk{
+			Min: nil,
+			Max: *convertIntBaseNtoString(prev),
+		})
+		for next := new(big.Int).Add(prev, chunkdiff); next.Cmp(&maxValBaseN) < 0; next.Add(next, chunkdiff) {
+			chunks.Insert(types.Chunk{
+				Min: *convertIntBaseNtoString(prev),
+				Max: *convertIntBaseNtoString(next),
+			})
+			prev = new(big.Int).Set(next)
+		}
+		chunks.Insert(types.Chunk{
+			Min: *convertIntBaseNtoString(prev),
+			Max: nil,
+		})
+	}
 	if len(pkColumns) == 1 && isEvenDistribution {
 		splitEvenlyForInt(minFloat, maxFloat, chunks, float64(step))
-	} else if len(pkColumns) > 0 {
+	} else if len(pkColumns) == 1 {
+		splitEvenlyForString(minVal, maxVal, expectedChunks)
+	} else if len(pkColumns) > 1 {
 		err = splitViaPrimaryKey(stream, chunks)
 	} else {
 		err = limitOffsetChunking(chunks)
@@ -251,4 +297,29 @@ func shouldUseEvenDistribution(minVal any, maxVal any, approxRowCount int64, chu
 	}
 	step := int64(math.Max(distributionFactor*float64(chunkSize), 1))
 	return true, step, minFloat, maxFloat
+}
+
+// convert a string to a baseN number
+func convertStringToIntBaseN(s string) (big.Int, error) {
+	base := big.NewInt(constants.UnicodeSize)
+	val := big.NewInt(0)
+
+	for _, ch := range []rune(s) {
+		val.Mul(val, base)
+		val.Add(val, big.NewInt(int64(ch)))
+	}
+	return *val, nil
+}
+
+// convert a baseN number to a string pointer
+func convertIntBaseNtoString(n *big.Int) *string {
+	ans := ""
+	base := big.NewInt(constants.UnicodeSize)
+	x := new(big.Int).Set(n)
+	for x.Cmp(big.NewInt(0)) > 0 {
+		rem := new(big.Int).Mod(x, base)
+		ans = string(rune(rem.Int64())) + ans
+		x.Div(x, base)
+	}
+	return &ans
 }

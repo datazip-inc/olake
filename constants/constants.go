@@ -38,6 +38,7 @@ const (
 	DistributionLower = 0.05
 	// DistributionUpper is the upper bound for distribution factor
 	DistributionUpper = 100.0
+	UnicodeSize       = 1114112
 )
 
 type DriverType string

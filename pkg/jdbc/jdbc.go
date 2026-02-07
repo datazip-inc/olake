@@ -512,6 +512,19 @@ func MySQLTableRowStatsQuery() string {
 	`
 }
 
+//MySQLTABLESizeQuery returns the query to fetch the size of a table in MySQL
+func MySQLTableSizeQuery() string {
+	return `
+		SELECT 
+			DATA_LENGTH + INDEX_LENGTH AS table_size
+		FROM 
+			INFORMATION_SCHEMA.TABLES
+		WHERE 
+			TABLE_SCHEMA = DATABASE()
+			AND TABLE_NAME = ?
+	`
+}
+
 // MySQLTableExistsQuery returns the query to check if a table has any rows using EXISTS
 func MySQLTableExistsQuery(stream types.StreamInterface) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
