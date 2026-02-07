@@ -176,7 +176,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "boolean":
 		v, err := typeutils.ReformatBool(val)
 		if err != nil {
-			return nil, fmt.Errorf("bool convert: %s", err)
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] as bool value: %s", val, err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: v},
@@ -185,7 +185,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "int":
 		v, err := typeutils.ReformatInt32(val)
 		if err != nil {
-			return nil, fmt.Errorf("int convert: %s", err)
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as int32 value: %s", val, val, err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_IntValue{IntValue: v},
@@ -194,7 +194,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "long":
 		v, err := typeutils.ReformatInt64(val)
 		if err != nil {
-			return nil, fmt.Errorf("long convert: %s", err)
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as long value: %s", val, val, err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: v},
@@ -203,7 +203,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "float":
 		v, err := typeutils.ReformatFloat32(val)
 		if err != nil {
-			return nil, fmt.Errorf("float convert: %s", err)
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float32 value: %s", val, val, err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_FloatValue{FloatValue: v},
@@ -212,7 +212,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "double":
 		v, err := typeutils.ReformatFloat64(val)
 		if err != nil {
-			return nil, fmt.Errorf("double convert: %s", err)
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as double value: %s", val, val, err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: v},
@@ -221,7 +221,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	case "timestamptz":
 		t, err := typeutils.ReformatDate(val, true)
 		if err != nil {
-			return nil, fmt.Errorf("timestamp convert: %s", err)
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as timestamp value: %s", val, val, err)
 		}
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: t.UnixMilli()},
