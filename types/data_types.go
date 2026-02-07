@@ -1,9 +1,8 @@
 package types
 
 import (
-	"time"
-
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/parquet-go/parquet-go"
 )
 
@@ -63,32 +62,28 @@ var RawSchema = map[string]DataType{
 type Record map[string]any
 
 type RawRecord struct {
-	Data           map[string]any `parquet:"data,json"`
-	OlakeID        string         `parquet:"_olake_id"`
-	OlakeTimestamp time.Time      `parquet:"_olake_timestamp"`
-	OperationType  string         `parquet:"_op_type"`       // "r" for read/backfill, "c" for create, "u" for update, "d" for delete
-	CdcTimestamp   *time.Time     `parquet:"_cdc_timestamp"` // pointer because it will only be available for cdc sync
+	Data         map[string]any `json:"data"`
+	OlakeColumns map[string]any `json:"olake_columns"`
 }
 
-func CreateRawRecord(olakeID string, data map[string]any, operationType string, cdcTimestamp *time.Time) RawRecord {
+func CreateRawRecord(data map[string]any, olakeColumns map[string]any) RawRecord {
 	return RawRecord{
-		OlakeID:       olakeID,
-		Data:          data,
-		OperationType: operationType,
-		CdcTimestamp:  cdcTimestamp,
+		Data:         data,
+		OlakeColumns: olakeColumns,
 	}
 }
 
-func GetParquetRawSchema() *parquet.Schema {
-	return parquet.NewSchema("RawRecord", parquet.Group{
-		"data":             parquet.JSON(),
-		"_olake_id":        parquet.String(),
-		"_olake_timestamp": parquet.Timestamp(parquet.Microsecond),
-		"_op_type":         parquet.String(),
-		"_cdc_timestamp":   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
-	})
+// returns raw schema in iceberg format
+func GetIcebergRawSchema() []*proto.IcebergPayload_SchemaField {
+	var icebergFields []*proto.IcebergPayload_SchemaField
+	for key, typ := range RawSchema {
+		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+			IceType: typ.ToIceberg(),
+			Key:     key,
+		})
+	}
+	return icebergFields
 }
-
 func (d DataType) ToNewParquet() parquet.Node {
 	var n parquet.Node
 
