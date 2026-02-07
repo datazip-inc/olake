@@ -1061,7 +1061,6 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 					minAllowed := time.Now().Add(-1 * time.Hour)
 					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
 				}
-
 			}
 		}
 		if !isCDC && icebergMap[constants.CdcTimestamp] != nil {
@@ -1070,7 +1069,6 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
 			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
 		}
-
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
@@ -1516,8 +1514,6 @@ func normalizeToTime(v interface{}) (time.Time, bool) {
 	case time.Time:
 		return ts, true
 	case arrow.Timestamp:
-		// Spark Connect can return Arrow-native timestamp values. In this codebase,
-		// Arrow timestamps are represented as microseconds since unix epoch.
 		return time.Unix(0, int64(ts)*int64(time.Microsecond)).UTC(), true
 	default:
 		return time.Time{}, false
