@@ -41,6 +41,9 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		HeartbeatPeriod: config.HeartbeatPeriod,
 		TLSConfig:       config.TLSConfig,
 	}
+	// For state versions > 1, use the connection's configured timezone.
+	// This ensures consistency between Full Refresh and CDC timestamps.
+	// Older versions maintain UTC/Local depending on context for backward compatibility.
 	if constants.LoadedStateVersion > 1 {
 		syncerConfig.TimestampStringLocation = config.TimestampStringLocation
 	}
