@@ -1,6 +1,9 @@
 package kafka
 
 import (
+	"net/http"
+	"sync"
+
 	"github.com/datazip-inc/olake/types"
 	"github.com/segmentio/kafka-go"
 )
@@ -33,4 +36,17 @@ type CustomGroupBalancer struct {
 	requiredConsumerIDs int
 	readerIndex         int
 	partitionIndex      map[string]types.PartitionMetaData
+}
+
+// SchemaRegistryClient holds the schema registry client information
+type SchemaRegistryClient struct {
+	Endpoint string `json:"endpoint"`
+
+	// Authentication
+	Username    string `json:"username,omitempty"`
+	Password    string `json:"password,omitempty"`
+	BearerToken string `json:"bearer_token,omitempty"`
+
+	httpClient *http.Client
+	schemaMap  sync.Map // map[uint32]*RegisteredSchema (key -> schemaID)
 }
