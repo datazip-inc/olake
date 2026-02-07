@@ -27,6 +27,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
 		Tables:              types.NewSet(streams...),
 		Publication:         p.cdcConfig.Publication,
+		WorkerCount:         p.cdcConfig.WALWorkerCount,
 	}, nil
 }
 
@@ -44,6 +45,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	if globalState == nil || globalState.State == nil {
 		p.state.SetGlobal(waljs.WALState{LSN: slot.CurrentLSN.String()})
 		p.state.ResetStreams()
+		p.streams = streams
 		return waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String())
 	}
 	p.streams = streams
@@ -126,16 +128,16 @@ func validateGlobalState(globalState *types.GlobalState, confirmedFlushLSN pglog
 	}
 	if postgresGlobalState.LSN == "" {
 		return fmt.Errorf("%w: lsn is empty, please proceed with clear destination", constants.ErrNonRetryable)
-	} else {
-		parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
-		if err != nil {
-			return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
-		}
-		// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
-		// suggesting to proceed with clear destination
-		if parsed != confirmedFlushLSN {
-			return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, confirmedFlushLSN)
-		}
+	}
+
+	parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
+	if err != nil {
+		return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
+	}
+	// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
+	// suggesting to proceed with clear destination
+	if parsed != confirmedFlushLSN {
+		return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, confirmedFlushLSN)
 	}
 	return nil
 }
