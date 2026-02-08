@@ -30,7 +30,8 @@ type CDC struct {
 	// initial wait time must be in range [120,2400), default value 1200
 	InitialWaitTime int `json:"initial_wait_time"`
 	// Publications used when OutputPlugin is pgoutput
-	Publication string `json:"publication"`
+	Publication string            `json:"publication"`
+	PluginArgs  map[string]string `json:"plugin_args,omitempty"`
 }
 
 func (c *Config) Validate() error {
