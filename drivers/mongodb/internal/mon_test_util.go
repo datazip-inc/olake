@@ -261,3 +261,8 @@ var UpdatedMongoToDestinationSchema = map[string]string{
 	"id_maxkey":         "string",
 	"name_varchar":      "string",
 }
+
+var ExpectedMongoDbDefaultCDCColumnsSchema = map[string]string{
+	"_cdc_resume_token": "string",
+	"_cdc_timestamp":    "timestamp",
+}
