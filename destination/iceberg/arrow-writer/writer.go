@@ -150,9 +150,9 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 }
 
 // extract partitions records and tracks deletes for upsert mode.
-func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord, olakeTimestamp time.Time) error {
+func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) error {
 	for _, rec := range records {
-		pKey, values, err := w.getRecordPartition(rec, olakeTimestamp)
+		pKey, values, err := w.getRecordPartition(rec, rec.OlakeColumns[constants.OlakeTimestamp].(time.Time))
 		if err != nil {
 			return err
 		}
@@ -163,27 +163,28 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord, ol
 		}
 
 		writer.data = append(writer.data, rec)
-
+		recordOpType := rec.OlakeColumns[constants.OpType].(string)
+		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
 		// Track deletes for upsert operations (d, u, c all need delete handling)
-		if w.upsertMode && (rec.OperationType == "d" || rec.OperationType == "u" || rec.OperationType == "c") {
+		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "c") {
 			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
-			if _, exists := writer.olakeIDPosition[rec.OlakeID]; !exists {
+			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
 				// first time, add to equality deletes and track position
-				writer.equalityDeletes = append(writer.equalityDeletes, rec.OlakeID)
-				writer.olakeIDPosition[rec.OlakeID] = PositionalDelete{
+				writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
+				writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
 					FilePath: writer.dataWriter.filePath,
 					Position: filePosition,
 				}
 			} else {
 				// duplicates, add prev position to positional deletes (n-1 logic)
 				// the latest (nth) occurrence is kept in the map but not added to deletes
-				prev := writer.olakeIDPosition[rec.OlakeID]
+				prev := writer.olakeIDPosition[recordOlakeID]
 				writer.positionalDeletes = append(writer.positionalDeletes, PositionalDelete{
 					FilePath: prev.FilePath,
 					Position: prev.Position,
 				})
-				writer.olakeIDPosition[rec.OlakeID] = PositionalDelete{
+				writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
 					FilePath: writer.dataWriter.filePath,
 					Position: filePosition,
 				}
@@ -195,10 +196,9 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord, ol
 }
 
 func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) error {
-	olakeTimestamp := time.Now().UTC() // for olake timestamp, set current timestamp
 	var err error
 
-	if err := w.extract(ctx, records, olakeTimestamp); err != nil {
+	if err := w.extract(ctx, records); err != nil {
 		return fmt.Errorf("failed to partition data: %s", err)
 	}
 
@@ -237,7 +237,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 			}
 		}
 
-		record, err := createArrowRecord(writer.data, w.allocator, w.arrowSchema[fileTypeData], w.stream.NormalizationEnabled(), olakeTimestamp)
+		record, err := createArrowRecord(writer.data, w.allocator, w.arrowSchema[fileTypeData], w.stream.NormalizationEnabled())
 		if err != nil {
 			return fmt.Errorf("failed to create arrow record: %s", err)
 		}

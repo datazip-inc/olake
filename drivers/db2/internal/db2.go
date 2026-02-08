@@ -154,7 +154,7 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 				logger.Debugf("unsupported DB2 type '%s' for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				datatype = types.String
 			}
-			stream.UpsertField(columnName, datatype, isNullable == "Y")
+			stream.UpsertField(columnName, datatype, isNullable == "Y", false)
 
 			if pkColumn != nil {
 				stream.WithPrimaryKey(columnName)

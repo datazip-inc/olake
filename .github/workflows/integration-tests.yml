@@ -18,6 +18,7 @@ env:
 
 jobs:
   integration-tests:
+    environment: integration_tests
     runs-on: 32gb-runner
     timeout-minutes: 30
     steps:

@@ -13,10 +13,11 @@ import (
 )
 
 type CDCChange struct {
-	Stream    types.StreamInterface
-	Timestamp time.Time
-	Kind      string
-	Data      map[string]any
+	Stream       types.StreamInterface
+	Timestamp    time.Time
+	Kind         string
+	Data         map[string]any
+	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
@@ -92,7 +93,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			if column == constants.CdcTimestamp && !a.supportsCdcColumn() {
 				continue
 			}
-			convStream.UpsertField(column, typ, true)
+			convStream.UpsertField(column, typ, true, true)
 		}
 
 		// priority to default sync mode (cdc -> incremental -> strict_cdc)

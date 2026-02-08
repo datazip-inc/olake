@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/datazip-inc/olake/constants"
@@ -41,6 +42,7 @@ type IntegrationTest struct {
 	ExpectedUpdatedData              map[string]interface{}
 	DestinationDataTypeSchema        map[string]string
 	UpdatedDestinationDataTypeSchema map[string]string
+	DefaultCDCColumnsSchema          map[string]string
 	Namespace                        string
 	ExecuteQuery                     func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
 	DestinationDB                    string
@@ -364,6 +366,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	operation string,
 	opSymbol string,
 	schema map[string]interface{},
+	isCDC bool,
 ) error {
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
@@ -389,17 +392,17 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
 			} else {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
 			}
 		}
 	case "parquet":
 		{
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
 			} else {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
 			}
 		}
 	}
@@ -488,6 +491,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				tc.name != "Full-Refresh",
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -572,6 +576,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				tc.name != "Full-Refresh",
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -659,6 +664,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				false,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -746,6 +752,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				false,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -972,7 +979,7 @@ func dropIcebergTable(t *testing.T, tableName, icebergDB string) {
 
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -1043,6 +1050,25 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
 			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
 		}
+		if isCDC {
+			for key := range defaultCDCColumnsSchema {
+				icebergValue, ok := icebergMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
+				require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				if key == constants.CdcTimestamp {
+					ts, ok := normalizeToTime(icebergValue)
+					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, icebergValue, icebergValue)
+					minAllowed := time.Now().Add(-1 * time.Hour)
+					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
+				}
+			}
+		}
+		if !isCDC && icebergMap[constants.CdcTimestamp] != nil {
+			ts, ok := normalizeToTime(icebergMap[constants.CdcTimestamp])
+			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, icebergMap[constants.CdcTimestamp])
+			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
+			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
+		}
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
@@ -1073,6 +1099,17 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
+	// Verify datatypes for CDC/default columns as well
+	if isCDC {
+		for col, expectedIceType := range defaultCDCColumnsSchema {
+			iceType, found := icebergSchema[col]
+			require.True(t, found, "CDC column %s not found in Iceberg schema", col)
+
+			require.Equal(t, expectedIceType, iceType,
+				"CDC data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
+		}
+		t.Logf("Verified datatypes for CDC columns in Iceberg after sync")
+	}
 
 	// Partition verification using only metadata tables
 	if partitionRegex == "" {
@@ -1094,7 +1131,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
-func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -1177,7 +1214,27 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			require.Equal(t, expected, val,
 				"Row %d: mismatch on %q: Parquet has %#v, expected %#v", rowIdx, key, val, expected)
 		}
+		if isCDC {
+			for key := range defaultCDCColumnsSchema {
+				val, ok := parquetMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
+				require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				if key == constants.CdcTimestamp {
+					ts, ok := normalizeToTime(val)
+					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
+					minAllowed := time.Now().Add(-1 * time.Hour)
+					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
+				}
+			}
+		}
+		if !isCDC && parquetMap[constants.CdcTimestamp] != nil {
+			ts, ok := normalizeToTime(parquetMap[constants.CdcTimestamp])
+			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, parquetMap[constants.CdcTimestamp])
+			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
+			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
+		}
 	}
+
 	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
 
 	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", viewName)
@@ -1208,6 +1265,16 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
 	}
 	t.Logf("Verified datatypes in Parquet after sync")
+	// Verify datatypes for CDC/default columns as well
+	if isCDC {
+		for col, expectedPqType := range defaultCDCColumnsSchema {
+			pqType, found := parquetSchema[col]
+			require.True(t, found, "CDC column %s not found in Parquet schema", col)
+			require.Equal(t, expectedPqType, pqType,
+				"CDC data type mismatch for column %s: expected %s, got %s", col, expectedPqType, pqType)
+		}
+	}
+	t.Logf("Verified datatypes for CDC columns in Parquet after sync")
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
@@ -1447,4 +1514,15 @@ func extractFirstPartitionColFromRows(rows []types.Row) string {
 	}
 
 	return ""
+}
+
+func normalizeToTime(v interface{}) (time.Time, bool) {
+	switch ts := v.(type) {
+	case time.Time:
+		return ts, true
+	case arrow.Timestamp:
+		return time.Unix(0, int64(ts)*int64(time.Microsecond)).UTC(), true
+	default:
+		return time.Time{}, false
+	}
 }
