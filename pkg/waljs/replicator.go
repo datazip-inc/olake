@@ -19,6 +19,7 @@ import (
 
 const (
 	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn, pg_current_wal_lsn() as current_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
+	CDCLSN               = "_cdc_lsn" // Postgres LSN
 )
 
 // Socket represents a connection to PostgreSQL's logical replication stream

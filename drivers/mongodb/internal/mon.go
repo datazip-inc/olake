@@ -237,6 +237,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	if m.CDCSupported() {
+		stream.UpsertField(CDCResumeToken, types.String, true, true)
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 

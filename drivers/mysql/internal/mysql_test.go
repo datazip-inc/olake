@@ -16,6 +16,7 @@ func TestMySQLIntegration(t *testing.T) {
 		ExpectedUpdatedData:              ExpectedUpdatedData,
 		DestinationDataTypeSchema:        MySQLToDestinationSchema,
 		UpdatedDestinationDataTypeSchema: EvolvedMySQLToDestinationSchema,
+		DefaultCDCColumnsSchema:          ExpectedMySQLDefaultCDCColumnsSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "mysql_olake_mysql_test",
 		CursorField:                      "id_cursor:id_smallint",
