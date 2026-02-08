@@ -37,6 +37,8 @@ type Socket struct {
 	ReplicationSlot string
 	// initialWaitTime is the duration to wait for first wal log catchup before timing out
 	initialWaitTime time.Duration
+	// pluginArgs allows passing custom plugin arguments to logical replication
+	PluginArgs map[string]string
 }
 
 // Replicator defines an abstraction over different logical decoding plugins.
@@ -111,6 +113,7 @@ func NewReplicator(ctx context.Context, db *sqlx.DB, config *Config, typeConvert
 		CurrentWalPosition: slot.CurrentLSN,
 		ReplicationSlot:    config.ReplicationSlotName,
 		initialWaitTime:    config.InitialWaitTime,
+		PluginArgs:         config.PluginArgs,
 	}
 
 	plugin := strings.ToLower(strings.TrimSpace(slot.Plugin))

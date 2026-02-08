@@ -159,7 +159,23 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 			continue
 		}
 
-		// Convert according to OID to string
+		// Try pgtype decoding for high-impact types
+		switch colType {
+		case pgtype.JSONOID, pgtype.JSONBOID:
+			var jsonVal pgtype.JSONB
+			if err := jsonVal.DecodeText(nil, col.Data); err == nil {
+				data[colName] = jsonVal
+				continue
+			}
+		case pgtype.UUIDOID:
+			var uuidVal pgtype.UUID
+			if err := uuidVal.DecodeText(nil, col.Data); err == nil {
+				data[colName] = uuidVal
+				continue
+			}
+		}
+
+		// Fallback to existing logic
 		typeName := oidToString(colType)
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {

@@ -46,13 +46,21 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 	for key := range w.socket.changeFilter.tables {
 		tables = append(tables, key)
 	}
-	pluginArguments = append(pluginArguments, fmt.Sprintf("\"add-tables\" '%s'", strings.Join(tables, ",")))
+	var pluginArgs []string
+	// Add custom plugin args if present
+	if w.socket != nil && w.socket.PluginArgs != nil {
+		for k, v := range w.socket.PluginArgs {
+			pluginArgs = append(pluginArgs, fmt.Sprintf("\"%s\" '%s'", k, v))
+		}
+	}
+	// Always add tables
+	pluginArgs = append(pluginArgs, fmt.Sprintf("\"add-tables\" '%s'", strings.Join(tables, ",")))
 	if err := pglogrepl.StartReplication(
 		ctx,
 		w.socket.pgConn,
 		w.socket.ReplicationSlot,
 		w.socket.ConfirmedFlushLSN,
-		pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments},
+		pglogrepl.StartReplicationOptions{PluginArgs: pluginArgs},
 	); err != nil {
 		return fmt.Errorf("starting replication slot failed: %s", err)
 	}
