@@ -97,10 +97,13 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			// No retry logic here - retry happens at Read level
 			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
 				maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
-				olakeID := utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
+				olakeColumns := map[string]any{
+					constants.OlakeID:        utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...),
+					constants.OpType:         "u",
+					constants.OlakeTimestamp: time.Now().UTC(),
+				}
 				filteredData := filterDataBySelectedColumnsFn(record)
-
-				return inserter.Push(ctx, types.CreateRawRecord(olakeID, filteredData, "u", nil))
+				return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
 			})
 		})
 		return nil
