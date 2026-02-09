@@ -229,7 +229,9 @@ func ComputeMandatoryColumns(oldStream, newStream *Stream) []string {
 	isCDC := oldStream.SyncMode == CDC || oldStream.SyncMode == STRICTCDC
 
 	// add cdc timestamp and driver-specific CDC columns if in CDC mode
-	if isCDC && newStream.Schema != nil {
+	if isCDC {
+		mandatoryColumnsSet.Insert(constants.CdcTimestamp)
+
 		newStream.Schema.Properties.Range(func(key, value interface{}) bool {
 			colName, isColNameString := key.(string)
 			if !isColNameString {
