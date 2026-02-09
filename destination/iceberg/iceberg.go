@@ -3,6 +3,7 @@ package iceberg
 import (
 	"context"
 	"fmt"
+	"maps"
 	"regexp"
 	"runtime"
 	"strings"
@@ -101,7 +102,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
 		var requestPayload proto.IcebergPayload
-		iceSchema := utils.Ternary(stream.NormalizationEnabled(), stream.Schema().ToIceberg(), icebergRawSchema()).([]*proto.IcebergPayload_SchemaField)
+		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled())
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
@@ -204,7 +205,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      server.serverID,
 			DestTableName: destinationDB,
-			Schema:        icebergRawSchema(),
+			Schema:        types.GetIcebergRawSchema(),
 		},
 	}
 
@@ -218,8 +219,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
-	protoSchema := icebergRawSchema()
-	record := types.CreateRawRecord(destinationDB, map[string]any{"name": "olake"}, "r", &currentTime)
+	protoSchema := types.GetIcebergRawSchema()
+	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime})
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
 		return fmt.Errorf("failed to create raw data column buffer: %s", err)
@@ -307,20 +308,12 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		// parallel flatten data and detect schema difference
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-			// set pre configured fields
-			records[idx].Data[constants.OlakeID] = record.OlakeID
-			records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
-			records[idx].Data[constants.OpType] = record.OperationType
-			if record.CdcTimestamp != nil {
-				records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
-			}
-
-			flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+			flattenRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}
-			records[idx].Data = flattenedRecord
-
+			records[idx].Data = flattenRecord
+			maps.Copy(records[idx].Data, record.OlakeColumns)
 			// if schema difference is not detected, detect schema difference
 			if !diffThreadSchema.Load() {
 				// when detectChange is true, the function does not modify schema parameter
@@ -368,7 +361,6 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	if !i.stream.NormalizationEnabled() {
 		return i.schema, nil
 	}
-
 	// cases as local thread schema has detected changes w.r.t. batch records schema
 	//  	i.  iceberg table already have changes (i.e. no difference with global schema), in this case
 	//		    only refresh table in iceberg for this thread.
@@ -580,18 +572,6 @@ func parseSchema(schemaStr string) (map[string]string, error) {
 		fields[name] = types[1]
 	}
 	return fields, nil
-}
-
-// returns raw schema in iceberg format
-func icebergRawSchema() []*proto.IcebergPayload_SchemaField {
-	var icebergFields []*proto.IcebergPayload_SchemaField
-	for key, typ := range types.RawSchema {
-		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
-			IceType: typ.ToIceberg(),
-			Key:     key,
-		})
-	}
-	return icebergFields
 }
 
 func getCommonAncestorType(d1, d2 string) string {

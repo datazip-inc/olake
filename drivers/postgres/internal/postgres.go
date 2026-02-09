@@ -219,7 +219,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 				datatype = types.String
 			}
 
-			stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable))
+			stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable), false)
 		}
 
 		// add primary keys for stream
@@ -229,6 +229,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 
 		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 		if p.CDCSupported() {
+			stream.UpsertField(waljs.CDCLSN, types.String, true, true)
 			stream.WithSyncMode(types.CDC, types.STRICTCDC)
 		}
 

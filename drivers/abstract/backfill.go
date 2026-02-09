@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -123,14 +124,17 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
-			// persist cdc timestamp for cdc full load
-			var cdcTimestamp *time.Time
-			if stream.GetSyncMode() == types.CDC {
-				t := time.Unix(0, 0)
-				cdcTimestamp = &t
+			olakeColumns := map[string]any{
+				constants.OlakeID:        olakeID,
+				constants.OpType:         "r",
+				constants.OlakeTimestamp: time.Now().UTC(),
 			}
 
-			return inserter.Push(ctx, types.CreateRawRecord(olakeID, data, "r", cdcTimestamp))
+			// Add CDC specific columns only for CDC mode
+			if stream.GetSyncMode() == types.CDC {
+				olakeColumns[constants.CdcTimestamp] = time.Unix(0, 0)
+			}
+			return inserter.Push(ctx, types.CreateRawRecord(data, olakeColumns))
 		})
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunksToProcess, a.driver.MaxRetries(), chunkProcessor)

@@ -13,6 +13,12 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 )
 
+const (
+	CDCBinlogFileName = "_cdc_binlog_file_name" // MySQL binlog file name
+	CDCBinlogFilePos  = "_cdc_binlog_file_pos"  // MySQL binlog file position
+
+)
+
 // ChangeFilter filters binlog events based on the specified streams.
 type ChangeFilter struct {
 	streams       map[string]types.StreamInterface // Keyed by "schema.table"
@@ -147,7 +153,7 @@ func mysqlTypeName(t byte) string {
 		return "DOUBLE"
 	case mysql.MYSQL_TYPE_NULL:
 		return "NULL"
-	case mysql.MYSQL_TYPE_TIMESTAMP:
+	case mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_TIMESTAMP2:
 		return "TIMESTAMP"
 	case mysql.MYSQL_TYPE_LONGLONG:
 		return "BIGINT"
@@ -155,7 +161,7 @@ func mysqlTypeName(t byte) string {
 		return "MEDIUMINT"
 	case mysql.MYSQL_TYPE_DATE:
 		return "DATE"
-	case mysql.MYSQL_TYPE_TIME:
+	case mysql.MYSQL_TYPE_TIME, mysql.MYSQL_TYPE_TIME2:
 		return "TIME"
 	case mysql.MYSQL_TYPE_DATETIME, mysql.MYSQL_TYPE_DATETIME2:
 		return "DATETIME"
