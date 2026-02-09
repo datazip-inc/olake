@@ -1,6 +1,8 @@
 package types
 
 import (
+	"strings"
+
 	"github.com/datazip-inc/olake/constants"
 )
 
@@ -216,7 +218,8 @@ func MergeSelectedColumns(
 // 1. System generated fields (OlakeID, OlakeTimestamp, OpType)
 // 2. Cursor fields (if incremental sync)
 // 3. CDC Timestamp (if CDC sync mode)
-// 4. Source defined primary key columns
+// 4. Driver specific CDC columns (if CDC sync mode)
+// 5. Source defined primary key columns
 func ComputeMandatoryColumns(oldStream, newStream *Stream) []string {
 	mandatoryColumnsSet := NewSet[string]()
 
@@ -224,9 +227,30 @@ func ComputeMandatoryColumns(oldStream, newStream *Stream) []string {
 	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType, constants.CdcTimestamp}
 	mandatoryColumnsSet.Insert(systemFields...)
 
+	isCDC := oldStream.SyncMode == CDC || oldStream.SyncMode == STRICTCDC
+
 	// Remove CDC Timestamp if not CDC sync mode
-	if oldStream.SyncMode != CDC && oldStream.SyncMode != STRICTCDC {
+	if !isCDC {
 		mandatoryColumnsSet.Remove(constants.CdcTimestamp)
+	}
+
+	// Add driver-specific CDC columns if in CDC mode
+	if isCDC && newStream.Schema != nil {
+		newStream.Schema.Properties.Range(func(key, value interface{}) bool {
+			colName, isColNameString := key.(string)
+			if !isColNameString {
+				return true
+			}
+			prop, isPropTypeProperty := value.(*Property)
+			if !isPropTypeProperty {
+				return true
+			}
+			// Add olake columns that start with _cdc_ but exclude _cdc_timestamp (already handled above)
+			if prop.OlakeColumn && strings.HasPrefix(colName, "_cdc_") && colName != constants.CdcTimestamp {
+				mandatoryColumnsSet.Insert(colName)
+			}
+			return true
+		})
 	}
 
 	// Add cursor fields for incremental sync
