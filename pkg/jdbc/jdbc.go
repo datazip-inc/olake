@@ -512,7 +512,7 @@ func MySQLTableRowStatsQuery() string {
 	`
 }
 
-//MySQLTABLESizeQuery returns the query to fetch the size of a table in MySQL
+// MySQLTABLESizeQuery returns the query to fetch the size of a table in MySQL
 func MySQLTableSizeQuery() string {
 	return `
 		SELECT 

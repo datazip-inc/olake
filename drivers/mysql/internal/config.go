@@ -63,7 +63,7 @@ func (c *Config) URI() (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("failed to build TLS config: %s", err)
 			}
-			
+
 			tlsConfigName := "mysql_" + utils.ULID()
 			if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
 				return "", fmt.Errorf("failed to register TLS config: %s", err)
