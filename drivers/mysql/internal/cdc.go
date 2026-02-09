@@ -39,18 +39,19 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, erro
 	}
 
 	config := &binlog.Config{
-		ServerID:        mySQLGlobalState.ServerID,
-		Flavor:          "mysql",
-		Host:            m.config.Host,
-		Port:            uint16(m.config.Port),
-		User:            m.config.Username,
-		Password:        m.config.Password,
-		Charset:         "utf8mb4",
-		VerifyChecksum:  true,
-		HeartbeatPeriod: 30 * time.Second,
-		InitialWaitTime: time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
-		SSHClient:       m.sshClient,
-		TLSConfig:       tlsConfig,
+		ServerID:                mySQLGlobalState.ServerID,
+		Flavor:                  "mysql",
+		Host:                    m.config.Host,
+		Port:                    uint16(m.config.Port),
+		User:                    m.config.Username,
+		Password:                m.config.Password,
+		Charset:                 "utf8mb4",
+		TimestampStringLocation: m.effectiveTZ,
+		VerifyChecksum:          true,
+		HeartbeatPeriod:         30 * time.Second,
+		InitialWaitTime:         time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
+		SSHClient:               m.sshClient,
+		TLSConfig:               tlsConfig,
 	}
 
 	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, m.streams, m.dataTypeConverter)
