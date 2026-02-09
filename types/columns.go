@@ -217,24 +217,18 @@ func MergeSelectedColumns(
 // ComputeMandatoryColumns computes the mandatory columns for a stream based on:
 // 1. System generated fields (OlakeID, OlakeTimestamp, OpType)
 // 2. Cursor fields (if incremental sync)
-// 3. CDC Timestamp (if CDC sync mode)
-// 4. Driver specific CDC columns (if CDC sync mode)
-// 5. Source defined primary key columns
+// 3. Driver specific CDC columns (if CDC sync mode) and CDC Timestamp
+// 4. Source defined primary key columns
 func ComputeMandatoryColumns(oldStream, newStream *Stream) []string {
 	mandatoryColumnsSet := NewSet[string]()
 
 	// Add system generated fields
-	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType, constants.CdcTimestamp}
+	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
 	mandatoryColumnsSet.Insert(systemFields...)
 
 	isCDC := oldStream.SyncMode == CDC || oldStream.SyncMode == STRICTCDC
 
-	// Remove CDC Timestamp if not CDC sync mode
-	if !isCDC {
-		mandatoryColumnsSet.Remove(constants.CdcTimestamp)
-	}
-
-	// Add driver-specific CDC columns if in CDC mode
+	// add cdc timestamp and driver-specific CDC columns if in CDC mode
 	if isCDC && newStream.Schema != nil {
 		newStream.Schema.Properties.Range(func(key, value interface{}) bool {
 			colName, isColNameString := key.(string)
@@ -245,8 +239,8 @@ func ComputeMandatoryColumns(oldStream, newStream *Stream) []string {
 			if !isPropTypeProperty {
 				return true
 			}
-			// Add olake columns that start with _cdc_ but exclude _cdc_timestamp (already handled above)
-			if prop.OlakeColumn && strings.HasPrefix(colName, "_cdc_") && colName != constants.CdcTimestamp {
+			// add olake columns that start with _cdc_
+			if prop.OlakeColumn && strings.HasPrefix(colName, "_cdc_") {
 				mandatoryColumnsSet.Insert(colName)
 			}
 			return true
