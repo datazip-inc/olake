@@ -429,9 +429,6 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	if condition == "" {
-		condition = utils.Ternary(extraFilter != "", extraFilter, "1 = 1").(string)
-	}
 	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
 }
 
@@ -505,23 +502,11 @@ func MySQLPrimaryKeyQuery() string {
 func MySQLTableRowStatsQuery() string {
 	return `
 		SELECT TABLE_ROWS,
-		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes
+		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes,
+		DATA_LENGTH
 		FROM INFORMATION_SCHEMA.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?
-	`
-}
-
-// MySQLTABLESizeQuery returns the query to fetch the size of a table in MySQL
-func MySQLTableSizeQuery() string {
-	return `
-		SELECT 
-			DATA_LENGTH + INDEX_LENGTH AS table_size
-		FROM 
-			INFORMATION_SCHEMA.TABLES
-		WHERE 
-			TABLE_SCHEMA = DATABASE()
-			AND TABLE_NAME = ?
 	`
 }
 
