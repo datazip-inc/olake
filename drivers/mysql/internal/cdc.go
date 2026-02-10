@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -27,18 +28,30 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, erro
 		return nil, fmt.Errorf("invalid global state; server_id is missing")
 	}
 
+	// Build TLS config if SSL is configured
+	var tlsConfig *tls.Config
+	if m.config.SSLConfiguration != nil && m.config.SSLConfiguration.Mode != utils.SSLModeDisable {
+		var err error
+		tlsConfig, err = m.config.buildTLSConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to build TLS config for binlog: %s", err)
+		}
+	}
+
 	config := &binlog.Config{
-		ServerID:        mySQLGlobalState.ServerID,
-		Flavor:          "mysql",
-		Host:            m.config.Host,
-		Port:            uint16(m.config.Port),
-		User:            m.config.Username,
-		Password:        m.config.Password,
-		Charset:         "utf8mb4",
-		VerifyChecksum:  true,
-		HeartbeatPeriod: 30 * time.Second,
-		InitialWaitTime: time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
-		SSHClient:       m.sshClient,
+		ServerID:                mySQLGlobalState.ServerID,
+		Flavor:                  "mysql",
+		Host:                    m.config.Host,
+		Port:                    uint16(m.config.Port),
+		User:                    m.config.Username,
+		Password:                m.config.Password,
+		Charset:                 "utf8mb4",
+		TimestampStringLocation: m.effectiveTZ,
+		VerifyChecksum:          true,
+		HeartbeatPeriod:         30 * time.Second,
+		InitialWaitTime:         time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
+		SSHClient:               m.sshClient,
+		TLSConfig:               tlsConfig,
 	}
 
 	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, m.streams, m.dataTypeConverter)

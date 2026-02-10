@@ -5,7 +5,19 @@
     <br>OLake
 </h1>
 
-<p align="center">The fastest open-source tool for replicating databases to Apache Iceberg. OLake, an easy-to-use web interface and a CLI for efficient, scalable, & real-time data ingestion. Visit <a href="https://olake.io/docs" target="_blank">olake.io/docs</a> for the full documentation, and benchmarks</p>
+<p align="center">
+  <strong>OLake</strong> is a high-performance, open-source data ingestion engine for replicating databases, S3, and Kafka into
+  <strong>Apache Iceberg</strong> (or plain Parquet).
+  <br/>
+  Built for scalable, real-time pipelines, OLake provides a simple web UI and CLI - used to ingest into vendor-lock-in free Iceberg tables supporting all the query-engines/warehouses.
+  <br/><br/>
+  Read the docs and benchmarks at
+  <a href="https://olake.io/docs" target="_blank">olake.io/docs</a>.
+  Join our active community on
+  <a href="https://olake.io/slack/" target="_blank">Slack</a>.
+</p>
+
+
 
 <p align="center">
     <a href="https://github.com/datazip-inc/olake/issues">
@@ -17,17 +29,14 @@
     <a href="https://olake.io/slack/">
     <img alt="slack" src="https://img.shields.io/badge/Join%20Our%20Community-Slack-blue"/>
     </a>
-    <a href="https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md">
+    <a href="https://olake.io/docs/community/contributing/">
         <img alt="Contribute to OLake" src="https://img.shields.io/badge/Contribute-OLake-2563eb"/>
-    </a>
-     <a href="https://hacktoberfest.com/">
-        <img alt="Hacktoberfest 2025" src="https://img.shields.io/badge/Hacktoberfest-2025%20🎃-orange"/>
     </a>
 </p>
 
 ## OLake — Super-fast Sync to Apache Iceberg
 
-> **OLake** is an open-source connector for replicating data from transactional databases like **PostgreSQL, MySQL, MongoDB, Oracle & Kafka** to open data lakehouse formats like **Apache Iceberg** — at blazing speeds and minimal infrastructure cost.
+**OLake** supports replication from **transactional databases** such as **PostgreSQL, MySQL, MongoDB, Oracle, DB2, and MSSQL**, **event-streaming systems like Apache Kafka** and **Object-store like S3**, into open data lakehouse formats such as **Apache Iceberg** or **Plain Parquet** — delivering blazing-fast performance with minimal infrastructure cost.
 
 <h1 align="center" style="border-bottom: none">
     <a href="https://datazip.io/olake" target="_blank">
@@ -40,11 +49,13 @@
 
 ### 🚀 Why OLake?
 
-- 🧠 **Smart sync**: Full + CDC replication with automatic schema discovery  
-- ⚡ **High throughput**: 319K RPS (Postgres) & 338K RPS (MySQL)
+- 🧠 **Smart sync**: Full + CDC replication with automatic schema discovery & schema evolution 
+- ⚡ **High throughput**: 580K RPS (Postgres) & 338K RPS (MySQL)
+- ➡️ **Exactly once delivery & Arrow writes**: Accuracy with speed.
 - 💾 **Iceberg-native**: Supports Glue, Hive, JDBC, REST catalogs  
 - 🖥️ **Self-serve UI**: Deploy via Docker Compose and sync in minutes  
 - 💸 **Infra-light**: No Spark, no Flink, no Kafka, no Debezium
+- 🗜️ **Iceberg Table Optimization (Coming soon)**: Compaction tailored for CDC ingestion
 
 ---
 
@@ -54,20 +65,20 @@
 
 | Source → Destination | Full Load       | Relative Performance (Full Load)    | Full Report                                                  |
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
-| Postgres → Iceberg   | 3,19,562 RPS    | 6.8× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| Postgres → Iceberg   | 5,80,113 RPS    | 12.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
 | MySQL → Iceberg      | 3,38,005 RPS    | 2.83× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
-| Oracle → Iceberg     | 2,61,793 RPS    | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
+| MongoDB → Iceberg    | 37,879 RPS              | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| Oracle → Iceberg     | 5,26,337 RPS  | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
+| Kafka → Iceberg      | 1,54,320 RPS (Bounded Incremental) | 1.8x faster than Flink                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
 
 #### CDC
 
 | Source → Destination | CDC             | Relative Performance (CDC)          | Full Report                                                  |
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
-| Postgres → Iceberg   | 41,390 RPS      | 1.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| Postgres → Iceberg   | 55,555 RPS      | 2× faster than Fivetran              | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
 | MySQL → Iceberg      | 51,867 RPS      | 1.85× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| MongoDB → Iceberg    | 10,692 RPS      | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
-
 
 
 
@@ -78,7 +89,7 @@
 ### 🔧 Supported Sources and Destinations
 
 
-#### Sources
+#### Sources (Databases and S3)
 
 
 | Source        | Full Load    |  CDC          | Incremental       | Notes                       | Documentation               |
@@ -87,7 +98,16 @@
 | MySQL         | ✅           | ✅            | ✅                | Binlog-based CDC            | [MySQL Docs](https://olake.io/docs/connectors/mysql/overview) |
 | MongoDB       | ✅           | ✅            | ✅                | Oplog-based CDC             |[MongoDB Docs](https://olake.io/docs/connectors/mongodb/overview) |
 | Oracle        | ✅           | WIP  | ✅                |  JDBC based Full Load & Incremental                |  [Oracle Docs](https://olake.io/docs/connectors/oracle/overview) |
-| Kafka        | ✅ | -  | ✅                | Consumer Group Based Incremental (Append Only)  |  [Kafka Docs](https://olake.io/docs/connectors/kafka)  |
+| DB2          | ✅           | -    | ✅                | JDBC based Full Load & Incremental                 | [DB2 Docs](https://olake.io/docs/connectors/db2/) |
+| MSSQL        | ✅           | ✅   | ✅                | Full Load, CDC & Incremental                        | [MSSQL Docs](https://olake.io/docs/connectors/mssql/) |
+| S3           | ✅           | -    | ✅                | Ingests from Amazon S3 or S3-compatible (MinIO, LocalStack) | [S3 Docs](https://olake.io/docs/connectors/s3/) |
+
+#### Sources (Kafka)
+
+
+| Source | Bounded Incremental | Notes                             | Documentation |
+|--------|--------------------|-----------------------------------|---------------|
+| Kafka  | ✅                 | Latest offset bounded incremental sync | [Kafka Docs](https://olake.io/docs/connectors/kafka) |
 
 
 #### Destinations
@@ -190,6 +210,8 @@ To upgrade from legacy `docker-compose.yml` that was used before **Jan 30th 2026
 2. [OLake + Apache Iceberg + AWS Glue + Trino](https://olake.io/iceberg/olake-iceberg-trino)
 3. [OLake + Apache Iceberg + AWS Glue + Athena](https://olake.io/iceberg/olake-iceberg-athena)
 4. [OLake + Apache Iceberg + AWS Glue + Snowflake](https://olake.io/iceberg/olake-glue-snowflake)
+5. [OLake + Apache Iceberg + REST Catalog + Spark](https://olake.io/docs/getting-started/playground/)
+
 
 ---
 
@@ -207,8 +229,8 @@ To upgrade from legacy `docker-compose.yml` that was used before **Jan 30th 2026
 
 - [x] Oracle Full Load Support
 - [x] Oracle Incremental
-- [x] Filters for Full Load and Incremental 
-- [ ] Real-time Streaming Mode (Kafka)
+- [x] Filters for Full Load and Incremental
+- [ ] Compaction & other table optimisations (In-progress)
 - [ ] Iceberg V3 Support
 
 📌 Check out our [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and the [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track what's next. If you have ideas or feedback, please share them in our [GitHub Discussions](https://github.com/datazip-inc/olake/discussions) or by opening an issue.
