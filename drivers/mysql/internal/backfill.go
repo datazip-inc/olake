@@ -44,7 +44,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 		// Get chunks from state or calculate new ones
-		var stmt string
+		stmt := ""
 		if chunkColumn != "" {
 			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
 		} else if len(pkColumns) > 0 {
