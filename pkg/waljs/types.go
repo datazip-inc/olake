@@ -24,9 +24,7 @@ type Config struct {
 }
 
 type WALState struct {
-	LSN        string   `json:"lsn"`
-	NextCDCPos string   `json:"next_cdc_pos,omitempty"` // For 2PC recovery - position before writers commit
-	Processing []string `json:"processing,omitempty"`   // Stream IDs currently being processed in CDC
+	LSN string `json:"lsn"`
 }
 
 func (s *WALState) IsEmpty() bool {

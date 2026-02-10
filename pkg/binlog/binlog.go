@@ -147,7 +147,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, target
 			case *replication.RowsEvent:
 				messageReceived = true
 				positionStr := fmt.Sprintf("%s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
-				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, positionStr, callback); err != nil {
+				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, c.CurrentPos, positionStr, callback); err != nil {
 					return err
 				}
 			}

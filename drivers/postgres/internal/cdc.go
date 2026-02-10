@@ -112,11 +112,7 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 		}
 
 		walState.LSN = finalLSN.String()
-		// If all streams were successfully committed (processing is empty),
-		// clear next_cdc_pos as we don't need it for recovery
-		if len(walState.Processing) == 0 {
-			walState.NextCDCPos = ""
-		}
+		
 		p.state.SetGlobal(walState)
 		return nil
 	}
@@ -153,41 +149,6 @@ func (p *Postgres) SetCurrentCDCPosition(position string) {
 	walState.LSN = position
 	p.state.SetGlobal(walState)
 	logger.Infof("Set current CDC position (LSN) in state: %s", position)
-}
-
-func (p *Postgres) RemoveProcessingStream(streamID string) {
-	globalState := p.state.GetGlobal()
-	if globalState == nil {
-		logger.Warnf("RemoveProcessingStream called but global state is nil")
-		return
-	}
-	var walState waljs.WALState
-	if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-		logger.Warnf("Failed to unmarshal global state for RemoveProcessingStream: %s", err)
-		return
-	}
-	// Remove streamID from processing array
-	newProcessing := make([]string, 0, len(walState.Processing))
-	for _, s := range walState.Processing {
-		if s != streamID {
-			newProcessing = append(newProcessing, s)
-		}
-	}
-	walState.Processing = newProcessing
-	p.state.SetGlobal(walState)
-	logger.Infof("Removed stream %s from processing, remaining: %v", streamID, newProcessing)
-}
-
-func (p *Postgres) GetProcessingStreams() []string {
-	globalState := p.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return nil
-	}
-	var walState waljs.WALState
-	if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-		return nil
-	}
-	return walState.Processing
 }
 
 func (p *Postgres) SetTargetCDCPosition(position string) {

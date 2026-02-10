@@ -201,10 +201,13 @@ func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
 }
 
 func (a *AbstractDriver) commitIncrementalState(stream types.StreamInterface, primaryCursor string, primaryValue any, secondaryCursor string, secondaryValue any) {
-	a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(primaryValue))
-	if secondaryCursor != "" {
-		a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(secondaryValue))
+	cursors := map[string]any{
+		primaryCursor: a.FormatCursorValue(primaryValue),
 	}
+	if secondaryCursor != "" {
+		cursors[secondaryCursor] = a.FormatCursorValue(secondaryValue)
+	}
+	a.state.SetCursors(stream.Self(), cursors)
 }
 
 // incrementalRecovery checks for committed state from a previous run and updates the state if found.

@@ -246,10 +246,24 @@ func (a *AbstractDriver) cdcRecovery(ctx context.Context, pool *destination.Writ
 	// First, check per-stream recovery (MongoDB next_data pattern)
 	// This handles streams that have next_data but may/may not be committed
 	if supportsPerStreamPosition2PC {
+		// Run per-stream recovery checks in parallel (bounded by MaxConnections).
+		// These are check-only operations and can be safely parallelized for faster startup.
+		limit := a.driver.MaxConnections()
+		if limit <= 0 {
+			limit = constants.DefaultThreadCount
+		}
+		checkGroup := utils.NewCGroupWithLimit(ctx, limit)
 		for _, stream := range streams {
-			if err := perStream2PC.CheckPerStreamRecovery(ctx, pool, stream); err != nil {
-				return false, nil, fmt.Errorf("failed per-stream recovery check for %s: %s", stream.ID(), err)
-			}
+			s := stream
+			checkGroup.AddWithRetry(a.driver.MaxRetries(), func(groupCtx context.Context) error {
+				if err := perStream2PC.CheckPerStreamRecovery(groupCtx, pool, s); err != nil {
+					return fmt.Errorf("failed per-stream recovery check for %s: %w", s.ID(), err)
+				}
+				return nil
+			})
+		}
+		if err := checkGroup.Block(); err != nil {
+			return false, nil, err
 		}
 	}
 
@@ -300,8 +314,7 @@ func (a *AbstractDriver) cdcRecovery(ctx context.Context, pool *destination.Writ
 			return false, nil, fmt.Errorf("cannot generate thread ID without starting position")
 		}
 
-		// Create a temporary writer to check commit status
-		writer, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID), destination.WithSyncMode("recovery_check"))
+		writer, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID), destination.WithSyncMode("cdc"))
 		if err != nil {
 			return false, nil, fmt.Errorf("failed to create writer for recovery check: %s", err)
 		}

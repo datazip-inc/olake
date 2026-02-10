@@ -39,10 +39,8 @@ type MySQL struct {
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
 type MySQLGlobalState struct {
-	ServerID   uint32        `json:"server_id"`
-	State      binlog.Binlog `json:"state"`
-	NextCDCPos string        `json:"next_cdc_pos,omitempty"` // For 2PC recovery - position before writers commit
-	Processing []string      `json:"processing,omitempty"`   // Stream IDs currently being processed in CDC
+	ServerID uint32        `json:"server_id"`
+	State    binlog.Binlog `json:"state"`
 }
 
 func (m *MySQL) CDCSupported() bool {

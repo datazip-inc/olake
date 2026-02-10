@@ -174,8 +174,6 @@ public class IcebergTableOperator {
       if (syncMode == null || syncMode.equals("backfill") || syncMode.isEmpty()) {
           // Standard backfill item commit
           updateProperties.set(threadId, "committed");
-      } else if (syncMode.equals("backfill_check")) {
-          // No-op: this mode is used only for checking status, no commit actions needed.
       } else if (syncMode.equals("cdc")) {
           String key = "olake_2pc_cdc";
           updateJsonState(table, updateProperties, key, threadId, syncMode, payload);

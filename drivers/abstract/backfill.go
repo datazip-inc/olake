@@ -52,43 +52,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		return id
 	}
 
-	// Pre-check: Verify commit status for all chunks, if chunk is committed, skip it
-	statusCheckCtx, statusCheckCancel := context.WithCancel(mainCtx)
-	defer statusCheckCancel()
-
-	checker, err := pool.NewWriter(statusCheckCtx, stream, destination.WithBackfill(true), destination.WithThreadID("status_checker_"+stream.ID()), destination.WithSyncMode("backfill_check"))
-	if err != nil {
-		return fmt.Errorf("failed to create status checker writer: %s", err)
-	}
-	defer checker.Close(statusCheckCtx)
-
-	var chunksToProcess []types.Chunk
-	for _, chunk := range chunks {
-		threadID := getThreadID(chunk)
-
-		statePayload, err := checker.IsThreadCommitted(statusCheckCtx, threadID)
-		if err != nil {
-			return fmt.Errorf("failed to check commit status for thread[%s]: %s", threadID, err)
-		}
-
-		if statePayload != "" {
-			logger.Infof("Thread[%s]: chunk min[%s] max[%s] already committed, skipping", threadID, chunk.Min, chunk.Max)
-			chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
-			if chunksLeft == 0 && backfilledStreams != nil {
-				backfilledStreams <- stream.ID()
-			}
-			continue
-		}
-
-		chunksToProcess = append(chunksToProcess, chunk)
-	}
-
-	if len(chunksToProcess) == 0 {
-		logger.Infof("All chunks for stream[%s] are already committed", stream.ID())
-		return nil
-	}
-
-	logger.Infof("Processing %d chunks for stream[%s]", len(chunksToProcess), stream.ID())
+	logger.Infof("Processing %d chunks for stream[%s]", len(chunks), stream.ID())
 
 	chunkProcessor := func(gCtx context.Context, _ int, chunk types.Chunk) (err error) {
 		// create backfill context, so that main context not affected if backfill retries
@@ -101,6 +65,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
 
+		skipped := false
 		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID,
 			func(ctx context.Context) error {
 				if ctx.Err() != nil {
@@ -117,9 +82,22 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 				if chunksLeft == 0 && backfilledStreams != nil {
 					backfilledStreams <- stream.ID()
 				}
-				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
+				if skipped {
+					logger.Infof("Thread[%s]: chunk min[%s] max[%s] already committed, skipping", threadID, chunk.Min, chunk.Max)
+				} else {
+					logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
+				}
 				return nil
 			})()
+
+		statePayload, err := inserter.IsThreadCommitted(backfillCtx, threadID)
+		if err != nil {
+			return fmt.Errorf("failed to check commit status for thread[%s]: %s", threadID, err)
+		}
+		if statePayload != "" {
+			skipped = true
+			return nil
+		}
 
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
@@ -137,6 +115,6 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			return inserter.Push(ctx, types.CreateRawRecord(data, olakeColumns))
 		})
 	}
-	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunksToProcess, a.driver.MaxRetries(), chunkProcessor)
+	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)
 	return nil
 }

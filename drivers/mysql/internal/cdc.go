@@ -104,25 +104,12 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		// Read existing state to preserve NextCDCPos and Processing fields
-		var mysqlState MySQLGlobalState
-		globalState := m.state.GetGlobal()
-		if globalState != nil && globalState.State != nil {
-			if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
-				logger.Warnf("Failed to unmarshal global state in PostCDC: %s", err)
-			}
-		}
-		// Update with current position while preserving other fields
-		mysqlState.ServerID = m.BinlogConn.ServerID
-		mysqlState.State = binlog.Binlog{
-			Position: m.BinlogConn.CurrentPos,
-		}
-		// If all streams were successfully committed (processing is empty),
-		// clear next_cdc_pos as we don't need it for recovery
-		if len(mysqlState.Processing) == 0 {
-			mysqlState.NextCDCPos = ""
-		}
-		m.state.SetGlobal(mysqlState)
+		m.state.SetGlobal(MySQLGlobalState{
+			ServerID: m.BinlogConn.ServerID,
+			State: binlog.Binlog{
+				Position: m.BinlogConn.CurrentPos,
+			},
+		})
 		return nil
 	}
 }
@@ -177,41 +164,6 @@ func (m *MySQL) SetCurrentCDCPosition(position string) {
 	mysqlState.State.Position.Pos = pos
 	m.state.SetGlobal(mysqlState)
 	logger.Infof("Set current CDC position in state: %s", position)
-}
-
-func (m *MySQL) RemoveProcessingStream(streamID string) {
-	globalState := m.state.GetGlobal()
-	if globalState == nil {
-		logger.Warnf("RemoveProcessingStream called but global state is nil")
-		return
-	}
-	var mysqlState MySQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
-		logger.Warnf("Failed to unmarshal global state for RemoveProcessingStream: %s", err)
-		return
-	}
-	// Remove streamID from processing array
-	newProcessing := make([]string, 0, len(mysqlState.Processing))
-	for _, s := range mysqlState.Processing {
-		if s != streamID {
-			newProcessing = append(newProcessing, s)
-		}
-	}
-	mysqlState.Processing = newProcessing
-	m.state.SetGlobal(mysqlState)
-	logger.Infof("Removed stream %s from processing, remaining: %v", streamID, newProcessing)
-}
-
-func (m *MySQL) GetProcessingStreams() []string {
-	globalState := m.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return nil
-	}
-	var mysqlState MySQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
-		return nil
-	}
-	return mysqlState.Processing
 }
 
 func (m *MySQL) SetTargetCDCPosition(position string) {

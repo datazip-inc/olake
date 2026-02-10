@@ -62,7 +62,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 			}
 			if resumeToken != nil {
 				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
-				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+				m.state.SetCursors(stream.Self(), map[string]any{cdcCursorField: prevResumeToken})
 			}
 		}
 	}
@@ -202,7 +202,7 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 		finalToken := m.streams[streamIndex].ID()
 		val, ok := m.cdcCursor.Load(finalToken)
 		if ok {
-			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
+			m.state.SetCursors(m.streams[streamIndex].Self(), map[string]any{cdcCursorField: val})
 		} else {
 			logger.Warnf("no resume token found for stream: %s", finalToken)
 		}
@@ -247,7 +247,7 @@ func (m *Mongo) CheckPerStreamRecovery(ctx context.Context, pool *destination.Wr
 		var payloadMap map[string]string
 		if err := json.Unmarshal([]byte(statePayload), &payloadMap); err == nil {
 			if pos, ok := payloadMap["captured_cdc_pos"]; ok && pos != "" {
-				m.state.SetCursor(stream.Self(), cdcCursorField, pos)
+				m.state.SetCursors(stream.Self(), map[string]any{cdcCursorField: pos})
 				return nil
 			}
 		}

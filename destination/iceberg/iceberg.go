@@ -595,12 +595,19 @@ func (i *Iceberg) ThreadStatus(ctx context.Context, threadID string) (string, er
 		return "", fmt.Errorf("iceberg server not initialized")
 	}
 
+	// Prefer the per-writer operation sync mode (backfill/cdc/incremental),
+	// because that is what the Java side uses to map commit metadata buckets.
+	syncMode := string(i.stream.GetSyncMode())
+	if i.options != nil && i.options.SyncMode != "" {
+		syncMode = i.options.SyncMode
+	}
+
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_CHECK_THREAD_STATUS,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      threadID,
 			DestTableName: i.stream.GetDestinationTable(),
-			SyncMode:      string(i.stream.GetSyncMode()),
+			SyncMode:      syncMode,
 		},
 	}
 
