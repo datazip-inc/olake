@@ -1,0 +1,43 @@
+{"level":"info","time":"2026-02-10T09:47:05Z","message":"Running sync with state: {\"type\":\"STREAM\"}"}
+{"level":"info","message":"Standard Replication is selected","time":"2026-02-10T09:47:05Z"}
+{"level":"info","time":"2026-02-10T09:47:05Z","message":"Starting discover for Postgres database postgres"}
+{"level":"info","time":"2026-02-10T09:47:05Z","message":"Valid selected streams are public.test_cdc"}
+{"level":"info","time":"2026-02-10T09:47:05Z","message":"Clearing state for full refresh streams"}
+{"level":"info","time":"2026-02-10T09:47:05Z","message":"Iceberg JAR file found in base directory: c:\\Users\\diino\\Documents\\Contributions\\olake/olake-iceberg-java-writer.jar"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 04:47:06.957 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Logs will be output to console only","time":"2026-02-10T09:47:06Z"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] Exception in thread \"main\" org.apache.iceberg.exceptions.RESTException: Error occurred while processing GET request"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.iceberg.rest.HTTPClient.execute(HTTPClient.java:342)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.iceberg.rest.HTTPClient.execute(HTTPClient.java:262)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.iceberg.rest.HTTPClient.get(HTTPClient.java:358)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.iceberg.rest.RESTSessionCatalog.fetchConfig(RESTSessionCatalog.java:1045)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.iceberg.rest.RESTSessionCatalog.initialize(RESTSessionCatalog.java:254)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.iceberg.rest.RESTCatalog.initialize(RESTCatalog.java:78)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.iceberg.CatalogUtil.loadCatalog(CatalogUtil.java:274)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.iceberg.CatalogUtil.buildIcebergCatalog(CatalogUtil.java:328)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat io.debezium.server.iceberg.OlakeRpcServer.main(OlakeRpcServer.java:102)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] Caused by: org.apache.hc.client5.http.HttpHostConnectException: Connect to http://localhost:8181 [localhost/127.0.0.1, localhost/0:0:0:0:0:0:0:1] failed: Connection refused: getsockopt"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat java.base/sun.nio.ch.Net.pollConnect(Native Method)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat java.base/sun.nio.ch.Net.pollConnectNow(Net.java:672)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat java.base/sun.nio.ch.NioSocketImpl.timedFinishConnect(NioSocketImpl.java:547)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat java.base/sun.nio.ch.NioSocketImpl.connect(NioSocketImpl.java:602)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat java.base/java.net.SocksSocketImpl.connect(SocksSocketImpl.java:327)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat java.base/java.net.Socket.connect(Socket.java:633)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.io.DefaultHttpClientConnectionOperator.connect(DefaultHttpClientConnectionOperator.java:216)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager.connect(PoolingHttpClientConnectionManager.java:490)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.InternalExecRuntime.connectEndpoint(InternalExecRuntime.java:164)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.InternalExecRuntime.connectEndpoint(InternalExecRuntime.java:174)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.ConnectExec.execute(ConnectExec.java:144)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.ProtocolExec.execute(ProtocolExec.java:192)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.ContentCompressionExec.execute(ContentCompressionExec.java:150)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.HttpRequestRetryExec.execute(HttpRequestRetryExec.java:113)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.RedirectExec.execute(RedirectExec.java:110)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.ExecChainElement.execute(ExecChainElement.java:51)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.InternalHttpClient.doExecute(InternalHttpClient.java:183)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.hc.client5.http.impl.classic.CloseableHttpClient.execute(CloseableHttpClient.java:123)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \tat org.apache.iceberg.rest.HTTPClient.execute(HTTPClient.java:305)"}
+{"level":"error","time":"2026-02-10T09:47:07Z","message":"Thread[iceberg_destination_drop:50051] \t... 8 more"}
+{"level":"fatal","time":"2026-02-10T09:47:07Z","message":"failed to clear destination: failed to drop the streams: failed to setup iceberg server for dropping streams: failed to start iceberg java writer and setup logger: failed to start iceberg writer: Thread[iceberg_destination_drop:50051] exited before ready: exit status 1: Exception in thread \"main\" org.apache.iceberg.exceptions.RESTException: Error occurred while processing GET request"}

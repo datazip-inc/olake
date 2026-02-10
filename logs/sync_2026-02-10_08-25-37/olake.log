@@ -1,0 +1,4 @@
+{"level":"info","time":"2026-02-10T08:25:37Z","message":"Running sync with state: {\"type\":\"STREAM\"}"}
+{"level":"info","message":"Standard Replication is selected","time":"2026-02-10T08:25:37Z"}
+{"level":"info","time":"2026-02-10T08:25:37Z","message":"Starting discover for Postgres database postgres"}
+{"level":"fatal","time":"2026-02-10T08:25:37Z","message":"failed to get selected streams for clearing: no valid streams found in catalog"}
