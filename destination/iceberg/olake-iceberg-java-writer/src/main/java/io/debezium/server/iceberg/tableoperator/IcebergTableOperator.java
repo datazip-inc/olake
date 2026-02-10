@@ -79,6 +79,10 @@ public class IcebergTableOperator {
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
   private static final ObjectMapper mapper = new ObjectMapper();
 
+  private static final String STATE_KEY_2PC = "olake_2pc";
+  private static final String STATE_FIELD_LATEST_THREAD_ID = "latest_threadId";
+  private static final String STATE_FIELD_FULL_REFRESH_COMMITTED_IDS = "full_refresh_committed_ids";
+
 
   @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
   String cdcSourceTsMsField;
@@ -123,7 +127,7 @@ public class IcebergTableOperator {
    * @param threadId The thread ID to commit
    * @throws RuntimeException if commit fails
    */
-  public void commitThread(String threadId, String syncMode, String payload, Table table) {
+  public void commitThread(String threadId, String payload, Table table) {
     if (table == null) {
       LOGGER.warn("No table found for thread: {}", threadId);
       return;
@@ -170,17 +174,7 @@ public class IcebergTableOperator {
       // 1. Stage Property Update - mark thread as committed
       UpdateProperties updateProperties = transaction.updateProperties();
       
-      
-      if (syncMode == null || syncMode.equals("backfill") || syncMode.isEmpty()) {
-          // Standard backfill item commit
-          updateProperties.set(threadId, "committed");
-      } else if (syncMode.equals("cdc")) {
-          String key = "olake_2pc_cdc";
-          updateJsonState(table, updateProperties, key, threadId, syncMode, payload);
-      } else if (syncMode.equals("incremental")) {
-          String key = "olake_2pc_incremental";
-          updateJsonState(table, updateProperties, key, threadId, syncMode, payload);
-      }
+      updateJsonState(table, updateProperties, threadId, payload);
       
       updateProperties.commit();
 
@@ -444,74 +438,47 @@ public class IcebergTableOperator {
          return partitionData;
   }
 
-  private void updateJsonState(Table table, UpdateProperties updateProperties, String key, String threadId, String syncMode, String payload) {
+  private void updateJsonState(Table table, UpdateProperties updateProperties, String threadId, String payload) {
       try {
-          String currentValue = table.properties().get(key);
+          String currentValue = table.properties().get(STATE_KEY_2PC);
           ObjectNode rootNode;
           if (currentValue != null) {
               rootNode = (ObjectNode) mapper.readTree(currentValue);
           } else {
               rootNode = mapper.createObjectNode();
           }
-          rootNode.put("latest_threadId", threadId);
 
           if (payload != null && !payload.isEmpty()) {
               JsonNode payloadNode = mapper.readTree(payload);
-              if ("incremental".equals(syncMode)) {
-                  ObjectNode nextCursorValue;
-                  if (rootNode.has("next_cursor_value")) {
-                      nextCursorValue = (ObjectNode) rootNode.get("next_cursor_value");
-                  } else {
-                      nextCursorValue = rootNode.putObject("next_cursor_value");
-                  }
-                  
-                  if (payloadNode.isObject()) {
-                       // Merge values
-                       payloadNode.fields().forEachRemaining(entry -> nextCursorValue.set(entry.getKey(), entry.getValue()));
-                  }
-              } else if ("cdc".equals(syncMode)) {
-                   if (payloadNode.isObject()) {
-                       // Merge payload directly into root node
-                       payloadNode.fields().forEachRemaining(entry -> rootNode.set(entry.getKey(), entry.getValue()));
-                   }
-               }
+              rootNode.put(STATE_FIELD_LATEST_THREAD_ID, threadId);
+              if (payloadNode.isObject()) {
+                  // Merge payload directly into root node
+                  payloadNode.fields().forEachRemaining(entry -> rootNode.set(entry.getKey(), entry.getValue()));
+              }
+          } else {
+              // No payload => backfill/snapshot style: append threadId to full_refresh_committed_ids
+              com.fasterxml.jackson.databind.node.ArrayNode committedIds;
+              if (rootNode.has(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS) && rootNode.get(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS).isArray()) {
+                  committedIds = (com.fasterxml.jackson.databind.node.ArrayNode) rootNode.get(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS);
+              } else {
+                  committedIds = rootNode.putArray(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS);
+              }
+              committedIds.add(threadId);
           }
 
-          updateProperties.set(key, mapper.writeValueAsString(rootNode));
+          updateProperties.set(STATE_KEY_2PC, mapper.writeValueAsString(rootNode));
       } catch (JsonProcessingException e) {
-          LOGGER.error("Failed to update JSON state for key: " + key, e);
+          LOGGER.error("Failed to update JSON state for key: " + STATE_KEY_2PC, e);
           throw new RuntimeException("Failed to update JSON state", e);
       }
   }
 
-  public String getCommitState(String threadId, String syncMode, Table table) {
-      if (syncMode == null || "backfill".equals(syncMode) || syncMode.isEmpty()) {
-          String propertyValue = null;
-          if (table != null) {
-              propertyValue = table.properties().get(threadId);
-          }
-          return (propertyValue != null && "committed".equals(propertyValue)) ? "committed" : null;
-      }
-      
-      String key = "cdc".equals(syncMode) ? "olake_2pc_cdc" : "olake_2pc_incremental";
-      
+  public String getCommitState(String threadId, Table table) {      
       String propertyValue = null;
       if (table != null) {
-          propertyValue = table.properties().get(key);
+          propertyValue = table.properties().get(STATE_KEY_2PC);
       }
 
-      if (propertyValue == null) {
-          return null;
-      }
-
-      try {
-          JsonNode rootNode = mapper.readTree(propertyValue);
-          if (rootNode.has("latest_threadId") && threadId.equals(rootNode.get("latest_threadId").asText())) {
-              return propertyValue;
-          }
-      } catch (JsonProcessingException e) {
-          LOGGER.error("Failed to parse JSON state for key: " + key, e);
-      }
-      return null;
+      return propertyValue;
   }
 }

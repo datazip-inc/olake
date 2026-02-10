@@ -249,7 +249,7 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 
 		preErr := preProcess(ctx)
 		if preErr != nil {
-			*err = utils.Ternary(*err == nil, preErr, fmt.Errorf("%s: prev error: %w", preErr, *err)).(error)
+			*err = utils.Ternary(*err == nil, preErr, fmt.Errorf("%s: prev error: %s", preErr, *err)).(error)
 		}
 
 		// Close writer(s)

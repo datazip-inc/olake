@@ -297,9 +297,9 @@ func (wt *WriterThread) Close(ctx context.Context) (err error) {
 	}
 }
 
-// IsThreadCommitted checks if the thread is committed, and returns the payload
-func (wt *WriterThread) IsThreadCommitted(ctx context.Context, threadID string) (string, error) {
-	return wt.writer.ThreadStatus(ctx, threadID)
+// GetCommitState returns the commit state of the table
+func (wt *WriterThread) GetCommitState(ctx context.Context) (string, error) {
+	return wt.writer.GetCommitState(ctx)
 }
 
 func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {

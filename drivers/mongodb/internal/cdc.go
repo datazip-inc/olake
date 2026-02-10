@@ -2,15 +2,12 @@ package driver
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
-	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -23,7 +20,7 @@ import (
 )
 
 // Ensure Mongo implements PerStreamPosition2PC interface
-var _ abstract.PerStreamPosition2PC = (*Mongo)(nil)
+var _ abstract.PerStreamRecovery2PC = (*Mongo)(nil)
 
 const (
 	maxAwait               = 2 * time.Second
@@ -219,40 +216,21 @@ func (m *Mongo) GetCDCPositionForStream(streamID string) string {
 	return ""
 }
 
-// CheckPerStreamRecovery checks if thread is committed
-// This implements 2PC recovery for MongoDB per-stream positions.
-func (m *Mongo) CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error {
-	currentData := m.state.GetCursor(stream.Self(), cdcCursorField)
-
-	streamID := stream.ID()
-	// Generate threadID using _data (the position at which we started the sync)
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(currentData.(string))))
-	threadID := fmt.Sprintf("%s_%s", streamID, hash)
-
-	// Create temporary writer to check commit status
-	writer, err := pool.NewWriter(ctx, stream, destination.WithThreadID(threadID))
-	if err != nil {
-		return fmt.Errorf("failed to create writer for recovery check: %s", err)
+// GetCDCStartPositionForStream returns the value used to start CDC for this stream.
+func (m *Mongo) GetCDCStartPositionForStream(stream types.StreamInterface) (string, error) {
+	val := m.state.GetCursor(stream.Self(), cdcCursorField)
+	if val == nil {
+		return "", nil
 	}
+	return val.(string), nil
+}
 
-	statePayload, err := writer.IsThreadCommitted(ctx, threadID)
-	if err != nil {
-		return fmt.Errorf("failed to check commit status for stream %s: %s", stream.ID(), err)
+// SetRecoveredCDCPositionForStream updates the stream cursor to the recovered committed position.
+func (m *Mongo) SetRecoveredCDCPositionForStream(stream types.StreamInterface, position string) error {
+	if position == "" {
+		return nil
 	}
-	if closeErr := writer.Close(ctx); closeErr != nil {
-		logger.Warnf("Failed to close recovery check writer for stream %s: %s", stream.ID(), closeErr)
-	}
-
-	if statePayload != "" {
-		var payloadMap map[string]string
-		if err := json.Unmarshal([]byte(statePayload), &payloadMap); err == nil {
-			if pos, ok := payloadMap["captured_cdc_pos"]; ok && pos != "" {
-				m.state.SetCursors(stream.Self(), map[string]any{cdcCursorField: pos})
-				return nil
-			}
-		}
-	}
-
+	m.state.SetCursors(stream.Self(), map[string]any{cdcCursorField: position})
 	return nil
 }
 

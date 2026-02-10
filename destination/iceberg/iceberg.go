@@ -65,7 +65,7 @@ func (i *Iceberg) Spec() any {
 
 func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	if i.config.UseArrowWrites {
-		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill), i.options.Payload, i.options.SyncMode)
+		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill), i.options.Payload)
 	}
 
 	// default: legacy writer
@@ -590,35 +590,26 @@ func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
 }
 
-func (i *Iceberg) ThreadStatus(ctx context.Context, threadID string) (string, error) {
+func (i *Iceberg) GetCommitState(ctx context.Context) (string, error) {
 	if i.server == nil {
 		return "", fmt.Errorf("iceberg server not initialized")
 	}
 
-	// Prefer the per-writer operation sync mode (backfill/cdc/incremental),
-	// because that is what the Java side uses to map commit metadata buckets.
-	syncMode := string(i.stream.GetSyncMode())
-	if i.options != nil && i.options.SyncMode != "" {
-		syncMode = i.options.SyncMode
-	}
-
 	request := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_CHECK_THREAD_STATUS,
+		Type: proto.IcebergPayload_GET_COMMIT_STATE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      threadID,
 			DestTableName: i.stream.GetDestinationTable(),
-			SyncMode:      syncMode,
 		},
 	}
 
 	res, err := i.server.SendClientRequest(ctx, request)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to send state request: %s", err)
 	}
 
 	ingestResponse, ok := res.(*proto.RecordIngestResponse)
 	if !ok {
-		return "", fmt.Errorf("unexpected response type: %T", res)
+		return "", fmt.Errorf("invalid response type[%T]", res)
 	}
 
 	return ingestResponse.GetResult(), nil

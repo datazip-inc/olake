@@ -233,7 +233,7 @@ func (a *AbstractDriver) incrementalRecovery(ctx context.Context, pool *destinat
 		return prevPrimaryCursor, prevSecondaryCursor
 	}
 
-	statePayload, err := inserter.IsThreadCommitted(ctx, threadID)
+	statePayload, err := inserter.GetCommitState(ctx)
 	_ = inserter.Close(ctx)
 
 	if err != nil || statePayload == "" {
@@ -243,6 +243,11 @@ func (a *AbstractDriver) incrementalRecovery(ctx context.Context, pool *destinat
 	var payloadMap map[string]any
 	if err := json.Unmarshal([]byte(statePayload), &payloadMap); err != nil {
 		logger.Warnf("Failed to unmarshal recovery payload for stream %s: %s", stream.ID(), err)
+		return prevPrimaryCursor, prevSecondaryCursor
+	}
+
+	// Check if the state corresponds to the current thread
+	if val, ok := payloadMap["latest_threadId"]; !ok || val != threadID {
 		return prevPrimaryCursor, prevSecondaryCursor
 	}
 

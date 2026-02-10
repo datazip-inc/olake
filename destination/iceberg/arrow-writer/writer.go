@@ -31,7 +31,6 @@ type ArrowWriter struct {
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
 	payload        any
-	syncMode       string
 }
 
 type Writer struct {
@@ -66,7 +65,7 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, payload any, syncMode string) (*ArrowWriter, error) {
+func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, payload any) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
 		partitionInfo: partitionInfo,
 		schema:        schema,
@@ -77,7 +76,6 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
 		payload:       payload,
-		syncMode:      syncMode,
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -347,7 +345,6 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 			ThreadId:      w.server.ServerID(),
 			DestTableName: w.stream.GetDestinationTable(),
 			FileMetadata:  orderedFiles,
-			SyncMode:      w.syncMode,
 		},
 	}
 

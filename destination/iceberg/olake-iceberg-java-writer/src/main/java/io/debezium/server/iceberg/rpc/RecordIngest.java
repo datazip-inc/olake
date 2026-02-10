@@ -140,9 +140,9 @@ public final class RecordIngest {
        */
       REFRESH_TABLE_SCHEMA(5),
       /**
-       * <code>CHECK_THREAD_STATUS = 6;</code>
+       * <code>GET_COMMIT_STATE = 6;</code>
        */
-      CHECK_THREAD_STATUS(6),
+      GET_COMMIT_STATE(6),
       UNRECOGNIZED(-1),
       ;
 
@@ -171,9 +171,9 @@ public final class RecordIngest {
        */
       public static final int REFRESH_TABLE_SCHEMA_VALUE = 5;
       /**
-       * <code>CHECK_THREAD_STATUS = 6;</code>
+       * <code>GET_COMMIT_STATE = 6;</code>
        */
-      public static final int CHECK_THREAD_STATUS_VALUE = 6;
+      public static final int GET_COMMIT_STATE_VALUE = 6;
 
 
       public final int getNumber() {
@@ -206,7 +206,7 @@ public final class RecordIngest {
           case 3: return DROP_TABLE;
           case 4: return GET_OR_CREATE_TABLE;
           case 5: return REFRESH_TABLE_SCHEMA;
-          case 6: return CHECK_THREAD_STATUS;
+          case 6: return GET_COMMIT_STATE;
           default: return null;
         }
       }
@@ -343,18 +343,6 @@ public final class RecordIngest {
        */
       com.google.protobuf.ByteString
           getPayloadBytes();
-
-      /**
-       * <code>string sync_mode = 7;</code>
-       * @return The syncMode.
-       */
-      java.lang.String getSyncMode();
-      /**
-       * <code>string sync_mode = 7;</code>
-       * @return The bytes for syncMode.
-       */
-      com.google.protobuf.ByteString
-          getSyncModeBytes();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.Metadata}
@@ -374,7 +362,6 @@ public final class RecordIngest {
         identifierField_ = "";
         schema_ = java.util.Collections.emptyList();
         payload_ = "";
-        syncMode_ = "";
       }
 
       @java.lang.Override
@@ -608,45 +595,6 @@ public final class RecordIngest {
         }
       }
 
-      public static final int SYNC_MODE_FIELD_NUMBER = 7;
-      @SuppressWarnings("serial")
-      private volatile java.lang.Object syncMode_ = "";
-      /**
-       * <code>string sync_mode = 7;</code>
-       * @return The syncMode.
-       */
-      @java.lang.Override
-      public java.lang.String getSyncMode() {
-        java.lang.Object ref = syncMode_;
-        if (ref instanceof java.lang.String) {
-          return (java.lang.String) ref;
-        } else {
-          com.google.protobuf.ByteString bs = 
-              (com.google.protobuf.ByteString) ref;
-          java.lang.String s = bs.toStringUtf8();
-          syncMode_ = s;
-          return s;
-        }
-      }
-      /**
-       * <code>string sync_mode = 7;</code>
-       * @return The bytes for syncMode.
-       */
-      @java.lang.Override
-      public com.google.protobuf.ByteString
-          getSyncModeBytes() {
-        java.lang.Object ref = syncMode_;
-        if (ref instanceof java.lang.String) {
-          com.google.protobuf.ByteString b = 
-              com.google.protobuf.ByteString.copyFromUtf8(
-                  (java.lang.String) ref);
-          syncMode_ = b;
-          return b;
-        } else {
-          return (com.google.protobuf.ByteString) ref;
-        }
-      }
-
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -676,9 +624,6 @@ public final class RecordIngest {
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(payload_)) {
           com.google.protobuf.GeneratedMessageV3.writeString(output, 6, payload_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(syncMode_)) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 7, syncMode_);
-        }
         getUnknownFields().writeTo(output);
       }
 
@@ -703,9 +648,6 @@ public final class RecordIngest {
         }
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(payload_)) {
           size += com.google.protobuf.GeneratedMessageV3.computeStringSize(6, payload_);
-        }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(syncMode_)) {
-          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(7, syncMode_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -735,8 +677,6 @@ public final class RecordIngest {
             .equals(other.getSchemaList())) return false;
         if (!getPayload()
             .equals(other.getPayload())) return false;
-        if (!getSyncMode()
-            .equals(other.getSyncMode())) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -762,8 +702,6 @@ public final class RecordIngest {
         }
         hash = (37 * hash) + PAYLOAD_FIELD_NUMBER;
         hash = (53 * hash) + getPayload().hashCode();
-        hash = (37 * hash) + SYNC_MODE_FIELD_NUMBER;
-        hash = (53 * hash) + getSyncMode().hashCode();
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -904,7 +842,6 @@ public final class RecordIngest {
           }
           bitField0_ = (bitField0_ & ~0x00000008);
           payload_ = "";
-          syncMode_ = "";
           return this;
         }
 
@@ -964,9 +901,6 @@ public final class RecordIngest {
           }
           if (((from_bitField0_ & 0x00000010) != 0)) {
             result.payload_ = payload_;
-          }
-          if (((from_bitField0_ & 0x00000020) != 0)) {
-            result.syncMode_ = syncMode_;
           }
           result.bitField0_ |= to_bitField0_;
         }
@@ -1061,11 +995,6 @@ public final class RecordIngest {
             bitField0_ |= 0x00000010;
             onChanged();
           }
-          if (!other.getSyncMode().isEmpty()) {
-            syncMode_ = other.syncMode_;
-            bitField0_ |= 0x00000020;
-            onChanged();
-          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -1125,11 +1054,6 @@ public final class RecordIngest {
                   bitField0_ |= 0x00000010;
                   break;
                 } // case 50
-                case 58: {
-                  syncMode_ = input.readStringRequireUtf8();
-                  bitField0_ |= 0x00000020;
-                  break;
-                } // case 58
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -1678,78 +1602,6 @@ public final class RecordIngest {
           checkByteStringIsUtf8(value);
           payload_ = value;
           bitField0_ |= 0x00000010;
-          onChanged();
-          return this;
-        }
-
-        private java.lang.Object syncMode_ = "";
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @return The syncMode.
-         */
-        public java.lang.String getSyncMode() {
-          java.lang.Object ref = syncMode_;
-          if (!(ref instanceof java.lang.String)) {
-            com.google.protobuf.ByteString bs =
-                (com.google.protobuf.ByteString) ref;
-            java.lang.String s = bs.toStringUtf8();
-            syncMode_ = s;
-            return s;
-          } else {
-            return (java.lang.String) ref;
-          }
-        }
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @return The bytes for syncMode.
-         */
-        public com.google.protobuf.ByteString
-            getSyncModeBytes() {
-          java.lang.Object ref = syncMode_;
-          if (ref instanceof String) {
-            com.google.protobuf.ByteString b = 
-                com.google.protobuf.ByteString.copyFromUtf8(
-                    (java.lang.String) ref);
-            syncMode_ = b;
-            return b;
-          } else {
-            return (com.google.protobuf.ByteString) ref;
-          }
-        }
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @param value The syncMode to set.
-         * @return This builder for chaining.
-         */
-        public Builder setSyncMode(
-            java.lang.String value) {
-          if (value == null) { throw new NullPointerException(); }
-          syncMode_ = value;
-          bitField0_ |= 0x00000020;
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @return This builder for chaining.
-         */
-        public Builder clearSyncMode() {
-          syncMode_ = getDefaultInstance().getSyncMode();
-          bitField0_ = (bitField0_ & ~0x00000020);
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @param value The bytes for syncMode to set.
-         * @return This builder for chaining.
-         */
-        public Builder setSyncModeBytes(
-            com.google.protobuf.ByteString value) {
-          if (value == null) { throw new NullPointerException(); }
-          checkByteStringIsUtf8(value);
-          syncMode_ = value;
-          bitField0_ |= 0x00000020;
           onChanged();
           return this;
         }
@@ -9680,18 +9532,6 @@ public final class RecordIngest {
        */
       com.google.protobuf.ByteString
           getPayloadBytes();
-
-      /**
-       * <code>string sync_mode = 7;</code>
-       * @return The syncMode.
-       */
-      java.lang.String getSyncMode();
-      /**
-       * <code>string sync_mode = 7;</code>
-       * @return The bytes for syncMode.
-       */
-      com.google.protobuf.ByteString
-          getSyncModeBytes();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.Metadata}
@@ -9710,7 +9550,6 @@ public final class RecordIngest {
         threadId_ = "";
         fileMetadata_ = java.util.Collections.emptyList();
         payload_ = "";
-        syncMode_ = "";
       }
 
       @java.lang.Override
@@ -9923,45 +9762,6 @@ public final class RecordIngest {
         }
       }
 
-      public static final int SYNC_MODE_FIELD_NUMBER = 7;
-      @SuppressWarnings("serial")
-      private volatile java.lang.Object syncMode_ = "";
-      /**
-       * <code>string sync_mode = 7;</code>
-       * @return The syncMode.
-       */
-      @java.lang.Override
-      public java.lang.String getSyncMode() {
-        java.lang.Object ref = syncMode_;
-        if (ref instanceof java.lang.String) {
-          return (java.lang.String) ref;
-        } else {
-          com.google.protobuf.ByteString bs = 
-              (com.google.protobuf.ByteString) ref;
-          java.lang.String s = bs.toStringUtf8();
-          syncMode_ = s;
-          return s;
-        }
-      }
-      /**
-       * <code>string sync_mode = 7;</code>
-       * @return The bytes for syncMode.
-       */
-      @java.lang.Override
-      public com.google.protobuf.ByteString
-          getSyncModeBytes() {
-        java.lang.Object ref = syncMode_;
-        if (ref instanceof java.lang.String) {
-          com.google.protobuf.ByteString b = 
-              com.google.protobuf.ByteString.copyFromUtf8(
-                  (java.lang.String) ref);
-          syncMode_ = b;
-          return b;
-        } else {
-          return (com.google.protobuf.ByteString) ref;
-        }
-      }
-
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -9991,9 +9791,6 @@ public final class RecordIngest {
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(payload_)) {
           com.google.protobuf.GeneratedMessageV3.writeString(output, 6, payload_);
         }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(syncMode_)) {
-          com.google.protobuf.GeneratedMessageV3.writeString(output, 7, syncMode_);
-        }
         getUnknownFields().writeTo(output);
       }
 
@@ -10019,9 +9816,6 @@ public final class RecordIngest {
         }
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(payload_)) {
           size += com.google.protobuf.GeneratedMessageV3.computeStringSize(6, payload_);
-        }
-        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(syncMode_)) {
-          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(7, syncMode_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -10051,8 +9845,6 @@ public final class RecordIngest {
         }
         if (!getPayload()
             .equals(other.getPayload())) return false;
-        if (!getSyncMode()
-            .equals(other.getSyncMode())) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -10078,8 +9870,6 @@ public final class RecordIngest {
         }
         hash = (37 * hash) + PAYLOAD_FIELD_NUMBER;
         hash = (53 * hash) + getPayload().hashCode();
-        hash = (37 * hash) + SYNC_MODE_FIELD_NUMBER;
-        hash = (53 * hash) + getSyncMode().hashCode();
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -10231,7 +10021,6 @@ public final class RecordIngest {
             fileUploadBuilder_ = null;
           }
           payload_ = "";
-          syncMode_ = "";
           return this;
         }
 
@@ -10293,9 +10082,6 @@ public final class RecordIngest {
           }
           if (((from_bitField0_ & 0x00000010) != 0)) {
             result.payload_ = payload_;
-          }
-          if (((from_bitField0_ & 0x00000020) != 0)) {
-            result.syncMode_ = syncMode_;
           }
           result.bitField0_ |= to_bitField0_;
         }
@@ -10388,11 +10174,6 @@ public final class RecordIngest {
             bitField0_ |= 0x00000010;
             onChanged();
           }
-          if (!other.getSyncMode().isEmpty()) {
-            syncMode_ = other.syncMode_;
-            bitField0_ |= 0x00000020;
-            onChanged();
-          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -10454,11 +10235,6 @@ public final class RecordIngest {
                   bitField0_ |= 0x00000010;
                   break;
                 } // case 50
-                case 58: {
-                  syncMode_ = input.readStringRequireUtf8();
-                  bitField0_ |= 0x00000020;
-                  break;
-                } // case 58
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -11047,78 +10823,6 @@ public final class RecordIngest {
           checkByteStringIsUtf8(value);
           payload_ = value;
           bitField0_ |= 0x00000010;
-          onChanged();
-          return this;
-        }
-
-        private java.lang.Object syncMode_ = "";
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @return The syncMode.
-         */
-        public java.lang.String getSyncMode() {
-          java.lang.Object ref = syncMode_;
-          if (!(ref instanceof java.lang.String)) {
-            com.google.protobuf.ByteString bs =
-                (com.google.protobuf.ByteString) ref;
-            java.lang.String s = bs.toStringUtf8();
-            syncMode_ = s;
-            return s;
-          } else {
-            return (java.lang.String) ref;
-          }
-        }
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @return The bytes for syncMode.
-         */
-        public com.google.protobuf.ByteString
-            getSyncModeBytes() {
-          java.lang.Object ref = syncMode_;
-          if (ref instanceof String) {
-            com.google.protobuf.ByteString b = 
-                com.google.protobuf.ByteString.copyFromUtf8(
-                    (java.lang.String) ref);
-            syncMode_ = b;
-            return b;
-          } else {
-            return (com.google.protobuf.ByteString) ref;
-          }
-        }
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @param value The syncMode to set.
-         * @return This builder for chaining.
-         */
-        public Builder setSyncMode(
-            java.lang.String value) {
-          if (value == null) { throw new NullPointerException(); }
-          syncMode_ = value;
-          bitField0_ |= 0x00000020;
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @return This builder for chaining.
-         */
-        public Builder clearSyncMode() {
-          syncMode_ = getDefaultInstance().getSyncMode();
-          bitField0_ = (bitField0_ & ~0x00000020);
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>string sync_mode = 7;</code>
-         * @param value The bytes for syncMode to set.
-         * @return This builder for chaining.
-         */
-        public Builder setSyncModeBytes(
-            com.google.protobuf.ByteString value) {
-          if (value == null) { throw new NullPointerException(); }
-          checkByteStringIsUtf8(value);
-          syncMode_ = value;
-          bitField0_ |= 0x00000020;
           onChanged();
           return this;
         }
@@ -12766,68 +12470,67 @@ java.lang.String defaultValue) {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\302\007\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\254\007\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
       "ebergPayload.Metadata\022I\n\007records\030\003 \003(\01328" +
       ".io.debezium.server.iceberg.rpc.IcebergP" +
-      "ayload.IceRecord\032\332\001\n\010Metadata\022\027\n\017dest_ta" +
+      "ayload.IceRecord\032\307\001\n\010Metadata\022\027\n\017dest_ta" +
       "ble_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022\035\n\020ide" +
       "ntifier_field\030\003 \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\013" +
       "2:.io.debezium.server.iceberg.rpc.Iceber" +
-      "gPayload.SchemaField\022\017\n\007payload\030\006 \001(\t\022\021\n" +
-      "\tsync_mode\030\007 \001(\tB\023\n\021_identifier_field\032,\n" +
-      "\013SchemaField\022\020\n\010ice_type\030\001 \001(\t\022\013\n\003key\030\002 " +
-      "\001(\t\032\254\002\n\tIceRecord\022S\n\006fields\030\001 \003(\0132C.io.d" +
-      "ebezium.server.iceberg.rpc.IcebergPayloa" +
-      "d.IceRecord.FieldValue\022\023\n\013record_type\030\002 " +
-      "\001(\t\032\264\001\n\nFieldValue\022\026\n\014string_value\030\001 \001(\t" +
-      "H\000\022\023\n\tint_value\030\002 \001(\005H\000\022\024\n\nlong_value\030\003 " +
-      "\001(\003H\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_v" +
-      "alue\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025\n\013by" +
-      "tes_value\030\007 \001(\014H\000B\007\n\005value\"\225\001\n\013PayloadTy" +
-      "pe\022\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SC" +
-      "HEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREATE_" +
-      "TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\022\027\n\023CHE" +
-      "CK_THREAD_STATUS\020\006\"7\n\024RecordIngestRespon" +
-      "se\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 \001(\010\"\237\007\n\014" +
-      "ArrowPayload\022F\n\004type\030\001 \001(\01628.io.debezium" +
-      ".server.iceberg.rpc.ArrowPayload.Payload" +
-      "Type\022G\n\010metadata\030\002 \001(\01325.io.debezium.ser" +
-      "ver.iceberg.rpc.ArrowPayload.Metadata\032\322\002" +
-      "\n\014FileMetadata\022\021\n\tfile_type\030\001 \001(\t\022\021\n\tfil" +
-      "e_path\030\002 \001(\t\022\024\n\014record_count\030\003 \001(\003\022b\n\020pa" +
-      "rtition_values\030\005 \003(\0132H.io.debezium.serve" +
-      "r.iceberg.rpc.ArrowPayload.FileMetadata." +
-      "PartitionValue\032\241\001\n\016PartitionValue\022\023\n\tint" +
-      "_value\030\001 \001(\005H\000\022\024\n\nlong_value\030\002 \001(\003H\000\022\026\n\014" +
-      "string_value\030\003 \001(\tH\000\022\025\n\013float_value\030\004 \001(" +
-      "\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n\nbool_valu" +
-      "e\030\006 \001(\010H\000B\007\n\005value\0329\n\021FileUploadRequest\022" +
-      "\021\n\tfile_data\030\001 \001(\014\022\021\n\tfile_path\030\002 \001(\t\032\226\002" +
-      "\n\010Metadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tt" +
-      "hread_id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\01329." +
-      "io.debezium.server.iceberg.rpc.ArrowPayl" +
-      "oad.FileMetadata\022X\n\013file_upload\030\004 \001(\0132>." +
-      "io.debezium.server.iceberg.rpc.ArrowPayl" +
-      "oad.FileUploadRequestH\000\210\001\001\022\017\n\007payload\030\006 " +
-      "\001(\t\022\021\n\tsync_mode\030\007 \001(\tB\016\n\014_file_upload\"U" +
-      "\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGIST" +
-      "ER_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEP" +
-      "ATH\020\003\"\275\001\n\023ArrowIngestResponse\022\016\n\006result\030" +
-      "\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.debez" +
-      "ium.server.iceberg.rpc.ArrowIngestRespon" +
-      "se.IcebergSchemasEntry\0325\n\023IcebergSchemas" +
-      "Entry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001" +
-      "\n\023RecordIngestService\022s\n\013SendRecords\022..i" +
-      "o.debezium.server.iceberg.rpc.IcebergPay" +
-      "load\0324.io.debezium.server.iceberg.rpc.Re" +
-      "cordIngestResponse2\205\001\n\022ArrowIngestServic" +
-      "e\022o\n\nIcebergAPI\022,.io.debezium.server.ice" +
-      "berg.rpc.ArrowPayload\0323.io.debezium.serv" +
-      "er.iceberg.rpc.ArrowIngestResponseb\006prot" +
-      "o3"
+      "gPayload.SchemaField\022\017\n\007payload\030\006 \001(\tB\023\n" +
+      "\021_identifier_field\032,\n\013SchemaField\022\020\n\010ice" +
+      "_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\032\254\002\n\tIceRecord\022S" +
+      "\n\006fields\030\001 \003(\0132C.io.debezium.server.iceb" +
+      "erg.rpc.IcebergPayload.IceRecord.FieldVa" +
+      "lue\022\023\n\013record_type\030\002 \001(\t\032\264\001\n\nFieldValue\022" +
+      "\026\n\014string_value\030\001 \001(\tH\000\022\023\n\tint_value\030\002 \001" +
+      "(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022\025\n\013float_valu" +
+      "e\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n\nboo" +
+      "l_value\030\006 \001(\010H\000\022\025\n\013bytes_value\030\007 \001(\014H\000B\007" +
+      "\n\005value\"\222\001\n\013PayloadType\022\013\n\007RECORDS\020\000\022\n\n\006" +
+      "COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_TABL" +
+      "E\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REFRESH_" +
+      "TABLE_SCHEMA\020\005\022\024\n\020GET_COMMIT_STATE\020\006\"7\n\024" +
+      "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
+      "success\030\002 \001(\010\"\214\007\n\014ArrowPayload\022F\n\004type\030\001" +
+      " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
+      "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
+      "25.io.debezium.server.iceberg.rpc.ArrowP" +
+      "ayload.Metadata\032\322\002\n\014FileMetadata\022\021\n\tfile" +
+      "_type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record" +
+      "_count\030\003 \001(\003\022b\n\020partition_values\030\005 \003(\0132H" +
+      ".io.debezium.server.iceberg.rpc.ArrowPay" +
+      "load.FileMetadata.PartitionValue\032\241\001\n\016Par" +
+      "titionValue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong" +
+      "_value\030\002 \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025" +
+      "\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 " +
+      "\001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021" +
+      "FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\t" +
+      "file_path\030\002 \001(\t\032\203\002\n\010Metadata\022\027\n\017dest_tab" +
+      "le_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile" +
+      "_metadata\030\003 \003(\01329.io.debezium.server.ice" +
+      "berg.rpc.ArrowPayload.FileMetadata\022X\n\013fi" +
+      "le_upload\030\004 \001(\0132>.io.debezium.server.ice" +
+      "berg.rpc.ArrowPayload.FileUploadRequestH" +
+      "\000\210\001\001\022\017\n\007payload\030\006 \001(\tB\016\n\014_file_upload\"U\n" +
+      "\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTE" +
+      "R_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEPA" +
+      "TH\020\003\"\275\001\n\023ArrowIngestResponse\022\016\n\006result\030\001" +
+      " \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.debezi" +
+      "um.server.iceberg.rpc.ArrowIngestRespons" +
+      "e.IcebergSchemasEntry\0325\n\023IcebergSchemasE" +
+      "ntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001\n" +
+      "\023RecordIngestService\022s\n\013SendRecords\022..io" +
+      ".debezium.server.iceberg.rpc.IcebergPayl" +
+      "oad\0324.io.debezium.server.iceberg.rpc.Rec" +
+      "ordIngestResponse2\205\001\n\022ArrowIngestService" +
+      "\022o\n\nIcebergAPI\022,.io.debezium.server.iceb" +
+      "erg.rpc.ArrowPayload\0323.io.debezium.serve" +
+      "r.iceberg.rpc.ArrowIngestResponseb\006proto" +
+      "3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -12844,7 +12547,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "Payload", "SyncMode", "IdentifierField", });
+        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "Payload", "IdentifierField", });
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_fieldAccessorTable = new
@@ -12898,7 +12601,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "FileMetadata", "FileUpload", "Payload", "SyncMode", "FileUpload", });
+        new java.lang.String[] { "DestTableName", "ThreadId", "FileMetadata", "FileUpload", "Payload", "FileUpload", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor =
       getDescriptor().getMessageTypes().get(3);
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_fieldAccessorTable = new

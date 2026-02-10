@@ -587,8 +587,9 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 	return nil
 }
 
-// ThreadStatus returns whether a thread has been committed to the destination.
-func (p *Parquet) ThreadStatus(_ context.Context, _ string) (string, error) {
+// GetCommitState returns the commit state of the table.
+// Parquet destination does not currently implement 2PC commit metadata, so it returns empty.
+func (p *Parquet) GetCommitState(_ context.Context) (string, error) {
 	return "", nil
 }
 

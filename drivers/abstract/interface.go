@@ -24,11 +24,12 @@ type GlobalPosition2PC interface {
 	GetTargetCDCPosition() string          // returns target position (empty = use latest)
 }
 
-// PerStreamPosition2PC is for drivers that use per-stream CDC positions (MongoDB).
-// Each stream has its own resume token, so recovery works like incremental sync - no bounded sync needed.
-type PerStreamPosition2PC interface {
-	GetCDCPositionForStream(streamID string) string                                                               //
-	CheckPerStreamRecovery(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) error // checks next_data, verifies commit, updates or rollbacks _data
+type PerStreamRecovery2PC interface {
+	GetCDCPositionForStream(streamID string) string
+	// GetCDCStartPositionForStream returns the position used to start CDC for the stream.
+	GetCDCStartPositionForStream(stream types.StreamInterface) (string, error)
+	// SetRecoveredCDCPositionForStream updates the stream cursor to the recovered committed position.
+	SetRecoveredCDCPositionForStream(stream types.StreamInterface, position string) error
 }
 
 // PositionAcknowledgment is for drivers that need to acknowledge CDC positions to the source (Postgres).
