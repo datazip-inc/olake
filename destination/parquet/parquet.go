@@ -418,11 +418,6 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
 		}
 	}
-	logger.Debugf(
-		"[FlattenAndCleanData] after filtering: records=%d",
-		len(records),
-	)
-
 	return schemaChange, records, p.schema, nil
 }
 

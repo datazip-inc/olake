@@ -57,11 +57,7 @@ func FilterRecords(
 
 		parsedVal, err := typeutils.ReformatValue(dataType, cond.Value)
 		if err != nil && err != typeutils.ErrNullValue {
-			return nil, fmt.Errorf(
-				"failed to parse filter value for column [%s]: %s",
-				cond.Column,
-				err,
-			)
+			return nil, fmt.Errorf("failed to parse filter value for column [%s]: %s", cond.Column, err)
 		}
 		conditions[i] = parsedCondition{
 			column:   cond.Column,
