@@ -38,14 +38,13 @@ type StatusRow struct {
 }
 
 type StreamMetadata struct {
-	ChunkColumn      string           `json:"chunk_column,omitempty"`
-	PartitionRegex   string           `json:"partition_regex"`
-	StreamName       string           `json:"stream_name"`
-	AppendMode       bool             `json:"append_mode,omitempty"`
-	Normalization    bool             `json:"normalization"`
-	Filter           string           `json:"filter,omitempty"`
-	SelectedColumns  *SelectedColumns `json:"selected_columns"`
-	MandatoryColumns []string         `json:"mandatory_columns"`
+	ChunkColumn     string           `json:"chunk_column,omitempty"`
+	PartitionRegex  string           `json:"partition_regex"`
+	StreamName      string           `json:"stream_name"`
+	AppendMode      bool             `json:"append_mode,omitempty"`
+	Normalization   bool             `json:"normalization"`
+	Filter          string           `json:"filter,omitempty"`
+	SelectedColumns *SelectedColumns `json:"selected_columns"`
 }
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
@@ -74,11 +73,10 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		}
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:       stream.Name,
-			AppendMode:       utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization:    IsDriverRelational(driver),
-			SelectedColumns:  selectedCols,
-			MandatoryColumns: ComputeMandatoryColumns(stream, stream), // here we are passing the same stream for old and new because we are not yet merging the streams
+			StreamName:      stream.Name,
+			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+			Normalization:   IsDriverRelational(driver),
+			SelectedColumns: selectedCols,
 		})
 	}
 
@@ -121,7 +119,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 					MergeSelectedColumns(&metadata, oldStream, newStream)
 
-					metadata.MandatoryColumns = ComputeMandatoryColumns(oldStream, newStream)
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
 				return nil

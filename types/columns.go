@@ -1,11 +1,5 @@
 package types
 
-import (
-	"strings"
-
-	"github.com/datazip-inc/olake/constants"
-)
-
 // Config represents the user defined inputs
 // these are persisted in the catalog
 type Config struct {
@@ -212,58 +206,4 @@ func MergeSelectedColumns(
 	}
 
 	finalizeSelectedColumns()
-}
-
-// ComputeMandatoryColumns computes the mandatory columns for a stream based on:
-// 1. System generated fields (OlakeID, OlakeTimestamp, OpType)
-// 2. Cursor fields (if incremental sync)
-// 3. Driver specific CDC columns (if CDC sync mode) and CDC Timestamp
-// 4. Source defined primary key columns
-func ComputeMandatoryColumns(oldStream, newStream *Stream) []string {
-	mandatoryColumnsSet := NewSet[string]()
-
-	// Add system generated fields
-	systemFields := []string{constants.OlakeID, constants.OlakeTimestamp, constants.OpType}
-	mandatoryColumnsSet.Insert(systemFields...)
-
-	isCDC := oldStream.SyncMode == CDC || oldStream.SyncMode == STRICTCDC
-
-	// add cdc timestamp and driver-specific CDC columns if in CDC mode
-	if isCDC {
-		mandatoryColumnsSet.Insert(constants.CdcTimestamp)
-
-		newStream.Schema.Properties.Range(func(key, value interface{}) bool {
-			colName, isColNameString := key.(string)
-			if !isColNameString {
-				return true
-			}
-			prop, isPropTypeProperty := value.(*Property)
-			if !isPropTypeProperty {
-				return true
-			}
-			// add olake columns that start with _cdc_
-			if prop.OlakeColumn && strings.HasPrefix(colName, "_cdc_") {
-				mandatoryColumnsSet.Insert(colName)
-			}
-			return true
-		})
-	}
-
-	// Add cursor fields for incremental sync
-	if oldStream.SyncMode == INCREMENTAL && oldStream.CursorField != "" {
-		primaryCursor, secondaryCursor := parseCursorField(oldStream.CursorField)
-		if primaryCursor != "" {
-			mandatoryColumnsSet.Insert(primaryCursor)
-		}
-		if secondaryCursor != "" {
-			mandatoryColumnsSet.Insert(secondaryCursor)
-		}
-	}
-
-	// Add source defined primary key columns
-	if newStream.SourceDefinedPrimaryKey != nil {
-		mandatoryColumnsSet.Insert(newStream.SourceDefinedPrimaryKey.Array()...)
-	}
-
-	return mandatoryColumnsSet.Array()
 }
