@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -125,7 +126,7 @@ func filterConcurrently(
 		// 2. If a record was never synced (filtered out), deleting it is a no-op anyway
 		// 3. Delete operations in MongoDB CDC only contain the document key, not full document fields,
 		//    so filter conditions that require those fields cannot be evaluated
-		if record.OperationType == "d" {
+		if record.OlakeColumns[constants.OpType].(string) == "d" {
 			mu.Lock()
 			filtered = append(filtered, record)
 			mu.Unlock()

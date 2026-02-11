@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/stretchr/testify/assert"
@@ -16,7 +17,9 @@ import (
 // ─────────────────────────────────────────────────────────────────────────────
 
 func makeRecord(data map[string]any) types.RawRecord {
-	return types.RawRecord{Data: data}
+	return types.CreateRawRecord(data, map[string]any{
+		constants.OpType: "c",
+	})
 }
 
 func makeIcebergSchema(cols map[string]string) map[string]string {
@@ -1452,13 +1455,13 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 		// Create records with different operation types
 		// Filter condition: status = "active" (would normally exclude "inactive" records)
 		records := []types.RawRecord{
-			types.CreateRawRecord("id1", map[string]any{"status": "active", "id": int64(1)}, "c", nil),   // create - should match filter
-			types.CreateRawRecord("id2", map[string]any{"status": "inactive", "id": int64(2)}, "c", nil), // create - should NOT match filter
-			types.CreateRawRecord("id3", map[string]any{"status": "active", "id": int64(3)}, "u", nil),   // update - should match filter
-			types.CreateRawRecord("id4", map[string]any{"status": "inactive", "id": int64(4)}, "u", nil), // update - should NOT match filter
-			types.CreateRawRecord("id5", map[string]any{"status": "active", "id": int64(5)}, "d", nil),   // delete - should ALWAYS match (bypass filter)
-			types.CreateRawRecord("id6", map[string]any{"status": "inactive", "id": int64(6)}, "d", nil), // delete - should ALWAYS match (bypass filter)
-			types.CreateRawRecord("id7", map[string]any{"id": int64(7)}, "d", nil),                       // delete with missing status - should ALWAYS match
+			types.CreateRawRecord(map[string]any{"status": "active", "id": int64(1)}, map[string]any{constants.OlakeID: "id1", constants.OpType: "c"}),   // create - should match filter
+			types.CreateRawRecord(map[string]any{"status": "inactive", "id": int64(2)}, map[string]any{constants.OlakeID: "id2", constants.OpType: "c"}), // create - should NOT match filter
+			types.CreateRawRecord(map[string]any{"status": "active", "id": int64(3)}, map[string]any{constants.OlakeID: "id3", constants.OpType: "u"}),   // update - should match filter
+			types.CreateRawRecord(map[string]any{"status": "inactive", "id": int64(4)}, map[string]any{constants.OlakeID: "id4", constants.OpType: "u"}), // update - should NOT match filter
+			types.CreateRawRecord(map[string]any{"status": "active", "id": int64(5)}, map[string]any{constants.OlakeID: "id5", constants.OpType: "d"}),   // delete - should ALWAYS match (bypass filter)
+			types.CreateRawRecord(map[string]any{"status": "inactive", "id": int64(6)}, map[string]any{constants.OlakeID: "id6", constants.OpType: "d"}), // delete - should ALWAYS match (bypass filter)
+			types.CreateRawRecord(map[string]any{"id": int64(7)}, map[string]any{constants.OlakeID: "id7", constants.OpType: "d"}),                       // delete with missing status - should ALWAYS match
 		}
 
 		filter := types.FilterInput{
@@ -1489,7 +1492,7 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 		// Verify all delete operations are present
 		deleteOps := 0
 		for _, r := range result {
-			if r.OperationType == "d" {
+			if r.OlakeColumns[constants.OpType] == "d" {
 				deleteOps++
 			}
 		}
@@ -1498,7 +1501,7 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 		// Verify non-delete operations are filtered correctly
 		nonDeleteOps := 0
 		for _, r := range result {
-			if r.OperationType != "d" {
+			if r.OlakeColumns[constants.OpType] != "d" {
 				nonDeleteOps++
 				assert.Equal(t, "active", r.Data["status"], "non-delete operations should match filter")
 			}
@@ -1509,9 +1512,9 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 	t.Run("delete operations with complex AND filter", func(t *testing.T) {
 		// Complex filter that would exclude most records
 		records := []types.RawRecord{
-			types.CreateRawRecord("id1", map[string]any{"age": int64(25), "city": "NYC"}, "c", nil),
-			types.CreateRawRecord("id2", map[string]any{"age": int64(20), "city": "LA"}, "d", nil),  // delete - should bypass
-			types.CreateRawRecord("id3", map[string]any{"age": int64(30), "city": "NYC"}, "d", nil), // delete - should bypass
+			types.CreateRawRecord(map[string]any{"age": int64(25), "city": "NYC"}, map[string]any{constants.OlakeID: "id1", constants.OpType: "c"}),
+			types.CreateRawRecord(map[string]any{"age": int64(20), "city": "LA"}, map[string]any{constants.OlakeID: "id2", constants.OpType: "d"}),  // delete - should bypass
+			types.CreateRawRecord(map[string]any{"age": int64(30), "city": "NYC"}, map[string]any{constants.OlakeID: "id3", constants.OpType: "d"}), // delete - should bypass
 		}
 
 		filter := types.FilterInput{
@@ -1532,15 +1535,15 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 		// Expected: id1 filtered out (age=25 < 30), id2 and id3 are deletes so always included
 		assert.Len(t, result, 2, "only delete operations should be included")
 		for _, r := range result {
-			assert.Equal(t, "d", r.OperationType, "all results should be delete operations")
+			assert.Equal(t, "d", r.OlakeColumns[constants.OpType], "all results should be delete operations")
 		}
 	})
 
 	t.Run("delete operations with OR filter", func(t *testing.T) {
 		records := []types.RawRecord{
-			types.CreateRawRecord("id1", map[string]any{"status": "pending"}, "c", nil),
-			types.CreateRawRecord("id2", map[string]any{"status": "canceled"}, "d", nil), // delete - should bypass
-			types.CreateRawRecord("id3", map[string]any{"status": "completed"}, "c", nil),
+			types.CreateRawRecord(map[string]any{"status": "pending"}, map[string]any{constants.OlakeID: "id1", constants.OpType: "c"}),
+			types.CreateRawRecord(map[string]any{"status": "canceled"}, map[string]any{constants.OlakeID: "id2", constants.OpType: "d"}), // delete - should bypass
+			types.CreateRawRecord(map[string]any{"status": "completed"}, map[string]any{constants.OlakeID: "id3", constants.OpType: "c"}),
 		}
 
 		filter := types.FilterInput{
@@ -1563,9 +1566,9 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 		// Delete operations in MongoDB CDC only contain document key, not full fields
 		// This simulates that scenario
 		records := []types.RawRecord{
-			types.CreateRawRecord("id1", map[string]any{"_id": "doc1"}, "d", nil), // delete with only key
-			types.CreateRawRecord("id2", map[string]any{"_id": "doc2"}, "d", nil), // delete with only key
-			types.CreateRawRecord("id3", map[string]any{"status": "active", "_id": "doc3"}, "c", nil),
+			types.CreateRawRecord(map[string]any{"_id": "doc1"}, map[string]any{constants.OlakeID: "id1", constants.OpType: "d"}), // delete with only key
+			types.CreateRawRecord(map[string]any{"_id": "doc2"}, map[string]any{constants.OlakeID: "id2", constants.OpType: "d"}), // delete with only key
+			types.CreateRawRecord(map[string]any{"status": "active", "_id": "doc3"}, map[string]any{constants.OlakeID: "id3", constants.OpType: "c"}),
 		}
 
 		filter := types.FilterInput{
@@ -1585,7 +1588,7 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 		// Expected: id1 and id2 are deletes (always included), id3 matches filter
 		assert.Len(t, result, 3, "delete operations should be included even without filter columns")
 		for _, r := range result {
-			if r.OperationType == "d" {
+			if r.OlakeColumns[constants.OpType] == "d" {
 				// Verify delete operations don't have status field (CDC scenario)
 				_, hasStatus := r.Data["status"]
 				assert.False(t, hasStatus, "delete operations may not have filter columns")
