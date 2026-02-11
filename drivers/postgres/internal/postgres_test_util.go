@@ -395,3 +395,8 @@ var UpdatedPostgresToDestinationSchema = map[string]string{
 	"col_polygon":           "polygon",
 	"col_circle":            "circle",
 }
+
+var ExpectedPostgresDefaultCDCColumnsSchema = map[string]string{
+	"_cdc_timestamp": "timestamp",
+	"_cdc_lsn":       "string",
+}

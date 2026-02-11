@@ -2,7 +2,9 @@ package parquet
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -102,9 +104,9 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	writer := func() any {
 		if p.stream.NormalizationEnabled() {
-			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(), pqgo.Compression(&pqgo.Snappy))
+			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(false), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[types.RawRecord](pqFile, types.GetParquetRawSchema(), pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(true), pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = append(p.partitionedFiles[basePath], &FileMetadata{
@@ -158,8 +160,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
-		record.OlakeTimestamp = time.Now().UTC()
-		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeTimestamp)
+		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeColumns[constants.OlakeTimestamp].(time.Time))
 		partitionFiles, exists := p.partitionedFiles[partitionedPath]
 		if !exists {
 			err := p.createNewPartitionFile(partitionedPath)
@@ -179,7 +180,14 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		if p.stream.NormalizationEnabled() {
 			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
 		} else {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Write([]types.RawRecord{record})
+			dataBytes, merr := json.Marshal(record.Data)
+			if merr != nil {
+				return fmt.Errorf("failed to marshal data: %s", err)
+			}
+			recordsMap := map[string]any{constants.StringifiedData: string(dataBytes)}
+			maps.Copy(recordsMap, record.OlakeColumns)
+
+			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{recordsMap})
 		}
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
@@ -264,12 +272,7 @@ func (p *Parquet) closePqFiles(ctx context.Context, closeOnError bool) error {
 			filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
 
 			// Close writers
-			var err error
-			if p.stream.NormalizationEnabled() {
-				err = parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
-			} else {
-				err = parquetFile.writer.(*pqgo.GenericWriter[types.RawRecord]).Close()
-			}
+			err := parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
 			if err != nil {
 				return fmt.Errorf("failed to close writer: %s", err)
 			}
@@ -362,13 +365,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	err = utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 		// Add common fields
-		records[idx].Data[constants.OlakeID] = record.OlakeID
-		records[idx].Data[constants.OlakeTimestamp] = time.Now().UTC()
-		records[idx].Data[constants.OpType] = record.OperationType
-		if record.CdcTimestamp != nil {
-			records[idx].Data[constants.CdcTimestamp] = *record.CdcTimestamp
-		}
-
+		maps.Copy(records[idx].Data, record.OlakeColumns)
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
