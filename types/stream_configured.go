@@ -73,21 +73,15 @@ func (s *ConfiguredStream) GetDestinationTable() string {
 	return utils.Ternary(s.Stream.DestinationTable == "", s.Stream.Name, s.Stream.DestinationTable).(string)
 }
 
-// parseCursorField parses a cursor field string and returns primary and secondary cursor fields
-// Format: "primary_cursor" or "primary_cursor:secondary_cursor"
-func parseCursorField(cursorField string) (string, string) {
-	cursorFields := strings.Split(cursorField, ":")
+// returns primary and secondary cursor
+func (s *ConfiguredStream) Cursor() (string, string) {
+	cursorFields := strings.Split(s.Stream.CursorField, ":")
 	primaryCursor := cursorFields[0]
 	secondaryCursor := ""
 	if len(cursorFields) > 1 {
 		secondaryCursor = cursorFields[1]
 	}
 	return primaryCursor, secondaryCursor
-}
-
-// returns primary and secondary cursor
-func (s *ConfiguredStream) Cursor() (string, string) {
-	return parseCursorField(s.Stream.CursorField)
 }
 
 func (s *ConfiguredStream) GetFilter() (Filter, error) {
