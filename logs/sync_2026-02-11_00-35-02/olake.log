@@ -1,0 +1,5 @@
+{"level":"info","time":"2026-02-11T00:35:02Z","message":"Running sync with state: {\"type\":\"STREAM\"}"}
+{"level":"info","message":"Standard Replication is selected","time":"2026-02-11T00:35:02Z"}
+{"level":"info","time":"2026-02-11T00:35:02Z","message":"Starting discover for Postgres database postgres"}
+{"level":"warn","time":"2026-02-11T00:35:02Z","message":"Skipping; Configured Stream public.test_cdc found invalid due to reason: invalid cursor field []; valid are [id, data, meta, created_at]"}
+{"level":"fatal","time":"2026-02-11T00:35:02Z","message":"failed to get selected streams for clearing: no valid streams found in catalog"}

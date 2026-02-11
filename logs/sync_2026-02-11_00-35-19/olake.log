@@ -1,0 +1,5 @@
+{"level":"info","time":"2026-02-11T00:35:19Z","message":"Running sync with state: {\"type\":\"STREAM\"}"}
+{"level":"info","message":"Standard Replication is selected","time":"2026-02-11T00:35:19Z"}
+{"level":"info","time":"2026-02-11T00:35:19Z","message":"Starting discover for Postgres database postgres"}
+{"level":"info","time":"2026-02-11T00:35:19Z","message":"Valid selected streams are public.test_cdc"}
+{"level":"fatal","time":"2026-02-11T00:35:19Z","message":"invalid destination type has been passed [iceberg]"}

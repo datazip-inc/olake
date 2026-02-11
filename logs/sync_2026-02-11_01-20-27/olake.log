@@ -1,0 +1,15 @@
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Running sync with state: {\"type\":\"STREAM\"}"}
+{"level":"info","message":"Standard Replication is selected","time":"2026-02-11T01:20:27Z"}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Starting discover for Postgres database postgres"}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Valid selected streams are public.test_cdc"}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Thread[test_parquet_destination_1770772827627504800]: s3 writer configuration found"}
+{"level":"debug","time":"2026-02-11T01:20:27Z","message":"state is empty"}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Starting backfill for stream[test_cdc] with 1 chunks"}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Thread[public.test_cdc_01KH54J3G4T3T06K4V0VYKTA67]: created writer for chunk min['(0,0)'] and max['(4294967295,0)'] of stream public.test_cdc"}
+{"level":"debug","time":"2026-02-11T01:20:27Z","message":"Starting backfill from '(0,0)' to '(4294967295,0)' with filter: (\"created_at\" IS NULL OR \"created_at\" <= $1), args: [2026-02-11T01:16:08.543796000Z]"}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Thread[public.test_cdc_01KH54J3G4T3T06K4V0VYKTA67]: created new partition file[C:\\Users\\diino\\AppData\\Local\\Temp\\public\\test_cdc\\2026-2-11_1-20-27_01KH54J3GAR07CEHSQ32K2MS2W.parquet]"}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Thread[public.test_cdc_01KH54J3G4T3T06K4V0VYKTA67]: successfully wrote 3 records"}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Thread[public.test_cdc_01KH54J3G4T3T06K4V0VYKTA67]: Finished writing file [C:\\Users\\diino\\AppData\\Local\\Temp\\public\\test_cdc\\2026-2-11_1-20-27_01KH54J3GAR07CEHSQ32K2MS2W.parquet]."}
+{"level":"warn","time":"2026-02-11T01:20:27Z","message":"Thread[public.test_cdc_01KH54J3G4T3T06K4V0VYKTA67]: Failed to delete file [C:\\Users\\diino\\AppData\\Local\\Temp\\public\\test_cdc\\2026-2-11_1-20-27_01KH54J3GAR07CEHSQ32K2MS2W.parquet], reason (uploaded to S3): remove C:\\Users\\diino\\AppData\\Local\\Temp\\public\\test_cdc\\2026-2-11_1-20-27_01KH54J3GAR07CEHSQ32K2MS2W.parquet: The process cannot access the file because it is being used by another process."}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"Thread[public.test_cdc_01KH54J3G4T3T06K4V0VYKTA67]: successfully uploaded file to S3: s3://warehouse/\\cdc_demo\\public\\test_cdc\\2026-2-11_1-20-27_01KH54J3GAR07CEHSQ32K2MS2W.parquet"}
+{"level":"info","time":"2026-02-11T01:20:27Z","message":"finished chunk min['(0,0)'] and max['(4294967295,0)'] of stream public.test_cdc"}

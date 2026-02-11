@@ -1,0 +1,14 @@
+{"level":"info","time":"2026-02-11T10:05:15Z","message":"Running sync with state: {\"type\":\"STREAM\",\"global\":{\"state\":{\"lsn\":\"0/163EF60\"},\"streams\":[\"public.test_cdc\"]},\"streams\":[{\"stream\":\"test_cdc\",\"namespace\":\"public\",\"sync_mode\":\"\",\"state\":{\"chunks\":[]}}]}"}
+{"level":"info","message":"Found CDC Configuration","time":"2026-02-11T10:05:15Z"}
+{"level":"info","time":"2026-02-11T10:05:15Z","message":"CDC initial wait time set to: 10800"}
+{"level":"debug","time":"2026-02-11T10:05:15Z","message":"replication slot[olake_slot] with pluginType[pgoutput] found"}
+{"level":"info","time":"2026-02-11T10:05:15Z","message":"Starting discover for Postgres database postgres"}
+{"level":"info","time":"2026-02-11T10:05:15Z","message":"Valid selected streams are public.test_cdc"}
+{"level":"info","time":"2026-02-11T10:05:15Z","message":"Thread[test_parquet_destination_1770804315940889300]: s3 writer configuration found"}
+{"level":"info","time":"2026-02-11T10:05:15Z","message":"SystemID:7604083002107105321 Timeline:1 XLogPos:0/163EF60 Database:postgres"}
+{"level":"info","time":"2026-02-11T10:05:15Z","message":"backfill completed for stream[public.test_cdc], skipping"}
+{"level":"info","time":"2026-02-11T10:05:15Z","message":"pgoutput starting from lsn=0/163EF60 target=0/163EF60"}
+{"level":"info","time":"2026-02-11T10:05:15Z","message":"finishing sync, reached wal position: 0/163EF60"}
+{"level":"debug","time":"2026-02-11T10:05:16Z","message":"sent standby status message at LSN#0/163EF60"}
+{"level":"info","time":"2026-02-11T10:05:19Z","message":"Total records read: 0"}
+{"level":"info","time":"2026-02-11T10:05:19Z","message":"Sync completed, wait 5 seconds cleanup in progress..."}

@@ -8,7 +8,7 @@ import (
 
 func main() {
 	driver := &driver.Postgres{
-		CDCSupport: false,
+		CDCSupport: true,
 	}
 	defer driver.CloseConnection()
 	olake.RegisterDriver(driver)

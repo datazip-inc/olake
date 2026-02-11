@@ -1,0 +1,19 @@
+{"level":"info","time":"2026-02-11T06:53:45Z","message":"Running sync with state: {\"type\":\"STREAM\",\"global\":{\"state\":{\"lsn\":\"0/1637338\"},\"streams\":[\"public.test_cdc\"]},\"streams\":[{\"stream\":\"test_cdc\",\"namespace\":\"public\",\"sync_mode\":\"\",\"state\":{\"chunks\":[]}}]}"}
+{"level":"info","message":"Found CDC Configuration","time":"2026-02-11T06:53:45Z"}
+{"level":"info","time":"2026-02-11T06:53:45Z","message":"CDC initial wait time set to: 10800"}
+{"level":"debug","time":"2026-02-11T06:53:45Z","message":"replication slot[olake_slot] with pluginType[pgoutput] found"}
+{"level":"info","time":"2026-02-11T06:53:45Z","message":"Starting discover for Postgres database postgres"}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"Valid selected streams are public.test_cdc"}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"Thread[test_parquet_destination_1770792826009433700]: s3 writer configuration found"}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"SystemID:7604083002107105321 Timeline:1 XLogPos:0/163E000 Database:postgres"}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"backfill completed for stream[public.test_cdc], skipping"}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"pgoutput starting from lsn=0/1637338 target=0/163E000"}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"finishing sync, reached wal position: 0/163E000"}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"Thread[public.test_cdc_01KH5QMD5ZXC4P5ZREBKDNWEPY]: created new partition file[C:\\Users\\diino\\AppData\\Local\\Temp\\public\\test_cdc_new\\2026-2-11_6-53-46_01KH5QMDAYYY55JJQ19G2QYFYM.parquet]"}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"Thread[public.test_cdc_01KH5QMD5ZXC4P5ZREBKDNWEPY]: successfully wrote 1 records"}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"Thread[public.test_cdc_01KH5QMD5ZXC4P5ZREBKDNWEPY]: Finished writing file [C:\\Users\\diino\\AppData\\Local\\Temp\\public\\test_cdc_new\\2026-2-11_6-53-46_01KH5QMDAYYY55JJQ19G2QYFYM.parquet]."}
+{"level":"warn","time":"2026-02-11T06:53:46Z","message":"Thread[public.test_cdc_01KH5QMD5ZXC4P5ZREBKDNWEPY]: Failed to delete file [C:\\Users\\diino\\AppData\\Local\\Temp\\public\\test_cdc_new\\2026-2-11_6-53-46_01KH5QMDAYYY55JJQ19G2QYFYM.parquet], reason (uploaded to S3): remove C:\\Users\\diino\\AppData\\Local\\Temp\\public\\test_cdc_new\\2026-2-11_6-53-46_01KH5QMDAYYY55JJQ19G2QYFYM.parquet: The process cannot access the file because it is being used by another process."}
+{"level":"info","time":"2026-02-11T06:53:46Z","message":"Thread[public.test_cdc_01KH5QMD5ZXC4P5ZREBKDNWEPY]: successfully uploaded file to S3: s3://warehouse/cdc_demo\\public\\test_cdc_new\\2026-2-11_6-53-46_01KH5QMDAYYY55JJQ19G2QYFYM.parquet"}
+{"level":"debug","time":"2026-02-11T06:53:46Z","message":"sent standby status message at LSN#0/163E6D8"}
+{"level":"info","time":"2026-02-11T06:53:49Z","message":"Total records read: 1"}
+{"level":"info","time":"2026-02-11T06:53:49Z","message":"Sync completed, wait 5 seconds cleanup in progress..."}

@@ -1,0 +1,1 @@
+{"level":"fatal","time":"2026-02-11T00:27:21Z","message":"failed to ping database: failed to connect to `host=localhost user=postgres database=postgres`: dial error (dial tcp 127.0.0.1:5433: connectex: No connection could be made because the target machine actively refused it.)"}

@@ -1,0 +1,2 @@
+{"level":"info","time":"2026-02-11T05:46:40Z","message":"Running sync with state: {\"type\":\"STREAM\",\"streams\":[{\"stream\":\"test_cdc\",\"namespace\":\"public\",\"sync_mode\":\"\",\"state\":{\"chunks\":[],\"created_at\":\"2026-02-11T01:16:08.543796000Z\"}}]}"}
+{"level":"fatal","time":"2026-02-11T05:46:40Z","message":"failed to ping database: failed to connect to `host=localhost user=postgres database=postgres`: dial error (dial tcp 127.0.0.1:5433: connectex: No connection could be made because the target machine actively refused it.)"}

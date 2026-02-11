@@ -1,0 +1,70 @@
+{"level":"info","time":"2026-02-11T00:40:19Z","message":"Running sync with state: {\"type\":\"STREAM\"}"}
+{"level":"info","message":"Standard Replication is selected","time":"2026-02-11T00:40:19Z"}
+{"level":"info","time":"2026-02-11T00:40:19Z","message":"Starting discover for Postgres database postgres"}
+{"level":"info","time":"2026-02-11T00:40:19Z","message":"Valid selected streams are public.test_cdc"}
+{"level":"info","time":"2026-02-11T00:40:19Z","message":"Clearing state for full refresh streams"}
+{"level":"info","time":"2026-02-11T00:40:19Z","message":"Iceberg JAR file found in base directory: C:\\Users\\diino\\Documents\\Contributions\\olake/olake-iceberg-java-writer.jar"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:20.559 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Logs will be output to console only","time":"2026-02-11T00:40:20Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:21.547 [main] INFO  org.apache.iceberg.CatalogUtil - Loading custom FileIO implementation: org.apache.iceberg.io.ResolvingFileIO","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:21.581 [main] INFO  io.debezium.serde.json.JsonSerdeConfig - JsonSerdeConfig values: ","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] \tfrom.field = null","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] \tunknown.properties.ignored = false","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] ","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:21.583 [main] INFO  io.debezium.serde.json.JsonSerdeConfig - JsonSerdeConfig values: ","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] \tfrom.field = null","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] \tunknown.properties.ignored = false","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] ","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:21.820 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Arrow writer enabled - registered OlakeArrowIngester service","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:21.830 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Legacy writer enabled - registered OlakeRowsIngester service","time":"2026-02-11T00:40:21Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:22.301 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Server started on port 50051 with max message size: 1024MB","time":"2026-02-11T00:40:22Z"}
+{"level":"info","time":"2026-02-11T00:40:22Z","message":"Thread[iceberg_destination_drop]: Connected to new iceberg writer on port 50051"}
+{"level":"info","time":"2026-02-11T00:40:22Z","message":"Starting Clear Iceberg destination for 1 selected streams"}
+{"level":"info","time":"2026-02-11T00:40:22Z","message":"Dropping Iceberg table: public.test_cdc"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:22.574 [grpc-default-executor-0] WARN  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-25-20920940780700] Dropping table public.test_cdc","time":"2026-02-11T00:40:22Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:22.601 [grpc-default-executor-0] WARN  io.debezium.server.iceberg.IcebergUtil - Table not found: public.test_cdc","time":"2026-02-11T00:40:22Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:22.621 [grpc-default-executor-0] WARN  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-25-20920940780700] Table test_cdc not dropped, table does not exist","time":"2026-02-11T00:40:22Z"}
+{"level":"info","message":"Thread[iceberg_destination_drop:50051] 19:40:22.621 [grpc-default-executor-0] INFO  io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-25-20920940780700] Total time taken: 48 ms","time":"2026-02-11T00:40:22Z"}
+{"level":"info","message":"Successfully cleared Iceberg destination for selected streams","time":"2026-02-11T00:40:22Z"}
+{"level":"info","time":"2026-02-11T00:40:22Z","message":"Thread[iceberg_destination_drop]: shutting down Iceberg server on port 50051"}
+{"level":"info","time":"2026-02-11T00:40:22Z","message":"Iceberg JAR file found in base directory: C:\\Users\\diino\\Documents\\Contributions\\olake/olake-iceberg-java-writer.jar"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] 19:40:24.605 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Logs will be output to console only","time":"2026-02-11T00:40:24Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] 19:40:25.547 [main] INFO  org.apache.iceberg.CatalogUtil - Loading custom FileIO implementation: org.apache.iceberg.io.ResolvingFileIO","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] 19:40:25.591 [main] INFO  io.debezium.serde.json.JsonSerdeConfig - JsonSerdeConfig values: ","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] \tfrom.field = null","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] \tunknown.properties.ignored = false","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] ","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] 19:40:25.592 [main] INFO  io.debezium.serde.json.JsonSerdeConfig - JsonSerdeConfig values: ","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] \tfrom.field = null","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] \tunknown.properties.ignored = false","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] ","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] 19:40:25.886 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Legacy writer enabled - registered OlakeRowsIngester service","time":"2026-02-11T00:40:25Z"}
+{"level":"info","message":"Thread[test_iceberg_destination:50052] 19:40:26.263 [main] INFO  io.debezium.server.iceberg.OlakeRpcServer - Server started on port 50052 with max message size: 1024MB","time":"2026-02-11T00:40:26Z"}
+{"level":"info","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination]: Connected to new iceberg writer on port 50052"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] 19:40:26.561 [grpc-default-executor-0] ERROR io.debezium.server.iceberg.rpc.OlakeRowsIngester - [Thread-24-20924871940200] Failed to process request: Server error: NotFoundException: Location does not exist: s3://warehouse/test_olake/test_olake/metadata/00000-da476f20-40d3-4a55-9200-2570e68ec5d1.metadata.json"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] org.apache.iceberg.exceptions.ServiceFailureException: Server error: NotFoundException: Location does not exist: s3://warehouse/test_olake/test_olake/metadata/00000-da476f20-40d3-4a55-9200-2570e68ec5d1.metadata.json"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.ErrorHandlers$DefaultErrorHandler.accept(ErrorHandlers.java:217) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.ErrorHandlers$TableErrorHandler.accept(ErrorHandlers.java:118) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.ErrorHandlers$TableErrorHandler.accept(ErrorHandlers.java:102) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.HTTPClient.throwFailure(HTTPClient.java:211) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.HTTPClient.execute(HTTPClient.java:323) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.HTTPClient.execute(HTTPClient.java:262) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.HTTPClient.get(HTTPClient.java:358) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.RESTClient.get(RESTClient.java:96) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.RESTSessionCatalog.loadInternal(RESTSessionCatalog.java:438) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.RESTSessionCatalog.loadTable(RESTSessionCatalog.java:462) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.catalog.BaseSessionCatalog$AsCatalog.loadTable(BaseSessionCatalog.java:99) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat org.apache.iceberg.rest.RESTCatalog.loadTable(RESTCatalog.java:102) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat io.debezium.server.iceberg.IcebergUtil.loadIcebergTable(IcebergUtil.java:232) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat io.debezium.server.iceberg.rpc.OlakeRowsIngester.loadIcebergTable(OlakeRowsIngester.java:153) ~[olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat io.debezium.server.iceberg.rpc.OlakeRowsIngester.sendRecords(OlakeRowsIngester.java:67) [olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat io.debezium.server.iceberg.rpc.RecordIngestServiceGrpc$MethodHandlers.invoke(RecordIngestServiceGrpc.java:205) [olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat io.grpc.stub.ServerCalls$UnaryServerCallHandler$UnaryServerCallListener.onHalfClose(ServerCalls.java:182) [olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat io.grpc.internal.ServerCallImpl$ServerStreamListenerImpl.halfClosed(ServerCallImpl.java:356) [olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat io.grpc.internal.ServerImpl$JumpToApplicationThreadServerStreamListener$1HalfClosed.runInContext(ServerImpl.java:861) [olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat io.grpc.internal.ContextRunnable.run(ContextRunnable.java:37) [olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat io.grpc.internal.SerializingExecutor.run(SerializingExecutor.java:133) [olake-iceberg-java-writer.jar:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136) [?:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635) [?:?]"}
+{"level":"error","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination:50052] \tat java.base/java.lang.Thread.run(Thread.java:840) [?:?]"}
+{"level":"info","time":"2026-02-11T00:40:26Z","message":"Thread[test_iceberg_destination]: shutting down Iceberg server on port 50052"}
+{"level":"fatal","time":"2026-02-11T00:40:26Z","message":"failed to test destination: failed to create or get table: rpc error: code = Internal desc = [Thread-24-20924871940200] Failed to process request: Server error: NotFoundException: Location does not exist: s3://warehouse/test_olake/test_olake/metadata/00000-da476f20-40d3-4a55-9200-2570e68ec5d1.metadata.json"}

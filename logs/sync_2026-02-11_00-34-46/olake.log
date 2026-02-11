@@ -1,0 +1,5 @@
+{"level":"info","time":"2026-02-11T00:34:46Z","message":"Running sync with state: {\"type\":\"STREAM\"}"}
+{"level":"info","message":"Standard Replication is selected","time":"2026-02-11T00:34:46Z"}
+{"level":"info","time":"2026-02-11T00:34:46Z","message":"Starting discover for Postgres database postgres"}
+{"level":"warn","time":"2026-02-11T00:34:46Z","message":"Skipping; Configured Stream public.test_cdc found invalid due to reason: invalid sync mode[cdc]; valid are [full_refresh, incremental]"}
+{"level":"fatal","time":"2026-02-11T00:34:46Z","message":"failed to get selected streams for clearing: no valid streams found in catalog"}

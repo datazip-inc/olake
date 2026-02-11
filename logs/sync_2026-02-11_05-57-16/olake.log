@@ -1,0 +1,10 @@
+{"level":"info","time":"2026-02-11T05:57:16Z","message":"Running sync with state: {\"type\":\"STREAM\",\"streams\":[{\"stream\":\"test_cdc\",\"namespace\":\"public\",\"sync_mode\":\"\",\"state\":{\"chunks\":[],\"created_at\":\"2026-02-11T01:16:08.543796000Z\"}}]}"}
+{"level":"info","message":"Standard Replication is selected","time":"2026-02-11T05:57:16Z"}
+{"level":"info","time":"2026-02-11T05:57:16Z","message":"Starting discover for Postgres database postgres"}
+{"level":"info","time":"2026-02-11T05:57:16Z","message":"Valid selected streams are public.test_cdc"}
+{"level":"info","time":"2026-02-11T05:57:16Z","message":"Thread[test_parquet_destination_1770789436580061800]: s3 writer configuration found"}
+{"level":"info","time":"2026-02-11T05:57:16Z","message":"Backfill skipped for stream[public.test_cdc], already completed"}
+{"level":"info","time":"2026-02-11T05:57:16Z","message":"Thread[public.test_cdc_01KH5MCZ5WBD3T4P4MT61S5ZAT]: created incremental writer for stream public.test_cdc"}
+{"level":"info","time":"2026-02-11T05:57:16Z","message":"Starting incremental sync for stream[public.test_cdc] with condition: \"created_at\" > $1 and args: [2026-02-11T01:16:08.543796000Z]"}
+{"level":"info","time":"2026-02-11T05:57:16Z","message":"Sync completed, wait 5 seconds cleanup in progress..."}
+{"level":"fatal","time":"2026-02-11T05:57:21Z","message":"error occurred while reading records: error occurred while waiting for connections: thread[public.test_cdc_01KH5MCZ5WBD3T4P4MT61S5ZAT]: panic recovered in incremental sync: interface conversion: interface {} is string, not time.Time, prev error: %!s(<nil>)"}

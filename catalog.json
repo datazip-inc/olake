@@ -1,0 +1,1 @@
+{"selected_streams": {"public": [{"stream_name": "test_cdc"}]}, "streams": [{"stream": {"name": "test_cdc", "namespace": "public", "sync_mode": "cdc", "destination_table": "test_cdc_new"}}]}

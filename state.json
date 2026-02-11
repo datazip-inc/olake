@@ -1,0 +1,1 @@
+{"type":"STREAM","global":{"state":{"lsn":"0/163EF60"},"streams":["public.test_cdc"]},"streams":[{"stream":"test_cdc","namespace":"public","sync_mode":"","state":{"chunks":[]}}]}

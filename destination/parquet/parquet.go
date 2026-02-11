@@ -283,7 +283,7 @@ func (p *Parquet) closePqFiles() error {
 			if p.config.Prefix != "" {
 				s3KeyPath = filepath.Join(p.config.Prefix, s3KeyPath)
 			}
-			s3KeyPath = filepath.Join(s3KeyPath, parquetFile.fileName)
+			s3KeyPath = filepath.ToSlash(filepath.Join(s3KeyPath, parquetFile.fileName))
 
 			// Upload to S3 using multipart upload (automatically handles files > 5GB)
 			_, err = p.s3Uploader.Upload(&s3manager.UploadInput{

@@ -1,0 +1,11 @@
+{
+  "type": "PARQUET",
+  "writer": {
+    "s3_bucket": "warehouse",
+    "s3_region": "us-east-1",
+    "s3_path": "/cdc_demo/",
+    "s3_access_key": "minio",
+    "s3_secret_key": "minio123",
+    "s3_endpoint": "http://localhost:9090"
+  }
+}

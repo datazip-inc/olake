@@ -1,0 +1,14 @@
+{
+  "host": "localhost",
+  "port": 5433,
+  "database": "postgres",
+  "username": "postgres",
+  "password": "password",
+  "update_method": {
+    "replication_slot": "olake_slot",
+    "publication": "olake_publication",
+    "plugin_args": {
+        "proto_version": "1"
+    }
+  }
+}

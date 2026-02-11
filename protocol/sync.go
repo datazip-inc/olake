@@ -185,6 +185,12 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
 				return false
 			}
+
+			// populate stream with source details
+			elem.Stream.Schema = source.Schema
+			elem.Stream.SupportedSyncModes = source.SupportedSyncModes
+			elem.Stream.SourceDefinedPrimaryKey = source.SourceDefinedPrimaryKey
+			elem.Stream.AvailableCursorFields = source.AvailableCursorFields
 		}
 
 		classifications.SelectedStreams = append(classifications.SelectedStreams, elem.ID())

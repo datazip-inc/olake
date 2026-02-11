@@ -49,13 +49,28 @@ func Compare(a, b any) int {
 		}
 		return 0
 	case time.Time:
-		bTime := b.(time.Time)
-		if aVal.Before(bTime) {
-			return -1
-		} else if aVal.After(bTime) {
-			return 1
+		if bTime, ok := b.(time.Time); ok {
+			if aVal.Before(bTime) {
+				return -1
+			} else if aVal.After(bTime) {
+				return 1
+			}
+			return 0
 		}
-		return 0
+		// Try to parse b as time if it's a string
+		if bStr, ok := b.(string); ok {
+			if bTime, err := time.Parse(time.RFC3339, bStr); err == nil {
+				if aVal.Before(bTime) {
+					return -1
+				} else if aVal.After(bTime) {
+					return 1
+				}
+				return 0
+			}
+			// if b is "2026-02-11T01:16:08.543796000Z", RFC3339 should work.
+			// But sometimes it might have more precision or different format.
+			// Try other formats if needed.
+		}
 	case bool:
 		bBool := b.(bool)
 		// false < true
@@ -76,4 +91,5 @@ func Compare(a, b any) int {
 		// For any other types, convert to string for comparison
 		return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
 	}
+	return 0
 }

@@ -122,7 +122,14 @@ func ReformatCursorValue(cursorField string, cursorValue any, stream types.Strea
 	if cursorField == "" {
 		return cursorValue, nil
 	}
-	cursorColType, err := stream.Schema().GetType(cursorField)
+
+	// Handle case where schema is not yet initialized
+	schema := stream.Schema()
+	if schema == nil {
+		return cursorValue, nil
+	}
+
+	cursorColType, err := schema.GetType(cursorField)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cursor column type: %s", err)
 	}
