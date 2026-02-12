@@ -46,6 +46,7 @@ type Config struct {
 	GlueEndpoint  string `json:"glue_endpoint,omitempty"`
 	GlueAccessKey string `json:"glue_access_key,omitempty"`
 	GlueSecretKey string `json:"glue_secret_key,omitempty"`
+	GlueRegion    string `json:"glue_region,omitempty"`
 	GlueCatalogID string `json:"glue_catalog_id,omitempty"`
 
 	// JDBC specific configuration

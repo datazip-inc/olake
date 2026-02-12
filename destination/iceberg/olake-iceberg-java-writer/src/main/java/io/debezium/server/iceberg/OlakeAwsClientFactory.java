@@ -69,8 +69,11 @@ public class OlakeAwsClientFactory implements AwsClientFactory {
                         )
                 );
 
-        // Region: prefer s3.region (we set it from aws_region in Go)
-        String region = props.get("s3.region");
+        // Region: prefer glue.region if set, otherwise fall back to s3.region
+        String region = props.get("glue.region");
+        if (isBlank(region)) {
+             String s3Region = props.get("s3.region");
+        }
         if (!isBlank(region)) {
             builder.region(Region.of(region));
         }
@@ -98,4 +101,3 @@ public class OlakeAwsClientFactory implements AwsClientFactory {
         return s == null || s.trim().isEmpty();
     }
 }
-

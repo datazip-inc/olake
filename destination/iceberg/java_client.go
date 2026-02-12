@@ -84,6 +84,7 @@ func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo,
 			addMapKeyIfNotEmpty("client.factory", "io.debezium.server.iceberg.OlakeAwsClientFactory")
 			addMapKeyIfNotEmpty("glue.access-key-id", config.GlueAccessKey)
 			addMapKeyIfNotEmpty("glue.secret-access-key", config.GlueSecretKey)
+			addMapKeyIfNotEmpty("glue.region", config.GlueRegion)
 		}
 	case JDBCCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.jdbc.JdbcCatalog"
