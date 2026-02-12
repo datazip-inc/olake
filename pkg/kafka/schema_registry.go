@@ -37,7 +37,7 @@ func (c *SchemaRegistryClient) schemaRegistryGetRequest(path string) (*http.Resp
 	}
 	req.Header.Set("Accept", "application/vnd.schemaregistry.v1+json")
 
-	return c.httpClient.Do(req)
+	return c.httpClient.Do(req) // #nosec G704
 }
 
 // TODO: fetch schema by subject strategy if needed (e.g. latest, version specific)

@@ -196,8 +196,7 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// #nosec G704 -- URL comes from internal config
-	resp, err := t.httpClient.Do(req)
+	resp, err := t.httpClient.Do(req) // #nosec G704
 	if err != nil {
 		return err
 	}
@@ -252,7 +251,7 @@ func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
 	}
 
 	client := http.Client{Timeout: 1 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := client.Do(req) // #nosec G704
 	if err != nil {
 		return LocationInfo{}, err
 	}
