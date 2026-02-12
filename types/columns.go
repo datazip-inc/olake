@@ -86,26 +86,28 @@ func collectColumnsFromSchema(schema *TypeSchema) []string {
 // 6. set the all selected flag
 func MergeSelectedColumns(
 	metadata *StreamMetadata,
+	oldStream *Stream,
 	newStream *Stream,
 ) {
+	oldSchemaColumnsSet := collectColumnsFromSchemaAsSet(oldStream.Schema)
+	newSchemaColumnsSet := collectColumnsFromSchemaAsSet(newStream.Schema)
+
 	var columns []string
+
 	// no previous selection: initialize with all columns from new schema
 	if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
 		columns = collectColumnsFromSchema(newStream.Schema)
 	} else {
-		previouslySelectedSet := NewSet(metadata.SelectedColumns.Columns...)
-		// retain previously selected columns, add new ones if sync_new_columns enabled
-		newStream.Schema.Properties.Range(func(key, _ interface{}) bool {
-			col, ok := key.(string)
-			if !ok {
-				return true
-			}
-			if previouslySelectedSet.Exists(col) || metadata.SelectedColumns.SyncNewColumns {
-				columns = append(columns, col)
-			}
-			return true
-		})
+		previouslySelectedColumnsSet := NewSet(metadata.SelectedColumns.Columns...)
+		if metadata.SelectedColumns.SyncNewColumns {
+			// add newly discovered columns when sync_new_columns is true
+			newColumnsSet := newSchemaColumnsSet.Difference(oldSchemaColumnsSet)
+			columns = previouslySelectedColumnsSet.Union(newColumnsSet).Array()
+		} else {
+			columns = previouslySelectedColumnsSet.Array()
+		}
 	}
+
 	metadata.SelectedColumns = &SelectedColumns{
 		Columns:        columns,
 		SyncNewColumns: metadata.SelectedColumns.SyncNewColumns,
