@@ -1,7 +1,10 @@
 package typeutils
 
 import (
+	"encoding/json"
 	"math/big"
+
+	"github.com/datazip-inc/olake/utils"
 )
 
 // ExtractAvroRecord recursively extracts Avro record to JSON-compatible map
@@ -39,6 +42,57 @@ func ExtractAvroValue(v interface{}) interface{} {
 		}
 		return result
 	default:
+		return val
+	}
+}
+
+// NormalizeAvroSchema parses Avro schema and normalizes all "name" and "namespace" fields
+func NormalizeAvroSchema(schemaStr string) (string, error) {
+	var schema interface{}
+	if err := json.Unmarshal([]byte(schemaStr), &schema); err != nil {
+		return "", err
+	}
+
+	schema = normalizeSchemaRecursive(schema)
+
+	bytes, err := json.Marshal(schema)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+// normalizeSchemaRecursive recursively normalizes all "name" and "namespace" fields in the schema
+func normalizeSchemaRecursive(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		// normalize "name" and "namespace" if they exist
+		if name, ok := val["name"].(string); ok {
+			val["name"] = utils.NormalizeAvroValue(name)
+		}
+		if namespace, ok := val["namespace"].(string); ok {
+			val["namespace"] = utils.NormalizeAvroValue(namespace)
+		}
+
+		// Recursively process other keys
+		for key, item := range val {
+			// Only recurse into values that are map or slice
+			if _, isMap := item.(map[string]interface{}); isMap {
+				val[key] = normalizeSchemaRecursive(item)
+			} else if _, isSlice := item.([]interface{}); isSlice {
+				val[key] = normalizeSchemaRecursive(item)
+			}
+		}
+		return val
+
+	case []interface{}:
+		for index, item := range val {
+			val[index] = normalizeSchemaRecursive(item)
+		}
+		return val
+
+	default:
+		// For primitive types (string, int, etc.) return as it is
 		return val
 	}
 }

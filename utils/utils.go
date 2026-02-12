@@ -506,3 +506,16 @@ func ExtractColumnName(groups ...string) string {
 	}
 	return ""
 }
+
+// NormalizeAvroValue replaces all non-alphanumeric characters with "_" (compliant with avro naming conventions)
+func NormalizeAvroValue(value string) string {
+	var result strings.Builder
+	for _, r := range value {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' {
+			result.WriteRune(r)
+		} else {
+			result.WriteRune('_')
+		}
+	}
+	return result.String()
+}
