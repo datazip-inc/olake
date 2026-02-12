@@ -75,6 +75,16 @@ func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo,
 	switch config.CatalogType {
 	case GlueCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.aws.glue.GlueCatalog"
+
+		addMapKeyIfNotEmpty("glue.endpoint", config.GlueEndpoint)
+		addMapKeyIfNotEmpty("glue.id", config.GlueCatalogID)
+		addMapKeyIfNotEmpty("glue.catalog-id", config.GlueCatalogID)
+
+		if config.GlueAccessKey != "" && config.GlueSecretKey != "" {
+			addMapKeyIfNotEmpty("client.factory", "io.debezium.server.iceberg.OlakeAwsClientFactory")
+			addMapKeyIfNotEmpty("glue.access-key-id", config.GlueAccessKey)
+			addMapKeyIfNotEmpty("glue.secret-access-key", config.GlueSecretKey)
+		}
 	case JDBCCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.jdbc.JdbcCatalog"
 		serverConfig["uri"] = config.JDBCUrl

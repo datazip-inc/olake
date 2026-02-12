@@ -42,6 +42,12 @@ type Config struct {
 	CatalogType CatalogType `json:"catalog_type,omitempty"`
 	CatalogName string      `json:"catalog_name,omitempty"`
 
+	// Glue catalog optional overrides
+	GlueEndpoint  string `json:"glue_endpoint,omitempty"`
+	GlueAccessKey string `json:"glue_access_key,omitempty"`
+	GlueSecretKey string `json:"glue_secret_key,omitempty"`
+	GlueCatalogID string `json:"glue_catalog_id,omitempty"`
+
 	// JDBC specific configuration
 	JDBCUrl      string `json:"jdbc_url,omitempty"`
 	JDBCUsername string `json:"jdbc_username,omitempty"`
