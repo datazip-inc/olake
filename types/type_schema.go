@@ -124,13 +124,7 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 
 func (t *TypeSchema) ToParquet(onlyOlakeColumns bool) *parquet.Schema {
 	// keeping default columns parquet schema for backward compatibility for olake columns
-	groupNode := parquet.Group{
-		constants.StringifiedData: parquet.JSON(),
-		constants.OlakeID:         parquet.String(),
-		constants.OlakeTimestamp:  parquet.Timestamp(parquet.Microsecond),
-		constants.OpType:          parquet.String(),
-		constants.CdcTimestamp:    parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
-	}
+	groupNode := parquet.Group{}
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
 		if onlyOlakeColumns && !prop.OlakeColumn {
@@ -140,6 +134,9 @@ func (t *TypeSchema) ToParquet(onlyOlakeColumns bool) *parquet.Schema {
 		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
 		return true
 	})
+	if onlyOlakeColumns {
+		groupNode[constants.StringifiedData] = parquet.JSON()
+	}
 	return parquet.NewSchema("olake_schema", groupNode)
 }
 
