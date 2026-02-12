@@ -1,71 +1,24 @@
 package types
 
-// Config represents the user defined inputs
-// these are persisted in the catalog
-type Config struct {
+type SelectedColumns struct {
 	Columns        []string `json:"columns"`
 	SyncNewColumns bool     `json:"sync_new_columns"`
 }
 
-// Runtime represents the runtime state which is derived from the config
-type Runtime struct {
-	SelectedColumnsSet   *Set[string] `json:"-"`
-	UnSelectedColumnsSet *Set[string] `json:"-"`
-	AllColumnsSelected   bool         `json:"-"`
+// GetSelectedColumnsSet returns a set of selected columns
+func GetSelectedColumnsSet(columns []string) *Set[string] {
+	return NewSet(columns...)
 }
 
-// setSelectedColumnsSet sets the selected columns set
-// if no columns are selected, it means all columns are selected
-func (r *Runtime) setSelectedColumnsSet(config *Config) {
-	r.SelectedColumnsSet = NewSet[string](config.Columns...)
-}
-
-// setUnSelectedColumnsSet sets the unselected columns set
-func (r *Runtime) setUnSelectedColumnsSet(config *Config, oldStream *Stream) {
-	if len(config.Columns) == 0 {
-		r.UnSelectedColumnsSet = NewSet[string]()
-		return
+// GetUnSelectedColumnsSet returns a set of unselected columns
+func GetUnSelectedColumnsSet(columns []string, oldStream *Stream) *Set[string] {
+	if len(columns) == 0 {
+		return NewSet[string]()
 	}
 
 	oldSchemaColumnsSet := collectColumnsFromSchemaAsSet(oldStream.Schema)
-	r.UnSelectedColumnsSet = oldSchemaColumnsSet.Difference(r.SelectedColumnsSet)
-}
-
-// SetAllSelectedColumnsFlag sets the all selected flag
-// Return true if no columns are selected or no columns are unselected
-// Return false if some columns are selected and some columns are unselected
-func (r *Runtime) SetAllSelectedColumnsFlag(config *Config) {
-	if len(config.Columns) == 0 || r.UnSelectedColumnsSet.Len() == 0 {
-		r.AllColumnsSelected = true
-		return
-	}
-
-	r.AllColumnsSelected = false
-}
-
-type SelectedColumns struct {
-	Config  Config  `json:"config"`
-	Runtime Runtime `json:"-"`
-}
-
-// GetSelectedColumns returns the selected columns
-func (sc *SelectedColumns) GetSelectedColumns() []string {
-	return sc.Config.Columns
-}
-
-// GetSelectedColumnsSet returns the selected columns set
-func (sc *SelectedColumns) GetSelectedColumnsSet() *Set[string] {
-	return sc.Runtime.SelectedColumnsSet
-}
-
-// GetUnSelectedColumnsSet returns the unselected columns set
-func (sc *SelectedColumns) GetUnSelectedColumnsSet() *Set[string] {
-	return sc.Runtime.UnSelectedColumnsSet
-}
-
-// GetAllSelectedColumnsFlag returns the all selected flag
-func (sc *SelectedColumns) GetAllSelectedColumnsFlag() bool {
-	return sc.Runtime.AllColumnsSelected
+	selectedColumnsSet := NewSet(columns...)
+	return oldSchemaColumnsSet.Difference(selectedColumnsSet)
 }
 
 // FilterDataBySelectedColumns returns a function that filters data based on the following rules:
@@ -76,18 +29,14 @@ func (sc *SelectedColumns) GetAllSelectedColumnsFlag() bool {
 // - sync_new_columns=false:
 //   - Specific columns selected: Only explicitly selected columns sync
 //   - All columns selected: All existing columns sync; newly added columns are NOT synced
-func FilterDataBySelectedColumns(stream StreamInterface) func(map[string]interface{}) map[string]interface{} {
-	syncMode := stream.GetSyncMode()
+func FilterDataBySelectedColumns(stream StreamInterface, oldStream *Stream) func(map[string]interface{}) map[string]interface{} {
 	selectedColumns := stream.Self().StreamMetadata.SelectedColumns
-	selectedColumnsSet := selectedColumns.GetSelectedColumnsSet()
-	unselectedColumnsSet := selectedColumns.GetUnSelectedColumnsSet()
-	syncNewColumns := selectedColumns.Config.SyncNewColumns
-	allSelected := selectedColumns.GetAllSelectedColumnsFlag()
-	isCDC := syncMode == CDC || syncMode == STRICTCDC
+	selectedColumnsSet := GetSelectedColumnsSet(selectedColumns.Columns)
+	unselectedColumnsSet := GetUnSelectedColumnsSet(selectedColumns.Columns, oldStream)
+	syncNewColumns := selectedColumns.SyncNewColumns
 
 	return func(data map[string]interface{}) map[string]interface{} {
-		// Skip filtering when all columns are selected and (not CDC, or CDC with sync_new_columns).
-		if allSelected && (!isCDC || syncNewColumns) {
+		if len(selectedColumns.Columns) == 0 {
 			return data
 		}
 
@@ -137,73 +86,28 @@ func collectColumnsFromSchema(schema *TypeSchema) []string {
 // 6. set the all selected flag
 func MergeSelectedColumns(
 	metadata *StreamMetadata,
-	oldStream *Stream,
 	newStream *Stream,
 ) {
-	oldSchema := oldStream.Schema
-	newSchema := newStream.Schema
-	oldSchemaColumnsSet := collectColumnsFromSchemaAsSet(oldSchema)
-	newSchemaColumnsSet := collectColumnsFromSchemaAsSet(newSchema)
-
-	finalizeSelectedColumns := func() {
-		metadata.SelectedColumns.Runtime.setSelectedColumnsSet(&metadata.SelectedColumns.Config)
-		metadata.SelectedColumns.Runtime.setUnSelectedColumnsSet(&metadata.SelectedColumns.Config, oldStream)
-		metadata.SelectedColumns.Runtime.SetAllSelectedColumnsFlag(&metadata.SelectedColumns.Config)
-	}
-
-	// when selectedColumns property is not present or empty, initialize with columns
-	// default behavior is OFF (sync_new_columns = false)
-	// - If sync_new_columns is true: sync all columns from new schema
-	// - If sync_new_columns is false: sync only columns that existed in old schema
-	// However, if oldSchema is empty or incomplete (backward compatibility), default to all columns from newSchema
-	if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Config.Columns) == 0 {
-		syncNewColumns := false
-		if metadata.SelectedColumns != nil {
-			syncNewColumns = metadata.SelectedColumns.Config.SyncNewColumns
-		}
-
-		// if oldSchema is empty or sync_new_columns is true, use all columns from new schema
-		// ensures backward compatibility when selected_columns was not previously specified
-		if oldSchemaColumnsSet.Len() == 0 || syncNewColumns {
-			metadata.SelectedColumns = &SelectedColumns{
-				Config: Config{
-					Columns:        newSchemaColumnsSet.Array(),
-					SyncNewColumns: syncNewColumns,
-				},
-			}
-		} else {
-			// default behavior: select only columns that existed in old schema
-			metadata.SelectedColumns = &SelectedColumns{
-				Config: Config{
-					Columns:        oldSchemaColumnsSet.Array(),
-					SyncNewColumns: syncNewColumns,
-				},
-			}
-		}
-		finalizeSelectedColumns()
-		return
-	}
-
-	previouslySelectedColumnsSet := NewSet(metadata.SelectedColumns.Config.Columns...)
-
-	// preserves previously selected columns that exist in both old and new schemas
-	preservedColumnsSet := previouslySelectedColumnsSet.Intersection(oldSchemaColumnsSet).Intersection(newSchemaColumnsSet)
-
-	var newSelectedColumnsSet *Set[string]
-	if metadata.SelectedColumns.Config.SyncNewColumns {
-		// add newly discovered columns when sync_new_columns is true
-		newColumnsSet := newSchemaColumnsSet.Difference(oldSchemaColumnsSet)
-		newSelectedColumnsSet = preservedColumnsSet.Union(newColumnsSet)
+	var columns []string
+	// no previous selection: initialize with all columns from new schema
+	if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
+		columns = collectColumnsFromSchema(newStream.Schema)
 	} else {
-		newSelectedColumnsSet = preservedColumnsSet
+		previouslySelectedSet := NewSet(metadata.SelectedColumns.Columns...)
+		// retain previously selected columns, add new ones if sync_new_columns enabled
+		newStream.Schema.Properties.Range(func(key, _ interface{}) bool {
+			col, ok := key.(string)
+			if !ok {
+				return true
+			}
+			if previouslySelectedSet.Exists(col) || metadata.SelectedColumns.SyncNewColumns {
+				columns = append(columns, col)
+			}
+			return true
+		})
 	}
-
 	metadata.SelectedColumns = &SelectedColumns{
-		Config: Config{
-			Columns:        newSelectedColumnsSet.Array(),
-			SyncNewColumns: metadata.SelectedColumns.Config.SyncNewColumns,
-		},
+		Columns:        columns,
+		SyncNewColumns: metadata.SelectedColumns.SyncNewColumns,
 	}
-
-	finalizeSelectedColumns()
 }

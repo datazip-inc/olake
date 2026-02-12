@@ -66,10 +66,8 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 
 		selectedColumns := collectColumnsFromSchema(stream.Schema)
 		selectedCols := &SelectedColumns{
-			Config: Config{
-				Columns:        selectedColumns,
-				SyncNewColumns: false,
-			},
+			Columns:        selectedColumns,
+			SyncNewColumns: false,
 		}
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
@@ -114,11 +112,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 				_, exists := newStreams[streamID]
 
 				if exists {
-					oldStream := oldStreams[streamID].Stream
-					newStream := newStreams[streamID].Stream
-
-					MergeSelectedColumns(&metadata, oldStream, newStream)
-
+					MergeSelectedColumns(&metadata, newStreams[streamID].Stream)
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
 				return nil

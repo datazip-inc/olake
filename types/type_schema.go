@@ -174,18 +174,14 @@ func (t *TypeSchema) ToIceberg(onlyOlakeColumns bool) []*proto.IcebergPayload_Sc
 // - sync_new_columns=false:
 //   - Specific schema columns selected: Only explicitly selected columns sync
 //   - All schema columns selected: All existing columns sync; newly added columns are NOT synced
-func FilterSchemaBySelectedColumns(stream StreamInterface) *TypeSchema {
+func FilterSchemaBySelectedColumns(stream StreamInterface, oldStream *Stream) *TypeSchema {
 	schema := stream.Schema()
 	selectedColumns := stream.Self().StreamMetadata.SelectedColumns
-	selectedColumnsSet := selectedColumns.GetSelectedColumnsSet()
-	unSelectedColumnsSet := selectedColumns.GetUnSelectedColumnsSet()
-	allSelected := selectedColumns.GetAllSelectedColumnsFlag()
-	syncNewColumns := selectedColumns.Config.SyncNewColumns
-	streamSyncMode := stream.GetSyncMode()
-	isCDC := streamSyncMode == CDC || streamSyncMode == STRICTCDC
+	selectedColumnsSet := GetSelectedColumnsSet(selectedColumns.Columns)
+	unSelectedColumnsSet := GetUnSelectedColumnsSet(selectedColumns.Columns, oldStream)
+	syncNewColumns := selectedColumns.SyncNewColumns
 
-	// Skip filtering when all columns are selected and (not CDC, or CDC with sync_new_columns).
-	if allSelected && (!isCDC || syncNewColumns) {
+	if len(selectedColumns.Columns) == 0 {
 		return schema
 	}
 

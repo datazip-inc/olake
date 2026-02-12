@@ -185,7 +185,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				return false
 			}
 
-			types.MergeSelectedColumns(&sMetadata, elem.Stream, source)
+			types.MergeSelectedColumns(&sMetadata, source)
 
 			elem.StreamMetadata = sMetadata
 			err := elem.Validate(source)

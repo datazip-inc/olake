@@ -135,7 +135,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 		filterDataBySelectedColumnsFn, exists := filterDataBySelectedColumnsFns[change.Stream.ID()]
 		if !exists {
-			filterDataBySelectedColumnsFn = types.FilterDataBySelectedColumns(change.Stream)
+			filterDataBySelectedColumnsFn = types.FilterDataBySelectedColumns(change.Stream, change.Stream.GetStream())
 			filterDataBySelectedColumnsFns[change.Stream.ID()] = filterDataBySelectedColumnsFn
 		}
 		filteredData := filterDataBySelectedColumnsFn(change.Data)
