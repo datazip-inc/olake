@@ -5,20 +5,40 @@ type SelectedColumns struct {
 	SyncNewColumns bool     `json:"sync_new_columns"`
 }
 
-// GetSelectedColumnsSet returns a set of selected columns
-func GetSelectedColumnsSet(columns []string) *Set[string] {
-	return NewSet(columns...)
-}
-
 // GetUnSelectedColumnsSet returns a set of unselected columns
-func GetUnSelectedColumnsSet(columns []string, oldStream *Stream) *Set[string] {
+func GetUnSelectedColumnsSet(columns []string, stream *Stream) *Set[string] {
 	if len(columns) == 0 {
 		return NewSet[string]()
 	}
-
-	oldSchemaColumnsSet := collectColumnsFromSchemaAsSet(oldStream.Schema)
 	selectedColumnsSet := NewSet(columns...)
-	return oldSchemaColumnsSet.Difference(selectedColumnsSet)
+	unselectedColumnsSet := NewSet[string]()
+
+	// the provided stream schema snapshot should represent only the previously known columns
+	// if it already includes newly added columns, we cannot distinguish which ones were explicitly unselected vs newly discovered
+	stream.Schema.Properties.Range(func(col, _ interface{}) bool {
+		colName, isColTypeString := col.(string)
+		if !isColTypeString {
+			return true
+		}
+		if !selectedColumnsSet.Exists(colName) {
+			unselectedColumnsSet.Insert(colName)
+		}
+		return true
+	})
+
+	return unselectedColumnsSet
+}
+
+// collectColumnsFromSchema collects all columns from a schema
+func collectColumnsFromSchema(schema *TypeSchema) []string {
+	var columns []string
+	schema.Properties.Range(func(col, _ interface{}) bool {
+		if colName, isColTypeString := col.(string); isColTypeString {
+			columns = append(columns, colName)
+		}
+		return true
+	})
+	return columns
 }
 
 // FilterDataBySelectedColumns returns a function that filters data based on the following rules:
@@ -29,10 +49,10 @@ func GetUnSelectedColumnsSet(columns []string, oldStream *Stream) *Set[string] {
 // - sync_new_columns=false:
 //   - Specific columns selected: Only explicitly selected columns sync
 //   - All columns selected: All existing columns sync; newly added columns are NOT synced
-func FilterDataBySelectedColumns(stream StreamInterface, oldStream *Stream) func(map[string]interface{}) map[string]interface{} {
+func FilterDataBySelectedColumns(stream StreamInterface) func(map[string]interface{}) map[string]interface{} {
 	selectedColumns := stream.Self().StreamMetadata.SelectedColumns
-	selectedColumnsSet := GetSelectedColumnsSet(selectedColumns.Columns)
-	unselectedColumnsSet := GetUnSelectedColumnsSet(selectedColumns.Columns, oldStream)
+	selectedColumnsSet := NewSet(selectedColumns.Columns...)
+	unselectedColumnsSet := GetUnSelectedColumnsSet(selectedColumns.Columns, stream.GetStream())
 	syncNewColumns := selectedColumns.SyncNewColumns
 
 	return func(data map[string]interface{}) map[string]interface{} {
@@ -60,52 +80,34 @@ func FilterDataBySelectedColumns(stream StreamInterface, oldStream *Stream) func
 	}
 }
 
-// collectColumnsFromSchemaAsSet collects all columns from a schema as a Set
-func collectColumnsFromSchemaAsSet(schema *TypeSchema) *Set[string] {
-	columns := []string{}
-	schema.Properties.Range(func(col, _ interface{}) bool {
-		if colName, isColTypeString := col.(string); isColTypeString {
-			columns = append(columns, colName)
-		}
-		return true
-	})
-	return NewSet(columns...)
-}
-
-// collectColumnsFromSchema collects all columns from a schema
-func collectColumnsFromSchema(schema *TypeSchema) []string {
-	return collectColumnsFromSchemaAsSet(schema).Array()
-}
-
 // MergeSelectedColumns merges the selected columns based on the following rules:
-// 1. if selectedColumns property is not present or empty, initialize with columns from new schema
-// 2. if selectedColumns property is present and not empty, filter the selected columns to only those present in both old and new schemas
-// 3. if sync_new_columns is true, add newly discovered columns to the selected columns
-// 4. set the selected columns set
-// 5. set the unselected columns set
-// 6. set the all selected flag
+// if selectedColumns property is not present or empty, initialize with columns from new schema
+// preserve previously selected columns
+// if sync_new_columns is true, add newly discovered columns to the selected columns
 func MergeSelectedColumns(
 	metadata *StreamMetadata,
 	oldStream *Stream,
 	newStream *Stream,
 ) {
-	oldSchemaColumnsSet := collectColumnsFromSchemaAsSet(oldStream.Schema)
-	newSchemaColumnsSet := collectColumnsFromSchemaAsSet(newStream.Schema)
-
 	var columns []string
-
 	// no previous selection: initialize with all columns from new schema
 	if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
 		columns = collectColumnsFromSchema(newStream.Schema)
 	} else {
-		previouslySelectedColumnsSet := NewSet(metadata.SelectedColumns.Columns...)
-		if metadata.SelectedColumns.SyncNewColumns {
-			// add newly discovered columns when sync_new_columns is true
-			newColumnsSet := newSchemaColumnsSet.Difference(oldSchemaColumnsSet)
-			columns = previouslySelectedColumnsSet.Union(newColumnsSet).Array()
-		} else {
-			columns = previouslySelectedColumnsSet.Array()
-		}
+		previouslySelectedSet := NewSet(metadata.SelectedColumns.Columns...)
+		oldSchemaCols := NewSet(collectColumnsFromSchema(oldStream.Schema)...)
+
+		// iterate new schema: retain previously selected columns, add new ones if sync_new_columns enabled
+		newStream.Schema.Properties.Range(func(key, _ interface{}) bool {
+			col, ok := key.(string)
+			if !ok {
+				return true
+			}
+			if previouslySelectedSet.Exists(col) || (metadata.SelectedColumns.SyncNewColumns && !oldSchemaCols.Exists(col)) {
+				columns = append(columns, col)
+			}
+			return true
+		})
 	}
 
 	metadata.SelectedColumns = &SelectedColumns{

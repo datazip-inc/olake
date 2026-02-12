@@ -114,7 +114,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 				if exists {
 					oldStream := oldStreams[streamID].Stream
 					newStream := newStreams[streamID].Stream
-
 					MergeSelectedColumns(&metadata, oldStream, newStream)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
