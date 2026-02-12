@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -353,9 +355,36 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 		name = system
 	}
 
+	offsetSeconds, ok := parseMySQLOffset(name)
+	if constants.LoadedStateVersion > 2 && ok {
+		return time.FixedZone(name, offsetSeconds)
+	}
+
 	loc, err := time.LoadLocation(name)
 	if err != nil {
 		return time.UTC
 	}
 	return loc
+}
+
+// parseMySQLOffset parses MySQL-style timezone offset. Returns offset in seconds and true, or 0, false.
+func parseMySQLOffset(s string) (offsetSeconds int, ok bool) {
+	// MySql supports offsets ranging from -13:59 to +14:00
+	var mysqlOffsetRegex = regexp.MustCompile(`^([+-])(0?\d|1[0-4]):([0-5]\d)$`)
+
+	s = strings.TrimSpace(s)
+	sub := mysqlOffsetRegex.FindStringSubmatch(s)
+	if sub == nil {
+		return 0, false
+	}
+	sign := 1
+	if sub[1] == "-" {
+		sign = -1
+	}
+	hours, err1 := strconv.Atoi(sub[2])
+	minutes, err2 := strconv.Atoi(sub[3])
+	if err1 != nil || err2 != nil || (hours == 14 && minutes > 0) || (sign == -1 && hours == 14) {
+		return 0, false
+	}
+	return sign * (hours*3600 + minutes*60), true
 }
