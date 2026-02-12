@@ -196,6 +196,7 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	// #nosec G704 -- URL comes from internal config
 	resp, err := t.httpClient.Do(req)
 	if err != nil {
 		return err

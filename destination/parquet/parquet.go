@@ -244,6 +244,8 @@ func (p *Parquet) Check(_ context.Context) error {
 		return fmt.Errorf("directory is not writable: %s", err)
 	}
 	tempFile.Close()
+
+	// #nosec G703 -- temp file created using os.CreateTemp
 	os.Remove(tempFile.Name())
 	return nil
 }
