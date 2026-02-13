@@ -10,7 +10,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"reflect"
 	"sort"
@@ -31,20 +30,6 @@ var (
 	ulidMutex = sync.Mutex{}
 	entropy   = ulid.Monotonic(rand.Reader, 0)
 )
-
-func ValidateURL(rawURL string) (*url.URL, error) {
-	validatedURL, err := url.Parse(rawURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
-	}
-	if validatedURL.Scheme != "http" && validatedURL.Scheme != "https" {
-		return nil, fmt.Errorf("invalid URL scheme: %s", validatedURL.Scheme)
-	}
-	if validatedURL.Host == "" {
-		return nil, fmt.Errorf("URL host is empty")
-	}
-	return validatedURL, nil
-}
 
 func Absolute[T int | int8 | int16 | int32 | int64 | float32 | float64](value T) T {
 	if value < 0 {

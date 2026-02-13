@@ -23,13 +23,8 @@ func (c *SchemaRegistryClient) Init() {
 
 // schemaRegistryGetRequest makes an authenticated HTTP GET request to the schema registry
 func (c *SchemaRegistryClient) schemaRegistryGetRequest(path string) (*http.Response, error) {
-	schemaRegistryURL := fmt.Sprintf("%s%s", c.Endpoint, path)
-	validatedschemaRegistryURL, err := utils.ValidateURL(schemaRegistryURL)
-	if err != nil {
-		return nil, fmt.Errorf("invalid schema registry URL: %w", err)
-	}
-
-	req, err := http.NewRequest("GET", validatedschemaRegistryURL.String(), nil)
+	url := fmt.Sprintf("%s%s", c.Endpoint, path)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %s", err)
 	}
@@ -42,8 +37,7 @@ func (c *SchemaRegistryClient) schemaRegistryGetRequest(path string) (*http.Resp
 	}
 	req.Header.Set("Accept", "application/vnd.schemaregistry.v1+json")
 
-	// schema registry URL is validated above which enforces http/https scheme and non-empty host; endpoint is from user config, path is code-controlled
-	return c.httpClient.Do(req) // #nosec G704
+	return c.httpClient.Do(req)
 }
 
 // TODO: fetch schema by subject strategy if needed (e.g. latest, version specific)

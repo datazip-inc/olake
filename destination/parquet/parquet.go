@@ -244,9 +244,7 @@ func (p *Parquet) Check(_ context.Context) error {
 		return fmt.Errorf("directory is not writable: %s", err)
 	}
 	tempFile.Close()
-
-	// tempFile was just created by os.CreateTemp() above; path is not user-controlled (directory is validated, filename pattern is hardcoded)
-	os.Remove(tempFile.Name()) // #nosec G703
+	os.Remove(tempFile.Name())
 	return nil
 }
 

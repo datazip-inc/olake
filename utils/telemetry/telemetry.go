@@ -196,8 +196,7 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	// proxTrackURL is a compile-time constant that we use directly so there is no point of taint here. We also do have rate limiter in place.
-	resp, err := t.httpClient.Do(req) // #nosec G704
+	resp, err := t.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -246,20 +245,13 @@ func getUserID() string {
 }
 
 func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
-	ipURL := fmt.Sprintf("https://ipinfo.io/%s/json", ip)
-	validatedURL, err := utils.ValidateURL(ipURL)
-	if err != nil {
-		return LocationInfo{}, fmt.Errorf("invalid location API URL: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", validatedURL.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://ipinfo.io/%s/json", ip), nil)
 	if err != nil {
 		return LocationInfo{}, err
 	}
 
 	client := http.Client{Timeout: 1 * time.Second}
-	// ip URL is validated above ; host (ipinfo.io) is constant, only the IP path segment is dynamic and comes from a trusted source (api.ipify.org)
-	resp, err := client.Do(req) // #nosec G704
+	resp, err := client.Do(req)
 	if err != nil {
 		return LocationInfo{}, err
 	}
