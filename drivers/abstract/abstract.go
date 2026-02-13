@@ -31,7 +31,6 @@ var DefaultColumns = map[string]types.DataType{
 	constants.OlakeID:        types.String,
 	constants.OlakeTimestamp: types.TimestampMicro,
 	constants.OpType:         types.String,
-	constants.CdcTimestamp:   types.TimestampMicro,
 }
 
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
@@ -58,6 +57,11 @@ func (a *AbstractDriver) Spec() any {
 func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
+
+func (a *AbstractDriver) Setup(ctx context.Context) error {
+	return a.driver.Setup(ctx)
+}
+
 
 func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
 	// set max connections
@@ -90,12 +94,11 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 
 		// add default columns
 		for column, typ := range DefaultColumns {
-			if column == constants.CdcTimestamp && !a.supportsCdcColumn() {
+			if column == constants.CdcTimestamp {
 				continue
-			}
-			convStream.UpsertField(column, typ, true, true)
-		}
-
+    }
+    convStream.UpsertField(column, typ, true, true)
+}
 		// priority to default sync mode (cdc -> incremental -> strict_cdc)
 		if convStream.SupportedSyncModes.Exists(types.CDC) && a.driver.CDCSupported() {
 			convStream.SyncMode = types.CDC
@@ -106,6 +109,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 		} else {
 			convStream.SyncMode = types.FULLREFRESH
 		}
+		
 
 		// add default stream properties
 		convStream.DefaultStreamProperties = &types.DefaultStreamProperties{
@@ -120,9 +124,28 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 	return finalStreams, nil
 }
 
-func (a *AbstractDriver) Setup(ctx context.Context) error {
-	return a.driver.Setup(ctx)
+// EnsureStreamColumns adds necessary columns based on the stream's sync mode
+// This should be called after the sync mode has been finalized (e.g., from user config)
+func (a *AbstractDriver) EnsureStreamColumns(stream types.StreamInterface) {
+
+    convStream := stream.GetStream()
+
+    // Add default columns except CDC timestamp
+    for column, typ := range DefaultColumns {
+        if column == constants.CdcTimestamp {
+            continue
+        }
+        convStream.UpsertField(column, typ, true, true)
+    }
+
+    // Add CDC timestamp only for CDC modes
+    syncMode := convStream.SyncMode
+    if (syncMode == types.CDC || syncMode == types.STRICTCDC) && a.supportsCdcColumn() {
+        convStream.UpsertField(constants.CdcTimestamp, types.TimestampMicro, true, true)
+    }
 }
+
+
 
 func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.State, error) {
 	if a.state == nil {
