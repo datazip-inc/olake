@@ -267,11 +267,7 @@
                           "title": "Glue Region",
                           "description": "AWS region for the Glue catalog, if different from the S3 region. Falls back to AWS Region if not set"
                         }
-                      },
-                      "required": [
-                        "glue_access_key",
-                        "glue_secret_key"
-                      ]
+                      }
                     },
                     {
                       "properties": {

@@ -77,7 +77,7 @@ func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo,
 		serverConfig["catalog-impl"] = "org.apache.iceberg.aws.glue.GlueCatalog"
 
 		// if custom glue endpoint creds are passed
-		if config.GlueAccessKey != "" && config.GlueSecretKey != "" {
+		if config.UseGlueAdditionalConfig {
 			addMapKeyIfNotEmpty("client.factory", "io.debezium.server.iceberg.OlakeAwsClientFactory")
 			addMapKeyIfNotEmpty("glue.access-key-id", config.GlueAccessKey)
 			addMapKeyIfNotEmpty("glue.secret-access-key", config.GlueSecretKey)
