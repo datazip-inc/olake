@@ -23,7 +23,7 @@ package constants
 //     * This prevents discrepancies where CDC timestamps could differ from Full Refresh data.
 //
 //   - Version 3: Current Version (Parses the timezone offset for MySQL correctly)
-//     * Earlier if the session timezone or global was set in offset format or was passed through jdbc_url_params.time_zone, it was not parsed correctly and used to fallback to UTC.
+//     * Earlier if the session timezone or global was set in offset format, it was not parsed correctly and used to fallback to UTC.
 //     * Now it parses the offset correctly and uses the timezone offset to set the timezone for the connection.
 
 const (
