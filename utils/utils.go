@@ -32,19 +32,18 @@ var (
 	entropy   = ulid.Monotonic(rand.Reader, 0)
 )
 
-// Validate URL (Gosec G704)
-func ValidateURL(rawURL string) error {
-	u, err := url.Parse(rawURL)
+func ValidateURL(rawURL string) (*url.URL, error) {
+	validatedURL, err := url.Parse(rawURL)
 	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
+		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("invalid URL scheme: %s", u.Scheme)
+	if validatedURL.Scheme != "http" && validatedURL.Scheme != "https" {
+		return nil, fmt.Errorf("invalid URL scheme: %s", validatedURL.Scheme)
 	}
-	if u.Host == "" {
-		return fmt.Errorf("URL host is empty")
+	if validatedURL.Host == "" {
+		return nil, fmt.Errorf("URL host is empty")
 	}
-	return nil
+	return validatedURL, nil
 }
 
 func Absolute[T int | int8 | int16 | int32 | int64 | float32 | float64](value T) T {

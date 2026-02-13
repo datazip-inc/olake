@@ -190,15 +190,17 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", proxTrackURL, strings.NewReader(string(propsBody)))
+	// Validate URL (Gosec G704)
+	validatedproxTrackURL, err := utils.ValidateURL(proxTrackURL)
+	if err != nil {
+		return fmt.Errorf("invalid telemetry URL: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", validatedproxTrackURL.String(), strings.NewReader(string(propsBody)))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-
-	if err := utils.ValidateURL(proxTrackURL); err != nil {
-		return fmt.Errorf("invalid telemetry URL: %w", err)
-	}
 
 	resp, err := t.httpClient.Do(req)
 	if err != nil {
@@ -250,11 +252,12 @@ func getUserID() string {
 
 func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
 	url := fmt.Sprintf("https://ipinfo.io/%s/json", ip)
-	if err := utils.ValidateURL(url); err != nil {
+	validatedURL, err := utils.ValidateURL(url)
+	if err != nil {
 		return LocationInfo{}, fmt.Errorf("invalid location API URL: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", validatedURL.String(), nil)
 	if err != nil {
 		return LocationInfo{}, err
 	}
