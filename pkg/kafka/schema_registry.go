@@ -42,7 +42,8 @@ func (c *SchemaRegistryClient) schemaRegistryGetRequest(path string) (*http.Resp
 	}
 	req.Header.Set("Accept", "application/vnd.schemaregistry.v1+json")
 
-	return c.httpClient.Do(req)
+	// schema registry URL is validated above which enforces http/https scheme and non-empty host; endpoint is from user config, path is code-controlled
+	return c.httpClient.Do(req) // #nosec G704
 }
 
 // TODO: fetch schema by subject strategy if needed (e.g. latest, version specific)

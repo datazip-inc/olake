@@ -190,13 +190,8 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Validate URL (Gosec G704)
-	validatedproxTrackURL, err := utils.ValidateURL(proxTrackURL)
-	if err != nil {
-		return fmt.Errorf("invalid telemetry URL: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", validatedproxTrackURL.String(), strings.NewReader(string(propsBody)))
+	// proxTrackURL is a compile-time constant that we use directly, taint is not possible in constant URL case.
+	req, err := http.NewRequestWithContext(ctx, "POST", proxTrackURL, strings.NewReader(string(propsBody)))
 	if err != nil {
 		return err
 	}
@@ -251,8 +246,8 @@ func getUserID() string {
 }
 
 func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
-	url := fmt.Sprintf("https://ipinfo.io/%s/json", ip)
-	validatedURL, err := utils.ValidateURL(url)
+	ipURL := fmt.Sprintf("https://ipinfo.io/%s/json", ip)
+	validatedURL, err := utils.ValidateURL(ipURL)
 	if err != nil {
 		return LocationInfo{}, fmt.Errorf("invalid location API URL: %w", err)
 	}
@@ -263,7 +258,8 @@ func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
 	}
 
 	client := http.Client{Timeout: 1 * time.Second}
-	resp, err := client.Do(req)
+	// ip URL is validated above ; host (ipinfo.io) is constant, only the IP path segment is dynamic and comes from a trusted source (api.ipify.org)
+	resp, err := client.Do(req) // #nosec G704
 	if err != nil {
 		return LocationInfo{}, err
 	}
