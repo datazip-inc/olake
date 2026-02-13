@@ -190,14 +190,14 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// proxTrackURL is a compile-time constant that we use directly, taint is not possible in constant URL case.
 	req, err := http.NewRequestWithContext(ctx, "POST", proxTrackURL, strings.NewReader(string(propsBody)))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := t.httpClient.Do(req)
+	// proxTrackURL is a compile-time constant that we use directly so there is no point of taint here. We also do have rate limiter in place.
+	resp, err := t.httpClient.Do(req) // #nosec G704
 	if err != nil {
 		return err
 	}
