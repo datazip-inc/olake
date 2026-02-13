@@ -225,6 +225,11 @@
                 "catalog_type": {
                   "const": "glue"
                 },
+                "s3_endpoint": {
+                  "type": "string",
+                  "title": "S3 Endpoint",
+                  "description": "Specifies the endpoint URL for S3 compatible services"
+                },
                 "glue_additional_config": {
                   "type": "boolean",
                   "default": false,
@@ -243,24 +248,24 @@
                         "glue_catalog_id": {
                           "type": "string",
                           "title": "Glue Catalog ID",
-                          "description": "AWS account ID used as the Glue Data Catalog identifier (e.g., 123456789012)"
+                          "description": "AWS account ID used as the Glue Data Catalog identifier"
                         },
                         "glue_access_key": {
                           "type": "string",
                           "format": "password",
                           "title": "Glue Access Key",
-                          "description": "AWS access key for authenticating Glue catalog requests, required when Glue credentials differ from S3 credentials"
+                          "description": "Access key for authenticating Glue catalog requests, required when Glue credentials differ from S3 credentials"
                         },
                         "glue_secret_key": {
                           "type": "string",
                           "format": "password",
                           "title": "Glue Secret Key",
-                          "description": "AWS secret key for authenticating Glue catalog requests, required when Glue credentials differ from S3 credentials"
+                          "description": "Secret key for authenticating Glue catalog requests, required when Glue credentials differ from S3 credentials"
                         },
                         "glue_endpoint": {
                           "type": "string",
                           "title": "Glue Endpoint",
-                          "description": "Custom endpoint URL for AWS Glue or a Glue-compatible catalog service (e.g., https://glue.ap-south-1.amazonaws.com)"
+                          "description": "Custom endpoint URL for AWS Glue or a Glue-compatible catalog service"
                         },
                         "glue_region": {
                           "type": "string",
