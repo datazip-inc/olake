@@ -196,7 +196,11 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := t.httpClient.Do(req) // #nosec G704
+	if err := utils.ValidateURL(proxTrackURL); err != nil {
+		return fmt.Errorf("invalid telemetry URL: %w", err)
+	}
+
+	resp, err := t.httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -245,13 +249,18 @@ func getUserID() string {
 }
 
 func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", fmt.Sprintf("https://ipinfo.io/%s/json", ip), nil)
+	url := fmt.Sprintf("https://ipinfo.io/%s/json", ip)
+	if err := utils.ValidateURL(url); err != nil {
+		return LocationInfo{}, fmt.Errorf("invalid location API URL: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return LocationInfo{}, err
 	}
 
 	client := http.Client{Timeout: 1 * time.Second}
-	resp, err := client.Do(req) // #nosec G704
+	resp, err := client.Do(req)
 	if err != nil {
 		return LocationInfo{}, err
 	}
