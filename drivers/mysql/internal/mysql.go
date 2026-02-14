@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -353,9 +355,36 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 		name = system
 	}
 
+	offsetSeconds, ok := parseMySQLTimeZoneOffset(name)
+	if constants.LoadedStateVersion > 2 && ok {
+		return time.FixedZone(name, offsetSeconds)
+	}
+
 	loc, err := time.LoadLocation(name)
 	if err != nil {
+		logger.Warnf("failed to load mysql timezone location %s, falling back to UTC. Set jdbc_url_params.time_zone to override: %s", name, err)
 		return time.UTC
 	}
 	return loc
+}
+
+// parseMySQTimeZoneOffset parses MySQL-style timezone offset. Returns offset in seconds and true, or 0, false.
+func parseMySQLTimeZoneOffset(s string) (int, bool) {
+	// MySql supports offsets ranging from -13:59 to +14:00
+	mysqlOffsetRegex := regexp.MustCompile(`^([+-])(0?\d|1[0-4]):([0-5]\d)$`)
+
+	s = strings.TrimSpace(s)
+	matches := mysqlOffsetRegex.FindStringSubmatch(s)
+	if matches == nil {
+		return 0, false
+	}
+	signStr, hourStr, minuteStr := matches[1], matches[2], matches[3]
+
+	hours, err1 := strconv.Atoi(hourStr)
+	minutes, err2 := strconv.Atoi(minuteStr)
+	if err1 != nil || err2 != nil || (hours == 14 && minutes > 0) || (signStr == "-" && hours == 14) {
+		return 0, false
+	}
+	offsetSeconds := hours*3600 + minutes*60
+	return utils.Ternary(signStr == "-", -offsetSeconds, offsetSeconds).(int), true
 }
