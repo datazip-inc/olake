@@ -362,7 +362,7 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 
 	loc, err := time.LoadLocation(name)
 	if err != nil {
-		logger.Warnf("failed to load mysql timezone location %s, falling back to UTC: %s", name, err)
+		logger.Warnf("failed to load mysql timezone location %s, falling back to UTC. Set jdbc_url_params.time_zone to override: %s", name, err)
 		return time.UTC
 	}
 	return loc
