@@ -115,11 +115,18 @@ func (w *LegacyWriter) EvolveSchema(_ context.Context, newSchema map[string]stri
 }
 
 func (w *LegacyWriter) Close(ctx context.Context) error {
+	logger.Infof("Thread[%s]: closing writer payload[%v]", w.server.ServerID(), w.options.Payload)
+	var payloadBytes []byte
+	if w.options.Payload != nil {
+		payloadBytes, _ = json.Marshal(w.options.Payload)
+	}
+
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      w.server.ServerID(),
 			DestTableName: w.stream.GetDestinationTable(),
+			Payload:       string(payloadBytes),
 		},
 	}
 

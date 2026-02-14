@@ -15,6 +15,10 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// Ensure Postgres implements GlobalPosition2PC and PositionAcknowledgment interfaces
+var _ abstract.GlobalPosition2PC = (*Postgres)(nil)
+var _ abstract.PositionAcknowledgment = (*Postgres)(nil)
+
 func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
@@ -69,6 +73,14 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.C
 	// persist replicator for post cdc
 	p.replicator = replicator
 
+	// Set target position for bounded sync if set (recovery mode)
+	targetPos := p.GetTargetCDCPosition()
+	if targetPos != "" {
+		if err := p.replicator.Socket().SetTargetPosition(targetPos); err != nil {
+			return fmt.Errorf("failed to set target position: %s", err)
+		}
+	}
+
 	// validate global state (might got invalid during full load)
 	if err := validateGlobalState(p.state.GetGlobal(), slot.LSN); err != nil {
 		return fmt.Errorf("%w: invalid global state: %s", constants.ErrNonRetryable, err)
@@ -85,9 +97,91 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 		return ctx.Err()
 	default:
 		socket := p.replicator.Socket()
-		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
-		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
+		finalLSN := socket.ClientXLogPos
+
+		if err := waljs.AcknowledgeLSN(ctx, p.client, socket, false, finalLSN); err != nil {
+			return fmt.Errorf("failed to acknowledge LSN: %s", err)
+		}
+
+		var walState waljs.WALState
+		globalState := p.state.GetGlobal()
+		if globalState != nil && globalState.State != nil {
+			if err := utils.Unmarshal(globalState.State, &walState); err != nil {
+				logger.Warnf("Failed to unmarshal global state in PostCDC: %s", err)
+			}
+		}
+
+		walState.LSN = finalLSN.String()
+		
+		p.state.SetGlobal(walState)
+		return nil
 	}
+}
+
+func (p *Postgres) GetCDCPosition() string {
+	if p.replicator == nil {
+		return ""
+	}
+	return p.replicator.Socket().ClientXLogPos.String()
+}
+
+// GetCDCStartPosition returns the starting CDC position from state for predictable thread IDs
+func (p *Postgres) GetCDCStartPosition() string {
+	var walState waljs.WALState
+	globalState := p.state.GetGlobal()
+	if globalState == nil || globalState.State == nil {
+		return ""
+	}
+	if err := utils.Unmarshal(globalState.State, &walState); err != nil {
+		return ""
+	}
+	return walState.LSN
+}
+
+func (p *Postgres) SetCurrentCDCPosition(position string) {
+	var walState waljs.WALState
+	globalState := p.state.GetGlobal()
+	if globalState != nil && globalState.State != nil {
+		if err := utils.Unmarshal(globalState.State, &walState); err != nil {
+			logger.Warnf("Failed to unmarshal global state for SetCurrentCDCPosition: %s", err)
+		}
+	}
+	walState.LSN = position
+	p.state.SetGlobal(walState)
+	logger.Infof("Set current CDC position (LSN) in state: %s", position)
+}
+
+func (p *Postgres) SetTargetCDCPosition(position string) {
+	p.targetPosition = position
+	if position != "" {
+		logger.Infof("Set target CDC position for bounded sync: %s", position)
+	}
+}
+
+func (p *Postgres) GetTargetCDCPosition() string {
+	return p.targetPosition
+}
+
+// AcknowledgeCDCPosition acknowledges LSN to Postgres for recovery
+func (p *Postgres) AcknowledgeCDCPosition(ctx context.Context, position string) error {
+	if position == "" {
+		return nil
+	}
+
+	// Use existing replicator if available
+	if p.replicator != nil {
+		lsn, err := pglogrepl.ParseLSN(position)
+		if err != nil {
+			return fmt.Errorf("failed to parse LSN for acknowledgment: %s", err)
+		}
+		logger.Infof("Acknowledging LSN %s to Postgres for recovery (via replicator)", position)
+		return waljs.AcknowledgeLSN(ctx, p.client, p.replicator.Socket(), false, lsn)
+	}
+
+	// If no replicator, use AdvanceLSN which uses SQL to advance the slot
+	slotName := p.cdcConfig.ReplicationSlot
+	logger.Infof("Acknowledging LSN %s to Postgres for recovery (via AdvanceLSN)", position)
+	return waljs.AdvanceLSN(ctx, p.client, slotName, position)
 }
 
 func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string, database string) (bool, error) {

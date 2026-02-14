@@ -47,7 +47,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 	); err != nil {
 		return fmt.Errorf("starting replication slot failed: %s", err)
 	}
-	logger.Infof("Started logical replication for slot[%s] from lsn[%s] to lsn[%s]", w.socket.ReplicationSlot, w.socket.ConfirmedFlushLSN, w.socket.CurrentWalPosition)
+	logger.Infof("Started logical replication for slot[%s] from lsn[%s] to lsn[%s]", w.socket.ReplicationSlot, w.socket.ConfirmedFlushLSN, w.socket.GetEndPosition())
 	messageReceived := false
 	cdcStartTime := time.Now()
 	for {
@@ -59,8 +59,8 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 				return fmt.Errorf("%w, try increasing it or do full load", constants.ErrNonRetryable)
 			}
 
-			if w.socket.ClientXLogPos >= w.socket.CurrentWalPosition {
-				logger.Infof("finishing sync, reached wal position: %s", w.socket.CurrentWalPosition)
+			if w.socket.ClientXLogPos >= w.socket.GetEndPosition() {
+				logger.Infof("finishing sync, reached wal position: %s", w.socket.GetEndPosition())
 				return nil
 			}
 
@@ -89,7 +89,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 				if pkm.ReplyRequested {
 					logger.Debugf("keep alive message received: %v", pkm)
 					// send fake acknowledgement
-					err := AcknowledgeLSN(ctx, db, w.socket, true)
+					err := AcknowledgeLSN(ctx, db, w.socket, true, w.socket.ClientXLogPos)
 					if err != nil {
 						return fmt.Errorf("failed to ack lsn: %s", err)
 					}
@@ -101,7 +101,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 					return fmt.Errorf("failed to parse XLogData: %s", err)
 				}
 				// Process change with the provided callback.
-				nextLSN, records, err := w.socket.changeFilter.FilterWalJsChange(ctx, xld.WALData, callback)
+				nextLSN, records, err := w.socket.changeFilter.FilterWalJsChange(ctx, xld.WALData, w.socket.ConfirmedFlushLSN.String(), callback)
 				if err != nil {
 					return fmt.Errorf("failed to filter change: %s", err)
 				}

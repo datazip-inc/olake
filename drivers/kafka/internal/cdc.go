@@ -18,6 +18,8 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+// TODO: Add 2PC support for Kafka
+
 func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
 	return false, true, false // parallel change streams supported
 }

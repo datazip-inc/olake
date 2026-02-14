@@ -65,7 +65,7 @@ func (i *Iceberg) Spec() any {
 
 func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	if i.config.UseArrowWrites {
-		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
+		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill), i.options.Payload)
 	}
 
 	// default: legacy writer
@@ -588,6 +588,31 @@ func getCommonAncestorType(d1, d2 string) string {
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
+}
+
+func (i *Iceberg) GetCommitState(ctx context.Context) (string, error) {
+	if i.server == nil {
+		return "", fmt.Errorf("iceberg server not initialized")
+	}
+
+	request := &proto.IcebergPayload{
+		Type: proto.IcebergPayload_GET_COMMIT_STATE,
+		Metadata: &proto.IcebergPayload_Metadata{
+			DestTableName: i.stream.GetDestinationTable(),
+		},
+	}
+
+	res, err := i.server.SendClientRequest(ctx, request)
+	if err != nil {
+		return "", fmt.Errorf("failed to send state request: %s", err)
+	}
+
+	ingestResponse, ok := res.(*proto.RecordIngestResponse)
+	if !ok {
+		return "", fmt.Errorf("invalid response type[%T]", res)
+	}
+
+	return ingestResponse.GetResult(), nil
 }
 
 func init() {

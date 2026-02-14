@@ -86,7 +86,7 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 
 		// Initialize LSN for each stream if not present
 		if lsnVal := m.state.GetCursor(stream.Self(), cdcCursorKey); lsnVal == nil {
-			m.state.SetCursor(stream.Self(), cdcCursorKey, currentLSN)
+			m.state.SetCursors(stream.Self(), map[string]any{cdcCursorKey: currentLSN})
 		}
 	}
 	m.streams = streams
@@ -186,7 +186,7 @@ func (m *MSSQL) PostCDC(ctx context.Context, streamIndex int) error {
 	default:
 		stream := m.streams[streamIndex]
 		if val, exists := m.lsnMap.Load(stream.ID()); exists {
-			m.state.SetCursor(stream.Self(), cdcCursorKey, val)
+			m.state.SetCursors(stream.Self(), map[string]any{cdcCursorKey: val})
 		} else {
 			logger.Warnf("No LSN found for stream: %s", stream.ID())
 		}

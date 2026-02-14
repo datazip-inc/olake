@@ -587,6 +587,12 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 	return nil
 }
 
+// GetCommitState returns the commit state of the table.
+// Parquet destination does not currently implement 2PC commit metadata, so it returns empty.
+func (p *Parquet) GetCommitState(_ context.Context) (string, error) {
+	return "", nil
+}
+
 func init() {
 	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
 		return new(Parquet)

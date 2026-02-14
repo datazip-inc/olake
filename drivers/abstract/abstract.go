@@ -18,13 +18,16 @@ type CDCChange struct {
 	Kind         string
 	Data         map[string]any
 	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
+	Position     string         // Database-specific position info (e.g., binlog position for MySQL, LSN for Postgres)
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
-	driver          DriverInterface
-	state           *types.State
-	GlobalConnGroup *utils.CxGroup
-	GlobalCtxGroup  *utils.CxGroup
+	driver                DriverInterface
+	state                 *types.State
+	GlobalConnGroup       *utils.CxGroup
+	GlobalCtxGroup        *utils.CxGroup
+	recoveryMode          bool            // true if recovery sync is needed
+	recoveryProcessingSet map[string]bool // streams to sync in recovery mode (for O(1) lookup)
 }
 
 var DefaultColumns = map[string]types.DataType{
@@ -223,10 +226,9 @@ func (a *AbstractDriver) waitForBackfillCompletion(mainCtx context.Context, back
 }
 
 // generateThreadID creates a unique thread ID for a stream
-func generateThreadID(streamID string, suffix string) string {
-	withSuffix := fmt.Sprintf("%s_%s_%s", streamID, utils.ULID(), suffix)
-	withoutSuffix := fmt.Sprintf("%s_%s", streamID, utils.ULID())
-	return utils.Ternary(suffix != "", withSuffix, withoutSuffix).(string)
+func generateThreadID(streamID, hash string) string {
+	suffix := utils.Ternary(hash != "", hash, utils.ULID())
+	return fmt.Sprintf("%s_%s", streamID, suffix)
 }
 
 // handleWriterCleanup is a helper that creates a defer function for common writer cleanup operations
@@ -238,11 +240,16 @@ func generateThreadID(streamID string, suffix string) string {
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
 //
 // The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, postProcess func(ctx context.Context) error) func() {
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, preProcess func(ctx context.Context) error, postProcess func(ctx context.Context) error) func() {
 	return func() {
 		// Cancel context if there's an error, so other threads using this context can detect the failure
 		if *err != nil {
 			cancel()
+		}
+
+		preErr := preProcess(ctx)
+		if preErr != nil {
+			*err = utils.Ternary(*err == nil, preErr, fmt.Errorf("%s: prev error: %s", preErr, *err)).(error)
 		}
 
 		// Close writer(s)
@@ -272,11 +279,6 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 		// check for panics before post-processing
 		if r := recover(); r != nil {
 			*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
-		}
-
-		// cancel context if error occurred after closing writers
-		if *err != nil {
-			cancel()
 		}
 
 		postErr := postProcess(ctx)

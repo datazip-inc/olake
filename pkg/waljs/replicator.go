@@ -34,10 +34,35 @@ type Socket struct {
 	ConfirmedFlushLSN pglogrepl.LSN
 	// wal position at a point of time
 	CurrentWalPosition pglogrepl.LSN
+	// TargetPosition overrides CurrentWalPosition for bounded sync (if set)
+	TargetPosition pglogrepl.LSN
 	// replicationSlot is the name of the PostgreSQL replication slot being used
 	ReplicationSlot string
 	// initialWaitTime is the duration to wait for first wal log catchup before timing out
 	initialWaitTime time.Duration
+}
+
+// SetTargetPosition sets target LSN for bounded recovery sync
+func (s *Socket) SetTargetPosition(target string) error {
+	if target == "" {
+		s.TargetPosition = 0 // Clear target
+		return nil
+	}
+	lsn, err := pglogrepl.ParseLSN(target)
+	if err != nil {
+		return fmt.Errorf("failed to parse target LSN %s: %s", target, err)
+	}
+	s.TargetPosition = lsn
+	logger.Infof("Set target position for bounded sync: %s", lsn.String())
+	return nil
+}
+
+// GetEndPosition returns TargetPosition if set, otherwise CurrentWalPosition
+func (s *Socket) GetEndPosition() pglogrepl.LSN {
+	if s.TargetPosition > 0 {
+		return s.TargetPosition
+	}
+	return s.CurrentWalPosition
 }
 
 // Replicator defines an abstraction over different logical decoding plugins.
@@ -130,8 +155,8 @@ func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) er
 
 // Confirm that Logs has been recorded
 // in fake ack prev confirmed flush lsn is sent
-func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bool) error {
-	walPosition := utils.Ternary(fakeAck, socket.ConfirmedFlushLSN, socket.ClientXLogPos).(pglogrepl.LSN)
+func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bool, finalLSN pglogrepl.LSN) error {
+	walPosition := utils.Ternary(fakeAck, socket.ConfirmedFlushLSN, finalLSN).(pglogrepl.LSN)
 	err := pglogrepl.SendStandbyStatusUpdate(ctx, socket.pgConn, pglogrepl.StandbyStatusUpdate{
 		WALWritePosition: walPosition,
 		WALFlushPosition: walPosition,
