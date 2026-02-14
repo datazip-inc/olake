@@ -122,7 +122,7 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
-func (t *TypeSchema) ToParquet(onlyOlakeColumns bool) *parquet.Schema {
+func (t *TypeSchema) ToParquet(onlyOlakeColumns bool, stream StreamInterface) *parquet.Schema {
 	// keeping default columns parquet schema for backward compatibility for olake columns
 	groupNode := parquet.Group{
 		constants.StringifiedData: parquet.JSON(),
@@ -131,29 +131,79 @@ func (t *TypeSchema) ToParquet(onlyOlakeColumns bool) *parquet.Schema {
 		constants.OpType:          parquet.String(),
 		constants.CdcTimestamp:    parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
 	}
+
+	var unselectedColumnsSet *Set[string]
+	var selectedColumnsSet *Set[string]
+
+	selectedColumns := stream.Self().StreamMetadata.SelectedColumns
+	if selectedColumns != nil && len(selectedColumns.Columns) > 0 {
+		syncNewColumns := selectedColumns.SyncNewColumns
+
+		if syncNewColumns {
+			unselectedColumnsSet = GetUnSelectedColumnsSet(selectedColumns.Columns, stream.GetStream())
+		} else {
+			selectedColumnsSet = NewSet(selectedColumns.Columns...)
+		}
+	}
+
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		colName := key.(string)
 		if onlyOlakeColumns && !prop.OlakeColumn {
 			return true
 		}
+		if unselectedColumnsSet != nil {
+			if unselectedColumnsSet.Exists(colName) {
+				return true
+			}
+		} else if selectedColumnsSet != nil {
+			if !selectedColumnsSet.Exists(colName) {
+				return true
+			}
+		}
 		// Todo: check we can use field name instead of destination column name
-		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
+		groupNode[prop.getDestinationColumnName(colName)] = prop.DataType().ToNewParquet()
 		return true
 	})
 	return parquet.NewSchema("olake_schema", groupNode)
 }
 
-func (t *TypeSchema) ToIceberg(onlyOlakeColumns bool) []*proto.IcebergPayload_SchemaField {
+func (t *TypeSchema) ToIceberg(onlyOlakeColumns bool, stream StreamInterface) []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
+
+	var unselectedColumnsSet *Set[string]
+	var selectedColumnsSet *Set[string]
+
+	selectedColumns := stream.Self().StreamMetadata.SelectedColumns
+	if selectedColumns != nil && len(selectedColumns.Columns) > 0 {
+		syncNewColumns := selectedColumns.SyncNewColumns
+
+		if syncNewColumns {
+			unselectedColumnsSet = GetUnSelectedColumnsSet(selectedColumns.Columns, stream.GetStream())
+		} else {
+			selectedColumnsSet = NewSet(selectedColumns.Columns...)
+		}
+	}
+
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		colName := key.(string)
 		// skip non-olake columns if onlyOlakeColumns is set to true
 		if onlyOlakeColumns && !prop.OlakeColumn {
 			return true
 		}
+		if unselectedColumnsSet != nil {
+			if unselectedColumnsSet.Exists(colName) {
+				return true
+			}
+		} else if selectedColumnsSet != nil {
+			if !selectedColumnsSet.Exists(colName) {
+				return true
+			}
+		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
-			Key:     prop.getDestinationColumnName(key.(string)),
+			Key:     prop.getDestinationColumnName(colName),
 		})
 		return true
 	})
