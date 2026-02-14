@@ -184,7 +184,6 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
-
 			elem.StreamMetadata = sMetadata
 			err := elem.Validate(source)
 			if err != nil {

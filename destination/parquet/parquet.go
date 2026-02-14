@@ -104,9 +104,9 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	writer := func() any {
 		if p.stream.NormalizationEnabled() {
-			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(false), pqgo.Compression(&pqgo.Snappy))
+			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(false, p.stream), pqgo.Compression(&pqgo.Snappy))
 		}
-		return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(true), pqgo.Compression(&pqgo.Snappy))
+		return pqgo.NewGenericWriter[any](pqFile, p.stream.Schema().ToParquet(true, p.stream), pqgo.Compression(&pqgo.Snappy))
 	}()
 
 	p.partitionedFiles[basePath] = append(p.partitionedFiles[basePath], &FileMetadata{
@@ -141,20 +141,19 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 		return p.schema, nil
 	}
 
-	if fields, isFields := schema.(typeutils.Fields); isFields {
+	if schema != nil {
+		fields, ok := schema.(typeutils.Fields)
+		if !ok {
+			return nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
+		}
 		p.schema = fields.Clone()
 		return fields, nil
 	}
 
-	// the first writer thread for this stream will have a TypeSchema
-	if filteredSchema, isTypeSchema := schema.(*types.TypeSchema); isTypeSchema {
-		fields := make(typeutils.Fields)
-		fields.FromSchema(filteredSchema)
-		p.schema = fields.Clone()
-		return fields, nil
-	}
-
-	return nil, fmt.Errorf("failed to convert schema[%T] to typeutils.Fields", schema)
+	fields := make(typeutils.Fields)
+	fields.FromSchema(stream.Schema())
+	p.schema = fields.Clone() // update schema
+	return fields, nil
 }
 
 // Write writes a record to the Parquet file.

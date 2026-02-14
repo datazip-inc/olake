@@ -63,11 +63,9 @@ func FilterDataBySelectedColumns(stream StreamInterface) func(map[string]interfa
 		if syncNewColumns {
 			// emit all columns except those that are unselected
 			// this ensures all columns that are new are selected by default
-			for col := range data {
-				if unselectedColumnsSet.Exists(col) {
-					delete(data, col)
-				}
-			}
+			unselectedColumnsSet.Range(func(col string) {
+				delete(data, col)
+			})
 		} else {
 			// emit only columns that are selected
 			for col := range data {
@@ -109,9 +107,12 @@ func MergeSelectedColumns(
 			return true
 		})
 	}
-
+	syncNewColumns := true
+	if metadata.SelectedColumns != nil {
+		syncNewColumns = metadata.SelectedColumns.SyncNewColumns
+	}
 	metadata.SelectedColumns = &SelectedColumns{
 		Columns:        columns,
-		SyncNewColumns: metadata.SelectedColumns.SyncNewColumns,
+		SyncNewColumns: syncNewColumns,
 	}
 }

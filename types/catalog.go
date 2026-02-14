@@ -67,7 +67,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		selectedColumns := collectColumnsFromSchema(stream.Schema)
 		selectedCols := &SelectedColumns{
 			Columns:        selectedColumns,
-			SyncNewColumns: false,
+			SyncNewColumns: true,
 		}
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
