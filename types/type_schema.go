@@ -122,33 +122,37 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
-func (t *TypeSchema) ToParquet(onlyOlakeColumns bool) *parquet.Schema {
+func (t *TypeSchema) ToParquet(defaultColumns bool) *parquet.Schema {
 	// keeping default columns parquet schema for backward compatibility for olake columns
 	groupNode := parquet.Group{
-		constants.StringifiedData: parquet.JSON(),
-		constants.OlakeID:         parquet.String(),
-		constants.OlakeTimestamp:  parquet.Timestamp(parquet.Microsecond),
-		constants.OpType:          parquet.String(),
-		constants.CdcTimestamp:    parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
+		constants.OlakeID:        parquet.String(),
+		constants.OlakeTimestamp: parquet.Timestamp(parquet.Microsecond),
+		constants.OpType:         parquet.String(),
+		constants.CdcTimestamp:   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
 	}
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
-		if onlyOlakeColumns && !prop.OlakeColumn {
+		if defaultColumns && !prop.OlakeColumn {
 			return true
 		}
 		// Todo: check we can use field name instead of destination column name
 		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
 		return true
 	})
+
+	if defaultColumns {
+		groupNode[constants.StringifiedData] = parquet.JSON()
+	}
+
 	return parquet.NewSchema("olake_schema", groupNode)
 }
 
-func (t *TypeSchema) ToIceberg(onlyOlakeColumns bool) []*proto.IcebergPayload_SchemaField {
+func (t *TypeSchema) ToIceberg(defaultColumns bool) []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
-		// skip non-olake columns if onlyOlakeColumns is set to true
-		if onlyOlakeColumns && !prop.OlakeColumn {
+		// skip non-olake columns if defaultColumns is set to true
+		if defaultColumns && !prop.OlakeColumn {
 			return true
 		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
@@ -157,14 +161,17 @@ func (t *TypeSchema) ToIceberg(onlyOlakeColumns bool) []*proto.IcebergPayload_Sc
 		})
 		return true
 	})
-	if onlyOlakeColumns {
+
+	if defaultColumns {
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: "string",
 			Key:     constants.StringifiedData,
 		})
 	}
+
 	return icebergFields
 }
+
 func (t *TypeSchema) HasDestinationColumnName() bool {
 	found := false
 	t.Properties.Range(func(_, value interface{}) bool {

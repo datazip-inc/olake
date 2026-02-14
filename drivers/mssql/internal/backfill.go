@@ -40,6 +40,7 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	// Use repeatable read isolation without read-only flag
 	return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
 		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
+		sort.Strings(pkColumns)
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 
 		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)

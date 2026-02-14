@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/linkedin/goavro/v2"
 )
 
@@ -78,7 +79,11 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 
 	// parse Avro codec if schema type is Avro
 	if schemaType == types.SchemaTypeAvro {
-		codec, err := goavro.NewCodec(schemaResp.Schema)
+		normalizedSchema, err := typeutils.NormalizeAvroSchema(schemaResp.Schema)
+		if err != nil {
+			return nil, fmt.Errorf("failed to normalize schema ID %d: %s", schemaID, err)
+		}
+		codec, err := goavro.NewCodec(normalizedSchema)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Avro codec for schema ID %d: %s", schemaID, err)
 		}
