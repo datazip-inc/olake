@@ -215,7 +215,6 @@ func (t *TypeSchema) ToIceberg(onlyOlakeColumns bool, stream StreamInterface) []
 	}
 	return icebergFields
 }
-
 func (t *TypeSchema) HasDestinationColumnName() bool {
 	found := false
 	t.Properties.Range(func(_, value interface{}) bool {
