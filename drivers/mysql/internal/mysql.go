@@ -369,7 +369,7 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 }
 
 // parseMySQTimeZoneOffset parses MySQL-style timezone offset. Returns offset in seconds and true, or 0, false.
-func parseMySQLTimeZoneOffset(s string) (offsetSeconds int, ok bool) {
+func parseMySQLTimeZoneOffset(s string) (int, bool) {
 	// MySql supports offsets ranging from -13:59 to +14:00
 	mysqlOffsetRegex := regexp.MustCompile(`^([+-])(0?\d|1[0-4]):([0-5]\d)$`)
 
@@ -385,6 +385,6 @@ func parseMySQLTimeZoneOffset(s string) (offsetSeconds int, ok bool) {
 	if err1 != nil || err2 != nil || (hours == 14 && minutes > 0) || (signStr == "-" && hours == 14) {
 		return 0, false
 	}
-	offsetSeconds = hours*3600 + minutes*60
+	offsetSeconds := hours*3600 + minutes*60
 	return utils.Ternary(signStr == "-", -offsetSeconds, offsetSeconds).(int), true
 }
