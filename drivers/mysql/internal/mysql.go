@@ -362,6 +362,7 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 
 	loc, err := time.LoadLocation(name)
 	if err != nil {
+		logger.Warnf("failed to load mysql timezone location %s, falling back to UTC: %s", name, err)
 		return time.UTC
 	}
 	return loc
@@ -384,5 +385,6 @@ func parseMySQLTimeZoneOffset(s string) (offsetSeconds int, ok bool) {
 	if err1 != nil || err2 != nil || (hours == 14 && minutes > 0) || (signStr == "-" && hours == 14) {
 		return 0, false
 	}
+	offsetSeconds = hours*3600 + minutes*60
 	return utils.Ternary(signStr == "-", -offsetSeconds, offsetSeconds).(int), true
 }
