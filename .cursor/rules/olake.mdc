@@ -47,12 +47,21 @@ OLake is an open-source, high-performance **EL (Extract-Load)** tool that replic
 └── constants/                       # Global constants, DriverType enum
 ```
 
-## 3. Iceberg Destination — Two Write Modes
+## 3. Destinations — Iceberg & Parquet
+
+### Iceberg Destination — Two Write Modes
 
 - **Legacy (default):** Go flattens records → sends via gRPC `RecordIngestService` → Java writes to Iceberg
 - **Arrow (`"arrow_writes": true`):** Go builds Arrow batches → Parquet files → gRPC `ArrowIngestService` → Java registers into catalog
 - Java code: `destination/iceberg/olake-iceberg-java-writer/`
 
+### Parquet Destination
+
+- **Plain Parquet files:** Go writes directly to Parquet via the `destination/parquet` implementation — no Java writer or Iceberg catalog involved.
+- **Output location:** Controlled entirely by the Parquet writer config (e.g., local or object storage path), with files organized by stream and batch for efficient downstream reads.
+- **Config:** Set `"type":"PARQUET"` in the destination config to use this path; it uses the same `destination.Writer` interface as Iceberg but bypasses all Iceberg JAR and catalog setup.
+   
+  
 ### JAR Detection Order (IMPORTANT)
 
 Both `build.sh` and the Go binary check for the JAR in this order:
@@ -163,13 +172,25 @@ cd destination/iceberg/olake-iceberg-java-writer && mvn clean package -DskipTest
  "ssl":{"mode":"disable"},"update_method":{"replication_slot":"olake_slot","initial_wait_time":120,"publication":"olake_publication"}}
 ```
 
-`/tmp/olake-e2e-test/destination.json`:
+`/tmp/olake-e2e-test/destination.json` (Iceberg):
 ```json
 {"type":"ICEBERG","writer":{"catalog_type":"jdbc",
  "jdbc_url":"jdbc:postgresql://localhost:5432/iceberg","jdbc_username":"iceberg","jdbc_password":"password",
  "iceberg_s3_path":"s3a://warehouse","s3_endpoint":"http://localhost:9000","s3_use_ssl":false,
  "s3_path_style":true,"aws_access_key":"admin","aws_secret_key":"password",
  "iceberg_db":"olake_test","aws_region":"us-east-1"}}
+```
+
+For **Parquet-only** runs (no Iceberg catalog / JAR), use a destination config like:
+
+```json
+{"type":"PARQUET","writer":{
+  "s3_bucket":"warehouse",
+  "s3_region":"us-east-1",
+  "s3_access_key":"admin",
+  "s3_secret_key":"password",
+  "s3_endpoint":"http://host.docker.internal:9000"
+}}
 ```
 
 ### Step 5: Build driver and run discover
