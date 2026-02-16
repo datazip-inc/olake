@@ -19,9 +19,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-// Ensure Mongo implements PerStreamPosition2PC interface
-var _ abstract.PerStreamRecovery2PC = (*Mongo)(nil)
-
 const (
 	maxAwait               = 2 * time.Second
 	changeStreamRetryDelay = 500 * time.Millisecond
@@ -208,7 +205,7 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 }
 
 // GetCDCPositionForStream returns the current CDC position for a specific stream
-func (m *Mongo) GetCDCPositionForStream(streamID string) string {
+func (m *Mongo) GetCDCPosition(streamID string) string {
 	val, ok := m.cdcCursor.Load(streamID)
 	if ok {
 		return val.(string)
@@ -217,7 +214,8 @@ func (m *Mongo) GetCDCPositionForStream(streamID string) string {
 }
 
 // GetCDCStartPositionForStream returns the value used to start CDC for this stream.
-func (m *Mongo) GetCDCStartPositionForStream(stream types.StreamInterface) (string, error) {
+func (m *Mongo) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
+	stream = m.streams[streamIndex]
 	val := m.state.GetCursor(stream.Self(), cdcCursorField)
 	if val == nil {
 		return "", nil
@@ -226,12 +224,11 @@ func (m *Mongo) GetCDCStartPositionForStream(stream types.StreamInterface) (stri
 }
 
 // SetRecoveredCDCPositionForStream updates the stream cursor to the recovered committed position.
-func (m *Mongo) SetRecoveredCDCPositionForStream(stream types.StreamInterface, position string) error {
+func (m *Mongo) SetCurrentCDCPosition(stream types.StreamInterface, position string) {
 	if position == "" {
-		return nil
+		return
 	}
 	m.state.SetCursors(stream.Self(), map[string]any{cdcCursorField: position})
-	return nil
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {

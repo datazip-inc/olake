@@ -16,10 +16,6 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-type backfillCommitState struct {
-	FullRefreshCommittedIDs []string `json:"full_refresh_committed_ids"`
-}
-
 func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
@@ -141,7 +137,7 @@ func (a *AbstractDriver) fetchBackfillCommittedThreadIDs(ctx context.Context, po
 		return committed
 	}
 
-	var state backfillCommitState
+	var state SyncState
 	if err := json.Unmarshal([]byte(statePayload), &state); err != nil {
 		logger.Warnf("Failed to parse commit state JSON, skipping optimization: %s", err)
 		return committed

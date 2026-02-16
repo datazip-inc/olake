@@ -17,3 +17,11 @@ func (d *DB2) StreamChanges(ctx context.Context, streamIndex int, processFn abst
 func (d *DB2) PostCDC(ctx context.Context, streamIndex int) error {
 	return nil
 }
+
+func (d *DB2) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
+	return "", nil
+}
+
+func (d *DB2) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
+
+func (d *DB2) GetCDCPosition(streamID string) string { return "" }

@@ -17,19 +17,12 @@ type Config interface {
 // GlobalPosition2PC is for drivers that use a global CDC position shared across all streams (MySQL, Postgres).
 // These drivers need bounded sync because all streams share the same LSN/binlog position.
 type GlobalPosition2PC interface {
-	GetCDCPosition() string                // returns current CDC position (binlog pos for MySQL, LSN for Postgres)
-	GetCDCStartPosition() string           // returns starting CDC position from state (for predictable thread IDs)
-	SetCurrentCDCPosition(position string) // updates the current CDC position in state (for recovery)
-	SetTargetCDCPosition(position string)  // sets target position for bounded recovery sync (empty = use latest)
-	GetTargetCDCPosition() string          // returns target position (empty = use latest)
+	SetTargetCDCPosition(position string) // sets target position for bounded recovery sync (empty = use latest)
+	GetTargetCDCPosition() string         // returns target position (empty = use latest)
 }
 
 type PerStreamRecovery2PC interface {
 	GetCDCPositionForStream(streamID string) string
-	// GetCDCStartPositionForStream returns the position used to start CDC for the stream.
-	GetCDCStartPositionForStream(stream types.StreamInterface) (string, error)
-	// SetRecoveredCDCPositionForStream updates the stream cursor to the recovered committed position.
-	SetRecoveredCDCPositionForStream(stream types.StreamInterface, position string) error
 }
 
 // PositionAcknowledgment is for drivers that need to acknowledge CDC positions to the source (Postgres).
@@ -63,4 +56,8 @@ type DriverInterface interface {
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, identifier int, processFn CDCMsgFn) error
 	PostCDC(ctx context.Context, identifier int) error // to save state
+
+	GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) // returns starting CDC position from state (for predictable thread IDs)
+	SetCurrentCDCPosition(stream types.StreamInterface, position string)               // updates the current CDC position in state (for recovery)
+	GetCDCPosition(streamID string) string                                             // returns current CDC position (binlog pos for MySQL, LSN for Postgres)
 }

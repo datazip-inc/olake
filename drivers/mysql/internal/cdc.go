@@ -114,7 +114,7 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 	}
 }
 
-func (m *MySQL) GetCDCPosition() string {
+func (m *MySQL) GetCDCPosition(streamID string) string {
 	if m.BinlogConn == nil {
 		return ""
 	}
@@ -122,19 +122,19 @@ func (m *MySQL) GetCDCPosition() string {
 }
 
 // GetCDCStartPosition returns the starting CDC position from state for predictable thread IDs
-func (m *MySQL) GetCDCStartPosition() string {
+func (m *MySQL) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
 	globalState := m.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
-		return ""
+		return "", fmt.Errorf("global state is nil")
 	}
 	var mysqlState MySQLGlobalState
 	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
-		return ""
+		return "", fmt.Errorf("failed to unmarshal global state: %w", err)
 	}
-	return fmt.Sprintf("%s:%d", mysqlState.State.Position.Name, mysqlState.State.Position.Pos)
+	return fmt.Sprintf("%s:%d", mysqlState.State.Position.Name, mysqlState.State.Position.Pos), nil
 }
 
-func (m *MySQL) SetCurrentCDCPosition(position string) {
+func (m *MySQL) SetCurrentCDCPosition(stream types.StreamInterface, position string) {
 	globalState := m.state.GetGlobal()
 	if globalState == nil {
 		logger.Warnf("SetCurrentCDCPosition called but global state is nil")

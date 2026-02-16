@@ -312,3 +312,11 @@ func operationTypeFromCDCCode(code int32) string {
 		return "update"
 	}
 }
+
+func (m *MSSQL) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
+	return "", nil
+}
+
+func (m *MSSQL) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
+
+func (m *MSSQL) GetCDCPosition(streamID string) string { return "" }

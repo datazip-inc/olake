@@ -86,12 +86,11 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(rawCtx)))
 			threadID := generateThreadID(stream.ID(), hash)
 
-			// Use a map reference for payload so we can update it dynamically inside the loop
-			payload := map[string]string{
-				primaryCursor: fmt.Sprintf("%v", a.FormatCursorValue(maxPrimaryCursorValue)),
-			}
+			// Use a shared SyncState payload so commit-state parsing is consistent.
+			payload := &SyncState{}
+			payload.SetField(primaryCursor, fmt.Sprintf("%v", a.FormatCursorValue(maxPrimaryCursorValue)))
 			if secondaryCursor != "" {
-				payload[secondaryCursor] = fmt.Sprintf("%v", a.FormatCursorValue(maxSecondaryCursorValue))
+				payload.SetField(secondaryCursor, fmt.Sprintf("%v", a.FormatCursorValue(maxSecondaryCursorValue)))
 			}
 
 			inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID), destination.WithSyncMode("incremental"), destination.WithPayload(payload))
@@ -107,9 +106,9 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 						return ctx.Err()
 					}
 					// Update payload with final cursor values before committing
-					payload[primaryCursor] = fmt.Sprintf("%v", a.FormatCursorValue(maxPrimaryCursorValue))
+					payload.SetField(primaryCursor, fmt.Sprintf("%v", a.FormatCursorValue(maxPrimaryCursorValue)))
 					if secondaryCursor != "" {
-						payload[secondaryCursor] = fmt.Sprintf("%v", a.FormatCursorValue(maxSecondaryCursorValue))
+						payload.SetField(secondaryCursor, fmt.Sprintf("%v", a.FormatCursorValue(maxSecondaryCursorValue)))
 					}
 					return nil
 				},
@@ -240,41 +239,26 @@ func (a *AbstractDriver) incrementalRecovery(ctx context.Context, pool *destinat
 		return prevPrimaryCursor, prevSecondaryCursor
 	}
 
-	var payloadMap map[string]any
-	if err := json.Unmarshal([]byte(statePayload), &payloadMap); err != nil {
+	var state SyncState
+	if err := json.Unmarshal([]byte(statePayload), &state); err != nil {
 		logger.Warnf("Failed to unmarshal recovery payload for stream %s: %s", stream.ID(), err)
 		return prevPrimaryCursor, prevSecondaryCursor
 	}
 
 	// Check if the state corresponds to the current thread
-	if val, ok := payloadMap["latest_threadId"]; !ok || val != threadID {
+	if state.LatestThreadID != threadID {
 		return prevPrimaryCursor, prevSecondaryCursor
 	}
 
-	// Helper to extract value from payload, checking both top-level and nested "next_cursor_value"
-	getValue := func(key string) any {
-		if val, ok := payloadMap[key]; ok {
-			return val
-		}
-		if nextCursorVal, ok := payloadMap["next_cursor_value"]; ok {
-			if nestedMap, ok := nextCursorVal.(map[string]any); ok {
-				if val, ok := nestedMap[key]; ok {
-					return val
-				}
-			}
-		}
-		return nil
-	}
-
 	// Extract max cursors from payload using the actual cursor names as keys
-	recoveredPrimaryCursor := getValue(primaryCursor)
+	recoveredPrimaryCursor := state.GetValue(primaryCursor)
 	if recoveredPrimaryCursor == nil || recoveredPrimaryCursor == "" {
 		return prevPrimaryCursor, prevSecondaryCursor
 	}
 
 	var recoveredSecondaryCursor any
 	if secondaryCursor != "" {
-		recoveredSecondaryCursor = getValue(secondaryCursor)
+		recoveredSecondaryCursor = state.GetValue(secondaryCursor)
 	}
 
 	// Update state directly - atomic update

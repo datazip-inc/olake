@@ -319,3 +319,11 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 	}
 	return nativeDatum, nil
 }
+
+func (k *Kafka) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
+	return "", nil
+}
+
+func (k *Kafka) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
+
+func (k *Kafka) GetCDCPosition(streamID string) string { return "" }

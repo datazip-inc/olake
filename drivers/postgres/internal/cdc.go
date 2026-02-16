@@ -112,13 +112,13 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 		}
 
 		walState.LSN = finalLSN.String()
-		
+
 		p.state.SetGlobal(walState)
 		return nil
 	}
 }
 
-func (p *Postgres) GetCDCPosition() string {
+func (p *Postgres) GetCDCPosition(streamID string) string {
 	if p.replicator == nil {
 		return ""
 	}
@@ -126,19 +126,19 @@ func (p *Postgres) GetCDCPosition() string {
 }
 
 // GetCDCStartPosition returns the starting CDC position from state for predictable thread IDs
-func (p *Postgres) GetCDCStartPosition() string {
+func (p *Postgres) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
 	var walState waljs.WALState
 	globalState := p.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
-		return ""
+		return "", fmt.Errorf("global state is nil")
 	}
 	if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-		return ""
+		return "", fmt.Errorf("failed to unmarshal global state: %w", err)
 	}
-	return walState.LSN
+	return walState.LSN, nil
 }
 
-func (p *Postgres) SetCurrentCDCPosition(position string) {
+func (p *Postgres) SetCurrentCDCPosition(stream types.StreamInterface, position string) {
 	var walState waljs.WALState
 	globalState := p.state.GetGlobal()
 	if globalState != nil && globalState.State != nil {
