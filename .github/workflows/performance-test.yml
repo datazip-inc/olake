@@ -7,10 +7,6 @@ on:
     paths:
     - '**/*.go'
     - '**/*.java'
-  # TODO: Remove after testing
-  pull_request:
-    branches:
-    - "*"
 
 permissions:
   actions: read
