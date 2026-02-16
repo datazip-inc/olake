@@ -1079,28 +1079,41 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 
 // ParseFilter converts a filter string to a valid SQL WHERE condition, also appends the threshold filter if present
 func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter string) (string, error) {
-	// buildCondition builds the SQL condition for a single filter condition
-	buildCondition := func(cond types.FilterCondition, driver string) (string, error) {
-		var driverType constants.DriverType
-		switch driver {
-		case "mysql":
-			driverType = constants.MySQL
-		case "postgres":
-			driverType = constants.Postgres
-		case "oracle":
-			driverType = constants.Oracle
-		case "mssql":
-			driverType = constants.MSSQL
-		case "db2":
-			driverType = constants.DB2
-		default:
-			driverType = constants.Postgres
-		}
+	// Resolve driver type once.
+	var driverType constants.DriverType
+	switch strings.ToLower(driver) {
+	case "mysql":
+		driverType = constants.MySQL
+	case "postgres":
+		driverType = constants.Postgres
+	case "oracle":
+		driverType = constants.Oracle
+	case "mssql":
+		driverType = constants.MSSQL
+	case "db2":
+		driverType = constants.DB2
+	default:
+		driverType = constants.Postgres
+	}
 
+	filter, isLegacy, err := stream.GetFilter()
+	if err != nil {
+		return "", fmt.Errorf("failed to parse stream filter: %s", err)
+	}
+
+	// buildCondition builds the SQL condition for a single filter condition.
+	buildCondition := func(cond types.FilterCondition) (string, error) {
 		quotedColumn := QuoteIdentifier(cond.Column, driverType)
 
 		// ---------- NULL handling ----------
-		if cond.Value == nil {
+		isNullKeyword := false
+		if isLegacy {
+			if s, ok := cond.Value.(string); ok && strings.EqualFold(strings.TrimSpace(s), "null") {
+				isNullKeyword = true
+			}
+		}
+
+		if cond.Value == nil || isNullKeyword {
 			switch cond.Operator {
 			case "=":
 				return fmt.Sprintf("%s IS NULL", quotedColumn), nil
@@ -1110,8 +1123,36 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 				return "", fmt.Errorf("operator %s not supported with NULL", cond.Operator)
 			}
 		}
+
 		// ---------- value formatting ----------
 		var valueSQL string
+
+		if isLegacy {
+			// Legacy filters: value always comes in as a string token from the
+			// original filter expression (e.g. 10, "foo", true, null).
+			value, ok := cond.Value.(string)
+			if !ok {
+				value = fmt.Sprint(cond.Value)
+			}
+
+			if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+				// Handle quoted strings
+				unquoted := value[1 : len(value)-1]
+				escaped := strings.ReplaceAll(unquoted, "'", "''")
+				value = fmt.Sprintf("'%s'", escaped)
+			} else {
+				_, err := strconv.ParseFloat(value, 64)
+				booleanValue := strings.EqualFold(value, "true") || strings.EqualFold(value, "false")
+				if err != nil && !booleanValue {
+					escaped := strings.ReplaceAll(value, "'", "''")
+					value = fmt.Sprintf("'%s'", escaped)
+				}
+			}
+
+			return fmt.Sprintf("%s %s %s", quotedColumn, cond.Operator, value), nil
+		}
+
+		// New JSON filter path: use the real Go type coming from JSON decoding.
 		switch v := cond.Value.(type) {
 		case string:
 			// TODO: Audit Unicode handling of string filters with special characters (Ω, ⚡, emoji, etc.) for all JDBC drivers (MSSQL, Postgres, MySQL, Oracle, DB2).
@@ -1146,10 +1187,6 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 
 		return fmt.Sprintf("%s %s %s", quotedColumn, cond.Operator, valueSQL), nil
 	}
-	filter, _, err := stream.GetFilter()
-	if err != nil {
-		return "", fmt.Errorf("failed to parse stream filter: %s", err)
-	}
 
 	// ---------- build SQL ----------
 	var finalFilter string
@@ -1159,14 +1196,14 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 		return thresholdFilter, nil
 
 	case 1:
-		finalFilter, err = buildCondition(filter.Conditions[0], driver)
+		finalFilter, err = buildCondition(filter.Conditions[0])
 		if err != nil {
 			return "", err
 		}
 	default:
 		conditions := make([]string, 0, len(filter.Conditions))
 		for _, cond := range filter.Conditions {
-			formatted, err := buildCondition(cond, driver)
+			formatted, err := buildCondition(cond)
 			if err != nil {
 				return "", err
 			}
