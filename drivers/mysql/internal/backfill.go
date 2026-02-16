@@ -241,7 +241,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return fmt.Errorf("failed to convert string to int: %v", err)
 		}
 
-		expectedChunks := (avgSchemaSize + chunkSize - 1) / chunkSize
+		expectedChunks := int64(math.Ceil(float64(avgSchemaSize) / float64(constants.EffectiveParquetSize)))
 		if expectedChunks <= 0 {
 			expectedChunks = 1
 		}
