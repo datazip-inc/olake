@@ -1114,6 +1114,7 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 		var valueSQL string
 		switch v := cond.Value.(type) {
 		case string:
+			// TODO: Audit Unicode handling of string filters with special characters (Ω, ⚡, emoji, etc.) for all JDBC drivers (MSSQL, Postgres, MySQL, Oracle, DB2).
 			// default: treat as escaped string
 			escaped := strings.ReplaceAll(v, "'", "''")
 			valueSQL = fmt.Sprintf("'%s'", escaped)

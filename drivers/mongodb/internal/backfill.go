@@ -401,7 +401,8 @@ func buildMongoCondition(cond types.FilterCondition) bson.D {
 
 	mongoOp, ok := opMap[cond.Operator]
 	if !ok {
-		panic(fmt.Sprintf("unsupported operator for mongo: %s", cond.Operator))
+		logger.Errorf("unsupported operator for mongo: %s", cond.Operator)
+		return bson.D{}
 	}
 
 	var value interface{}

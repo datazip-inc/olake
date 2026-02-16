@@ -23,13 +23,7 @@ type parsedCondition struct {
 
 // FilterRecords applies filtering ONLY for new filters.
 // For legacy filters, records are returned unchanged.
-func FilterRecords(
-	ctx context.Context,
-	records []types.RawRecord,
-	filter types.FilterInput,
-	legacy bool,
-	schema any,
-) ([]types.RawRecord, error) {
+func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterInput, legacy bool, schema any) ([]types.RawRecord, error) {
 	logger.Infof("filtering records with filter: %+v", filter)
 
 	if legacy {
@@ -101,12 +95,7 @@ func resolveColumnType(column string, schema any) types.DataType {
 }
 
 // filterConcurrently evaluates records in parallel
-func filterConcurrently(
-	ctx context.Context,
-	records []types.RawRecord,
-	conditions []parsedCondition,
-	logicalOp string,
-) ([]types.RawRecord, error) {
+func filterConcurrently(ctx context.Context, records []types.RawRecord, conditions []parsedCondition, logicalOp string) ([]types.RawRecord, error) {
 	concurrency := runtime.GOMAXPROCS(0) * 16
 	var mu sync.Mutex
 	filtered := make([]types.RawRecord, 0, len(records))
