@@ -55,7 +55,7 @@ func (p *ParquetParser) InferSchema(_ context.Context, reader io.Reader) (*types
 	for _, field := range schema.Fields() {
 		olakeType := mapParquetTypeToOlake(field.Type())
 		nullable := field.Optional()
-		p.stream.UpsertField(field.Name(), olakeType, nullable)
+		p.stream.UpsertField(field.Name(), olakeType, nullable, false)
 	}
 
 	logger.Infof("Inferred schema with %d fields from Parquet", len(schema.Fields()))

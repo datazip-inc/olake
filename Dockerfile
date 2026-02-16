@@ -16,14 +16,18 @@ fi
 
 # Build the Go binary
 WORKDIR /home/app/drivers/${DRIVER_NAME}
-RUN if [ "$DRIVER_NAME" = "db2" ]; then \
+RUN if [ "$DRIVER_NAME" = "db2" ] && [ "$(uname -m)" != "x86_64" ]; then \
+  echo "DB2 driver is only supported on x86_64 (amd64) architecture." && \
+  echo "IBM does not provide ARM64 clidriver." && \
+  exit 1; \
+elif [ "$DRIVER_NAME" = "db2" ]; then \
   export IBM_DB_HOME=/go/pkg/mod/github.com/ibmdb/clidriver && \
   export CGO_CFLAGS="-I$IBM_DB_HOME/include" && \
   export CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib" && \
   export LD_LIBRARY_PATH=$IBM_DB_HOME/lib && \
   go build -o /olake main.go; \
 else \
-  go build -o /olake main.go; \
+  CGO_ENABLED=0 go build -o /olake main.go; \
 fi
 
 # Final Runtime Stage Base
@@ -45,6 +49,9 @@ ARG DRIVER_NAME=olake
 
 # Copy the binary from the build stage
 COPY --from=builder /olake /home/olake
+
+# Sets the version of olake in ENV 
+ENV DRIVER_VERSION=${DRIVER_VERSION}
 
 # Copy the pre-built JAR file from Maven
 # First try to copy from the source location (works after Maven build)

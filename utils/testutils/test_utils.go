@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/datazip-inc/olake/constants"
@@ -41,6 +42,7 @@ type IntegrationTest struct {
 	ExpectedUpdatedData              map[string]interface{}
 	DestinationDataTypeSchema        map[string]string
 	UpdatedDestinationDataTypeSchema map[string]string
+	DefaultCDCColumnsSchema          map[string]string
 	Namespace                        string
 	ExecuteQuery                     func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
 	DestinationDB                    string
@@ -231,7 +233,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 	}
 	streamConditions := make([]string, len(stream))
 	for i, s := range stream {
-		s = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(s), s).(string)
+		s = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(s), s).(string)
 		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 	}
 	condition := strings.Join(streamConditions, " or ")
@@ -253,7 +255,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
 func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
 	// in case of Oracle, the stream names are in uppercase in stream.json
-	streamName = utils.Ternary(config.Driver == string(constants.Oracle), strings.ToUpper(streamName), streamName).(string)
+	streamName = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
 	// map/select pattern updates nested array members
 	return fmt.Sprintf(
@@ -267,6 +269,14 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 func resetStateFileCommand(config TestConfig) string {
 	// Ensure the state is clean irrespective of previous CDC run
 	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
+}
+
+func toggleArrowIcebergWrites(config TestConfig, enabled bool) string {
+	tmpDest := "/tmp/iceberg_destination.json"
+	return fmt.Sprintf(
+		`jq '.writer.arrow_writes = %t' %s > %s && mv %s %s`,
+		enabled, config.IcebergDestinationPath, tmpDest, tmpDest, config.IcebergDestinationPath,
+	)
 }
 
 // to get backfill streams from cdc streams e.g. "demo_cdc" -> "demo"
@@ -283,6 +293,10 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T, testTa
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "drop", false)
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "create", false)
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "add", false)
+	if cfg.TestConfig.Driver == string(constants.DB2) {
+		// to populate stats for DB2
+		cfg.ExecuteQuery(ctx, t, []string{testTable}, "populate-stats", false)
+	}
 	return nil
 }
 
@@ -352,6 +366,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	operation string,
 	opSymbol string,
 	schema map[string]interface{},
+	isCDC bool,
 ) error {
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
@@ -377,22 +392,39 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
 			} else {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
 			}
 		}
 	case "parquet":
 		{
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
 			} else {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, schema, opSymbol, cfg.TestConfig.Driver)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
 			}
 		}
 	}
 
 	return nil
+}
+
+func (cfg *IntegrationTest) testIcebergWriter(
+	ctx context.Context,
+	t *testing.T,
+	c testcontainers.Container,
+	testTable string,
+	useArrowWriter bool,
+	testFunc func(context.Context, *testing.T, testcontainers.Container, string) error,
+) error {
+	cmd := toggleArrowIcebergWrites(*cfg.TestConfig, useArrowWriter)
+	code, out, err := utils.ExecCommand(ctx, c, cmd)
+	if err != nil || code != 0 {
+		return fmt.Errorf("failed to toggle arrow_writes (%d): %s\n%s", code, err, out)
+	}
+
+	return testFunc(ctx, t, c, testTable)
 }
 
 // testIcebergFullLoadAndCDC tests Full load and CDC operations
@@ -403,6 +435,10 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	testTable string,
 ) error {
 	t.Log("Starting Iceberg Full load + CDC tests")
+
+	if err := cfg.resetTable(ctx, t, testTable); err != nil {
+		return fmt.Errorf("failed to reset table: %w", err)
+	}
 
 	testCases := []syncTestCase{
 		{
@@ -455,6 +491,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				tc.name != "Full-Refresh",
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -539,6 +576,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				tc.name != "Full-Refresh",
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -626,6 +664,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				false,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -713,6 +752,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
+				false,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -732,7 +772,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image: "golang:1.24.0",
+			Image:         "golang:1.24.0",
+			ImagePlatform: "linux/amd64",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
@@ -805,7 +846,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Run("Sync", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image: "golang:1.24.0",
+			Image:         "golang:1.24.0",
+			ImagePlatform: "linux/amd64",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
@@ -846,12 +888,22 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 							t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
 
+							writerTypes := []struct {
+								name     string
+								useArrow bool
+							}{
+								{"Legacy", false},
+								{"Arrow", true},
+							}
+
 							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
-								t.Run("Iceberg Full load + CDC tests", func(t *testing.T) {
-									if err := cfg.testIcebergFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-										t.Fatalf("Iceberg Full load + CDC tests failed: %v", err)
-									}
-								})
+								for _, wt := range writerTypes {
+									t.Run(fmt.Sprintf("Iceberg (%s) Full load + CDC tests", wt.name), func(t *testing.T) {
+										if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndCDC); err != nil {
+											t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", wt.name, err)
+										}
+									})
+								}
 
 								t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
 									if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
@@ -860,11 +912,13 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								})
 							}
 
-							t.Run("Iceberg Full load + Incremental tests", func(t *testing.T) {
-								if err := cfg.testIcebergFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Iceberg Full load + Incremental tests failed: %v", err)
-								}
-							})
+							for _, wt := range writerTypes {
+								t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
+									if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndIncremental); err != nil {
+										t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", wt.name, err)
+									}
+								})
+							}
 
 							t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
 								if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
@@ -925,7 +979,7 @@ func dropIcebergTable(t *testing.T, tableName, icebergDB string) {
 
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -996,6 +1050,25 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
 			require.Equal(t, expected, icebergValue, "Row %d: mismatch on %q: Iceberg has %#v, expected %#v", rowIdx, key, icebergValue, expected)
 		}
+		if isCDC {
+			for key := range defaultCDCColumnsSchema {
+				icebergValue, ok := icebergMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
+				require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				if key == constants.CdcTimestamp {
+					ts, ok := normalizeToTime(icebergValue)
+					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, icebergValue, icebergValue)
+					minAllowed := time.Now().Add(-1 * time.Hour)
+					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
+				}
+			}
+		}
+		if !isCDC && icebergMap[constants.CdcTimestamp] != nil {
+			ts, ok := normalizeToTime(icebergMap[constants.CdcTimestamp])
+			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, icebergMap[constants.CdcTimestamp])
+			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
+			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
+		}
 	}
 	t.Logf("Verified Iceberg synced data with respect to data synced from source[%s] found equal", driver)
 
@@ -1026,6 +1099,17 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
+	// Verify datatypes for CDC/default columns as well
+	if isCDC {
+		for col, expectedIceType := range defaultCDCColumnsSchema {
+			iceType, found := icebergSchema[col]
+			require.True(t, found, "CDC column %s not found in Iceberg schema", col)
+
+			require.Equal(t, expectedIceType, iceType,
+				"CDC data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
+		}
+		t.Logf("Verified datatypes for CDC columns in Iceberg after sync")
+	}
 
 	// Partition verification using only metadata tables
 	if partitionRegex == "" {
@@ -1047,10 +1131,23 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
-func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, schema map[string]interface{}, opSymbol, driver string) {
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool) {
 	t.Helper()
 	ctx := context.Background()
-	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+
+	// Retry Spark session creation for transient connection issues
+	var spark sql.SparkSession
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		spark, err = sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
+		if err == nil {
+			break
+		}
+		if attempt < 3 {
+			t.Logf("Attempt %d/3: Failed to connect to Spark, retrying in 2s: %v", attempt, err)
+			time.Sleep(2 * time.Second)
+		}
+	}
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 	defer func() {
 		if stopErr := spark.Stop(); stopErr != nil {
@@ -1066,7 +1163,19 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		"CREATE OR REPLACE TEMP VIEW %s AS SELECT * FROM parquet.`%s/*.parquet`",
 		viewName, parquetPath,
 	)
-	_, err = spark.Sql(ctx, createViewQuery)
+
+	// Retry logic for transient Spark connection issues (e.g., catalog connection pool exhaustion)
+	const maxRetries = 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		_, err = spark.Sql(ctx, createViewQuery)
+		if err == nil {
+			break
+		}
+		if attempt < maxRetries {
+			t.Logf("Attempt %d/%d: Failed to create view, retrying in 2s: %v", attempt, maxRetries, err)
+			time.Sleep(2 * time.Second)
+		}
+	}
 	require.NoError(t, err, "Failed to create temporary view for Parquet files")
 
 	defer func() {
@@ -1105,7 +1214,27 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			require.Equal(t, expected, val,
 				"Row %d: mismatch on %q: Parquet has %#v, expected %#v", rowIdx, key, val, expected)
 		}
+		if isCDC {
+			for key := range defaultCDCColumnsSchema {
+				val, ok := parquetMap[key]
+				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
+				require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				if key == constants.CdcTimestamp {
+					ts, ok := normalizeToTime(val)
+					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
+					minAllowed := time.Now().Add(-1 * time.Hour)
+					require.Falsef(t, ts.Before(time.Now().Add(-1*time.Hour)), "Row %d: %q is too old: %v, should not be earlier than %v", rowIdx, key, ts, minAllowed)
+				}
+			}
+		}
+		if !isCDC && parquetMap[constants.CdcTimestamp] != nil {
+			ts, ok := normalizeToTime(parquetMap[constants.CdcTimestamp])
+			require.Truef(t, ok, "expected %q to be a timestamp, got %T", constants.CdcTimestamp, parquetMap[constants.CdcTimestamp])
+			// Normalize to UTC to keep tests stable across environments (Local vs UTC).
+			require.Equal(t, time.Unix(0, 0).UTC(), ts.UTC())
+		}
 	}
+
 	t.Logf("Verified Parquet synced data with respect to data synced from source[%s] found equal", driver)
 
 	describeQuery := fmt.Sprintf("DESCRIBE TABLE %s", viewName)
@@ -1136,6 +1265,16 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
 	}
 	t.Logf("Verified datatypes in Parquet after sync")
+	// Verify datatypes for CDC/default columns as well
+	if isCDC {
+		for col, expectedPqType := range defaultCDCColumnsSchema {
+			pqType, found := parquetSchema[col]
+			require.True(t, found, "CDC column %s not found in Parquet schema", col)
+			require.Equal(t, expectedPqType, pqType,
+				"CDC data type mismatch for column %s: expected %s, got %s", col, expectedPqType, pqType)
+		}
+	}
+	t.Logf("Verified datatypes for CDC columns in Parquet after sync")
 }
 
 func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
@@ -1368,4 +1507,15 @@ func extractFirstPartitionColFromRows(rows []types.Row) string {
 	}
 
 	return ""
+}
+
+func normalizeToTime(v interface{}) (time.Time, bool) {
+	switch ts := v.(type) {
+	case time.Time:
+		return ts, true
+	case arrow.Timestamp:
+		return time.Unix(0, int64(ts)*int64(time.Microsecond)).UTC(), true
+	default:
+		return time.Time{}, false
+	}
 }

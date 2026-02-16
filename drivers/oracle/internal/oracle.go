@@ -189,7 +189,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 			datatype = types.String
 		}
 
-		stream.UpsertField(columnName, datatype, strings.EqualFold("Y", isNullable))
+		stream.UpsertField(columnName, datatype, strings.EqualFold("Y", isNullable), false)
 	}
 
 	query = jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)
@@ -207,6 +207,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		stream.WithPrimaryKey(columnName)
 	}
 
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	return stream, pkRows.Err()
 }
 

@@ -13,6 +13,12 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 )
 
+const (
+	CDCBinlogFileName = "_cdc_binlog_file_name" // MySQL binlog file name
+	CDCBinlogFilePos  = "_cdc_binlog_file_pos"  // MySQL binlog file position
+
+)
+
 // ChangeFilter filters binlog events based on the specified streams.
 type ChangeFilter struct {
 	streams       map[string]types.StreamInterface // Keyed by "schema.table"
@@ -33,7 +39,7 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 }
 
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
-func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, callback abstract.CDCMsgFn) error {
+func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, pos mysql.Position, callback abstract.CDCMsgFn) error {
 	schemaName := string(e.Table.Schema)
 	tableName := string(e.Table.Table)
 	stream, exists := f.streams[schemaName+"."+tableName]
@@ -87,6 +93,10 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 			Timestamp: timestamp,
 			Kind:      operationType,
 			Data:      record,
+			ExtraColumns: map[string]any{
+				CDCBinlogFileName: pos.Name,
+				CDCBinlogFilePos:  pos.Pos, // Use the event position
+			},
 		}
 		if err := callback(ctx, change); err != nil {
 			return err
@@ -104,8 +114,8 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 
 	enumMap := tableMap.EnumStrValueMap()
 
-	// TODO: float values from binlog are not always same as the output of select * from db,
-	// need to typecast it to the datatype of the column for consistency with db.
+	// NOTE: For MySQL CDC (binlog-based), FLOAT values are read directly from the binlog and may
+	// differ from SELECT output due to SQL-layer formatting/rounding.
 	record := make(map[string]interface{})
 	for i, val := range row {
 		if tableMap.IsEnumColumn(i) && val != nil {
@@ -146,7 +156,7 @@ func mysqlTypeName(t byte) string {
 		return "DOUBLE"
 	case mysql.MYSQL_TYPE_NULL:
 		return "NULL"
-	case mysql.MYSQL_TYPE_TIMESTAMP:
+	case mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_TIMESTAMP2:
 		return "TIMESTAMP"
 	case mysql.MYSQL_TYPE_LONGLONG:
 		return "BIGINT"
@@ -154,7 +164,7 @@ func mysqlTypeName(t byte) string {
 		return "MEDIUMINT"
 	case mysql.MYSQL_TYPE_DATE:
 		return "DATE"
-	case mysql.MYSQL_TYPE_TIME:
+	case mysql.MYSQL_TYPE_TIME, mysql.MYSQL_TYPE_TIME2:
 		return "TIME"
 	case mysql.MYSQL_TYPE_DATETIME, mysql.MYSQL_TYPE_DATETIME2:
 		return "DATETIME"

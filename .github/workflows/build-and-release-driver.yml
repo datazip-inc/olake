@@ -25,7 +25,7 @@ jobs:
   publish_drivers:
     name: Publish driver ${{ github.event.inputs.driver }} [manual]
     environment: Publish Driver
-    runs-on: ubuntu-latest
+    runs-on: 32gb-runner
     env:
       DOCKER_LOGIN: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}

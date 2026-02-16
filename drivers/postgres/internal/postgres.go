@@ -46,6 +46,7 @@ type Postgres struct {
 	cdcConfig  CDC
 	replicator waljs.Replicator
 	state      *types.State // reference to globally present state
+	streams    []types.StreamInterface
 }
 
 func (p *Postgres) CDCSupported() bool {
@@ -217,12 +218,18 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 				datatype = types.String
 			}
 
-			stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable))
+			stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable), false)
 		}
 
 		// add primary keys for stream
 		for _, column := range primaryKeyOutput {
 			stream.WithPrimaryKey(column.Name)
+		}
+
+		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+		if p.CDCSupported() {
+			stream.UpsertField(waljs.CDCLSN, types.String, true, true)
+			stream.WithSyncMode(types.CDC, types.STRICTCDC)
 		}
 
 		return stream, nil
