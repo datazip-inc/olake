@@ -38,6 +38,7 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 
 	// if PK present then PK based chunking else RID based chunking
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
+	sort.Strings(pkColumns)
 
 	var stmt string
 	if stream.Self().StreamMetadata.ChunkColumn != "" {
