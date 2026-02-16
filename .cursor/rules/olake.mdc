@@ -212,7 +212,7 @@ Set `sync_mode` to `"cdc"` in streams.json, then:
 /tmp/olake-e2e-test/olake sync \
   --config /tmp/olake-e2e-test/source.json \
   --destination /tmp/olake-e2e-test/destination.json \
-  --catalog /tmp/olake-e2e-test/streams.json --no-save --timeout 30
+  --catalog /tmp/olake-e2e-test/streams.json 
 ```
 This does backfill + starts WAL replication, timing out after 30s. Query Iceberg to verify.
 
