@@ -179,7 +179,7 @@ cd drivers/postgres && go build -o /tmp/olake-e2e-test/olake main.go && cd -
 /tmp/olake-e2e-test/olake discover --config /tmp/olake-e2e-test/source.json --no-save
 ```
 
-Parse the JSON output `{"catalog":{...},"type":"CATALOG"}` — extract the catalog object and save as `/tmp/olake-e2e-test/streams.json`. Change `sync_mode` to `"full_refresh"` for full-load test.
+Parse the JSON output `{"catalog":{...},"type":"CATALOG"}` — extract the catalog object and save as `/tmp/olake-e2e-test/streams.json`. Change `sync_mode` to `"full_refresh, incremental, cdc"` as per requirement.
 
 ### Step 6: Run full-load sync
 
