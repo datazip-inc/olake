@@ -146,7 +146,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
 
-	case "reset_replication_slot":
+	case "reset_cdc_config":
 		dropQuery := `SELECT pg_drop_replication_slot('performance_test')
 						WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'performance_test');`
 		_, err := db.ExecContext(ctx, dropQuery)
