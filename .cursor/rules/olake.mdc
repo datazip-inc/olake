@@ -187,7 +187,7 @@ Parse the JSON output `{"catalog":{...},"type":"CATALOG"}` — extract the catal
 /tmp/olake-e2e-test/olake sync \
   --config /tmp/olake-e2e-test/source.json \
   --destination /tmp/olake-e2e-test/destination.json \
-  --catalog /tmp/olake-e2e-test/streams.json --no-save
+  --catalog /tmp/olake-e2e-test/streams.json 
 ```
 
 Expect output: `Total records read: 5`
