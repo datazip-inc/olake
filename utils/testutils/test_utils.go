@@ -440,6 +440,10 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 ) error {
 	t.Log("Starting Iceberg Full load + CDC tests")
 
+	// Drop the Iceberg table before starting tests to ensure Spark's catalog cache is up-to-date.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	t.Logf("Pre-test cleanup: dropped Iceberg table %s", testTable)
+
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
@@ -1032,6 +1036,12 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		// for every type of operation, op symbol will be different, using that to ensure data is not stale
 		queryErr = fmt.Errorf("stale data: query succeeded but returned 0 rows for _op_type = '%s'", opSymbol)
 		t.Logf("Query attempt %d/%d failed: %v", attempt+1, maxRetries, queryErr)
+
+		// Force Spark to refresh the table metadata from the Iceberg catalog.
+		refreshQuery := fmt.Sprintf("REFRESH TABLE %s", fullTableName)
+		if _, refreshErr := spark.Sql(ctx, refreshQuery); refreshErr != nil {
+			t.Logf("REFRESH TABLE attempt %d failed (non-fatal): %v", attempt+1, refreshErr)
+		}
 	}
 
 	require.NoError(t, queryErr, "Failed to collect data rows from Iceberg after %d attempts: %v", maxRetries, queryErr)

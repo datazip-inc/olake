@@ -405,6 +405,12 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"created_at": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 }
 
+var ExpectedMSSQLDefaultCDCColumnsSchema = map[string]string{
+	"_cdc_timestamp": "timestamp",
+	"_cdc_start_lsn": "string",
+	"_cdc_seqval":    "string",
+}
+
 // MSSQLToDestinationSchema
 var MSSQLToDestinationSchema = map[string]string{
 	"id":                     "int",

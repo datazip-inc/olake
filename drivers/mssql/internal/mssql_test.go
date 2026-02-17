@@ -16,6 +16,7 @@ func TestMSSQLIntegration(t *testing.T) {
 		ExpectedUpdatedData:              ExpectedUpdatedMSSQLData,
 		DestinationDataTypeSchema:        MSSQLToDestinationSchema,
 		UpdatedDestinationDataTypeSchema: MSSQLToDestinationSchema,
+		DefaultCDCColumnsSchema:          ExpectedMSSQLDefaultCDCColumnsSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "mssql_olake_mssql_test_dbo",
 		CursorField:                      "id_cursor:col_int",
