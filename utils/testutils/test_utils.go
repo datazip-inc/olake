@@ -1362,7 +1362,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 
 							// reset CDC config
-							if cfg.TestConfig.Driver == string(constants.Postgres) {
+							if cfg.TestConfig.Driver == string(constants.Postgres) || cfg.TestConfig.Driver == string(constants.MySQL) {
 								cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "reset_cdc_config", true)
 								t.Log("CDC config reset completed")
 							}
