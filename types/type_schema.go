@@ -122,7 +122,7 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
-func (t *TypeSchema) ToParquet(defaultColumns bool) *parquet.Schema {
+func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *parquet.Schema {
 	// keeping default columns parquet schema for backward compatibility for olake columns
 	groupNode := parquet.Group{
 		constants.OlakeID:        parquet.String(),
@@ -130,13 +130,19 @@ func (t *TypeSchema) ToParquet(defaultColumns bool) *parquet.Schema {
 		constants.OpType:         parquet.String(),
 		constants.CdcTimestamp:   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
 	}
+	isSelected := IsSelectedColumn(stream)
+
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		colName := key.(string)
 		if defaultColumns && !prop.OlakeColumn {
 			return true
 		}
+		if !isSelected(colName) {
+			return true
+		}
 		// Todo: check we can use field name instead of destination column name
-		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
+		groupNode[prop.getDestinationColumnName(colName)] = prop.DataType().ToNewParquet()
 		return true
 	})
 
@@ -147,17 +153,23 @@ func (t *TypeSchema) ToParquet(defaultColumns bool) *parquet.Schema {
 	return parquet.NewSchema("olake_schema", groupNode)
 }
 
-func (t *TypeSchema) ToIceberg(defaultColumns bool) []*proto.IcebergPayload_SchemaField {
+func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface) []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
+	isSelected := IsSelectedColumn(stream)
+
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		colName := key.(string)
 		// skip non-olake columns if defaultColumns is set to true
 		if defaultColumns && !prop.OlakeColumn {
 			return true
 		}
+		if !isSelected(colName) {
+			return true
+		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
-			Key:     prop.getDestinationColumnName(key.(string)),
+			Key:     prop.getDestinationColumnName(colName),
 		})
 		return true
 	})
