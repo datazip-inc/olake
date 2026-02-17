@@ -13,6 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	replicationSlot = "performance_slot"
+)
+
 func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
@@ -147,12 +151,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
 
 	case "reset_cdc_config":
-		dropQuery := `SELECT pg_drop_replication_slot('performance_test')
-						WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = 'performance_test');`
+		dropQuery := fmt.Sprintf(`SELECT pg_drop_replication_slot('%s')
+						WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '%s');`, replicationSlot, replicationSlot)
 		_, err := db.ExecContext(ctx, dropQuery)
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 
-		createQuery := `SELECT pg_create_logical_replication_slot('performance_test', 'pgoutput');`
+		createQuery := fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput');`, replicationSlot)
 		_, err = db.ExecContext(ctx, createQuery)
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		return
