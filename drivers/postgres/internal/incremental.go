@@ -21,23 +21,8 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}
 
-	rows, err := p.client.QueryContext(ctx, incrementalQuery, queryArgs...)
-	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %s", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, p.dataTypeConverter); err != nil {
-			return fmt.Errorf("failed to scan record: %s", err)
-		}
-
-		if err := processFn(ctx, record); err != nil {
-			return fmt.Errorf("process error: %s", err)
-		}
-	}
-	return rows.Err()
+	setter := jdbc.NewReader(ctx, incrementalQuery, p.client.QueryContext, queryArgs...)
+	return jdbc.MapScanConcurrent(setter, p.dataTypeConverter, processFn)
 }
 
 func (p *Postgres) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
