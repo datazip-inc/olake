@@ -440,10 +440,6 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 ) error {
 	t.Log("Starting Iceberg Full load + CDC tests")
 
-	// Drop the Iceberg table before starting tests to ensure Spark's catalog cache is up-to-date.
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
-	t.Logf("Pre-test cleanup: dropped Iceberg table %s", testTable)
-
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
