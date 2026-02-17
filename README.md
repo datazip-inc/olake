@@ -75,9 +75,9 @@
 
 | Source → Destination | CDC             | Relative Performance (CDC)          | Full Report                                                  |
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
-| Postgres → Iceberg   | 41,390 RPS      | 1.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| Postgres → Iceberg   | 55,555 RPS      | 2× faster than Fivetran              | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
 | MySQL → Iceberg      | 51,867 RPS      | 1.85× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| MongoDB → Iceberg    | 10,692 RPS      | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
 
 
