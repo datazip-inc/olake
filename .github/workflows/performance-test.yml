@@ -75,7 +75,7 @@ jobs:
         mkdir -p ~/.ssh
         echo "${{ secrets.TESTING_SERVER_SSH_KEY }}" | base64 --decode > ~/.ssh/key.pem
         chmod 600 ~/.ssh/key.pem
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/key.pem testing-server-1@172.31.32.11 "wake-up ${{ matrix.instance_id }}"
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/key.pem ${{ secrets.TESTING_SERVER_SSH_USER_HOST }} "/usr/local/bin/wake-up ${{ matrix.instance_id }}"
         echo "Waiting 2 minutes for database to be ready..."
         sleep 120
 
@@ -143,7 +143,7 @@ jobs:
         mkdir -p ~/.ssh
         echo "${{ secrets.TESTING_SERVER_SSH_KEY }}" | base64 --decode > ~/.ssh/key.pem
         chmod 600 ~/.ssh/key.pem
-        ssh -o StrictHostKeyChecking=no -i ~/.ssh/key.pem testing-server-1@172.31.32.11 "sleep-off ${{ matrix.instance_id }}"
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/key.pem ${{ secrets.TESTING_SERVER_SSH_USER_HOST }} "/usr/local/bin/sleep-off ${{ matrix.instance_id }}"
         rm -f ~/.ssh/key.pem
 
     - name: Cleanup
