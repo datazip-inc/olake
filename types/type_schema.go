@@ -130,20 +130,7 @@ func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *par
 		constants.OpType:         parquet.String(),
 		constants.CdcTimestamp:   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
 	}
-
-	var unselectedColumnsSet *Set[string]
-	var selectedColumnsSet *Set[string]
-
-	selectedColumns := stream.Self().StreamMetadata.SelectedColumns
-	if selectedColumns != nil && len(selectedColumns.Columns) > 0 {
-		syncNewColumns := selectedColumns.SyncNewColumns
-
-		if syncNewColumns {
-			unselectedColumnsSet = GetUnSelectedColumnsSet(selectedColumns.Columns, stream.GetStream())
-		} else {
-			selectedColumnsSet = NewSet(selectedColumns.Columns...)
-		}
-	}
+	isSelected := IsSelectedColumn(stream)
 
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
@@ -151,14 +138,8 @@ func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *par
 		if defaultColumns && !prop.OlakeColumn {
 			return true
 		}
-		if unselectedColumnsSet != nil {
-			if unselectedColumnsSet.Exists(colName) {
-				return true
-			}
-		} else if selectedColumnsSet != nil {
-			if !selectedColumnsSet.Exists(colName) {
-				return true
-			}
+		if !isSelected(colName) {
+			return true
 		}
 		// Todo: check we can use field name instead of destination column name
 		groupNode[prop.getDestinationColumnName(colName)] = prop.DataType().ToNewParquet()
@@ -174,20 +155,7 @@ func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *par
 
 func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface) []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
-
-	var unselectedColumnsSet *Set[string]
-	var selectedColumnsSet *Set[string]
-
-	selectedColumns := stream.Self().StreamMetadata.SelectedColumns
-	if selectedColumns != nil && len(selectedColumns.Columns) > 0 {
-		syncNewColumns := selectedColumns.SyncNewColumns
-
-		if syncNewColumns {
-			unselectedColumnsSet = GetUnSelectedColumnsSet(selectedColumns.Columns, stream.GetStream())
-		} else {
-			selectedColumnsSet = NewSet(selectedColumns.Columns...)
-		}
-	}
+	isSelected := IsSelectedColumn(stream)
 
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
@@ -196,14 +164,8 @@ func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface) []*p
 		if defaultColumns && !prop.OlakeColumn {
 			return true
 		}
-		if unselectedColumnsSet != nil {
-			if unselectedColumnsSet.Exists(colName) {
-				return true
-			}
-		} else if selectedColumnsSet != nil {
-			if !selectedColumnsSet.Exists(colName) {
-				return true
-			}
+		if !isSelected(colName) {
+			return true
 		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),

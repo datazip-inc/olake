@@ -51,6 +51,16 @@ func collectColumnsFromSchema(schema *TypeSchema) []string {
 //   - All columns selected: All existing columns sync; newly added columns are NOT synced
 func FilterDataBySelectedColumns(stream StreamInterface) func(map[string]interface{}) map[string]interface{} {
 	selectedColumns := stream.Self().StreamMetadata.SelectedColumns
+
+	// Backward compatibility:
+	// Older catalogs (streams.json) may not have the selected_columns field at all.
+	// In that case SelectedColumns will be nil after unmarshalling, so we return the data as is.
+	if selectedColumns == nil {
+		return func(data map[string]interface{}) map[string]interface{} {
+			return data
+		}
+	}
+
 	selectedColumnsSet := NewSet(selectedColumns.Columns...)
 	unselectedColumnsSet := GetUnSelectedColumnsSet(selectedColumns.Columns, stream.GetStream())
 	syncNewColumns := selectedColumns.SyncNewColumns
@@ -114,5 +124,25 @@ func MergeSelectedColumns(
 	metadata.SelectedColumns = &SelectedColumns{
 		Columns:        columns,
 		SyncNewColumns: syncNewColumns,
+	}
+}
+
+// IsSelectedColumn returns a function that checks if a column is selected
+func IsSelectedColumn(stream StreamInterface) func(string) bool {
+	selectedColsCfg := stream.Self().StreamMetadata.SelectedColumns
+	if selectedColsCfg == nil || len(selectedColsCfg.Columns) == 0 {
+		return func(string) bool { return true }
+	}
+
+	if selectedColsCfg.SyncNewColumns {
+		unselected := GetUnSelectedColumnsSet(selectedColsCfg.Columns, stream.GetStream())
+		return func(col string) bool {
+			return !unselected.Exists(col)
+		}
+	}
+
+	selected := NewSet(selectedColsCfg.Columns...)
+	return func(col string) bool {
+		return selected.Exists(col)
 	}
 }
