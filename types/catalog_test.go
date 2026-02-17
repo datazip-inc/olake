@@ -10,25 +10,6 @@ import (
 )
 
 var (
-	defaultColumns = map[string]*Property{
-		"_olake_id": {
-			Type:                  NewSet(String),
-			DestinationColumnName: "_olake_id",
-		},
-		"_olake_timestamp": {
-			Type:                  NewSet(TimestampMicro),
-			DestinationColumnName: "_olake_timestamp",
-		},
-		"_op_type": {
-			Type:                  NewSet(String),
-			DestinationColumnName: "_op_type",
-		},
-		"_cdc_timestamp": {
-			Type:                  NewSet(TimestampMicro),
-			DestinationColumnName: "_cdc_timestamp",
-		},
-	}
-
 	oldSchemaTemplate = map[string]*Property{
 		"id": {
 			Type:                  NewSet(Int64),
@@ -60,19 +41,8 @@ func newSchema() *TypeSchema {
 	return createSchemaFromTemplate(newSchemaTemplate)
 }
 
-func getSystemColumns() *Set[string] {
-	return NewSet("_olake_id", "_olake_timestamp", "_op_type", "_cdc_timestamp")
-}
-
 func createSchemaFromTemplate(template map[string]*Property) *TypeSchema {
 	schema := NewTypeSchema()
-	for key, prop := range defaultColumns {
-		propCopy := &Property{
-			Type:                  prop.Type,
-			DestinationColumnName: prop.DestinationColumnName,
-		}
-		schema.Properties.Store(key, propCopy)
-	}
 
 	for key, prop := range template {
 		propCopy := &Property{
@@ -84,17 +54,11 @@ func createSchemaFromTemplate(template map[string]*Property) *TypeSchema {
 	return schema
 }
 
-func createSelectedColumns(isCDC bool, columns []string) *SelectedColumns {
-	columnsWithDefaults := getSystemColumns().Union(NewSet(columns...))
-	if !isCDC {
-		columnsWithDefaults.Remove("_cdc_timestamp")
+func createSelectedColumns(columns []string, syncNewColumns bool) *SelectedColumns {
+	return &SelectedColumns{
+		Columns:        columns,
+		SyncNewColumns: syncNewColumns,
 	}
-
-	sc := &SelectedColumns{
-		Columns:        columnsWithDefaults.Array(),
-		SyncNewColumns: false,
-	}
-	return sc
 }
 
 func compareCatalogs(t *testing.T, expected, actual *Catalog, testName string) {
@@ -183,7 +147,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:  "",
 							AppendMode:      false,
 							Normalization:   true,
-							SelectedColumns: &SelectedColumns{Columns: []string{}},
+							SelectedColumns: &SelectedColumns{Columns: nil, SyncNewColumns: true},
 						},
 					},
 				},
@@ -217,7 +181,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:  "",
 							AppendMode:      false,
 							Normalization:   false,
-							SelectedColumns: &SelectedColumns{Columns: []string{}},
+							SelectedColumns: &SelectedColumns{Columns: nil, SyncNewColumns: true},
 						},
 					},
 				},
@@ -289,13 +253,13 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:  "",
 							AppendMode:      false,
 							Normalization:   true,
-							SelectedColumns: &SelectedColumns{Columns: []string{}}},
+							SelectedColumns: &SelectedColumns{Columns: nil, SyncNewColumns: true}},
 						{
 							StreamName:      "orders",
 							PartitionRegex:  "",
 							AppendMode:      false,
 							Normalization:   true,
-							SelectedColumns: &SelectedColumns{Columns: []string{}}},
+							SelectedColumns: &SelectedColumns{Columns: nil, SyncNewColumns: true}},
 					},
 				},
 			},
@@ -340,7 +304,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns(false, []string{"id"})},
+						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns([]string{"id"}, false)},
 					},
 				},
 			},
@@ -357,7 +321,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns(false, []string{"id"})},
+						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns([]string{"id"}, false)},
 					},
 				},
 			},
@@ -384,7 +348,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns(true, []string{"id", "name"})},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 				},
 			},
@@ -407,7 +371,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns(false, []string{"id", "email", "created_at"})},
+						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns([]string{"id", "email", "created_at"}, false)},
 					},
 				},
 			},
@@ -436,7 +400,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      true,
 							Normalization:   true,
-							SelectedColumns: createSelectedColumns(true, []string{"id"}),
+							SelectedColumns: createSelectedColumns([]string{"id"}, false),
 						},
 					},
 				},
@@ -462,7 +426,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "old_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns(false, []string{"id", "name"})},
+						{StreamName: "stream1", PartitionRegex: "old_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 				},
 			},
@@ -494,10 +458,10 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns(true, []string{"id", "name"})},
+						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 					"namespace2": {
-						{StreamName: "stream2", PartitionRegex: "", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns(false, []string{"id", "email"})},
+						{StreamName: "stream2", PartitionRegex: "", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
 					},
 				},
 			},
@@ -533,7 +497,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      true,
 							Normalization:   true,
-							SelectedColumns: createSelectedColumns(false, []string{"id", "name"}),
+							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
 				},
@@ -571,10 +535,10 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns(false, []string{"id", "name"})},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 					"namespace2": {
-						{StreamName: "stream2", PartitionRegex: "", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns(false, []string{"id", "email"})},
+						{StreamName: "stream2", PartitionRegex: "", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
 					},
 				},
 			},
@@ -596,7 +560,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns(false, []string{"id", "name"})},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 				},
 			},
@@ -624,7 +588,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      true,
 							Normalization:   true,
-							SelectedColumns: createSelectedColumns(false, []string{"id", "name"}),
+							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
 				},
@@ -651,7 +615,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: true, SelectedColumns: createSelectedColumns(false, []string{"id", "name"})},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: true, SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 				},
 			},
@@ -685,10 +649,10 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns(false, []string{"id", "name"})},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: true, Normalization: true, SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 					"namespace2": {
-						{StreamName: "stream2", PartitionRegex: "another_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns(false, []string{"id", "email"})},
+						{StreamName: "stream2", PartitionRegex: "another_partition", Filter: "new_filter <= 8", AppendMode: false, Normalization: false, SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
 					},
 				},
 			},
@@ -727,7 +691,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							PartitionRegex:  "user_partition",
 							Filter:          "test_filter > 10",
 							Normalization:   true,
-							SelectedColumns: createSelectedColumns(false, []string{"id", "name"}),
+							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
 				},
