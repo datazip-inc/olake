@@ -51,6 +51,96 @@ func (s *ConfiguredStream) Schema() *TypeSchema {
 	return s.Stream.Schema
 }
 
+// GetUnSelectedColumnsSet returns a set of columns that are NOT selected, based on the provided
+// selected columns list and the stream's current schema snapshot.
+//
+// Note: this relies on the stream schema representing only the previously known columns. If the
+// schema already includes newly discovered columns, we cannot distinguish explicit unselection
+// from newly discovered columns.
+func (s *ConfiguredStream) GetUnSelectedColumnsSet(columns []string) *Set[string] {
+	if len(columns) == 0 {
+		return NewSet[string]()
+	}
+
+	selectedColumnsSet := NewSet(columns...)
+	unselectedColumnsSet := NewSet[string]()
+
+	s.Stream.Schema.Properties.Range(func(col, _ interface{}) bool {
+		colName, ok := col.(string)
+		if !ok {
+			return true
+		}
+		if !selectedColumnsSet.Exists(colName) {
+			unselectedColumnsSet.Insert(colName)
+		}
+		return true
+	})
+
+	return unselectedColumnsSet
+}
+
+// FilterDataBySelectedColumns returns a function that filters record data based on the stream's
+// SelectedColumns configuration.
+func (s *ConfiguredStream) FilterDataBySelectedColumns() func(map[string]interface{}) map[string]interface{} {
+	selectedColumns := s.StreamMetadata.SelectedColumns
+
+	// Backward compatibility:
+	// Older catalogs (streams.json) may not have the selected_columns field at all.
+	// In that case SelectedColumns will be nil after unmarshalling, so we return the data as is.
+	if selectedColumns == nil {
+		return func(data map[string]interface{}) map[string]interface{} {
+			return data
+		}
+	}
+
+	selectedColumnsSet := NewSet(selectedColumns.Columns...)
+	unselectedColumnsSet := s.GetUnSelectedColumnsSet(selectedColumns.Columns)
+	syncNewColumns := selectedColumns.SyncNewColumns
+
+	return func(data map[string]interface{}) map[string]interface{} {
+		if len(selectedColumns.Columns) == 0 {
+			return data
+		}
+
+		if syncNewColumns {
+			// emit all columns except those that are unselected
+			// this ensures all columns that are new are selected by default
+			unselectedColumnsSet.Range(func(col string) {
+				delete(data, col)
+			})
+		} else {
+			// emit only columns that are selected
+			for col := range data {
+				if !selectedColumnsSet.Exists(col) {
+					delete(data, col)
+				}
+			}
+		}
+		return data
+	}
+}
+
+// IsSelectedColumn returns a predicate that tells whether a column should be emitted for this stream,
+// based on the stream's SelectedColumns configuration.
+func (s *ConfiguredStream) IsSelectedColumn() func(string) bool {
+	selectedColsCfg := s.StreamMetadata.SelectedColumns
+	if selectedColsCfg == nil || len(selectedColsCfg.Columns) == 0 {
+		return func(string) bool { return true }
+	}
+
+	if selectedColsCfg.SyncNewColumns {
+		unselected := s.GetUnSelectedColumnsSet(selectedColsCfg.Columns)
+		return func(col string) bool {
+			return !unselected.Exists(col)
+		}
+	}
+
+	selected := NewSet(selectedColsCfg.Columns...)
+	return func(col string) bool {
+		return selected.Exists(col)
+	}
+}
+
 func (s *ConfiguredStream) SupportedSyncModes() *Set[SyncMode] {
 	return s.Stream.SupportedSyncModes
 }
