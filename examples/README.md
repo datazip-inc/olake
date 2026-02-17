@@ -22,7 +22,7 @@ This directory contains self-contained, end-to-end demo stacks for OLake. Each e
 
 ```bash
 # 1) Start base Olake stack
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
+curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose-v1.yml | docker compose -f - up -d
 
 # 2) Clone the repository and navigate to root directory
 git clone https://github.com/datazip-inc/olake.git
@@ -46,7 +46,7 @@ Each example’s `README.md` includes:
 - Naming: `(<query-engine>)-(<catalog>)-(<storage>)-(<source>)`
   - Example: `trino-lakekeeperest-minio-postgresql`
 - Include:
-  - `docker-compose.yml` using the external network `olake-network`
+  - `docker-compose-v1.yml` using the external network `olake-network`
   - `README.md` with:
     - Prerequisite base-stack command
     - Port availability section (list host ports)
