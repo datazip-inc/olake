@@ -327,3 +327,5 @@ func (k *Kafka) GetCDCStartPosition(stream types.StreamInterface, streamIndex in
 func (k *Kafka) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
 
 func (k *Kafka) GetCDCPosition(streamID string) string { return "" }
+
+func (k *Kafka) SetTargetCDCPosition(stream types.StreamInterface, position string) {}

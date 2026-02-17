@@ -14,17 +14,6 @@ type Config interface {
 	Validate() error
 }
 
-// GlobalPosition2PC is for drivers that use a global CDC position shared across all streams (MySQL, Postgres).
-// These drivers need bounded sync because all streams share the same LSN/binlog position.
-type GlobalPosition2PC interface {
-	SetTargetCDCPosition(position string) // sets target position for bounded recovery sync (empty = use latest)
-	GetTargetCDCPosition() string         // returns target position (empty = use latest)
-}
-
-type PerStreamRecovery2PC interface {
-	GetCDCPositionForStream(streamID string) string
-}
-
 // PositionAcknowledgment is for drivers that need to acknowledge CDC positions to the source (Postgres).
 // This is used for LSN acknowledgment to advance the replication slot and avoid lsn mismatch.
 type PositionAcknowledgment interface {
@@ -60,4 +49,5 @@ type DriverInterface interface {
 	GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) // returns starting CDC position from state (for predictable thread IDs)
 	SetCurrentCDCPosition(stream types.StreamInterface, position string)               // updates the current CDC position in state (for recovery)
 	GetCDCPosition(streamID string) string                                             // returns current CDC position (binlog pos for MySQL, LSN for Postgres)
+	SetTargetCDCPosition(stream types.StreamInterface, position string)                // sets target position for bounded recovery sync (empty = use latest)
 }

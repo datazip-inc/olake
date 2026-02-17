@@ -120,12 +120,10 @@ func (s *SyncState) UnmarshalJSON(data []byte) error {
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
-	driver                DriverInterface
-	state                 *types.State
-	GlobalConnGroup       *utils.CxGroup
-	GlobalCtxGroup        *utils.CxGroup
-	recoveryMode          bool            // true if recovery sync is needed
-	recoveryProcessingSet map[string]bool // streams to sync in recovery mode (for O(1) lookup)
+	driver          DriverInterface
+	state           *types.State
+	GlobalConnGroup *utils.CxGroup
+	GlobalCtxGroup  *utils.CxGroup
 }
 
 var DefaultColumns = map[string]types.DataType{

@@ -15,9 +15,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// Ensure MySQL implements GlobalPosition2PC interface
-var _ abstract.GlobalPosition2PC = (*MySQL)(nil)
-
 func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, error) {
 	savedState := m.state.GetGlobal()
 	if savedState == nil || savedState.State == nil {
@@ -94,7 +91,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 	m.BinlogConn = conn
 
 	// Use target position for bounded sync if set (recovery mode)
-	targetPos := m.GetTargetCDCPosition()
+	targetPos := m.targetPosition
 	return m.BinlogConn.StreamMessages(ctx, m.client, targetPos, OnMessage)
 }
 
@@ -166,13 +163,9 @@ func (m *MySQL) SetCurrentCDCPosition(stream types.StreamInterface, position str
 	logger.Infof("Set current CDC position in state: %s", position)
 }
 
-func (m *MySQL) SetTargetCDCPosition(position string) {
+func (m *MySQL) SetTargetCDCPosition(stream types.StreamInterface, position string) {
 	m.targetPosition = position
 	if position != "" {
 		logger.Infof("Set target CDC position for bounded sync: %s", position)
 	}
-}
-
-func (m *MySQL) GetTargetCDCPosition() string {
-	return m.targetPosition
 }

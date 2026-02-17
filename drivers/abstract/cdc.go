@@ -96,13 +96,8 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 // streamChanges processes CDC changes. It does not receive the streams list; the driver
 // has streams from PreCDC(streams). Each change event from the driver includes change.Stream,
 // so we learn which stream a change belongs to per event. In recovery mode, we only sync
-// streams in a.recoveryProcessingSet (computed earlier in RunChangeStream).
 func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int, streams []types.StreamInterface) (err error) {
 	writers := make(map[string]*destination.WriterThread)
-
-	// Type assertions done once for driver specific methods
-	global2PC, supportsGlobalPosition2PC := a.driver.(GlobalPosition2PC)
-	posAck, supportsPositionAcknowledgment := a.driver.(PositionAcknowledgment)
 
 	// Get starting position once at the beginning for consistent thread IDs
 	// For global position drivers (MySQL/Postgres), use GetCDCStartPosition
@@ -110,8 +105,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	var startingPosition string
 
 	// Use recovery state prepared by cdcRecovery
-	isRecoveryMode := a.recoveryMode
-	processingSet := a.recoveryProcessingSet
+	var isRecoveryMode bool
 
 	// create cdc context, so that main context not affected if cdc retries
 	cdcCtx, cdcCtxCancel := context.WithCancel(mainCtx)
@@ -120,63 +114,49 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	// Map to hold payload references for each stream to update captured_cdc_pos dynamically
 	streamPayloads := make(map[string]*SyncState)
 
-	streamsToPreCreate := a.streamsToProcessForCDC(streams, streamIndex, supportsGlobalPosition2PC)
+	streamsToPreCreate := a.streamsToProcessForCDC(streams, streamIndex)
 
-	recoveredGlobalPos := ""
-	uncommittedStreams := make([]string, 0, len(streams))
+	uncommittedStreams := types.NewSet[string]()
 	checkCommit := func(stream types.StreamInterface, threadID string, w *destination.WriterThread) (bool, error) {
 		committed, capturedPos, err := a.isCommittedThread(cdcCtx, stream, threadID, w)
 		if err != nil {
 			return false, err
 		}
 		if committed && capturedPos != "" {
-			a.driver.SetCurrentCDCPosition(stream, capturedPos)
-
-			if supportsGlobalPosition2PC && recoveredGlobalPos == "" && capturedPos != "" {
-				recoveredGlobalPos = capturedPos
-			}
+			a.driver.SetTargetCDCPosition(stream, capturedPos)
 		}
+
 		return committed, nil
 	}
 
-	for _, stream := range streamsToPreCreate {
-		streamID := stream.ID()
-		startPos, posErr := a.driver.GetCDCStartPosition(stream, streamIndex)
-		if posErr != nil {
-			return fmt.Errorf("failed to get start position for stream %s: %w", streamID, posErr)
-		}
-		threadID := cdcThreadID(streamID, startPos)
-		payload := &SyncState{CapturedCDCPos: startPos}
-		streamPayloads[streamID] = payload
-		w, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithSyncMode("cdc"), destination.WithPayload(payload))
-		if createErr != nil {
-			return fmt.Errorf("failed to create CDC writer for stream %s: %w", streamID, createErr)
-		}
-		writers[streamID] = w
-
-		committed, err := checkCommit(stream, threadID, w)
-		if err != nil {
-			return fmt.Errorf("failed to check commit for stream %s: %s", streamID, err)
-		}
-		if committed {
-			continue
-		}
-		uncommittedStreams = append(uncommittedStreams, streamID)
-	}
-
-	// Global drivers only: set recovery mode and bounded sync target from commit check results
-	if supportsGlobalPosition2PC {
-		if len(uncommittedStreams) == 0 && recoveredGlobalPos != "" {
-			if supportsPositionAcknowledgment && posAck != nil {
-				if err := posAck.AcknowledgeCDCPosition(cdcCtx, recoveredGlobalPos); err != nil {
-					logger.Warnf("Failed to acknowledge CDC position during recovery: %s", err)
-				}
+	if utils.ExistInArray(constants.TwoPCSupportedDrivers, constants.DriverType(a.driver.Type())) {
+		for _, stream := range streamsToPreCreate {
+			streamID := stream.ID()
+			startPos, posErr := a.driver.GetCDCStartPosition(stream, streamIndex)
+			if posErr != nil {
+				return fmt.Errorf("failed to get start position for stream %s: %w", streamID, posErr)
 			}
-			a.driver.SetCurrentCDCPosition(streams[streamIndex], recoveredGlobalPos)
-		} else if len(uncommittedStreams) > 0 && recoveredGlobalPos != "" {
-			a.recoveryMode = true
-			a.recoveryProcessingSet = arrayToSet(uncommittedStreams)
-			global2PC.SetTargetCDCPosition(recoveredGlobalPos)
+			threadID := cdcThreadID(streamID, startPos)
+			payload := &SyncState{CapturedCDCPos: startPos}
+			streamPayloads[streamID] = payload
+			w, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithSyncMode("cdc"), destination.WithPayload(payload))
+			if createErr != nil {
+				return fmt.Errorf("failed to create CDC writer for stream %s: %s", streamID, createErr)
+			}
+			writers[streamID] = w
+
+			committed, err := checkCommit(stream, threadID, w)
+			if err != nil {
+				return fmt.Errorf("failed to check commit for stream %s: %s", streamID, err)
+			}
+			if committed {
+				continue
+			}
+			uncommittedStreams.Insert(streamID)
+		}
+
+		if uncommittedStreams.Len() != len(streamsToPreCreate) {
+			isRecoveryMode = true
 		}
 	}
 
@@ -219,9 +199,9 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	return a.driver.StreamChanges(cdcCtx, streamIndex, func(ctx context.Context, change CDCChange) error {
 		streamID := change.Stream.ID()
 
-		// In recovery mode, only sync streams that are in the processing array
-		if isRecoveryMode && !processingSet[streamID] {
-			return nil // Skip this stream - not in processing array
+		// In recovery mode, only sync streams that are in the processing set
+		if isRecoveryMode && (uncommittedStreams.Len() == 0 || !uncommittedStreams.Exists(streamID)) {
+			return nil // Skip this stream - not in processing set
 		}
 
 		writer := writers[streamID]
@@ -278,26 +258,15 @@ func cdcThreadID(streamID, positionForHash string) string {
 	return fmt.Sprintf("%s_%s", streamID, hash)
 }
 
-func arrayToSet(values []string) map[string]bool {
-	set := make(map[string]bool, len(values))
-	for _, v := range values {
-		set[v] = true
-	}
-	return set
-}
-
 // streamsToProcessForCDC returns the slice of streams to pre-create writers for in streamChanges
-func (a *AbstractDriver) streamsToProcessForCDC(streams []types.StreamInterface, streamIndex int, supportsGlobalPosition2PC bool) []types.StreamInterface {
+func (a *AbstractDriver) streamsToProcessForCDC(streams []types.StreamInterface, streamIndex int) []types.StreamInterface {
 	if len(streams) == 0 {
 		return nil
 	}
-	if supportsGlobalPosition2PC {
-		return streams
-	}
-	if streamIndex >= 0 && streamIndex < len(streams) {
+	if utils.ExistInArray(constants.ParallelCDCDrivers, constants.DriverType(a.driver.Type())) {
 		return streams[streamIndex : streamIndex+1]
 	}
-	return nil
+	return streams
 }
 
 func (a *AbstractDriver) isCommittedThread(ctx context.Context, stream types.StreamInterface, threadID string, writer *destination.WriterThread) (committed bool, capturedPos string, err error) {

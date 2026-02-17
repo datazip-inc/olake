@@ -320,3 +320,5 @@ func (m *MSSQL) GetCDCStartPosition(stream types.StreamInterface, streamIndex in
 func (m *MSSQL) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
 
 func (m *MSSQL) GetCDCPosition(streamID string) string { return "" }
+
+func (m *MSSQL) SetTargetCDCPosition(stream types.StreamInterface, position string) {}

@@ -25,3 +25,5 @@ func (d *DB2) GetCDCStartPosition(stream types.StreamInterface, streamIndex int)
 func (d *DB2) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
 
 func (d *DB2) GetCDCPosition(streamID string) string { return "" }
+
+func (d *DB2) SetTargetCDCPosition(stream types.StreamInterface, position string) {}

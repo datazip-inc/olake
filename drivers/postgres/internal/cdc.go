@@ -15,10 +15,6 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Ensure Postgres implements GlobalPosition2PC and PositionAcknowledgment interfaces
-var _ abstract.GlobalPosition2PC = (*Postgres)(nil)
-var _ abstract.PositionAcknowledgment = (*Postgres)(nil)
-
 func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
@@ -51,7 +47,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 		return waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String())
 	}
 	p.streams = streams
-	return validateGlobalState(globalState, slot.LSN)
+	return nil
 }
 
 func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.CDCMsgFn) error {
@@ -74,7 +70,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.C
 	p.replicator = replicator
 
 	// Set target position for bounded sync if set (recovery mode)
-	targetPos := p.GetTargetCDCPosition()
+	targetPos := p.targetPosition
 	if targetPos != "" {
 		if err := p.replicator.Socket().SetTargetPosition(targetPos); err != nil {
 			return fmt.Errorf("failed to set target position: %s", err)
@@ -151,15 +147,11 @@ func (p *Postgres) SetCurrentCDCPosition(stream types.StreamInterface, position 
 	logger.Infof("Set current CDC position (LSN) in state: %s", position)
 }
 
-func (p *Postgres) SetTargetCDCPosition(position string) {
+func (p *Postgres) SetTargetCDCPosition(stream types.StreamInterface, position string) {
 	p.targetPosition = position
 	if position != "" {
 		logger.Infof("Set target CDC position for bounded sync: %s", position)
 	}
-}
-
-func (p *Postgres) GetTargetCDCPosition() string {
-	return p.targetPosition
 }
 
 // AcknowledgeCDCPosition acknowledges LSN to Postgres for recovery

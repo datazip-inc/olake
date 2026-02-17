@@ -501,3 +501,5 @@ func (s *S3) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) 
 func (s *S3) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
 
 func (s *S3) GetCDCPosition(streamID string) string { return "" }
+
+func (s *S3) SetTargetCDCPosition(stream types.StreamInterface, position string) {}

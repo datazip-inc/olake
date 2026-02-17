@@ -193,7 +193,7 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		finalToken := m.streams[streamIndex].ID()
+		finalToken := utils.Ternary(m.targetPosition == "", m.streams[streamIndex].ID(), m.targetPosition).(string)
 		val, ok := m.cdcCursor.Load(finalToken)
 		if ok {
 			m.state.SetCursors(m.streams[streamIndex].Self(), map[string]any{cdcCursorField: val})
@@ -310,4 +310,11 @@ func GetResumeToken(cursor *mongo.ChangeStream, streamID string) (string, error)
 	}
 
 	return token, nil
+}
+
+func (m *Mongo) SetTargetCDCPosition(stream types.StreamInterface, position string) {
+	m.targetPosition = position
+	if position != "" {
+		logger.Infof("Set target CDC position for bounded sync: %s", position)
+	}
 }

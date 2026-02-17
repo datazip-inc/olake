@@ -45,3 +45,5 @@ func (o *Oracle) GetCDCStartPosition(stream types.StreamInterface, streamIndex i
 func (o *Oracle) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
 
 func (o *Oracle) GetCDCPosition(streamID string) string { return "" }
+
+func (o *Oracle) SetTargetCDCPosition(stream types.StreamInterface, position string) {}
