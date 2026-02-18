@@ -336,30 +336,25 @@ func generateThreadID(streamID, hash string) string {
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
 //
 // The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, preProcess func(ctx context.Context) error, postProcess func(ctx context.Context) error) func() {
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, finalMetadataState map[string]any) func() {
 	return func() {
 		// Cancel context if there's an error, so other threads using this context can detect the failure
 		if *err != nil {
 			cancel()
 		}
 
-		preErr := preProcess(ctx)
-		if preErr != nil {
-			*err = utils.Ternary(*err == nil, preErr, fmt.Errorf("%s: prev error: %s", preErr, *err)).(error)
-		}
-
 		// Close writer(s)
 		var closeErr error
 		switch w := writer.(type) {
 		case *destination.WriterThread:
-			if threadErr := w.Close(ctx); threadErr != nil {
+			if threadErr := w.Close(ctx, finalMetadataState); threadErr != nil {
 				closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
 			}
 		case map[string]*destination.WriterThread:
 			// Multiple writers keyed by stream ID
 			for streamID, inserter := range w {
 				if inserter != nil {
-					if threadErr := inserter.Close(ctx); threadErr != nil {
+					if threadErr := inserter.Close(ctx, finalMetadataState); threadErr != nil {
 						closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
 					}
 				}
@@ -377,9 +372,8 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 			*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
 		}
 
-		postErr := postProcess(ctx)
-		if postErr != nil {
-			*err = utils.Ternary(*err == nil, postErr, fmt.Errorf("%s: prev error: %w", postErr, *err)).(error)
+		if *err != nil {
+			cancel()
 		}
 
 		if *err != nil && threadID != "" {

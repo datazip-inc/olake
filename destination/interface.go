@@ -23,7 +23,7 @@ type Writer interface {
 	Check(ctx context.Context) error
 	// Setup sets up an Adapter for dedicated use for a stream
 	// avoiding the headover for different streams
-	Setup(ctx context.Context, stream types.StreamInterface, schema any, opts *Options) (any, error)
+	Setup(ctx context.Context, stream types.StreamInterface, schema any, opts *Options) (any, map[string]any, error)
 	// Write function being used by drivers
 	Write(ctx context.Context, record []types.RawRecord) error
 	// flatten data and validates thread schema (return true if thread schema is different w.r.t records)

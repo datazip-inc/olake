@@ -50,20 +50,29 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
-func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.CDCMsgFn) error {
+func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataState map[string]any, callback abstract.CDCMsgFn) (any, error) {
+	// play with metadata state
+	for streamID, mtState := range metadataState {
+		var mtState waljs.WALState
+		if err := utils.Unmarshal(mtState, &mtState); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
+		}
+		if mtState.LSN != "" && mtState.LSN != p.state.GetGlobal().State.(waljs.WALState).LSN {
+		}
+	}
 	config, err := p.prepareWALJSConfig(p.streams...)
 	if err != nil {
-		return fmt.Errorf("failed to prepare wal config: %s", err)
+		return nil, fmt.Errorf("failed to prepare wal config: %s", err)
 	}
 
 	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
 	if err != nil {
-		return fmt.Errorf("failed to get slot position: %s", err)
+		return nil, fmt.Errorf("failed to get slot position: %s", err)
 	}
 
 	replicator, err := waljs.NewReplicator(ctx, config, slot, p.dataTypeConverter)
 	if err != nil {
-		return fmt.Errorf("failed to create wal connection: %s", err)
+		return nil, fmt.Errorf("failed to create wal connection: %s", err)
 	}
 
 	// persist replicator for post cdc
@@ -73,17 +82,17 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.C
 	targetPos := p.targetPosition
 	if targetPos != "" {
 		if err := p.replicator.Socket().SetTargetPosition(targetPos); err != nil {
-			return fmt.Errorf("failed to set target position: %s", err)
+			return nil, fmt.Errorf("failed to set target position: %s", err)
 		}
 	}
 
 	// validate global state (might got invalid during full load)
 	if err := validateGlobalState(p.state.GetGlobal(), slot.LSN); err != nil {
-		return fmt.Errorf("%w: invalid global state: %s", constants.ErrNonRetryable, err)
+		return nil, fmt.Errorf("%w: invalid global state: %s", constants.ErrNonRetryable, err)
 	}
 
 	// choose replicator via factory based on OutputPlugin config (default wal2json)
-	return p.replicator.StreamChanges(ctx, p.client, callback)
+	return waljs.WALState{LSN: p.replicator.Socket().ClientXLogPos.String()}, p.replicator.StreamChanges(ctx, p.client, callback)
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
