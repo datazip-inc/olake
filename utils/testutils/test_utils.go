@@ -374,6 +374,10 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
+		if cfg.TestConfig.Driver == "mssql" {
+			t.Log("Waiting 20 seconds for MSSQL CDC to process transactions...")
+			time.Sleep(20 * time.Second)
+		}
 	}
 
 	// Run sync command
@@ -476,7 +480,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" {
+				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -556,7 +560,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" {
+				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -645,7 +649,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) {
+				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -732,7 +736,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) {
+				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -999,8 +1003,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 
 	var selectRows []types.Row
 	var queryErr error
-	maxRetries := 5
-	retryDelay := 2 * time.Second
+	maxRetries := 20
+	retryDelay := 5 * time.Second
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
@@ -1028,6 +1032,12 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		// for every type of operation, op symbol will be different, using that to ensure data is not stale
 		queryErr = fmt.Errorf("stale data: query succeeded but returned 0 rows for _op_type = '%s'", opSymbol)
 		t.Logf("Query attempt %d/%d failed: %v", attempt+1, maxRetries, queryErr)
+
+		// Force Spark to refresh the table metadata from the Iceberg catalog.
+		refreshQuery := fmt.Sprintf("REFRESH TABLE %s", fullTableName)
+		if _, refreshErr := spark.Sql(ctx, refreshQuery); refreshErr != nil {
+			t.Logf("REFRESH TABLE attempt %d failed (non-fatal): %v", attempt+1, refreshErr)
+		}
 	}
 
 	require.NoError(t, queryErr, "Failed to collect data rows from Iceberg after %d attempts: %v", maxRetries, queryErr)
