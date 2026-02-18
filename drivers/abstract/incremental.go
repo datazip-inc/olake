@@ -92,7 +92,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 					return nil
 				})()
 
-			filterDataBySelectedColumnsFn := stream.FilterDataBySelectedColumns()
+			filterDataBySelectedColumnsFn := stream.RetainSelectedColumns()
 
 			// No retry logic here - retry happens at Read level
 			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {

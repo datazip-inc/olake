@@ -79,9 +79,9 @@ func (s *ConfiguredStream) GetUnSelectedColumnsSet(columns []string) *Set[string
 	return unselectedColumnsSet
 }
 
-// FilterDataBySelectedColumns returns a function that filters record data based on the stream's
+// RetainSelectedColumns returns a function that filters record data based on the stream's
 // SelectedColumns configuration.
-func (s *ConfiguredStream) FilterDataBySelectedColumns() func(map[string]interface{}) map[string]interface{} {
+func (s *ConfiguredStream) RetainSelectedColumns() func(map[string]interface{}) map[string]interface{} {
 	selectedColumns := s.StreamMetadata.SelectedColumns
 
 	// Backward compatibility:
