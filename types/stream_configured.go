@@ -121,13 +121,13 @@ func (s *ConfiguredStream) RetainSelectedColumns() func(map[string]interface{}) 
 }
 
 // IsSelectedColumn returns a predicate that tells whether a column should be emitted for this stream,
-// based on the stream's SelectedColumns configuration.
+// based on the stream's SelectedColumns configuration and compare against destination column names by normalizing selected source column names.
 func (s *ConfiguredStream) IsSelectedColumn() func(string) bool {
 	selectedColsCfg := s.StreamMetadata.SelectedColumns
 	if selectedColsCfg == nil || len(selectedColsCfg.Columns) == 0 {
 		return func(string) bool { return true }
 	}
-	reformateColumns := func(columnsSet *Set[string]) *Set[string] {
+	reformatColumns := func(columnsSet *Set[string]) *Set[string] {
 		out := NewSet[string]()
 		for _, col := range columnsSet.Array() {
 			out.Insert(utils.Reformat(col))
@@ -137,14 +137,14 @@ func (s *ConfiguredStream) IsSelectedColumn() func(string) bool {
 
 	if selectedColsCfg.SyncNewColumns {
 		unselected := s.GetUnSelectedColumnsSet(selectedColsCfg.Columns)
-		unselected = reformateColumns(unselected)
+		unselected = reformatColumns(unselected)
 		return func(col string) bool {
 			return !unselected.Exists(col)
 		}
 	}
 
 	selected := NewSet(selectedColsCfg.Columns...)
-	selected = reformateColumns(selected)
+	selected = reformatColumns(selected)
 	return func(col string) bool {
 		return selected.Exists(col)
 	}

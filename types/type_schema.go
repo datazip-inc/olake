@@ -148,7 +148,7 @@ func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *par
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
 		colName := key.(string)
-		if !isSelected(colName) || (defaultColumns && !prop.OlakeColumn) {
+		if !isSelected(utils.Reformat(colName)) || (defaultColumns && !prop.OlakeColumn) {
 			return true
 		}
 		// Todo: check we can use field name instead of destination column name
@@ -171,7 +171,7 @@ func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface) []*p
 		prop := value.(*Property)
 		colName := key.(string)
 		// skip non-olake columns if defaultColumns is set to true
-		if !isSelected(colName) || (defaultColumns && !prop.OlakeColumn) {
+		if !isSelected(utils.Reformat(colName)) || (defaultColumns && !prop.OlakeColumn) {
 			return true
 		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
