@@ -1370,6 +1370,13 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							if code, output, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to install dependencies:\n%s", string(output))
 							}
+
+							// reset CDC config
+							if cfg.TestConfig.Driver == string(constants.Postgres) || cfg.TestConfig.Driver == string(constants.MySQL) {
+								cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "reset_cdc_config", true)
+								t.Log("CDC config reset completed")
+							}
+
 							t.Logf("(backfill) running performance test for %s", cfg.TestConfig.Driver)
 
 							destDBPrefix := fmt.Sprintf("performance_%s", cfg.TestConfig.Driver)
