@@ -651,18 +651,19 @@ func MSSQLPhysLocExtremesQuery(stream types.StreamInterface) string {
 }
 
 // MSSQLPhysLocNextChunkEndQuery returns the query to find the next %%physloc%% chunk boundary
-func MSSQLPhysLocNextChunkEndQuery(stream types.StreamInterface, chunkSize int64) string {
+// currentHex is a hex-encoded physloc value.
+func MSSQLPhysLocNextChunkEndQuery(stream types.StreamInterface, chunkSize int64, currentHex string) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 	return fmt.Sprintf(`
 		WITH ordered AS (
 			SELECT %%%%physloc%%%% AS physloc, ROW_NUMBER() OVER (ORDER BY %%%%physloc%%%%) AS rn
 			FROM %s
-			WHERE %%%%physloc%%%% > @p1
+			WHERE %%%%physloc%%%% > %s
 		)
 		SELECT physloc
 		FROM ordered
 		WHERE rn = %d
-	`, quotedTable, chunkSize)
+	`, quotedTable, currentHex, chunkSize)
 }
 
 // MSSQLCDCSupportQuery returns the query to check if CDC is enabled for the current database
@@ -871,23 +872,11 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 		if val == nil {
 			return "NULL"
 		}
-		// %%physloc%% is always binary, convert to hex literal
-		if b, ok := val.([]byte); ok {
-			if len(b) == 0 {
-				return "0x"
-			}
-			hexString := fmt.Sprintf("%X", b)
-			return "0x" + hexString
-		}
-		// If it's a string (from utils.ConvertToString on []byte), convert bytes to hex
 		if s, ok := val.(string); ok {
-			// If it's already a hex string like "0x...", use it directly
 			if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
 				return s
 			}
-			// Convert string of bytes to hex (utils.ConvertToString converts []byte to string of bytes)
-			hexString := fmt.Sprintf("%X", []byte(s))
-			return "0x" + hexString
+			return utils.HexEncode([]byte(s))
 		}
 		return fmt.Sprintf("%v", val)
 	}
