@@ -127,15 +127,24 @@ func (s *ConfiguredStream) IsSelectedColumn() func(string) bool {
 	if selectedColsCfg == nil || len(selectedColsCfg.Columns) == 0 {
 		return func(string) bool { return true }
 	}
+	reformateColumns := func(columnsSet *Set[string]) *Set[string] {
+		out := NewSet[string]()
+		for _, col := range columnsSet.Array() {
+			out.Insert(utils.Reformat(col))
+		}
+		return out
+	}
 
 	if selectedColsCfg.SyncNewColumns {
 		unselected := s.GetUnSelectedColumnsSet(selectedColsCfg.Columns)
+		unselected = reformateColumns(unselected)
 		return func(col string) bool {
 			return !unselected.Exists(col)
 		}
 	}
 
 	selected := NewSet(selectedColsCfg.Columns...)
+	selected = reformateColumns(selected)
 	return func(col string) bool {
 		return selected.Exists(col)
 	}
