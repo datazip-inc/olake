@@ -153,6 +153,18 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		}
 		return
 
+	case "reset_cdc_config":
+		cdcSettings := map[string]string{
+			"binlog_format":       "ROW",
+			"binlog_row_image":    "FULL",
+			"binlog_row_metadata": "FULL",
+		}
+		for variable, value := range cdcSettings {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("SET GLOBAL %s = '%s'", variable, value))
+			require.NoError(t, err, fmt.Sprintf("failed to SET GLOBAL %s = %s", variable, value))
+		}
+		return
+
 	case "bulk_cdc_data_insert":
 		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
 		// insert the data into the cdc tables concurrently
