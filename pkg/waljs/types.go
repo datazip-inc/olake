@@ -21,6 +21,8 @@ type Config struct {
 	BatchSize           int
 	// Publications is used with pgoutput
 	Publication string
+	// PluginArgs allows passing custom replication plugin arguments
+	PluginArgs map[string]string
 }
 
 type WALState struct {

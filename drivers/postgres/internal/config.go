@@ -31,6 +31,9 @@ type CDC struct {
 	InitialWaitTime int `json:"initial_wait_time"`
 	// Publications used when OutputPlugin is pgoutput
 	Publication string `json:"publication"`
+	// PluginArgs allows custom replication plugin arguments
+	// Format: key-value pairs e.g., {"include-unchanged-toast": "false", "format-version": "2"}
+	PluginArgs map[string]string `json:"plugin_args"`
 }
 
 func (c *Config) Validate() error {

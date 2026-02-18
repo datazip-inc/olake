@@ -37,8 +37,15 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	}
 	p.socket.CurrentWalPosition = slot.CurrentLSN
 
+	// Build plugin arguments with defaults and custom args
+	pluginArgs := []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}
+	// Merge custom plugin arguments
+	for key, value := range p.socket.pluginArgs {
+		pluginArgs = append(pluginArgs, fmt.Sprintf("%s '%s'", key, value))
+	}
+
 	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, p.socket.ReplicationSlot, p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
-		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
+		PluginArgs: pluginArgs})
 	if err != nil {
 		return fmt.Errorf("failed to start replication: %v", err)
 	}
@@ -159,9 +166,9 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 			continue
 		}
 
-		// Convert according to OID to string
-		typeName := oidToString(colType)
-		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
+		// Use pgtype decoder for structured binary decoding
+		// This eliminates binary -> string -> type conversion
+		val, err := p.socket.decoder.DecodeBinary(col.Data, colType)
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, err
 		}
@@ -227,51 +234,70 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 	return insertFn(ctx, abstract.CDCChange{Stream: stream, Timestamp: p.txnCommitTime, Kind: "delete", Data: values})
 }
 
-// OIDToString converts a PostgreSQL OID to its string representation
-func oidToString(oid uint32) string {
-	if typeName, ok := oidToTypeName[oid]; ok {
-		return typeName
-	}
-	logger.Warnf("unknown oid[%d] falling back to string", oid)
-	// default to json, which will be converted to string
-	return "json"
-}
-
 // OidToTypeName maps PostgreSQL OIDs to their corresponding type names
+// Using pgtype constants for automatic OID resolution reduces manual maintenance
 var oidToTypeName = map[uint32]string{
-	pgtype.BoolOID:             "bool",
-	pgtype.ByteaOID:            "bytea",
-	pgtype.Int8OID:             "int8",
-	pgtype.Int2OID:             "int2",
-	pgtype.Int4OID:             "int4",
-	pgtype.TextOID:             "text",
-	pgtype.UUIDOID:             "uuid",
-	pgtype.JSONOID:             "json",
-	pgtype.Float4OID:           "float4",
-	pgtype.Float8OID:           "float8",
+	// Basic types
+	pgtype.BoolOID:   "bool",
+	pgtype.ByteaOID:  "bytea",
+	pgtype.Int8OID:   "int8",
+	pgtype.Int2OID:   "int2",
+	pgtype.Int4OID:   "int4",
+	pgtype.TextOID:   "text",
+	pgtype.UUIDOID:   "uuid",
+	pgtype.JSONOID:   "json",
+	pgtype.JSONBOID:  "jsonb",
+	pgtype.Float4OID: "float4",
+	pgtype.Float8OID: "float8",
+	pgtype.NameOID:   "name",
+
+	// Character types
+	pgtype.BPCharOID:  "bpchar",
+	pgtype.VarcharOID: "varchar",
+
+	// Date/Time types
+	pgtype.DateOID:        "date",
+	pgtype.TimeOID:        "time",
+	pgtype.TimestampOID:   "timestamp",
+	pgtype.TimestamptzOID: "timestamptz",
+	pgtype.IntervalOID:    "interval",
+
+	// Network types
+	pgtype.InetOID:    "inet",
+	pgtype.CIDROID:    "cidr",
+	pgtype.MacaddrOID: "macaddr",
+
+	// Geometric types
+	pgtype.PointOID:   "point",
+	pgtype.LineOID:    "line",
+	pgtype.LsegOID:    "lseg",
+	pgtype.BoxOID:     "box",
+	pgtype.PathOID:    "path",
+	pgtype.PolygonOID: "polygon",
+	pgtype.CircleOID:  "circle",
+
+	// Other types
+	pgtype.BitOID:     "bit",
+	pgtype.VarbitOID:  "varbit",
+	pgtype.NumericOID: "numeric",
+	pgtype.OIDOID:     "oid",
+
+	// Array types
 	pgtype.BoolArrayOID:        "bool[]",
 	pgtype.Int2ArrayOID:        "int2[]",
 	pgtype.Int4ArrayOID:        "int4[]",
+	pgtype.Int8ArrayOID:        "int8[]",
 	pgtype.TextArrayOID:        "text[]",
 	pgtype.ByteaArrayOID:       "bytea[]",
-	pgtype.Int8ArrayOID:        "int8[]",
 	pgtype.Float4ArrayOID:      "float4[]",
 	pgtype.Float8ArrayOID:      "float8[]",
-	pgtype.BPCharOID:           "bpchar",
-	pgtype.VarcharOID:          "varchar",
-	pgtype.DateOID:             "date",
-	pgtype.TimeOID:             "time",
-	pgtype.TimestampOID:        "timestamp",
 	pgtype.TimestampArrayOID:   "timestamp[]",
-	pgtype.DateArrayOID:        "date[]",
-	pgtype.TimestamptzOID:      "timestamptz",
 	pgtype.TimestamptzArrayOID: "timestamptz[]",
-	pgtype.IntervalOID:         "interval",
+	pgtype.DateArrayOID:        "date[]",
 	pgtype.NumericArrayOID:     "numeric[]",
-	pgtype.BitOID:              "bit",
-	pgtype.VarbitOID:           "varbit",
-	pgtype.NumericOID:          "numeric",
 	pgtype.UUIDArrayOID:        "uuid[]",
-	pgtype.JSONBOID:            "jsonb",
 	pgtype.JSONBArrayOID:       "jsonb[]",
+	pgtype.VarcharArrayOID:     "varchar[]",
+	pgtype.InetArrayOID:        "inet[]",
+	pgtype.CIDRArrayOID:        "cidr[]",
 }

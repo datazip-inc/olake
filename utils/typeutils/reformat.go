@@ -2,6 +2,7 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -105,13 +106,47 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		return ReformatFloat32(v)
 	case types.Float64:
 		return ReformatFloat64(v)
-	case types.Array:
-		if value, isArray := v.([]any); isArray {
-			return value, nil
+	case types.Object:
+		// Marshal maps to JSON for Parquet JSON logical type
+		// Parquet JSON columns expect JSON strings, not Go maps
+		switch val := v.(type) {
+		case map[string]interface{}:
+			jsonBytes, err := json.Marshal(val)
+			if err != nil {
+				return fmt.Sprintf("%v", v), fmt.Errorf("failed to marshal object to JSON: %w", err)
+			}
+			return string(jsonBytes), nil
+		case string:
+			// Already a JSON string
+			return val, nil
+		default:
+			// Fallback: try to marshal whatever it is
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				return fmt.Sprintf("%v", v), nil
+			}
+			return string(jsonBytes), nil
 		}
-
-		// make it an array
-		return []any{v}, nil
+	case types.Array:
+		// Marshal arrays to JSON for Parquet JSON logical type
+		switch val := v.(type) {
+		case []interface{}:
+			jsonBytes, err := json.Marshal(val)
+			if err != nil {
+				return fmt.Sprintf("%v", v), fmt.Errorf("failed to marshal array to JSON: %w", err)
+			}
+			return string(jsonBytes), nil
+		case string:
+			// Already a JSON string
+			return val, nil
+		default:
+			// Fallback: try to marshal as single-element array
+			jsonBytes, err := json.Marshal([]any{v})
+			if err != nil {
+				return fmt.Sprintf("%v", v), nil
+			}
+			return string(jsonBytes), nil
+		}
 	default:
 		return v, nil
 	}

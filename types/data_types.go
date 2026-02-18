@@ -107,9 +107,12 @@ func (d DataType) ToNewParquet() parquet.Node {
 		n = parquet.Leaf(parquet.BooleanType)
 	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
 		n = parquet.Timestamp(parquet.Microsecond)
-	case Object, Array:
-		// Ensure proper handling of nested structures
-		n = parquet.String()
+	case Object:
+		// JSON/JSONB objects stored as Parquet JSON type (preserves structure)
+		n = parquet.JSON()
+	case Array:
+		// Arrays stored as Parquet JSON type (preserves structure)
+		n = parquet.JSON()
 	default:
 		n = parquet.Leaf(parquet.ByteArrayType)
 	}

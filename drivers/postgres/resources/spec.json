@@ -105,6 +105,14 @@
                             "type": "string",
                             "title": "Publication",
                             "description": "Publication defines which tables need to be consumed"
+                        },
+                        "plugin_args": {
+                            "type": "object",
+                            "title": "Plugin Arguments",
+                            "description": "Custom replication plugin arguments as key-value pairs (optional). Example: {\"include-unchanged-toast\": \"false\", \"format-version\": \"2\"}",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
                         }
                     },
                     "required": [

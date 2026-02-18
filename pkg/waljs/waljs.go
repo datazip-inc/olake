@@ -16,12 +16,6 @@ import (
 
 const AdvanceLSNTemplate = "SELECT * FROM pg_replication_slot_advance('%s', '%s')"
 
-var pluginArguments = []string{
-	"\"include-lsn\" 'on'",
-	"\"pretty-print\" 'off'",
-	"\"include-timestamp\" 'on'",
-}
-
 // wal2jsonReplicator implements Replicator for wal2json plugin
 type wal2jsonReplicator struct {
 	socket *Socket
@@ -41,12 +35,25 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 	// update current wal lsn
 	w.socket.CurrentWalPosition = slot.CurrentLSN
 
-	// Start logical replication with wal2json plugin arguments.
+	// Build wal2json plugin arguments
 	var tables []string
 	for key := range w.socket.changeFilter.tables {
 		tables = append(tables, key)
 	}
-	pluginArguments = append(pluginArguments, fmt.Sprintf("\"add-tables\" '%s'", strings.Join(tables, ",")))
+
+	// Default wal2json arguments
+	pluginArguments := []string{
+		"\"include-lsn\" 'on'",
+		"\"pretty-print\" 'off'",
+		"\"include-timestamp\" 'on'",
+		fmt.Sprintf("\"add-tables\" '%s'", strings.Join(tables, ",")),
+	}
+
+	// Merge custom plugin arguments
+	for key, value := range w.socket.pluginArgs {
+		pluginArguments = append(pluginArguments, fmt.Sprintf("\"%s\" '%s'", key, value))
+	}
+
 	if err := pglogrepl.StartReplication(
 		ctx,
 		w.socket.pgConn,

@@ -5,8 +5,6 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/goccy/go-json"
-
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 )
@@ -43,18 +41,10 @@ func (f *FlattenerImpl) flatten(key string, value any, destination types.Record)
 	key = utils.Reformat(key)
 	t := reflect.ValueOf(value)
 	switch t.Kind() {
-	case reflect.Slice: // Stringify arrays
-		b, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("error marshaling array with key %s: %v", key, err)
-		}
-		destination[key] = string(b)
-	case reflect.Map: // Stringify nested maps
-		b, err := json.Marshal(value)
-		if err != nil {
-			return fmt.Errorf("error marshaling array with key[%s] and value %v: %v", key, value, err)
-		}
-		destination[key] = string(b)
+	case reflect.Slice: // Preserve arrays as structured types
+		destination[key] = value
+	case reflect.Map: // Preserve maps as structured types (JSON/JSONB)
+		destination[key] = value
 	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
 		reflect.Float32, reflect.Float64, reflect.String:
