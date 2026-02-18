@@ -729,6 +729,11 @@ func MySQLListPartitionsQuery() string {
 	`
 }
 
+// MySQLTimeZoneQuery returns the query to fetch the timezone of the MySQL server and system timezone
+func MySQLTimeZoneQuery() string {
+	return "SELECT @@session.time_zone, @@global.time_zone, @@system_time_zone"
+}
+
 // MySQLVersion returns the version of the MySQL server
 // It returns the flavor, major and minor version of the MySQL server
 func MySQLVersion(ctx context.Context, client *sqlx.DB) (string, int, int, error) {

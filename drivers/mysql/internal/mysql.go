@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +34,9 @@ type MySQL struct {
 	BinlogConn *binlog.Connection
 	streams    []types.StreamInterface
 	state      *types.State // reference to globally present state
+	// effectiveTZ is the resolved timezone (e.g. for CDC binlog TimestampStringLocation).
+	// Derived from config (jdbc_url_params.time_zone) or detected from the DB session.
+	effectiveTZ *time.Location
 }
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
@@ -74,7 +79,12 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if m.sshClient != nil {
 		logger.Info("Connecting to MySQL via SSH tunnel")
 
-		cfg, err := mysql.ParseDSN(m.config.URI())
+		uri, err := m.config.URI()
+		if err != nil {
+			return fmt.Errorf("failed to setup config uri: %s", err)
+		}
+
+		cfg, err := mysql.ParseDSN(uri)
 		if err != nil {
 			return fmt.Errorf("failed to parse mysql DSN: %s", err)
 		}
@@ -90,7 +100,12 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			return fmt.Errorf("failed to open tunneled database connection: %s", err)
 		}
 	} else {
-		client, err = sqlx.Open("mysql", m.config.URI())
+		uri, err := m.config.URI()
+		if err != nil {
+			return fmt.Errorf("failed to setup config uri: %s", err)
+		}
+
+		client, err = sqlx.Open("mysql", uri)
 		if err != nil {
 			return fmt.Errorf("failed to open database connection: %s", err)
 		}
@@ -103,6 +118,23 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if err := client.PingContext(ctx); err != nil {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
+
+	var resolved *time.Location
+	if tzOverride := strings.TrimSpace(m.config.JDBCURLParams["time_zone"]); tzOverride != "" {
+		resolved = resolveMySQLTimeZone(tzOverride, tzOverride, tzOverride)
+	}
+	if resolved == nil {
+		query := jdbc.MySQLTimeZoneQuery()
+		var sessionTimezone, globalTimezone, systemTimezone string
+		if err := client.QueryRowxContext(ctx, query).Scan(&sessionTimezone, &globalTimezone, &systemTimezone); err != nil {
+			logger.Warnf("mysql timezone detection failed; defaulting to UTC: %s", err)
+			resolved = time.UTC
+		} else {
+			resolved = resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone)
+		}
+	}
+	m.effectiveTZ = resolved
+
 	// TODO: If CDC config exists and permission check fails, fail the setup
 	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
 	if found {
@@ -199,7 +231,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				datatype = types.String
 			}
-			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable))
+			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable), false)
 
 			// Mark primary keys
 			if columnKey == "PRI" {
@@ -215,6 +247,8 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	if m.CDCSupported() {
+		stream.UpsertField(binlog.CDCBinlogFileName, types.String, true, true)
+		stream.UpsertField(binlog.CDCBinlogFilePos, types.Int64, true, true)
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 
@@ -295,4 +329,62 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// TODO: Add consistent timezone detection for CDC of other drivers as well.
+// resolveMySQLTimeZone returns a *time.Location for interpreting TIMESTAMP values (e.g. CDC binlog).
+// Precedence: session > global > system; "SYSTEM" is skipped so the next level is used.
+// Invalid or missing IANA names fall back to UTC.
+func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string) *time.Location {
+	// Strip surrounding quotes so "'Asia/Tokyo'" or "\"UTC\"" from jdbc params become valid IANA names.
+	normalize := func(s string) string {
+		return strings.Trim(strings.TrimSpace(s), `'"`)
+	}
+
+	session := normalize(sessionTimezone)
+	global := normalize(globalTimezone)
+	system := normalize(systemTimezone)
+
+	var name string
+	switch {
+	case session != "" && !strings.EqualFold(session, "SYSTEM"):
+		name = session
+	case global != "" && !strings.EqualFold(global, "SYSTEM"):
+		name = global
+	default:
+		name = system
+	}
+
+	offsetSeconds, ok := parseMySQLTimeZoneOffset(name)
+	if constants.LoadedStateVersion > 2 && ok {
+		return time.FixedZone(name, offsetSeconds)
+	}
+
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		logger.Warnf("failed to load mysql timezone location %s, falling back to UTC. Set jdbc_url_params.time_zone to override: %s", name, err)
+		return time.UTC
+	}
+	return loc
+}
+
+// parseMySQTimeZoneOffset parses MySQL-style timezone offset. Returns offset in seconds and true, or 0, false.
+func parseMySQLTimeZoneOffset(s string) (int, bool) {
+	// MySql supports offsets ranging from -13:59 to +14:00
+	mysqlOffsetRegex := regexp.MustCompile(`^([+-])(0?\d|1[0-4]):([0-5]\d)$`)
+
+	s = strings.TrimSpace(s)
+	matches := mysqlOffsetRegex.FindStringSubmatch(s)
+	if matches == nil {
+		return 0, false
+	}
+	signStr, hourStr, minuteStr := matches[1], matches[2], matches[3]
+
+	hours, err1 := strconv.Atoi(hourStr)
+	minutes, err2 := strconv.Atoi(minuteStr)
+	if err1 != nil || err2 != nil || (hours == 14 && minutes > 0) || (signStr == "-" && hours == 14) {
+		return 0, false
+	}
+	offsetSeconds := hours*3600 + minutes*60
+	return utils.Ternary(signStr == "-", -offsetSeconds, offsetSeconds).(int), true
 }

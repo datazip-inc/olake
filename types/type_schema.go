@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
@@ -95,7 +96,7 @@ func (t *TypeSchema) GetType(column string) (DataType, error) {
 	return p.(*Property).DataType(), nil
 }
 
-func (t *TypeSchema) AddTypes(column string, types ...DataType) {
+func (t *TypeSchema) AddTypes(column string, isOlakeColumn bool, types ...DataType) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	p, found := t.Properties.Load(column)
@@ -103,6 +104,7 @@ func (t *TypeSchema) AddTypes(column string, types ...DataType) {
 		t.Properties.Store(column, &Property{
 			Type:                  NewSet(types...),
 			DestinationColumnName: utils.Reformat(column),
+			OlakeColumn:           isOlakeColumn,
 		})
 		return
 	}
@@ -120,22 +122,39 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
-func (t *TypeSchema) ToParquet() *parquet.Schema {
-	groupNode := parquet.Group{}
+func (t *TypeSchema) ToParquet(defaultColumns bool) *parquet.Schema {
+	// keeping default columns parquet schema for backward compatibility for olake columns
+	groupNode := parquet.Group{
+		constants.OlakeID:        parquet.String(),
+		constants.OlakeTimestamp: parquet.Timestamp(parquet.Microsecond),
+		constants.OpType:         parquet.String(),
+		constants.CdcTimestamp:   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
+	}
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		if defaultColumns && !prop.OlakeColumn {
+			return true
+		}
 		// Todo: check we can use field name instead of destination column name
 		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
 		return true
 	})
 
+	if defaultColumns {
+		groupNode[constants.StringifiedData] = parquet.JSON()
+	}
+
 	return parquet.NewSchema("olake_schema", groupNode)
 }
 
-func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
+func (t *TypeSchema) ToIceberg(defaultColumns bool) []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		// skip non-olake columns if defaultColumns is set to true
+		if defaultColumns && !prop.OlakeColumn {
+			return true
+		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
 			Key:     prop.getDestinationColumnName(key.(string)),
@@ -143,8 +162,16 @@ func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
 		return true
 	})
 
+	if defaultColumns {
+		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+			IceType: "string",
+			Key:     constants.StringifiedData,
+		})
+	}
+
 	return icebergFields
 }
+
 func (t *TypeSchema) HasDestinationColumnName() bool {
 	found := false
 	t.Properties.Range(func(_, value interface{}) bool {
@@ -158,6 +185,7 @@ func (t *TypeSchema) HasDestinationColumnName() bool {
 type Property struct {
 	Type                  *Set[DataType] `json:"type,omitempty"`
 	DestinationColumnName string         `json:"destination_column_name,omitempty"`
+	OlakeColumn           bool           `json:"olake_column,omitempty"`
 }
 
 // returns datatype according to typecast tree if multiple type present
