@@ -224,7 +224,10 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	// Either wait for covering 100k records from both sides for all streams
 	// Or wait till discoverCtx exits
 	stream, err := produceCollectionSchema(ctx, database, streamName)
-	if err != nil && ctx.Err() == nil { // if discoverCtx did not make an exit then throw an error
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 	}
 	// Add all discovered fields as potential cursor fields
