@@ -241,7 +241,10 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return stream, rows.Err()
 	}
 	stream, err := produceTableSchema(ctx, streamName)
-	if err != nil && ctx.Err() == nil {
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
 

@@ -59,9 +59,11 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
-	// set max connections
-	if a.driver.MaxConnections() > 0 {
+func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int) ([]*types.Stream, error) {
+	// set max connections, uses maxDiscoverThreads if discover command is used
+	if maxDiscoverThreads > 0 {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
+	} else if a.driver.MaxConnections() > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
