@@ -86,7 +86,7 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// Get Source Streams, sending 0 max parallel threads to discover
+		// Get Source Streams, sending 0 max discover threads to discover
 		streams, err := connector.Discover(cmd.Context(), 0)
 		if err != nil {
 			return err
