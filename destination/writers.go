@@ -22,6 +22,8 @@ type (
 		Number     int64
 		Backfill   bool
 		ThreadID   string
+		SyncMode   string
+		Payload    any
 	}
 
 	ThreadOptions func(opt *Options)
@@ -80,6 +82,18 @@ func WithBackfill(backfill bool) ThreadOptions {
 func WithThreadID(threadID string) ThreadOptions {
 	return func(opt *Options) {
 		opt.ThreadID = threadID
+	}
+}
+
+func WithSyncMode(mode string) ThreadOptions {
+	return func(opt *Options) {
+		opt.SyncMode = mode
+	}
+}
+
+func WithPayload(payload any) ThreadOptions {
+	return func(opt *Options) {
+		opt.Payload = payload
 	}
 }
 
@@ -281,6 +295,11 @@ func (wt *WriterThread) Close(ctx context.Context) (err error) {
 		}
 		return nil
 	}
+}
+
+// GetCommitState returns the commit state of the table
+func (wt *WriterThread) GetCommitState(ctx context.Context) (string, error) {
+	return wt.writer.GetCommitState(ctx)
 }
 
 func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {

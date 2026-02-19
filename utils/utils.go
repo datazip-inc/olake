@@ -3,7 +3,7 @@ package utils
 import (
 	"context"
 
-	//nolint:gosec,G115
+	//nolint:gosec // G401: md5 used for non-crypto hashing
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
@@ -281,7 +281,7 @@ func GetKeysHash(m map[string]interface{}, keys ...string) string {
 		str.WriteString(fmt.Sprint(m[k]))
 		str.WriteRune('|')
 	}
-	//nolint:gosec,G115
+	//nolint:gosec // G115: overflow not applicable for md5.Sum input size
 	return fmt.Sprintf("%x", md5.Sum([]byte(str.String())))
 }
 

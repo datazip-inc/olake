@@ -24,16 +24,16 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// MySQL represents the MySQL database driver
 type MySQL struct {
-	config     *Config
-	client     *sqlx.DB
-	sshClient  *ssh.Client
-	CDCSupport bool // indicates if the MySQL instance supports CDC
-	cdcConfig  CDC
-	BinlogConn *binlog.Connection
-	streams    []types.StreamInterface
-	state      *types.State // reference to globally present state
+	config         *Config
+	client         *sqlx.DB
+	sshClient      *ssh.Client
+	CDCSupport     bool // indicates if the MySQL instance supports CDC
+	cdcConfig      CDC
+	BinlogConn     *binlog.Connection
+	streams        []types.StreamInterface
+	state          *types.State // reference to globally present state
+	targetPosition string       // target position for bounded recovery sync (empty = use latest)
 	// effectiveTZ is the resolved timezone (e.g. for CDC binlog TimestampStringLocation).
 	// Derived from config (jdbc_url_params.time_zone) or detected from the DB session.
 	effectiveTZ *time.Location

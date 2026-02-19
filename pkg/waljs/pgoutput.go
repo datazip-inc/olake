@@ -37,7 +37,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 		return fmt.Errorf("failed to start replication: %v", err)
 	}
 
-	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
+	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.GetEndPosition())
 
 	cdcStartTime := time.Now()
 	messageReceived := false
@@ -53,8 +53,8 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				return fmt.Errorf("%w, try increasing it or do full load", constants.ErrNonRetryable)
 			}
 
-			if p.transactionCompleted && p.socket.ClientXLogPos >= p.socket.CurrentWalPosition {
-				logger.Infof("finishing sync, reached wal position: %s", p.socket.CurrentWalPosition)
+			if p.transactionCompleted && p.socket.ClientXLogPos >= p.socket.GetEndPosition() {
+				logger.Infof("finishing sync, reached wal position: %s", p.socket.GetEndPosition())
 				return nil
 			}
 
@@ -96,7 +96,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				}
 				p.socket.ClientXLogPos = pkm.ServerWALEnd
 				if pkm.ReplyRequested {
-					if err := AcknowledgeLSN(ctx, db, p.socket, true); err != nil {
+					if err := AcknowledgeLSN(ctx, db, p.socket, true, p.socket.ClientXLogPos); err != nil {
 						return fmt.Errorf("failed to send standby status update: %v", err)
 					}
 				}
@@ -185,6 +185,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		Timestamp:    p.txnCommitTime,
 		Kind:         "insert",
 		Data:         values,
+		Position:     p.socket.ConfirmedFlushLSN.String(),
 		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
 	})
 }
@@ -210,6 +211,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		Timestamp:    p.txnCommitTime,
 		Kind:         "update",
 		Data:         values,
+		Position:     p.socket.ConfirmedFlushLSN.String(),
 		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
 	})
 }
@@ -235,6 +237,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		Timestamp:    p.txnCommitTime,
 		Kind:         "delete",
 		Data:         values,
+		Position:     p.socket.ConfirmedFlushLSN.String(),
 		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
 	})
 }

@@ -493,3 +493,13 @@ func (s *S3) CloseConnection() {
 	logger.Info("Closing S3 connection")
 	// S3 client doesn't require explicit cleanup
 }
+
+func (s *S3) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
+	return "", nil
+}
+
+func (s *S3) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
+
+func (s *S3) GetCDCPosition(streamID string) string { return "" }
+
+func (s *S3) SetTargetCDCPosition(stream types.StreamInterface, position string) {}

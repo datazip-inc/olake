@@ -14,6 +14,7 @@ message IcebergPayload {
     DROP_TABLE = 3;
     GET_OR_CREATE_TABLE = 4;
     REFRESH_TABLE_SCHEMA = 5;
+    GET_COMMIT_STATE = 6;
   }
   
   PayloadType type = 1;
@@ -23,6 +24,7 @@ message IcebergPayload {
     string thread_id = 2;
     optional string identifier_field = 3;
     repeated SchemaField schema = 4;
+    string payload = 6;
   }
 
   message SchemaField {
@@ -100,6 +102,7 @@ message ArrowPayload {
     string thread_id = 2;
     repeated FileMetadata file_metadata = 3;
     optional FileUploadRequest file_upload = 4;
+    string payload = 6;
   }
 
   Metadata metadata = 2;

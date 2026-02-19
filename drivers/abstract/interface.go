@@ -14,6 +14,12 @@ type Config interface {
 	Validate() error
 }
 
+// PositionAcknowledgment is for drivers that need to acknowledge CDC positions to the source (Postgres).
+// This is used for LSN acknowledgment to advance the replication slot and avoid lsn mismatch.
+type PositionAcknowledgment interface {
+	AcknowledgeCDCPosition(ctx context.Context, position string) error // acknowledges CDC position to source
+}
+
 type DriverInterface interface {
 	GetConfigRef() Config
 	Spec() any
@@ -39,4 +45,9 @@ type DriverInterface interface {
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, identifier int, processFn CDCMsgFn) error
 	PostCDC(ctx context.Context, identifier int) error // to save state
+
+	GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) // returns starting CDC position from state (for predictable thread IDs)
+	SetCurrentCDCPosition(stream types.StreamInterface, position string)               // updates the current CDC position in state (for recovery)
+	GetCDCPosition(streamID string) string                                             // returns current CDC position (binlog pos for MySQL, LSN for Postgres)
+	SetTargetCDCPosition(stream types.StreamInterface, position string)                // sets target position for bounded recovery sync (empty = use latest)
 }

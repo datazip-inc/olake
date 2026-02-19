@@ -53,7 +53,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             String identifierField = metadata.getIdentifierField();
             List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
             
-            if (threadId == null || threadId.isEmpty()) {
+            if ((threadId == null || threadId.isEmpty()) && request.getType() != IcebergPayload.PayloadType.GET_COMMIT_STATE) {
                 // file references are being stored through thread id
                 throw new Exception("Thread id not present in metadata");
             }
@@ -73,8 +73,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
             switch (request.getType()) {
                 case COMMIT:
-                    LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
-                    icebergTableOperator.commitThread(threadId, this.icebergTable);
+                    icebergTableOperator.commitThread(threadId, metadata.getPayload(), this.icebergTable);
                     sendResponse(responseObserver, requestId + " Successfully committed data for thread " + threadId);
                     LOGGER.debug("{} Successfully committed data for thread: {}", requestId, threadId);
                     break;
@@ -110,6 +109,20 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     LOGGER.debug("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     break;
                     
+                case GET_COMMIT_STATE:
+                    this.icebergTable.refresh();
+                    String commitState = icebergTableOperator.getCommitState(threadId, this.icebergTable);
+                    boolean committed = commitState != null;
+                    
+                    RecordIngest.RecordIngestResponse statusResponse = RecordIngest.RecordIngestResponse.newBuilder()
+                        .setSuccess(committed)
+                        .setResult(committed ? commitState : "")
+                        .build();
+                    responseObserver.onNext(statusResponse);
+                    responseObserver.onCompleted();
+                    LOGGER.info("{} Processed check commit status for thread: {}, committed: {}", requestId, threadId, committed);
+                    break;
+
                 case DROP_TABLE:
                     String dropTable = metadata.getDestTableName();
                     String[] parts = dropTable.split("\\.", 2);

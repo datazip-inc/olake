@@ -2,6 +2,8 @@ package abstract
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -38,22 +40,51 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		return typeutils.Compare(chunks[i].Min, chunks[j].Min) < 0
 	})
 
-	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
+	// Helper to generate threadID for a chunk
+	threadIDCache := make(map[string]string)
+	getThreadID := func(chunk types.Chunk) string {
+		keys := fmt.Sprintf("%v%v", chunk.Min, chunk.Max)
+		if id, ok := threadIDCache[keys]; ok {
+			return id
+		}
+		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(keys)))
+		id := generateThreadID(stream.ID(), hash)
+		threadIDCache[keys] = id
+		return id
+	}
+
+	logger.Infof("Processing %d chunks for stream[%s]", len(chunks), stream.ID())
+
+	committedChunks := a.fetchBackfillCommittedThreadIDs(mainCtx, pool, stream)
 
 	chunkProcessor := func(gCtx context.Context, _ int, chunk types.Chunk) (err error) {
+		threadID := getThreadID(chunk)
+
+		if committedChunks[threadID] {
+			logger.Infof("Chunk min[%v] max[%v] (thread %s) already committed, skipping", chunk.Min, chunk.Max, threadID)
+			chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
+			if chunksLeft == 0 && backfilledStreams != nil {
+				backfilledStreams <- stream.ID()
+			}
+			return nil
+		}
+
 		// create backfill context, so that main context not affected if backfill retries
 		backfillCtx, backfillCtxCancel := context.WithCancel(gCtx)
 		defer backfillCtxCancel()
 
-		threadID := generateThreadID(stream.ID(), fmt.Sprintf("min[%v]-max[%v]", chunk.Min, chunk.Max))
-		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
+		inserter, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID), destination.WithSyncMode("backfill"))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
 
-		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
-
 		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID,
+			func(ctx context.Context) error {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return nil
+			},
 			func(ctx context.Context) error {
 				if ctx.Err() != nil {
 					return ctx.Err()
@@ -66,6 +97,8 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 				logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 				return nil
 			})()
+
+		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			olakeColumns := map[string]any{
@@ -83,4 +116,37 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)
 	return nil
+}
+
+func (a *AbstractDriver) fetchBackfillCommittedThreadIDs(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) map[string]bool {
+	committed := make(map[string]bool)
+
+	stateFetcher, err := pool.NewWriter(ctx, stream, destination.WithThreadID("recovery_check"), destination.WithBackfill(true))
+	if err != nil {
+		logger.Warnf("Failed to create writer for state fetch, skipping optimization: %s", err)
+		return committed
+	}
+	defer stateFetcher.Close(ctx)
+
+	statePayload, err := stateFetcher.GetCommitState(ctx)
+	if err != nil {
+		logger.Warnf("Failed to fetch commit state, skipping optimization: %s", err)
+		return committed
+	}
+	if statePayload == "" {
+		return committed
+	}
+
+	var state SyncState
+	if err := json.Unmarshal([]byte(statePayload), &state); err != nil {
+		logger.Warnf("Failed to parse commit state JSON, skipping optimization: %s", err)
+		return committed
+	}
+
+	for _, id := range state.FullRefreshCommittedIDs {
+		if id != "" {
+			committed[id] = true
+		}
+	}
+	return committed
 }

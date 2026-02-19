@@ -300,7 +300,7 @@ func ReformatInt64(v any) (int64, error) {
 	case int64:
 		return int64(v), nil
 	case uint:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint to int64 is safe for expected ranges
 		return int64(v), nil
 	case uint8:
 		return int64(v), nil
@@ -309,7 +309,7 @@ func ReformatInt64(v any) (int64, error) {
 	case uint32:
 		return int64(v), nil
 	case uint64:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint64 to int64 is safe for expected ranges
 		return int64(v), nil
 	case bool:
 		if v {
@@ -336,7 +336,7 @@ func ReformatInt32(v any) (int32, error) {
 	case float64:
 		return int32(v), nil
 	case int:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting int to int32 is safe for expected ranges
 		return int32(v), nil
 	case int8:
 		return int32(v), nil
@@ -345,20 +345,20 @@ func ReformatInt32(v any) (int32, error) {
 	case int32:
 		return v, nil
 	case int64:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting int64 to int32 is safe for expected ranges
 		return int32(v), nil
 	case uint:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint to int32 is safe for expected ranges
 		return int32(v), nil
 	case uint8:
 		return int32(v), nil
 	case uint16:
 		return int32(v), nil
 	case uint32:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint32 to int32 is safe for expected ranges
 		return int32(v), nil
 	case uint64:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint64 to int32 is safe for expected ranges
 		return int32(v), nil
 	case bool:
 		if v {
@@ -376,7 +376,7 @@ func ReformatInt32(v any) (int32, error) {
 		if err != nil {
 			return 0, err
 		}
-		//nolint:gosec,G115
+		//nolint:gosec // G115: value range checked by parse and conversion
 		return int32(intValue), nil
 	case []uint8:
 		if len(v) == 1 {

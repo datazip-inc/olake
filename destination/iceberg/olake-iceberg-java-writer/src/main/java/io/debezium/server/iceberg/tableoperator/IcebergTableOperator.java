@@ -29,6 +29,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
+import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
@@ -41,6 +42,10 @@ import org.slf4j.LoggerFactory;
 
 import com.google.common.collect.ImmutableMap;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
 import jakarta.enterprise.context.Dependent;
 import jakarta.inject.Inject;
@@ -72,6 +77,13 @@ public class IcebergTableOperator {
   static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1,
       Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
+  private static final ObjectMapper mapper = new ObjectMapper();
+
+  private static final String STATE_KEY_2PC = "olake_2pc";
+  private static final String STATE_FIELD_LATEST_THREAD_ID = "latest_threadId";
+  private static final String STATE_FIELD_FULL_REFRESH_COMMITTED_IDS = "full_refresh_committed_ids";
+
+
   @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
   String cdcSourceTsMsField;
   @ConfigProperty(name = "debezium.sink.iceberg.upsert-op-field", defaultValue = "_op_type")
@@ -115,7 +127,7 @@ public class IcebergTableOperator {
    * @param threadId The thread ID to commit
    * @throws RuntimeException if commit fails
    */
-  public void commitThread(String threadId, Table table) {
+  public void commitThread(String threadId, String payload, Table table) {
     if (table == null) {
       LOGGER.warn("No table found for thread: {}", threadId);
       return;
@@ -157,55 +169,55 @@ public class IcebergTableOperator {
     }
   
     try {
+      Transaction transaction = table.newTransaction();
+
+      // 1. Stage Property Update - mark thread as committed
+      UpdateProperties updateProperties = transaction.updateProperties();
+      
+      updateJsonState(table, updateProperties, threadId, payload);
+      
+      updateProperties.commit();
+
+      // 2. Stage Data Commit
       if (!hasAnyDeletes) {
-        AppendFiles append = table.newAppend();
-  
+        AppendFiles appendFiles = transaction.newAppend();
+        
         for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
           ArrayList<DataFile> dataFiles = unit.second();
           if (dataFiles == null || dataFiles.isEmpty()) {
             continue;
           }
           for (DataFile df : dataFiles) {
-            append.appendFile(df);
+            appendFiles.appendFile(df);
           }
         }
-  
-        append.commit();
-  
-        LOGGER.info("Append-only commit success: {} data files ({} deletes) for thread: {}",
-            totalDataFiles, totalDeleteFiles, threadId);
-  
+        
+        appendFiles.commit();
       } else {
-        Transaction txn = table.newTransaction();
+        // RowDelta path (has delete files)
+        RowDelta rowDelta = transaction.newRowDelta();
+        
         for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
           ArrayList<DeleteFile> eqDeletes = unit.first();
           ArrayList<DataFile> dataFiles = unit.second();
   
-          int del = (eqDeletes == null) ? 0 : eqDeletes.size();
-          int df = (dataFiles == null) ? 0 : dataFiles.size();
-  
-          if (del == 0 && df == 0) {
-            continue;
+          if (dataFiles != null && !dataFiles.isEmpty()) {
+            dataFiles.forEach(rowDelta::addRows);
           }
   
-          RowDelta delta = txn.newRowDelta();
-
-          if (dataFiles != null) {
-            dataFiles.forEach(delta::addRows);
+          if (eqDeletes != null && !eqDeletes.isEmpty()) {
+            eqDeletes.forEach(rowDelta::addDeletes);
           }
-
-          if (eqDeletes != null) {
-            eqDeletes.forEach(delta::addDeletes);
-          }
-  
-          delta.commit();
         }
-  
-        txn.commitTransaction();
-  
-        LOGGER.info("Txn commit success: {} data files + {} equality delete files for thread: {}",
-            totalDataFiles, totalDeleteFiles, threadId);
+        
+        rowDelta.commit();
       }
+
+      // 3. Final Commit to Catalog (Creates ONE metadata file)
+      transaction.commitTransaction();
+
+      LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
+          totalDataFiles, totalDeleteFiles, threadId);
   
       filesToCommit.clear();
   
@@ -423,6 +435,50 @@ public class IcebergTableOperator {
                partitionData.set(i, value);
           }
 
-          return partitionData;
-     }
+         return partitionData;
+  }
+
+  private void updateJsonState(Table table, UpdateProperties updateProperties, String threadId, String payload) {
+      try {
+          String currentValue = table.properties().get(STATE_KEY_2PC);
+          ObjectNode rootNode;
+          if (currentValue != null) {
+              rootNode = (ObjectNode) mapper.readTree(currentValue);
+          } else {
+              rootNode = mapper.createObjectNode();
+          }
+
+          if (payload != null && !payload.isEmpty()) {
+              JsonNode payloadNode = mapper.readTree(payload);
+              rootNode.put(STATE_FIELD_LATEST_THREAD_ID, threadId);
+              if (payloadNode.isObject()) {
+                  // Merge payload directly into root node
+                  payloadNode.fields().forEachRemaining(entry -> rootNode.set(entry.getKey(), entry.getValue()));
+              }
+          } else {
+              // No payload => backfill/snapshot style: append threadId to full_refresh_committed_ids
+              com.fasterxml.jackson.databind.node.ArrayNode committedIds;
+              if (rootNode.has(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS) && rootNode.get(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS).isArray()) {
+                  committedIds = (com.fasterxml.jackson.databind.node.ArrayNode) rootNode.get(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS);
+              } else {
+                  committedIds = rootNode.putArray(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS);
+              }
+              committedIds.add(threadId);
+          }
+
+          updateProperties.set(STATE_KEY_2PC, mapper.writeValueAsString(rootNode));
+      } catch (JsonProcessingException e) {
+          LOGGER.error("Failed to update JSON state for key: " + STATE_KEY_2PC, e);
+          throw new RuntimeException("Failed to update JSON state", e);
+      }
+  }
+
+  public String getCommitState(String threadId, Table table) {      
+      String propertyValue = null;
+      if (table != null) {
+          propertyValue = table.properties().get(STATE_KEY_2PC);
+      }
+
+      return propertyValue;
+  }
 }

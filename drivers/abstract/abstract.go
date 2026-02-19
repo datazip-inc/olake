@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -18,6 +19,104 @@ type CDCChange struct {
 	Kind         string
 	Data         map[string]any
 	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
+	Position     string         // Database-specific position info (e.g., binlog position for MySQL, LSN for Postgres)
+}
+
+type SyncState struct {
+	LatestThreadID          string         `json:"latest_threadId,omitempty"`
+	CapturedCDCPos          string         `json:"captured_cdc_pos,omitempty"`
+	FullRefreshCommittedIDs []string       `json:"full_refresh_committed_ids,omitempty"`
+	NextCursorValue         map[string]any `json:"next_cursor_value,omitempty"`
+	Fields                  map[string]any `json:"-"`
+}
+
+// GetValue returns a dynamic cursor/value from either the top-level fields or next_cursor_value.
+func (s *SyncState) GetValue(key string) any {
+	if s == nil || key == "" {
+		return nil
+	}
+	if s.Fields != nil {
+		if v, ok := s.Fields[key]; ok {
+			return v
+		}
+	}
+	if s.NextCursorValue != nil {
+		if v, ok := s.NextCursorValue[key]; ok {
+			return v
+		}
+	}
+	return nil
+}
+
+func (s *SyncState) SetField(key string, value any) {
+	if s == nil || key == "" {
+		return
+	}
+	if s.Fields == nil {
+		s.Fields = make(map[string]any)
+	}
+	s.Fields[key] = value
+}
+
+func (s *SyncState) MarshalJSON() ([]byte, error) {
+	m := make(map[string]any)
+	if s.LatestThreadID != "" {
+		m["latest_threadId"] = s.LatestThreadID
+	}
+	if s.CapturedCDCPos != "" {
+		m["captured_cdc_pos"] = s.CapturedCDCPos
+	}
+	if len(s.FullRefreshCommittedIDs) > 0 {
+		m["full_refresh_committed_ids"] = s.FullRefreshCommittedIDs
+	}
+	if len(s.NextCursorValue) > 0 {
+		m["next_cursor_value"] = s.NextCursorValue
+	}
+	for k, v := range s.Fields {
+		switch k {
+		case "latest_threadId", "captured_cdc_pos", "full_refresh_committed_ids", "next_cursor_value":
+			continue
+		default:
+			m[k] = v
+		}
+	}
+	return json.Marshal(m)
+}
+
+func (s *SyncState) UnmarshalJSON(data []byte) error {
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		return err
+	}
+	// Fixed fields
+	if v, ok := m["latest_threadId"].(string); ok {
+		s.LatestThreadID = v
+	}
+	if v, ok := m["captured_cdc_pos"].(string); ok {
+		s.CapturedCDCPos = v
+	}
+	if raw, ok := m["full_refresh_committed_ids"]; ok {
+		if arr, ok := raw.([]any); ok {
+			out := make([]string, 0, len(arr))
+			for _, one := range arr {
+				if str, ok := one.(string); ok && str != "" {
+					out = append(out, str)
+				}
+			}
+			s.FullRefreshCommittedIDs = out
+		}
+	}
+	if raw, ok := m["next_cursor_value"]; ok {
+		if nested, ok := raw.(map[string]any); ok {
+			s.NextCursorValue = nested
+		}
+	}
+	delete(m, "latest_threadId")
+	delete(m, "captured_cdc_pos")
+	delete(m, "full_refresh_committed_ids")
+	delete(m, "next_cursor_value")
+	s.Fields = m
+	return nil
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
@@ -225,10 +324,9 @@ func (a *AbstractDriver) waitForBackfillCompletion(mainCtx context.Context, back
 }
 
 // generateThreadID creates a unique thread ID for a stream
-func generateThreadID(streamID string, suffix string) string {
-	withSuffix := fmt.Sprintf("%s_%s_%s", streamID, utils.ULID(), suffix)
-	withoutSuffix := fmt.Sprintf("%s_%s", streamID, utils.ULID())
-	return utils.Ternary(suffix != "", withSuffix, withoutSuffix).(string)
+func generateThreadID(streamID, hash string) string {
+	suffix := utils.Ternary(hash != "", hash, utils.ULID())
+	return fmt.Sprintf("%s_%s", streamID, suffix)
 }
 
 // handleWriterCleanup is a helper that creates a defer function for common writer cleanup operations
@@ -240,11 +338,16 @@ func generateThreadID(streamID string, suffix string) string {
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
 //
 // The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, postProcess func(ctx context.Context) error) func() {
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, preProcess func(ctx context.Context) error, postProcess func(ctx context.Context) error) func() {
 	return func() {
 		// Cancel context if there's an error, so other threads using this context can detect the failure
 		if *err != nil {
 			cancel()
+		}
+
+		preErr := preProcess(ctx)
+		if preErr != nil {
+			*err = utils.Ternary(*err == nil, preErr, fmt.Errorf("%s: prev error: %s", preErr, *err)).(error)
 		}
 
 		// Close writer(s)
@@ -274,11 +377,6 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 		// check for panics before post-processing
 		if r := recover(); r != nil {
 			*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
-		}
-
-		// cancel context if error occurred after closing writers
-		if *err != nil {
-			cancel()
 		}
 
 		postErr := postProcess(ctx)

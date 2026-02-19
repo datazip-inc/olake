@@ -56,7 +56,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 			}
 			if resumeToken != nil {
 				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
-				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
+				m.state.SetCursors(stream.Self(), map[string]any{cdcCursorField: prevResumeToken})
 			}
 		}
 	}
@@ -101,7 +101,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 		}
 
 		if hasNext {
-			if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
+			if err := m.handleChangeDoc(ctx, cursor, stream, prevResumeToken.(string), OnMessage); err != nil {
 				return err
 			}
 		}
@@ -146,7 +146,7 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 	return nil
 }
 
-func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, startingResumeToken string, OnMessage abstract.CDCMsgFn) error {
 	var record CDCDocument
 	if err := cursor.Decode(&record); err != nil {
 		return fmt.Errorf("error while decoding: %s", err)
@@ -172,6 +172,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Timestamp: ts,
 		Data:      record.FullDocument,
 		Kind:      record.OperationType,
+		Position:  startingResumeToken,
 		ExtraColumns: map[string]any{
 			CDCResumeToken: token,
 		},
@@ -192,14 +193,42 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		val, ok := m.cdcCursor.Load(m.streams[streamIndex].ID())
+		finalToken := utils.Ternary(m.targetPosition == "", m.streams[streamIndex].ID(), m.targetPosition).(string)
+		val, ok := m.cdcCursor.Load(finalToken)
 		if ok {
-			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
+			m.state.SetCursors(m.streams[streamIndex].Self(), map[string]any{cdcCursorField: val})
 		} else {
-			logger.Warnf("no resume token found for stream: %s", m.streams[streamIndex].ID())
+			logger.Warnf("no resume token found for stream: %s", finalToken)
 		}
 		return nil
 	}
+}
+
+// GetCDCPositionForStream returns the current CDC position for a specific stream
+func (m *Mongo) GetCDCPosition(streamID string) string {
+	val, ok := m.cdcCursor.Load(streamID)
+	if ok {
+		return val.(string)
+	}
+	return ""
+}
+
+// GetCDCStartPositionForStream returns the value used to start CDC for this stream.
+func (m *Mongo) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
+	stream = m.streams[streamIndex]
+	val := m.state.GetCursor(stream.Self(), cdcCursorField)
+	if val == nil {
+		return "", nil
+	}
+	return val.(string), nil
+}
+
+// SetRecoveredCDCPositionForStream updates the stream cursor to the recovered committed position.
+func (m *Mongo) SetCurrentCDCPosition(stream types.StreamInterface, position string) {
+	if position == "" {
+		return
+	}
+	m.state.SetCursors(stream.Self(), map[string]any{cdcCursorField: position})
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
@@ -281,4 +310,11 @@ func GetResumeToken(cursor *mongo.ChangeStream, streamID string) (string, error)
 	}
 
 	return token, nil
+}
+
+func (m *Mongo) SetTargetCDCPosition(stream types.StreamInterface, position string) {
+	m.targetPosition = position
+	if position != "" {
+		logger.Infof("Set target CDC position for bounded sync: %s", position)
+	}
 }

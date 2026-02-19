@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, error) {
@@ -87,7 +90,9 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 	// persist binlog connection for post cdc
 	m.BinlogConn = conn
 
-	return m.BinlogConn.StreamMessages(ctx, m.client, OnMessage)
+	// Use target position for bounded sync if set (recovery mode)
+	targetPos := m.targetPosition
+	return m.BinlogConn.StreamMessages(ctx, m.client, targetPos, OnMessage)
 }
 
 func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
@@ -103,5 +108,64 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 			},
 		})
 		return nil
+	}
+}
+
+func (m *MySQL) GetCDCPosition(streamID string) string {
+	if m.BinlogConn == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", m.BinlogConn.CurrentPos.Name, m.BinlogConn.CurrentPos.Pos)
+}
+
+// GetCDCStartPosition returns the starting CDC position from state for predictable thread IDs
+func (m *MySQL) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
+	globalState := m.state.GetGlobal()
+	if globalState == nil || globalState.State == nil {
+		return "", fmt.Errorf("global state is nil")
+	}
+	var mysqlState MySQLGlobalState
+	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
+		return "", fmt.Errorf("failed to unmarshal global state: %w", err)
+	}
+	return fmt.Sprintf("%s:%d", mysqlState.State.Position.Name, mysqlState.State.Position.Pos), nil
+}
+
+func (m *MySQL) SetCurrentCDCPosition(stream types.StreamInterface, position string) {
+	globalState := m.state.GetGlobal()
+	if globalState == nil {
+		logger.Warnf("SetCurrentCDCPosition called but global state is nil")
+		return
+	}
+	var mysqlState MySQLGlobalState
+	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
+		logger.Warnf("Failed to unmarshal global state for SetCurrentCDCPosition: %s", err)
+		return
+	}
+	// Parse position string "filename:pos" and update state
+	// Format: mysql-bin.000070:772591
+	positionParts := strings.Split(position, ":")
+	if len(positionParts) != 2 {
+		logger.Warnf("Invalid position format %s for SetCurrentCDCPosition: missing colon", position)
+		return
+	}
+	name := positionParts[0]
+	posStr := positionParts[1]
+	posVal, err := strconv.ParseUint(posStr, 10, 32)
+	if err != nil {
+		logger.Warnf("Failed to parse position %s for SetCurrentCDCPosition: %s", position, err)
+		return
+	}
+	pos := uint32(posVal)
+	mysqlState.State.Position.Name = name
+	mysqlState.State.Position.Pos = pos
+	m.state.SetGlobal(mysqlState)
+	logger.Infof("Set current CDC position in state: %s", position)
+}
+
+func (m *MySQL) SetTargetCDCPosition(stream types.StreamInterface, position string) {
+	m.targetPosition = position
+	if position != "" {
+		logger.Infof("Set target CDC position for bounded sync: %s", position)
 	}
 }

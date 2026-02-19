@@ -33,5 +33,7 @@ type Writer interface {
 	EvolveSchema(ctx context.Context, globalSchema, recordsSchema any) (any, error)
 	// DropStreams is used to clear the destination before re-writing the stream
 	DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error
+	// GetCommitState returns the commit state of the table
+	GetCommitState(ctx context.Context) (string, error)
 	Close(ctx context.Context) error
 }
