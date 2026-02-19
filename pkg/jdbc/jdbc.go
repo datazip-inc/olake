@@ -75,20 +75,6 @@ func QuoteLiteral(val any) string {
 	return fmt.Sprintf("'%s'", escaped)
 }
 
-// FormatSQLTuple converts a comma-separated string of values into a SQL tuple (v1, v2, ...)
-func FormatSQLTuple(val any) string {
-	if val == nil {
-		return "NULL"
-	}
-
-	str := utils.ConvertToString(val)
-	parts := strings.Split(str, ",")
-	quotedParts := make([]string, len(parts))
-	for i, part := range parts {
-		quotedParts[i] = QuoteLiteral(strings.TrimSpace(part))
-	}
-	return strings.Join(quotedParts, ", ")
-}
 
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a Postgres table
 func MinMaxQuery(stream types.StreamInterface, column string) string {
@@ -1554,14 +1540,22 @@ func DB2PKChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 	}
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
 
+	buildSQLTuple := func(val any) string {
+		parts := strings.Split(val.(string), ",")
+		for i, part := range parts {
+			parts[i] = fmt.Sprintf("'%s'", strings.TrimSpace(part))
+		}
+		return strings.Join(parts, ", ")
+	}
+
 	chunkCond := ""
 	switch {
 	case chunk.Min != nil && chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", columns, FormatSQLTuple(chunk.Min), columns, FormatSQLTuple(chunk.Max))
+		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", columns, buildSQLTuple(chunk.Min), columns, buildSQLTuple(chunk.Max))
 	case chunk.Min != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s)", columns, FormatSQLTuple(chunk.Min))
+		chunkCond = fmt.Sprintf("%s >= (%s)", columns, buildSQLTuple(chunk.Min))
 	case chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s < (%s)", columns, FormatSQLTuple(chunk.Max))
+		chunkCond = fmt.Sprintf("%s < (%s)", columns, buildSQLTuple(chunk.Max))
 	}
 
 	if extraFilter != "" && chunkCond != "" {
