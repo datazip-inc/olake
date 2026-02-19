@@ -202,24 +202,32 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		// SQL Server doesn't support read-only transactions
 		// Use repeatable read isolation without read-only flag
 		return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
+			// Get the minimum and maximum physical location values
+			// These define the boundaries of our table for chunking
 			minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
 			}
+			// Skip if table is empty (no rows to chunk)
 			if minVal == nil || maxVal == nil {
 				return nil
 			}
 
+			// Start from the minimum physloc value
 			currentHex := utils.HexEncode(minVal)
 			chunks.Insert(types.Chunk{
 				Min: nil,
 				Max: currentHex,
 			})
 
+			// Iteratively find chunk boundaries until we reach the end of the table
 			for {
 				var next []byte
+				// This gives us the next chunk boundary, ensuring each chunk has ~chunkSize rows
 				query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize, currentHex)
+
 				err := tx.QueryRowContext(ctx, query).Scan(&next)
+				// End of table reached: no more rows with physloc > current
 				if err == sql.ErrNoRows || next == nil {
 					chunks.Insert(types.Chunk{Min: currentHex, Max: nil})
 					break
@@ -234,10 +242,15 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 					break
 				}
 
+				// Create a chunk between current and next boundary
+				// This chunk will contain approximately chunkSize rows
+				// Example: If current = A and next = D, chunk [A, D) contains rows A, B, C
 				chunks.Insert(types.Chunk{
 					Min: currentHex,
 					Max: nextHex,
 				})
+
+				// Move to the next boundary for the next iteration
 				currentHex = nextHex
 			}
 
