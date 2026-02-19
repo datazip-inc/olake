@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"fmt"
@@ -214,31 +215,30 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			}
 
 			// Start from the minimum physloc value
-			currentHex := utils.HexEncode(minVal)
+			current := minVal
 			chunks.Insert(types.Chunk{
 				Min: nil,
-				Max: currentHex,
+				Max: utils.HexEncode(minVal),
 			})
 
 			// Iteratively find chunk boundaries until we reach the end of the table
 			for {
 				var next []byte
 				// This gives us the next chunk boundary, ensuring each chunk has ~chunkSize rows
-				query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize, currentHex)
+				query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
 
-				err := tx.QueryRowContext(ctx, query).Scan(&next)
+				err := tx.QueryRowContext(ctx, query, current).Scan(&next)
 				// End of table reached: no more rows with physloc > current
 				if err == sql.ErrNoRows || next == nil {
-					chunks.Insert(types.Chunk{Min: currentHex, Max: nil})
+					chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
 					break
 				}
 				if err != nil {
 					return fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
 				}
 
-				nextHex := utils.HexEncode(next)
-				if currentHex == nextHex {
-					chunks.Insert(types.Chunk{Min: currentHex, Max: nil})
+				if bytes.Equal(current, next) {
+					chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
 					break
 				}
 
@@ -246,12 +246,12 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				// This chunk will contain approximately chunkSize rows
 				// Example: If current = A and next = D, chunk [A, D) contains rows A, B, C
 				chunks.Insert(types.Chunk{
-					Min: currentHex,
-					Max: nextHex,
+					Min: utils.HexEncode(current),
+					Max: utils.HexEncode(next),
 				})
 
 				// Move to the next boundary for the next iteration
-				currentHex = nextHex
+				current = next
 			}
 
 			return nil

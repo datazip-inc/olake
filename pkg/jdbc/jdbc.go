@@ -651,19 +651,18 @@ func MSSQLPhysLocExtremesQuery(stream types.StreamInterface) string {
 }
 
 // MSSQLPhysLocNextChunkEndQuery returns the query to find the next %%physloc%% chunk boundary
-// currentHex is a hex-encoded physloc value.
-func MSSQLPhysLocNextChunkEndQuery(stream types.StreamInterface, chunkSize int64, currentHex string) string {
+func MSSQLPhysLocNextChunkEndQuery(stream types.StreamInterface, chunkSize int64) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 	return fmt.Sprintf(`
 		WITH ordered AS (
 			SELECT %%%%physloc%%%% AS physloc, ROW_NUMBER() OVER (ORDER BY %%%%physloc%%%%) AS rn
 			FROM %s
-			WHERE %%%%physloc%%%% > %s
+			WHERE %%%%physloc%%%% > @p1
 		)
 		SELECT physloc
 		FROM ordered
 		WHERE rn = %d
-	`, quotedTable, currentHex, chunkSize)
+	`, quotedTable, chunkSize)
 }
 
 // MSSQLCDCSupportQuery returns the query to check if CDC is enabled for the current database
