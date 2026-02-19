@@ -2,6 +2,7 @@ package driver
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/pkg/kafka"
@@ -16,6 +17,8 @@ type Config struct {
 	RetryCount                  int                         `json:"backoff_retry_count"`
 	ThreadsEqualTotalPartitions bool                        `json:"threads_equal_total_partitions,omitempty"`
 	SchemaRegistry              *kafka.SchemaRegistryClient `json:"schema_registry,omitempty"`
+	// effectiveTZ is the resolved timezone for interpreting timestamps
+	effectiveTZ *time.Location
 }
 
 type ProtocolConfig struct {

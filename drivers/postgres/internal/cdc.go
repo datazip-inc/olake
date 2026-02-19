@@ -20,6 +20,25 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
 	}
 
+	var effectiveTZ *time.Location
+
+	if p.config.effectiveTZ != nil {
+		effectiveTZ = p.config.effectiveTZ
+	} else {
+		// Resolve timezone from database if not provided in config
+		// PostgreSQL timezone can be set at session or database level
+		query := `SHOW TIMEZONE`
+		var dbTimezone string
+		err := p.client.QueryRowxContext(ctx, query).Scan(&dbTimezone)
+		if err != nil {
+			logger.Warnf("failed to get PostgreSQL timezone: %s, defaulting to UTC: %s", err)
+			effectiveTZ = time.UTC
+		} else {
+			effectiveTZ = resolvePostgreSQLTimeZone(dbTimezone, dbTimezone)
+			logger.Debugf("Resolved PostgreSQL timezone: %s", dbTimezone)
+		}
+	}
+
 	return &waljs.Config{
 		Connection:          *p.config.Connection,
 		SSHClient:           p.sshClient,
@@ -27,7 +46,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
 		Tables:              types.NewSet(streams...),
 		Publication:         p.cdcConfig.Publication,
-	}, nil
+	}, effectiveTZ, nil
 }
 
 func (p *Postgres) ChangeStreamConfig() (bool, bool, bool) {

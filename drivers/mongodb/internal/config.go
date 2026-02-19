@@ -3,6 +3,7 @@ package driver
 import (
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
@@ -25,6 +26,8 @@ type Config struct {
 	UseIAM           bool              `json:"use_iam"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
 	AdditionalParams map[string]string `json:"additional_params"`
+	// effectiveTZ is the resolved timezone for interpreting timestamps
+	effectiveTZ *time.Location
 }
 
 func (c *Config) URI() string {
