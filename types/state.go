@@ -38,11 +38,9 @@ type GlobalState struct {
 }
 
 // Chunk struct that holds status, min, and max values
-// PartitionName is optional and used for partition-aware scanning (MySQL partitioned tables)
 type Chunk struct {
-	Min           any    `json:"min"`
-	Max           any    `json:"max"`
-	PartitionName string `json:"partition_name,omitempty"` // Optional: partition name for partition pruning
+	Min any `json:"min"`
+	Max any `json:"max"`
 }
 
 type StreamState struct {

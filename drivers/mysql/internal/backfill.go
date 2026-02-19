@@ -40,11 +40,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 		sort.Strings(pkColumns)
 
-		if chunk.PartitionName != "" {
-			logger.Debugf("Starting backfill from %v to %v for partition %s with filter: %s, args: %v", chunk.Min, chunk.Max, chunk.PartitionName, filter, args)
-		} else {
-			logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
-		}
+		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 		// Get chunks from state or calculate new ones
 		stmt := ""
 		if chunkColumn != "" {
@@ -54,11 +50,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		} else {
 			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
 		}
-		if chunk.PartitionName != "" {
-			logger.Debugf("Executing chunk query with partition pruning (partition: %s): %s", chunk.PartitionName, stmt)
-		} else {
-			logger.Debugf("Executing chunk query: %s", stmt)
-		}
+		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
@@ -101,20 +93,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
-
-	// detect if the table is partitioned
-	var partitionCount int
-	partitionQuery := jdbc.MySQLIsPartitionedQuery()
-	err = m.client.QueryRowContext(ctx, partitionQuery, stream.Namespace(), stream.Name()).Scan(&partitionCount)
-	if err != nil {
-		return nil, fmt.Errorf("failed to detect table partitioning: %s", err)
-	}
-
-	// Step 2: Use partition-aware chunking if table is partitioned
-	if partitionCount > 0 {
-		logger.Infof("Table %s is partitioned with %d partitions, using partition-aware chunking", stream.ID(), partitionCount)
-		return m.splitPartitionedTableIntoChunks(ctx, stream, chunkSize, chunkColumn, chunks)
-	}
 
 	// Takes the user defined batch size as chunkSize
 	// TODO: common-out the chunking logic for db2, mssql, mysql
@@ -213,123 +191,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
 	query := jdbc.MinMaxQueryMySQL(stream, pkColumns)
-	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
-	return min, max, err
-}
-
-// splitPartitionedTableIntoChunks implements partition-aware chunking for MySQL partitioned tables.
-// This approach chunks each partition independently, leveraging partition pruning for better performance.
-func (m *MySQL) splitPartitionedTableIntoChunks(ctx context.Context, stream types.StreamInterface, chunkSize int64, chunkColumn string, chunks *types.Set[types.Chunk]) (*types.Set[types.Chunk], error) {
-	err := jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
-		// Get partition names
-		partitionQuery := jdbc.MySQLListPartitionsQuery()
-		rows, err := tx.QueryContext(ctx, partitionQuery, stream.Namespace(), stream.Name())
-		if err != nil {
-			return fmt.Errorf("failed to list partitions: %s", err)
-		}
-		defer rows.Close()
-
-		var partitionNames []string
-		for rows.Next() {
-			var partitionName string
-			if err := rows.Scan(&partitionName); err != nil {
-				return fmt.Errorf("failed to scan partition name: %s", err)
-			}
-			partitionNames = append(partitionNames, partitionName)
-		}
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("error iterating partitions: %s", err)
-		}
-
-		if len(partitionNames) == 0 {
-			return fmt.Errorf("table marked as partitioned but no partitions found")
-		}
-
-		// Get primary key columns
-		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
-		if chunkColumn != "" {
-			pkColumns = []string{chunkColumn}
-		}
-		sort.Strings(pkColumns)
-
-		if len(pkColumns) == 0 {
-			return fmt.Errorf("partitioned table without primary key cannot use partition-aware chunking")
-		}
-
-		logger.Infof("Chunking %d partitions for table %s", len(partitionNames), stream.ID())
-
-		// Process each partition independently
-		for _, partitionName := range partitionNames {
-			partitionMin, _, err := m.getPartitionExtremes(ctx, stream, partitionName, pkColumns, tx)
-			if err != nil {
-				return fmt.Errorf("failed to get extremes for partition %s: %s", partitionName, err)
-			}
-
-			// Skip empty partitions
-			if partitionMin == nil {
-				logger.Debugf("Partition %s is empty, skipping", partitionName)
-				continue
-			}
-
-			// Create the first chunk for this partition (covering everything before its min)
-			// This ensures completeness even if boundaries are fuzzy.
-			chunks.Insert(types.Chunk{
-				Min:           nil,
-				Max:           utils.ConvertToString(partitionMin),
-				PartitionName: partitionName,
-			})
-
-			// Generate chunks within this partition using keyset pagination
-			query := jdbc.NextChunkEndQueryPartition(stream, partitionName, pkColumns, chunkSize)
-			currentVal := partitionMin
-			for {
-				columns := strings.Split(utils.ConvertToString(currentVal), ",")
-				args := make([]interface{}, 0)
-				for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
-					for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
-						args = append(args, columns[partIndex])
-					}
-				}
-
-				var nextValRaw interface{}
-				err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
-				if err == sql.ErrNoRows || nextValRaw == nil {
-					break
-				}
-				if err != nil {
-					return fmt.Errorf("failed to get next chunk end for partition %s: %s", partitionName, err)
-				}
-
-				nextValStr := utils.ConvertToString(nextValRaw)
-				chunks.Insert(types.Chunk{
-					Min:           utils.ConvertToString(currentVal),
-					Max:           nextValStr,
-					PartitionName: partitionName,
-				})
-				currentVal = nextValRaw
-			}
-
-			// Add the final unbounded chunk for this partition.
-			// This covers the partition's maximum value and anything remaining.
-			if currentVal != nil {
-				chunks.Insert(types.Chunk{
-					Min:           utils.ConvertToString(currentVal),
-					Max:           nil,
-					PartitionName: partitionName,
-				})
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return chunks, nil
-}
-
-// getPartitionExtremes gets the MIN and MAX primary key values for a specific partition.
-func (m *MySQL) getPartitionExtremes(ctx context.Context, stream types.StreamInterface, partitionName string, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
-	query := jdbc.MinMaxQueryMySQLPartition(stream, partitionName, pkColumns)
 	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
 }
