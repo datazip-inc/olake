@@ -877,7 +877,7 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 			return value
 		}
 
-		return fmt.Sprintf("%s", val)
+		return fmt.Sprintf("%v", val)
 	}
 
 	var chunkCond string
