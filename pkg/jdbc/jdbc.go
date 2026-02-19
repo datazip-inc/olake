@@ -873,7 +873,11 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 		}
 
 		// chunk stores boundary (min and max) values in hex format
-		return val.(string)
+		if value, ok := val.(string); ok {
+			return value
+		}
+
+		return fmt.Sprintf("%s", val)
 	}
 
 	var chunkCond string
