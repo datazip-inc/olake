@@ -22,13 +22,17 @@ jobs:
         include:
         - driver: mysql
           driver_upper: MYSQL
+          instance_id: 8
         - driver: postgres
           driver_upper: POSTGRES
+          instance_id: 9
         # TODO: add benchmark tests for the below databases
         # - driver: mongodb
         #   driver_upper: MONGODB
+        #   instance_id: <TBD>
         # - driver: oracle
         #   driver_upper: ORACLE
+        #   instance_id: <TBD>
       fail-fast: false
 
     steps:
@@ -65,6 +69,16 @@ jobs:
         sudo resolvectl dns tun0 ${{ secrets.VPN_DNS_SERVER }}
         sudo resolvectl domain tun0 ~private.postgres.database.azure.com
 
+    - name: Wake up server
+      if: matrix.driver != 'oracle'
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.TESTING_SERVER_SSH_KEY }}" | base64 --decode > ~/.ssh/key.pem
+        chmod 600 ~/.ssh/key.pem
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/key.pem ${{ secrets.TESTING_SERVER_SSH_USER_HOST }} "/usr/local/bin/wake-up ${{ matrix.instance_id }}"
+        echo "Waiting 2 minutes for database to be ready..."
+        sleep 120
+
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
@@ -88,7 +102,7 @@ jobs:
 
     - name: Create destination
       run: |
-        echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/destination.json
+        echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/iceberg_destination.json
     
     - name: Get Last Successful Run ID
       id: last_run
@@ -123,6 +137,15 @@ jobs:
         path: ./drivers/${{ matrix.driver }}/internal/testdata/benchmarks.json
         retention-days: 90
    
+    - name: Sleep server
+      if: always() && matrix.driver != 'oracle'
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.TESTING_SERVER_SSH_KEY }}" | base64 --decode > ~/.ssh/key.pem
+        chmod 600 ~/.ssh/key.pem
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/key.pem ${{ secrets.TESTING_SERVER_SSH_USER_HOST }} "/usr/local/bin/sleep-off ${{ matrix.instance_id }}"
+        rm -f ~/.ssh/key.pem
+
     - name: Cleanup
       if: always()
       run: |
