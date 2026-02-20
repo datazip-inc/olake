@@ -502,7 +502,8 @@ func MySQLPrimaryKeyQuery() string {
 func MySQLTableRowStatsQuery() string {
 	return `
 		SELECT TABLE_ROWS,
-		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes
+		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes,
+		DATA_LENGTH
 		FROM INFORMATION_SCHEMA.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?
