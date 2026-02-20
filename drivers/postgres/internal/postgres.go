@@ -236,7 +236,10 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 	}
 
 	stream, err := populateStream(streamName)
-	if err != nil && ctx.Err() == nil {
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+		}
 		return nil, err
 	}
 	return stream, nil
