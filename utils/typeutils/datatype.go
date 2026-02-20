@@ -94,6 +94,13 @@ func TypeFromValue(v interface{}) types.DataType {
 
 // typeFromValueReflect handles types that require reflection
 func typeFromValueReflect(v interface{}) types.DataType {
+	if rv, ok := v.(reflect.Value); ok {
+		if !rv.IsValid() {
+			return types.Null
+		}
+		return TypeFromValue(rv.Interface())
+	}
+
 	valType := reflect.TypeOf(v)
 	if valType == nil {
 		return types.Null
