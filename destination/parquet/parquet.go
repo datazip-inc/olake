@@ -348,11 +348,6 @@ func (p *Parquet) Close(ctx context.Context) error {
 
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
-	filter, isLegacy, err := p.stream.GetFilter()
-	if err != nil {
-		return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
-	}
-
 	if !p.stream.NormalizationEnabled() {
 		return false, records, p.schema, nil
 	}
@@ -363,7 +358,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
-	err = utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
+	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 		// Add common fields
 		maps.Copy(records[idx].Data, record.OlakeColumns)
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
@@ -412,8 +407,12 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}); err != nil {
 		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
 	}
+	filter, isLegacy, err := p.stream.GetFilter()
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
+	}
 	if p.options.ApplyFilter {
-		records, err = destination.FilterRecords(ctx, records, filter, isLegacy, p.schema)
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
 		}
