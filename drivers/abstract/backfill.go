@@ -40,7 +40,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 
-	filterDataBySelectedColumnsFn := types.FilterDataBySelectedColumns(stream)
+	filterDataBySelectedColumnsFn := stream.RetainSelectedColumns()
 
 	chunkProcessor := func(gCtx context.Context, _ int, chunk types.Chunk) (err error) {
 		// create backfill context, so that main context not affected if backfill retries

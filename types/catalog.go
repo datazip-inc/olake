@@ -37,6 +37,14 @@ type StatusRow struct {
 	Message string           `json:"message,omitempty"`
 }
 
+// SelectedColumns represents column selection configuration for a stream.
+// - columns: explicit list of columns (empty means "all")
+// - sync_new_columns: if true, newly discovered columns are included by default
+type SelectedColumns struct {
+	Columns        []string `json:"columns"`
+	SyncNewColumns bool     `json:"sync_new_columns"`
+}
+
 type StreamMetadata struct {
 	ChunkColumn     string           `json:"chunk_column,omitempty"`
 	PartitionRegex  string           `json:"partition_regex"`
@@ -64,7 +72,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			Stream: stream,
 		})
 
-		selectedColumns := collectColumnsFromSchema(stream.Schema)
+		selectedColumns := stream.Schema.ColumnNames()
 		selectedCols := &SelectedColumns{
 			Columns:        selectedColumns,
 			SyncNewColumns: true,
@@ -152,6 +160,46 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	})
 
 	return newCatalog
+}
+
+// MergeSelectedColumns merges the selected columns based on the following rules:
+// - If selectedColumns is not present or empty, initialize with columns from new schema
+// - Preserve previously selected columns
+// - If sync_new_columns is true, add newly discovered columns to the selected columns
+// takes old stream and new stream to merge the selected columns and old stream metadata
+func MergeSelectedColumns(metadata *StreamMetadata, oldStream *Stream, newStream *Stream) {
+	var columns []string
+
+	// No previous selection: initialize with all columns from new schema.
+	if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
+		columns = newStream.Schema.ColumnNames()
+	} else {
+		previouslySelectedSet := NewSet(metadata.SelectedColumns.Columns...)
+		oldSchemaCols := NewSet(oldStream.Schema.ColumnNames()...)
+
+		// Iterate new schema: retain previously selected columns, add new ones if sync_new_columns enabled.
+		newStream.Schema.Properties.Range(func(key, value interface{}) bool {
+			col, ok := key.(string)
+			if !ok {
+				return true
+			}
+			prop := value.(*Property)
+			if prop.OlakeColumn || previouslySelectedSet.Exists(col) || (metadata.SelectedColumns.SyncNewColumns && !oldSchemaCols.Exists(col)) {
+				columns = append(columns, col)
+			}
+			return true
+		})
+	}
+
+	syncNewColumns := true
+	if metadata.SelectedColumns != nil {
+		syncNewColumns = metadata.SelectedColumns.SyncNewColumns
+	}
+
+	metadata.SelectedColumns = &SelectedColumns{
+		Columns:        columns,
+		SyncNewColumns: syncNewColumns,
+	}
 }
 
 // getDestDBPrefix analyzes a collection of streams to determine if they share a common
