@@ -2,7 +2,6 @@ package driver
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 
 	"github.com/datazip-inc/olake/constants"
@@ -22,26 +21,8 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}
 
-	var rows *sql.Rows
-	rows, err = m.client.QueryContext(ctx, incrementalQuery, queryArgs...)
-	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %s", err)
-	}
-	defer rows.Close()
-
-	// Scan rows and process
-	for rows.Next() {
-		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
-			return fmt.Errorf("failed to scan record: %s", err)
-		}
-
-		if err := processFn(ctx, record); err != nil {
-			return fmt.Errorf("process error: %s", err)
-		}
-	}
-
-	return rows.Err()
+	setter := jdbc.NewReader(ctx, incrementalQuery, m.client.QueryContext, queryArgs...)
+	return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, processFn)
 }
 
 func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
