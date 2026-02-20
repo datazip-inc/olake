@@ -20,17 +20,21 @@ type Config struct {
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	UpdateMethod     interface{}       `json:"update_method"`
 	MaxThreads       int               `json:"max_threads"`
-	RetryCount       int               `json:"retry_count"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
+	// effectiveTZ is the resolved timezone (e.g. for CDC wal).
+	// Derived from config (jdbc_url_params.time_zone) or detected from the DB session.
+	effectiveTZ *time.Location
 }
 
 // Capture Write Ahead Logs
 type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
-	// initial wait time must be in range [120,2400), default value 1200
+	// initial wait time must be in range [120,2400], default value 1200
 	InitialWaitTime int `json:"initial_wait_time"`
 	// Publications used when OutputPlugin is pgoutput
 	Publication string `json:"publication"`
+	// effectiveTZ is the resolved timezone for CDC wal timestamps.
+	effectiveTZ *time.Location
 }
 
 func (c *Config) Validate() error {

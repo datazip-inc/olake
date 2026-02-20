@@ -257,10 +257,74 @@ func (p *Postgres) MaxRetries() int {
 	return p.config.RetryCount
 }
 
+// resolvePostgreSQLTimeZone returns a *time.Location for interpreting TIMESTAMP values (e.g. CDC wal).
+// PostgreSQL stores timezone in session or database level.
+// Priority: session timezone > database timezone > system timezone
+// Invalid or missing IANA names fall back to UTC.
+func resolvePostgreSQLTimeZone(sessionTimezone, dbTimezone string) *time.Location {
+	normalize := func(s string) string {
+		return strings.TrimSpace(s)
+	}
+
+	session := normalize(sessionTimezone)
+	db := normalize(dbTimezone)
+
+	var name string
+	switch {
+	case session != "":
+		name = session
+	case db != "":
+		name = db
+	default:
+		name = "UTC"
+	}
+
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		logger.Warnf("failed to load PostgreSQL timezone '%s': %s, defaulting to UTC: %s", name, err)
+		return time.UTC
+	}
+
+	logger.Debugf("Using PostgreSQL timezone: %s", name)
+	return loc
+}
+
 func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, pgTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
+}
+
+// resolvePostgreSQLTimeZone returns a *time.Location for interpreting TIMESTAMP values (e.g. CDC wal).
+// PostgreSQL stores timezone in session or database level.
+// Priority: session timezone > database timezone > system timezone (UTC default)
+// Invalid or missing IANA names fall back to UTC.
+func resolvePostgreSQLTimeZone(sessionTimezone, dbTimezone string) *time.Location {
+	normalize := func(s string) string {
+		return strings.TrimSpace(s)
+	}
+
+	session := normalize(sessionTimezone)
+	db := normalize(dbTimezone)
+
+	var name string
+	switch {
+	case session != "":
+		name = session
+	case db != "":
+		name = db
+	default:
+		name = "UTC"
+	}
+
+	loc, err := time.LoadLocation(name)
+	if err != nil {
+		logger.Warnf("failed to load PostgreSQL timezone '%s': %s, defaulting to UTC: %s", name, err)
+		return time.UTC
+	}
+
+	logger.Debugf("Using PostgreSQL timezone: %s", name)
+	return loc
 }
