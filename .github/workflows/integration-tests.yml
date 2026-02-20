@@ -52,6 +52,7 @@ jobs:
           docker compose -f ./drivers/mongodb/docker-compose.yml up -d
           docker compose -f ./drivers/oracle/docker-compose.yml up -d
           docker compose -f ./drivers/db2/docker-compose.yml up -d
+          docker compose -f ./drivers/mssql/docker-compose.yml up -d
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       - name: Wait for MySQL
@@ -98,6 +99,19 @@ jobs:
           retry_wait_seconds: 25
           command: |
             docker exec db2-test bash -c "su - db2inst1 -c 'db2 connect to TESTDB'"
+
+      - name: Wait for MSSQL
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 30
+          retry_wait_seconds: 5
+          command: |
+            docker exec olake-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password!123' -C -Q "SELECT 1"
+  
+      - name: Initialize MSSQL Database
+        run: |
+          docker exec olake-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password!123' -C -d master -i /docker-entrypoint-initdb.d/01-init.sql
       
 
       - name: Set up Data Directories
@@ -129,7 +143,7 @@ jobs:
 
       - name: Run Integration Tests
         run: |  
-          go test -v -p 5 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... -timeout 0 -run 'Integration'
+          go test -v -p 6 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
       
       - name: Cleanup
         if: always()
@@ -140,3 +154,5 @@ jobs:
           docker compose -f ./drivers/oracle/docker-compose.yml down
           docker compose -f ./drivers/mongodb/docker-compose.yml down
           docker compose -f ./drivers/db2/docker-compose.yml down
+          docker compose -f ./drivers/mssql/docker-compose.yml down
+
