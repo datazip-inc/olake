@@ -13,10 +13,11 @@ import (
 )
 
 type CDCChange struct {
-	Stream    types.StreamInterface
-	Timestamp time.Time
-	Kind      string
-	Data      map[string]any
+	Stream       types.StreamInterface
+	Timestamp    time.Time
+	Kind         string
+	Data         map[string]any
+	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
@@ -58,9 +59,11 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) {
-	// set max connections
-	if a.driver.MaxConnections() > 0 {
+func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int) ([]*types.Stream, error) {
+	// set max connections, uses maxDiscoverThreads if discover command is used
+	if maxDiscoverThreads > 0 {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
+	} else if a.driver.MaxConnections() > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
@@ -92,7 +95,7 @@ func (a *AbstractDriver) Discover(ctx context.Context) ([]*types.Stream, error) 
 			if column == constants.CdcTimestamp && !a.supportsCdcColumn() {
 				continue
 			}
-			convStream.UpsertField(column, typ, true)
+			convStream.UpsertField(column, typ, true, true)
 		}
 
 		// priority to default sync mode (cdc -> incremental -> strict_cdc)

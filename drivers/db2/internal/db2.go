@@ -154,7 +154,7 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 				logger.Debugf("unsupported DB2 type '%s' for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				datatype = types.String
 			}
-			stream.UpsertField(columnName, datatype, isNullable == "Y")
+			stream.UpsertField(columnName, datatype, isNullable == "Y", false)
 
 			if pkColumn != nil {
 				stream.WithPrimaryKey(columnName)
@@ -164,7 +164,10 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 	}
 
 	stream, err := populateStreams(ctx, streamName)
-	if err != nil && ctx.Err() == nil {
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
 
