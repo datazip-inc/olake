@@ -1,0 +1,10 @@
+{
+    "type": "PARQUET",
+    "writer": {
+        "s3_bucket": "warehouse",
+        "s3_region": "us-east-1",
+        "s3_access_key": "admin",
+        "s3_secret_key": "password",
+        "s3_endpoint": "http://host.docker.internal:9000"
+    }
+}
