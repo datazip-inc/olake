@@ -15,8 +15,8 @@ func (o *Oracle) PreCDC(ctx context.Context, streams []types.StreamInterface) er
 }
 
 // StreamChanges streams CDC changes for a given stream
-func (o *Oracle) StreamChanges(_ context.Context, _ int, _ abstract.CDCMsgFn) error {
-	return nil
+func (o *Oracle) StreamChanges(_ context.Context, _ int, _ map[types.StreamInterface]any, _ abstract.CDCMsgFn) (any, error) {
+	return nil, nil
 }
 
 // PostCDC is called after CDC operation completes
@@ -41,9 +41,3 @@ func (o *Oracle) SetupState(state *types.State) {
 func (o *Oracle) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
 	return "", nil
 }
-
-func (o *Oracle) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
-
-func (o *Oracle) GetCDCPosition(streamID string) string { return "" }
-
-func (o *Oracle) SetTargetCDCPosition(stream types.StreamInterface, position string) {}

@@ -60,11 +60,11 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
-func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstract.CDCMsgFn) error {
+func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[types.StreamInterface]any, processFn abstract.CDCMsgFn) (any, error) {
 	// get reader
 	reader := k.readerManager.GetReader(readerID)
 	if reader == nil {
-		return fmt.Errorf("reader not found for readerID %d", readerID)
+		return nil, fmt.Errorf("reader not found for readerID %d", readerID)
 	}
 
 	// track processing state
@@ -79,7 +79,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstr
 		}
 	}()
 
-	return k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
+	err := k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		if record.Data == nil {
 			logger.Warnf("received nil message value at offset %d for topic %s, partition %d", record.Message.Offset, record.Message.Topic, record.Message.Partition)
 			return false, nil
@@ -118,6 +118,8 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstr
 		}
 		return false, nil
 	})
+
+	return nil, err
 }
 
 func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
@@ -323,9 +325,3 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 func (k *Kafka) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
 	return "", nil
 }
-
-func (k *Kafka) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
-
-func (k *Kafka) GetCDCPosition(streamID string) string { return "" }
-
-func (k *Kafka) SetTargetCDCPosition(stream types.StreamInterface, position string) {}

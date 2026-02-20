@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -64,13 +65,39 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
-func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[types.StreamInterface]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
+
+	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
+	if prevResumeToken == nil {
+		return nil, fmt.Errorf("resume token not found for stream: %s", stream.ID())
+	}
+	prevResumeTokenStr := fmt.Sprintf("%v", prevResumeToken)
+
+	// If destination metadata (olake_2pc_state) has a different resume token than our state, update state and return
+	if mtState, ok := metadataStates[stream]; ok {
+		if meta, ok := mtState.(map[string]any); ok {
+			olake2pcRaw, _ := meta["olake_2pc_state"]
+			olake2pcStr, _ := olake2pcRaw.(string)
+			if olake2pcStr != "" {
+				var recoveredState abstract.SyncState
+				if err := json.Unmarshal([]byte(olake2pcStr), &recoveredState); err == nil && recoveredState.CapturedCDCPos != "" {
+					metadataToken := recoveredState.CapturedCDCPos
+					if metadataToken != prevResumeTokenStr {
+						m.cdcCursor.Store(m.streams[streamIndex].ID(), metadataToken)
+						logger.Infof("Stream[%s]: state already captured, skipping CDC sync", stream.ID())
+						return nil, nil
+					}
+				}
+			}
+		}
+	}
+
 	// lastOplogTime is the latest timestamp of any operation applied in the MongoDB cluster
 	lastOplogTime, err := m.getClusterOpTime(ctx, m.config.Database)
 	if err != nil {
 		logger.Warnf("Failed to get cluster op time: %s", err)
-		return err
+		return nil, err
 	}
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
@@ -80,29 +107,24 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
-	if prevResumeToken == nil {
-		return fmt.Errorf("resume token not found for stream: %s", stream.ID())
-	}
-
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
 	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
-		return fmt.Errorf("failed to open change stream: %s", err)
+		return nil, fmt.Errorf("failed to open change stream: %s", err)
 	}
 	defer cursor.Close(ctx)
 
 	for {
 		hasNext := cursor.TryNext(ctx)
 		if err := cursor.Err(); err != nil {
-			return fmt.Errorf("change stream error: %s", err)
+			return nil, fmt.Errorf("change stream error: %s", err)
 		}
 
 		if hasNext {
 			if err := m.handleChangeDoc(ctx, cursor, stream, prevResumeToken.(string), OnMessage); err != nil {
-				return err
+				return nil, err
 			}
 		}
 
@@ -111,9 +133,13 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 			if errors.Is(err, ErrIdleTermination) {
 				// graceful termination requested by helper
 				logger.Infof("change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
-				return nil
+				var finalPos string
+				if v, ok := m.cdcCursor.Load(stream.ID()); ok {
+					finalPos = v.(string)
+				}
+				return map[string]any{"captured_cdc_pos": finalPos}, nil
 			}
-			return err
+			return nil, err
 		}
 
 		if !hasNext {
@@ -204,15 +230,6 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 	}
 }
 
-// GetCDCPositionForStream returns the current CDC position for a specific stream
-func (m *Mongo) GetCDCPosition(streamID string) string {
-	val, ok := m.cdcCursor.Load(streamID)
-	if ok {
-		return val.(string)
-	}
-	return ""
-}
-
 // GetCDCStartPositionForStream returns the value used to start CDC for this stream.
 func (m *Mongo) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
 	stream = m.streams[streamIndex]
@@ -221,14 +238,6 @@ func (m *Mongo) GetCDCStartPosition(stream types.StreamInterface, streamIndex in
 		return "", nil
 	}
 	return val.(string), nil
-}
-
-// SetRecoveredCDCPositionForStream updates the stream cursor to the recovered committed position.
-func (m *Mongo) SetCurrentCDCPosition(stream types.StreamInterface, position string) {
-	if position == "" {
-		return
-	}
-	m.state.SetCursors(stream.Self(), map[string]any{cdcCursorField: position})
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
@@ -310,11 +319,4 @@ func GetResumeToken(cursor *mongo.ChangeStream, streamID string) (string, error)
 	}
 
 	return token, nil
-}
-
-func (m *Mongo) SetTargetCDCPosition(stream types.StreamInterface, position string) {
-	m.targetPosition = position
-	if position != "" {
-		logger.Infof("Set target CDC position for bounded sync: %s", position)
-	}
 }

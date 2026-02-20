@@ -395,8 +395,8 @@ func (s *S3) PreCDC(ctx context.Context, streams []types.StreamInterface) error 
 }
 
 // StreamChanges is not supported for S3
-func (s *S3) StreamChanges(ctx context.Context, streamIndex int, processFn abstract.CDCMsgFn) error {
-	return fmt.Errorf("CDC is not supported for S3 source")
+func (s *S3) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[types.StreamInterface]any, processFn abstract.CDCMsgFn) (any, error) {
+	return nil, fmt.Errorf("CDC is not supported for S3 source")
 }
 
 // PostCDC is not supported for S3
@@ -497,9 +497,3 @@ func (s *S3) CloseConnection() {
 func (s *S3) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
 	return "", nil
 }
-
-func (s *S3) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
-
-func (s *S3) GetCDCPosition(streamID string) string { return "" }
-
-func (s *S3) SetTargetCDCPosition(stream types.StreamInterface, position string) {}

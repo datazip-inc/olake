@@ -30,7 +30,6 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
-	payload        any
 }
 
 type Writer struct {
@@ -65,7 +64,7 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, payload any) (*ArrowWriter, error) {
+func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
 		partitionInfo: partitionInfo,
 		schema:        schema,
@@ -75,7 +74,6 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
-		payload:       payload,
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -326,7 +324,7 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 }
 
 // Close flushes all writers and commits files to Iceberg.
-func (w *ArrowWriter) Close(ctx context.Context) error {
+func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState map[string]any) error {
 	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}
@@ -348,8 +346,9 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 		},
 	}
 
-	if w.payload != nil {
-		payloadBytes, _ := json.Marshal(w.payload)
+	// Commit payload from CDC/driver only: e.g. {"captured_cdc_pos":"0/123ABC"}
+	if finalMetadataState != nil {
+		payloadBytes, _ := json.Marshal(finalMetadataState)
 		commitRequest.Metadata.Payload = string(payloadBytes)
 	}
 

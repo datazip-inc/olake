@@ -14,7 +14,6 @@ message IcebergPayload {
     DROP_TABLE = 3;
     GET_OR_CREATE_TABLE = 4;
     REFRESH_TABLE_SCHEMA = 5;
-    GET_COMMIT_STATE = 6;
   }
   
   PayloadType type = 1;
@@ -58,6 +57,7 @@ message IcebergPayload {
 message RecordIngestResponse {
   string result = 1;
   bool success = 2;  // Adding success boolean for better error handling
+  string olake_2pc_state = 3;  // GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
 }
 
 service ArrowIngestService {

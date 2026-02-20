@@ -434,7 +434,7 @@ func TestCDCNotSupported(t *testing.T) {
 	})
 
 	t.Run("StreamChanges returns error", func(t *testing.T) {
-		err := s.StreamChanges(ctx, 0, nil)
+		_, err := s.StreamChanges(ctx, 0, nil, nil)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "CDC is not supported")
 	})

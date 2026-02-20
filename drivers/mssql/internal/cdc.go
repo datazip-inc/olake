@@ -94,7 +94,7 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 }
 
 // StreamChanges fetches a bounded window of CDC changes for a specific stream.
-func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn abstract.CDCMsgFn) error {
+func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[types.StreamInterface]any, processFn abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
 	// Get current position for this stream
 	lsnString := m.state.GetCursor(stream.Self(), cdcCursorKey)
@@ -103,18 +103,18 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 	// Get target LSN (current max LSN in DB)
 	targetLSN, err := m.currentMaxLSN(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
+		return nil, fmt.Errorf("failed to get MSSQL max LSN: %s", err)
 	}
 
 	// No changes yet
 	if lsnInState >= targetLSN {
-		return nil
+		return nil, nil
 	}
 
 	// prepare capture instance
 	captureInstances, err := m.prepareCaptureInstances(ctx, stream)
 	if err != nil {
-		return fmt.Errorf("failed to prepare capture instance for stream %s.%s: %s", stream.Namespace(), stream.Name(), err)
+		return nil, fmt.Errorf("failed to prepare capture instance for stream %s.%s: %s", stream.Namespace(), stream.Name(), err)
 	}
 
 	// TODO: research how to handle schema evolution
@@ -152,7 +152,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 	}
 
 	if selectedCapture == nil {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"LSN %s is earlier than the start LSN of available capture instances for stream %s. Please perform full-refresh",
 			lsnInState,
 			stream.ID(),
@@ -169,13 +169,13 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 	// Fetch changes
 	err = m.fetchTableChangesInLSNRange(ctx, stream, *selectedCapture, lsnInState, targetLSN, processFn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Cache target LSN for this stream
 	m.lsnMap.Store(stream.ID(), targetLSN)
 
-	return nil
+	return nil, nil
 }
 
 // PostCDC per stream state saving is handled here if no error occurred.
@@ -316,9 +316,3 @@ func operationTypeFromCDCCode(code int32) string {
 func (m *MSSQL) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
 	return "", nil
 }
-
-func (m *MSSQL) SetCurrentCDCPosition(stream types.StreamInterface, position string) {}
-
-func (m *MSSQL) GetCDCPosition(streamID string) string { return "" }
-
-func (m *MSSQL) SetTargetCDCPosition(stream types.StreamInterface, position string) {}

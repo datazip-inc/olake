@@ -54,7 +54,6 @@ var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
 var ErrGlobalContextGroup = fmt.Errorf("global context group error")
 var SkipCDCDrivers = []DriverType{Oracle, DB2}
-var TwoPCSupportedDrivers = []DriverType{MySQL, Postgres, MongoDB}
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}

@@ -139,10 +139,6 @@ public final class RecordIngest {
        * <code>REFRESH_TABLE_SCHEMA = 5;</code>
        */
       REFRESH_TABLE_SCHEMA(5),
-      /**
-       * <code>GET_COMMIT_STATE = 6;</code>
-       */
-      GET_COMMIT_STATE(6),
       UNRECOGNIZED(-1),
       ;
 
@@ -170,10 +166,6 @@ public final class RecordIngest {
        * <code>REFRESH_TABLE_SCHEMA = 5;</code>
        */
       public static final int REFRESH_TABLE_SCHEMA_VALUE = 5;
-      /**
-       * <code>GET_COMMIT_STATE = 6;</code>
-       */
-      public static final int GET_COMMIT_STATE_VALUE = 6;
 
 
       public final int getNumber() {
@@ -206,7 +198,6 @@ public final class RecordIngest {
           case 3: return DROP_TABLE;
           case 4: return GET_OR_CREATE_TABLE;
           case 5: return REFRESH_TABLE_SCHEMA;
-          case 6: return GET_COMMIT_STATE;
           default: return null;
         }
       }
@@ -5663,6 +5654,26 @@ public final class RecordIngest {
      * @return The success.
      */
     boolean getSuccess();
+
+    /**
+     * <pre>
+     * GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+     * </pre>
+     *
+     * <code>string olake_2pc_state = 3;</code>
+     * @return The olake2pcState.
+     */
+    java.lang.String getOlake2PcState();
+    /**
+     * <pre>
+     * GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+     * </pre>
+     *
+     * <code>string olake_2pc_state = 3;</code>
+     * @return The bytes for olake2pcState.
+     */
+    com.google.protobuf.ByteString
+        getOlake2PcStateBytes();
   }
   /**
    * Protobuf type {@code io.debezium.server.iceberg.rpc.RecordIngestResponse}
@@ -5678,6 +5689,7 @@ public final class RecordIngest {
     }
     private RecordIngestResponse() {
       result_ = "";
+      olake2PcState_ = "";
     }
 
     @java.lang.Override
@@ -5759,6 +5771,53 @@ public final class RecordIngest {
       return success_;
     }
 
+    public static final int OLAKE_2PC_STATE_FIELD_NUMBER = 3;
+    @SuppressWarnings("serial")
+    private volatile java.lang.Object olake2PcState_ = "";
+    /**
+     * <pre>
+     * GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+     * </pre>
+     *
+     * <code>string olake_2pc_state = 3;</code>
+     * @return The olake2pcState.
+     */
+    @java.lang.Override
+    public java.lang.String getOlake2PcState() {
+      java.lang.Object ref = olake2PcState_;
+      if (ref instanceof java.lang.String) {
+        return (java.lang.String) ref;
+      } else {
+        com.google.protobuf.ByteString bs = 
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        olake2PcState_ = s;
+        return s;
+      }
+    }
+    /**
+     * <pre>
+     * GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+     * </pre>
+     *
+     * <code>string olake_2pc_state = 3;</code>
+     * @return The bytes for olake2pcState.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getOlake2PcStateBytes() {
+      java.lang.Object ref = olake2PcState_;
+      if (ref instanceof java.lang.String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        olake2PcState_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -5779,6 +5838,9 @@ public final class RecordIngest {
       if (success_ != false) {
         output.writeBool(2, success_);
       }
+      if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(olake2PcState_)) {
+        com.google.protobuf.GeneratedMessageV3.writeString(output, 3, olake2PcState_);
+      }
       getUnknownFields().writeTo(output);
     }
 
@@ -5794,6 +5856,9 @@ public final class RecordIngest {
       if (success_ != false) {
         size += com.google.protobuf.CodedOutputStream
           .computeBoolSize(2, success_);
+      }
+      if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(olake2PcState_)) {
+        size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, olake2PcState_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -5814,6 +5879,8 @@ public final class RecordIngest {
           .equals(other.getResult())) return false;
       if (getSuccess()
           != other.getSuccess()) return false;
+      if (!getOlake2PcState()
+          .equals(other.getOlake2PcState())) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -5830,6 +5897,8 @@ public final class RecordIngest {
       hash = (37 * hash) + SUCCESS_FIELD_NUMBER;
       hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
           getSuccess());
+      hash = (37 * hash) + OLAKE_2PC_STATE_FIELD_NUMBER;
+      hash = (53 * hash) + getOlake2PcState().hashCode();
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -5961,6 +6030,7 @@ public final class RecordIngest {
         bitField0_ = 0;
         result_ = "";
         success_ = false;
+        olake2PcState_ = "";
         return this;
       }
 
@@ -5999,6 +6069,9 @@ public final class RecordIngest {
         }
         if (((from_bitField0_ & 0x00000002) != 0)) {
           result.success_ = success_;
+        }
+        if (((from_bitField0_ & 0x00000004) != 0)) {
+          result.olake2PcState_ = olake2PcState_;
         }
       }
 
@@ -6054,6 +6127,11 @@ public final class RecordIngest {
         if (other.getSuccess() != false) {
           setSuccess(other.getSuccess());
         }
+        if (!other.getOlake2PcState().isEmpty()) {
+          olake2PcState_ = other.olake2PcState_;
+          bitField0_ |= 0x00000004;
+          onChanged();
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -6090,6 +6168,11 @@ public final class RecordIngest {
                 bitField0_ |= 0x00000002;
                 break;
               } // case 16
+              case 26: {
+                olake2PcState_ = input.readStringRequireUtf8();
+                bitField0_ |= 0x00000004;
+                break;
+              } // case 26
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -6219,6 +6302,98 @@ public final class RecordIngest {
       public Builder clearSuccess() {
         bitField0_ = (bitField0_ & ~0x00000002);
         success_ = false;
+        onChanged();
+        return this;
+      }
+
+      private java.lang.Object olake2PcState_ = "";
+      /**
+       * <pre>
+       * GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+       * </pre>
+       *
+       * <code>string olake_2pc_state = 3;</code>
+       * @return The olake2pcState.
+       */
+      public java.lang.String getOlake2PcState() {
+        java.lang.Object ref = olake2PcState_;
+        if (!(ref instanceof java.lang.String)) {
+          com.google.protobuf.ByteString bs =
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          olake2PcState_ = s;
+          return s;
+        } else {
+          return (java.lang.String) ref;
+        }
+      }
+      /**
+       * <pre>
+       * GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+       * </pre>
+       *
+       * <code>string olake_2pc_state = 3;</code>
+       * @return The bytes for olake2pcState.
+       */
+      public com.google.protobuf.ByteString
+          getOlake2PcStateBytes() {
+        java.lang.Object ref = olake2PcState_;
+        if (ref instanceof String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          olake2PcState_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+      /**
+       * <pre>
+       * GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+       * </pre>
+       *
+       * <code>string olake_2pc_state = 3;</code>
+       * @param value The olake2pcState to set.
+       * @return This builder for chaining.
+       */
+      public Builder setOlake2PcState(
+          java.lang.String value) {
+        if (value == null) { throw new NullPointerException(); }
+        olake2PcState_ = value;
+        bitField0_ |= 0x00000004;
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+       * </pre>
+       *
+       * <code>string olake_2pc_state = 3;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearOlake2PcState() {
+        olake2PcState_ = getDefaultInstance().getOlake2PcState();
+        bitField0_ = (bitField0_ & ~0x00000004);
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+       * </pre>
+       *
+       * <code>string olake_2pc_state = 3;</code>
+       * @param value The bytes for olake2pcState to set.
+       * @return This builder for chaining.
+       */
+      public Builder setOlake2PcStateBytes(
+          com.google.protobuf.ByteString value) {
+        if (value == null) { throw new NullPointerException(); }
+        checkByteStringIsUtf8(value);
+        olake2PcState_ = value;
+        bitField0_ |= 0x00000004;
         onChanged();
         return this;
       }
@@ -12470,7 +12645,7 @@ java.lang.String defaultValue) {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\254\007\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\225\007\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
@@ -12490,47 +12665,47 @@ java.lang.String defaultValue) {
       "(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022\025\n\013float_valu" +
       "e\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n\nboo" +
       "l_value\030\006 \001(\010H\000\022\025\n\013bytes_value\030\007 \001(\014H\000B\007" +
-      "\n\005value\"\222\001\n\013PayloadType\022\013\n\007RECORDS\020\000\022\n\n\006" +
-      "COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_TABL" +
-      "E\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REFRESH_" +
-      "TABLE_SCHEMA\020\005\022\024\n\020GET_COMMIT_STATE\020\006\"7\n\024" +
-      "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\"\214\007\n\014ArrowPayload\022F\n\004type\030\001" +
-      " \001(\01628.io.debezium.server.iceberg.rpc.Ar" +
-      "rowPayload.PayloadType\022G\n\010metadata\030\002 \001(\013" +
-      "25.io.debezium.server.iceberg.rpc.ArrowP" +
-      "ayload.Metadata\032\322\002\n\014FileMetadata\022\021\n\tfile" +
-      "_type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record" +
-      "_count\030\003 \001(\003\022b\n\020partition_values\030\005 \003(\0132H" +
-      ".io.debezium.server.iceberg.rpc.ArrowPay" +
-      "load.FileMetadata.PartitionValue\032\241\001\n\016Par" +
-      "titionValue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong" +
-      "_value\030\002 \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025" +
-      "\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 " +
-      "\001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021" +
-      "FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\t" +
-      "file_path\030\002 \001(\t\032\203\002\n\010Metadata\022\027\n\017dest_tab" +
-      "le_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile" +
-      "_metadata\030\003 \003(\01329.io.debezium.server.ice" +
-      "berg.rpc.ArrowPayload.FileMetadata\022X\n\013fi" +
-      "le_upload\030\004 \001(\0132>.io.debezium.server.ice" +
-      "berg.rpc.ArrowPayload.FileUploadRequestH" +
-      "\000\210\001\001\022\017\n\007payload\030\006 \001(\tB\016\n\014_file_upload\"U\n" +
-      "\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTE" +
-      "R_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEPA" +
-      "TH\020\003\"\275\001\n\023ArrowIngestResponse\022\016\n\006result\030\001" +
-      " \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.debezi" +
-      "um.server.iceberg.rpc.ArrowIngestRespons" +
-      "e.IcebergSchemasEntry\0325\n\023IcebergSchemasE" +
-      "ntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212\001\n" +
-      "\023RecordIngestService\022s\n\013SendRecords\022..io" +
-      ".debezium.server.iceberg.rpc.IcebergPayl" +
-      "oad\0324.io.debezium.server.iceberg.rpc.Rec" +
-      "ordIngestResponse2\205\001\n\022ArrowIngestService" +
-      "\022o\n\nIcebergAPI\022,.io.debezium.server.iceb" +
-      "erg.rpc.ArrowPayload\0323.io.debezium.serve" +
-      "r.iceberg.rpc.ArrowIngestResponseb\006proto" +
-      "3"
+      "\n\005value\"|\n\013PayloadType\022\013\n\007RECORDS\020\000\022\n\n\006C" +
+      "OMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_TABLE" +
+      "\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REFRESH_T" +
+      "ABLE_SCHEMA\020\005\"P\n\024RecordIngestResponse\022\016\n" +
+      "\006result\030\001 \001(\t\022\017\n\007success\030\002 \001(\010\022\027\n\017olake_" +
+      "2pc_state\030\003 \001(\t\"\214\007\n\014ArrowPayload\022F\n\004type" +
+      "\030\001 \001(\01628.io.debezium.server.iceberg.rpc." +
+      "ArrowPayload.PayloadType\022G\n\010metadata\030\002 \001" +
+      "(\01325.io.debezium.server.iceberg.rpc.Arro" +
+      "wPayload.Metadata\032\322\002\n\014FileMetadata\022\021\n\tfi" +
+      "le_type\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014reco" +
+      "rd_count\030\003 \001(\003\022b\n\020partition_values\030\005 \003(\013" +
+      "2H.io.debezium.server.iceberg.rpc.ArrowP" +
+      "ayload.FileMetadata.PartitionValue\032\241\001\n\016P" +
+      "artitionValue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlo" +
+      "ng_value\030\002 \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000" +
+      "\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014double_value\030" +
+      "\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329" +
+      "\n\021FileUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021" +
+      "\n\tfile_path\030\002 \001(\t\032\203\002\n\010Metadata\022\027\n\017dest_t" +
+      "able_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfi" +
+      "le_metadata\030\003 \003(\01329.io.debezium.server.i" +
+      "ceberg.rpc.ArrowPayload.FileMetadata\022X\n\013" +
+      "file_upload\030\004 \001(\0132>.io.debezium.server.i" +
+      "ceberg.rpc.ArrowPayload.FileUploadReques" +
+      "tH\000\210\001\001\022\017\n\007payload\030\006 \001(\tB\016\n\014_file_upload\"" +
+      "U\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGIS" +
+      "TER_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILE" +
+      "PATH\020\003\"\275\001\n\023ArrowIngestResponse\022\016\n\006result" +
+      "\030\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.debe" +
+      "zium.server.iceberg.rpc.ArrowIngestRespo" +
+      "nse.IcebergSchemasEntry\0325\n\023IcebergSchema" +
+      "sEntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\0012\212" +
+      "\001\n\023RecordIngestService\022s\n\013SendRecords\022.." +
+      "io.debezium.server.iceberg.rpc.IcebergPa" +
+      "yload\0324.io.debezium.server.iceberg.rpc.R" +
+      "ecordIngestResponse2\205\001\n\022ArrowIngestServi" +
+      "ce\022o\n\nIcebergAPI\022,.io.debezium.server.ic" +
+      "eberg.rpc.ArrowPayload\0323.io.debezium.ser" +
+      "ver.iceberg.rpc.ArrowIngestResponseb\006pro" +
+      "to3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -12571,7 +12746,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_descriptor,
-        new java.lang.String[] { "Result", "Success", });
+        new java.lang.String[] { "Result", "Success", "Olake2PcState", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor =
       getDescriptor().getMessageTypes().get(2);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_fieldAccessorTable = new

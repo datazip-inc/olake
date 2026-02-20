@@ -120,7 +120,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, error) {
+func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, map[string]any, error) {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string][]*FileMetadata)
@@ -134,26 +134,26 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 
 	err := p.initS3Writer()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if !p.stream.NormalizationEnabled() {
-		return p.schema, nil
+		return p.schema, nil, nil
 	}
 
 	if schema != nil {
 		fields, ok := schema.(typeutils.Fields)
 		if !ok {
-			return nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
+			return nil, nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
 		}
 		p.schema = fields.Clone()
-		return fields, nil
+		return fields, nil, nil
 	}
 
 	fields := make(typeutils.Fields)
 	fields.FromSchema(stream.Schema())
 	p.schema = fields.Clone() // update schema
-	return fields, nil
+	return fields, nil, nil
 }
 
 // Write writes a record to the Parquet file.
@@ -248,7 +248,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) closePqFiles(ctx context.Context, closeOnError bool) error {
+func (p *Parquet) closePqFiles(ctx context.Context, _ map[string]any, closeOnError bool) error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -342,8 +342,8 @@ func (p *Parquet) closePqFiles(ctx context.Context, closeOnError bool) error {
 	return nil
 }
 
-func (p *Parquet) Close(ctx context.Context) error {
-	return p.closePqFiles(ctx, ctx.Err() != nil)
+func (p *Parquet) Close(ctx context.Context, finalMetadataState map[string]any) error {
+	return p.closePqFiles(ctx, finalMetadataState, ctx.Err() != nil)
 }
 
 // validate schema change & evolution and removes null records
@@ -585,12 +585,6 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 		logger.Debugf("successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 	}
 	return nil
-}
-
-// GetCommitState returns the commit state of the table.
-// Parquet destination does not currently implement 2PC commit metadata, so it returns empty.
-func (p *Parquet) GetCommitState(_ context.Context) (string, error) {
-	return "", nil
 }
 
 func init() {

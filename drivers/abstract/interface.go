@@ -43,11 +43,7 @@ type DriverInterface interface {
 	CDCSupported() bool
 	ChangeStreamConfig() (sequential bool, parallel bool, concurrent bool)
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
-	StreamChanges(ctx context.Context, identifier int, processFn CDCMsgFn) error
-	PostCDC(ctx context.Context, identifier int) error // to save state
-
+	StreamChanges(ctx context.Context, identifier int, metadataState map[types.StreamInterface]any, processFn CDCMsgFn) (any, error)
+	PostCDC(ctx context.Context, identifier int) error                                 // to save state
 	GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) // returns starting CDC position from state (for predictable thread IDs)
-	SetCurrentCDCPosition(stream types.StreamInterface, position string)               // updates the current CDC position in state (for recovery)
-	GetCDCPosition(streamID string) string                                             // returns current CDC position (binlog pos for MySQL, LSN for Postgres)
-	SetTargetCDCPosition(stream types.StreamInterface, position string)                // sets target position for bounded recovery sync (empty = use latest)
 }

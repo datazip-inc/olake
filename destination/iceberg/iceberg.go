@@ -65,14 +65,14 @@ func (i *Iceberg) Spec() any {
 
 func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	if i.config.UseArrowWrites {
-		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill), i.options.Payload)
+		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
 	}
 
 	// default: legacy writer
 	return legacywriter.New(i.options, i.schema, i.stream, i.server), nil
 }
 
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, map[string]any, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]internal.PartitionInfo, 0)
@@ -82,13 +82,13 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	if partitionRegex != "" {
 		err := i.parsePartitionRegex(partitionRegex)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse partition regex: %s", err)
+			return nil, nil, fmt.Errorf("failed to parse partition regex: %s", err)
 		}
 	}
 
 	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
 	if err != nil {
-		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
+		return nil, nil, fmt.Errorf("failed to start iceberg server: %s", err)
 	}
 
 	// persist server details
@@ -115,21 +115,25 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 		response, err := i.server.SendClientRequest(ctx, &requestPayload)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load or create table: %s", err)
+			return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
 		}
 
 		ingestResponse := response.(*proto.RecordIngestResponse)
 		schema, err = parseSchema(ingestResponse.GetResult())
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
+			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
 		}
-	} else {
-		// set global schema for current thread
-		var ok bool
-		schema, ok = globalSchema.(map[string]string)
-		if !ok {
-			return nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+		// Return schema and optional olake_2pc state from table metadata (separate field in response)
+		if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
+			return schema, map[string]any{"olake_2pc_state": olake2PCState}, nil
 		}
+		return schema, nil, nil
+	}
+	// set global schema for current thread
+	var ok bool
+	schema, ok = globalSchema.(map[string]string)
+	if !ok {
+		return nil, nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
 	}
 
 	// set schema for current thread
@@ -137,11 +141,11 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 	writer, err := i.NewWriter(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create iceberg writer: %v", err)
+		return nil, nil, fmt.Errorf("failed to create iceberg writer: %v", err)
 	}
 	i.writer = writer
 
-	return schema, nil
+	return schema, nil, nil
 }
 
 // note: java server parses time from long value which will in milliseconds
@@ -149,7 +153,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
 }
 
-func (i *Iceberg) Close(ctx context.Context) error {
+func (i *Iceberg) Close(ctx context.Context, finalMetadataState map[string]any) error {
 	// skip flushing on error
 	defer func() {
 		if i.server == nil {
@@ -171,7 +175,7 @@ func (i *Iceberg) Close(ctx context.Context) error {
 		// skip commit in case of context cancellation
 		return ctx.Err()
 	default:
-		return i.writer.Close(ctx)
+		return i.writer.Close(ctx, finalMetadataState)
 	}
 }
 
@@ -193,7 +197,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// to close client properly
 	i.server = server
 	defer func() {
-		i.Close(ctx)
+		i.Close(ctx, nil)
 	}()
 
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
@@ -504,7 +508,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 	// to close client properly
 	i.server = server
 	defer func() {
-		i.Close(ctx)
+		i.Close(ctx, nil)
 	}()
 
 	logger.Infof("Starting Clear Iceberg destination for %d selected streams", len(dropStreams))
@@ -588,31 +592,6 @@ func getCommonAncestorType(d1, d2 string) string {
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
-}
-
-func (i *Iceberg) GetCommitState(ctx context.Context) (string, error) {
-	if i.server == nil {
-		return "", fmt.Errorf("iceberg server not initialized")
-	}
-
-	request := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_GET_COMMIT_STATE,
-		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: i.stream.GetDestinationTable(),
-		},
-	}
-
-	res, err := i.server.SendClientRequest(ctx, request)
-	if err != nil {
-		return "", fmt.Errorf("failed to send state request: %s", err)
-	}
-
-	ingestResponse, ok := res.(*proto.RecordIngestResponse)
-	if !ok {
-		return "", fmt.Errorf("invalid response type[%T]", res)
-	}
-
-	return ingestResponse.GetResult(), nil
 }
 
 func init() {

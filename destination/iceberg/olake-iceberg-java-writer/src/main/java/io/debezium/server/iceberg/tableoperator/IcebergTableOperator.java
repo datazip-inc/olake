@@ -473,12 +473,11 @@ public class IcebergTableOperator {
       }
   }
 
-  public String getCommitState(String threadId, Table table) {      
+  public String getCommitState(Table table) {      
       String propertyValue = null;
       if (table != null) {
           propertyValue = table.properties().get(STATE_KEY_2PC);
       }
-
       return propertyValue;
   }
 }

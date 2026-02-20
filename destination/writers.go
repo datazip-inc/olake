@@ -22,8 +22,6 @@ type (
 		Number     int64
 		Backfill   bool
 		ThreadID   string
-		SyncMode   string
-		Payload    any
 	}
 
 	ThreadOptions func(opt *Options)
@@ -85,18 +83,6 @@ func WithThreadID(threadID string) ThreadOptions {
 	}
 }
 
-func WithSyncMode(mode string) ThreadOptions {
-	return func(opt *Options) {
-		opt.SyncMode = mode
-	}
-}
-
-func WithPayload(payload any) ThreadOptions {
-	return func(opt *Options) {
-		opt.Payload = payload
-	}
-}
-
 func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
@@ -142,7 +128,7 @@ func (w *WriterPool) GetStats() *Stats {
 	return w.stats
 }
 
-func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*WriterThread, error) {
+func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*WriterThread, map[string]any, error) {
 	w.stats.ThreadCount.Add(1)
 
 	opts := &Options{}
@@ -152,42 +138,42 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	rawStreamArtifact, ok := w.writerSchema.Load(stream.ID())
 	if !ok {
-		return nil, fmt.Errorf("failed to get stream artifacts for stream[%s]", stream.ID())
+		return nil, nil, fmt.Errorf("failed to get stream artifacts for stream[%s]", stream.ID())
 	}
 
 	streamArtifact, ok := rawStreamArtifact.(*writerSchema)
 	if !ok {
-		return nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
+		return nil, nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
 	}
 
 	var writerThread Writer
-	err := func() error {
+	prevStreamState, err := func() (map[string]any, error) {
 		// init writer with configurations
 		writerThread = w.init()
 		w.configMutex.Lock()
 		err := utils.Unmarshal(w.config, writerThread.GetConfigRef())
 		w.configMutex.Unlock()
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// setup table and schema
 		streamArtifact.mu.Lock()
 		defer streamArtifact.mu.Unlock()
 
-		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
+		output, prevStreamState, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
 		if err != nil {
-			return fmt.Errorf("failed to setup the writer thread: %s", err)
+			return nil, fmt.Errorf("failed to setup the writer thread: %s", err)
 		}
 
 		if streamArtifact.schema == nil {
 			streamArtifact.schema = output
 		}
 
-		return nil
+		return prevStreamState, nil
 	}()
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup writer thread: %s", err)
+		return nil, nil, fmt.Errorf("failed to setup writer thread: %s", err)
 	}
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
@@ -197,7 +183,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		stats:          w.stats,
 		streamArtifact: streamArtifact,
 		group:          utils.NewCGroupWithLimit(ctx, 1), // currently only one thread (To make sure flush can run parallel when buffer filling)
-	}, nil
+	}, prevStreamState, nil
 }
 
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error {
@@ -266,10 +252,10 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
-func (wt *WriterThread) Close(ctx context.Context) (err error) {
+func (wt *WriterThread) Close(ctx context.Context, finalMetadataState map[string]any) (err error) {
 	select {
 	case <-ctx.Done():
-		err := wt.writer.Close(ctx)
+		err := wt.writer.Close(ctx, finalMetadataState)
 		if err != nil {
 			return fmt.Errorf("failed to close writer: %s", err)
 		}
@@ -280,7 +266,7 @@ func (wt *WriterThread) Close(ctx context.Context) (err error) {
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
 
-			closeErr := wt.writer.Close(ctx)
+			closeErr := wt.writer.Close(ctx, finalMetadataState)
 			if closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
 			}
@@ -295,11 +281,6 @@ func (wt *WriterThread) Close(ctx context.Context) (err error) {
 		}
 		return nil
 	}
-}
-
-// GetCommitState returns the commit state of the table
-func (wt *WriterThread) GetCommitState(ctx context.Context) (string, error) {
-	return wt.writer.GetCommitState(ctx)
 }
 
 func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {

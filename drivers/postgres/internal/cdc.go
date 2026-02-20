@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -50,40 +51,81 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
-func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.CDCMsgFn) error {
-	config, err := p.prepareWALJSConfig(p.streams...)
+func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[types.StreamInterface]any, callback abstract.CDCMsgFn) (any, error) {
+	// Unmarshal olake_2pc_state from destination metadata (e.g. Iceberg table metadata) into SyncState per stream
+	globalState := p.state.GetGlobal()
+	globalLSN := ""
+	targetLSNPosition := ""
+
+	var streamsToProcess []types.StreamInterface
+	if globalState != nil && globalState.State != nil {
+		if wal, ok := globalState.State.(waljs.WALState); ok {
+			globalLSN = wal.LSN
+		}
+	}
+	for stream, mtState := range metadataStates {
+		meta, ok := mtState.(map[string]any)
+		if !ok {
+			continue
+		}
+		olake2pcRaw, _ := meta["olake_2pc_state"]
+		olake2pcStr, _ := olake2pcRaw.(string)
+		if olake2pcStr == "" {
+			continue
+		}
+		var recoveredState abstract.SyncState
+		if err := json.Unmarshal([]byte(olake2pcStr), &recoveredState); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal olake_2pc_state for stream %s: %w", stream, err)
+		}
+		// Use captured CDC position (LSN for Postgres) from 2PC state if present
+		if recoveredState.CapturedCDCPos != "" && globalLSN != "" && recoveredState.CapturedCDCPos != globalLSN {
+			targetLSNPosition = recoveredState.CapturedCDCPos
+			continue
+		}
+		streamsToProcess = append(streamsToProcess, stream)
+	}
+
+	if len(streamsToProcess) == 0 {
+		logger.Infof("all streams already processed")
+		return nil, nil
+	}
+
+	config, err := p.prepareWALJSConfig(streamsToProcess...)
 	if err != nil {
-		return fmt.Errorf("failed to prepare wal config: %s", err)
+		return nil, fmt.Errorf("failed to prepare wal config: %s", err)
 	}
 
 	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
 	if err != nil {
-		return fmt.Errorf("failed to get slot position: %s", err)
+		return nil, fmt.Errorf("failed to get slot position: %s", err)
 	}
 
 	replicator, err := waljs.NewReplicator(ctx, config, slot, p.dataTypeConverter)
 	if err != nil {
-		return fmt.Errorf("failed to create wal connection: %s", err)
+		return nil, fmt.Errorf("failed to create wal connection: %s", err)
 	}
 
 	// persist replicator for post cdc
 	p.replicator = replicator
 
 	// Set target position for bounded sync if set (recovery mode)
-	targetPos := p.targetPosition
-	if targetPos != "" {
-		if err := p.replicator.Socket().SetTargetPosition(targetPos); err != nil {
-			return fmt.Errorf("failed to set target position: %s", err)
-		}
+	if err := p.replicator.Socket().SetTargetPosition(targetLSNPosition); err != nil {
+		return nil, fmt.Errorf("failed to set target position: %s", err)
 	}
 
 	// validate global state (might got invalid during full load)
 	if err := validateGlobalState(p.state.GetGlobal(), slot.LSN); err != nil {
-		return fmt.Errorf("%w: invalid global state: %s", constants.ErrNonRetryable, err)
+		return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
 	}
 
 	// choose replicator via factory based on OutputPlugin config (default wal2json)
-	return p.replicator.StreamChanges(ctx, p.client, callback)
+	err = p.replicator.StreamChanges(ctx, p.client, callback)
+	if err != nil {
+		return nil, err
+	}
+	finalLSN := p.replicator.Socket().ClientXLogPos.String()
+	// Return map so abstract layer gets finalMetadataState and passes it to writer Close (commit payload)
+	return map[string]any{"captured_cdc_pos": finalLSN}, nil
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
@@ -114,13 +156,6 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 	}
 }
 
-func (p *Postgres) GetCDCPosition(streamID string) string {
-	if p.replicator == nil {
-		return ""
-	}
-	return p.replicator.Socket().ClientXLogPos.String()
-}
-
 // GetCDCStartPosition returns the starting CDC position from state for predictable thread IDs
 func (p *Postgres) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
 	var walState waljs.WALState
@@ -132,26 +167,6 @@ func (p *Postgres) GetCDCStartPosition(stream types.StreamInterface, streamIndex
 		return "", fmt.Errorf("failed to unmarshal global state: %w", err)
 	}
 	return walState.LSN, nil
-}
-
-func (p *Postgres) SetCurrentCDCPosition(stream types.StreamInterface, position string) {
-	var walState waljs.WALState
-	globalState := p.state.GetGlobal()
-	if globalState != nil && globalState.State != nil {
-		if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-			logger.Warnf("Failed to unmarshal global state for SetCurrentCDCPosition: %s", err)
-		}
-	}
-	walState.LSN = position
-	p.state.SetGlobal(walState)
-	logger.Infof("Set current CDC position (LSN) in state: %s", position)
-}
-
-func (p *Postgres) SetTargetCDCPosition(stream types.StreamInterface, position string) {
-	p.targetPosition = position
-	if position != "" {
-		logger.Infof("Set target CDC position for bounded sync: %s", position)
-	}
 }
 
 // AcknowledgeCDCPosition acknowledges LSN to Postgres for recovery
