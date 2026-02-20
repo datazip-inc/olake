@@ -37,13 +37,22 @@ type StatusRow struct {
 	Message string           `json:"message,omitempty"`
 }
 
+// SelectedColumns represents column selection configuration for a stream.
+// - columns: explicit list of columns (empty means "all")
+// - sync_new_columns: if true, newly discovered columns are included by default
+type SelectedColumns struct {
+	Columns        []string `json:"columns"`
+	SyncNewColumns bool     `json:"sync_new_columns"`
+}
+
 type StreamMetadata struct {
-	ChunkColumn    string `json:"chunk_column,omitempty"`
-	PartitionRegex string `json:"partition_regex"`
-	StreamName     string `json:"stream_name"`
-	AppendMode     bool   `json:"append_mode,omitempty"`
-	Normalization  bool   `json:"normalization"`
-	Filter         string `json:"filter,omitempty"`
+	ChunkColumn     string           `json:"chunk_column,omitempty"`
+	PartitionRegex  string           `json:"partition_regex"`
+	StreamName      string           `json:"stream_name"`
+	AppendMode      bool             `json:"append_mode,omitempty"`
+	Normalization   bool             `json:"normalization"`
+	Filter          string           `json:"filter,omitempty"`
+	SelectedColumns *SelectedColumns `json:"selected_columns"`
 }
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
@@ -63,10 +72,17 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			Stream: stream,
 		})
 
+		selectedColumns := stream.Schema.ColumnNames()
+		selectedCols := &SelectedColumns{
+			Columns:        selectedColumns,
+			SyncNewColumns: true,
+		}
+
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:    stream.Name,
-			AppendMode:    utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization: IsDriverRelational(driver),
+			StreamName:      stream.Name,
+			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+			Normalization:   IsDriverRelational(driver),
+			SelectedColumns: selectedCols,
 		})
 	}
 
@@ -75,29 +91,39 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 
 // MergeCatalogs merges old catalog with new catalog based on the following rules:
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
-// 2. SyncMode: Use from oldCatalog if the stream exists in old catalog
-// 3. Everything else: Keep as new catalog
+// 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
+// 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
+// 4. Everything else: Keep as new catalog
 func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
 
 	createStreamMap := func(catalog *Catalog) map[string]*ConfiguredStream {
-		sm := make(map[string]*ConfiguredStream)
-		for _, st := range catalog.Streams {
-			sm[st.Stream.ID()] = st
+		streamMap := make(map[string]*ConfiguredStream)
+		for _, stream := range catalog.Streams {
+			streamMap[stream.Stream.ID()] = stream
 		}
-		return sm
+		return streamMap
 	}
+
+	oldStreams := createStreamMap(oldCatalog)
 
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
 		newStreams := createStreamMap(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
+
 		for namespace, metadataList := range oldCatalog.SelectedStreams {
 			_ = utils.ForEach(metadataList, func(metadata StreamMetadata) error {
-				_, exists := newStreams[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)]
+				streamID := fmt.Sprintf("%s.%s", namespace, metadata.StreamName)
+				_, exists := newStreams[streamID]
+
 				if exists {
+					oldStream := oldStreams[streamID].Stream
+					newStream := newStreams[streamID].Stream
+					MergeSelectedColumns(&metadata, oldStream, newStream)
+
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
 				return nil
@@ -109,7 +135,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	constantValue, prefix := getDestDBPrefix(oldCatalog.Streams)
 
 	// merge streams metadata
-	oldStreams := createStreamMap(oldCatalog)
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
 		if exists {
@@ -135,6 +160,46 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	})
 
 	return newCatalog
+}
+
+// MergeSelectedColumns merges the selected columns based on the following rules:
+// - If selectedColumns is not present or empty, initialize with columns from new schema
+// - Preserve previously selected columns
+// - If sync_new_columns is true, add newly discovered columns to the selected columns
+// takes old stream and new stream to merge the selected columns and old stream metadata
+func MergeSelectedColumns(metadata *StreamMetadata, oldStream *Stream, newStream *Stream) {
+	var columns []string
+
+	// No previous selection: initialize with all columns from new schema.
+	if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
+		columns = newStream.Schema.ColumnNames()
+	} else {
+		previouslySelectedSet := NewSet(metadata.SelectedColumns.Columns...)
+		oldSchemaCols := NewSet(oldStream.Schema.ColumnNames()...)
+
+		// Iterate new schema: retain previously selected columns, add new ones if sync_new_columns enabled.
+		newStream.Schema.Properties.Range(func(key, value interface{}) bool {
+			col, ok := key.(string)
+			if !ok {
+				return true
+			}
+			prop := value.(*Property)
+			if prop.OlakeColumn || previouslySelectedSet.Exists(col) || (metadata.SelectedColumns.SyncNewColumns && !oldSchemaCols.Exists(col)) {
+				columns = append(columns, col)
+			}
+			return true
+		})
+	}
+
+	syncNewColumns := true
+	if metadata.SelectedColumns != nil {
+		syncNewColumns = metadata.SelectedColumns.SyncNewColumns
+	}
+
+	metadata.SelectedColumns = &SelectedColumns{
+		Columns:        columns,
+		SyncNewColumns: syncNewColumns,
+	}
 }
 
 // getDestDBPrefix analyzes a collection of streams to determine if they share a common
