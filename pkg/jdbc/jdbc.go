@@ -63,6 +63,19 @@ func QuoteColumns(columns []string, driver constants.DriverType) []string {
 	return quoted
 }
 
+// QuoteLiteral returns a properly escaped and quoted string literal for SQL
+func QuoteLiteral(val any) string {
+	if val == nil {
+		return "NULL"
+	}
+
+	str := utils.ConvertToString(val)
+	// Escape single quotes for SQL safety
+	escaped := strings.ReplaceAll(str, "'", "''")
+	return fmt.Sprintf("'%s'", escaped)
+}
+
+
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a Postgres table
 func MinMaxQuery(stream types.StreamInterface, column string) string {
 	quotedColumn := QuoteIdentifier(column, constants.Postgres)
@@ -85,7 +98,7 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 // Output:
 //
 //	SELECT CONCAT_WS(',', id, created_at) AS key_str FROM (
-//	  SELECT (',', id, created_at)
+//	  SELECT (id, created_at)
 //	  FROM `mydb`.`users`
 //	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
 //	  ORDER BY id, created_at
@@ -234,25 +247,77 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 // buildChunkConditionMySQL builds the condition for a chunk in MySQL
 func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
-	colTuple := "(" + strings.Join(quotedCols, ", ") + ")"
 
-	buildSQLTuple := func(val any) string {
-		parts := strings.Split(val.(string), ",")
-		for i, part := range parts {
-			parts[i] = fmt.Sprintf("'%s'", strings.TrimSpace(part))
+	splitBoundaryValues := func(boundary any) []string {
+		if boundary == nil {
+			return nil
 		}
-		return strings.Join(parts, ", ")
+		str := utils.ConvertToString(boundary)
+		parts := strings.Split(str, ",")
+		for i, part := range parts {
+			parts[i] = strings.TrimSpace(part)
+		}
+		return parts
 	}
+
+	// buildBound creates the expanded logic for (col1, col2) > (val1, val2)
+	// which becomes (col1 > val1) OR (col1 = val1 AND col2 >= val2)
+	buildBound := func(values []string, isLower bool) string {
+		if len(values) == 0 {
+			return ""
+		}
+		orGroups := make([]string, 0, len(quotedCols))
+		for i := 0; i < len(quotedCols); i++ {
+			andConds := make([]string, 0, i+1)
+			for j := 0; j < i; j++ {
+				if j < len(values) {
+					andConds = append(andConds, fmt.Sprintf("%s = %s", quotedCols[j], QuoteLiteral(values[j])))
+				}
+			}
+
+			var op string
+			if isLower {
+				op = ">"
+				if i == len(quotedCols)-1 {
+					op = ">="
+				}
+			} else {
+				op = "<"
+			}
+
+			if i < len(values) {
+				andConds = append(andConds, fmt.Sprintf("%s %s %s", quotedCols[i], op, QuoteLiteral(values[i])))
+			}
+			if len(andConds) > 0 {
+				orGroups = append(orGroups, "("+strings.Join(andConds, " AND ")+")")
+			}
+		}
+		if len(orGroups) == 0 {
+			return ""
+		}
+		return "(" + strings.Join(orGroups, " OR ") + ")"
+	}
+
+	lowerValues := splitBoundaryValues(chunk.Min)
+	upperValues := splitBoundaryValues(chunk.Max)
+
 	chunkCond := ""
 	switch {
 	case chunk.Min != nil && chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", colTuple, buildSQLTuple(chunk.Min), colTuple, buildSQLTuple(chunk.Max))
+		lower := buildBound(lowerValues, true)
+		upper := buildBound(upperValues, false)
+		if lower != "" && upper != "" {
+			chunkCond = fmt.Sprintf("(%s) AND (%s)", lower, upper)
+		} else {
+			// fallback if one bound is somehow empty
+			chunkCond = lower + upper
+		}
 	case chunk.Min != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s)", colTuple, buildSQLTuple(chunk.Min))
+		chunkCond = buildBound(lowerValues, true)
 	case chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s < (%s)", colTuple, buildSQLTuple(chunk.Max))
+		chunkCond = buildBound(upperValues, false)
 	}
-	// Both filter and chunk cond both should exist
+
 	if extraFilter != "" && chunkCond != "" {
 		return fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
 	}
@@ -429,7 +494,12 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
+
+	if condition != "" {
+		return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
+	}
+	// If condition is empty, select all
+	return fmt.Sprintf("SELECT * FROM %s", quotedTable)
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
