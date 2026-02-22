@@ -102,7 +102,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
 		var requestPayload proto.IcebergPayload
-		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled())
+		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{

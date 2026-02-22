@@ -321,6 +321,11 @@ func ConvertToString(value interface{}) string {
 	}
 }
 
+// HexEncode converts binary data to a SQL hex literal string (e.g. "0x00001a0024").
+func HexEncode(b []byte) string {
+	return "0x" + hex.EncodeToString(b)
+}
+
 func ComputeConfigHash(srcPath, destPath string) string {
 	if srcPath == "" || destPath == "" {
 		// no config or no destination → no meaningful hash
