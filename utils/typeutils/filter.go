@@ -16,16 +16,10 @@ import (
 // For legacy filters, records are returned unchanged.
 // FilterRecords applies filtering ONLY for new filters.
 // For legacy filters, records are returned unchanged.
-func FilterRecords(
-	ctx context.Context,
-	records []types.RawRecord,
-	filter types.FilterInput,
-	legacy bool,
-) ([]types.RawRecord, error) {
-
+func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterInput, isLegacy bool) ([]types.RawRecord, error) {
 	logger.Infof("filtering records with filter: %+v", filter)
 
-	if legacy {
+	if isLegacy {
 		logger.Warnf("legacy filter detected, skipping destination filtering")
 		return records, nil
 	}
@@ -73,7 +67,7 @@ func FilterRecords(
 func matches(record types.RawRecord, conditions []types.FilterCondition, logicalOp string) bool {
 	isOr := strings.EqualFold(strings.TrimSpace(logicalOp), "OR")
 	for _, c := range conditions {
-		if evaluate(record.Data[c.Column], c.Value, c.Operator) == isOr {
+		if evaluate(record.Data[utils.Reformat(c.Column)], c.Value, c.Operator) == isOr {
 			return isOr
 		}
 	}

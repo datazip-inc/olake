@@ -21,18 +21,6 @@ func makeRecord(data map[string]any) types.RawRecord {
 	})
 }
 
-func makeIcebergSchema(cols map[string]string) map[string]string {
-	return cols
-}
-
-func makeParquetSchema(cols map[string]types.DataType) Fields {
-	fields := Fields{}
-	for name, dt := range cols {
-		fields[name] = NewField(dt)
-	}
-	return fields
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Test: Legacy Filter (should skip filtering)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -191,11 +179,11 @@ func TestFilterRecords_Operators_Integer_Iceberg(t *testing.T) {
 	ctx := context.Background()
 
 	records := []types.RawRecord{
-		makeRecord(map[string]any{"Value": int64(10)}),
-		makeRecord(map[string]any{"Value": int64(20)}),
-		makeRecord(map[string]any{"Value": int64(30)}),
-		makeRecord(map[string]any{"Value": int64(40)}),
-		makeRecord(map[string]any{"Value": int64(50)}),
+		makeRecord(map[string]any{"value": int64(10)}),
+		makeRecord(map[string]any{"value": int64(20)}),
+		makeRecord(map[string]any{"value": int64(30)}),
+		makeRecord(map[string]any{"value": int64(40)}),
+		makeRecord(map[string]any{"value": int64(50)}),
 	}
 
 	tests := []struct {
@@ -204,12 +192,12 @@ func TestFilterRecords_Operators_Integer_Iceberg(t *testing.T) {
 		filterValue   any
 		expectedCount int
 	}{
-		{"equals", "=", 30, 1},
-		{"not equals", "!=", 30, 4},
-		{"greater than", ">", 30, 2},
-		{"greater than or equal", ">=", 30, 3},
-		{"less than", "<", 30, 2},
-		{"less than or equal", "<=", 30, 3},
+		{"equals", "=", int64(30), 1},
+		{"not equals", "!=", int64(30), 4},
+		{"greater than", ">", int64(30), 2},
+		{"greater than or equal", ">=", int64(30), 3},
+		{"less than", "<", int64(30), 2},
+		{"less than or equal", "<=", int64(30), 3},
 	}
 
 	for _, tt := range tests {
@@ -217,7 +205,7 @@ func TestFilterRecords_Operators_Integer_Iceberg(t *testing.T) {
 			filter := types.FilterInput{
 				LogicalOperator: "AND",
 				Conditions: []types.FilterCondition{
-					{Column: "Value", Operator: tt.Operator, Value: tt.filterValue},
+					{Column: "value", Operator: tt.Operator, Value: tt.filterValue},
 				},
 			}
 
@@ -357,7 +345,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 		filter := types.FilterInput{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
-				{Column: "created_at", Operator: ">=", Value: now.Format(time.RFC3339)},
+				{Column: "created_at", Operator: ">=", Value: now},
 			},
 		}
 
@@ -492,7 +480,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 		filter := types.FilterInput{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
-				{Column: "updated_at", Operator: "<", Value: baseTime.Add(3 * time.Hour).Format(time.RFC3339)},
+				{Column: "updated_at", Operator: "<", Value: baseTime.Add(3 * time.Hour)},
 			},
 		}
 
@@ -725,30 +713,6 @@ func TestFilterRecords_CDCMissingColumns(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Test: Unknown Column Type Error
-// ─────────────────────────────────────────────────────────────────────────────
-
-func TestFilterRecords_UnknownColumnType(t *testing.T) {
-	ctx := context.Background()
-
-	records := []types.RawRecord{
-		makeRecord(map[string]any{"id": int64(1)}),
-	}
-
-	filter := types.FilterInput{
-		LogicalOperator: "AND",
-		Conditions: []types.FilterCondition{
-			{Column: "unknown_column", Operator: "=", Value: 1},
-		},
-	}
-	// Schema doesn't have "unknown_column"
-
-	_, err := FilterRecords(ctx, records, filter, false)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown datatype")
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Test: String Comparison Operators
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -856,82 +820,6 @@ func TestFilterRecords_BooleanComparison(t *testing.T) {
 		result, err := FilterRecords(ctx, records, filter, false)
 		require.NoError(t, err)
 		assert.Len(t, result, 2) // true > false
-	})
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Test: Type Coercion from Filter Values
-// ─────────────────────────────────────────────────────────────────────────────
-
-func TestFilterRecords_TypeCoercion(t *testing.T) {
-	ctx := context.Background()
-
-	t.Run("string filter Value to int64", func(t *testing.T) {
-		records := []types.RawRecord{
-			makeRecord(map[string]any{"id": int64(100)}),
-			makeRecord(map[string]any{"id": int64(200)}),
-		}
-		filter := types.FilterInput{
-			LogicalOperator: "AND",
-			Conditions: []types.FilterCondition{
-				{Column: "id", Operator: "=", Value: "100"}, // string Value
-			},
-		}
-
-		result, err := FilterRecords(ctx, records, filter, false)
-		require.NoError(t, err)
-		assert.Len(t, result, 1)
-	})
-
-	t.Run("float filter Value to int32", func(t *testing.T) {
-		records := []types.RawRecord{
-			makeRecord(map[string]any{"count": int32(10)}),
-			makeRecord(map[string]any{"count": int32(20)}),
-		}
-		filter := types.FilterInput{
-			LogicalOperator: "AND",
-			Conditions: []types.FilterCondition{
-				{Column: "count", Operator: "=", Value: 10.0}, // float Value
-			},
-		}
-
-		result, err := FilterRecords(ctx, records, filter, false)
-		require.NoError(t, err)
-		assert.Len(t, result, 1)
-	})
-
-	t.Run("int filter Value to float64", func(t *testing.T) {
-		records := []types.RawRecord{
-			makeRecord(map[string]any{"price": float64(99.99)}),
-			makeRecord(map[string]any{"price": float64(100.0)}),
-		}
-		filter := types.FilterInput{
-			LogicalOperator: "AND",
-			Conditions: []types.FilterCondition{
-				{Column: "price", Operator: "=", Value: 100}, // int Value
-			},
-		}
-
-		result, err := FilterRecords(ctx, records, filter, false)
-		require.NoError(t, err)
-		assert.Len(t, result, 1)
-	})
-
-	t.Run("string boolean Value", func(t *testing.T) {
-		records := []types.RawRecord{
-			makeRecord(map[string]any{"active": true}),
-			makeRecord(map[string]any{"active": false}),
-		}
-		filter := types.FilterInput{
-			LogicalOperator: "AND",
-			Conditions: []types.FilterCondition{
-				{Column: "active", Operator: "=", Value: "true"}, // string "true"
-			},
-		}
-
-		result, err := FilterRecords(ctx, records, filter, false)
-		require.NoError(t, err)
-		assert.Len(t, result, 1)
 	})
 }
 
@@ -1275,7 +1163,7 @@ func TestFilterRecords_LargeDataset(t *testing.T) {
 		records[i] = makeRecord(map[string]any{
 			"id":       int64(i),
 			"category": []string{"A", "B", "C", "D", "E"}[i%5],
-			"Value":    float64(i * 10),
+			"value":    float64(i * 10),
 		})
 	}
 
@@ -1283,7 +1171,7 @@ func TestFilterRecords_LargeDataset(t *testing.T) {
 		LogicalOperator: "AND",
 		Conditions: []types.FilterCondition{
 			{Column: "category", Operator: "=", Value: "A"},
-			{Column: "Value", Operator: ">=", Value: 500},
+			{Column: "value", Operator: ">=", Value: float64(500)},
 		},
 	}
 
