@@ -389,7 +389,7 @@ func generateMinObjectID(t time.Time) string {
 	return objectID.Hex()
 }
 
-func buildMongoCondition(cond types.FilterCondition) bson.D {
+func buildMongoCondition(isLegacy bool, cond interface{}) bson.D {
 	opMap := map[string]string{
 		">":  "$gt",
 		">=": "$gte",
@@ -398,64 +398,61 @@ func buildMongoCondition(cond types.FilterCondition) bson.D {
 		"=":  "$eq",
 		"!=": "$ne",
 	}
+	c := cond.(types.FilterCondition)
+	// legacy filter condition
+	if isLegacy {
+		value := func(field, val string) interface{} {
+			if val == "null" {
+				return nil
+			}
 
-	mongoOp, ok := opMap[cond.Operator]
-	if !ok {
-		logger.Errorf("unsupported operator for mongo: %s", cond.Operator)
-		return bson.D{}
+			if strings.HasPrefix(val, "\"") && strings.HasSuffix(val, "\"") {
+				val = val[1 : len(val)-1]
+			}
+
+			if field == "_id" && len(val) == 24 {
+				if oid, err := primitive.ObjectIDFromHex(val); err == nil {
+					return oid
+				}
+			}
+
+			if strings.EqualFold(val, "true") || strings.EqualFold(val, "false") {
+				return strings.EqualFold(val, "true")
+			}
+
+			if t, err := typeutils.ReformatDate(val, false); err == nil {
+				return t
+			}
+
+			if i, err := typeutils.ReformatInt64(val); err == nil {
+				return i
+			}
+
+			if f, err := typeutils.ReformatFloat64(val); err == nil {
+				return f
+			}
+
+			return val
+		}(c.Column, c.Value.(string))
+
+		return bson.D{
+			{Key: c.Column, Value: bson.D{
+				{Key: opMap[c.Operator], Value: value},
+			}},
+		}
 	}
 
 	var value interface{}
-	switch v := cond.Value.(type) {
-	case nil:
-		value = nil
-	case primitive.ObjectID:
+	if v, ok := c.Value.(string); ok {
 		value = v
-	case string:
-		// try ObjectID only if column is _id
-		if cond.Column == "_id" && len(v) == 24 {
-			if oid, err := primitive.ObjectIDFromHex(v); err == nil {
-				value = oid
-				break
-			}
-		}
-		// try date
-		if t, err := typeutils.ReformatDate(v, false); err == nil {
-			value = t
-			break
-		}
-		// try integer (for numeric cursor fields like id_bigint)
-		if intVal, err := typeutils.ReformatInt64(v); err == nil {
-			value = intVal
-			break
-		}
-		// try float
-		if floatVal, err := typeutils.ReformatFloat64(v); err == nil {
-			value = floatVal
-			break
-		}
-
-		value = v
-
-	case bool:
-		value = v
-	case int:
-		value = int64(v)
-	case int64:
-		value = v
-	case float64:
-		value = v
-	case time.Time:
-		value = v
-
-	default:
-		// safest fallback
-		value = v
+	} else {
+		// already typed (nil, bool, int, time.Time, etc.)
+		value = c.Value
 	}
 
 	return bson.D{
-		{Key: cond.Column, Value: bson.D{
-			{Key: mongoOp, Value: value},
+		{Key: c.Column, Value: bson.D{
+			{Key: opMap[c.Operator], Value: value},
 		}},
 	}
 }
@@ -467,7 +464,7 @@ func (m *Mongo) buildFilter(stream types.StreamInterface) (bson.D, error) {
 		return nil, fmt.Errorf("failed to create threshold filter: %s", err)
 	}
 
-	filter, _, err := stream.GetFilter()
+	filter, isLegacy, err := stream.GetFilter()
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse stream filter: %s", err)
 	}
@@ -481,9 +478,9 @@ func (m *Mongo) buildFilter(stream types.StreamInterface) (bson.D, error) {
 	case len(filter.Conditions) == 0:
 		return utils.Ternary(len(allConditions) == 0, bson.D{}, bson.D{{Key: "$and", Value: allConditions}}).(bson.D), nil
 	case len(filter.Conditions) == 1:
-		allConditions = append(allConditions, buildMongoCondition(filter.Conditions[0]))
+		allConditions = append(allConditions, buildMongoCondition(isLegacy, filter.Conditions[0]))
 	case len(filter.Conditions) == 2:
-		allConditions = append(allConditions, bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(filter.Conditions[0]), buildMongoCondition(filter.Conditions[1])}}})
+		allConditions = append(allConditions, bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(isLegacy, filter.Conditions[0]), buildMongoCondition(isLegacy, filter.Conditions[1])}}})
 	default:
 		return nil, fmt.Errorf("multiple conditions are not supported in filter")
 	}

@@ -1190,11 +1190,10 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 
 	// ---------- build SQL ----------
 	var finalFilter string
-
+	var filterErr error
 	switch len(filter.Conditions) {
 	case 0:
 		return thresholdFilter, nil
-
 	case 1:
 		finalFilter, err = buildCondition(filter.Conditions[0])
 		if err != nil {
@@ -1202,22 +1201,22 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 		}
 	default:
 		conditions := make([]string, 0, len(filter.Conditions))
-		for _, cond := range filter.Conditions {
+		err := utils.ForEach(filter.Conditions, func(cond types.FilterCondition) error {
 			formatted, err := buildCondition(cond)
 			if err != nil {
-				return "", err
+				return err
 			}
 			conditions = append(conditions, formatted)
-		}
-		finalFilter = strings.Join(conditions, fmt.Sprintf(" %s ", strings.ToUpper(filter.LogicalOperator)))
+			return nil
+		})
+		finalFilter, filterErr = strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), err
 	}
 
-	// ---------- threshold merge ----------
 	if thresholdFilter == "" {
 		return finalFilter, nil
 	}
 
-	return fmt.Sprintf("(%s) AND (%s)", thresholdFilter, finalFilter), nil
+	return utils.Ternary(thresholdFilter == "", finalFilter, fmt.Sprintf("(%s) AND (%s)", thresholdFilter, finalFilter)).(string), filterErr
 }
 
 // DriverOptions contains options for creating various queries

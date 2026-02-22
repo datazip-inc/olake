@@ -349,7 +349,7 @@ func (p *Parquet) Close(ctx context.Context) error {
 // validate schema change & evolution and removes null records
 func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
-		return false, records, p.schema, nil
+		return false, records, nil, nil
 	}
 
 	if len(records) == 0 {
