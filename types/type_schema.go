@@ -23,6 +23,19 @@ func NewTypeSchema() *TypeSchema {
 	}
 }
 
+// ColumnNames returns the list of column names currently present in the schema.
+// Note: ordering is not guaranteed because sync.Map iteration order is not defined.
+func (t *TypeSchema) ColumnNames() []string {
+	var columns []string
+	t.Properties.Range(func(col, _ interface{}) bool {
+		if colName, ok := col.(string); ok {
+			columns = append(columns, colName)
+		}
+		return true
+	})
+	return columns
+}
+
 func (t *TypeSchema) Override(fields map[string]*Property) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -122,7 +135,7 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
-func (t *TypeSchema) ToParquet(defaultColumns bool) *parquet.Schema {
+func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *parquet.Schema {
 	// keeping default columns parquet schema for backward compatibility for olake columns
 	groupNode := parquet.Group{
 		constants.OlakeID:        parquet.String(),
@@ -130,13 +143,16 @@ func (t *TypeSchema) ToParquet(defaultColumns bool) *parquet.Schema {
 		constants.OpType:         parquet.String(),
 		constants.CdcTimestamp:   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
 	}
+	isSelected := stream.IsSelectedColumn()
+
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
-		if defaultColumns && !prop.OlakeColumn {
+		colName := key.(string)
+		if !isSelected(utils.Reformat(colName)) || (defaultColumns && !prop.OlakeColumn) {
 			return true
 		}
 		// Todo: check we can use field name instead of destination column name
-		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
+		groupNode[prop.getDestinationColumnName(colName)] = prop.DataType().ToNewParquet()
 		return true
 	})
 
@@ -147,17 +163,20 @@ func (t *TypeSchema) ToParquet(defaultColumns bool) *parquet.Schema {
 	return parquet.NewSchema("olake_schema", groupNode)
 }
 
-func (t *TypeSchema) ToIceberg(defaultColumns bool) []*proto.IcebergPayload_SchemaField {
+func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface) []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
+	isSelected := stream.IsSelectedColumn()
+
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		colName := key.(string)
 		// skip non-olake columns if defaultColumns is set to true
-		if defaultColumns && !prop.OlakeColumn {
+		if !isSelected(utils.Reformat(colName)) || (defaultColumns && !prop.OlakeColumn) {
 			return true
 		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
-			Key:     prop.getDestinationColumnName(key.(string)),
+			Key:     prop.getDestinationColumnName(colName),
 		})
 		return true
 	})

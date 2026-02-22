@@ -15,6 +15,9 @@ type StreamInterface interface {
 	NormalizationEnabled() bool
 	GetDestinationDatabase(icebergDB *string) string
 	GetDestinationTable() string
+	// Column selection helpers (driven by StreamMetadata.SelectedColumns)
+	RetainSelectedColumns() func(map[string]interface{}) map[string]interface{}
+	IsSelectedColumn() func(string) bool
 }
 
 type StateInterface interface {
