@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -18,6 +19,20 @@ const (
 	CDCStartLSN = "_cdc_start_lsn" // MSSQL start LSN
 	CDCSeqVal   = "_cdc_seqval"    // MSSQL seqval
 )
+
+// getCapturedCDCLSNFromMetadata extracts captured_cdc_pos from destination metadata (olake_2pc_state). Returns "" if missing or invalid.
+func getCapturedCDCLSNFromMetadata(mtState any) string {
+	meta, _ := mtState.(map[string]any)
+	olake2pcStr, _ := meta["olake_2pc_state"].(string)
+	if olake2pcStr == "" {
+		return ""
+	}
+	var s abstract.SyncState
+	if json.Unmarshal([]byte(olake2pcStr), &s) != nil {
+		return ""
+	}
+	return s.CapturedCDCPos
+}
 
 // CDC capture instance for a table
 type captureInstance struct {
@@ -97,8 +112,15 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[types.StreamInterface]any, processFn abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
 	// Get current position for this stream
-	lsnString := m.state.GetCursor(stream.Self(), cdcCursorKey)
-	lsnInState := lsnString.(string)
+	lsnVal := m.state.GetCursor(stream.Self(), cdcCursorKey)
+	lsnInState := lsnVal.(string)
+
+	// If destination metadata (olake_2pc_state) has a different LSN thanstate, skip the CDC sync and store the lsn in map to be updated in state
+	if metadataLSN := getCapturedCDCLSNFromMetadata(metadataStates[stream]); metadataLSN != "" && metadataLSN != lsnInState {
+		m.lsnMap.Store(stream.ID(), metadataLSN)
+		logger.Infof("Stream[%s]: already committed updating in state", stream.ID())
+		return map[string]any{"captured_cdc_pos": metadataLSN}, nil
+	}
 
 	// Get target LSN (current max LSN in DB)
 	targetLSN, err := m.currentMaxLSN(ctx)
@@ -175,7 +197,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	// Cache target LSN for this stream
 	m.lsnMap.Store(stream.ID(), targetLSN)
 
-	return nil, nil
+	return map[string]any{"captured_cdc_pos": targetLSN}, nil
 }
 
 // PostCDC per stream state saving is handled here if no error occurred.
@@ -314,5 +336,13 @@ func operationTypeFromCDCCode(code int32) string {
 }
 
 func (m *MSSQL) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
-	return "", nil
+	val := m.state.GetCursor(stream.Self(), cdcCursorKey)
+	if val == nil {
+		return "", nil
+	}
+	s, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("CDC start position in state is not a string for stream %s", stream.ID())
+	}
+	return s, nil
 }
