@@ -359,7 +359,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}
 
 	if i.options.ApplyFilter {
-		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy)
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
 		}
