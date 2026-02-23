@@ -366,12 +366,7 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-
-	if condition != "" {
-		return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
-	}
-	// If condition is empty, select all
-	return fmt.Sprintf("SELECT * FROM %s", quotedTable)
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
