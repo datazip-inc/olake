@@ -17,6 +17,13 @@ const (
 
 	CDCStartLSN = "_cdc_start_lsn" // MSSQL start LSN
 	CDCSeqVal   = "_cdc_seqval"    // MSSQL seqval
+
+	defaultCDCMaxTrans   = 500             // SQL Server default maxtrans per scan session
+	cdcAgentPollInterval = 2 * time.Second // interval between scan session checks
+	// 2 minutes covers at least 2 full agent cycles for polling intervals up to 60s.
+	// For extreme configurations (e.g. 24h polling), this times out and falls back
+	// to currentMaxLSN with a warning potential duplicates are resolved by upsert.
+	cdcAgentCatchUpTimeout = 2 * time.Minute
 )
 
 // CDC capture instance for a table
@@ -25,6 +32,13 @@ type captureInstance struct {
 	table        string
 	instanceName string
 	startLSN     string
+}
+
+// cdcScanSession represents a completed CDC log scan session from sys.dm_cdc_log_scan_sessions.
+type cdcScanSession struct {
+	sessionID int
+	endTime   time.Time
+	tranCount int
 }
 
 // prepareCaptureInstances discovers capture instances for selected streams
@@ -67,13 +81,7 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
-	// Get current max LSN to use as start point for new streams
-	currentLSN, err := m.currentMaxLSN(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get MSSQL current max LSN: %w", err)
-	}
-
-	// check if CDC is enabled for each stream
+	var currentLSN string
 	for _, stream := range streams {
 		enabled, err := m.validateCDCStream(ctx, stream.Namespace(), stream.Name())
 		if err != nil {
@@ -84,8 +92,13 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 			return fmt.Errorf("CDC is not enabled for stream %s.%s", stream.Namespace(), stream.Name())
 		}
 
-		// Initialize LSN for each stream if not present
-		if lsnVal := m.state.GetCursor(stream.Self(), cdcCursorKey); lsnVal == nil {
+		if m.state.GetCursor(stream.Self(), cdcCursorKey) == nil {
+			if currentLSN == "" {
+				currentLSN, err = m.resolveInitialLSN(ctx)
+				if err != nil {
+					return fmt.Errorf("failed to get MSSQL current max LSN: %w", err)
+				}
+			}
 			m.state.SetCursor(stream.Self(), cdcCursorKey, currentLSN)
 		}
 	}
@@ -311,4 +324,104 @@ func operationTypeFromCDCCode(code int32) string {
 	default:
 		return "update"
 	}
+}
+
+// resolveInitialLSN returns a correct starting LSN for the first CDC sync.
+//
+// MSSQL CDC uses an asynchronous capture agent that copies committed transactions from the
+// transaction log into CDC change tables. sys.fn_cdc_get_max_lsn() only reflects what the
+// agent has processed, which can lag behind the actual transaction log. This creates a race
+// condition during initial sync:
+//
+//  1. PreCDC reads max LSN from CDC tables → gets stale value (e.g. LSN 3)
+//  2. Backfill reads all committed rows from the source table (includes data up to LSN 7)
+//  3. CDC agent catches up, populating change tables from LSN 3 to 7
+//  4. StreamChanges replays LSN 3→7, re-emitting rows already backfilled
+//
+// To prevent this, we observe sys.dm_cdc_log_scan_sessions to determine when the CDC agent
+// has finished a non-throttled scan session (tran_count < maxtrans). A non-throttled session
+// means the agent fully drained the transaction log. We then read the max LSN, knowing it
+// reflects all committed transactions at that point.
+//
+// This mechanism requires VIEW DATABASE STATE permission or
+// VIEW DATABASE PERFORMANCE STATE permission (SQL Server 2022+) on the database. If not granted,
+// we fall back to sys.fn_cdc_get_max_lsn() directly, accepting potential duplicates that
+// are resolved by upsert at the destination.
+func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
+	var hasPermission bool
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLViewDatabaseStatePermissionQuery()).Scan(&hasPermission)
+	if err != nil {
+		logger.Warnf("failed to check VIEW DATABASE STATE permission, falling back to current max LSN: %s", err)
+		return m.currentMaxLSN(ctx)
+	}
+
+	if !hasPermission {
+		logger.Warnf("VIEW DATABASE STATE permission not granted; CDC cursor may lag behind the transaction log, which can cause duplicate rows during backfill.")
+		return m.currentMaxLSN(ctx)
+	}
+
+	return m.waitForCDCAgentCatchUp(ctx)
+}
+
+// waitForCDCAgentCatchUp waits until the CDC capture agent completes a scan
+// session where tran_count < maxtrans. Because the agent processes at most
+// `maxtrans` transactions per session (default 500), a session that finishes
+// with fewer transactions indicates it reached the end of the transaction log
+// and is fully caught up at that moment.
+//
+// After observing such a session, the current CDC max LSN can be used as a
+// stable and causally valid boundary for streaming.
+func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
+	var maxTrans int
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCCaptureJobMaxTransQuery()).Scan(&maxTrans)
+	if err != nil {
+		logger.Errorf("unable to query CDC capture job config, using default maxtrans=%d: %s", defaultCDCMaxTrans, err)
+		maxTrans = defaultCDCMaxTrans
+	}
+
+	// Record the baseSession scan session before we start waiting
+	// query can fail if there are no scan sessions yet, so fallback to current max LSN
+	baseSession, err := m.latestCDCScanSession(ctx)
+	if err != nil {
+		logger.Warnf("failed to query CDC scan sessions, falling back to current max LSN: %s", err)
+		return m.currentMaxLSN(ctx)
+	}
+
+	logger.Infof("waiting for CDC capture agent to catch up (baseline end_time=%s, maxtrans=%d)", baseSession.endTime.Format(time.RFC3339), maxTrans)
+
+	deadline := time.After(cdcAgentCatchUpTimeout)
+	ticker := time.NewTicker(cdcAgentPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-deadline:
+			logger.Warnf("CDC agent did not catch up within %s, using current max LSN", cdcAgentCatchUpTimeout)
+			return m.currentMaxLSN(ctx)
+		case <-ticker.C:
+			session, err := m.latestCDCScanSession(ctx)
+			if err != nil {
+				logger.Warnf("failed to query CDC scan session: %s", err)
+				continue
+			}
+
+			// A session that completed after our baseSession and wasn't throttled
+			// means the agent has fully drained the transaction log.
+			if session.endTime.After(baseSession.endTime) && session.tranCount < maxTrans {
+				logger.Infof("CDC agent caught up (session_id=%d, end_time=%s, tran_count=%d)", session.sessionID, session.endTime.Format(time.RFC3339), session.tranCount)
+				return m.currentMaxLSN(ctx)
+			}
+		}
+	}
+}
+
+// latestCDCScanSession returns the most recent completed CDC log scan session.
+func (m *MSSQL) latestCDCScanSession(ctx context.Context) (session cdcScanSession, err error) {
+	err = m.client.QueryRowContext(ctx, jdbc.MSSQLCDCLatestScanSessionQuery()).Scan(&session.sessionID, &session.endTime, &session.tranCount)
+	if err != nil {
+		return session, fmt.Errorf("failed to query CDC log scan sessions: %s", err)
+	}
+	return session, nil
 }
