@@ -2,7 +2,6 @@ package abstract
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"maps"
 	"time"
@@ -109,30 +108,25 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		}
 	}()
 
-	var finalMetadataState map[string]any
+	var finalMetadataState any
 	writers := make(map[string]*destination.WriterThread)
-	metadataStates := make(map[types.StreamInterface]any)
+	metadataStates := make(map[string]any)
 
 	for _, stream := range streams {
-		startPos, posErr := a.driver.GetCDCStartPosition(stream, streamIndex)
-		if posErr != nil {
-			return fmt.Errorf("failed to get starting CDC position for stream %s: %s", stream.ID(), posErr)
-		}
-		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(startPos)))
-		threadID := generateThreadID(stream.ID(), hash)
+		threadID := generateThreadID(stream.ID(), "")
 		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID))
 		if createErr != nil {
 			return fmt.Errorf("failed to create CDC writer for stream %s: %s", stream.ID(), createErr)
 		}
 		writers[stream.ID()] = w
-		metadataStates[stream] = writerMeta
+		metadataStates[stream.ID()] = writerMeta.State
 	}
 
 	defer func() {
-		handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", finalMetadataState)()
+		handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", finalMetadataState)
 	}()
 
-	rawMetadata, err := a.driver.StreamChanges(cdcCtx, streamIndex, metadataStates, func(ctx context.Context, change CDCChange) error {
+	finalMetadataState, err = a.driver.StreamChanges(cdcCtx, streamIndex, metadataStates, func(ctx context.Context, change CDCChange) error {
 		writer := writers[change.Stream.ID()]
 		olakeColumns := map[string]any{
 			constants.OlakeID:        utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
@@ -143,15 +137,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		maps.Copy(olakeColumns, change.ExtraColumns)
 		return writer.Push(ctx, types.CreateRawRecord(change.Data, olakeColumns))
 	})
-	if err != nil {
-		return err
-	}
-	if rawMetadata != nil {
-		if m, ok := rawMetadata.(map[string]any); ok {
-			finalMetadataState = m
-		}
-	}
-	return nil
+	return err
 }
 
 // mapChangeKindToOperationType converts CDC change kind to operation type code.

@@ -2,9 +2,8 @@ package abstract
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -40,47 +39,45 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		return typeutils.Compare(chunks[i].Min, chunks[j].Min) < 0
 	})
 
-	// Helper to generate threadID for a chunk
-	threadIDCache := make(map[string]string)
-	getThreadID := func(chunk types.Chunk) string {
-		keys := fmt.Sprintf("%v_%v", chunk.Min, chunk.Max)
-		if id, ok := threadIDCache[keys]; ok {
-			return id
-		}
-		hash := fmt.Sprintf("%x", sha256.Sum256([]byte(keys)))
-		id := generateThreadID(stream.ID(), hash)
-		threadIDCache[keys] = id
-		return id
-	}
-
-	logger.Infof("Processing %d chunks for stream[%s]", len(chunks), stream.ID())
+	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 
 	chunkProcessor := func(gCtx context.Context, _ int, chunk types.Chunk) (err error) {
-		threadID := getThreadID(chunk)
-
 		// create backfill context, so that main context not affected if backfill retries
 		backfillCtx, backfillCtxCancel := context.WithCancel(gCtx)
 		defer backfillCtxCancel()
 
-		defer func() {
-			chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
-			if chunksLeft == 0 && backfilledStreams != nil {
-				backfilledStreams <- stream.ID()
-			}
-		}()
-
-		inserter, writerMetadata, err := pool.NewWriter(backfillCtx, stream, destination.WithThreadID(threadID))
+		threadID := generateThreadID(stream.ID(), fmt.Sprintf("min[%v]-max[%v]", chunk.Min, chunk.Max))
+		inserter, prevMetadataState, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
 
-		// If destination already has this threadID in full_refresh_committed_ids, skip processing
-		if a.isThreadIDInBackfillCommitted(writerMetadata, threadID) {
-			logger.Infof("Chunk min[%v] max[%v] (thread %s) already in destination full_refresh_committed_ids, skipping", chunk.Min, chunk.Max, threadID)
-			return nil
+		defer func(ctx context.Context) {
+			// Pass nil metadata payload for backfill.
+			// Java 2PC appends threadId into full_refresh_committed_ids when payload is empty.
+			handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID, nil)
+
+			if ctx.Err() != nil {
+				return
+			}
+
+			chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
+			if chunksLeft == 0 && backfilledStreams != nil {
+				backfilledStreams <- stream.ID()
+			}
+			logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
+		}(backfillCtx)
+
+		if prevMetadataState != nil {
+			// new format: append-only committed ids for full refresh chunks
+			if slices.Contains(prevMetadataState.FullRefreshCommittedIDs, threadID) {
+				logger.Infof("Thread[%s]: chunk min[%v] and max[%v] already committed, skipping", threadID, chunk.Min, chunk.Max)
+				return nil
+			}
 		}
 
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
+
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			olakeColumns := map[string]any{
@@ -98,25 +95,4 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)
 	return nil
-}
-
-// isThreadIDInBackfillCommitted returns true if writerMetadata's olake_2pc_state JSON contains full_refresh_committed_ids and threadID is in that array.
-func (a *AbstractDriver) isThreadIDInBackfillCommitted(writerMetadata map[string]any, threadID string) bool {
-	if writerMetadata == nil || threadID == "" {
-		return false
-	}
-	olake2PCStr, _ := writerMetadata["olake_2pc_state"].(string)
-	if olake2PCStr == "" {
-		return false
-	}
-	var state SyncState
-	if err := json.Unmarshal([]byte(olake2PCStr), &state); err != nil {
-		return false
-	}
-	for _, id := range state.FullRefreshCommittedIDs {
-		if id == threadID {
-			return true
-		}
-	}
-	return false
 }

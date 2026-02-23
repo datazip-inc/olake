@@ -15,7 +15,7 @@ func (o *Oracle) PreCDC(ctx context.Context, streams []types.StreamInterface) er
 }
 
 // StreamChanges streams CDC changes for a given stream
-func (o *Oracle) StreamChanges(_ context.Context, _ int, _ map[types.StreamInterface]any, _ abstract.CDCMsgFn) (any, error) {
+func (o *Oracle) StreamChanges(_ context.Context, _ int, _ map[string]any, _ abstract.CDCMsgFn) (any, error) {
 	return nil, nil
 }
 

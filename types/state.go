@@ -166,9 +166,8 @@ func (s *State) GetCursor(stream *ConfiguredStream, key string) any {
 	return nil
 }
 
-// SetCursors sets multiple cursors for a stream in state, making it atomic operation
-func (s *State) SetCursors(stream *ConfiguredStream, cursors map[string]any) {
-	if len(cursors) == 0 {
+func (s *State) SetCursor(stream *ConfiguredStream, key string, value any) {
+	if key == "" {
 		return
 	}
 	s.Lock()
@@ -177,21 +176,12 @@ func (s *State) SetCursors(stream *ConfiguredStream, cursors map[string]any) {
 	index, contains := utils.ArrayContains(s.Streams, func(elem *StreamState) bool {
 		return elem.Namespace == stream.Namespace() && elem.Stream == stream.Name()
 	})
-
 	if contains {
-		for key, value := range cursors {
-			if key != "" {
-				s.Streams[index].State.Store(key, value)
-			}
-		}
+		s.Streams[index].State.Store(key, value)
 		s.Streams[index].HoldsValue.Store(true)
 	} else {
 		newStream := s.initStreamState(stream)
-		for key, value := range cursors {
-			if key != "" {
-				newStream.State.Store(key, value)
-			}
-		}
+		newStream.State.Store(key, value)
 		newStream.HoldsValue.Store(true)
 		s.Streams = append(s.Streams, newStream)
 	}

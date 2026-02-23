@@ -324,7 +324,7 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 }
 
 // Close flushes all writers and commits files to Iceberg.
-func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState map[string]any) error {
+func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}

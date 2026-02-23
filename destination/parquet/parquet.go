@@ -120,7 +120,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, map[string]any, error) {
+func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, *types.MetadataState, error) {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string][]*FileMetadata)
@@ -248,7 +248,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) closePqFiles(ctx context.Context, _ map[string]any, closeOnError bool) error {
+func (p *Parquet) closePqFiles(ctx context.Context, _ any, closeOnError bool) error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -342,7 +342,8 @@ func (p *Parquet) closePqFiles(ctx context.Context, _ map[string]any, closeOnErr
 	return nil
 }
 
-func (p *Parquet) Close(ctx context.Context, finalMetadataState map[string]any) error {
+func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
+	// TODO: implement 2pc in parquet writer (difficulty: hard)
 	return p.closePqFiles(ctx, finalMetadataState, ctx.Err() != nil)
 }
 
