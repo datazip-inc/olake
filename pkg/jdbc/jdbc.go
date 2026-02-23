@@ -63,18 +63,6 @@ func QuoteColumns(columns []string, driver constants.DriverType) []string {
 	return quoted
 }
 
-// QuoteLiteral returns a properly escaped and quoted string literal for SQL
-func QuoteLiteral(val any) string {
-	if val == nil {
-		return "NULL"
-	}
-
-	str := utils.ConvertToString(val)
-	// Escape single quotes for SQL safety
-	escaped := strings.ReplaceAll(str, "'", "''")
-	return fmt.Sprintf("'%s'", escaped)
-}
-
 // MinMaxQuery returns the query to fetch MIN and MAX values of a column in a Postgres table
 func MinMaxQuery(stream types.StreamInterface, column string) string {
 	quotedColumn := QuoteIdentifier(column, constants.Postgres)
@@ -249,6 +237,18 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 //
 //	(c1 > m1) OR (c1 = m1 AND c2 > m2) OR (c1 = m1 AND c2 = m2 AND c3 >= m3)
 func buildLexicographicChunkCondition(quotedColumns []string, chunk types.Chunk, extraFilter string) string {
+	// formatSQLLiteral returns a properly escaped and quoted string literal for SQL
+	formatSQLLiteral := func(val any) string {
+		if val == nil {
+			return "NULL"
+		}
+
+		str := utils.ConvertToString(val)
+		// Escape single quotes for SQL safety
+		escaped := strings.ReplaceAll(str, "'", "''")
+		return fmt.Sprintf("'%s'", escaped)
+	}
+
 	splitBoundaryValues := func(boundary any) []string {
 		if boundary == nil {
 			return nil
@@ -280,7 +280,7 @@ func buildLexicographicChunkCondition(quotedColumns []string, chunk types.Chunk,
 			// Prefix columns must match exactly: c1 = v1 AND c2 = v2 ...
 			for prefixIdx := range colIdx {
 				if prefixIdx < len(values) {
-					andConds = append(andConds, fmt.Sprintf("%s = %s", quotedColumns[prefixIdx], QuoteLiteral(values[prefixIdx])))
+					andConds = append(andConds, fmt.Sprintf("%s = %s", quotedColumns[prefixIdx], formatSQLLiteral(values[prefixIdx])))
 				}
 			}
 
@@ -295,7 +295,7 @@ func buildLexicographicChunkCondition(quotedColumns []string, chunk types.Chunk,
 			}
 
 			if colIdx < len(values) {
-				andConds = append(andConds, fmt.Sprintf("%s %s %s", quotedColumns[colIdx], op, QuoteLiteral(values[colIdx])))
+				andConds = append(andConds, fmt.Sprintf("%s %s %s", quotedColumns[colIdx], op, formatSQLLiteral(values[colIdx])))
 			}
 			if len(andConds) > 0 {
 				orGroups = append(orGroups, "("+strings.Join(andConds, " AND ")+")")
