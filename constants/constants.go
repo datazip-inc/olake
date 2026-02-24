@@ -36,8 +36,9 @@ const (
 	// DistributionLower is the lower bound for distribution factor
 	DistributionLower = 0.05
 	// DistributionUpper is the upper bound for distribution factor
-	DistributionUpper = 100.0
-	UnicodeSize       = 1114112
+	DistributionUpper             = 100.0
+	UnicodeSize                   = 1114112
+	MysqlChunkSizeReductionFactor = float64(0.8)
 )
 
 type DriverType string
