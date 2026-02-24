@@ -129,7 +129,7 @@ func (f Fields) FromSchema(schema *types.TypeSchema) {
 func (f Fields) ToTypeSchema() *types.TypeSchema {
 	schema := types.NewTypeSchema()
 	for key, val := range f {
-		schema.AddTypes(key, val.getType())
+		schema.AddTypes(key, false, val.getType())
 	}
 	return schema
 }

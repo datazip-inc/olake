@@ -104,11 +104,32 @@ const MySQLUISchema = `{
     { "hosts": 12, "database": 12 },
     { "username": 12, "password": 12 },
     { "port": 12, "max_threads": 12 },
-    { "backoff_retry_count": 12, "tls_skip_verify": 12 },
-    { "ssh_config": 12 , "update_method": 12 }
+    { "backoff_retry_count": 12, "jdbc_url_params": 12 },
+    { "ssl": 12, "update_method": 12 },
+    { "ssh_config": 12 }
   ],
-  "tls_skip_verify": {
-    "ui:widget": "boolean"
+  "ssl": {
+    "ui:options": { "description": false, "label": false },
+    "ui:grid": [
+      { "mode": 24 },
+      { "server_ca": 24 },
+      { "client_cert": 12, "client_key": 12 }
+    ],
+    "mode": {
+      "ui:widget": "select"
+    },
+    "server_ca": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_cert": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    },
+    "client_key": {
+      "ui:widget": "textarea",
+      "ui:options": { "rows": 1 }
+    }
   },
   "update_method": {
     "ui:widget": "radio",
@@ -262,61 +283,82 @@ const S3UISchema = `{
 }`
 
 const KafkaUISchema = `{
+  "ui:grid": [
+    { "bootstrap_servers": 12, "consumer_group_id": 12 },
+    { "threads_equal_total_partitions": 12, "max_threads": 12 },
+    { "backoff_retry_count": 12, "protocol": 12 },
+    { "use_schema_registry": 24 },
+    { "schema_registry": 24 }
+  ],
+  "protocol": {
     "ui:grid": [
-      { "bootstrap_servers": 12, "consumer_group_id": 12 },
-      { "threads_equal_total_partitions": 12, "max_threads": 12 },
-      { "backoff_retry_count": 12, "protocol": 12 }
+      { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
+      { "tls_skip_verify": 24 },
+      { "ssl": 24 }
     ],
-    "protocol": {
+    "sasl_jaas_config": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    },
+    "tls_skip_verify": {
+      "ui:widget": "boolean"
+    },
+    "ssl": {
+      "ui:options": {
+        "title": false,
+        "description": false
+      },
       "ui:grid": [
-        { "sasl_mechanism": 12, "sasl_jaas_config": 12 },
-        { "tls_skip_verify": 24 },
-        { "ssl": 24 }
+        { "server_ca": 12, "client_cert": 12 },
+        { "client_key": 12 }
       ],
-      "sasl_jaas_config": {
+      "server_ca": {
         "ui:widget": "textarea",
         "ui:options": {
           "rows": 1
         }
       },
-      "tls_skip_verify": {
-        "ui:widget": "boolean"
-      },
-      "ssl": {
+      "client_cert": {
+        "ui:widget": "textarea",
         "ui:options": {
-          "title": false,
-          "description": false
-        },
-        "ui:grid": [
-          { "server_ca": 12, "client_cert": 12 },
-          { "client_key": 12 }
-        ],
-        "server_ca": {
-          "ui:widget": "textarea",
-          "ui:options": {
-            "rows": 1
-          }
-        },
-        "client_cert": {
-          "ui:widget": "textarea",
-          "ui:options": {
-            "rows": 1
-          }
-        },
-        "client_key": {
-          "ui:widget": "textarea",
-          "ui:options": {
-            "rows": 1
-          }
+          "rows": 1
         }
       },
-      "ui:options": {
-        "title": false
+      "client_key": {
+        "ui:widget": "textarea",
+        "ui:options": {
+          "rows": 1
+        }
       }
     },
-    "threads_equal_total_partitions": {
-      "ui:widget": "boolean"
+    "ui:options": {
+      "title": false
     }
+  },
+  "use_schema_registry": {
+    "ui:widget": "boolean"
+  },
+  "schema_registry": {
+    "ui:options": {
+      "title": false
+    },
+    "ui:grid": [
+      { "endpoint": 12, "auth_type": 12 },
+      { "username": 12, "password": 12 },
+      { "bearer_token": 24 }
+    ],
+    "password": {
+      "ui:widget": "password"
+    },
+    "bearer_token": {
+      "ui:widget": "password"
+    }
+  },
+  "threads_equal_total_partitions": {
+    "ui:widget": "boolean"
+  }
 }`
 
 const ParquetUISchema = `{
@@ -352,7 +394,10 @@ const IcebergUISchema = `{
       { "rest_signing_name": 12, "rest_signing_region": 12 },
       { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
-      { "aws_region": 12, "arrow_writes": 12 }
+      { "aws_region": 12, "glue_additional_config": 12 },
+	 { "glue_catalog_id": 12, "glue_access_key": 12, "glue_secret_key": 12 },
+      { "glue_endpoint": 12, "glue_region": 12 },
+      { "arrow_writes": 12 }
     ],
     "no_identifier_fields": {
       "ui:widget": "boolean"
@@ -370,6 +415,9 @@ const IcebergUISchema = `{
       "ui:widget": "boolean"
     },
     "arrow_writes": {
+      "ui:widget": "boolean"
+    },
+    "glue_additional_config": {
       "ui:widget": "boolean"
     },
     "catalog_type": {

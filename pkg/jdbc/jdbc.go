@@ -550,6 +550,11 @@ func MySQLTableColumnsQuery() string {
 	`
 }
 
+// MySQLTimeZoneQuery returns the query to fetch the timezone of the MySQL server and system timezone
+func MySQLTimeZoneQuery() string {
+	return "SELECT @@session.time_zone, @@global.time_zone, @@system_time_zone"
+}
+
 // MySQLVersion returns the version of the MySQL server
 // It returns the flavor, major and minor version of the MySQL server
 func MySQLVersion(ctx context.Context, client *sqlx.DB) (string, int, int, error) {
@@ -692,8 +697,8 @@ func MSSQLCDCTableEnabledQuery() string {
 }
 
 // MSSQLCDCDiscoverQuery returns the query to discover CDC-enabled capture instances
-func MSSQLCDCDiscoverQuery(streams []string) string {
-	query := `
+func MSSQLCDCDiscoverQuery(streamID string) string {
+	return fmt.Sprintf(`
 		SELECT
 			s.name AS schema_name,
 			t.name AS table_name,
@@ -704,27 +709,13 @@ func MSSQLCDCDiscoverQuery(streams []string) string {
 			ON t.schema_id = s.schema_id
 		JOIN cdc.change_tables c
 			ON t.object_id = c.source_object_id
-	`
-
-	if len(streams) > 0 {
-		var quotedStreams []string
-		for _, s := range streams {
-			quotedStreams = append(quotedStreams, fmt.Sprintf("'%s'", s))
-		}
-		query += fmt.Sprintf(
-			" WHERE CONCAT(s.name, '.', t.name) IN (%s)",
-			strings.Join(quotedStreams, ","),
-		)
-	}
-
-	query += `
+		WHERE CONCAT(s.name, '.', t.name) IN ('%s')
 		ORDER BY
 			s.name ASC,
 			t.name ASC,
-			c.start_lsn ASC
-	`
-
-	return query
+			c.start_lsn ASC`,
+		streamID,
+	)
 }
 
 // MSSQLCDCGetChangesQuery returns the query to fetch CDC changes for a capture instance
@@ -875,29 +866,17 @@ func MSSQLNextChunkEndQuery(stream types.StreamInterface, orderingColumns []stri
 func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	tableName := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 
-	// Helper to format %%physloc%% value (binary) as hex literal
+	// Format %%physloc%% value as a hex literal
 	formatPhysLocValue := func(val any) string {
 		if val == nil {
 			return "NULL"
 		}
-		// %%physloc%% is always binary, convert to hex literal
-		if b, ok := val.([]byte); ok {
-			if len(b) == 0 {
-				return "0x"
-			}
-			hexString := fmt.Sprintf("%X", b)
-			return "0x" + hexString
+
+		// chunk stores boundary (min and max) values in hex format
+		if value, ok := val.(string); ok {
+			return value
 		}
-		// If it's a string (from utils.ConvertToString on []byte), convert bytes to hex
-		if s, ok := val.(string); ok {
-			// If it's already a hex string like "0x...", use it directly
-			if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
-				return s
-			}
-			// Convert string of bytes to hex (utils.ConvertToString converts []byte to string of bytes)
-			hexString := fmt.Sprintf("%X", []byte(s))
-			return "0x" + hexString
-		}
+
 		return fmt.Sprintf("%v", val)
 	}
 

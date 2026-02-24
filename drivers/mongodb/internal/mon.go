@@ -31,6 +31,7 @@ type Mongo struct {
 	CDCSupport bool // indicates if the MongoDB instance supports Change Streams
 	cdcCursor  sync.Map
 	state      *types.State // reference to globally present state
+	streams    []types.StreamInterface
 	sshDialer  *MongoSSHDialer
 }
 
@@ -167,6 +168,7 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 	return streamNames, collections.Err()
 }
 
+// TODO: omit usage of ProduceSchema when sync command is used
 func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
@@ -223,10 +225,12 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	// Either wait for covering 100k records from both sides for all streams
 	// Or wait till discoverCtx exits
 	stream, err := produceCollectionSchema(ctx, database, streamName)
-	if err != nil && ctx.Err() == nil { // if discoverCtx did not make an exit then throw an error
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 	}
-
 	// Add all discovered fields as potential cursor fields
 	stream.Schema.Properties.Range(func(key, value interface{}) bool {
 		if fieldName, ok := key.(string); ok {
@@ -234,6 +238,13 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 		return true
 	})
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if m.CDCSupported() {
+		stream.UpsertField(CDCResumeToken, types.String, true, true)
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return stream, err
 }
 

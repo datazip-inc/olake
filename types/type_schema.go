@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
@@ -20,6 +21,19 @@ func NewTypeSchema() *TypeSchema {
 		mu:         sync.Mutex{},
 		Properties: sync.Map{},
 	}
+}
+
+// ColumnNames returns the list of column names currently present in the schema.
+// Note: ordering is not guaranteed because sync.Map iteration order is not defined.
+func (t *TypeSchema) ColumnNames() []string {
+	var columns []string
+	t.Properties.Range(func(col, _ interface{}) bool {
+		if colName, ok := col.(string); ok {
+			columns = append(columns, colName)
+		}
+		return true
+	})
+	return columns
 }
 
 func (t *TypeSchema) Override(fields map[string]*Property) {
@@ -95,7 +109,7 @@ func (t *TypeSchema) GetType(column string) (DataType, error) {
 	return p.(*Property).DataType(), nil
 }
 
-func (t *TypeSchema) AddTypes(column string, types ...DataType) {
+func (t *TypeSchema) AddTypes(column string, isOlakeColumn bool, types ...DataType) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	p, found := t.Properties.Load(column)
@@ -103,6 +117,7 @@ func (t *TypeSchema) AddTypes(column string, types ...DataType) {
 		t.Properties.Store(column, &Property{
 			Type:                  NewSet(types...),
 			DestinationColumnName: utils.Reformat(column),
+			OlakeColumn:           isOlakeColumn,
 		})
 		return
 	}
@@ -120,31 +135,62 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
-func (t *TypeSchema) ToParquet() *parquet.Schema {
-	groupNode := parquet.Group{}
+func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *parquet.Schema {
+	// keeping default columns parquet schema for backward compatibility for olake columns
+	groupNode := parquet.Group{
+		constants.OlakeID:        parquet.String(),
+		constants.OlakeTimestamp: parquet.Timestamp(parquet.Microsecond),
+		constants.OpType:         parquet.String(),
+		constants.CdcTimestamp:   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
+	}
+	isSelected := stream.IsSelectedColumn()
+
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		colName := key.(string)
+		if !isSelected(utils.Reformat(colName)) || (defaultColumns && !prop.OlakeColumn) {
+			return true
+		}
 		// Todo: check we can use field name instead of destination column name
-		groupNode[prop.getDestinationColumnName(key.(string))] = prop.DataType().ToNewParquet()
+		groupNode[prop.getDestinationColumnName(colName)] = prop.DataType().ToNewParquet()
 		return true
 	})
+
+	if defaultColumns {
+		groupNode[constants.StringifiedData] = parquet.JSON()
+	}
 
 	return parquet.NewSchema("olake_schema", groupNode)
 }
 
-func (t *TypeSchema) ToIceberg() []*proto.IcebergPayload_SchemaField {
+func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface) []*proto.IcebergPayload_SchemaField {
 	var icebergFields []*proto.IcebergPayload_SchemaField
+	isSelected := stream.IsSelectedColumn()
+
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
+		colName := key.(string)
+		// skip non-olake columns if defaultColumns is set to true
+		if !isSelected(utils.Reformat(colName)) || (defaultColumns && !prop.OlakeColumn) {
+			return true
+		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
-			Key:     prop.getDestinationColumnName(key.(string)),
+			Key:     prop.getDestinationColumnName(colName),
 		})
 		return true
 	})
 
+	if defaultColumns {
+		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+			IceType: "string",
+			Key:     constants.StringifiedData,
+		})
+	}
+
 	return icebergFields
 }
+
 func (t *TypeSchema) HasDestinationColumnName() bool {
 	found := false
 	t.Properties.Range(func(_, value interface{}) bool {
@@ -158,6 +204,7 @@ func (t *TypeSchema) HasDestinationColumnName() bool {
 type Property struct {
 	Type                  *Set[DataType] `json:"type,omitempty"`
 	DestinationColumnName string         `json:"destination_column_name,omitempty"`
+	OlakeColumn           bool           `json:"olake_column,omitempty"`
 }
 
 // returns datatype according to typecast tree if multiple type present

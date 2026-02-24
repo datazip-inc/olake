@@ -90,13 +90,13 @@ func (s *Stream) WithSchema(schema *TypeSchema) *Stream {
 }
 
 // Add or Update Column in Stream Type Schema
-func (s *Stream) UpsertField(column string, typ DataType, nullable bool) {
+func (s *Stream) UpsertField(column string, typ DataType, nullable bool, isOlakeColumn bool) {
 	types := []DataType{typ}
 	if nullable {
 		types = append(types, Null)
 	}
 
-	s.Schema.AddTypes(column, types...)
+	s.Schema.AddTypes(column, isOlakeColumn, types...)
 }
 
 func (s *Stream) Wrap(_ int) *ConfiguredStream {

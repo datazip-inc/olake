@@ -60,7 +60,8 @@ func (f *FlattenerImpl) flatten(key string, value any, destination types.Record)
 
 	// Type switch is faster than reflection for known types
 	switch v := value.(type) {
-	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, string, time.Time:
+	// json.Number is included because Kafka driver uses decoder.UseNumber() for number handling
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, string, time.Time, json.Number:
 		destination[reformattedKey] = v
 	case []byte:
 		destination[reformattedKey] = string(v)

@@ -36,15 +36,98 @@
       "description": "Database server listening port",
       "default": 3306
     },
-    "tls_skip_verify": {
-      "type": "boolean",
-      "title": "Skip TLS Verification",
-      "description": "Determines if TLS certificate verification should be skipped for secure connections",
-      "default": true
+    "jdbc_url_params": {
+      "type": "object",
+      "title": "JDBC URL Parameters",
+      "description": "Additional connection parameters for the Go MySQL driver",
+      "additionalProperties": true,
+      "default": {}
+    },
+    "ssl": {
+      "type": "object",
+      "description": "SSL/TLS configuration for secure database connections",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "title": "SSL Configuration",
+          "enum": [
+            "disable",
+            "require",
+            "verify-ca",
+            "verify-full"
+          ],
+          "default": "disable"
+        }
+      },
+      "required": [],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "verify-ca"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "server_ca": {
+                "type": "string",
+                "title": "Server CA Certificate",
+                "description": "CA certificate content (PEM format) for server verification"
+              },
+              "client_cert": {
+                "type": "string",
+                "title": "Client Certificate",
+                "description": "Client certificate content (PEM format) for mutual TLS authentication"
+              },
+              "client_key": {
+                "type": "string",
+                "title": "Client Key",
+                "description": "Client private key content (PEM format) for mutual TLS authentication"
+              }
+            },
+            "required": [
+              "server_ca"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "verify-full"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "server_ca": {
+                "type": "string",
+                "title": "Server CA Certificate",
+                "description": "CA certificate content (PEM format) for server verification"
+              },
+              "client_cert": {
+                "type": "string",
+                "title": "Client Certificate",
+                "description": "Client certificate content (PEM format) for mutual TLS authentication"
+              },
+              "client_key": {
+                "type": "string",
+                "title": "Client Key",
+                "description": "Client private key content (PEM format) for mutual TLS authentication"
+              }
+            },
+            "required": [
+              "server_ca"
+            ]
+          }
+        }
+      ]
     },
     "update_method": {
       "title": "Update Method",
-      "description" : "Define how OLake captures data updates from your source",
+      "description": "Define how OLake captures data updates from your source",
       "oneOf": [
         {
           "type": "object",
@@ -91,7 +174,9 @@
               "const": "no_tunnel"
             }
           },
-          "required": ["type"]
+          "required": [
+            "type"
+          ]
         },
         {
           "type": "object",

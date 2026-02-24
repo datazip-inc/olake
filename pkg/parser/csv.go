@@ -92,7 +92,7 @@ func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 	// Infer types for each column
 	for i, header := range headers {
 		dataType := inferColumnType(sampleRows, i)
-		p.stream.UpsertField(header, dataType, true) // Allow nulls by default
+		p.stream.UpsertField(header, dataType, true, false) // Allow nulls by default
 	}
 
 	logger.Infof("Inferred schema with %d columns from CSV", len(headers))

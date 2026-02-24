@@ -176,9 +176,9 @@ func TestJSONParser_StreamRecords_TypeConsistency(t *testing.T) {
 	}
 
 	stream := types.NewStream("test", "test", nil)
-	stream.UpsertField("id", types.Float64, true)
-	stream.UpsertField("count", types.Float64, true)
-	stream.UpsertField("price", types.Float64, true)
+	stream.UpsertField("id", types.Float64, true, false)
+	stream.UpsertField("count", types.Float64, true, false)
+	stream.UpsertField("price", types.Float64, true, false)
 
 	parser := NewJSONParser(config, stream)
 

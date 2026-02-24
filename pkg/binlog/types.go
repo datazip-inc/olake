@@ -1,6 +1,7 @@
 package binlog
 
 import (
+	"crypto/tls"
 	"time"
 
 	"github.com/datazip-inc/olake/types"
@@ -10,17 +11,19 @@ import (
 
 // Config holds the configuration for the binlog syncer.
 type Config struct {
-	ServerID        uint32
-	Flavor          string
-	Host            string
-	Port            uint16
-	User            string
-	Password        string
-	Charset         string
-	VerifyChecksum  bool
-	HeartbeatPeriod time.Duration
-	InitialWaitTime time.Duration
-	SSHClient       *ssh.Client
+	ServerID                uint32
+	Flavor                  string
+	Host                    string
+	Port                    uint16
+	User                    string
+	Password                string
+	Charset                 string
+	VerifyChecksum          bool
+	HeartbeatPeriod         time.Duration
+	InitialWaitTime         time.Duration
+	SSHClient               *ssh.Client
+	TLSConfig               *tls.Config
+	TimestampStringLocation *time.Location
 }
 
 // BinlogState holds the current binlog position.

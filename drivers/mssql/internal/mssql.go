@@ -22,12 +22,12 @@ import (
 )
 
 type MSSQL struct {
-	client      *sqlx.DB
-	config      *Config
-	state       *types.State
-	capturesMap map[string][]captureInstance
-	lsnMap      sync.Map
-
+	client       *sqlx.DB
+	config       *Config
+	state        *types.State
+	capturesMap  map[string][]captureInstance
+	lsnMap       sync.Map
+	streams      []types.StreamInterface
 	cdcSupported bool
 }
 
@@ -224,7 +224,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", column.dataType, streamName, column.name)
 				datatype = types.String
 			}
-			stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"))
+			stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"), false)
 
 			if column.isPrimaryKey {
 				stream.WithPrimaryKey(column.name)
@@ -234,9 +234,20 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return stream, nil
 	}
 	stream, err := produceTableSchema(ctx, streamName)
-	if err != nil && ctx.Err() == nil {
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if m.CDCSupported() {
+		stream.UpsertField(CDCStartLSN, types.String, true, true)
+		stream.UpsertField(CDCSeqVal, types.String, true, true)
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
 	return stream, nil
 }
 
@@ -288,8 +299,8 @@ func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 	return isEnabled, nil
 }
 
-// isStreamCDCEnabled checks if CDC is enabled for a specific table.
-func (m *MSSQL) isStreamCDCEnabled(ctx context.Context, namespace, name string) (bool, error) {
+// validateCDCStream verifies if the stream is CDC enabled in mssql.
+func (m *MSSQL) validateCDCStream(ctx context.Context, namespace, name string) (bool, error) {
 	if !m.cdcSupported {
 		return false, nil
 	}

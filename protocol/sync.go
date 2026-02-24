@@ -86,8 +86,8 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// Get Source Streams
-		streams, err := connector.Discover(cmd.Context())
+		// Get Source Streams, sending 0 max discover threads to discover
+		streams, err := connector.Discover(cmd.Context(), 0)
 		if err != nil {
 			return err
 		}
@@ -135,12 +135,13 @@ var syncCmd = &cobra.Command{
 			time.Sleep(5 * time.Second)
 		}()
 
-		// init group
 		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
+
 		state.LogWithLock()
+		// TODO: record count also contain records which arrived in retry attempts, need to remove them
 		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
 		return nil
 	},

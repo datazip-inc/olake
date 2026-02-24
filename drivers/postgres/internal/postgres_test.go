@@ -17,6 +17,7 @@ func TestPostgresIntegration(t *testing.T) {
 		ExpectedUpdatedData:              ExpectedUpdatedData,
 		DestinationDataTypeSchema:        PostgresToDestinationSchema,
 		UpdatedDestinationDataTypeSchema: UpdatedPostgresToDestinationSchema,
+		DefaultCDCColumnsSchema:          ExpectedPostgresDefaultCDCColumnsSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "postgres_postgres_public",
 		CursorField:                      "col_cursor:col_int",

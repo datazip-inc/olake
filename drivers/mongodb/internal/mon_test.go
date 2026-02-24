@@ -16,6 +16,7 @@ func TestMongodbIntegration(t *testing.T) {
 		ExpectedUpdatedData:              ExpectedUpdatedData,
 		DestinationDataTypeSchema:        MongoToDestinationSchema,
 		UpdatedDestinationDataTypeSchema: UpdatedMongoToDestinationSchema,
+		DefaultCDCColumnsSchema:          ExpectedMongoDbDefaultCDCColumnsSchema,
 		ExecuteQuery:                     ExecuteQuery,
 		DestinationDB:                    "mongodb_olake_mongodb_test",
 		CursorField:                      "id_cursor:id_int",

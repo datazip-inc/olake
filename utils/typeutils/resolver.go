@@ -22,7 +22,7 @@ func Resolve(stream *types.Stream, objects ...map[string]interface{}) error {
 	}
 
 	for column, field := range allfields {
-		stream.UpsertField(column, *field.dataType, field.isNullable())
+		stream.UpsertField(column, *field.dataType, field.isNullable(), false)
 	}
 
 	return nil

@@ -401,11 +401,11 @@ func TestCSVParser_StreamRecords_TypeConversion(t *testing.T) {
 	}
 
 	stream := types.NewStream("test", "test", nil)
-	stream.UpsertField("id", types.Int64, true)
-	stream.UpsertField("name", types.String, true)
-	stream.UpsertField("age", types.Int32, true)
-	stream.UpsertField("score", types.Float32, true)
-	stream.UpsertField("is_active", types.Bool, true)
+	stream.UpsertField("id", types.Int64, true, false)
+	stream.UpsertField("name", types.String, true, false)
+	stream.UpsertField("age", types.Int32, true, false)
+	stream.UpsertField("score", types.Float32, true, false)
+	stream.UpsertField("is_active", types.Bool, true, false)
 
 	parser := NewCSVParser(config, stream)
 

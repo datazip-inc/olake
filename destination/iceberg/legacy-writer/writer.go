@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
+	"maps"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -47,12 +47,12 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		}
 
 		protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
+		var err error
 		if !w.stream.NormalizationEnabled() {
-			protoCols, err := RawDataColumnBuffer(record, protoSchema)
+			protoColumnsValue, err = RawDataColumnBuffer(record, protoSchema)
 			if err != nil {
 				return fmt.Errorf("failed to create raw data column buffer: %s", err)
 			}
-			protoColumnsValue = protoCols
 		} else {
 			for _, field := range protoSchema {
 				val, exist := record.Data[field.Key]
@@ -60,53 +60,19 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 					protoColumnsValue = append(protoColumnsValue, nil)
 					continue
 				}
-				switch field.IceType {
-				case "boolean":
-					boolValue, err := typeutils.ReformatBool(val)
-					if err != nil {
-						return fmt.Errorf("failed to reformat rawValue[%v] as bool value: %s", val, err)
-					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: boolValue}})
-				case "int":
-					intValue, err := typeutils.ReformatInt32(val)
-					if err != nil {
-						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as int32 value: %s", val, val, err)
-					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_IntValue{IntValue: intValue}})
-				case "long":
-					longValue, err := typeutils.ReformatInt64(val)
-					if err != nil {
-						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as long value: %s", val, val, err)
-					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: longValue}})
-				case "float":
-					floatValue, err := typeutils.ReformatFloat32(val)
-					if err != nil {
-						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float32 value: %s", val, val, err)
-					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_FloatValue{FloatValue: floatValue}})
-				case "double":
-					doubleValue, err := typeutils.ReformatFloat64(val)
-					if err != nil {
-						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float64 value: %s", val, val, err)
-					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: doubleValue}})
-				case "timestamptz":
-					timeValue, err := typeutils.ReformatDate(val, true)
-					if err != nil {
-						return fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as time value: %s", val, val, err)
-					}
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: timeValue.UnixMilli()}})
-				default:
-					protoColumnsValue = append(protoColumnsValue, &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: fmt.Sprintf("%v", val)}})
+				fv, err := toProtoFieldValue(field.IceType, val)
+				if err != nil {
+					return fmt.Errorf("field[%s]: %s", field.Key, err)
 				}
+
+				protoColumnsValue = append(protoColumnsValue, fv)
 			}
 		}
 
 		if len(protoColumnsValue) > 0 {
 			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
 				Fields:     protoColumnsValue,
-				RecordType: record.OperationType,
+				RecordType: record.OlakeColumns[constants.OpType].(string),
 			})
 		}
 	}
@@ -127,7 +93,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	}
 
 	// Send to gRPC server with timeout
-	reqCtx, cancel := context.WithTimeout(ctx, 3600*time.Second)
+	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
 	// Send the batch to the server
@@ -158,7 +124,7 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 	}
 
 	// Send commit request with timeout
-	ctx, cancel := context.WithTimeout(ctx, 3600*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
 	res, err := w.server.SendClientRequest(ctx, request)
@@ -173,21 +139,19 @@ func (w *LegacyWriter) Close(ctx context.Context) error {
 }
 
 func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPayload_SchemaField) ([]*proto.IcebergPayload_IceRecord_FieldValue, error) {
-	dataMap := make(map[string]*proto.IcebergPayload_IceRecord_FieldValue)
-	protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
+	// 1. Start with a copy of OlakeColumns (already prepared upstream)
+	dataMap := make(map[string]any, len(record.OlakeColumns)+1)
+	maps.Copy(dataMap, record.OlakeColumns)
 
-	dataMap[constants.OlakeID] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: record.OlakeID}}
-	dataMap[constants.OpType] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: record.OperationType}}
-	dataMap[constants.OlakeTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: time.Now().UTC().UnixMilli()}}
-	if record.CdcTimestamp != nil {
-		dataMap[constants.CdcTimestamp] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: record.CdcTimestamp.UTC().UnixMilli()}}
-	}
-
+	// 2. Add stringified data as a single column
 	bytesData, err := json.Marshal(record.Data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal data in normalization: %s", err)
 	}
-	dataMap[constants.StringifiedData] = &proto.IcebergPayload_IceRecord_FieldValue{Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{StringValue: string(bytesData)}}
+	dataMap[constants.StringifiedData] = string(bytesData)
+
+	// 3. Build final proto values dynamically using SAME logic as normalized path
+	protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
 
 	for _, field := range protoSchema {
 		value, ok := dataMap[field.Key]
@@ -195,7 +159,79 @@ func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPay
 			protoColumnsValue = append(protoColumnsValue, nil)
 			continue
 		}
-		protoColumnsValue = append(protoColumnsValue, value)
+
+		fv, err := toProtoFieldValue(field.IceType, value)
+		if err != nil {
+			return nil, fmt.Errorf("field[%s]: %s", field.Key, err)
+		}
+
+		protoColumnsValue = append(protoColumnsValue, fv)
 	}
+
 	return protoColumnsValue, nil
+}
+
+func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord_FieldValue, error) {
+	switch iceType {
+	case "boolean":
+		v, err := typeutils.ReformatBool(val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] as bool value: %s", val, err)
+		}
+		return &proto.IcebergPayload_IceRecord_FieldValue{
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_BoolValue{BoolValue: v},
+		}, nil
+
+	case "int":
+		v, err := typeutils.ReformatInt32(val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as int32 value: %s", val, val, err)
+		}
+		return &proto.IcebergPayload_IceRecord_FieldValue{
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_IntValue{IntValue: v},
+		}, nil
+
+	case "long":
+		v, err := typeutils.ReformatInt64(val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as long value: %s", val, val, err)
+		}
+		return &proto.IcebergPayload_IceRecord_FieldValue{
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: v},
+		}, nil
+
+	case "float":
+		v, err := typeutils.ReformatFloat32(val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as float32 value: %s", val, val, err)
+		}
+		return &proto.IcebergPayload_IceRecord_FieldValue{
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_FloatValue{FloatValue: v},
+		}, nil
+
+	case "double":
+		v, err := typeutils.ReformatFloat64(val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as double value: %s", val, val, err)
+		}
+		return &proto.IcebergPayload_IceRecord_FieldValue{
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: v},
+		}, nil
+
+	case "timestamptz":
+		t, err := typeutils.ReformatDate(val, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reformat rawValue[%v] of type[%T] as timestamp value: %s", val, val, err)
+		}
+		return &proto.IcebergPayload_IceRecord_FieldValue{
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: t.UnixMilli()},
+		}, nil
+
+	default:
+		return &proto.IcebergPayload_IceRecord_FieldValue{
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{
+				StringValue: fmt.Sprintf("%v", val),
+			},
+		}, nil
+	}
 }

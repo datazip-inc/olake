@@ -1,5 +1,4 @@
 {
-    "title": "Kafka Source Configuration",
     "type": "object",
     "properties": {
         "bootstrap_servers": {
@@ -183,13 +182,124 @@
             "title": "Threads Equal Total Partitions",
             "description": "If true, number of threads will be set equal to total partitions (overrides max_threads)",
             "default": true
+        },
+        "use_schema_registry": {
+            "type": "boolean",
+            "title": "Use Schema Registry",
+            "description": "Enable Confluent Schema Registry for Avro message deserialization",
+            "default": false
         }
     },
     "required": [
         "bootstrap_servers",
         "protocol"
     ],
-    "additionalProperties": false,
+    "dependencies": {
+        "use_schema_registry": {
+            "oneOf": [
+                {
+                    "properties": {
+                        "use_schema_registry": {
+                            "const": false
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "use_schema_registry": {
+                            "const": true
+                        },
+                        "schema_registry": {
+                            "type": "object",
+                            "title": " ",
+                            "properties": {
+                                "endpoint": {
+                                    "type": "string",
+                                    "title": "Schema Registry Endpoint",
+                                    "description": "Schema Registry URL (e.g., http://localhost:8081)",
+                                    "minLength": 1
+                                },
+                                "auth_type": {
+                                    "type": "string",
+                                    "title": "Authentication Type",
+                                    "enum": [
+                                        "none",
+                                        "basic",
+                                        "bearer"
+                                    ],
+                                    "enumNames": [
+                                        "No Authentication",
+                                        "Username & Password",
+                                        "Bearer Token"
+                                    ],
+                                    "default": "none"
+                                }
+                            },
+                            "required": [
+                                "endpoint",
+                                "auth_type"
+                            ],
+                            "dependencies": {
+                                "auth_type": {
+                                    "oneOf": [
+                                        {
+                                            "properties": {
+                                                "auth_type": {
+                                                    "const": "none"
+                                                }
+                                            }
+                                        },
+                                        {
+                                            "properties": {
+                                                "auth_type": {
+                                                    "const": "basic"
+                                                },
+                                                "username": {
+                                                    "type": "string",
+                                                    "title": "Username",
+                                                    "description": "Username for Schema Registry authentication",
+                                                    "minLength": 1
+                                                },
+                                                "password": {
+                                                    "type": "string",
+                                                    "title": "Password",
+                                                    "description": "Password for Schema Registry authentication",
+                                                    "minLength": 1
+                                                }
+                                            },
+                                            "required": [
+                                                "username",
+                                                "password"
+                                            ]
+                                        },
+                                        {
+                                            "properties": {
+                                                "auth_type": {
+                                                    "const": "bearer"
+                                                },
+                                                "bearer_token": {
+                                                    "type": "string",
+                                                    "title": "Bearer Token",
+                                                    "description": "Bearer token for Schema Registry authentication",
+                                                    "minLength": 1
+                                                }
+                                            },
+                                            "required": [
+                                                "bearer_token"
+                                            ]
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "required": [
+                        "schema_registry"
+                    ]
+                }
+            ]
+        }
+    },
     "allOf": [
         {
             "if": {

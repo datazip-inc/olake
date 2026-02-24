@@ -315,8 +315,13 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	}
 
 	// Add _last_modified_time as a cursor field for incremental sync
-	inferredStream.UpsertField(lastModifiedField, types.String, false)
+	inferredStream.UpsertField(lastModifiedField, types.String, false, false)
 	inferredStream.WithCursorField(lastModifiedField)
+
+	inferredStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if s.CDCSupported() {
+		inferredStream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
 
 	return inferredStream, nil
 }
@@ -390,13 +395,18 @@ func (s *S3) PreCDC(ctx context.Context, streams []types.StreamInterface) error 
 }
 
 // StreamChanges is not supported for S3
-func (s *S3) StreamChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.CDCMsgFn) error {
+func (s *S3) StreamChanges(ctx context.Context, streamIndex int, processFn abstract.CDCMsgFn) error {
 	return fmt.Errorf("CDC is not supported for S3 source")
 }
 
 // PostCDC is not supported for S3
-func (s *S3) PostCDC(ctx context.Context, stream types.StreamInterface, success bool, readerID string) error {
+func (s *S3) PostCDC(ctx context.Context, streamIndex int) error {
 	return fmt.Errorf("CDC is not supported for S3 source")
+}
+
+// ChangeStreamConfig returns the change stream configuration for S3
+func (s *S3) ChangeStreamConfig() (bool, bool, bool) {
+	return false, false, false
 }
 
 // getFileReader returns a reader for an S3 file with decompression applied (S3-specific logic)
