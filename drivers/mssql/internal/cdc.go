@@ -18,12 +18,11 @@ const (
 	CDCStartLSN = "_cdc_start_lsn" // MSSQL start LSN
 	CDCSeqVal   = "_cdc_seqval"    // MSSQL seqval
 
-	defaultCDCMaxTrans   = 500             // SQL Server default maxtrans per scan session
-	cdcAgentPollInterval = 2 * time.Second // interval between scan session checks
-	// 2 minutes covers at least 2 full agent cycles for polling intervals up to 60s.
-	// For extreme configurations (e.g. 24h polling), this times out and falls back
-	// to currentMaxLSN with a warning potential duplicates are resolved by upsert.
-	cdcAgentCatchUpTimeout = 2 * time.Minute
+	defaultCDCMaxTrans           = 500             // SQL Server default maxtrans per scan session
+	defaultCDCPollingInterval    = 5 * time.Second // SQL Server default CDC job pollinginterval
+	cdcAgentPollInterval         = 2 * time.Second // interval between scan session checks
+	minCDCAgentCatchUpTimeout    = 15 * time.Minute
+	catchUpTimeoutPollMultiplier = 3
 )
 
 // CDC capture instance for a table
@@ -372,12 +371,28 @@ func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
 // After observing such a session, the current CDC max LSN can be used as a
 // stable and causally valid boundary for streaming.
 func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
-	var maxTrans int
-	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCCaptureJobMaxTransQuery()).Scan(&maxTrans)
+	var (
+		maxTrans         int
+		pollingIntervalS int
+	)
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCCaptureJobConfigQuery()).Scan(&maxTrans, &pollingIntervalS)
 	if err != nil {
-		logger.Errorf("unable to query CDC capture job config, using default maxtrans=%d: %s", defaultCDCMaxTrans, err)
+		logger.Errorf("unable to query CDC capture job config, using defaults maxtrans=%d pollinginterval=%s: %s", defaultCDCMaxTrans, defaultCDCPollingInterval, err)
 		maxTrans = defaultCDCMaxTrans
+		pollingIntervalS = int(defaultCDCPollingInterval.Seconds())
 	}
+	if pollingIntervalS < 0 {
+		logger.Warnf("invalid CDC job pollinginterval=%d, using default %s", pollingIntervalS, defaultCDCPollingInterval)
+		pollingIntervalS = int(defaultCDCPollingInterval.Seconds())
+	}
+	// Question: polling interval is editable, it is 5s be default and in very rare scenarios
+	// it can be set to 24 hrs (which is ideally never the case), should we handle for that as well
+	// or have a fixed catchup time
+	//
+	// 1–30 seconds for “near real-time” pipelines.
+	// 1–5 minutes for “fresh but not strict real-time” analytics dashboards.
+	// 15–60 minutes only for low-change, low-SLA reporting or cost-constrained workloads.
+	catchUpTimeout := max(minCDCAgentCatchUpTimeout, time.Duration(catchUpTimeoutPollMultiplier*pollingIntervalS)*time.Second)
 
 	// Record the baseSession scan session before we start waiting
 	// query can fail if there are no scan sessions yet, so fallback to current max LSN
@@ -387,9 +402,9 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 		return m.currentMaxLSN(ctx)
 	}
 
-	logger.Infof("waiting for CDC capture agent to catch up (baseline end_time=%s, maxtrans=%d)", baseSession.endTime.Format(time.RFC3339), maxTrans)
+	logger.Infof("waiting for CDC capture agent to catch up (baseline end_time=%s, maxtrans=%d, pollinginterval=%ds, timeout=%s)", baseSession.endTime.Format(time.RFC3339), maxTrans, pollingIntervalS, catchUpTimeout)
 
-	deadline := time.After(cdcAgentCatchUpTimeout)
+	deadline := time.After(catchUpTimeout)
 	ticker := time.NewTicker(cdcAgentPollInterval)
 	defer ticker.Stop()
 
@@ -398,7 +413,7 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-deadline:
-			logger.Warnf("CDC agent did not catch up within %s, using current max LSN", cdcAgentCatchUpTimeout)
+			logger.Warnf("CDC agent did not catch up within %s, using current max LSN", catchUpTimeout)
 			return m.currentMaxLSN(ctx)
 		case <-ticker.C:
 			session, err := m.latestCDCScanSession(ctx)

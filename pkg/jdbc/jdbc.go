@@ -742,9 +742,9 @@ func MSSQLCDCLatestScanSessionQuery() string {
 	`
 }
 
-// MSSQLCDCCaptureJobMaxTransQuery returns the maxtrans setting for the CDC capture job
-func MSSQLCDCCaptureJobMaxTransQuery() string {
-	return "SELECT maxtrans FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID()"
+// MSSQLCDCCaptureJobConfigQuery returns maxtrans and pollinginterval settings for the CDC capture job.
+func MSSQLCDCCaptureJobConfigQuery() string {
+	return "SELECT maxtrans, pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID()"
 }
 
 // MSSQLCDCGetChangesQuery returns the query to fetch CDC changes for a capture instance
