@@ -30,7 +30,7 @@ package constants
 //     * Earlier unsigned int/integer/bigint were mapped to Int32 which caused integer overflows.
 
 const (
-	LatestStateVersion = 3
+	LatestStateVersion = 4
 )
 
 // Used as the current version of the state when the program is running

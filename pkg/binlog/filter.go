@@ -146,15 +146,15 @@ func mysqlTypeName(t byte, unsigned bool) string {
 	if unsigned {
 		switch t {
 		case mysql.MYSQL_TYPE_TINY:
-			return "unsigned tinyint"
+			return "UNSIGNED TINYINT"
 		case mysql.MYSQL_TYPE_SHORT:
-			return "unsigned smallint"
+			return "UNSIGNED SMALLINT"
 		case mysql.MYSQL_TYPE_INT24:
-			return "unsigned mediumint"
+			return "UNSIGNED MEDIUMINT"
 		case mysql.MYSQL_TYPE_LONG:
-			return "unsigned int"
+			return "UNSIGNED INT"
 		case mysql.MYSQL_TYPE_LONGLONG:
-			return "unsigned bigint"
+			return "UNSIGNED BIGINT"
 		}
 	}
 	switch t {
