@@ -59,9 +59,10 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return nil
 	}
 
+	unsignedMap := e.Table.UnsignedMap()
 	columnTypes := make([]string, len(e.Table.ColumnType))
 	for i, ct := range e.Table.ColumnType {
-		columnTypes[i] = mysqlTypeName(ct)
+		columnTypes[i] = mysqlTypeName(ct, unsignedMap != nil && unsignedMap[i])
 	}
 
 	var rowsToProcess [][]interface{}
@@ -140,7 +141,22 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 	return record, nil
 }
 
-func mysqlTypeName(t byte) string {
+// mysqlTypeName maps MySQL binlog protocol type bytes to SQL type names.
+func mysqlTypeName(t byte, unsigned bool) string {
+	if unsigned {
+		switch t {
+		case mysql.MYSQL_TYPE_TINY:
+			return "unsigned tinyint"
+		case mysql.MYSQL_TYPE_SHORT:
+			return "unsigned smallint"
+		case mysql.MYSQL_TYPE_INT24:
+			return "unsigned mediumint"
+		case mysql.MYSQL_TYPE_LONG:
+			return "unsigned int"
+		case mysql.MYSQL_TYPE_LONGLONG:
+			return "unsigned bigint"
+		}
+	}
 	switch t {
 	case mysql.MYSQL_TYPE_DECIMAL:
 		return "DECIMAL"
