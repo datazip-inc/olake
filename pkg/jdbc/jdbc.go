@@ -1400,6 +1400,7 @@ func DB2PKChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 	}
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
 
+	// TODO: check if we need to remove tuple comparison and construct the query manually for DB2
 	buildSQLTuple := func(val any) string {
 		parts := strings.Split(val.(string), ",")
 		for i, part := range parts {
