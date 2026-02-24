@@ -114,7 +114,7 @@ func (w *LegacyWriter) EvolveSchema(_ context.Context, newSchema map[string]stri
 	return nil
 }
 
-func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState map[string]any) error {
+func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error {
 	// Commit payload from CDC/driver only: e.g. {"captured_cdc_pos":"0/123ABC"}
 	var payloadStr string
 	if finalMetadataState != nil {

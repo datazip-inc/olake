@@ -2,8 +2,6 @@ package abstract
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -24,7 +22,6 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 		primaryCursor, secondaryCursor := stream.Cursor()
 		prevPrimaryCursor := a.state.GetCursor(stream.Self(), primaryCursor)
 		prevSecondaryCursor := a.state.GetCursor(stream.Self(), secondaryCursor)
-
 		if a.state.HasCompletedBackfill(stream.Self()) && (prevPrimaryCursor != nil && (secondaryCursor == "" || prevSecondaryCursor != nil)) {
 			logger.Infof("Backfill skipped for stream[%s], already completed", stream.ID())
 			backfillWaitChannel <- stream.ID()
@@ -41,19 +38,16 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				return fmt.Errorf("failed to fetch max cursor values: %s", err)
 			}
 
-			cursors := map[string]any{
-				primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue),
-			}
+			a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
 			if maxPrimaryCursorValue == nil {
 				logger.Warnf("max primary cursor value is nil for stream: %s", stream.ID())
 			}
 			if secondaryCursor != "" {
-				cursors[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
+				a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
 				if maxSecondaryCursorValue == nil {
 					logger.Warnf("max secondary cursor value is nil for stream: %s", stream.ID())
 				}
 			}
-			a.state.SetCursors(stream.Self(), cursors)
 		}
 
 		return a.Backfill(mainCtx, backfillWaitChannel, pool, stream)
@@ -79,39 +73,34 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
 			defer incrementalCtxCancel()
 
-			cursorHash := fmt.Sprintf("primaryCursor_%v_secondaryCursor_%v", a.FormatCursorValue(maxPrimaryCursorValue), a.FormatCursorValue(maxSecondaryCursorValue))
-			hash := fmt.Sprintf("%x", sha256.Sum256([]byte(cursorHash)))
-			threadID := generateThreadID(stream.ID(), hash)
-
-			defer func() {
-				a.commitIncrementalState(stream, primaryCursor, maxPrimaryCursorValue, secondaryCursor, maxSecondaryCursorValue)
-			}()
-
-			inserter, writerMetadata, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
+			threadID := generateThreadID(stream.ID(), fmt.Sprintf("%v_%v", maxPrimaryCursorValue, maxSecondaryCursorValue))
+			inserter, prevMetadataState, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
 			if err != nil {
 				return fmt.Errorf("failed to create new writer thread: %s", err)
 			}
 
-			// Reconcile state with destination: compare latest_thread_id and cursors; if mismatch, update state and early-return
-			var recoveryRequired bool
-			maxPrimaryCursorValue, maxSecondaryCursorValue, recoveryRequired = a.incrementalRecoveryCheck(stream, primaryCursor, secondaryCursor, writerMetadata, maxPrimaryCursorValue, maxSecondaryCursorValue, threadID)
+			defer func(ctx context.Context) {
+				if ctx.Err() != nil {
+					return
+				}
+				// Save cursor state on success
+				a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
+				a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
+			}(incrementalCtx)
 
-			if recoveryRequired {
-				logger.Infof("Updating state for thread %s stream %s", threadID, stream.ID())
+			defer func() {
+				newMetadataState := &types.MetadataState{
+					Id: generateThreadID(stream.ID(), fmt.Sprintf("%v_%v", a.FormatCursorValue(maxPrimaryCursorValue), a.FormatCursorValue(maxSecondaryCursorValue))),
+				}
+				handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, newMetadataState)
+			}()
+
+			if threadID == prevMetadataState.Id {
+				// sync for stream already finished, recovery mode
 				return nil
 			}
 
 			logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
-
-			finalMetadataState := map[string]any{}
-
-			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, finalMetadataState)
-			defer func() {
-				finalMetadataState[primaryCursor] = a.FormatCursorValue(maxPrimaryCursorValue)
-				if secondaryCursor != "" {
-					finalMetadataState[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
-				}
-			}()
 
 			// No retry logic here - retry happens at Read level
 			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
@@ -189,73 +178,4 @@ func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
 	default:
 		return cursorValue
 	}
-}
-
-// incrementalRecoveryCheck unmarshals writerMetadata (e.g. olake_2pc_state from destination),
-// compares latest_thread_id with current threadID, then primary/secondary cursor values.
-// If latest_thread_id doesn't match, returns existing cursors and recoveryRequired=false (no state update).
-// If cursors differ, updates state file and returns recoveryRequired=true so the caller can early-return.
-func (a *AbstractDriver) incrementalRecoveryCheck(stream types.StreamInterface, primaryCursor, secondaryCursor string, writerMetadata map[string]any, maxPrimaryCursorValue, maxSecondaryCursorValue any, threadID string) (any, any, bool) {
-	if writerMetadata == nil {
-		return maxPrimaryCursorValue, maxSecondaryCursorValue, false
-	}
-	olake2PCRaw := writerMetadata["olake_2pc_state"]
-	olake2PCStr, _ := olake2PCRaw.(string)
-	if olake2PCStr == "" {
-		return maxPrimaryCursorValue, maxSecondaryCursorValue, false
-	}
-	var state SyncState
-	if err := json.Unmarshal([]byte(olake2PCStr), &state); err != nil {
-		logger.Warnf("Failed to unmarshal olake_2pc_state for stream %s: %s", stream.ID(), err)
-		return maxPrimaryCursorValue, maxSecondaryCursorValue, false
-	}
-	// If destination's latest_thread_id doesn't match this thread, don't use destination cursors; return existing state
-	if state.LatestThreadID != "" && state.LatestThreadID != threadID {
-		return maxPrimaryCursorValue, maxSecondaryCursorValue, false
-	}
-	destPrimary := state.GetValue(primaryCursor)
-	if destPrimary == nil || destPrimary == "" {
-		return maxPrimaryCursorValue, maxSecondaryCursorValue, false
-	}
-	var destSecondary any
-	if secondaryCursor != "" {
-		destSecondary = state.GetValue(secondaryCursor)
-	}
-	reformattedPrimaryValue, err := ReformatCursorValue(primaryCursor, destPrimary, stream)
-	if err != nil {
-		logger.Warnf("Failed to reformat primary cursor from writer metadata for stream %s: %s", stream.ID(), err)
-		return maxPrimaryCursorValue, maxSecondaryCursorValue, false
-	}
-	var reformattedSecondaryValue any
-	if secondaryCursor != "" {
-		reformattedSecondaryValue, err = ReformatCursorValue(secondaryCursor, destSecondary, stream)
-		if err != nil {
-			logger.Warnf("Failed to reformat secondary cursor from writer metadata for stream %s: %s", stream.ID(), err)
-			return maxPrimaryCursorValue, maxSecondaryCursorValue, false
-		}
-	}
-	currentPrimaryStr := fmt.Sprintf("%v", a.FormatCursorValue(maxPrimaryCursorValue))
-	currentSecondaryStr := fmt.Sprintf("%v", a.FormatCursorValue(maxSecondaryCursorValue))
-	destPrimaryStr := fmt.Sprintf("%v", a.FormatCursorValue(reformattedPrimaryValue))
-	destSecondaryStr := fmt.Sprintf("%v", a.FormatCursorValue(reformattedSecondaryValue))
-	if destPrimaryStr != currentPrimaryStr || (secondaryCursor != "" && destSecondaryStr != currentSecondaryStr) {
-		cursors := map[string]any{primaryCursor: a.FormatCursorValue(reformattedPrimaryValue)}
-		if secondaryCursor != "" {
-			cursors[secondaryCursor] = a.FormatCursorValue(reformattedSecondaryValue)
-		}
-		a.state.SetCursors(stream.Self(), cursors)
-		logger.Infof("Stream %s: updated state from destination metadata (primary=%s, secondary=%s)", stream.ID(), destPrimaryStr, destSecondaryStr)
-		return reformattedPrimaryValue, reformattedSecondaryValue, true
-	}
-	return maxPrimaryCursorValue, maxSecondaryCursorValue, false
-}
-
-func (a *AbstractDriver) commitIncrementalState(stream types.StreamInterface, primaryCursor string, primaryValue any, secondaryCursor string, secondaryValue any) {
-	cursors := map[string]any{
-		primaryCursor: a.FormatCursorValue(primaryValue),
-	}
-	if secondaryCursor != "" {
-		cursors[secondaryCursor] = a.FormatCursorValue(secondaryValue)
-	}
-	a.state.SetCursors(stream.Self(), cursors)
 }

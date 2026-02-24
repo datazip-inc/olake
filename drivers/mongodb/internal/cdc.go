@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -57,7 +57,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 			}
 			if resumeToken != nil {
 				prevResumeToken = (*resumeToken).Lookup(cdcCursorField).StringValue()
-				m.state.SetCursors(stream.Self(), map[string]any{cdcCursorField: prevResumeToken})
+				m.state.SetCursor(stream.Self(), cdcCursorField, prevResumeToken)
 			}
 		}
 	}
@@ -65,31 +65,20 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
-func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[types.StreamInterface]any, OnMessage abstract.CDCMsgFn) (any, error) {
+func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
-
+	mtState := metadataStates[stream.ID()]
 	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
 	if prevResumeToken == nil {
 		return nil, fmt.Errorf("resume token not found for stream: %s", stream.ID())
 	}
-	prevResumeTokenStr := fmt.Sprintf("%v", prevResumeToken)
 
-	// If destination metadata (olake_2pc_state) has a different resume token than our state, update state and return
-	if mtState, ok := metadataStates[stream]; ok {
-		if meta, ok := mtState.(map[string]any); ok {
-			olake2pcRaw, _ := meta["olake_2pc_state"]
-			olake2pcStr, _ := olake2pcRaw.(string)
-			if olake2pcStr != "" {
-				var recoveredState abstract.SyncState
-				if err := json.Unmarshal([]byte(olake2pcStr), &recoveredState); err == nil && recoveredState.CapturedCDCPos != "" {
-					metadataToken := recoveredState.CapturedCDCPos
-					if metadataToken != prevResumeTokenStr {
-						m.cdcCursor.Store(m.streams[streamIndex].ID(), metadataToken)
-						logger.Infof("Stream[%s]: state already captured, skipping CDC sync", stream.ID())
-						return nil, nil
-					}
-				}
-			}
+	// check for recoverySync (sync after failiure with broken state)
+	if mtState != nil {
+		cmp := typeutils.Compare(prevResumeToken, mtState)
+		if cmp != 0 {
+			// sync has problem, recovery required
+			prevResumeToken = mtState
 		}
 	}
 
@@ -129,15 +118,11 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 		}
 
 		// Check boundary AFTER emitting
-		if err := m.handleStreamCatchup(ctx, cursor, stream, lastOplogTime); err != nil {
+		if latestResumeToken, err := m.handleStreamCatchup(ctx, cursor, stream, lastOplogTime); err != nil {
 			if errors.Is(err, ErrIdleTermination) {
 				// graceful termination requested by helper
 				logger.Infof("change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
-				var finalPos string
-				if v, ok := m.cdcCursor.Load(stream.ID()); ok {
-					finalPos = v.(string)
-				}
-				return map[string]any{"captured_cdc_pos": finalPos}, nil
+				return latestResumeToken, nil
 			}
 			return nil, err
 		}
@@ -150,10 +135,10 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	}
 }
 
-func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastOplogTime primitive.Timestamp) error {
+func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastOplogTime primitive.Timestamp) (string, error) {
 	token, err := GetResumeToken(cursor, stream.ID())
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// check pointing post batch resume token
@@ -161,15 +146,15 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 
 	streamOpTime, err := decodeResumeTokenOpTime(token)
 	if err != nil {
-		return fmt.Errorf("failed to decode resume token for stream %s: %s", stream.ID(), err)
+		return token, fmt.Errorf("failed to decode resume token for stream %s: %s", stream.ID(), err)
 	}
 
 	// If stream is caught up -> request graceful termination
 	if !lastOplogTime.After(streamOpTime) {
-		return ErrIdleTermination
+		return token, ErrIdleTermination
 	}
 
-	return nil
+	return token, nil
 }
 
 func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, startingResumeToken string, OnMessage abstract.CDCMsgFn) error {
@@ -198,7 +183,6 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		Timestamp: ts,
 		Data:      record.FullDocument,
 		Kind:      record.OperationType,
-		Position:  startingResumeToken,
 		ExtraColumns: map[string]any{
 			CDCResumeToken: token,
 		},
@@ -219,25 +203,14 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
-		finalToken := utils.Ternary(m.targetPosition == "", m.streams[streamIndex].ID(), m.targetPosition).(string)
-		val, ok := m.cdcCursor.Load(finalToken)
+		val, ok := m.cdcCursor.Load(m.streams[streamIndex].ID())
 		if ok {
-			m.state.SetCursors(m.streams[streamIndex].Self(), map[string]any{cdcCursorField: val})
+			m.state.SetCursor(m.streams[streamIndex].Self(), cdcCursorField, val)
 		} else {
-			logger.Warnf("no resume token found for stream: %s", finalToken)
+			logger.Warnf("no resume token found for stream: %s", m.streams[streamIndex].ID())
 		}
 		return nil
 	}
-}
-
-// GetCDCStartPositionForStream returns the value used to start CDC for this stream.
-func (m *Mongo) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
-	stream = m.streams[streamIndex]
-	val := m.state.GetCursor(stream.Self(), cdcCursorField)
-	if val == nil {
-		return "", nil
-	}
-	return val.(string), nil
 }
 
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {

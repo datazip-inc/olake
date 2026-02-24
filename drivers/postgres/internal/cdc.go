@@ -51,46 +51,55 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
-func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[types.StreamInterface]any, callback abstract.CDCMsgFn) (any, error) {
-	// Unmarshal olake_2pc_state from destination metadata (e.g. Iceberg table metadata) into SyncState per stream
-	globalState := p.state.GetGlobal()
-	globalLSN := ""
-	targetLSNPosition := ""
-
-	var streamsToProcess []types.StreamInterface
-	if globalState != nil && globalState.State != nil {
-		if wal, ok := globalState.State.(waljs.WALState); ok {
-			globalLSN = wal.LSN
-		}
-	}
-	for stream, mtState := range metadataStates {
-		meta, ok := mtState.(map[string]any)
-		if !ok {
-			continue
-		}
-		olake2pcRaw, _ := meta["olake_2pc_state"]
-		olake2pcStr, _ := olake2pcRaw.(string)
-		if olake2pcStr == "" {
-			continue
-		}
-		var recoveredState abstract.SyncState
-		if err := json.Unmarshal([]byte(olake2pcStr), &recoveredState); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal olake_2pc_state for stream %s: %w", stream, err)
-		}
-		// Use captured CDC position (LSN for Postgres) from 2PC state if present
-		if recoveredState.CapturedCDCPos != "" && globalLSN != "" && recoveredState.CapturedCDCPos != globalLSN {
-			targetLSNPosition = recoveredState.CapturedCDCPos
-			continue
-		}
-		streamsToProcess = append(streamsToProcess, stream)
+func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[string]any, callback abstract.CDCMsgFn) (any, error) {
+	var postgresGlobalState waljs.WALState
+	rawGlobalState := p.state.GetGlobal()
+	if err := utils.Unmarshal(rawGlobalState.State, &postgresGlobalState); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
 	}
 
-	if len(streamsToProcess) == 0 {
-		logger.Infof("all streams already processed")
-		return nil, nil
+	var metadataBiggerLSN string
+	var finishedStreams []string
+
+	for streamID, rawMtState := range metadataStates {
+		if stMtState, ok := rawMtState.(string); ok {
+			var mtState waljs.WALState
+			if err := json.Unmarshal([]byte(stMtState), &mtState); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
+			}
+
+			if mtState.LSN != postgresGlobalState.LSN {
+				// state finished previously but not written to state
+				finishedStreams = append(finishedStreams, streamID)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState)
+		}
 	}
 
-	config, err := p.prepareWALJSConfig(streamsToProcess...)
+	var remainingStreams []types.StreamInterface
+	var lsnCommittedTo pglogrepl.LSN
+
+	if len(finishedStreams) > 0 {
+		// recovery sync required
+		var err error
+		lsnCommittedTo, err = pglogrepl.ParseLSN(metadataBiggerLSN)
+		if err != nil {
+			return nil, err
+		}
+
+		finishedStreamSet := types.NewSet(finishedStreams...)
+		_ = utils.ForEach(p.streams, func(stream types.StreamInterface) error {
+			if exists := finishedStreamSet.Exists(stream.ID()); !exists {
+				remainingStreams = append(remainingStreams, stream)
+			}
+			return nil
+		})
+	} else {
+		remainingStreams = p.streams
+	}
+
+	config, err := p.prepareWALJSConfig(remainingStreams...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare wal config: %s", err)
 	}
@@ -100,7 +109,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		return nil, fmt.Errorf("failed to get slot position: %s", err)
 	}
 
-	replicator, err := waljs.NewReplicator(ctx, config, slot, p.dataTypeConverter)
+	replicator, err := waljs.NewReplicator(ctx, config, slot, &lsnCommittedTo, p.dataTypeConverter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wal connection: %s", err)
 	}
@@ -108,13 +117,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	// persist replicator for post cdc
 	p.replicator = replicator
 
-	// Set target position for bounded sync if set (recovery mode)
-	if err := p.replicator.Socket().SetTargetPosition(targetLSNPosition); err != nil {
-		return nil, fmt.Errorf("failed to set target position: %s", err)
-	}
-
 	// validate global state (might got invalid during full load)
-	if err := validateGlobalState(p.state.GetGlobal(), slot.LSN); err != nil {
+	if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
 		return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
 	}
 
@@ -123,9 +127,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	if err != nil {
 		return nil, err
 	}
-	finalLSN := p.replicator.Socket().ClientXLogPos.String()
-	// Return map so abstract layer gets finalMetadataState and passes it to writer Close (commit payload)
-	return map[string]any{"captured_cdc_pos": finalLSN}, nil
+
+	return waljs.WALState{LSN: p.replicator.Socket().ClientXLogPos.String()}, nil
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
@@ -135,60 +138,9 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 		return ctx.Err()
 	default:
 		socket := p.replicator.Socket()
-		finalLSN := socket.ClientXLogPos
-
-		if err := waljs.AcknowledgeLSN(ctx, p.client, socket, false, finalLSN); err != nil {
-			return fmt.Errorf("failed to acknowledge LSN: %s", err)
-		}
-
-		var walState waljs.WALState
-		globalState := p.state.GetGlobal()
-		if globalState != nil && globalState.State != nil {
-			if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-				logger.Warnf("Failed to unmarshal global state in PostCDC: %s", err)
-			}
-		}
-
-		walState.LSN = finalLSN.String()
-
-		p.state.SetGlobal(walState)
-		return nil
+		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
+		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
 	}
-}
-
-// GetCDCStartPosition returns the starting CDC position from state for predictable thread IDs
-func (p *Postgres) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
-	var walState waljs.WALState
-	globalState := p.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return "", fmt.Errorf("global state is nil")
-	}
-	if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-		return "", fmt.Errorf("failed to unmarshal global state: %w", err)
-	}
-	return walState.LSN, nil
-}
-
-// AcknowledgeCDCPosition acknowledges LSN to Postgres for recovery
-func (p *Postgres) AcknowledgeCDCPosition(ctx context.Context, position string) error {
-	if position == "" {
-		return nil
-	}
-
-	// Use existing replicator if available
-	if p.replicator != nil {
-		lsn, err := pglogrepl.ParseLSN(position)
-		if err != nil {
-			return fmt.Errorf("failed to parse LSN for acknowledgment: %s", err)
-		}
-		logger.Infof("Acknowledging LSN %s to Postgres for recovery (via replicator)", position)
-		return waljs.AcknowledgeLSN(ctx, p.client, p.replicator.Socket(), false, lsn)
-	}
-
-	// If no replicator, use AdvanceLSN which uses SQL to advance the slot
-	slotName := p.cdcConfig.ReplicationSlot
-	logger.Infof("Acknowledging LSN %s to Postgres for recovery (via AdvanceLSN)", position)
-	return waljs.AdvanceLSN(ctx, p.client, slotName, position)
 }
 
 func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string, database string) (bool, error) {
@@ -219,12 +171,8 @@ func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string
 	return nil
 }
 
-func validateGlobalState(globalState *types.GlobalState, confirmedFlushLSN pglogrepl.LSN) error {
+func validateGlobalState(postgresGlobalState waljs.WALState, confirmedFlushLSN pglogrepl.LSN) error {
 	// global state exist check for cursor and cursor mismatch
-	var postgresGlobalState waljs.WALState
-	if err := utils.Unmarshal(globalState.State, &postgresGlobalState); err != nil {
-		return fmt.Errorf("failed to unmarshal global state: %s", err)
-	}
 	if postgresGlobalState.LSN == "" {
 		return fmt.Errorf("%w: lsn is empty, please proceed with clear destination", constants.ErrNonRetryable)
 	} else {

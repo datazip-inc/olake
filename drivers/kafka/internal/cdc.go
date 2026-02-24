@@ -18,7 +18,7 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// TODO: Add 2PC support for Kafka
+// TODO: Add 2PC support for Kafka (difficulty: hard)
 
 func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
 	return false, true, false // parallel change streams supported
@@ -60,7 +60,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
-func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[types.StreamInterface]any, processFn abstract.CDCMsgFn) (any, error) {
+func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	// get reader
 	reader := k.readerManager.GetReader(readerID)
 	if reader == nil {
@@ -320,8 +320,4 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 		return typeutils.ExtractAvroRecord(record), nil
 	}
 	return nativeDatum, nil
-}
-
-func (k *Kafka) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
-	return "", nil
 }

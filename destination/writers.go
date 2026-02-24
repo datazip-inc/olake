@@ -128,7 +128,7 @@ func (w *WriterPool) GetStats() *Stats {
 	return w.stats
 }
 
-func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*WriterThread, map[string]any, error) {
+func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*WriterThread, *types.MetadataState, error) {
 	w.stats.ThreadCount.Add(1)
 
 	opts := &Options{}
@@ -147,7 +147,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	}
 
 	var writerThread Writer
-	prevStreamState, err := func() (map[string]any, error) {
+	prevStreamState, err := func() (*types.MetadataState, error) {
 		// init writer with configurations
 		writerThread = w.init()
 		w.configMutex.Lock()
@@ -252,7 +252,7 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
-func (wt *WriterThread) Close(ctx context.Context, finalMetadataState map[string]any) (err error) {
+func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
 	select {
 	case <-ctx.Done():
 		err := wt.writer.Close(ctx, finalMetadataState)

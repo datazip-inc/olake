@@ -2,6 +2,7 @@ package iceberg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"regexp"
@@ -31,6 +32,7 @@ type Iceberg struct {
 	server        *serverInstance          // Java server instance
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
+	olake2PCState *types.MetadataState     // olake_2pc_state for current stream
 
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
@@ -72,7 +74,7 @@ func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	return legacywriter.New(i.options, i.schema, i.stream, i.server), nil
 }
 
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, map[string]any, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, *types.MetadataState, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]internal.PartitionInfo, 0)
@@ -123,9 +125,16 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
 		}
+
 		// Return schema and optional olake_2pc state from table metadata (separate field in response)
 		if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
-			return schema, map[string]any{"olake_2pc_state": olake2PCState}, nil
+			var metadataState types.MetadataState
+			if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
+				return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
+			}
+
+			i.olake2PCState = &metadataState
+			return schema, i.olake2PCState, nil
 		}
 		return schema, nil, nil
 	}
@@ -145,7 +154,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	}
 	i.writer = writer
 
-	return schema, nil, nil
+	return schema, i.olake2PCState, nil
 }
 
 // note: java server parses time from long value which will in milliseconds
@@ -153,7 +162,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
 }
 
-func (i *Iceberg) Close(ctx context.Context, finalMetadataState map[string]any) error {
+func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) error {
 	// skip flushing on error
 	defer func() {
 		if i.server == nil {

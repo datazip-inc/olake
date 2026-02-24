@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math"
 	"net"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -65,28 +63,7 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 	}, nil
 }
 
-// StreamMessagesWithTarget streams binlog messages up to the specified target position.
-// If targetPosition is empty, it uses the current latest binlog position.
-// targetPosition format: "binlog-filename:position" (e.g., "mysql-bin.000070:772591")
-func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, targetPosition string, callback abstract.CDCMsgFn) error {
-	var latestBinlogPos mysql.Position
-	var err error
-
-	if targetPosition != "" {
-		// Parse target position for bounded sync
-		latestBinlogPos, err = ParseBinlogPosition(targetPosition)
-		if err != nil {
-			return fmt.Errorf("failed to parse target position %s: %s", targetPosition, err)
-		}
-		logger.Infof("Using target position for bounded sync: %s:%d", latestBinlogPos.Name, latestBinlogPos.Pos)
-	} else {
-		// Get current latest binlog position
-		latestBinlogPos, err = GetCurrentBinlogPosition(ctx, client)
-		if err != nil {
-			return fmt.Errorf("failed to get latest binlog position: %s", err)
-		}
-	}
-
+func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latestBinlogPos mysql.Position, callback abstract.CDCMsgFn) error {
 	if latestBinlogPos.Name == "" || latestBinlogPos.Pos == 0 {
 		return fmt.Errorf("latest binlog position is not set")
 	}
@@ -146,26 +123,12 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, target
 
 			case *replication.RowsEvent:
 				messageReceived = true
-				positionStr := fmt.Sprintf("%s:%d", c.CurrentPos.Name, c.CurrentPos.Pos)
-				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, c.CurrentPos, positionStr, callback); err != nil {
+				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, c.CurrentPos, callback); err != nil {
 					return err
 				}
 			}
 		}
 	}
-}
-
-// ParseBinlogPosition parses a position string like "mysql-bin.000070:772591" into a mysql.Position
-func ParseBinlogPosition(position string) (mysql.Position, error) {
-	parts := strings.Split(position, ":")
-	if len(parts) != 2 {
-		return mysql.Position{}, fmt.Errorf("invalid position format: expected 'filename:pos'")
-	}
-	pos, err := strconv.ParseUint(parts[1], 10, 32)
-	if err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to parse position number: %s", err)
-	}
-	return mysql.Position{Name: parts[0], Pos: uint32(pos)}, nil
 }
 
 // Cleanup terminates the binlog syncer.
