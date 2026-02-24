@@ -318,9 +318,6 @@ func buildLexicographicChunkCondition(quotedColumns []string, chunk types.Chunk,
 		upperCond := buildBound(upperValues, false)
 		if lowerCond != "" && upperCond != "" {
 			chunkCond = fmt.Sprintf("(%s) AND (%s)", lowerCond, upperCond)
-		} else {
-			// Fallback if one bound is somehow empty.
-			chunkCond = lowerCond + upperCond
 		}
 	case chunk.Min != nil:
 		chunkCond = buildBound(lowerValues, true)
