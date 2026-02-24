@@ -86,6 +86,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 					col_xml XML NOT NULL,
 					col_sysname SYSNAME NOT NULL,
 
+					col_binary BINARY(4) NOT NULL,
+					col_varbinary VARBINARY(255) NOT NULL,
 					col_image IMAGE NOT NULL,
 					col_hierarchyid HIERARCHYID NOT NULL,
 					col_sql_variant SQL_VARIANT NOT NULL,
@@ -174,7 +176,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_date, col_time, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
 				col_uniqueidentifier,
 				col_xml, col_sysname,
-				col_image, col_hierarchyid, col_sql_variant,
+				col_binary, col_varbinary, col_image, col_hierarchyid, col_sql_variant,
 				col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
 				created_at
 			) VALUES (
@@ -187,7 +189,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
 				'<xml>test</xml>', 'sysname_val',
-				0x43434343,
+				0xDEADBEEF, 0xCAFEBABE, 0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
 				'2023-01-01 12:00:00'
@@ -285,7 +287,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 				col_date, col_time, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
 				col_uniqueidentifier,
 				col_xml, col_sysname,
-				col_image, col_hierarchyid, col_sql_variant,
+				col_binary, col_varbinary, col_image, col_hierarchyid, col_sql_variant,
 				col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
 				created_at
 			) VALUES (
@@ -298,7 +300,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
 				'<xml>test</xml>', 'sysname_val',
-				0x43434343,
+				0xDEADBEEF, 0xCAFEBABE, 0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
 				'2023-01-01 12:00:00'
@@ -349,8 +351,10 @@ var ExpectedMSSQLData = map[string]interface{}{
 	"col_xml":              "<xml>test</xml>",
 	"col_sysname":          "sysname_val",
 
-	"col_image":       "CCCC",
-	"col_hierarchyid": "5ac0",
+	"col_binary":      "3q2+7w==",
+	"col_varbinary":   "yv66vg==",
+	"col_image":       "Q0NDQw==",
+	"col_hierarchyid": "WsA=",
 	"col_sql_variant": "variant_base",
 }
 
@@ -394,8 +398,10 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"col_xml":              "<xml>updated</xml>",
 	"col_sysname":          "updated_sysname",
 
-	"col_image":       "CCCC",
-	"col_hierarchyid": "5ac0",
+	"col_binary":      "3q2+7w==",
+	"col_varbinary":   "yv66vg==",
+	"col_image":       "Q0NDQw==",
+	"col_hierarchyid": "WsA=",
 	"col_sql_variant": "variant_base",
 
 	"col_int_nullable":       int32(123),
@@ -440,6 +446,8 @@ var MSSQLToDestinationSchema = map[string]string{
 	"col_uniqueidentifier":   "string",
 	"col_xml":                "string",
 	"col_sysname":            "string",
+	"col_binary":             "string",
+	"col_varbinary":          "string",
 	"col_image":              "string",
 	"col_hierarchyid":        "string",
 	"col_sql_variant":        "string",

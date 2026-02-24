@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"net/url"
 	"strings"
@@ -271,15 +272,14 @@ func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interfa
 				v[8], v[9], // next 2 bytes
 				v[10], v[11], v[12], v[13], v[14], v[15]), nil // last 6 bytes
 		}
-		return fmt.Sprintf("%s", value), nil
-	// TODO: check how to handle hierarchyid datatype
-	case "hierarchyid":
-		if val, ok := value.(string); ok {
-			return val, nil
+		return fmt.Sprintf("%v", value), nil
+
+	case "binary", "varbinary", "image", "rowversion", "timestamp", "hierarchyid", "sql_variant":
+		if v, ok := value.([]byte); ok {
+			return base64.StdEncoding.EncodeToString(v), nil
 		}
-		// Note: This returns a hex representation, not the hierarchical path format
-		// For proper "/1/2/3/" format, cast in SQL using col.ToString()
-		return fmt.Sprintf("%x", value), nil
+		return fmt.Sprintf("%v", value), nil
+
 	case "time":
 		return typeutils.ReformatTimeValue(value)
 	}

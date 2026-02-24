@@ -2,12 +2,13 @@ package driver
 
 import "github.com/datazip-inc/olake/types"
 
-// TODO: add support for utf-8 invalid and binary datatypes
-
-// rowversion, timestamp (rowversion synonym), geometry, and geography can produce
-// binary or non-UTF-8 values; mapping them to string cause sync to fail.
-
 // mssqlTypeToDataTypes maps SQL Server types to internal data types.
+//
+// Binary types (binary, varbinary, image, rowversion, timestamp, hierarchyid)
+// are base64-encoded strings to avoid UTF-8 corruption when the go-mssqldb driver returns raw []byte values.
+//
+// Unsupported types:
+//   - geometry, geography
 var mssqlTypeToDataTypes = map[string]types.DataType{
 	// Integer types
 	"tinyint":  types.Int32,
@@ -57,10 +58,6 @@ var mssqlTypeToDataTypes = map[string]types.DataType{
 
 	// Unique identifiers
 	"uniqueidentifier": types.String,
-
-	// Spatial
-	"geometry":  types.String,
-	"geography": types.String,
 
 	// Other complex types
 	"sql_variant": types.String,
