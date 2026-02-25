@@ -225,6 +225,10 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			}
 			stream.WithCursorField(columnName)
 			datatype := types.Unknown
+			isInteger := strings.Contains(strings.ToLower(dataType), "int") || strings.EqualFold(dataType, "integer")
+			if constants.LoadedStateVersion >= 4 && strings.Contains(strings.ToLower(columnType), "unsigned") && isInteger {
+				dataType = "unsigned " + dataType
+			}
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
 				datatype = val
 			} else {
