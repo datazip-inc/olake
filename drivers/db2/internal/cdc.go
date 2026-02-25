@@ -17,7 +17,3 @@ func (d *DB2) StreamChanges(ctx context.Context, streamIndex int, metadataStates
 }
 
 func (d *DB2) PostCDC(ctx context.Context, streamIndex int) error { return nil }
-
-func (d *DB2) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
-	return "", nil
-}

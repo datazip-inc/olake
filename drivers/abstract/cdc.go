@@ -119,7 +119,11 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 			return fmt.Errorf("failed to create CDC writer for stream %s: %s", stream.ID(), createErr)
 		}
 		writers[stream.ID()] = w
-		metadataStates[stream.ID()] = writerMeta.State
+		var writerMetaState any
+		if writerMeta != nil {
+			writerMetaState = writerMeta.State
+		}
+		metadataStates[stream.ID()] = writerMetaState
 	}
 
 	defer func() {

@@ -37,7 +37,3 @@ func (o *Oracle) ChangeStreamConfig() (bool, bool, bool) {
 func (o *Oracle) SetupState(state *types.State) {
 	o.state = state
 }
-
-func (o *Oracle) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
-	return "", nil
-}

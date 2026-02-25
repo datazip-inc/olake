@@ -21,7 +21,7 @@ type StateInterface interface {
 	ResetStreams()
 	SetType(typ StateType)
 	GetCursor(stream *ConfiguredStream, key string) any
-	SetCursors(stream *ConfiguredStream, cursors map[string]any)
+	SetCursor(stream *ConfiguredStream, key, value any)
 	GetChunks(stream *ConfiguredStream) *Set[Chunk]
 	SetChunks(stream *ConfiguredStream, chunks *Set[Chunk])
 	RemoveChunk(stream *ConfiguredStream, chunk Chunk)

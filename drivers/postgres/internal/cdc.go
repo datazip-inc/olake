@@ -45,7 +45,9 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	if globalState == nil || globalState.State == nil {
 		p.state.SetGlobal(waljs.WALState{LSN: slot.CurrentLSN.String()})
 		p.state.ResetStreams()
-		return waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String())
+		if err := waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String()); err != nil {
+			return err
+		}
 	}
 	p.streams = streams
 	return nil
@@ -58,10 +60,14 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
 	}
 
-	var metadataBiggerLSN string
+	var metadataCommittedLSN string
 	var finishedStreams []string
 
 	for streamID, rawMtState := range metadataStates {
+		if rawMtState == nil {
+			// No previous CDC state for this stream (fresh run), skip recovery check.
+			continue
+		}
 		if stMtState, ok := rawMtState.(string); ok {
 			var mtState waljs.WALState
 			if err := json.Unmarshal([]byte(stMtState), &mtState); err != nil {
@@ -69,7 +75,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 			}
 
 			if mtState.LSN != postgresGlobalState.LSN {
-				// state finished previously but not written to state
+				metadataCommittedLSN = mtState.LSN
 				finishedStreams = append(finishedStreams, streamID)
 			}
 		} else {
@@ -78,15 +84,17 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	}
 
 	var remainingStreams []types.StreamInterface
-	var lsnCommittedTo pglogrepl.LSN
+	// recoveryLSN is non-nil only when we need a bounded recovery sync; in the
+	// normal path it stays nil so NewReplicator uses the live IdentifySystem LSN.
+	var recoveryLSN *pglogrepl.LSN
 
 	if len(finishedStreams) > 0 {
-		// recovery sync required
-		var err error
-		lsnCommittedTo, err = pglogrepl.ParseLSN(metadataBiggerLSN)
+		// recovery sync required: read up to the LSN stored in the Iceberg metadata
+		parsed, err := pglogrepl.ParseLSN(metadataCommittedLSN)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to parse recovery LSN %q: %s", metadataCommittedLSN, err)
 		}
+		recoveryLSN = &parsed
 
 		finishedStreamSet := types.NewSet(finishedStreams...)
 		_ = utils.ForEach(p.streams, func(stream types.StreamInterface) error {
@@ -109,7 +117,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		return nil, fmt.Errorf("failed to get slot position: %s", err)
 	}
 
-	replicator, err := waljs.NewReplicator(ctx, config, slot, &lsnCommittedTo, p.dataTypeConverter)
+	replicator, err := waljs.NewReplicator(ctx, config, slot, recoveryLSN, p.dataTypeConverter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create wal connection: %s", err)
 	}
@@ -128,17 +136,35 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		return nil, err
 	}
 
-	return waljs.WALState{LSN: p.replicator.Socket().ClientXLogPos.String()}, nil
+	// In recovery mode the replicator exits as soon as ClientXLogPos >= recoveryLSN,
+	// which means ClientXLogPos may overshoot (e.g. land on the next WAL boundary or a
+	// keepalive ServerWALEnd).  If we let that overshoot propagate, PostCDC will
+	// acknowledge the slot past the recovery target, permanently skipping any WAL
+	// records that fall between the target and the overshoot.
+	// Fix: pin ClientXLogPos to the exact recovery LSN so that both the Iceberg
+	// metadata state (returned here) and the PostCDC slot acknowledgement land on
+	// the same position that Iceberg already committed.
+	if recoveryLSN != nil {
+		p.replicator.Socket().ClientXLogPos = *recoveryLSN
+		return waljs.WALState{LSN: metadataCommittedLSN}, nil
+	}
+
+	finalLSN := p.replicator.Socket().ClientXLogPos.String()
+	return waljs.WALState{LSN: finalLSN}, nil
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
+	if p.replicator == nil {
+		return nil
+	}
 	defer waljs.Cleanup(ctx, p.replicator.Socket())
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 		socket := p.replicator.Socket()
-		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
+		finalLSN := socket.ClientXLogPos.String()
+		p.state.SetGlobal(waljs.WALState{LSN: finalLSN})
 		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
 	}
 }

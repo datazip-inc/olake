@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -89,14 +90,34 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			}(incrementalCtx)
 
 			defer func() {
-				newMetadataState := &types.MetadataState{
-					Id: generateThreadID(stream.ID(), fmt.Sprintf("%v_%v", a.FormatCursorValue(maxPrimaryCursorValue), a.FormatCursorValue(maxSecondaryCursorValue))),
+				mtState := map[string]any{primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue)}
+				if secondaryCursor != "" {
+					mtState[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
 				}
-				handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, newMetadataState)
+				handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, mtState)
 			}()
 
-			if threadID == prevMetadataState.Id {
-				// sync for stream already finished, recovery mode
+			// prevMetadataState id will be same as thread id if the state file failed to update
+			if prevMetadataState != nil && threadID == prevMetadataState.ID && prevMetadataState.State != nil {
+				stateString, ok := prevMetadataState.State.(string)
+				if !ok {
+					return fmt.Errorf("failed to unmarshal previous metadata state of type[%T]", prevMetadataState.State)
+				}
+
+				var mtState map[string]any
+				if err := json.Unmarshal([]byte(stateString), &mtState); err != nil {
+					return fmt.Errorf("failed to unmarshal previous metadata state: %s", err)
+				}
+
+				// detect cursor value difference
+				if mtState[primaryCursor] == nil || (secondaryCursor != "" && mtState[secondaryCursor] == nil) {
+					return fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID)
+				}
+
+				maxPrimaryCursorValue = mtState[primaryCursor]
+				if secondaryCursor != "" {
+					maxSecondaryCursorValue = mtState[secondaryCursor]
+				}
 				return nil
 			}
 

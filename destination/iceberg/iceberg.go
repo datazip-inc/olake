@@ -126,23 +126,36 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
 		}
 
-		// Return schema and optional olake_2pc state from table metadata (separate field in response)
+		// Capture optional olake_2pc state from table metadata without returning early,
+		// so we fall through to create the writer for this thread.
 		if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
 			var metadataState types.MetadataState
 			if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
 				return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
 			}
-
+			// When JSON decodes an `any` field that held a JSON *object* (e.g. Postgres/MySQL
+			// binlog state {"lsn":"..."}), it produces a map[string]interface{}.
+			// For drivers whose State is already a plain string (e.g. MongoDB resume tokens)
+			// we must NOT re-encode, because json.Marshal("tok") → `"\"tok\""` which embeds
+			// literal quote characters into the token and makes it invalid.
+			if metadataState.State != nil {
+				if _, alreadyString := metadataState.State.(string); !alreadyString {
+					stateBytes, err := json.Marshal(metadataState.State)
+					if err != nil {
+						return schema, nil, fmt.Errorf("failed to re-serialize metadata state: %s", err)
+					}
+					metadataState.State = string(stateBytes)
+				}
+			}
 			i.olake2PCState = &metadataState
-			return schema, i.olake2PCState, nil
 		}
-		return schema, nil, nil
-	}
-	// set global schema for current thread
-	var ok bool
-	schema, ok = globalSchema.(map[string]string)
-	if !ok {
-		return nil, nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+	} else {
+		// set global schema for current thread
+		var ok bool
+		schema, ok = globalSchema.(map[string]string)
+		if !ok {
+			return nil, nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+		}
 	}
 
 	// set schema for current thread

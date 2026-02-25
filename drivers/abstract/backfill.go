@@ -69,7 +69,6 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		}(backfillCtx)
 
 		if prevMetadataState != nil {
-			// new format: append-only committed ids for full refresh chunks
 			if slices.Contains(prevMetadataState.FullRefreshCommittedIDs, threadID) {
 				logger.Infof("Thread[%s]: chunk min[%v] and max[%v] already committed, skipping", threadID, chunk.Min, chunk.Max)
 				return nil

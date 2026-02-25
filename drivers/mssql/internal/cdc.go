@@ -100,19 +100,17 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	lsnVal := m.state.GetCursor(stream.Self(), cdcCursorKey)
 	lsnInState := lsnVal.(string)
 
-	rawMtState, ok := metadataStates[stream.ID()]
-	if !ok {
-		return nil, fmt.Errorf("metadata state not available for stream: %s", stream.ID())
-	}
-
-	mtState, ok := rawMtState.(string)
-	if !ok {
-		return nil, fmt.Errorf("failed to typecast mtstate to string of type[%T]", mtState)
-	}
-
-	if mtState != lsnInState {
-		// stream committed but not written in state
-		return mtState, nil
+	rawMtState, exists := metadataStates[stream.ID()]
+	if exists && rawMtState != nil {
+		// Only perform the recovery check when there is a prior Iceberg metadata state.
+		// rawMtState is nil on fresh runs (no previous commit), so skip in that case.
+		mtState, ok := rawMtState.(string)
+		if !ok {
+			return nil, fmt.Errorf("failed to typecast mtstate to string of type[%T]", rawMtState)
+		}
+		if mtState != lsnInState {
+			return mtState, nil
+		}
 	}
 
 	// Get target LSN (current max LSN in DB)

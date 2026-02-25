@@ -245,10 +245,11 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 
 	var metadataState any
 	if mtState != nil {
-		metadataState = types.MetadataState{
-			Id:    threadID,
-			State: mtState,
+		ms := types.MetadataState{State: mtState}
+		if threadID != "" {
+			ms.ID = threadID
 		}
+		metadataState = ms
 	}
 
 	// Close writer(s)

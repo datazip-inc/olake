@@ -80,7 +80,7 @@ public class IcebergTableOperator {
   private static final ObjectMapper mapper = new ObjectMapper();
 
   private static final String STATE_KEY_2PC = "olake_2pc";
-  private static final String STATE_FIELD_LATEST_THREAD_ID = "latest_threadId";
+  private static final String STATE_FIELD_LATEST_THREAD_ID = "id";
   private static final String STATE_FIELD_FULL_REFRESH_COMMITTED_IDS = "full_refresh_committed_ids";
 
 

@@ -13,7 +13,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-func (m *MySQL) prepareBinlogConn(ctx context.Context, mysqlGlobalState MySQLGlobalState, streamsToSync []types.StreamInterface) (*binlog.Connection, error) {
+func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlobalState, streamsToSync []types.StreamInterface) (*binlog.Connection, error) {
 	// Build TLS config if SSL is configured
 	var tlsConfig *tls.Config
 	if m.config.SSLConfiguration != nil && m.config.SSLConfiguration.Mode != utils.SSLModeDisable {
@@ -25,7 +25,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mysqlGlobalState MySQLGlo
 	}
 
 	config := &binlog.Config{
-		ServerID:                mysqlGlobalState.ServerID,
+		ServerID:                mySQLGlobalState.ServerID,
 		Flavor:                  "mysql",
 		Host:                    m.config.Host,
 		Port:                    uint16(m.config.Port),
@@ -40,7 +40,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mysqlGlobalState MySQLGlo
 		TLSConfig:               tlsConfig,
 	}
 
-	return binlog.NewConnection(ctx, config, mysqlGlobalState.State.Position, streamsToSync, m.dataTypeConverter)
+	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, streamsToSync, m.dataTypeConverter)
 }
 
 func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
@@ -111,6 +111,9 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	}
 
 	for streamID, rawMtState := range metadataStates {
+		if rawMtState == nil {
+			continue
+		}
 		if mtState, ok := rawMtState.(string); ok {
 			var mysqlMetadataState binlog.Binlog
 			err := json.Unmarshal([]byte(mtState), &mysqlMetadataState)
@@ -157,6 +160,9 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 }
 
 func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
+	if m.BinlogConn == nil {
+		return nil
+	}
 	defer m.BinlogConn.Cleanup()
 	select {
 	case <-ctx.Done():
@@ -170,24 +176,4 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 		})
 		return nil
 	}
-}
-
-func (m *MySQL) GetCDCPosition(streamID string) string {
-	if m.BinlogConn == nil {
-		return ""
-	}
-	return fmt.Sprintf("%s:%d", m.BinlogConn.CurrentPos.Name, m.BinlogConn.CurrentPos.Pos)
-}
-
-// GetCDCStartPosition returns the starting CDC position from state for predictable thread IDs
-func (m *MySQL) GetCDCStartPosition(stream types.StreamInterface, streamIndex int) (string, error) {
-	globalState := m.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return "", fmt.Errorf("global state is nil")
-	}
-	var mysqlState MySQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
-		return "", fmt.Errorf("failed to unmarshal global state: %w", err)
-	}
-	return fmt.Sprintf("%s:%d", mysqlState.State.Position.Name, mysqlState.State.Position.Pos), nil
 }

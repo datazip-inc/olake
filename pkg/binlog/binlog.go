@@ -63,7 +63,7 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 	}, nil
 }
 
-func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latestBinlogPos mysql.Position, callback abstract.CDCMsgFn) error {
+func (c *Connection) StreamMessages(ctx context.Context, _ *sqlx.DB, latestBinlogPos mysql.Position, callback abstract.CDCMsgFn) error {
 	if latestBinlogPos.Name == "" || latestBinlogPos.Pos == 0 {
 		return fmt.Errorf("latest binlog position is not set")
 	}
