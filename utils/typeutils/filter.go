@@ -39,7 +39,7 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 	conditions := make([]parsedCondition, len(filter.Conditions))
 	for i, cond := range filter.Conditions {
 		cond.Column = utils.Reformat(cond.Column)
-		dataType, err := getFilterColumnDataType(schema, cond.Column)
+		dataType, err := getFilterColumnDataType(cond.Column, schema)
 		if err != nil {
 			return nil, err
 		}
@@ -88,7 +88,7 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 	}()
 }
 
-func getFilterColumnDataType(schema any, column string) (types.DataType, error) {
+func getFilterColumnDataType(column string, schema any) (types.DataType, error) {
 	switch s := schema.(type) {
 	case Fields: // parquet
 		field, found := s[column]
