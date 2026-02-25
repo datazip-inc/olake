@@ -1200,10 +1200,6 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 		finalFilter, filterErr = strings.Join(conditions, fmt.Sprintf(" %s ", filter.LogicalOperator)), err
 	}
 
-	if thresholdFilter == "" {
-		return finalFilter, nil
-	}
-
 	return utils.Ternary(thresholdFilter == "", finalFilter, fmt.Sprintf("(%s) AND (%s)", thresholdFilter, finalFilter)).(string), filterErr
 }
 

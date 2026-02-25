@@ -25,17 +25,15 @@ type parsedCondition struct {
 // FilterRecords applies filtering ONLY for new filters.
 // For legacy filters, records are returned unchanged.
 func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any) ([]types.RawRecord, error) {
-	logger.Infof("filtering records with filter: %+v", filter)
-
 	if isLegacy {
 		logger.Warnf("legacy filter detected, skipping destination filtering")
 		return records, nil
 	}
-
 	if len(filter.Conditions) == 0 {
-		logger.Warnf("no filter conditions, returning records as-is")
+		logger.Debugf("no filter conditions, returning records as-is")
 		return records, nil
 	}
+	logger.Infof("filtering records with filter: %+v", filter)
 	conditions := make([]parsedCondition, len(filter.Conditions))
 	for i, cond := range filter.Conditions {
 		cond.Column = utils.Reformat(cond.Column)

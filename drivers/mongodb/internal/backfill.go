@@ -420,16 +420,16 @@ func buildMongoCondition(isLegacy bool, cond interface{}) bson.D {
 				return strings.EqualFold(val, "true")
 			}
 
-			if t, err := typeutils.ReformatDate(val, false); err == nil {
-				return t
+			if timeVal, err := typeutils.ReformatDate(val, false); err == nil {
+				return timeVal
 			}
 
-			if i, err := typeutils.ReformatInt64(val); err == nil {
-				return i
+			if intVal, err := typeutils.ReformatInt64(val); err == nil {
+				return intVal
 			}
 
-			if f, err := typeutils.ReformatFloat64(val); err == nil {
-				return f
+			if floatVal, err := typeutils.ReformatFloat64(val); err == nil {
+				return floatVal
 			}
 
 			return val
@@ -444,9 +444,21 @@ func buildMongoCondition(isLegacy bool, cond interface{}) bson.D {
 
 	var value interface{}
 	if v, ok := c.Value.(string); ok {
-		value = v
+		//For string values, attempt type conversion based on field characteristics
+		//This handles cases like timestamp strings, ObjectIDs etc.
+		if c.Column == "_id" && len(v) == 24 {
+			if oid, err := primitive.ObjectIDFromHex(v); err == nil {
+				value = oid
+			} else {
+				value = v
+			}
+		} else if timeVal, err := typeutils.ReformatDate(v, false); err == nil {
+			value = timeVal
+		} else {
+			value = c.Value
+		}
 	} else {
-		// already typed (nil, bool, int, time.Time, etc.)
+		// already typed (nil, bool, int, float, etc.)
 		value = c.Value
 	}
 
