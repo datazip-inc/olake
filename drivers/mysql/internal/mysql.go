@@ -295,8 +295,9 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 			}
 		}
 	} else {
+		// Version < 4 legacy behavior: map all unsigned types to types.Int32
 		if strings.Contains(strings.ToLower(columnType), "unsigned") {
-			columnType = strings.ReplaceAll(strings.ToLower(columnType), "unsigned ", "")
+			columnType = "int"
 		}
 	}
 
