@@ -143,28 +143,23 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 
 // mysqlTypeName maps MySQL binlog protocol type bytes to SQL type names.
 func mysqlTypeName(t byte, unsigned bool) string {
-	if unsigned {
-		switch t {
-		case mysql.MYSQL_TYPE_TINY:
-			return "UNSIGNED TINYINT"
-		case mysql.MYSQL_TYPE_SHORT:
-			return "UNSIGNED SMALLINT"
-		case mysql.MYSQL_TYPE_INT24:
-			return "UNSIGNED MEDIUMINT"
-		case mysql.MYSQL_TYPE_LONG:
-			return "UNSIGNED INT"
-		case mysql.MYSQL_TYPE_LONGLONG:
-			return "UNSIGNED BIGINT"
-		}
-	}
 	switch t {
 	case mysql.MYSQL_TYPE_DECIMAL:
 		return "DECIMAL"
 	case mysql.MYSQL_TYPE_TINY:
+		if unsigned {
+			return "UNSIGNED TINYINT"
+		}
 		return "TINYINT"
 	case mysql.MYSQL_TYPE_SHORT:
+		if unsigned {
+			return "UNSIGNED SMALLINT"
+		}
 		return "SMALLINT"
 	case mysql.MYSQL_TYPE_LONG:
+		if unsigned {
+			return "UNSIGNED INT"
+		}
 		return "INT"
 	case mysql.MYSQL_TYPE_FLOAT:
 		return "FLOAT"
@@ -175,8 +170,14 @@ func mysqlTypeName(t byte, unsigned bool) string {
 	case mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_TIMESTAMP2:
 		return "TIMESTAMP"
 	case mysql.MYSQL_TYPE_LONGLONG:
+		if unsigned {
+			return "UNSIGNED BIGINT"
+		}
 		return "BIGINT"
 	case mysql.MYSQL_TYPE_INT24:
+		if unsigned {
+			return "UNSIGNED MEDIUMINT"
+		}
 		return "MEDIUMINT"
 	case mysql.MYSQL_TYPE_DATE:
 		return "DATE"
