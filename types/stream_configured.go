@@ -14,7 +14,7 @@ type ConfiguredStream struct {
 	Stream         *Stream        `json:"stream,omitempty"`
 }
 
-type FilterInput struct {
+type FilterConfig struct {
 	LogicalOperator string            `json:"logical_operator,omitempty"`
 	Conditions      []FilterCondition `json:"conditions,omitempty"`
 }
@@ -183,30 +183,30 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 
 // GetFilter returns the configured filter for this stream in a normalized form.
 //
-// The returned FilterInput is always the parsed representation of the filter:
-//   - If StreamMetadata.FilterInput is set and has at least one condition,
+// The returned FilterConfig is always the parsed representation of the filter:
+//   - If StreamMetadata.FilterConfig is set and has at least one condition,
 //     that value is returned as-is (after normalizing the logical operator),
 //     and isLegacy is false.
 //   - Otherwise, the legacy string-based StreamMetadata.Filter is parsed into
-//     a FilterInput using the legacy regex parser. In this case isLegacy is true.
+//     a FilterConfig using the legacy regex parser. In this case isLegacy is true.
 //
 // Return values:
-//   - FilterInput: parsed filter definition (may be empty if no filter is configured)
+//   - FilterConfig: parsed filter definition (may be empty if no filter is configured)
 //   - isLegacy:   true if the filter came from the legacy string field, false if it
-//     came from the new structured FilterInput field
+//     came from the new structured FilterConfig field
 //   - error:      non-nil only if the legacy string filter is non-empty and fails
 //     to parse; new structured filters do not return parse errors here.
-func (s *ConfiguredStream) GetFilter() (FilterInput, bool, error) {
+func (s *ConfiguredStream) GetFilter() (FilterConfig, bool, error) {
 	//new filter input
-	if s.StreamMetadata.FilterInput != nil && len(s.StreamMetadata.FilterInput.Conditions) > 0 {
-		s.StreamMetadata.FilterInput.LogicalOperator = utils.Reformat(s.StreamMetadata.FilterInput.LogicalOperator)
-		return *s.StreamMetadata.FilterInput, false, nil
+	if s.StreamMetadata.FilterConfig != nil && len(s.StreamMetadata.FilterConfig.Conditions) > 0 {
+		s.StreamMetadata.FilterConfig.LogicalOperator = utils.Reformat(s.StreamMetadata.FilterConfig.LogicalOperator)
+		return *s.StreamMetadata.FilterConfig, false, nil
 	}
 
 	// legacy filter input
 	filter := strings.TrimSpace(s.StreamMetadata.Filter)
 	if filter == "" {
-		return FilterInput{}, true, nil
+		return FilterConfig{}, true, nil
 	}
 	// FilterRegex supports the following filter patterns:
 	// Single condition:
@@ -226,7 +226,7 @@ func (s *ConfiguredStream) GetFilter() (FilterInput, bool, error) {
 	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+)))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
-		return FilterInput{}, true, fmt.Errorf("invalid filter format: %s", filter)
+		return FilterConfig{}, true, fmt.Errorf("invalid filter format: %s", filter)
 	}
 
 	var conditions []FilterCondition
@@ -246,7 +246,7 @@ func (s *ConfiguredStream) GetFilter() (FilterInput, bool, error) {
 		})
 	}
 
-	return FilterInput{
+	return FilterConfig{
 		Conditions:      conditions,
 		LogicalOperator: logicalOp,
 	}, true, nil

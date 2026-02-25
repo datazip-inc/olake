@@ -21,7 +21,7 @@ func TestMySQLIntegration(t *testing.T) {
 		DestinationDB:                    "mysql_olake_mysql_test",
 		CursorField:                      "id_cursor:id_smallint",
 		PartitionRegex:                   "/{id,identity}",
-		FilterInput: `{
+		FilterConfig: `{
                     "logical_operator": "And",
                     "conditions": [
                         {

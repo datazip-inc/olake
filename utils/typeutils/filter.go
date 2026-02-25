@@ -24,7 +24,7 @@ type parsedCondition struct {
 // For legacy filters, records are returned unchanged.
 // FilterRecords applies filtering ONLY for new filters.
 // For legacy filters, records are returned unchanged.
-func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterInput, isLegacy bool, schema any) ([]types.RawRecord, error) {
+func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any) ([]types.RawRecord, error) {
 	logger.Infof("filtering records with filter: %+v", filter)
 
 	if isLegacy {

@@ -45,7 +45,7 @@ func TestFilterRecords_LegacyFilter(t *testing.T) {
 	}
 
 	// Even with conditions, legacy=true should skip filtering
-	filter := types.FilterInput{
+	filter := types.FilterConfig{
 		LogicalOperator: "AND",
 		Conditions: []types.FilterCondition{
 			{Column: "id", Operator: "=", Value: 1},
@@ -70,7 +70,7 @@ func TestFilterRecords_EmptyConditions(t *testing.T) {
 		makeRecord(map[string]any{"id": int64(3)}),
 	}
 
-	filter := types.FilterInput{
+	filter := types.FilterConfig{
 		LogicalOperator: "AND",
 		Conditions:      []types.FilterCondition{},
 	}
@@ -89,7 +89,7 @@ func TestFilterRecords_EmptyRecords(t *testing.T) {
 	ctx := context.Background()
 	records := []types.RawRecord{}
 
-	filter := types.FilterInput{
+	filter := types.FilterConfig{
 		LogicalOperator: "AND",
 		Conditions: []types.FilterCondition{
 			{Column: "id", Operator: "=", Value: 1},
@@ -174,7 +174,7 @@ func TestFilterRecords_ColumnNameCases_Iceberg(t *testing.T) {
 				makeRecord(map[string]any{tt.recordColumn: int64(200)}),
 			}
 
-			filter := types.FilterInput{
+			filter := types.FilterConfig{
 				LogicalOperator: "AND",
 				Conditions: []types.FilterCondition{
 					{Column: tt.filterColumn, Operator: "=", Value: 100},
@@ -222,7 +222,7 @@ func TestFilterRecords_Operators_Integer_Iceberg(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			filter := types.FilterInput{
+			filter := types.FilterConfig{
 				LogicalOperator: "AND",
 				Conditions: []types.FilterCondition{
 					{Column: "value", Operator: tt.operator, Value: tt.filterValue},
@@ -249,7 +249,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 			makeRecord(map[string]any{"active": false}),
 			makeRecord(map[string]any{"active": true}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "active", Operator: "=", Value: true},
@@ -268,7 +268,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 			makeRecord(map[string]any{"count": int32(10)}),
 			makeRecord(map[string]any{"count": int32(15)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "count", Operator: ">=", Value: 10},
@@ -287,7 +287,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 			makeRecord(map[string]any{"bignum": int64(2000000)}),
 			makeRecord(map[string]any{"bignum": int64(3000000)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "bignum", Operator: "<", Value: 2500000},
@@ -306,7 +306,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 			makeRecord(map[string]any{"price": float32(29.99)}),
 			makeRecord(map[string]any{"price": float32(39.99)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "price", Operator: "<=", Value: 29.99},
@@ -325,7 +325,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 			makeRecord(map[string]any{"amount": float64(200.75)}),
 			makeRecord(map[string]any{"amount": float64(300.25)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "amount", Operator: ">", Value: 150.0},
@@ -344,7 +344,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 			makeRecord(map[string]any{"name": "Bob"}),
 			makeRecord(map[string]any{"name": "Charlie"}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "name", Operator: "=", Value: "Bob"},
@@ -368,7 +368,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 			makeRecord(map[string]any{"created_at": now}),
 			makeRecord(map[string]any{"created_at": future}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "created_at", Operator: ">=", Value: now.Format(time.RFC3339)},
@@ -394,7 +394,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 			makeRecord(map[string]any{"is_active": true}),
 			makeRecord(map[string]any{"is_active": false}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "is_active", Operator: "=", Value: false},
@@ -413,7 +413,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 			makeRecord(map[string]any{"age": int32(35)}),
 			makeRecord(map[string]any{"age": int32(45)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "age", Operator: "!=", Value: 35},
@@ -432,7 +432,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 			makeRecord(map[string]any{"id": int64(2)}),
 			makeRecord(map[string]any{"id": int64(3)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "id", Operator: "<=", Value: 2},
@@ -451,7 +451,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 			makeRecord(map[string]any{"temp": float32(37.0)}),
 			makeRecord(map[string]any{"temp": float32(38.5)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "temp", Operator: ">", Value: 37.0},
@@ -470,7 +470,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 			makeRecord(map[string]any{"balance": float64(2500.50)}),
 			makeRecord(map[string]any{"balance": float64(5000.75)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "balance", Operator: ">=", Value: 2000.0},
@@ -489,7 +489,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 			makeRecord(map[string]any{"status": "active"}),
 			makeRecord(map[string]any{"status": "inactive"}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "status", Operator: "!=", Value: "pending"},
@@ -510,7 +510,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 			makeRecord(map[string]any{"updated_at": baseTime.Add(2 * time.Hour)}),
 			makeRecord(map[string]any{"updated_at": baseTime.Add(4 * time.Hour)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "updated_at", Operator: "<", Value: baseTime.Add(3 * time.Hour).Format(time.RFC3339)},
@@ -540,7 +540,7 @@ func TestFilterRecords_ANDLogic(t *testing.T) {
 	}
 
 	t.Run("two conditions AND", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "city", Operator: "=", Value: "NYC"},
@@ -559,7 +559,7 @@ func TestFilterRecords_ANDLogic(t *testing.T) {
 	})
 
 	t.Run("three conditions AND", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "city", Operator: "=", Value: "NYC"},
@@ -579,7 +579,7 @@ func TestFilterRecords_ANDLogic(t *testing.T) {
 	})
 
 	t.Run("empty logical operator defaults to AND", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "", // empty should default to AND
 			Conditions: []types.FilterCondition{
 				{Column: "city", Operator: "=", Value: "NYC"},
@@ -614,7 +614,7 @@ func TestFilterRecords_ORLogic(t *testing.T) {
 	}
 
 	t.Run("two conditions OR", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "OR",
 			Conditions: []types.FilterCondition{
 				{Column: "department", Operator: "=", Value: "Engineering"},
@@ -632,7 +632,7 @@ func TestFilterRecords_ORLogic(t *testing.T) {
 	})
 
 	t.Run("lowercase or", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "or",
 			Conditions: []types.FilterCondition{
 				{Column: "department", Operator: "=", Value: "HR"},
@@ -650,7 +650,7 @@ func TestFilterRecords_ORLogic(t *testing.T) {
 	})
 
 	t.Run("mixed case Or", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "Or",
 			Conditions: []types.FilterCondition{
 				{Column: "level", Operator: "=", Value: 1},
@@ -683,7 +683,7 @@ func TestFilterRecords_NullValues(t *testing.T) {
 	}
 
 	t.Run("filter null equals null", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "name", Operator: "=", Value: nil},
@@ -697,7 +697,7 @@ func TestFilterRecords_NullValues(t *testing.T) {
 	})
 
 	t.Run("filter null not equals", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "name", Operator: "!=", Value: nil},
@@ -711,7 +711,7 @@ func TestFilterRecords_NullValues(t *testing.T) {
 	})
 
 	t.Run("comparison with null returns false", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "age", Operator: ">", Value: 20},
@@ -741,7 +741,7 @@ func TestFilterRecords_CDCMissingColumns(t *testing.T) {
 	}
 
 	t.Run("AND with missing column returns false", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "status", Operator: "=", Value: "active"},
@@ -763,7 +763,7 @@ func TestFilterRecords_CDCMissingColumns(t *testing.T) {
 	})
 
 	t.Run("OR with missing column returns false for that condition", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "OR",
 			Conditions: []types.FilterCondition{
 				{Column: "name", Operator: "=", Value: "Alice"},
@@ -797,7 +797,7 @@ func TestFilterRecords_UnknownColumnType(t *testing.T) {
 		makeRecord(map[string]any{"id": int64(1)}),
 	}
 
-	filter := types.FilterInput{
+	filter := types.FilterConfig{
 		LogicalOperator: "AND",
 		Conditions: []types.FilterCondition{
 			{Column: "unknown_column", Operator: "=", Value: 1},
@@ -843,7 +843,7 @@ func TestFilterRecords_StringComparison(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			filter := types.FilterInput{
+			filter := types.FilterConfig{
 				LogicalOperator: "AND",
 				Conditions: []types.FilterCondition{
 					{Column: "name", Operator: tt.operator, Value: tt.filterValue},
@@ -874,7 +874,7 @@ func TestFilterRecords_BooleanComparison(t *testing.T) {
 	schema := makeIcebergSchema(map[string]string{"enabled": "boolean"})
 
 	t.Run("boolean equals true", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "enabled", Operator: "=", Value: true},
@@ -887,7 +887,7 @@ func TestFilterRecords_BooleanComparison(t *testing.T) {
 	})
 
 	t.Run("boolean equals false", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "enabled", Operator: "=", Value: false},
@@ -900,7 +900,7 @@ func TestFilterRecords_BooleanComparison(t *testing.T) {
 	})
 
 	t.Run("boolean not equals", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "enabled", Operator: "!=", Value: true},
@@ -913,7 +913,7 @@ func TestFilterRecords_BooleanComparison(t *testing.T) {
 	})
 
 	t.Run("boolean greater than (false < true)", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "enabled", Operator: ">", Value: false},
@@ -938,7 +938,7 @@ func TestFilterRecords_TypeCoercion(t *testing.T) {
 			makeRecord(map[string]any{"id": int64(100)}),
 			makeRecord(map[string]any{"id": int64(200)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "id", Operator: "=", Value: "100"}, // string value
@@ -956,7 +956,7 @@ func TestFilterRecords_TypeCoercion(t *testing.T) {
 			makeRecord(map[string]any{"count": int32(10)}),
 			makeRecord(map[string]any{"count": int32(20)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "count", Operator: "=", Value: 10.0}, // float value
@@ -974,7 +974,7 @@ func TestFilterRecords_TypeCoercion(t *testing.T) {
 			makeRecord(map[string]any{"price": float64(99.99)}),
 			makeRecord(map[string]any{"price": float64(100.0)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "price", Operator: "=", Value: 100}, // int value
@@ -992,7 +992,7 @@ func TestFilterRecords_TypeCoercion(t *testing.T) {
 			makeRecord(map[string]any{"active": true}),
 			makeRecord(map[string]any{"active": false}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "active", Operator: "=", Value: "true"}, // string "true"
@@ -1018,7 +1018,7 @@ func TestFilterRecords_UnsupportedOperator(t *testing.T) {
 		makeRecord(map[string]any{"name": "Bob"}),
 	}
 
-	filter := types.FilterInput{
+	filter := types.FilterConfig{
 		LogicalOperator: "AND",
 		Conditions: []types.FilterCondition{
 			{Column: "name", Operator: "LIKE", Value: "A%"}, // unsupported
@@ -1092,7 +1092,7 @@ func TestFilterRecords_ComplexScenario(t *testing.T) {
 	})
 
 	t.Run("high value express orders", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "total", Operator: ">=", Value: 100},
@@ -1106,7 +1106,7 @@ func TestFilterRecords_ComplexScenario(t *testing.T) {
 	})
 
 	t.Run("completed or canceled orders", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "OR",
 			Conditions: []types.FilterCondition{
 				{Column: "status", Operator: "=", Value: "completed"},
@@ -1120,7 +1120,7 @@ func TestFilterRecords_ComplexScenario(t *testing.T) {
 	})
 
 	t.Run("customer 501 high priority", func(t *testing.T) {
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "customer_id", Operator: "=", Value: 501},
@@ -1357,7 +1357,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 			makeRecord(map[string]any{"user_account_id": int64(1)}),
 			makeRecord(map[string]any{"user_account_id": int64(2)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "user_account_id", Operator: "=", Value: 1},
@@ -1375,7 +1375,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 			makeRecord(map[string]any{"userid": int64(1)}),
 			makeRecord(map[string]any{"userid": int64(2)}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "UserID", Operator: "=", Value: 1}, // uppercase input
@@ -1393,7 +1393,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 			makeRecord(map[string]any{"customer_name": "John"}),
 			makeRecord(map[string]any{"customer_name": "Jane"}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "CUSTOMER_NAME", Operator: "=", Value: "John"},
@@ -1411,7 +1411,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 			makeRecord(map[string]any{"_order_date_": "2025-01-15"}),
 			makeRecord(map[string]any{"_order_date_": "2025-01-16"}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "[Order Date]", Operator: "=", Value: "2025-01-15"},
@@ -1430,7 +1430,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 			makeRecord(map[string]any{"address_city": "NYC"}),
 			makeRecord(map[string]any{"address_city": "LA"}),
 		}
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "address.city", Operator: "=", Value: "NYC"}, // dot notation
@@ -1462,7 +1462,7 @@ func TestFilterRecords_LargeDataset(t *testing.T) {
 		})
 	}
 
-	filter := types.FilterInput{
+	filter := types.FilterConfig{
 		LogicalOperator: "AND",
 		Conditions: []types.FilterCondition{
 			{Column: "category", Operator: "=", Value: "A"},
@@ -1509,7 +1509,7 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 			types.CreateRawRecord(map[string]any{"id": int64(7)}, map[string]any{constants.OlakeID: "id7", constants.OpType: "d"}),                       // delete with missing status - should ALWAYS match
 		}
 
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "status", Operator: "=", Value: "active"},
@@ -1562,7 +1562,7 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 			types.CreateRawRecord(map[string]any{"age": int64(30), "city": "NYC"}, map[string]any{constants.OlakeID: "id3", constants.OpType: "d"}), // delete - should bypass
 		}
 
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "age", Operator: ">=", Value: 30},
@@ -1591,7 +1591,7 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 			types.CreateRawRecord(map[string]any{"status": "completed"}, map[string]any{constants.OlakeID: "id3", constants.OpType: "c"}),
 		}
 
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "OR",
 			Conditions: []types.FilterCondition{
 				{Column: "status", Operator: "=", Value: "pending"},
@@ -1616,7 +1616,7 @@ func TestFilterRecords_DeleteOperationsAlwaysSynced(t *testing.T) {
 			types.CreateRawRecord(map[string]any{"status": "active", "_id": "doc3"}, map[string]any{constants.OlakeID: "id3", constants.OpType: "c"}),
 		}
 
-		filter := types.FilterInput{
+		filter := types.FilterConfig{
 			LogicalOperator: "AND",
 			Conditions: []types.FilterCondition{
 				{Column: "status", Operator: "=", Value: "active"},

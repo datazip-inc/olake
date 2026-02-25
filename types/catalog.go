@@ -54,7 +54,7 @@ type StreamMetadata struct {
 	//legacy filter input
 	Filter string `json:"filter,omitempty"`
 	//new filter input
-	FilterInput     *FilterInput     `json:"filter_input,omitempty"`
+	FilterConfig    *FilterConfig    `json:"filter_config,omitempty"`
 	SelectedColumns *SelectedColumns `json:"selected_columns"`
 }
 

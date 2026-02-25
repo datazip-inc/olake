@@ -22,7 +22,7 @@ func TestPostgresIntegration(t *testing.T) {
 		DestinationDB:                    "postgres_postgres_public",
 		CursorField:                      "col_cursor:col_int",
 		PartitionRegex:                   "/{col_bigserial,identity}",
-		FilterInput: `{
+		FilterConfig: `{
                     "logical_operator": "And",
                     "conditions": [
                         {

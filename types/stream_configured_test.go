@@ -12,18 +12,18 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 	tests := []struct {
 		name        string
 		filter      string
-		expected    FilterInput
+		expected    FilterConfig
 		expectError bool
 	}{
 		{
 			name:     "empty filter",
 			filter:   "",
-			expected: FilterInput{},
+			expected: FilterConfig{},
 		},
 		{
 			name:   "simple unquoted column",
 			filter: "status = active",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "status", Operator: "=", Value: "active"},
 				},
@@ -32,7 +32,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "double quoted column name",
 			filter: `"user-id" > 5`,
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "user-id", Operator: ">", Value: "5"},
 				},
@@ -41,7 +41,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "unquoted column with underscores",
 			filter: "user_id != 0 and user_name = john_doe",
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "and",
 				Conditions: []FilterCondition{
 					{Column: "user_id", Operator: "!=", Value: "0"},
@@ -52,7 +52,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "double quoted column with spaces",
 			filter: `"column name" != "some value"`,
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "column name", Operator: "!=", Value: `"some value"`},
 				},
@@ -61,7 +61,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "two conditions with AND - mixed quotes",
 			filter: `"user-id" > 5 and status = "active"`,
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "and",
 				Conditions: []FilterCondition{
 					{Column: "user-id", Operator: ">", Value: "5"},
@@ -72,7 +72,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "all operators test",
 			filter: "age >= 18",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "age", Operator: ">=", Value: "18"},
 				},
@@ -96,7 +96,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "compact comparison without spaces",
 			filter: "a>b",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "a", Operator: ">", Value: "b"},
 				},
@@ -105,7 +105,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "mixed quoted and unquoted columns with logical operator",
 			filter: `"a" >b and a < c`,
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "and",
 				Conditions: []FilterCondition{
 					{Column: "a", Operator: ">", Value: "b"},
@@ -121,7 +121,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "negative number value",
 			filter: "temperature < -10",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "temperature", Operator: "<", Value: "-10"},
 				},
@@ -130,7 +130,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "decimal number with leading dot",
 			filter: "ratio >= .5",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "ratio", Operator: ">=", Value: ".5"},
 				},
@@ -144,7 +144,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "quoted empty string value",
 			filter: `name != ""`,
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "name", Operator: "!=", Value: `""`},
 				},
@@ -153,7 +153,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "lowercase and operator",
 			filter: "a > 1 and b < 2",
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "and",
 				Conditions: []FilterCondition{
 					{Column: "a", Operator: ">", Value: "1"},
@@ -164,7 +164,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "lowercase or operator",
 			filter: "x = 1 or y = 2",
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "or",
 				Conditions: []FilterCondition{
 					{Column: "x", Operator: "=", Value: "1"},
@@ -175,7 +175,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "column with numbers",
 			filter: "column123 = value456",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "column123", Operator: "=", Value: "value456"},
 				},
@@ -184,7 +184,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "excessive whitespace",
 			filter: "  a   >   b   and   c   <   d  ",
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "and",
 				Conditions: []FilterCondition{
 					{Column: "a", Operator: ">", Value: "b"},
@@ -195,7 +195,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "no spaces around operators",
 			filter: "a>5and b<10",
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "and",
 				Conditions: []FilterCondition{
 					{Column: "a", Operator: ">", Value: "5"},
@@ -206,7 +206,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "quoted value with spaces",
 			filter: `description = "hello world"`,
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "description", Operator: "=", Value: `"hello world"`},
 				},
@@ -215,7 +215,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "all different operators in sequence",
 			filter: "a = 1 and b != 2",
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "and",
 				Conditions: []FilterCondition{
 					{Column: "a", Operator: "=", Value: "1"},
@@ -226,7 +226,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "greater than or equal with decimal",
 			filter: "price >= 99.99",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "price", Operator: ">=", Value: "99.99"},
 				},
@@ -235,7 +235,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "less than or equal with integer",
 			filter: "age <= 100",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "age", Operator: "<=", Value: "100"},
 				},
@@ -244,7 +244,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "quoted column with dot notation",
 			filter: `"user.email" = "test@example.com"`,
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "user.email", Operator: "=", Value: `"test@example.com"`},
 				},
@@ -253,7 +253,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "uppercase AND operator",
 			filter: "a > 1 AND b < 2",
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "AND",
 				Conditions: []FilterCondition{
 					{Column: "a", Operator: ">", Value: "1"},
@@ -264,7 +264,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "uppercase OR operator",
 			filter: "a > 1 OR b < 2",
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "OR",
 				Conditions: []FilterCondition{
 					{Column: "a", Operator: ">", Value: "1"},
@@ -355,7 +355,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "scientific notation",
 			filter: "temperature >= 1e3",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "temperature", Operator: ">=", Value: "1e3"},
 				},
@@ -364,7 +364,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "NULL literal",
 			filter: "status = NULL",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "status", Operator: "=", Value: "NULL"},
 				},
@@ -373,7 +373,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "empty quoted column",
 			filter: `"" = value`,
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: "", Operator: "=", Value: "value"},
 				},
@@ -397,7 +397,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "very long column name",
 			filter: strings.Repeat("longcol", 100) + " = 1",
-			expected: FilterInput{
+			expected: FilterConfig{
 				Conditions: []FilterCondition{
 					{Column: strings.Repeat("longcol", 100), Operator: "=", Value: "1"},
 				},
@@ -411,7 +411,7 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		{
 			name:   "mixed case logical operator",
 			filter: "a > 1 And b < 2",
-			expected: FilterInput{
+			expected: FilterConfig{
 				LogicalOperator: "And",
 				Conditions: []FilterCondition{
 					{Column: "a", Operator: ">", Value: "1"},
