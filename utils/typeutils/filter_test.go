@@ -1153,32 +1153,32 @@ func TestResolveColumnType(t *testing.T) {
 		dt, err := getFilterColumnDataType("bool_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Bool, dt)
-		
+
 		dt, err = getFilterColumnDataType("int_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Int32, dt)
-		
+
 		dt, err = getFilterColumnDataType("long_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Int64, dt)
-		
+
 		dt, err = getFilterColumnDataType("float_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Float32, dt)
-		
+
 		dt, err = getFilterColumnDataType("double_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Float64, dt)
-		
+
 		dt, err = getFilterColumnDataType("string_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.String, dt)
-		
+
 		dt, err = getFilterColumnDataType("timestamp_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.TimestampMilli, dt)
-		
-		dt, err = getFilterColumnDataType("nonexistent", schema)
+
+		_, err = getFilterColumnDataType("nonexistent", schema)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "filter column [nonexistent] missing from schema")
 	})
@@ -1196,28 +1196,28 @@ func TestResolveColumnType(t *testing.T) {
 		dt, err := getFilterColumnDataType("bool_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Bool, dt)
-		
+
 		dt, err = getFilterColumnDataType("int32_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Int32, dt)
-		
+
 		dt, err = getFilterColumnDataType("int64_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Int64, dt)
-		
+
 		dt, err = getFilterColumnDataType("float_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Float32, dt)
-		
+
 		dt, err = getFilterColumnDataType("double_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.Float64, dt)
-		
+
 		dt, err = getFilterColumnDataType("string_col", schema)
 		assert.NoError(t, err)
 		assert.Equal(t, types.String, dt)
-		
-		dt, err = getFilterColumnDataType("nonexistent", schema)
+
+		_, err = getFilterColumnDataType("nonexistent", schema)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "filter column [nonexistent] missing from schema")
 	})
