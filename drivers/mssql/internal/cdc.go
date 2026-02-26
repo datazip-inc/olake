@@ -102,13 +102,12 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 
 	rawMtState, exists := metadataStates[stream.ID()]
 	if exists && rawMtState != nil {
-		// Only perform the recovery check when there is a prior Iceberg metadata state.
-		// rawMtState is nil on fresh runs (no previous commit), so skip in that case.
 		mtState, ok := rawMtState.(string)
 		if !ok {
 			return nil, fmt.Errorf("failed to typecast mtstate to string of type[%T]", rawMtState)
 		}
 		if mtState != lsnInState {
+			m.lsnMap.Store(stream.ID(), mtState)
 			return mtState, nil
 		}
 	}
