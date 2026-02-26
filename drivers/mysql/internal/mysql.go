@@ -225,10 +225,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			}
 			stream.WithCursorField(columnName)
 			datatype := types.Unknown
-			isInteger := strings.Contains(strings.ToLower(dataType), "int") || strings.EqualFold(dataType, "integer")
-			if constants.LoadedStateVersion >= 4 && strings.Contains(strings.ToLower(columnType), "unsigned") && isInteger {
-				dataType = "unsigned " + dataType
-			}
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
 				datatype = val
 			} else {
@@ -279,7 +275,7 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	// (int8, int16, int32, int64) regardless of the MySQL UNSIGNED flag. For unsigned columns
 	// whose values exceed the signed type's max value, we must reinterpret the raw bits as the
 	// corresponding unsigned type before further conversion so the value is preserved correctly.
-	if constants.LoadedStateVersion >= 4 {
+	if constants.LoadedStateVersion > 3 {
 		switch strings.ToLower(columnType) {
 		case "unsigned tinyint":
 			if v, ok := value.(int8); ok {
@@ -299,9 +295,8 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 			}
 		}
 	} else {
-		// Version < 4 legacy behavior: map all unsigned types to types.Int32
 		if strings.Contains(strings.ToLower(columnType), "unsigned") {
-			columnType = "int"
+			columnType = strings.TrimSpace(strings.TrimPrefix(columnType, "unsigned "))
 		}
 	}
 
