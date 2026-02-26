@@ -269,10 +269,7 @@ func buildLexicographicChunkCondition(quotedColumns []string, chunk types.Chunk,
 	// For upper bounds, it creates:
 	//   (c1 < v1) OR (c1 = v1 AND c2 < v2) OR (c1 = v1 AND c2 = v2 AND c3 < v3)
 	buildBound := func(values []string, isLower bool) string {
-		if len(values) == 0 {
-			return ""
-		}
-
+		//note: values can never be empty
 		orGroups := make([]string, 0, len(quotedColumns))
 		for colIdx := range quotedColumns {
 			andConds := make([]string, 0, colIdx+1)
@@ -302,9 +299,6 @@ func buildLexicographicChunkCondition(quotedColumns []string, chunk types.Chunk,
 			}
 		}
 
-		if len(orGroups) == 0 {
-			return ""
-		}
 		return "(" + strings.Join(orGroups, " OR ") + ")"
 	}
 
