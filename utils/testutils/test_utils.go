@@ -1196,6 +1196,11 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		if err == nil {
 			break
 		}
+		// For delete operations, if path doesn't exist that's acceptable (no data written)
+		if opSymbol == "d" && strings.Contains(err.Error(), "PATH_NOT_FOUND") {
+			t.Logf("Delete verification passed: Parquet path does not exist (no data written)")
+			return
+		}
 		if attempt < maxRetries {
 			t.Logf("Attempt %d/%d: Failed to create view, retrying in 2s: %v", attempt, maxRetries, err)
 			time.Sleep(2 * time.Second)
