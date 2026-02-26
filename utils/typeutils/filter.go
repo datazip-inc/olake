@@ -7,7 +7,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -20,8 +19,6 @@ type parsedCondition struct {
 	value    any
 }
 
-// FilterRecords applies filtering ONLY for new filters.
-// For legacy filters, records are returned unchanged.
 // FilterRecords applies filtering ONLY for new filters.
 // For legacy filters, records are returned unchanged.
 func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any) ([]types.RawRecord, error) {
@@ -56,24 +53,7 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 		var mu sync.Mutex
 		filtered := make([]types.RawRecord, 0, len(records))
 
-		err := utils.Concurrent(ctx, records, concurrency, func(
-			_ context.Context,
-			record types.RawRecord,
-			_ int,
-		) error {
-			// Delete operations should always be synced, regardless of filter conditions.
-			// This is because:
-			// 1. If a record was previously synced, we need to delete it
-			// 2. If a record was never synced (filtered out), deleting it is a no-op anyway
-			// 3. Delete operations in MongoDB CDC only contain the document key, not full document fields,
-			//    so filter conditions that require those fields cannot be evaluated
-			if record.OlakeColumns[constants.OpType].(string) == "d" {
-				mu.Lock()
-				filtered = append(filtered, record)
-				mu.Unlock()
-				return nil
-			}
-
+		err := utils.Concurrent(ctx, records, concurrency, func(_ context.Context, record types.RawRecord, _ int) error {
 			match := matches(record, conditions, filter.LogicalOperator)
 			if match {
 				mu.Lock()
