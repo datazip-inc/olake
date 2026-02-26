@@ -22,7 +22,7 @@ type FilterConfig struct {
 type FilterCondition struct {
 	Column   string `json:"column,omitempty"`
 	Operator string `json:"operator,omitempty"`
-	Value    any    `json:"value,omitempty"`
+	Value    any    `json:"value"`
 }
 
 func (s *ConfiguredStream) ID() string {
