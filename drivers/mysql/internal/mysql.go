@@ -285,7 +285,7 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 			if v, ok := value.(int16); ok {
 				value = uint16(v)
 			}
-		case "unsigned mediumint", "unsigned int":
+		case "unsigned mediumint", "unsigned int", "unsigned integer":
 			if v, ok := value.(int32); ok {
 				value = uint32(v)
 			}
@@ -296,7 +296,7 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		}
 	} else {
 		if strings.Contains(strings.ToLower(columnType), "unsigned") {
-			columnType = strings.TrimSpace(strings.TrimPrefix(columnType, "unsigned "))
+			columnType = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(columnType), "unsigned "))
 		}
 	}
 
