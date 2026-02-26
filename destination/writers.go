@@ -26,8 +26,9 @@ type (
 
 	ThreadOptions func(opt *Options)
 	writerSchema  struct {
-		mu     sync.RWMutex
-		schema any
+		mu            sync.RWMutex
+		schema        any
+		metadataState *types.MetadataState
 	}
 
 	Stats struct {
@@ -167,10 +168,14 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		}
 
 		if streamArtifact.schema == nil {
+			// First thread for this stream: persist schema and the olake_2pc state
+			// so all subsequent threads (e.g. concurrent backfill chunks) can also
+			// check which chunks were already committed.
 			streamArtifact.schema = output
+			streamArtifact.metadataState = prevStreamState
 		}
 
-		return prevStreamState, nil
+		return streamArtifact.metadataState, nil
 	}()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to setup writer thread: %s", err)
