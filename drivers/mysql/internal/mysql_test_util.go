@@ -224,9 +224,9 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 var ExpectedMySQLData = map[string]interface{}{
 	"id_bigint":              int64(123456789012345),
 	"id_int":                 int32(100),
-	"id_int_unsigned":        int32(101),
+	"id_int_unsigned":        int64(101),
 	"id_integer":             int32(102),
-	"id_integer_unsigned":    int32(103),
+	"id_integer_unsigned":    int64(103),
 	"id_mediumint":           int32(5001),
 	"id_mediumint_unsigned":  int32(5002),
 	"id_smallint":            int32(101),
@@ -258,9 +258,9 @@ var ExpectedMySQLData = map[string]interface{}{
 var ExpectedUpdatedData = map[string]interface{}{
 	"id_bigint":              int64(987654321098765),
 	"id_int":                 int64(200),
-	"id_int_unsigned":        int32(201),
+	"id_int_unsigned":        int64(201),
 	"id_integer":             int32(202),
-	"id_integer_unsigned":    int32(203),
+	"id_integer_unsigned":    int64(203),
 	"id_mediumint":           int32(6001),
 	"id_mediumint_unsigned":  int32(6002),
 	"id_smallint":            int32(201),
@@ -290,12 +290,12 @@ var ExpectedUpdatedData = map[string]interface{}{
 }
 
 var MySQLToDestinationSchema = map[string]string{
-	"id":                     "unsigned int",
+	"id":                     "bigint",
 	"id_bigint":              "bigint",
 	"id_int":                 "int",
-	"id_int_unsigned":        "unsigned int",
+	"id_int_unsigned":        "bigint",
 	"id_integer":             "int",
-	"id_integer_unsigned":    "unsigned int",
+	"id_integer_unsigned":    "bigint",
 	"id_mediumint":           "mediumint",
 	"id_mediumint_unsigned":  "unsigned mediumint",
 	"id_smallint":            "smallint",
@@ -324,12 +324,12 @@ var MySQLToDestinationSchema = map[string]string{
 }
 
 var EvolvedMySQLToDestinationSchema = map[string]string{
-	"id":                     "unsigned int",
+	"id":                     "bigint",
 	"id_bigint":              "bigint",
 	"id_int":                 "bigint",
-	"id_int_unsigned":        "unsigned int",
+	"id_int_unsigned":        "bigint",
 	"id_integer":             "int",
-	"id_integer_unsigned":    "unsigned int",
+	"id_integer_unsigned":    "bigint",
 	"id_mediumint":           "mediumint",
 	"id_mediumint_unsigned":  "unsigned mediumint",
 	"id_smallint":            "smallint",
