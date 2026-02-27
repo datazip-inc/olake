@@ -264,12 +264,9 @@ func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	// reconstruct a proper RFC4122 UUID string (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
 	case "uniqueidentifier":
 		if v, ok := value.([]byte); ok {
-			return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-				v[3], v[2], v[1], v[0], // first 4 bytes (little-endian)
-				v[5], v[4], // next 2 bytes
-				v[7], v[6], // next 2 bytes
-				v[8], v[9], // next 2 bytes
-				v[10], v[11], v[12], v[13], v[14], v[15]), nil // last 6 bytes
+			if uuid, converted := formatUniqueIdentifierBytes(v); converted {
+				return uuid, nil
+			}
 		}
 		return fmt.Sprintf("%s", value), nil
 	// TODO: check how to handle hierarchyid datatype

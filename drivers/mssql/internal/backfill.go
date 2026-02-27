@@ -124,6 +124,27 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			if len(pkCols) == 0 {
 				return nil
 			}
+			columnTypes, err := m.getColumnTypesMSSQL(ctx, stream, tx)
+			if err != nil {
+				return fmt.Errorf("failed to get mssql column types: %s", err)
+			}
+
+			normalizeBoundaryValue := func(value any) string {
+				// For single-column uniqueidentifier chunking, raw []byte must be
+				// normalized to canonical UUID; for all other PK types, preserve
+				// the existing string normalization behavior.
+				if len(pkCols) == 1 {
+					columnType := strings.ToLower(columnTypes[strings.ToLower(pkCols[0])])
+					if columnType == "uniqueidentifier" {
+						if raw, ok := value.([]byte); ok {
+							if uuid, converted := formatUniqueIdentifierBytes(raw); converted {
+								return uuid
+							}
+						}
+					}
+				}
+				return utils.ConvertToString(value)
+			}
 
 			// Get the minimum and maximum values for the primary key columns
 			minVal, maxVal, err := m.getTableExtremesMSSQL(ctx, stream, pkCols, tx)
@@ -138,10 +159,10 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			// Create the first chunk from the beginning up to the minimum value
 			chunks.Insert(types.Chunk{
 				Min: nil,
-				Max: utils.ConvertToString(minVal),
+				Max: normalizeBoundaryValue(minVal),
 			})
 
-			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
+			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), normalizeBoundaryValue(minVal), normalizeBoundaryValue(maxVal))
 
 			// Build query to find the next chunk boundary
 			query := jdbc.MSSQLNextChunkEndQuery(stream, pkCols, chunkSize)
@@ -149,7 +170,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			for {
 				// Split the current composite key value into individual column parts
-				columns := strings.Split(utils.ConvertToString(currentVal), ",")
+				columns := strings.Split(normalizeBoundaryValue(currentVal), ",")
 
 				// Build query arguments for composite key comparison
 				args := make([]interface{}, 0)
@@ -173,8 +194,8 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				// Create a chunk between current and next boundary
 				if currentVal != nil {
 					chunks.Insert(types.Chunk{
-						Min: utils.ConvertToString(currentVal),
-						Max: utils.ConvertToString(nextValRaw),
+						Min: normalizeBoundaryValue(currentVal),
+						Max: normalizeBoundaryValue(nextValRaw),
 					})
 				}
 
@@ -184,7 +205,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			// Create the final chunk from the last value to the end
 			if currentVal != nil {
 				chunks.Insert(types.Chunk{
-					Min: utils.ConvertToString(currentVal),
+					Min: normalizeBoundaryValue(currentVal),
 					Max: nil,
 				})
 			}
@@ -274,6 +295,34 @@ func (m *MSSQL) getTableExtremesMSSQL(ctx context.Context, stream types.StreamIn
 	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
 	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
+}
+
+// getColumnTypesMSSQL returns the SQL data type for each column in a table keyed by lower-cased column name.
+func (m *MSSQL) getColumnTypesMSSQL(ctx context.Context, stream types.StreamInterface, tx *sql.Tx) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx, jdbc.MSSQLTableSchemaQuery(), stream.Namespace(), stream.Name())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columnTypes := make(map[string]string)
+	for rows.Next() {
+		var (
+			columnName   string
+			dataType     string
+			isNullable   string
+			isPrimaryKey bool
+		)
+		if err := rows.Scan(&columnName, &dataType, &isNullable, &isPrimaryKey); err != nil {
+			return nil, err
+		}
+		columnTypes[strings.ToLower(columnName)] = dataType
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return columnTypes, nil
 }
 
 // getPhysLocExtremes returns MIN and MAX %%physloc%% values for the table.

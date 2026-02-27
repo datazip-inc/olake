@@ -1,6 +1,10 @@
 package driver
 
-import "github.com/datazip-inc/olake/types"
+import (
+	"fmt"
+
+	"github.com/datazip-inc/olake/types"
+)
 
 // TODO: add support for utf-8 invalid and binary datatypes
 
@@ -66,4 +70,20 @@ var mssqlTypeToDataTypes = map[string]types.DataType{
 	"sql_variant": types.String,
 	"xml":         types.String,
 	"hierarchyid": types.String,
+}
+
+// formatUniqueIdentifierBytes converts SQL Server's mixed-endian UNIQUEIDENTIFIER
+// byte layout to canonical RFC4122 UUID string representation.
+func formatUniqueIdentifierBytes(v []byte) (string, bool) {
+	if len(v) != 16 {
+		return "", false
+	}
+
+	return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		v[3], v[2], v[1], v[0], // first 4 bytes (little-endian)
+		v[5], v[4], // next 2 bytes (little-endian)
+		v[7], v[6], // next 2 bytes (little-endian)
+		v[8], v[9], // next 2 bytes (big-endian)
+		v[10], v[11], v[12], v[13], v[14], v[15], // last 6 bytes (big-endian)
+	), true
 }
