@@ -40,6 +40,7 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	// Use repeatable read isolation without read-only flag
 	return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
 		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
+		sort.Strings(pkColumns)
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 
 		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
@@ -196,6 +197,8 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// %%physloc%% returns the physical location (file_id, page_id, slot_id) of a row as binary.
 	// We iteratively find chunk boundaries by querying for the N-th row (N = chunkSize) where
 	// physloc > current, creating evenly-sized chunks: [nil, min], [min, next1], ..., [last, nil]
+	//
+	// All physloc values are hex-encoded before storing in chunks to ensure valid UTF-8 chunk values.
 	splitViaPhysLoc := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
 		// SQL Server doesn't support read-only transactions
 		// Use repeatable read isolation without read-only flag
@@ -215,46 +218,38 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			current := minVal
 			chunks.Insert(types.Chunk{
 				Min: nil,
-				Max: utils.ConvertToString(current),
+				Max: utils.HexEncode(minVal),
 			})
 
 			// Iteratively find chunk boundaries until we reach the end of the table
 			for {
-				var next any
+				var next []byte
 				// This gives us the next chunk boundary, ensuring each chunk has ~chunkSize rows
 				query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
 
 				err := tx.QueryRowContext(ctx, query, current).Scan(&next)
 				// End of table reached: no more rows with physloc > current
 				if err == sql.ErrNoRows || next == nil {
-					chunks.Insert(types.Chunk{Min: utils.ConvertToString(current), Max: nil})
+					chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
 					break
 				}
 				if err != nil {
 					return fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
 				}
 
-				// Safety check: Compare binary values to detect if we've reached the end
-				// This handles edge cases where the query might return the same value
-				//
-				// Note: physloc values are []byte (binary), so we use bytes.Equal for comparison
-				if currentBytes, ok := current.([]byte); ok {
-					if nextBytes, ok2 := next.([]byte); ok2 {
-						if bytes.Equal(currentBytes, nextBytes) {
-							// Reached maximum value, create final chunk
-							chunks.Insert(types.Chunk{Min: utils.ConvertToString(current), Max: nil})
-							break
-						}
-					}
+				if bytes.Equal(current, next) {
+					chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
+					break
 				}
 
 				// Create a chunk between current and next boundary
 				// This chunk will contain approximately chunkSize rows
 				// Example: If current = A and next = D, chunk [A, D) contains rows A, B, C
 				chunks.Insert(types.Chunk{
-					Min: utils.ConvertToString(current),
-					Max: utils.ConvertToString(next),
+					Min: utils.HexEncode(current),
+					Max: utils.HexEncode(next),
 				})
+
 				// Move to the next boundary for the next iteration
 				current = next
 			}
@@ -282,7 +277,7 @@ func (m *MSSQL) getTableExtremesMSSQL(ctx context.Context, stream types.StreamIn
 }
 
 // getPhysLocExtremes returns MIN and MAX %%physloc%% values for the table.
-func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInterface, tx *sql.Tx) (min, max any, err error) {
+func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInterface, tx *sql.Tx) (min, max []byte, err error) {
 	query := jdbc.MSSQLPhysLocExtremesQuery(stream)
 	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err

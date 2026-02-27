@@ -1,0 +1,279 @@
+---
+description: OLake project — architecture, conventions, build, and end-to-end testing guidance
+globs:
+alwaysApply: true
+---
+
+# OLake — Cursor Rules
+
+## 1. Project Overview
+
+OLake is an open-source, high-performance **EL (Extract-Load)** tool that replicates data from databases, Kafka, and S3 into **Apache Iceberg** tables or **plain Parquet** files.
+
+- **Languages:** Go 1.24 (primary) + Java 17 (Iceberg writer)
+- **Go workspace:** `go.work` links the root module with 8 driver sub-modules
+- **CLI:** Cobra-based commands: `spec`, `check`, `discover`, `sync`, `clear`
+- **Sources:** Postgres, MongoDB, MySQL, Oracle, MSSQL, DB2, Kafka, S3
+- **Destinations:** Apache Iceberg (via gRPC to Java), plain Parquet
+
+## 2. Repository Layout
+
+```
+├── connector.go                     # RegisterDriver() entry point
+├── go.work / go.mod                 # Go workspace + root module
+├── build.sh                         # Build & run helper (auto-detects Iceberg JAR, DB2 env)
+├── Makefile                         # gomod, golangci, gofmt, pre-commit
+├── Dockerfile                       # Multi-stage build (Go + Java 17 runtime)
+├── protocol/                        # CLI commands (spec, check, discover, sync, clear)
+├── drivers/
+│   ├── abstract/                    # Shared orchestration (backfill, CDC, incremental)
+│   │   └── interface.go             # DriverInterface — every source implements this
+│   └── <name>/                      # Each driver: main.go, go.mod, internal/, resources/spec.json
+│       ├── docker-compose.yml       # Test infrastructure for that source
+│       └── internal/                # Driver logic + *_test.go integration tests
+├── destination/
+│   ├── interface.go                 # destination.Writer — every destination implements this
+│   ├── writers.go                   # WriterPool, WriterThread (concurrent writer management)
+│   ├── iceberg/                     # Iceberg destination (legacy + arrow write modes)
+│   │   ├── olake-iceberg-java-writer/   # Java Maven project (gRPC server)
+│   │   ├── proto/                   # Protobuf definitions + generated Go code
+│   │   ├── legacy-writer/           # Default: Go flattens → gRPC rows → Java writes
+│   │   ├── arrow-writer/            # Arrow mode: Go → Parquet → Java registers
+│   │   └── local-test/              # Docker Compose for local Iceberg (MinIO, Spark, JDBC catalog)
+│   └── parquet/                     # Plain Parquet destination
+├── types/                           # Core types (Stream, Catalog, State, Record, DataType)
+├── utils/                           # Concurrency, flattening, type resolution, logging, telemetry
+├── pkg/                             # Protocol packages (waljs, binlog, jdbc, kafka, parser)
+└── constants/                       # Global constants, DriverType enum
+```
+
+## 3. Destinations — Iceberg & Parquet
+
+### Iceberg Destination — Two Write Modes
+
+- **Legacy (default):** Go flattens records → sends via gRPC `RecordIngestService` → Java writes to Iceberg
+- **Arrow (`"arrow_writes": true`):** Go builds Arrow batches → Parquet files → gRPC `ArrowIngestService` → Java registers into catalog
+- Java code: `destination/iceberg/olake-iceberg-java-writer/`
+
+### Parquet Destination
+
+- **Plain Parquet files:** Go writes directly to Parquet via the `destination/parquet` implementation — no Java writer or Iceberg catalog involved.
+- **Output location:** Controlled entirely by the Parquet writer config (e.g., local or object storage path), with files organized by stream and batch for efficient downstream reads.
+- **Config:** Set `"type":"PARQUET"` in the destination config to use this path; it uses the same `destination.Writer` interface as Iceberg but bypasses all Iceberg JAR and catalog setup.
+   
+  
+### JAR Detection Order (IMPORTANT)
+
+Both `build.sh` and the Go binary check for the JAR in this order:
+1. **Project root:** `olake-iceberg-java-writer.jar` — if found, this is used and nothing else is checked
+2. **Maven target:** `destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar`
+
+**Stale JAR warning:** If `olake-iceberg-java-writer.jar` exists in the project root, `build.sh` will skip rebuilding entirely and the Go binary will use the stale copy. After rebuilding with Maven, you MUST either:
+- Delete the root JAR first: `rm -f olake-iceberg-java-writer.jar`
+- Or copy the fresh one: `cp destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar ./olake-iceberg-java-writer.jar`
+
+### Rebuild procedure when Java code changes
+
+```bash
+rm -f olake-iceberg-java-writer.jar  # remove stale root JAR if present
+cd destination/iceberg/olake-iceberg-java-writer && mvn clean package -DskipTests && cd -
+# Optionally copy to root for build.sh:
+cp destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar ./olake-iceberg-java-writer.jar
+```
+
+## 4. Build & Run
+
+```bash
+# Via build.sh (recommended — auto-detects Iceberg JAR, DB2 env)
+bash build.sh driver-<name> sync --config config.json --destination writer.json --catalog streams.json
+
+# Via go build directly
+cd drivers/<name> && go build -o olake main.go
+./olake sync --config ... --destination ... --catalog ... --state ...
+```
+
+**Makefile:** `make gomod` | `make golangci` | `make gofmt` | `make pre-commit`
+
+## 5. Coding Conventions
+
+- **Formatting:** `gofmt` + `golangci-lint`. Run after every Go change.
+- **Logging:** `utils/logger` (zerolog). NEVER use `fmt.Println` or `log.Println`.
+- **Errors:** `fmt.Errorf("context: %s", err)` pattern.
+- **JSON tags:** `snake_case` (e.g. `json:"aws_region,omitempty"`).
+- **Concurrency:** Use `utils.CxGroup` and `utils.Concurrent`. Use `safego.Recovery` for goroutines.
+- **Tests:** Integration = `TestXxxIntegration`, Performance = `TestXxxPerformance`.
+
+## 6. End-to-End Testing Procedure
+
+When ANY code change is made, follow this to validate. Use Postgres as default unless the change is driver-specific.
+
+### Step 1: Create test directory and Postgres init SQL
+
+Create `/tmp/olake-e2e-test/init.sql`:
+```sql
+SELECT pg_create_logical_replication_slot('olake_slot', 'pgoutput');
+CREATE PUBLICATION olake_publication FOR ALL TABLES;
+CREATE TABLE IF NOT EXISTS test_table (
+  id SERIAL PRIMARY KEY, name VARCHAR(100), email VARCHAR(255),
+  age INT, salary NUMERIC(10,2), is_active BOOLEAN DEFAULT true,
+  metadata JSONB, created_at TIMESTAMP DEFAULT NOW()
+);
+INSERT INTO test_table (name, email, age, salary, is_active, metadata, created_at) VALUES
+  ('Alice','alice@example.com',30,75000.00,true,'{"role":"engineer"}','2024-01-15 10:30:00'),
+  ('Bob','bob@example.com',25,65000.50,true,'{"role":"designer"}','2024-02-20 14:45:00'),
+  ('Charlie','charlie@example.com',35,90000.00,false,'{"role":"manager"}','2024-03-10 09:00:00'),
+  ('Diana','diana@example.com',28,70000.75,true,'{"role":"analyst"}','2024-04-05 16:20:00'),
+  ('Eve','eve@example.com',32,85000.25,true,'{"role":"engineer"}','2024-05-12 11:15:00');
+```
+
+Create `/tmp/olake-e2e-test/docker-compose.postgres.yml`:
+```yaml
+services:
+  postgres:
+    image: postgres:15
+    container_name: olake_e2e_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret1234
+      POSTGRES_DB: postgres
+    ports:
+      - "5431:5432"
+    volumes:
+      - /tmp/olake-e2e-test/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: ["postgres", "-c", "listen_addresses=*", "-c", "wal_level=logical", "-c", "max_wal_senders=10", "-c", "max_replication_slots=10"]
+```
+
+### Step 2: Start infrastructure
+
+```bash
+docker compose -f /tmp/olake-e2e-test/docker-compose.postgres.yml up -d
+docker compose -f destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
+sleep 15  # wait for services
+```
+
+### Step 3: Build Iceberg JAR (if needed)
+
+Rebuild if:
+- `destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar` does not exist, OR
+- Any `.java` file under `destination/iceberg/olake-iceberg-java-writer/src/` is newer than the JAR, OR
+- The JAR is older than 24 hours
+
+Always delete the root JAR first to avoid stale copies:
+```bash
+rm -f olake-iceberg-java-writer.jar
+cd destination/iceberg/olake-iceberg-java-writer && mvn clean package -DskipTests && cd -
+```
+
+### Step 4: Create config files
+
+`/tmp/olake-e2e-test/source.json`:
+```json
+{"host":"localhost","port":5431,"database":"postgres","username":"postgres","password":"secret1234",
+ "ssl":{"mode":"disable"},"update_method":{"replication_slot":"olake_slot","initial_wait_time":120,"publication":"olake_publication"}}
+```
+
+`/tmp/olake-e2e-test/destination.json` (Iceberg):
+```json
+{"type":"ICEBERG","writer":{"catalog_type":"jdbc",
+ "jdbc_url":"jdbc:postgresql://localhost:5432/iceberg","jdbc_username":"iceberg","jdbc_password":"password",
+ "iceberg_s3_path":"s3a://warehouse","s3_endpoint":"http://localhost:9000","s3_use_ssl":false,
+ "s3_path_style":true,"aws_access_key":"admin","aws_secret_key":"password",
+ "iceberg_db":"olake_test","aws_region":"us-east-1"}}
+```
+
+For **Parquet-only** runs (no Iceberg catalog / JAR), use a destination config like:
+
+```json
+{"type":"PARQUET","writer":{
+  "s3_bucket":"warehouse",
+  "s3_region":"us-east-1",
+  "s3_access_key":"admin",
+  "s3_secret_key":"password",
+  "s3_endpoint":"http://host.docker.internal:9000"
+}}
+```
+
+### Step 5: Build driver and run discover
+
+```bash
+cd drivers/postgres && go build -o /tmp/olake-e2e-test/olake main.go && cd -
+/tmp/olake-e2e-test/olake discover --config /tmp/olake-e2e-test/source.json --no-save
+```
+
+Parse the JSON output `{"catalog":{...},"type":"CATALOG"}` — extract the catalog object and save as `/tmp/olake-e2e-test/streams.json`. Change `sync_mode` to `"full_refresh, incremental, cdc"` as per requirement.
+
+### Step 6: Run full-load sync
+
+```bash
+/tmp/olake-e2e-test/olake sync \
+  --config /tmp/olake-e2e-test/source.json \
+  --destination /tmp/olake-e2e-test/destination.json \
+  --catalog /tmp/olake-e2e-test/streams.json 
+```
+
+Expect output: `Total records read: 5`
+
+### Step 7: Query Iceberg via Spark to verify
+
+The `spark-iceberg` container has a pre-configured JDBC catalog named `olake_iceberg`. Use it directly:
+
+```bash
+docker exec spark-iceberg spark-sql \
+  -e "SELECT count(*) FROM olake_iceberg.<destination_db>.<table_name>"
+```
+
+Where `<destination_db>` comes from the stream's `destination_database` field (e.g. `postgres_postgres_public`) and `<table_name>` from `destination_table` (e.g. `test_table`). Verify row count = 5.
+
+For more detail: `SELECT id, name, email FROM olake_iceberg.postgres_postgres_public.test_table ORDER BY id`
+
+### Step 8: Test CDC (for CDC-capable sources)
+
+Set `sync_mode` to `"cdc"` in streams.json, then:
+```bash
+/tmp/olake-e2e-test/olake sync \
+  --config /tmp/olake-e2e-test/source.json \
+  --destination /tmp/olake-e2e-test/destination.json \
+  --catalog /tmp/olake-e2e-test/streams.json 
+```
+This does backfill + starts WAL replication, timing out after 30s. Query Iceberg to verify.
+
+### Step 9: Cleanup
+
+```bash
+docker compose -f /tmp/olake-e2e-test/docker-compose.postgres.yml down -v
+rm -rf /tmp/olake-e2e-test/
+```
+
+## 7. What To Test Based on Changed Files
+
+| Changed Path | Action |
+|---|---|
+| `drivers/<name>/internal/` | E2E test with that specific driver |
+| `destination/iceberg/*.go` | Unit tests + e2e with Postgres |
+| `destination/iceberg/olake-iceberg-java-writer/**/*.java` | **Delete root JAR + rebuild JAR** (see Section 3), then e2e |
+| `destination/parquet/` | `go test -v ./destination/parquet/...` |
+| `types/`, `utils/`, `constants/`, `drivers/abstract/`, `protocol/` | `go test -v ./...` + e2e |
+| `pkg/<name>/` | `go test -v ./pkg/<name>/...` |
+| `destination/iceberg/proto/` | Regenerate with protoc, rebuild JAR, then e2e |
+
+After any Go change: `make gofmt && make golangci`
+
+## 8. Integration Tests (Automated)
+
+Each driver has containerized integration tests under `drivers/<name>/internal/*_test.go`:
+
+```bash
+docker compose -f drivers/<name>/docker-compose.yml up -d
+docker compose -f destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
+rm -f olake-iceberg-java-writer.jar  # ensure no stale JAR
+cd destination/iceberg/olake-iceberg-java-writer && mvn clean package -DskipTests && cd -
+go test -v -p 5 ./drivers/<name>/internal/... -timeout 0 -run 'Integration'
+docker compose -f drivers/<name>/docker-compose.yml down
+```
+
+## 9. Documentation
+
+- **Docs:** https://olake.io — source at https://github.com/datazip-inc/olake-docs
+- **Dev setup:** https://olake.io/docs/community/setting-up-a-dev-env/
+- **First pipeline:** https://olake.io/docs/getting-started/creating-first-pipeline/
+- **Destination config:** https://olake.io/docs/core/configs/writer

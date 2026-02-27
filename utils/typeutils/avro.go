@@ -1,7 +1,10 @@
 package typeutils
 
 import (
+	"encoding/json"
 	"math/big"
+
+	"github.com/datazip-inc/olake/utils"
 )
 
 // ExtractAvroRecord recursively extracts Avro record to JSON-compatible map
@@ -41,4 +44,26 @@ func ExtractAvroValue(v interface{}) interface{} {
 	default:
 		return val
 	}
+}
+
+// NormalizeAvroSchema parses Avro schema and normalizes all "name" and "namespace" fields
+func NormalizeAvroSchema(schema string) (string, error) {
+	var schemaMap map[string]interface{}
+	if err := json.Unmarshal([]byte(schema), &schemaMap); err != nil {
+		return "", err
+	}
+
+	if name, ok := schemaMap["name"].(string); ok {
+		schemaMap["name"] = utils.Reformat(name)
+	}
+
+	if namespace, ok := schemaMap["namespace"].(string); ok {
+		schemaMap["namespace"] = utils.Reformat(namespace)
+	}
+
+	bytes, err := json.Marshal(schemaMap)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
 }

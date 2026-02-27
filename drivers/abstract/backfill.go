@@ -41,6 +41,8 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 	logger.Infof("Starting backfill for stream[%s] with %d chunks", stream.GetStream().Name, len(chunks))
 
+	filterDataBySelectedColumnsFn := stream.RetainSelectedColumns()
+
 	chunkProcessor := func(gCtx context.Context, _ int, chunk types.Chunk) (err error) {
 		// create backfill context, so that main context not affected if backfill retries
 		backfillCtx, backfillCtxCancel := context.WithCancel(gCtx)
@@ -89,7 +91,10 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			if stream.GetSyncMode() == types.CDC {
 				olakeColumns[constants.CdcTimestamp] = time.Unix(0, 0)
 			}
-			return inserter.Push(ctx, types.CreateRawRecord(data, olakeColumns))
+
+			filteredData := filterDataBySelectedColumnsFn(data)
+
+			return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
 		})
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)

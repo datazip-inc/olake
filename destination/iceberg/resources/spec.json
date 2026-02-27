@@ -224,6 +224,64 @@
               "properties": {
                 "catalog_type": {
                   "const": "glue"
+                },
+                "s3_endpoint": {
+                  "type": "string",
+                  "title": "S3 Endpoint",
+                  "description": "Specifies the endpoint URL for S3 compatible services"
+                },
+                "glue_additional_config": {
+                  "type": "boolean",
+                  "default": false,
+                  "title": "Custom Glue Endpoint Configuration",
+                  "description": "Enable separate credentials (access key and secret key), endpoint, and region for the Glue catalog"
+                }
+              },
+              "dependencies": {
+                "glue_additional_config": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "glue_additional_config": {
+                          "const": true
+                        },
+                        "glue_catalog_id": {
+                          "type": "string",
+                          "title": "Glue Catalog ID",
+                          "description": "AWS account ID used as the Glue Data Catalog identifier"
+                        },
+                        "glue_access_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "Glue Access Key",
+                          "description": "Access key for authenticating Glue catalog requests, required when Glue credentials differ from S3 credentials"
+                        },
+                        "glue_secret_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "Glue Secret Key",
+                          "description": "Secret key for authenticating Glue catalog requests, required when Glue credentials differ from S3 credentials"
+                        },
+                        "glue_endpoint": {
+                          "type": "string",
+                          "title": "Glue Endpoint",
+                          "description": "Custom endpoint URL for AWS Glue or a Glue-compatible catalog service"
+                        },
+                        "glue_region": {
+                          "type": "string",
+                          "title": "Glue Region",
+                          "description": "AWS region for the Glue catalog, if different from the S3 region. Falls back to AWS Region if not set"
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "glue_additional_config": {
+                          "const": false
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }

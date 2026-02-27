@@ -98,6 +98,8 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 //   - For Kafka: reader ID
 //   - For Postgres: ignored (uses global replication slot)
 func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int, streams []types.StreamInterface) (err error) {
+	filterDataBySelectedColumnsFns := make(map[string]func(map[string]interface{}) map[string]interface{})
+
 	// create cdc context, so that main context not affected if cdc retries
 	cdcCtx, cdcCtxCancel := context.WithCancel(mainCtx)
 	defer cdcCtxCancel()
@@ -139,7 +141,15 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 			constants.OlakeTimestamp: time.Now().UTC(),
 		}
 		maps.Copy(olakeColumns, change.ExtraColumns)
-		return writer.Push(ctx, types.CreateRawRecord(change.Data, olakeColumns))
+
+		filterDataBySelectedColumnsFn, exists := filterDataBySelectedColumnsFns[change.Stream.ID()]
+		if !exists {
+			filterDataBySelectedColumnsFn = change.Stream.RetainSelectedColumns()
+			filterDataBySelectedColumnsFns[change.Stream.ID()] = filterDataBySelectedColumnsFn
+		}
+		filteredData := filterDataBySelectedColumnsFn(change.Data)
+
+		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
 	})
 	return err
 }
