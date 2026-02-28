@@ -549,12 +549,12 @@ func MySQLCountGeneratedInRange(values []string, tableCollationType string, minV
 	unionParts := make([]string, 0, len(values))
 	args := make([]any, 0, len(values)+2)
 
+	args = append(args, minVal, maxVal, maxVal, minVal)
+
 	for _, v := range values {
 		unionParts = append(unionParts, "SELECT ? AS val")
 		args = append(args, v)
 	}
-
-	args = append(args, minVal, maxVal, maxVal, minVal)
 
 	query := fmt.Sprintf(`
 		SELECT GREATEST(

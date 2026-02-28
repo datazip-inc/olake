@@ -64,11 +64,15 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 }
 
 func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
-	var approxRowCount int64
-	var avgRowSize any
-	var avgSchemaSize int64
-	var tableCollationType string
-	var dataMaxLength sql.NullInt64
+
+	var (
+		approxRowCount		int64
+		avgRowSize  	    any
+		avgSchemaSize  		int64
+		tableCollationType 	string
+		dataMaxLength    	sql.NullInt64
+	)
+
 	approxRowCountQuery := jdbc.MySQLTableRowStatsQuery()
 	err := m.client.QueryRowContext(ctx, approxRowCountQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize, &avgSchemaSize, &tableCollationType)
 	if err != nil {
@@ -104,7 +108,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 	var (
 		isNumericAndEvenDistributed bool
-		step                        int64
+		chunkStepSize               int64
 		minVal                      any //to define lower range of the chunk
 		maxVal                      any //to define upper range of the chunk
 		minFloat                    float64
@@ -117,10 +121,10 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 	sort.Strings(pkColumns)
 
-	if len(pkColumns) > 0 || chunkColumn != "" {
+	if len(pkColumns) > 0 {
 		minVal, maxVal, err = m.getTableExtremes(ctx, stream, pkColumns)
 		if err != nil {
-			logger.Debugf("Stream %s: Failed to get table extremes: %v", stream.ID(), err)
+			return nil, fmt.Errorf("Stream %s: Failed to get table extremes: %v", stream.ID(), err)
 		}
 	}
 	// Supported MySQL string-like PK datatypes
@@ -132,26 +136,27 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	stringSupportedPk := false
 
 	if len(pkColumns) == 1 {
-		isNumericAndEvenDistributed, step, minFloat, maxFloat, err = IsNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize)
+		isNumericAndEvenDistributed, chunkStepSize, minFloat, maxFloat, err = IsNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize)
 		if err != nil {
 			isNumericAndEvenDistributed = false
-			logger.Debugf("Stream %s: PK is not numeric or conversion failed, falling back to string splitting: %v", stream.ID(), err)
+			logger.Infof("Stream %s: PK is not numeric or conversion failed, falling back to string splitting: %v", stream.ID(), err)
 		}
-		var dataType string
-		query := jdbc.MySQLColumnTypeQuery()
-		err = m.client.QueryRowContext(ctx, query, stream.Name(), pkColumns[0]).Scan(&dataType, &dataMaxLength)
-		if err != nil {
-			logger.Errorf("failed to fetch Column DataType and max length %s", err)
-		} else {
-			if _, ok := stringTypes[dataType]; ok {
+		if !isNumericAndEvenDistributed {
+			var dataType string
+			query := jdbc.MySQLColumnTypeQuery()
+			err = m.client.QueryRowContext(ctx, query, stream.Name(), pkColumns[0]).Scan(&dataType, &dataMaxLength)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch Column DataType and max length %s", err)
+			} else if _, ok := stringTypes[dataType]; ok {
 				stringSupportedPk = true
-				fmt.Println("This is a string type PK")
-			}
-			if dataMaxLength.Valid {
-				fmt.Println("Data Max Length:", dataMaxLength.Int64)
+				logger.Infof("%s is a string type PK",pkColumns[0])
+				if dataMaxLength.Valid {
+					logger.Infof("Data Max Length: %d", dataMaxLength.Int64)
+				}
 			}
 		}
 	}
+
 	// Takes the user defined batch size as chunkSize
 	// TODO: common-out the chunking logic for db2, mssql, mysql
 	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
@@ -203,6 +208,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				})
 			}
 
+			logger.Infof("Chunking completed using SplitViaPrimaryKey Method for stream %s", stream.ID())
 			return nil
 		})
 	}
@@ -224,18 +230,33 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				Min: utils.ConvertToString(lastChunk),
 				Max: nil,
 			})
+			logger.Infof("Chunking completed using limit offset method for stream %s", stream.ID())
 			return nil
 		})
 	}
 
-	//used mathematical calculation to split the chunks for cases where the distribution factor is within the range when pk is numeric
-	splitEvenlyForInt := func(chunks *types.Set[types.Chunk], step float64) {
+	/*
+		splitEvenlyForInt generates chunk boundaries for numeric values by dividing the range [minFloat, maxFloat] using an arithmetic progression (AP).
+
+		Each boundary follows:
+		next = prev + chunkStepSize
+
+		Example:
+		minFloat = 0, maxFloat = 100, chunkStepSize = 25
+
+		AP sequence:
+		0 → 25 → 50 → 75 → 100
+
+		Chunks formed:
+		(-∞, 0), [0,25), [25,50), [50,75), [75,100), [100, +∞)
+	*/
+	splitEvenlyForInt := func(chunks *types.Set[types.Chunk], chunkStepSize float64) {
 		chunks.Insert(types.Chunk{
 			Min: nil,
 			Max: utils.ConvertToString(minFloat),
 		})
 		prev := minFloat
-		for next := minFloat + step; next <= maxFloat; next += step {
+		for next := minFloat + chunkStepSize; next <= maxFloat; next += chunkStepSize {
 			chunks.Insert(types.Chunk{
 				Min: utils.ConvertToString(prev),
 				Max: utils.ConvertToString(next),
@@ -246,46 +267,77 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			Min: utils.ConvertToString(prev),
 			Max: nil,
 		})
+		logger.Infof("Chunking completed using splitEvenlyForInt Method for stream %s", stream.ID())
 	}
 
-	//used mathematical calculation to split the chunks for cases where the pk columns size is 1 and pk data type is string
+	/*
+		splitEvenlyForString generates chunk boundaries for string-based primary keys
+		by converting string values into a numeric (big.Int) space and iteratively
+		splitting that range.
+
+		Workflow:
+		1. Convert min and max string values into padded form and map them into big.Int using unicode-based encoding.
+		2. Estimate the expected number of chunks based on schema size and target file size.
+		3. Compute an initial chunk interval using ceil division on the numeric range.
+		4. Iteratively (up to 5 attempts):
+		- Adjust the interval using an AP-based variation.
+		- Generate candidate boundaries in numeric space and map them back to strings.
+		- Query distinct values using collation-aware SQL (ordering handled in query).
+		- Validate the number of effective chunks using a count query.
+		- If at least the required threshold (~80%) of chunks is achieved, accept and stop.
+		5. If all attempts fail, fallback to primary key–based chunking.
+
+		Final Step:
+		- Use the validated boundary values to construct non-overlapping chunks
+		covering the full range [min, max], including open-ended boundaries.
+
+		Example:
+		minVal = "aa", maxVal = "az", expectedChunks = 3
+
+		Generated boundaries after refining boundaries using collation-aware DB queries:
+		["aa", "ai", "ar", "az"]
+
+		Chunks:
+		(-∞, "aa"), ["aa","ai"), ["ai","ar"), ["ar","az"), ["az", +∞)
+	*/
 	splitEvenlyForString := func(chunks *types.Set[types.Chunk]) error {
 		var maxValBaseN, minValBaseN big.Int
 		var validChunksCount int
+
 		maxValPadded := utils.ConvertToString(maxVal)
 		minValPadded := utils.ConvertToString(minVal)
+
 		if dataMaxLength.Valid {
 			maxValPadded = padRightNull(maxValPadded, int(dataMaxLength.Int64))
 			minValPadded = padRightNull(minValPadded, int(dataMaxLength.Int64))
 		}
-		if val, err := convertUnicodeStringToInt(maxValPadded); err != nil {
-			return fmt.Errorf("failed to convert maxVal: %v", err)
-		} else {
-			maxValBaseN.Set(&val)
-		}
-		if val, err := convertUnicodeStringToInt(minValPadded); err != nil {
-			return fmt.Errorf("failed to convert minVal: %v", err)
-		} else {
-			minValBaseN.Set(&val)
-		}
+
+		val1 := convertUnicodeStringToInt(maxValPadded)
+		maxValBaseN.Set(&val1)
+		val2 := convertUnicodeStringToInt(minValPadded)
+		minValBaseN.Set(&val2)
 
 		expectedChunks := int64(math.Ceil(float64(avgSchemaSize) / float64(constants.EffectiveParquetSize)))
 		if expectedChunks <= 0 {
 			expectedChunks = 1
 		}
+
 		chunkdiff := new(big.Int).Sub(&maxValBaseN, &minValBaseN)
 		chunkdiff.Add(chunkdiff, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
 		chunkdiff.Div(chunkdiff, big.NewInt(expectedChunks)) //ceil division set up
+
 		rangeSlice := []string{}
 		for i := int64(0); i < int64(5); i++ {
 			temporarychunkdiff := new(big.Int).Set(chunkdiff)
 			temporarychunkdiff.Add(temporarychunkdiff, big.NewInt(i))
 			temporarychunkdiff.Div(temporarychunkdiff, big.NewInt(i+1))
 			curr := new(big.Int).Set(&minValBaseN)
+
 			for j := int64(0); j < expectedChunks && curr.Cmp(&maxValBaseN) < 0; j++ {
 				rangeSlice = append(rangeSlice, convertIntUnicodeToString(curr))
 				curr.Add(curr, temporarychunkdiff)
 			}
+
 			rangeSlice = append(rangeSlice, convertIntUnicodeToString(&maxValBaseN))
 			query, args := jdbc.MySQLDistinctValuesWithCollationQuery(rangeSlice, tableCollationType)
 			rows, err := m.client.QueryContext(ctx, query, args...)
@@ -293,28 +345,32 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				return fmt.Errorf("failed to run distinct query: %v", err)
 			}
 			rangeSlice = rangeSlice[:0]
+
 			for rows.Next() {
 				var val string
 				if err := rows.Scan(&val); err != nil {
-					logger.Errorf("failed to scan row: %v", err)
+					return fmt.Errorf("failed to scan row: %v", err)
 				}
 				rangeSlice = append(rangeSlice, val)
 			}
 			rows.Close()
+
 			query, args = jdbc.MySQLCountGeneratedInRange(rangeSlice, tableCollationType, minValPadded, maxValPadded)
 			err = m.client.QueryRowContext(ctx, query, args...).Scan(&validChunksCount)
 			if err != nil {
 				return fmt.Errorf("failed to run count query: %v", err)
 			}
+
 			if float64(validChunksCount) >= float64(expectedChunks)*constants.MysqlChunkSizeReductionFactor {
-				logger.Debug("Successfully Generated Chunks")
+				logger.Infof("Successfully Generated Chunks using splitEvenlyForString Method for stream %s", stream.ID())
 				for i, val := range rangeSlice {
 					logger.Debugf("Boundary[%d] = %q", i, val)
 				}
 				break
 			}
+
 			if float64(validChunksCount) < float64(expectedChunks)*constants.MysqlChunkSizeReductionFactor && i == 4 {
-				logger.Warnf("failed to generate chunks for stream %s, falling back to primary key chunking", stream.ID())
+				logger.Warnf("failed to generate chunks for stream %s, falling back to splitviaprimarykey method", stream.ID())
 				err = splitViaPrimaryKey(stream, chunks)
 				if err != nil {
 					return fmt.Errorf("failed to generate chunks for stream %s: %v", stream.ID(), err)
@@ -323,14 +379,17 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			}
 			rangeSlice = rangeSlice[:0]
 		}
+
 		if len(rangeSlice) == 0 {
 			return nil
 		}
+
 		prev := rangeSlice[0]
 		chunks.Insert(types.Chunk{
 			Min: nil,
 			Max: prev,
 		})
+
 		for idx := range rangeSlice {
 			if idx == 0 {
 				continue
@@ -342,30 +401,34 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			})
 			prev = currVal
 		}
+
 		chunks.Insert(types.Chunk{
 			Min: prev,
 			Max: nil,
 		})
+
+		logger.Infof("Chunking completed using splitEvenlyForString Method for stream %s", stream.ID())
 		return nil
 	}
+
 	switch {
 	case len(pkColumns) == 1 && isNumericAndEvenDistributed:
-		logger.Debugf("Using splitEvenlyForInt Method for stream %s", stream.ID())
-		splitEvenlyForInt(chunks, float64(step))
-		logger.Debugf("Chunking completed using splitEvenlyForInt Method for stream %s", stream.ID())
+		logger.Infof("Using splitEvenlyForInt Method for stream %s", stream.ID())
+		splitEvenlyForInt(chunks, float64(chunkStepSize))
+
 	case len(pkColumns) == 1 && stringSupportedPk:
-		logger.Debugf("Using splitEvenlyForString Method for stream %s", stream.ID())
+		logger.Infof("Using splitEvenlyForString Method for stream %s", stream.ID())
 		err = splitEvenlyForString(chunks)
-		logger.Debugf("Chunking completed using splitEvenlyForString Method for stream %s", stream.ID())
+
 	case len(pkColumns) > 1:
-		logger.Debugf("Using SplitViaPrimaryKey Method for stream %s", stream.ID())
+		logger.Infof("Using SplitViaPrimaryKey Method for stream %s", stream.ID())
 		err = splitViaPrimaryKey(stream, chunks)
-		logger.Debugf("Chunking completed using SplitViaPrimaryKey Method for stream %s", stream.ID())
+
 	default:
-		logger.Debugf("Falling back to limit offset method for stream %s", stream.ID())
+		logger.Infof("Falling back to limit offset method for stream %s", stream.ID())
 		err = limitOffsetChunking(chunks)
-		logger.Debugf("Chunking completed using limit offset method for stream %s", stream.ID())
 	}
+
 	return chunks, err
 }
 
@@ -380,25 +443,42 @@ func IsNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, c
 	if approxRowCount == 0 {
 		return false, 0, 0, 0, nil
 	}
+
 	minFloat, err1 := typeutils.ReformatFloat64(minVal)
+	if err1 != nil {
+		return false, 0, 0, 0, fmt.Errorf("failed to parse minVal: %w", err1)
+	}
+
 	maxFloat, err2 := typeutils.ReformatFloat64(maxVal)
-	if err1 != nil || err2 != nil {
-		if err1 != nil {
-			return false, 0, 0, 0, err1
-		}
-		return false, 0, 0, 0, err2
+	if err2 != nil {
+		return false, 0, 0, 0, fmt.Errorf("failed to parse maxVal: %w", err2)
 	}
+
 	distributionFactor := (maxFloat - minFloat + 1) / float64(approxRowCount)
+
 	if distributionFactor < constants.DistributionLower || distributionFactor > constants.DistributionUpper {
-		err := fmt.Errorf("distribution factor is not in the range of %f to %f", constants.DistributionLower, constants.DistributionUpper)
-		return false, 0, 0, 0, err
+		return false, 0, 0, 0, fmt.Errorf("distribution factor is not in the range of %f to %f", constants.DistributionLower, constants.DistributionUpper)
 	}
-	step := int64(math.Max(distributionFactor*float64(chunkSize), 1))
-	return true, step, minFloat, maxFloat, nil
+
+	chunkStepSize := int64(math.Max(distributionFactor*float64(chunkSize), 1))
+	return true, chunkStepSize, minFloat, maxFloat, nil
 }
 
-// convert a string to a baseN number
-func convertUnicodeStringToInt(s string) (big.Int, error) {
+/*
+	convertUnicodeStringToInt maps a string to a big.Int using base = 1114112(UnicodeSize), treating each rune as a digit in a positional system.
+
+	Value = r₀*base^(n-1) + r₁*base^(n-2) + ... + rₙ
+
+	Example:
+	s = "aa"
+	r₀ = 'a' = 97, r₁ = 'a' = 97, base = 1114112
+
+	Value = r₀*base^(n-1) + r₁*base^(n-2)
+		= 97*1114112 + 97
+		= 108068961
+
+*/
+func convertUnicodeStringToInt(s string) big.Int {
 	base := big.NewInt(constants.UnicodeSize)
 	val := big.NewInt(0)
 
@@ -406,10 +486,29 @@ func convertUnicodeStringToInt(s string) (big.Int, error) {
 		val.Mul(val, base)
 		val.Add(val, big.NewInt(int64(ch)))
 	}
-	return *val, nil
+	return *val
 }
 
-// convert a baseN number to a string pointer
+/*
+	convertIntUnicodeToString reconstructs the original string from its big.Int representation by extracting digits in base = 1114112 (UnicodeSize).
+
+	It repeatedly takes modulus and division by base to recover each rune:
+	rᵢ = n % base, then n = n / base
+
+	Example:
+	n = 108068961, base = 1114112
+
+	Step 1:
+	r₁ = n % base = 97 → 'a'
+	n = n / base = 97
+
+	Step 2:
+	r₀ = n % base = 97 → 'a'
+	n = 0
+
+	Reconstructed (after reversing):
+	"aa"
+*/
 func convertIntUnicodeToString(n *big.Int) string {
 	if n.Cmp(big.NewInt(0)) == 0 {
 		return ""
@@ -417,11 +516,13 @@ func convertIntUnicodeToString(n *big.Int) string {
 	base := big.NewInt(constants.UnicodeSize)
 	x := new(big.Int).Set(n)
 	var runes []rune
+
 	for x.Cmp(big.NewInt(0)) > 0 {
 		rem := new(big.Int).Mod(x, base)
 		runes = append(runes, rune(rem.Int64()))
 		x.Div(x, base)
 	}
+
 	slices.Reverse(runes)
 	return string(runes)
 }
