@@ -30,7 +30,7 @@ const (
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
-	EffectiveParquetSize        = int64(1) * 1024 * int64(1)
+	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
 	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
 	DefaultStateTimestampFormat = "2006-01-02T15:04:05.000000000Z"
 	// DistributionLower is the lower bound for distribution factor
