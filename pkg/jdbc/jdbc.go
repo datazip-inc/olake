@@ -625,7 +625,8 @@ func MSSQLCDCTableEnabledQuery() string {
 }
 
 // MSSQLCDCDiscoverQuery returns the query to discover CDC-enabled capture instances
-func MSSQLCDCDiscoverQuery(streamID string) string {
+func MSSQLCDCDiscoverQuery(streamIDs []string) string {
+	ids := strings.Join(streamIDs, "','")
 	return fmt.Sprintf(`
 		SELECT
 			s.name AS schema_name,
@@ -642,7 +643,7 @@ func MSSQLCDCDiscoverQuery(streamID string) string {
 			s.name ASC,
 			t.name ASC,
 			c.start_lsn ASC`,
-		streamID,
+		ids,
 	)
 }
 
@@ -652,6 +653,29 @@ func MSSQLCDCGetChangesQuery(captureInstance string) string {
 		SELECT *
 		FROM cdc.[fn_cdc_get_all_changes_%s](@p1, @p2, 'all')
 	`, captureInstance)
+}
+
+// MSSQLCDCGetDDLHistoryBulkQuery returns the query to fetch DDL history events for multiple tables
+func MSSQLCDCGetDDLHistoryBulkQuery(streamIDs []string) string {
+	ids := strings.Join(streamIDs, "','")
+	return fmt.Sprintf(`
+		SELECT sch.name, tbl.name, hist.required_column_update, hist.ddl_command, hist.ddl_lsn, hist.ddl_time
+		FROM cdc.ddl_history AS hist
+		JOIN sys.tables AS tbl ON hist.source_object_id = tbl.object_id
+		JOIN sys.schemas AS sch ON tbl.schema_id = sch.schema_id
+		WHERE CONCAT(sch.name, '.', tbl.name) IN ('%s')
+		ORDER BY hist.ddl_lsn ASC
+	`, ids)
+}
+
+// MSSQLCDCCreateCaptureInstanceQuery returns the query to create a new CDC capture instance
+func MSSQLCDCCreateCaptureInstanceQuery() string {
+	return "EXEC sys.sp_cdc_enable_table @source_schema = @p1, @source_name = @p2, @capture_instance = @p3, @role_name = NULL;"
+}
+
+// MSSQLCDCDisableCaptureInstanceQuery returns the query to disable a CDC capture instance
+func MSSQLCDCDisableCaptureInstanceQuery() string {
+	return "EXEC sys.sp_cdc_disable_table @source_schema = @p1, @source_name = @p2, @capture_instance = @p3;"
 }
 
 // MSSQLTableExistsQuery returns the query to check if a table has any rows
