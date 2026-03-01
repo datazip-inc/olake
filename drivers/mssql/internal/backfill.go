@@ -124,9 +124,14 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			if len(pkCols) == 0 {
 				return nil
 			}
-			columnTypes, err := m.getColumnTypesMSSQL(ctx, stream, tx)
+			// Get the minimum and maximum values for the primary key columns
+			minVal, maxVal, columnTypes, err := m.getTableExtremesMSSQL(ctx, stream, pkCols, tx)
 			if err != nil {
-				return fmt.Errorf("failed to get mssql column types: %s", err)
+				return fmt.Errorf("failed to get table extremes: %s", err)
+			}
+			// Skip if table is empty
+			if minVal == nil {
+				return nil
 			}
 
 			normalizeBoundaryValue := func(value any) string {
@@ -144,16 +149,6 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 					}
 				}
 				return utils.ConvertToString(value)
-			}
-
-			// Get the minimum and maximum values for the primary key columns
-			minVal, maxVal, err := m.getTableExtremesMSSQL(ctx, stream, pkCols, tx)
-			if err != nil {
-				return fmt.Errorf("failed to get table extremes: %s", err)
-			}
-			// Skip if table is empty
-			if minVal == nil {
-				return nil
 			}
 
 			// Create the first chunk from the beginning up to the minimum value
@@ -290,39 +285,31 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return chunks, err
 }
 
-// getTableExtremes returns MIN and MAX key values for the given PK columns
-func (m *MSSQL) getTableExtremesMSSQL(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
+// getTableExtremesMSSQL returns MIN and MAX key values for the given PK columns, and their datatypes
+func (m *MSSQL) getTableExtremesMSSQL(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, columnTypes map[string]string, err error) {
 	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
-	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
-	return min, max, err
-}
-
-// getColumnTypesMSSQL returns the SQL data type for each column in a table keyed by lower-cased column name.
-func (m *MSSQL) getColumnTypesMSSQL(ctx context.Context, stream types.StreamInterface, tx *sql.Tx) (map[string]string, error) {
-	rows, err := tx.QueryContext(ctx, jdbc.MSSQLTableSchemaQuery(), stream.Namespace(), stream.Name())
+	rows, err := tx.QueryContext(ctx, query)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	defer rows.Close()
 
-	columnTypes := make(map[string]string)
-	for rows.Next() {
-		var (
-			columnName   string
-			dataType     string
-			isNullable   string
-			isPrimaryKey bool
-		)
-		if err := rows.Scan(&columnName, &dataType, &isNullable, &isPrimaryKey); err != nil {
-			return nil, err
-		}
-		columnTypes[strings.ToLower(columnName)] = dataType
+	if !rows.Next() {
+		return nil, nil, nil, sql.ErrNoRows
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, err
+	types, err := rows.ColumnTypes()
+	if err != nil {
+		return nil, nil, nil, err
 	}
-	return columnTypes, nil
+
+	columnTypes = make(map[string]string)
+	if len(pkColumns) == 1 && len(types) > 0 {
+		columnTypes[strings.ToLower(pkColumns[0])] = strings.ToLower(types[0].DatabaseTypeName())
+	}
+
+	err = rows.Scan(&min, &max)
+	return min, max, columnTypes, err
 }
 
 // getPhysLocExtremes returns MIN and MAX %%physloc%% values for the table.
