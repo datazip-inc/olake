@@ -57,7 +57,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		if isConcurrentMode {
 			a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(connGroupCtx context.Context) error {
 				streamIndex, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				return a.streamChanges(connGroupCtx, pool, streamIndex, streams)
+				return a.streamChanges(connGroupCtx, pool, streamIndex, streams[streamIndex:streamIndex+1])
 			})
 		} else {
 			// In sequential/parallel modes, track completion but don't start CDC yet
@@ -120,12 +120,11 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		if createErr != nil {
 			return fmt.Errorf("failed to create CDC writer for stream %s: %s", stream.ID(), createErr)
 		}
+
 		writers[stream.ID()] = w
-		var writerMetaState any
 		if writerMeta != nil {
-			writerMetaState = writerMeta.State
+			metadataStates[stream.ID()] = writerMeta.State
 		}
-		metadataStates[stream.ID()] = writerMetaState
 	}
 
 	defer func() {

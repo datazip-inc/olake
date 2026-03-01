@@ -2,7 +2,6 @@ package iceberg
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"regexp"
@@ -32,7 +31,7 @@ type Iceberg struct {
 	server        *serverInstance          // Java server instance
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
-	olake2PCState *types.MetadataState     // olake_2pc_state for current stream
+	olake2PCState string                   // olake_2pc_state for current stream
 
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
@@ -74,7 +73,7 @@ func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	return legacywriter.New(i.options, i.schema, i.stream, i.server), nil
 }
 
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, *types.MetadataState, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, string, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]internal.PartitionInfo, 0)
@@ -84,13 +83,13 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	if partitionRegex != "" {
 		err := i.parsePartitionRegex(partitionRegex)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse partition regex: %s", err)
+			return nil, "", fmt.Errorf("failed to parse partition regex: %s", err)
 		}
 	}
 
 	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start iceberg server: %s", err)
+		return nil, "", fmt.Errorf("failed to start iceberg server: %s", err)
 	}
 
 	// persist server details
@@ -117,44 +116,24 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 		response, err := i.server.SendClientRequest(ctx, &requestPayload)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
+			return nil, "", fmt.Errorf("failed to load or create table: %s", err)
 		}
 
 		ingestResponse := response.(*proto.RecordIngestResponse)
 		schema, err = parseSchema(ingestResponse.GetResult())
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
+			return nil, "", fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
 		}
 
 		// Capture optional olake_2pc state from table metadata without returning early,
 		// so we fall through to create the writer for this thread.
-		if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
-			var metadataState types.MetadataState
-			if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
-				return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
-			}
-			// When JSON decodes an `any` field that held a JSON *object* (e.g. Postgres/MySQL
-			// binlog state {"lsn":"..."}), it produces a map[string]interface{}.
-			// For drivers whose State is already a plain string (e.g. MongoDB resume tokens)
-			// we must NOT re-encode, because json.Marshal("tok") → `"\"tok\""` which embeds
-			// literal quote characters into the token and makes it invalid.
-			if metadataState.State != nil {
-				if _, alreadyString := metadataState.State.(string); !alreadyString {
-					stateBytes, err := json.Marshal(metadataState.State)
-					if err != nil {
-						return schema, nil, fmt.Errorf("failed to re-serialize metadata state: %s", err)
-					}
-					metadataState.State = string(stateBytes)
-				}
-			}
-			i.olake2PCState = &metadataState
-		}
+		i.olake2PCState = ingestResponse.GetOlake_2PcState()
 	} else {
 		// set global schema for current thread
 		var ok bool
 		schema, ok = globalSchema.(map[string]string)
 		if !ok {
-			return nil, nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+			return nil, "", fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
 		}
 	}
 
@@ -163,7 +142,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 	writer, err := i.NewWriter(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create iceberg writer: %v", err)
+		return nil, "", fmt.Errorf("failed to create iceberg writer: %v", err)
 	}
 	i.writer = writer
 
@@ -175,7 +154,7 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
 }
 
-func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) error {
+func (i *Iceberg) Close(ctx context.Context, metadataState string) error {
 	// skip flushing on error
 	defer func() {
 		if i.server == nil {
@@ -197,7 +176,7 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) error {
 		// skip commit in case of context cancellation
 		return ctx.Err()
 	default:
-		return i.writer.Close(ctx, finalMetadataState)
+		return i.writer.Close(ctx, metadataState)
 	}
 }
 
@@ -219,7 +198,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// to close client properly
 	i.server = server
 	defer func() {
-		i.Close(ctx, nil)
+		i.Close(ctx, "")
 	}()
 
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
@@ -530,7 +509,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 	// to close client properly
 	i.server = server
 	defer func() {
-		i.Close(ctx, nil)
+		i.Close(ctx, "")
 	}()
 
 	logger.Infof("Starting Clear Iceberg destination for %d selected streams", len(dropStreams))

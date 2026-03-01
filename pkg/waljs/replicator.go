@@ -48,7 +48,7 @@ type Replicator interface {
 	StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error
 }
 
-func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, recoveryLSN *pglogrepl.LSN, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
+func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, startLSN *pglogrepl.LSN, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
 	// Build PostgreSQL connection config
 	connURL := config.Connection
 	q := connURL.Query()
@@ -98,12 +98,9 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 	logger.Infof("SystemID:%s Timeline:%d XLogPos:%s Database:%s",
 		sysident.SystemID, sysident.Timeline, sysident.XLogPos, sysident.DBName)
 
-	// Use the XLogPos from IdentifySystem as the target WAL position.
-	targetWalPos := sysident.XLogPos
-
-	// For recovery syncs the caller supplies an explicit target LSN; use that instead.
-	if recoveryLSN != nil {
-		targetWalPos = *recoveryLSN
+	// For recovery syncs the caller supplies an explicit target LSN
+	if startLSN == nil {
+		startLSN = &slot.CurrentLSN // start fresh
 	}
 
 	// Create and return final connection object
@@ -112,7 +109,7 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 		changeFilter:       NewChangeFilter(typeConverter, config.Tables.Array()...),
 		ConfirmedFlushLSN:  slot.LSN,
 		ClientXLogPos:      slot.LSN,
-		CurrentWalPosition: targetWalPos,
+		CurrentWalPosition: *startLSN,
 		ReplicationSlot:    config.ReplicationSlotName,
 		initialWaitTime:    config.InitialWaitTime,
 	}

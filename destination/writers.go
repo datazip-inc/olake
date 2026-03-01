@@ -2,6 +2,7 @@ package destination
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -26,9 +27,8 @@ type (
 
 	ThreadOptions func(opt *Options)
 	writerSchema  struct {
-		mu            sync.RWMutex
-		schema        any
-		metadataState *types.MetadataState
+		mu     sync.RWMutex
+		schema any
 	}
 
 	Stats struct {
@@ -148,7 +148,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	}
 
 	var writerThread Writer
-	prevStreamState, err := func() (*types.MetadataState, error) {
+	prevMetadataState, err := func() (*types.MetadataState, error) {
 		// init writer with configurations
 		writerThread = w.init()
 		w.configMutex.Lock()
@@ -167,15 +167,18 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 			return nil, fmt.Errorf("failed to setup the writer thread: %s", err)
 		}
 
-		if streamArtifact.schema == nil {
-			// First thread for this stream: persist schema and the olake_2pc state
-			// so all subsequent threads (e.g. concurrent backfill chunks) can also
-			// check which chunks were already committed.
-			streamArtifact.schema = output
-			streamArtifact.metadataState = prevStreamState
+		var metadataState types.MetadataState
+		if prevStreamState != "" {
+			if err := json.Unmarshal([]byte(prevStreamState), &metadataState); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
+			}
 		}
 
-		return streamArtifact.metadataState, nil
+		if streamArtifact.schema == nil {
+			streamArtifact.schema = output
+		}
+
+		return &metadataState, nil
 	}()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to setup writer thread: %s", err)
@@ -188,7 +191,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		stats:          w.stats,
 		streamArtifact: streamArtifact,
 		group:          utils.NewCGroupWithLimit(ctx, 1), // currently only one thread (To make sure flush can run parallel when buffer filling)
-	}, prevStreamState, nil
+	}, prevMetadataState, nil
 }
 
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error {
@@ -258,9 +261,14 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 }
 
 func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
+	mtStateBytest, err := json.Marshal(finalMetadataState)
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata state: %s", err)
+	}
+
 	select {
 	case <-ctx.Done():
-		err := wt.writer.Close(ctx, finalMetadataState)
+		err := wt.writer.Close(ctx, string(mtStateBytest))
 		if err != nil {
 			return fmt.Errorf("failed to close writer: %s", err)
 		}
@@ -271,7 +279,7 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
 
-			closeErr := wt.writer.Close(ctx, finalMetadataState)
+			closeErr := wt.writer.Close(ctx, string(mtStateBytest))
 			if closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
 			}

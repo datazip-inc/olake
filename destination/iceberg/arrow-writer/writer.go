@@ -3,7 +3,6 @@ package arrowwriter
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -324,7 +323,7 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 }
 
 // Close flushes all writers and commits files to Iceberg.
-func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
+func (w *ArrowWriter) Close(ctx context.Context, metadataState string) error {
 	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}
@@ -343,13 +342,8 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 			ThreadId:      w.server.ServerID(),
 			DestTableName: w.stream.GetDestinationTable(),
 			FileMetadata:  orderedFiles,
+			Payload:       metadataState,
 		},
-	}
-
-	// Commit payload from CDC/driver only: e.g. {"captured_cdc_pos":"0/123ABC"}
-	if finalMetadataState != nil {
-		payloadBytes, _ := json.Marshal(finalMetadataState)
-		commitRequest.Metadata.Payload = string(payloadBytes)
 	}
 
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
