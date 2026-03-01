@@ -59,9 +59,10 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return nil
 	}
 
+	unsignedMap := e.Table.UnsignedMap()
 	columnTypes := make([]string, len(e.Table.ColumnType))
 	for i, ct := range e.Table.ColumnType {
-		columnTypes[i] = mysqlTypeName(ct)
+		columnTypes[i] = mysqlTypeName(ct, unsignedMap != nil && unsignedMap[i])
 	}
 
 	var rowsToProcess [][]interface{}
@@ -140,15 +141,25 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 	return record, nil
 }
 
-func mysqlTypeName(t byte) string {
+// mysqlTypeName maps MySQL binlog protocol type bytes to SQL type names.
+func mysqlTypeName(t byte, unsigned bool) string {
 	switch t {
 	case mysql.MYSQL_TYPE_DECIMAL:
 		return "DECIMAL"
 	case mysql.MYSQL_TYPE_TINY:
+		if unsigned {
+			return "UNSIGNED TINYINT"
+		}
 		return "TINYINT"
 	case mysql.MYSQL_TYPE_SHORT:
+		if unsigned {
+			return "UNSIGNED SMALLINT"
+		}
 		return "SMALLINT"
 	case mysql.MYSQL_TYPE_LONG:
+		if unsigned {
+			return "UNSIGNED INT"
+		}
 		return "INT"
 	case mysql.MYSQL_TYPE_FLOAT:
 		return "FLOAT"
@@ -159,8 +170,14 @@ func mysqlTypeName(t byte) string {
 	case mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_TIMESTAMP2:
 		return "TIMESTAMP"
 	case mysql.MYSQL_TYPE_LONGLONG:
+		if unsigned {
+			return "UNSIGNED BIGINT"
+		}
 		return "BIGINT"
 	case mysql.MYSQL_TYPE_INT24:
+		if unsigned {
+			return "UNSIGNED MEDIUMINT"
+		}
 		return "MEDIUMINT"
 	case mysql.MYSQL_TYPE_DATE:
 		return "DATE"
