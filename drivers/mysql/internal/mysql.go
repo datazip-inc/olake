@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -239,7 +241,10 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return stream, rows.Err()
 	}
 	stream, err := produceTableSchema(ctx, streamName)
-	if err != nil && ctx.Err() == nil {
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+		}
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
 	}
 
@@ -263,6 +268,35 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		if strings.Contains(strings.ToLower(columnType), geoType) {
 			// conversion to wkt from non-utf8 binary wkb
 			return typeutils.ReformatGeoType(value)
+		}
+	}
+
+	// The go-mysql binlog parser always returns integer values as their signed Go equivalents
+	// (int8, int16, int32, int64) regardless of the MySQL UNSIGNED flag. For unsigned columns
+	// whose values exceed the signed type's max value, we must reinterpret the raw bits as the
+	// corresponding unsigned type before further conversion so the value is preserved correctly.
+	if constants.LoadedStateVersion > 3 {
+		switch strings.ToLower(columnType) {
+		case "unsigned tinyint":
+			if v, ok := value.(int8); ok {
+				value = uint8(v)
+			}
+		case "unsigned smallint":
+			if v, ok := value.(int16); ok {
+				value = uint16(v)
+			}
+		case "unsigned mediumint", "unsigned int", "unsigned integer":
+			if v, ok := value.(int32); ok {
+				value = uint32(v)
+			}
+		case "unsigned bigint":
+			if v, ok := value.(int64); ok {
+				value = uint64(v)
+			}
+		}
+	} else {
+		if strings.Contains(strings.ToLower(columnType), "unsigned") {
+			columnType = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(columnType), "unsigned "))
 		}
 	}
 
@@ -353,9 +387,36 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 		name = system
 	}
 
+	offsetSeconds, ok := parseMySQLTimeZoneOffset(name)
+	if constants.LoadedStateVersion > 2 && ok {
+		return time.FixedZone(name, offsetSeconds)
+	}
+
 	loc, err := time.LoadLocation(name)
 	if err != nil {
+		logger.Warnf("failed to load mysql timezone location %s, falling back to UTC. Set jdbc_url_params.time_zone to override: %s", name, err)
 		return time.UTC
 	}
 	return loc
+}
+
+// parseMySQTimeZoneOffset parses MySQL-style timezone offset. Returns offset in seconds and true, or 0, false.
+func parseMySQLTimeZoneOffset(s string) (int, bool) {
+	// MySql supports offsets ranging from -13:59 to +14:00
+	mysqlOffsetRegex := regexp.MustCompile(`^([+-])(0?\d|1[0-4]):([0-5]\d)$`)
+
+	s = strings.TrimSpace(s)
+	matches := mysqlOffsetRegex.FindStringSubmatch(s)
+	if matches == nil {
+		return 0, false
+	}
+	signStr, hourStr, minuteStr := matches[1], matches[2], matches[3]
+
+	hours, err1 := strconv.Atoi(hourStr)
+	minutes, err2 := strconv.Atoi(minuteStr)
+	if err1 != nil || err2 != nil || (hours == 14 && minutes > 0) || (signStr == "-" && hours == 14) {
+		return 0, false
+	}
+	offsetSeconds := hours*3600 + minutes*60
+	return utils.Ternary(signStr == "-", -offsetSeconds, offsetSeconds).(int), true
 }
