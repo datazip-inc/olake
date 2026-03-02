@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -134,21 +135,39 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				return nil
 			}
 
-			// QUESTION: Should we handle Binary data types as a part of composite key?
+			// normalizeBoundaryValue converts key boundary values into a stable SQL-safe string form
+			// before storing them in chunk state and reusing them as parameters for next-boundary queries.
 			normalizeBoundaryValue := func(value any) string {
-				// For single-column uniqueidentifier chunking, raw []byte must be
-				// normalized to canonical UUID; for all other PK types, preserve
-				// the existing string normalization behavior.
-				if len(pkCols) == 1 {
-					columnType := strings.ToLower(columnTypes[strings.ToLower(pkCols[0])])
-					if columnType == "uniqueidentifier" {
-						if raw, ok := value.([]byte); ok {
-							if uuid, converted := formatUniqueIdentifierBytes(raw); converted {
-								return uuid
-							}
+				// Typed normalization is only for single-key chunking.
+				// Composite keys are already materialized as a single CONCAT string.
+				if len(pkCols) != 1 {
+					return utils.ConvertToString(value)
+				}
+
+				columnType := strings.ToLower(columnTypes[strings.ToLower(pkCols[0])])
+
+				switch v := value.(type) {
+				case time.Time:
+					// Format Go time values into SQL Server friendly strings for chunk boundaries.
+					switch columnType {
+					case "date":
+						return v.Format("2006-01-02")
+					case "time":
+						return v.Format("15:04:05.9999999")
+					case "datetime", "datetime2", "smalldatetime":
+						return v.Format("2006-01-02 15:04:05.9999999")
+					}
+
+				case []byte:
+					if len(pkCols) == 1 && columnType == "uniqueidentifier" {
+						if uuid, converted := formatUniqueIdentifierBytes(v); converted {
+							return uuid
 						}
 					}
+					// For non-UUID byte values, encode as hex string to avoid corruption
+					return utils.HexEncode(v)
 				}
+
 				return utils.ConvertToString(value)
 			}
 
