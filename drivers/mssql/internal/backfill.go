@@ -134,6 +134,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				return nil
 			}
 
+			// QUESTION: Should we handle Binary data types as a part of composite key?
 			normalizeBoundaryValue := func(value any) string {
 				// For single-column uniqueidentifier chunking, raw []byte must be
 				// normalized to canonical UUID; for all other PK types, preserve
