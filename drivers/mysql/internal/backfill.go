@@ -46,14 +46,15 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 		// Get chunks from state or calculate new ones
 		stmt := ""
+		var chunkArgs []any
 		if chunkColumn != "" {
-			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
+			stmt, chunkArgs = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
 		} else if len(pkColumns) > 0 {
-			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
+			stmt, chunkArgs = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
 		} else {
 			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
 		}
-
+		args = append(chunkArgs, args...)
 		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)

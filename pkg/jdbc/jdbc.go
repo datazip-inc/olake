@@ -230,6 +230,32 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 	return fmt.Sprintf(`SELECT * FROM %s WHERE %s`, quotedTable, chunkCond)
 }
 
+// TODO: Common out buildChunkConditionMySQL for MSSQL, DB2, and other drivers where needed.
+// MySQL-Specific Queries buildChunkConditionMySQL builds the condition for a chunk in MySQL
+func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) (string, []any) {
+	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
+	colTuple := "(" + strings.Join(quotedCols, ", ") + ")"
+
+	var conditions []string
+	var args []any
+	if chunk.Min != nil {
+		conditions = append(conditions, fmt.Sprintf("%s >= (?)", colTuple))
+		args = append(args, chunk.Min)
+	}
+
+	if chunk.Max != nil {
+		conditions = append(conditions, fmt.Sprintf("%s < (?)", colTuple))
+		args = append(args, chunk.Max)
+	}
+
+	chunkCond := strings.Join(conditions, " AND ")
+
+	if extraFilter != "" && chunkCond != "" {
+		chunkCond = fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
+	}
+	return chunkCond, args
+}
+
 // buildLexicographicChunkCondition builds a WHERE condition for a chunk scan using
 // lexicographic OR-groups over multiple ordering columns.
 //
@@ -326,13 +352,6 @@ func buildLexicographicChunkCondition(quotedColumns []string, chunk types.Chunk,
 	return chunkCond
 }
 
-// MySQL-Specific Queries
-// buildChunkConditionMySQL builds the condition for a chunk in MySQL.
-func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) string {
-	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
-	return buildLexicographicChunkCondition(quotedCols, chunk, extraFilter)
-}
-
 // MysqlLimitOffsetScanQuery is used to get the rows
 func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
@@ -354,10 +373,10 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 }
 
 // MySQLWithoutState builds a chunk scan query for MySql
-func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
-	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
+func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) (string, []any) {
+	condition, args := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition), args
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
