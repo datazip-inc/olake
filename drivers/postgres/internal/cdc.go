@@ -42,9 +42,15 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 
 	globalState := p.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
+		// Advance replication slot BEFORE persisting state to avoid LSN mismatch on crash.
+		// If we wrote state first and then AdvanceLSN failed, OLake's cursor would be ahead
+		// of the replication slot, causing an irrecoverable non-retryable error on restart.
+		if err := waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String()); err != nil {
+			return err
+		}
 		p.state.SetGlobal(waljs.WALState{LSN: slot.CurrentLSN.String()})
 		p.state.ResetStreams()
-		return waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String())
+		return nil
 	}
 	p.streams = streams
 	return validateGlobalState(globalState, slot.LSN)
@@ -85,8 +91,14 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 		return ctx.Err()
 	default:
 		socket := p.replicator.Socket()
+		// Acknowledge LSN to PostgreSQL BEFORE persisting state to avoid LSN mismatch on crash.
+		// If we wrote state first and AcknowledgeLSN failed, OLake's cursor would be ahead
+		// of the replication slot, causing an irrecoverable non-retryable error on restart.
+		if err := waljs.AcknowledgeLSN(ctx, p.client, socket, false); err != nil {
+			return err
+		}
 		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
-		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
+		return nil
 	}
 }
 
