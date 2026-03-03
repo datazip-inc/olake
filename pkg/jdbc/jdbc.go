@@ -234,24 +234,87 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 // MySQL-Specific Queries buildChunkConditionMySQL builds the condition for a chunk in MySQL
 func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) (string, []any) {
 	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
-	colTuple := "(" + strings.Join(quotedCols, ", ") + ")"
 
-	var conditions []string
+	splitBoundaryValues := func(boundary any) []string {
+		if boundary == nil {
+			return nil
+		}
+		str := utils.ConvertToString(boundary)
+		parts := strings.Split(str, ",")
+		for i, part := range parts {
+			parts[i] = strings.TrimSpace(part)
+		}
+		return parts
+	}
+
+	// buildBound creates the expanded logic for:
+	//   (c1, c2, c3) >= (v1, v2, v3)
+	// as:
+	//   (c1 > v1) OR (c1 = v1 AND c2 > v2) OR (c1 = v1 AND c2 = v2 AND c3 >= v3)
+	//
+	// For upper bounds, it creates:
+	//   (c1 < v1) OR (c1 = v1 AND c2 < v2) OR (c1 = v1 AND c2 = v2 AND c3 < v3)
+	buildBound := func(values []string, isLower bool) (string, []any) {
+		//note: values can never be empty
+		var args []any
+		orGroups := make([]string, 0, len(quotedCols))
+
+		for colIdx := 0; colIdx < len(quotedCols); colIdx++ {
+			andConds := make([]string, 0, colIdx+1)
+
+			// Prefix columns must match exactly: c1 = v1 AND c2 = v2 ...
+			for prefixIdx := 0; prefixIdx < colIdx; prefixIdx++ {
+				if prefixIdx < len(values) {
+					andConds = append(andConds, fmt.Sprintf("%s = ?", quotedCols[prefixIdx]))
+					args = append(args, values[prefixIdx])
+				}
+			}
+
+			var op string
+			if isLower {
+				op = ">"
+				if colIdx == len(quotedCols)-1 {
+					op = ">="
+				}
+			} else {
+				op = "<"
+			}
+
+			if colIdx < len(values) {
+				andConds = append(andConds, fmt.Sprintf("%s %s ?", quotedCols[colIdx], op))
+				args = append(args, values[colIdx])
+			}
+			if len(andConds) > 0 {
+				orGroups = append(orGroups, "("+strings.Join(andConds, " AND ")+")")
+			}
+		}
+
+		return "(" + strings.Join(orGroups, " OR ") + ")", args
+	}
+
+	lowerValues := splitBoundaryValues(chunk.Min)
+	upperValues := splitBoundaryValues(chunk.Max)
+
+	chunkCond := ""
 	var args []any
-	if chunk.Min != nil {
-		conditions = append(conditions, fmt.Sprintf("%s >= (?)", colTuple))
-		args = append(args, chunk.Min)
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		lowerCond, lowerArgs := buildBound(lowerValues, true)
+		upperCond, upperArgs := buildBound(upperValues, false)
+		if lowerCond != "" && upperCond != "" {
+			chunkCond = fmt.Sprintf("(%s) AND (%s)", lowerCond, upperCond)
+			args = append(args, lowerArgs...)
+			args = append(args, upperArgs...)
+		}
+	case chunk.Min != nil:
+		chunkCond, args = buildBound(lowerValues, true)
+	case chunk.Max != nil:
+		chunkCond, args = buildBound(upperValues, false)
 	}
 
-	if chunk.Max != nil {
-		conditions = append(conditions, fmt.Sprintf("%s < (?)", colTuple))
-		args = append(args, chunk.Max)
-	}
-
-	chunkCond := strings.Join(conditions, " AND ")
-
+	// Combine with any additional filter if present.
 	if extraFilter != "" && chunkCond != "" {
-		chunkCond = fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
+		return fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter), args
 	}
 	return chunkCond, args
 }
