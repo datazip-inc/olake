@@ -520,6 +520,7 @@ func MySQLTableStatsQuery() string {
 		AND TABLE_NAME = ?
 	`
 }
+
 // MySQLColumnTypeQuery returns a query that fetches the DATA_TYPE and CHARACTER_MAXIMUM_LENGTH of a column in MySQL.
 func MySQLColumnTypeQuery() string {
 	return `
@@ -554,7 +555,7 @@ func MySQLDistinctValuesWithCollationQuery(values []string, tableCollationType s
 	return query, args
 }
 
-// MySQLCountGeneratedInRange builds a query that counts how many values from the provided slice 
+// MySQLCountGeneratedInRange builds a query that counts how many values from the provided slice
 // fall within [minVal, maxVal] using the table's collation ordering.
 func MySQLCountGeneratedInRange(values []string, tableCollationType string, minVal, maxVal string) (string, []any) {
 	if len(values) == 0 {
