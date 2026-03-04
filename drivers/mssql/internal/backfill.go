@@ -333,15 +333,18 @@ func normalizeBoundaryValue(value any, pkCols []string, columnTypes map[string]s
 			return v.Format("2006-01-02 15:04:05.9999999")
 		}
 	case []byte:
-		if columnType == "uniqueidentifier" {
+		switch columnType {
+		case "uniqueidentifier":
 			if uuid, converted := formatUniqueIdentifierBytes(v); converted {
 				return uuid
 			}
+		case "numeric", "decimal", "money", "smallmoney":
+			return string(v)
+		default:
+			// For non-UUID byte values, encode as hex string to avoid corruption.
+			return utils.HexEncode(v)
 		}
-		// For non-UUID byte values, encode as hex string to avoid corruption.
-		return utils.HexEncode(v)
 	}
-
 	return utils.ConvertToString(value)
 }
 
