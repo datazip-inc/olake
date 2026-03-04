@@ -271,6 +271,35 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		}
 	}
 
+	// The go-mysql binlog parser always returns integer values as their signed Go equivalents
+	// (int8, int16, int32, int64) regardless of the MySQL UNSIGNED flag. For unsigned columns
+	// whose values exceed the signed type's max value, we must reinterpret the raw bits as the
+	// corresponding unsigned type before further conversion so the value is preserved correctly.
+	if constants.LoadedStateVersion > 3 {
+		switch strings.ToLower(columnType) {
+		case "unsigned tinyint":
+			if v, ok := value.(int8); ok {
+				value = uint8(v)
+			}
+		case "unsigned smallint":
+			if v, ok := value.(int16); ok {
+				value = uint16(v)
+			}
+		case "unsigned mediumint", "unsigned int", "unsigned integer":
+			if v, ok := value.(int32); ok {
+				value = uint32(v)
+			}
+		case "unsigned bigint":
+			if v, ok := value.(int64); ok {
+				value = uint64(v)
+			}
+		}
+	} else {
+		if strings.Contains(strings.ToLower(columnType), "unsigned") {
+			columnType = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(columnType), "unsigned "))
+		}
+	}
+
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
 }
