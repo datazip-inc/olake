@@ -85,7 +85,7 @@ func MinMaxQuery(stream types.StreamInterface, column string) string {
 // Output:
 //
 //	SELECT CONCAT_WS(',', id, created_at) AS key_str FROM (
-//	  SELECT (',', id, created_at)
+//	  SELECT (id, created_at)
 //	  FROM `mydb`.`users`
 //	  WHERE (`id` > ?) OR (`id` = ? AND `created_at` > ?)
 //	  ORDER BY id, created_at
@@ -230,179 +230,107 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 	return fmt.Sprintf(`SELECT * FROM %s WHERE %s`, quotedTable, chunkCond)
 }
 
-// MySQL-Specific Queries
-// buildChunkConditionMySQL builds the condition for a chunk in MySQL
-func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) string {
-	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
-	colTuple := "(" + strings.Join(quotedCols, ", ") + ")"
-
-	buildSQLTuple := func(val any) string {
-		parts := strings.Split(val.(string), ",")
-		for i, part := range parts {
-			parts[i] = fmt.Sprintf("'%s'", strings.TrimSpace(part))
+// buildLexicographicChunkCondition builds a WHERE condition for a chunk scan using
+// lexicographic OR-groups over multiple ordering columns.
+//
+// For a range [min, max) on columns (c1, c2, c3) it produces conditions like:
+//
+//	(c1 > m1) OR (c1 = m1 AND c2 > m2) OR (c1 = m1 AND c2 = m2 AND c3 >= m3)
+func buildLexicographicChunkCondition(quotedColumns []string, chunk types.Chunk, extraFilter string) string {
+	// formatSQLLiteral returns a properly escaped and quoted string literal for SQL
+	formatSQLLiteral := func(val any) string {
+		if val == nil {
+			return "NULL"
 		}
-		return strings.Join(parts, ", ")
+
+		str := utils.ConvertToString(val)
+		// Escape single quotes for SQL safety
+		escaped := strings.ReplaceAll(str, "'", "''")
+		return fmt.Sprintf("'%s'", escaped)
 	}
+
+	splitBoundaryValues := func(boundary any) []string {
+		if boundary == nil {
+			return nil
+		}
+		str := utils.ConvertToString(boundary)
+		parts := strings.Split(str, ",")
+		for i, part := range parts {
+			parts[i] = strings.TrimSpace(part)
+		}
+		return parts
+	}
+
+	// buildBound creates the expanded logic for:
+	//   (c1, c2, c3) >= (v1, v2, v3)
+	// as:
+	//   (c1 > v1) OR (c1 = v1 AND c2 > v2) OR (c1 = v1 AND c2 = v2 AND c3 >= v3)
+	//
+	// For upper bounds, it creates:
+	//   (c1 < v1) OR (c1 = v1 AND c2 < v2) OR (c1 = v1 AND c2 = v2 AND c3 < v3)
+	buildBound := func(values []string, isLower bool) string {
+		//note: values can never be empty
+		orGroups := make([]string, 0, len(quotedColumns))
+		for colIdx := range quotedColumns {
+			andConds := make([]string, 0, colIdx+1)
+
+			// Prefix columns must match exactly: c1 = v1 AND c2 = v2 ...
+			for prefixIdx := range colIdx {
+				if prefixIdx < len(values) {
+					andConds = append(andConds, fmt.Sprintf("%s = %s", quotedColumns[prefixIdx], formatSQLLiteral(values[prefixIdx])))
+				}
+			}
+
+			var op string
+			if isLower {
+				op = ">"
+				if colIdx == len(quotedColumns)-1 {
+					op = ">="
+				}
+			} else {
+				op = "<"
+			}
+
+			if colIdx < len(values) {
+				andConds = append(andConds, fmt.Sprintf("%s %s %s", quotedColumns[colIdx], op, formatSQLLiteral(values[colIdx])))
+			}
+			if len(andConds) > 0 {
+				orGroups = append(orGroups, "("+strings.Join(andConds, " AND ")+")")
+			}
+		}
+
+		return "(" + strings.Join(orGroups, " OR ") + ")"
+	}
+
+	lowerValues := splitBoundaryValues(chunk.Min)
+	upperValues := splitBoundaryValues(chunk.Max)
+
 	chunkCond := ""
 	switch {
 	case chunk.Min != nil && chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s) AND %s < (%s)", colTuple, buildSQLTuple(chunk.Min), colTuple, buildSQLTuple(chunk.Max))
+		lowerCond := buildBound(lowerValues, true)
+		upperCond := buildBound(upperValues, false)
+		if lowerCond != "" && upperCond != "" {
+			chunkCond = fmt.Sprintf("(%s) AND (%s)", lowerCond, upperCond)
+		}
 	case chunk.Min != nil:
-		chunkCond = fmt.Sprintf("%s >= (%s)", colTuple, buildSQLTuple(chunk.Min))
+		chunkCond = buildBound(lowerValues, true)
 	case chunk.Max != nil:
-		chunkCond = fmt.Sprintf("%s < (%s)", colTuple, buildSQLTuple(chunk.Max))
+		chunkCond = buildBound(upperValues, false)
 	}
-	// Both filter and chunk cond both should exist
+
+	// Combine with any additional filter if present.
 	if extraFilter != "" && chunkCond != "" {
 		return fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
 	}
 	return chunkCond
 }
 
-// buildChunkConditionMSSQL builds a WHERE condition for scanning a chunk in MSSQL.
-// It emulates lexicographic ranges for one or more ordering columns because SQL Server
-// does not support tuple comparisons like (col1, col2) >= (...).
-func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFilter string) string {
-	// splitBoundaryValues turns the chunk boundary string into a list of values
-	splitBoundaryValues := func(boundary any) []string {
-		if boundary == nil {
-			return nil
-		}
-		values := strings.Split(boundary.(string), ",")
-		for idx, value := range values {
-			values[idx] = strings.TrimSpace(value)
-		}
-		return values
-	}
-
-	// formatSQLLiteral returns a SQL literal for the given value.
-	formatSQLLiteral := func(value string) string {
-		if value == "" {
-			return "''"
-		}
-		escaped := strings.ReplaceAll(value, "'", "''")
-		return fmt.Sprintf("'%s'", escaped)
-	}
-
-	// buildLowerBoundCondition builds a lexicographic ">= lowerBound" condition.
-	// For columns (c1, c2, c3) and values (m1, m2, m3) it produces:
-	//   (c1 > m1) OR
-	//   (c1 = m1 AND c2 > m2) OR
-	//   (c1 = m1 AND c2 = m2 AND c3 >= m3)
-	buildLowerBoundCondition := func(lowerBoundValues []string) string {
-		if lowerBoundValues == nil {
-			return ""
-		}
-
-		orGroups := make([]string, 0, len(quotedColumns))
-
-		for columnIndex := range quotedColumns {
-			andConditions := make([]string, 0, columnIndex+1)
-
-			// Prefix columns must match exactly: c1 = m1 AND c2 = m2 ...
-			for prefixIndex := 0; prefixIndex < columnIndex; prefixIndex++ {
-				if prefixIndex < len(lowerBoundValues) {
-					andConditions = append(
-						andConditions,
-						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSQLLiteral(lowerBoundValues[prefixIndex])),
-					)
-				}
-			}
-
-			// For the current column, use ">" except on the last column where we use ">=".
-			comparisonOp := ">"
-			if columnIndex == len(quotedColumns)-1 {
-				comparisonOp = ">="
-			}
-
-			if columnIndex < len(lowerBoundValues) {
-				andConditions = append(
-					andConditions,
-					fmt.Sprintf("%s %s %s", quotedColumns[columnIndex], comparisonOp, formatSQLLiteral(lowerBoundValues[columnIndex])),
-				)
-			}
-
-			if len(andConditions) > 0 {
-				orGroups = append(orGroups, "("+strings.Join(andConditions, " AND ")+")")
-			}
-		}
-
-		if len(orGroups) == 0 {
-			return ""
-		}
-		return "(" + strings.Join(orGroups, " OR ") + ")"
-	}
-
-	// buildUpperBoundCondition builds a lexicographic "< upperBound" condition.
-	// For columns (c1, c2, c3) and values (M1, M2, M3) it produces:
-	//   (c1 < M1) OR
-	//   (c1 = M1 AND c2 < M2) OR
-	//   (c1 = M1 AND c2 = M2 AND c3 < M3)
-	buildUpperBoundCondition := func(upperBoundValues []string) string {
-		if upperBoundValues == nil {
-			return ""
-		}
-
-		orGroups := make([]string, 0, len(quotedColumns))
-
-		for columnIndex := range quotedColumns {
-			andConditions := make([]string, 0, columnIndex+1)
-
-			// Prefix columns must match exactly: c1 = M1 AND c2 = M2 ...
-			for prefixIndex := 0; prefixIndex < columnIndex; prefixIndex++ {
-				if prefixIndex < len(upperBoundValues) {
-					andConditions = append(
-						andConditions,
-						fmt.Sprintf("%s = %s", quotedColumns[prefixIndex], formatSQLLiteral(upperBoundValues[prefixIndex])),
-					)
-				}
-			}
-
-			// Current column uses strict "<" for the upper bound.
-			if columnIndex < len(upperBoundValues) {
-				andConditions = append(
-					andConditions,
-					fmt.Sprintf("%s < %s", quotedColumns[columnIndex], formatSQLLiteral(upperBoundValues[columnIndex])),
-				)
-			}
-
-			if len(andConditions) > 0 {
-				orGroups = append(orGroups, "("+strings.Join(andConditions, " AND ")+")")
-			}
-		}
-
-		if len(orGroups) == 0 {
-			return ""
-		}
-		return "(" + strings.Join(orGroups, " OR ") + ")"
-	}
-
-	lowerBoundValues := splitBoundaryValues(chunk.Min)
-	upperBoundValues := splitBoundaryValues(chunk.Max)
-
-	var chunkCondition string
-
-	switch {
-	case chunk.Min != nil && chunk.Max != nil:
-		lowerCondition := buildLowerBoundCondition(lowerBoundValues)
-		upperCondition := buildUpperBoundCondition(upperBoundValues)
-		if lowerCondition != "" && upperCondition != "" {
-			chunkCondition = fmt.Sprintf("(%s) AND (%s)", lowerCondition, upperCondition)
-		} else {
-			chunkCondition = lowerCondition + upperCondition
-		}
-	case chunk.Min != nil:
-		chunkCondition = buildLowerBoundCondition(lowerBoundValues)
-	case chunk.Max != nil:
-		chunkCondition = buildUpperBoundCondition(upperBoundValues)
-	}
-
-	// Combine with any additional filter if present.
-	if extraFilter != "" && chunkCondition != "" {
-		return fmt.Sprintf("(%s) AND (%s)", chunkCondition, extraFilter)
-	}
-
-	return chunkCondition
+// MySQL-Specific Queries
+// buildChunkConditionMySQL builds the condition for a chunk in MySQL.
+func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) string {
+	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
+	return buildLexicographicChunkCondition(quotedCols, chunk, extraFilter)
 }
 
 // MysqlLimitOffsetScanQuery is used to get the rows
@@ -898,6 +826,11 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 	}
 
 	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %%%%physloc%%%%", tableName, chunkCond)
+}
+
+// buildChunkConditionMSSQL builds a WHERE condition for scanning a chunk in MSSQL.
+func buildChunkConditionMSSQL(quotedColumns []string, chunk types.Chunk, extraFilter string) string {
+	return buildLexicographicChunkCondition(quotedColumns, chunk, extraFilter)
 }
 
 // MSSQLChunkScanQuery returns the SQL query for scanning a chunk in MSSQL
@@ -1458,6 +1391,7 @@ func DB2PKChunkScanQuery(stream types.StreamInterface, filterColumns []string, c
 	}
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
 
+	// TODO: check if we need to remove tuple comparison and construct the query manually for DB2
 	buildSQLTuple := func(val any) string {
 		parts := strings.Split(val.(string), ",")
 		for i, part := range parts {

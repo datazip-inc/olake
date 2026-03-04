@@ -22,12 +22,15 @@ package constants
 //     * Binlog CDC now uses TimestampStringLocation to align with the connection's timezone configuration.
 //     * This prevents discrepancies where CDC timestamps could differ from Full Refresh data.
 //
-//   - Version 3: Current Version (Parses the timezone offset for MySQL correctly)
+//   - Version 3: Parses the timezone offset for MySQL correctly
 //     * Earlier if the session timezone or global was set in offset format, it was not parsed correctly and used to fallback to UTC.
 //     * Now it parses the offset correctly and uses the timezone offset to set the timezone for the connection.
+//
+//   - Version 4: (Current Version) Unsigned int/integer/bigint map to Int64.
+//     * Earlier unsigned int/integer/bigint were mapped to Int32 which caused integer overflows.
 
 const (
-	LatestStateVersion = 3
+	LatestStateVersion = 4
 )
 
 // Used as the current version of the state when the program is running
