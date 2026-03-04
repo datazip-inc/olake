@@ -314,7 +314,7 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFi
 
 	// Combine with any additional filter if present.
 	if extraFilter != "" && chunkCond != "" {
-		return fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter), args
+		chunkCond = fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
 	}
 	return chunkCond, args
 }
@@ -509,7 +509,7 @@ func MySQLPrimaryKeyQuery() string {
 }
 
 // MySQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
-func MySQLTableRowStatsQuery() string {
+func MySQLTableStatsQuery() string {
 	return `
 		SELECT TABLE_ROWS,
 		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes,
@@ -520,7 +520,7 @@ func MySQLTableRowStatsQuery() string {
 		AND TABLE_NAME = ?
 	`
 }
-
+// MySQLColumnTypeQuery returns a query that fetches the DATA_TYPE and CHARACTER_MAXIMUM_LENGTH of a column in MySQL.
 func MySQLColumnTypeQuery() string {
 	return `
 	SELECT DATA_TYPE ,CHARACTER_MAXIMUM_LENGTH
@@ -554,6 +554,8 @@ func MySQLDistinctValuesWithCollationQuery(values []string, tableCollationType s
 	return query, args
 }
 
+// MySQLCountGeneratedInRange builds a query that counts how many values from the provided slice 
+// fall within [minVal, maxVal] using the table's collation ordering.
 func MySQLCountGeneratedInRange(values []string, tableCollationType string, minVal, maxVal string) (string, []any) {
 	if len(values) == 0 {
 		return "", nil
