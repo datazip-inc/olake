@@ -99,6 +99,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		finishedStreamSet := types.NewSet(finishedStreams...)
 		_ = utils.ForEach(p.streams, func(stream types.StreamInterface) error {
 			if exists := finishedStreamSet.Exists(stream.ID()); !exists {
+				logger.Infof("Running recovery sync for stream[%s]", stream.ID())
 				remainingStreams = append(remainingStreams, stream)
 			}
 			return nil

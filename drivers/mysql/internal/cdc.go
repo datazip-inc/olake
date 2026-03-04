@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlobalState, streamsToSync []types.StreamInterface) (*binlog.Connection, error) {
@@ -65,30 +66,6 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 }
 
 func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
-	// Derive target position for bounded sync: use explicit target if set, else from destination metadata (olake_2pc_state)
-	// targetPos := ""
-	// if targetPos == "" {
-	// 	for _, mtState := range metadataStates {
-	// 		meta, ok := mtState.(map[string]any)
-	// 		if !ok {
-	// 			continue
-	// 		}
-	// 		olake2pcRaw, _ := meta["olake_2pc_state"]
-	// 		olake2pcStr, _ := olake2pcRaw.(string)
-	// 		if olake2pcStr == "" {
-	// 			continue
-	// 		}
-	// 		var recoveredState abstract.SyncState
-	// 		if err := json.Unmarshal([]byte(olake2pcStr), &recoveredState); err != nil {
-	// 			continue
-	// 		}
-	// 		if recoveredState.CapturedCDCPos != "" {
-	// 			targetPos = recoveredState.CapturedCDCPos
-	// 			logger.Infof("Using target CDC position from destination metadata for bounded sync: %s", targetPos)
-	// 			break
-	// 		}
-	// 	}
-	// }
 	savedState := m.state.GetGlobal()
 	if savedState == nil || savedState.State == nil {
 		return nil, fmt.Errorf("invalid global state; state is missing")
@@ -136,6 +113,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 		finishedStreamSet := types.NewSet(finishedStreams...)
 		_ = utils.ForEach(m.streams, func(stream types.StreamInterface) error {
 			if !finishedStreamSet.Exists(stream.ID()) {
+				logger.Infof("Running recovery sync for stream[%s]", stream.ID())
 				remainingStreams = append(remainingStreams, stream)
 			}
 			return nil

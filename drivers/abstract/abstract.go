@@ -246,16 +246,14 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	}
 
 	var metadataState any
+	var closeErr error
 	if mtState != nil {
-		ms := types.MetadataState{State: mtState}
-		if threadID != "" {
-			ms.ID = threadID
+		metadataState, closeErr = types.SetMetadataState(mtState, threadID)
+		if closeErr != nil {
+			closeErr = fmt.Errorf("failed to set metadata state: %s", closeErr)
 		}
-		metadataState = ms
 	}
 
-	// Close writer(s)
-	var closeErr error
 	switch w := writer.(type) {
 	case *destination.WriterThread:
 		if threadErr := w.Close(ctx, metadataState); threadErr != nil {

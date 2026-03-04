@@ -77,7 +77,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	if mtState != nil {
 		cmp := typeutils.Compare(prevResumeToken, mtState)
 		if cmp != 0 {
-			// sync has problem, recovery required
+			logger.Infof("Stream[%s] resume token mismatch, updating resume token in state", stream.ID())
 			prevResumeToken = mtState
 		}
 	}

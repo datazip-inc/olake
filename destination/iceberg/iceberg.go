@@ -133,20 +133,6 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
 				return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
 			}
-			// When JSON decodes an `any` field that held a JSON *object* (e.g. Postgres/MySQL
-			// binlog state {"lsn":"..."}), it produces a map[string]interface{}.
-			// For drivers whose State is already a plain string (e.g. MongoDB resume tokens)
-			// we must NOT re-encode, because json.Marshal("tok") → `"\"tok\""` which embeds
-			// literal quote characters into the token and makes it invalid.
-			if metadataState.State != nil {
-				if _, alreadyString := metadataState.State.(string); !alreadyString {
-					stateBytes, err := json.Marshal(metadataState.State)
-					if err != nil {
-						return schema, nil, fmt.Errorf("failed to re-serialize metadata state: %s", err)
-					}
-					metadataState.State = string(stateBytes)
-				}
-			}
 			i.olake2PCState = &metadataState
 		}
 	} else {

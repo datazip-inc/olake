@@ -107,6 +107,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 			return nil, fmt.Errorf("failed to typecast mtstate to string of type[%T]", rawMtState)
 		}
 		if mtState != lsnInState {
+			logger.Infof("Stream[%s] LSN mismatch, updating LSN in state", stream.ID())
 			m.lsnMap.Store(stream.ID(), mtState)
 			return mtState, nil
 		}

@@ -114,6 +114,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 					return fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID)
 				}
 
+				logger.Infof("Stream[%s] cursor(s) mismatch, updating cursor(s) in state", stream.ID())
 				maxPrimaryCursorValue = mtState[primaryCursor]
 				if secondaryCursor != "" {
 					maxSecondaryCursorValue = mtState[secondaryCursor]
