@@ -70,10 +70,8 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	}
 
 	// Manage capture instance creation and deletion
-	if m.config.ManageCaptureInstances {
-		if err := m.manageCaptureInstances(ctx, streams, streamLSNMap, captureInstancesMap); err != nil {
-			return fmt.Errorf("failed to manage CDC capture instances: %w", err)
-		}
+	if err := m.manageCaptureInstances(ctx, streamIDs, streamLSNMap, captureInstancesMap); err != nil {
+		return fmt.Errorf("failed to manage CDC capture instances: %w", err)
 	}
 
 	m.streams = streams
@@ -117,22 +115,20 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 	// in the LSN range between the DDL and when the new capture instance becomes active.
 	captureIdx, selectedCapture := newestValidInstance(captureInstances, lsnInState)
 
-	if selectedCapture != nil {
-		// If a newer capture instance exists, restrict the targetLSN to the newer instance's startLSN
-		nextCaptureIdx := captureIdx + 1
-		if nextCaptureIdx < len(captureInstances) && targetLSN > captureInstances[nextCaptureIdx].startLSN {
-			newerCapture := captureInstances[nextCaptureIdx]
-			logger.Warnf("Newer capture instance [%s] detected for stream %s at LSN %s, but not using it in this sync. Clamping targetLSN to %s. It will be picked up in the next CDC sync", newerCapture.instanceName, stream.ID(), newerCapture.startLSN, newerCapture.startLSN)
-			targetLSN = newerCapture.startLSN
-		}
-	}
-
 	if selectedCapture == nil {
 		return fmt.Errorf(
 			"LSN %s is earlier than the start LSN of available capture instances for stream %s. Please perform full-refresh",
 			lsnInState,
 			stream.ID(),
 		)
+	}
+
+	// If a newer capture instance exists, restrict the targetLSN to the newer instance's startLSN
+	nextCaptureIdx := captureIdx + 1
+	if nextCaptureIdx < len(captureInstances) && targetLSN > captureInstances[nextCaptureIdx].startLSN {
+		newerCapture := captureInstances[nextCaptureIdx]
+		logger.Warnf("Newer capture instance [%s] detected for stream %s at LSN %s, but not using it in this sync. Clamping targetLSN to %s. It will be picked up in the next CDC sync", newerCapture.instanceName, stream.ID(), newerCapture.startLSN, newerCapture.startLSN)
+		targetLSN = newerCapture.startLSN
 	}
 
 	logger.Infof(
@@ -192,6 +188,10 @@ func (m *MSSQL) prepareCaptureInstancesBulk(ctx context.Context, streamIDs []str
 		streamID := fmt.Sprintf("%s.%s", capture.schema, capture.table)
 		captureInstances[streamID] = append(captureInstances[streamID], capture)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over bulk capture instances: %w", err)
+	}
+
 	return captureInstances, nil
 }
 
@@ -205,10 +205,10 @@ func (m *MSSQL) prepareCaptureInstances(ctx context.Context, stream types.Stream
 }
 
 // manageCaptureInstances manages the lifecycle of CDC capture instances for multiple streams.
-func (m *MSSQL) manageCaptureInstances(ctx context.Context, streams []types.StreamInterface, streamLSNMap map[string]string, captureInstancesMap map[string][]captureInstance) error {
-	streamIDs := make([]string, 0, len(streams))
-	for _, s := range streams {
-		streamIDs = append(streamIDs, s.ID())
+func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, streamLSNMap map[string]string, captureInstancesMap map[string][]captureInstance) error {
+	// If manage capture instances is not enabled, do nothing
+	if !m.config.ManageCaptureInstances {
+		return nil
 	}
 
 	// Fetch DDL history for all streams in bulk
@@ -237,10 +237,8 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streams []types.Stre
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("error iterating over bulk DDL history: %w", err)
 	}
-	rows.Close()
 
-	for _, stream := range streams {
-		streamID := stream.ID()
+	for _, streamID := range streamIDs {
 		instances := captureInstancesMap[streamID]
 		currentCursorLSN := streamLSNMap[streamID]
 
@@ -272,14 +270,14 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streams []types.Stre
 			// Check if any DDL event for this table is newer than the latest capture start_lsn
 			if ddlLSN, ok := latestDDLMap[streamID]; ok && ddlLSN > latestCapture.startLSN {
 				// Create a new instance with a safe length (MSSQL limit is 100 chars)
-				streamPart := stream.ID()
+				streamPart := streamID
 				if len(streamPart) > 75 {
 					streamPart = streamPart[:75]
 				}
 				newInstanceName := fmt.Sprintf("olake_%s_%d", streamPart, time.Now().Unix())
 
 				createCaptureInstanceQuery := jdbc.MSSQLCDCCreateCaptureInstanceQuery()
-				_, err := m.client.ExecContext(ctx, createCaptureInstanceQuery, stream.Namespace(), stream.Name(), newInstanceName)
+				_, err := m.client.ExecContext(ctx, createCaptureInstanceQuery, latestCapture.schema, latestCapture.table, newInstanceName)
 				if err != nil {
 					return fmt.Errorf("failed to create new capture instance for schema drift on %s: %w", streamID, err)
 				}

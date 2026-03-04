@@ -295,19 +295,3 @@ func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 
 	return isEnabled, nil
 }
-
-// validateCDCStream verifies if the stream is CDC enabled in mssql.
-func (m *MSSQL) validateCDCStream(ctx context.Context, namespace, name string) (bool, error) {
-	if !m.cdcSupported {
-		return false, nil
-	}
-	var captureInstance string
-	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCTableEnabledQuery(), namespace, name).Scan(&captureInstance)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to check table CDC enablement for %s.%s: %s", namespace, name, err)
-	}
-	return true, nil
-}

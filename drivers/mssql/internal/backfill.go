@@ -126,7 +126,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				return nil
 			}
 			// Get the minimum and maximum values for the primary key columns
-			minVal, maxVal, columnTypes, err := m.getTableExtremesMSSQL(ctx, stream, pkCols, tx)
+			minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkCols, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get table extremes: %s", err)
 			}
@@ -135,49 +135,25 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				return nil
 			}
 
-			// normalizeBoundaryValue converts key boundary values into a stable SQL-safe string form
-			// before storing them in chunk state and reusing them as parameters for next-boundary queries.
-			normalizeBoundaryValue := func(value any) string {
-				// Typed normalization is only for single-key chunking.
-				// Composite keys are already materialized as a single CONCAT string.
-				if len(pkCols) != 1 {
-					return utils.ConvertToString(value)
+			columnTypes := make(map[string]string)
+			if len(pkCols) == 1 {
+				columnTypes, err = m.getColumnTypesMSSQL(ctx, stream, tx)
+				if err != nil {
+					return fmt.Errorf("failed to get table column types: %s", err)
 				}
-
-				columnType := strings.ToLower(columnTypes[strings.ToLower(pkCols[0])])
-
-				switch v := value.(type) {
-				case time.Time:
-					// Format Go time values into SQL Server friendly strings for chunk boundaries.
-					switch columnType {
-					case "date":
-						return v.Format("2006-01-02")
-					case "time":
-						return v.Format("15:04:05.9999999")
-					case "datetime", "datetime2", "smalldatetime":
-						return v.Format("2006-01-02 15:04:05.9999999")
-					}
-
-				case []byte:
-					if len(pkCols) == 1 && columnType == "uniqueidentifier" {
-						if uuid, converted := formatUniqueIdentifierBytes(v); converted {
-							return uuid
-						}
-					}
-					// For non-UUID byte values, encode as hex string to avoid corruption
-					return utils.HexEncode(v)
-				}
-
-				return utils.ConvertToString(value)
 			}
 
 			// Create the first chunk from the beginning up to the minimum value
 			chunks.Insert(types.Chunk{
 				Min: nil,
-				Max: normalizeBoundaryValue(minVal),
+				Max: normalizeBoundaryValue(minVal, pkCols, columnTypes),
 			})
 
-			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), normalizeBoundaryValue(minVal), normalizeBoundaryValue(maxVal))
+			logger.Infof(
+				"Stream %s extremes - min: %v, max: %v", stream.ID(),
+				normalizeBoundaryValue(minVal, pkCols, columnTypes),
+				normalizeBoundaryValue(maxVal, pkCols, columnTypes),
+			)
 
 			// Build query to find the next chunk boundary
 			query := jdbc.MSSQLNextChunkEndQuery(stream, pkCols, chunkSize)
@@ -185,7 +161,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			for {
 				// Split the current composite key value into individual column parts
-				columns := strings.Split(normalizeBoundaryValue(currentVal), ",")
+				columns := strings.Split(normalizeBoundaryValue(currentVal, pkCols, columnTypes), ",")
 
 				// Build query arguments for composite key comparison
 				args := make([]interface{}, 0)
@@ -209,8 +185,8 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				// Create a chunk between current and next boundary
 				if currentVal != nil {
 					chunks.Insert(types.Chunk{
-						Min: normalizeBoundaryValue(currentVal),
-						Max: normalizeBoundaryValue(nextValRaw),
+						Min: normalizeBoundaryValue(currentVal, pkCols, columnTypes),
+						Max: normalizeBoundaryValue(nextValRaw, pkCols, columnTypes),
 					})
 				}
 
@@ -220,7 +196,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			// Create the final chunk from the last value to the end
 			if currentVal != nil {
 				chunks.Insert(types.Chunk{
-					Min: normalizeBoundaryValue(currentVal),
+					Min: normalizeBoundaryValue(currentVal, pkCols, columnTypes),
 					Max: nil,
 				})
 			}
@@ -305,31 +281,75 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return chunks, err
 }
 
-// getTableExtremesMSSQL returns MIN and MAX key values for the given PK columns, and their datatypes
-func (m *MSSQL) getTableExtremesMSSQL(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, columnTypes map[string]string, err error) {
-	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
-	rows, err := tx.QueryContext(ctx, query)
+// getColumnTypesMSSQL returns SQL data types keyed by lower-cased column name.
+func (m *MSSQL) getColumnTypesMSSQL(ctx context.Context, stream types.StreamInterface, tx *sql.Tx) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx, jdbc.MSSQLTableSchemaQuery(), stream.Namespace(), stream.Name())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	if !rows.Next() {
-		return nil, nil, nil, sql.ErrNoRows
+	columnTypes := make(map[string]string)
+	for rows.Next() {
+		var (
+			columnName   string
+			dataType     string
+			isNullable   string
+			isPrimaryKey bool
+		)
+		if err := rows.Scan(&columnName, &dataType, &isNullable, &isPrimaryKey); err != nil {
+			return nil, err
+		}
+		columnTypes[strings.ToLower(columnName)] = strings.ToLower(dataType)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return columnTypes, nil
+}
+
+// normalizeBoundaryValue converts key boundary values into a stable SQL-safe string form
+// before storing them in chunk state and reusing them as parameters for next-boundary queries.
+func normalizeBoundaryValue(value any, pkCols []string, columnTypes map[string]string) string {
+	// Typed normalization is only for single-key chunking.
+	// Composite keys are already materialized as a single CONCAT string.
+	if len(pkCols) != 1 {
+		return utils.ConvertToString(value)
 	}
 
-	types, err := rows.ColumnTypes()
-	if err != nil {
-		return nil, nil, nil, err
+	columnType := strings.ToLower(columnTypes[strings.ToLower(pkCols[0])])
+
+	switch v := value.(type) {
+	case time.Time:
+		// SQL Server datetime types are timezone-naive, but Go scans them as time.Time with location.
+		// We normalize to SQL Server-compatible literal formats so chunk boundaries round-trip
+		// safely through state serialization and remain stable for subsequent boundary comparisons.
+		switch columnType {
+		case "date":
+			return v.Format("2006-01-02")
+		case "time":
+			return v.Format("15:04:05.9999999")
+		case "datetime", "datetime2", "smalldatetime":
+			return v.Format("2006-01-02 15:04:05.9999999")
+		}
+	case []byte:
+		if columnType == "uniqueidentifier" {
+			if uuid, converted := formatUniqueIdentifierBytes(v); converted {
+				return uuid
+			}
+		}
+		// For non-UUID byte values, encode as hex string to avoid corruption.
+		return utils.HexEncode(v)
 	}
 
-	columnTypes = make(map[string]string)
-	if len(pkColumns) == 1 && len(types) > 0 {
-		columnTypes[strings.ToLower(pkColumns[0])] = strings.ToLower(types[0].DatabaseTypeName())
-	}
+	return utils.ConvertToString(value)
+}
 
-	err = rows.Scan(&min, &max)
-	return min, max, columnTypes, err
+// getTableExtremes returns MIN and MAX key values for the given PK columns
+func (m *MSSQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
+	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
+	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
+	return min, max, err
 }
 
 // getPhysLocExtremes returns MIN and MAX %%physloc%% values for the table.
