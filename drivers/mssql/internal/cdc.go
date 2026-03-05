@@ -54,7 +54,6 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("failed to discover capture instances: %w", err)
 	}
 
-	streamLSNMap := make(map[string]string)
 	for _, stream := range streams {
 		if _, found := captureInstancesMap[stream.ID()]; !found {
 			return fmt.Errorf("CDC is not enabled for stream %s.%s", stream.Namespace(), stream.Name())
@@ -63,14 +62,11 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		lsnVal := m.state.GetCursor(stream.Self(), cdcCursorKey)
 		if lsnVal == nil {
 			m.state.SetCursor(stream.Self(), cdcCursorKey, currentLSN)
-			streamLSNMap[stream.ID()] = currentLSN
-		} else {
-			streamLSNMap[stream.ID()] = lsnVal.(string)
 		}
 	}
 
 	// Manage capture instance creation and deletion
-	if err := m.manageCaptureInstances(ctx, streamIDs, streamLSNMap, captureInstancesMap); err != nil {
+	if err := m.manageCaptureInstances(ctx, streamIDs, streams, captureInstancesMap); err != nil {
 		return fmt.Errorf("failed to manage CDC capture instances: %w", err)
 	}
 
@@ -205,10 +201,15 @@ func (m *MSSQL) prepareCaptureInstances(ctx context.Context, stream types.Stream
 }
 
 // manageCaptureInstances manages the lifecycle of CDC capture instances for multiple streams.
-func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, streamLSNMap map[string]string, captureInstancesMap map[string][]captureInstance) error {
+func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, streams []types.StreamInterface, captureInstancesMap map[string][]captureInstance) error {
 	// If manage capture instances is not enabled, do nothing
 	if !m.config.ManageCaptureInstances {
 		return nil
+	}
+
+	streamByID := make(map[string]types.StreamInterface, len(streams))
+	for _, stream := range streams {
+		streamByID[stream.ID()] = stream
 	}
 
 	// Fetch DDL history for all streams in bulk
@@ -240,7 +241,10 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 
 	for _, streamID := range streamIDs {
 		instances := captureInstancesMap[streamID]
-		currentCursorLSN := streamLSNMap[streamID]
+		stream := streamByID[streamID]
+		// if cdc is not enabled it will fail in preCDC
+		// So we are sure that lsn exists in state for this stream
+		currentCursorLSN := m.state.GetCursor(stream.Self(), cdcCursorKey).(string)
 
 		// Find the newest valid instance
 		activeIdx, selected := newestValidInstance(instances, currentCursorLSN)
