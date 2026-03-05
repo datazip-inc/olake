@@ -264,12 +264,9 @@ func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	// reconstruct a proper RFC4122 UUID string (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
 	case "uniqueidentifier":
 		if v, ok := value.([]byte); ok {
-			return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-				v[3], v[2], v[1], v[0], // first 4 bytes (little-endian)
-				v[5], v[4], // next 2 bytes
-				v[7], v[6], // next 2 bytes
-				v[8], v[9], // next 2 bytes
-				v[10], v[11], v[12], v[13], v[14], v[15]), nil // last 6 bytes
+			if uuid, converted := formatUniqueIdentifierBytes(v); converted {
+				return uuid, nil
+			}
 		}
 		return fmt.Sprintf("%s", value), nil
 	// TODO: check how to handle hierarchyid datatype
@@ -297,20 +294,4 @@ func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 	}
 
 	return isEnabled, nil
-}
-
-// validateCDCStream verifies if the stream is CDC enabled in mssql.
-func (m *MSSQL) validateCDCStream(ctx context.Context, namespace, name string) (bool, error) {
-	if !m.cdcSupported {
-		return false, nil
-	}
-	var captureInstance string
-	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCTableEnabledQuery(), namespace, name).Scan(&captureInstance)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to check table CDC enablement for %s.%s: %s", namespace, name, err)
-	}
-	return true, nil
 }
