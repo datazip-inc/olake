@@ -135,24 +135,25 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				return nil
 			}
 
-			columnTypes := make(map[string]string)
+			columnType := ""
 			if len(pkCols) == 1 {
-				columnTypes, err = m.getColumnTypesMSSQL(ctx, stream, tx)
+				columnTypes, err := m.getColumnTypesMSSQL(ctx, stream, pkCols, tx)
 				if err != nil {
 					return fmt.Errorf("failed to get table column types: %s", err)
 				}
+				columnType = columnTypes[strings.ToLower(pkCols[0])]
 			}
 
 			// Create the first chunk from the beginning up to the minimum value
 			chunks.Insert(types.Chunk{
 				Min: nil,
-				Max: normalizeBoundaryValue(minVal, pkCols, columnTypes),
+				Max: normalizeBoundaryValue(minVal, pkCols, columnType),
 			})
 
 			logger.Infof(
 				"Stream %s extremes - min: %v, max: %v", stream.ID(),
-				normalizeBoundaryValue(minVal, pkCols, columnTypes),
-				normalizeBoundaryValue(maxVal, pkCols, columnTypes),
+				normalizeBoundaryValue(minVal, pkCols, columnType),
+				normalizeBoundaryValue(maxVal, pkCols, columnType),
 			)
 
 			// Build query to find the next chunk boundary
@@ -161,7 +162,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			for {
 				// Split the current composite key value into individual column parts
-				columns := strings.Split(normalizeBoundaryValue(currentVal, pkCols, columnTypes), ",")
+				columns := strings.Split(normalizeBoundaryValue(currentVal, pkCols, columnType), ",")
 
 				// Build query arguments for composite key comparison
 				args := make([]interface{}, 0)
@@ -185,8 +186,8 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				// Create a chunk between current and next boundary
 				if currentVal != nil {
 					chunks.Insert(types.Chunk{
-						Min: normalizeBoundaryValue(currentVal, pkCols, columnTypes),
-						Max: normalizeBoundaryValue(nextValRaw, pkCols, columnTypes),
+						Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
+						Max: normalizeBoundaryValue(nextValRaw, pkCols, columnType),
 					})
 				}
 
@@ -196,7 +197,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			// Create the final chunk from the last value to the end
 			if currentVal != nil {
 				chunks.Insert(types.Chunk{
-					Min: normalizeBoundaryValue(currentVal, pkCols, columnTypes),
+					Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
 					Max: nil,
 				})
 			}
@@ -282,8 +283,8 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 }
 
 // getColumnTypesMSSQL returns SQL data types keyed by lower-cased column name.
-func (m *MSSQL) getColumnTypesMSSQL(ctx context.Context, stream types.StreamInterface, tx *sql.Tx) (map[string]string, error) {
-	rows, err := tx.QueryContext(ctx, jdbc.MSSQLTableSchemaQuery(), stream.Namespace(), stream.Name())
+func (m *MSSQL) getColumnTypesMSSQL(ctx context.Context, stream types.StreamInterface, columns []string, tx *sql.Tx) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx, jdbc.MSSQLTableSchemaByColumnsQuery(columns), stream.Namespace(), stream.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -292,12 +293,10 @@ func (m *MSSQL) getColumnTypesMSSQL(ctx context.Context, stream types.StreamInte
 	columnTypes := make(map[string]string)
 	for rows.Next() {
 		var (
-			columnName   string
-			dataType     string
-			isNullable   string
-			isPrimaryKey bool
+			columnName string
+			dataType   string
 		)
-		if err := rows.Scan(&columnName, &dataType, &isNullable, &isPrimaryKey); err != nil {
+		if err := rows.Scan(&columnName, &dataType); err != nil {
 			return nil, err
 		}
 		columnTypes[strings.ToLower(columnName)] = strings.ToLower(dataType)
@@ -310,14 +309,14 @@ func (m *MSSQL) getColumnTypesMSSQL(ctx context.Context, stream types.StreamInte
 
 // normalizeBoundaryValue converts key boundary values into a stable SQL-safe string form
 // before storing them in chunk state and reusing them as parameters for next-boundary queries.
-func normalizeBoundaryValue(value any, pkCols []string, columnTypes map[string]string) string {
+func normalizeBoundaryValue(value any, pkCols []string, columnType string) string {
 	// Typed normalization is only for single-key chunking.
 	// Composite keys are already materialized as a single CONCAT string.
 	if len(pkCols) != 1 {
 		return utils.ConvertToString(value)
 	}
 
-	columnType := strings.ToLower(columnTypes[strings.ToLower(pkCols[0])])
+	columnType = strings.ToLower(columnType)
 
 	switch v := value.(type) {
 	case time.Time:
