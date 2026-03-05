@@ -110,7 +110,6 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 	// Note: we expect column-level data loss (e.g., new columns missing)
 	// in the LSN range between the DDL and when the new capture instance becomes active.
 	captureIdx, selectedCapture := newestValidInstance(captureInstances, lsnInState)
-
 	if selectedCapture == nil {
 		return fmt.Errorf(
 			"LSN %s is earlier than the start LSN of available capture instances for stream %s. Please perform full-refresh",
@@ -118,7 +117,6 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 			stream.ID(),
 		)
 	}
-
 	// If a newer capture instance exists, restrict the targetLSN to the newer instance's startLSN
 	nextCaptureIdx := captureIdx + 1
 	if nextCaptureIdx < len(captureInstances) && targetLSN > captureInstances[nextCaptureIdx].startLSN {
