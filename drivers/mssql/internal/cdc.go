@@ -60,6 +60,7 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		}
 
 		lsnVal := m.state.GetCursor(stream.Self(), cdcCursorKey)
+		// Initialize LSN for each stream if not present
 		if lsnVal == nil {
 			m.state.SetCursor(stream.Self(), cdcCursorKey, currentLSN)
 		}
@@ -168,7 +169,7 @@ func (m *MSSQL) prepareCaptureInstancesBulk(ctx context.Context, streamIDs []str
 	}
 	defer rows.Close()
 
-	captureInstances := make(map[string][]captureInstance)
+	captureInstances := make(map[string][]captureInstance, len(streamIDs))
 	for rows.Next() {
 		var (
 			capture  captureInstance
@@ -205,11 +206,6 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 		return nil
 	}
 
-	streamByID := make(map[string]types.StreamInterface, len(streams))
-	for _, stream := range streams {
-		streamByID[stream.ID()] = stream
-	}
-
 	// Fetch DDL history for all streams in bulk
 	ddlHistoryQuery := jdbc.MSSQLCDCGetDDLHistoryBulkQuery(streamIDs)
 	rows, err := m.client.QueryContext(ctx, ddlHistoryQuery)
@@ -218,7 +214,7 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 	}
 	defer rows.Close()
 
-	latestDDLMap := make(map[string]string)
+	latestDDLMap := make(map[string]string, len(streamIDs))
 	for rows.Next() {
 		var (
 			schema, table, command string
@@ -237,9 +233,9 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 		return fmt.Errorf("error iterating over bulk DDL history: %w", err)
 	}
 
-	for _, streamID := range streamIDs {
+	for _, stream := range streams {
+		streamID := stream.ID()
 		instances := captureInstancesMap[streamID]
-		stream := streamByID[streamID]
 		// if cdc is not enabled it will fail in preCDC
 		// So we are sure that lsn exists in state for this stream
 		currentCursorLSN := m.state.GetCursor(stream.Self(), cdcCursorKey).(string)
