@@ -18,8 +18,6 @@ const (
 	CDCStartLSN = "_cdc_start_lsn" // MSSQL start LSN
 	CDCSeqVal   = "_cdc_seqval"    // MSSQL seqval
 
-	defaultCDCMaxTrans           = 500             // SQL Server default maxtrans per scan session
-	defaultCDCPollingInterval    = 5 * time.Second // SQL Server default CDC job pollinginterval
 	cdcAgentPollInterval         = 2 * time.Second // interval between scan session checks
 	minCDCAgentCatchUpTimeout    = 15 * time.Minute
 	catchUpTimeoutPollMultiplier = 3
@@ -349,7 +347,8 @@ func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
 	}
 
 	if !hasPermission {
-		return "", fmt.Errorf("VIEW DATABASE STATE permission not granted; refusing to continue because CDC cursor may lag behind the transaction log")
+		logger.Warnf("VIEW DATABASE STATE permission not granted; LSN may be lagging behind the transaction log")
+		return m.currentMaxLSN(ctx)
 	}
 
 	return m.waitForCDCAgentCatchUp(ctx)
@@ -367,21 +366,9 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 	)
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCCaptureJobConfigQuery()).Scan(&maxTrans, &pollingIntervalS)
 	if err != nil {
-		logger.Warnf("unable to query CDC capture job config, using defaults maxtrans=%d pollinginterval=%s: %s", defaultCDCMaxTrans, defaultCDCPollingInterval, err)
-		maxTrans = defaultCDCMaxTrans
-		pollingIntervalS = int(defaultCDCPollingInterval.Seconds())
+		return "", fmt.Errorf("unable to query CDC capture job config: %s", err)
 	}
-	if pollingIntervalS < 0 {
-		logger.Warnf("invalid CDC job pollinginterval=%d, using default %s", pollingIntervalS, defaultCDCPollingInterval)
-		pollingIntervalS = int(defaultCDCPollingInterval.Seconds())
-	}
-	// Question: polling interval is editable, it is 5s be default and in very rare scenarios
-	// it can be set to 24 hrs (which is ideally never the case), should we handle for that as well
-	// or have a fixed catchup time
-	//
-	// 1–30 seconds for “near real-time” pipelines.
-	// 1–5 minutes for “fresh but not strict real-time” analytics dashboards.
-	// 15–60 minutes only for low-change, low-SLA reporting or cost-constrained workloads.
+
 	catchUpTimeout := max(minCDCAgentCatchUpTimeout, time.Duration(catchUpTimeoutPollMultiplier*pollingIntervalS)*time.Second)
 
 	// Record the baseSession scan session before we start waiting.
