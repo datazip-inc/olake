@@ -341,11 +341,6 @@ func operationTypeFromCDCCode(code int32) string {
 // has finished a non-throttled scan session (tran_count < maxtrans). A non-throttled session
 // means the agent fully drained the transaction log. We then read the max LSN, knowing it
 // reflects all committed transactions at that point.
-//
-// This mechanism requires VIEW DATABASE STATE permission or
-// VIEW DATABASE PERFORMANCE STATE permission (SQL Server 2022+) on the database. If not granted,
-// we fall back to sys.fn_cdc_get_max_lsn() directly, accepting potential duplicates that
-// are resolved by upsert at the destination.
 func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
 	var hasPermission bool
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLViewDatabaseStatePermissionQuery()).Scan(&hasPermission)
@@ -367,9 +362,6 @@ func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
 // `maxtrans` transactions per session (default 500), a session that finishes
 // with fewer transactions indicates it reached the end of the transaction log
 // and is fully caught up at that moment.
-//
-// After observing such a session, the current CDC max LSN can be used as a
-// stable and causally valid boundary for streaming.
 func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 	var (
 		maxTrans         int
