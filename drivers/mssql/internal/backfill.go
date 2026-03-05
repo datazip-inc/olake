@@ -137,11 +137,10 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			columnType := ""
 			if len(pkCols) == 1 {
-				columnTypes, err := m.getColumnTypesMSSQL(ctx, stream, pkCols, tx)
+				columnType, err = m.getColumnTypeMSSQL(ctx, stream, pkCols[0], tx)
 				if err != nil {
-					return fmt.Errorf("failed to get table column types: %s", err)
+					return fmt.Errorf("failed to get table column type: %s", err)
 				}
-				columnType = columnTypes[strings.ToLower(pkCols[0])]
 			}
 
 			// Create the first chunk from the beginning up to the minimum value
@@ -282,29 +281,14 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return chunks, err
 }
 
-// getColumnTypesMSSQL returns SQL data types keyed by lower-cased column name.
-func (m *MSSQL) getColumnTypesMSSQL(ctx context.Context, stream types.StreamInterface, columns []string, tx *sql.Tx) (map[string]string, error) {
-	rows, err := tx.QueryContext(ctx, jdbc.MSSQLTableSchemaByColumnsQuery(columns), stream.Namespace(), stream.Name())
+// getColumnTypeMSSQL returns SQL data type for the requested column.
+func (m *MSSQL) getColumnTypeMSSQL(ctx context.Context, stream types.StreamInterface, column string, tx *sql.Tx) (string, error) {
+	var dataType string
+	err := tx.QueryRowContext(ctx, jdbc.MSSQLColumnTypeQuery(), stream.Namespace(), stream.Name(), column).Scan(&dataType)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	defer rows.Close()
-
-	columnTypes := make(map[string]string)
-	for rows.Next() {
-		var (
-			columnName string
-			dataType   string
-		)
-		if err := rows.Scan(&columnName, &dataType); err != nil {
-			return nil, err
-		}
-		columnTypes[strings.ToLower(columnName)] = strings.ToLower(dataType)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return columnTypes, nil
+	return dataType, nil
 }
 
 // normalizeBoundaryValue converts key boundary values into a stable SQL-safe string form

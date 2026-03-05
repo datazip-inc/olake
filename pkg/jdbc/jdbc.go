@@ -572,22 +572,15 @@ func MSSQLTableSchemaQuery() string {
 	`
 }
 
-// MSSQLTableSchemaByColumnsQuery returns schema query scoped to selected column names.
-func MSSQLTableSchemaByColumnsQuery(columns []string) string {
-	quotedColumns := make([]string, 0, len(columns))
-	for _, col := range columns {
-		escaped := strings.ReplaceAll(col, "'", "''")
-		quotedColumns = append(quotedColumns, fmt.Sprintf("'%s'", escaped))
-	}
-	return fmt.Sprintf(`
-		SELECT  c.COLUMN_NAME,
-		        c.DATA_TYPE
-		FROM    INFORMATION_SCHEMA.COLUMNS AS c
-		WHERE   c.TABLE_SCHEMA = @p1
-		  AND   c.TABLE_NAME   = @p2
-		  AND   c.COLUMN_NAME IN (%s)
-		ORDER BY c.ORDINAL_POSITION
-	`, strings.Join(quotedColumns, ","))
+// MSSQLColumnTypeQuery returns data type query for a single table column.
+func MSSQLColumnTypeQuery() string {
+	return `
+		SELECT c.DATA_TYPE
+		FROM INFORMATION_SCHEMA.COLUMNS AS c
+		WHERE c.TABLE_SCHEMA = @p1
+		  AND c.TABLE_NAME = @p2
+		  AND c.COLUMN_NAME = @p3
+	`
 }
 
 // MSSQLPhysLocExtremesQuery returns the query to fetch MIN and MAX %%physloc%% values for a table
