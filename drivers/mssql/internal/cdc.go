@@ -345,13 +345,11 @@ func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
 	var hasPermission bool
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLViewDatabaseStatePermissionQuery()).Scan(&hasPermission)
 	if err != nil {
-		logger.Warnf("failed to check VIEW DATABASE STATE permission, falling back to current max LSN: %s", err)
-		return m.currentMaxLSN(ctx)
+		return "", fmt.Errorf("failed to check VIEW DATABASE STATE permission: %s", err)
 	}
 
 	if !hasPermission {
-		logger.Warnf("VIEW DATABASE STATE permission not granted; CDC cursor may lag behind the transaction log, which can cause duplicate rows during backfill.")
-		return m.currentMaxLSN(ctx)
+		return "", fmt.Errorf("VIEW DATABASE STATE permission not granted; refusing to continue because CDC cursor may lag behind the transaction log")
 	}
 
 	return m.waitForCDCAgentCatchUp(ctx)
@@ -369,7 +367,7 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 	)
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCCaptureJobConfigQuery()).Scan(&maxTrans, &pollingIntervalS)
 	if err != nil {
-		logger.Errorf("unable to query CDC capture job config, using defaults maxtrans=%d pollinginterval=%s: %s", defaultCDCMaxTrans, defaultCDCPollingInterval, err)
+		logger.Warnf("unable to query CDC capture job config, using defaults maxtrans=%d pollinginterval=%s: %s", defaultCDCMaxTrans, defaultCDCPollingInterval, err)
 		maxTrans = defaultCDCMaxTrans
 		pollingIntervalS = int(defaultCDCPollingInterval.Seconds())
 	}
@@ -386,12 +384,10 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 	// 15–60 minutes only for low-change, low-SLA reporting or cost-constrained workloads.
 	catchUpTimeout := max(minCDCAgentCatchUpTimeout, time.Duration(catchUpTimeoutPollMultiplier*pollingIntervalS)*time.Second)
 
-	// Record the baseSession scan session before we start waiting
-	// query can fail if there are no scan sessions yet, so fallback to current max LSN
+	// Record the baseSession scan session before we start waiting.
 	baseSession, err := m.latestCDCScanSession(ctx)
 	if err != nil {
-		logger.Warnf("failed to query CDC scan sessions, falling back to current max LSN: %s", err)
-		return m.currentMaxLSN(ctx)
+		return "", fmt.Errorf("failed to query CDC scan sessions: %s", err)
 	}
 
 	logger.Infof("waiting for CDC capture agent to catch up (baseline end_time=%s, maxtrans=%d, pollinginterval=%ds, timeout=%s)", baseSession.endTime.Format(time.RFC3339), maxTrans, pollingIntervalS, catchUpTimeout)
@@ -405,13 +401,11 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-deadline:
-			logger.Warnf("CDC agent did not catch up within %s, using current max LSN", catchUpTimeout)
-			return m.currentMaxLSN(ctx)
+			return "", fmt.Errorf("CDC agent did not catch up within %s, the CDC agent may not be running", catchUpTimeout)
 		case <-ticker.C:
 			session, err := m.latestCDCScanSession(ctx)
 			if err != nil {
-				logger.Warnf("failed to query CDC scan session: %s", err)
-				continue
+				return "", fmt.Errorf("failed to query CDC scan session: %s", err)
 			}
 
 			// A session that completed after our baseSession and wasn't throttled
