@@ -18,6 +18,8 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
+// TODO: Add 2PC support for Kafka (difficulty: hard)
+
 func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
 	return false, true, false // parallel change streams supported
 }
@@ -58,11 +60,11 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
-func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstract.CDCMsgFn) error {
+func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	// get reader
 	reader := k.readerManager.GetReader(readerID)
 	if reader == nil {
-		return fmt.Errorf("reader not found for readerID %d", readerID)
+		return nil, fmt.Errorf("reader not found for readerID %d", readerID)
 	}
 
 	// track processing state
@@ -77,7 +79,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstr
 		}
 	}()
 
-	return k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
+	err := k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		if record.Data == nil {
 			logger.Warnf("received nil message value at offset %d for topic %s, partition %d", record.Message.Offset, record.Message.Topic, record.Message.Partition)
 			return false, nil
@@ -116,6 +118,8 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, processFn abstr
 		}
 		return false, nil
 	})
+
+	return nil, err
 }
 
 func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {

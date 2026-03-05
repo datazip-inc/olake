@@ -114,12 +114,20 @@ func (w *LegacyWriter) EvolveSchema(_ context.Context, newSchema map[string]stri
 	return nil
 }
 
-func (w *LegacyWriter) Close(ctx context.Context) error {
+func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error {
+	// Commit payload from CDC/driver only: e.g. {"captured_cdc_pos":"0/123ABC"}
+	var payloadStr string
+	if finalMetadataState != nil {
+		payloadBytes, _ := json.Marshal(finalMetadataState)
+		payloadStr = string(payloadBytes)
+	}
+
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
 			ThreadId:      w.server.ServerID(),
 			DestTableName: w.stream.GetDestinationTable(),
+			Payload:       payloadStr,
 		},
 	}
 
