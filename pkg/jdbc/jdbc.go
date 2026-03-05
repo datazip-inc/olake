@@ -574,7 +574,11 @@ func MSSQLTableSchemaQuery() string {
 
 // MSSQLTableSchemaByColumnsQuery returns schema query scoped to selected column names.
 func MSSQLTableSchemaByColumnsQuery(columns []string) string {
-	quotedColumns := QuoteColumns(columns, constants.MSSQL)
+	quotedColumns := make([]string, 0, len(columns))
+	for _, col := range columns {
+		escaped := strings.ReplaceAll(col, "'", "''")
+		quotedColumns = append(quotedColumns, fmt.Sprintf("'%s'", escaped))
+	}
 	return fmt.Sprintf(`
 		SELECT  c.COLUMN_NAME,
 		        c.DATA_TYPE
