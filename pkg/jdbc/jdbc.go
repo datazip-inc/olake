@@ -658,6 +658,35 @@ func MSSQLCDCDiscoverQuery(streamIDs []string) string {
 	)
 }
 
+// MSSQLViewDatabaseStatePermissionQuery checks for VIEW DATABASE STATE (all versions) or
+// VIEW DATABASE PERFORMANCE STATE (SQL Server 2022+). Either permission grants access to
+// sys.dm_cdc_log_scan_sessions.
+func MSSQLViewDatabaseStatePermissionQuery() string {
+	return `
+		SELECT CAST(CASE
+			WHEN HAS_PERMS_BY_NAME(NULL, 'DATABASE', 'VIEW DATABASE STATE') = 1 THEN 1
+			WHEN HAS_PERMS_BY_NAME(NULL, 'DATABASE', 'VIEW DATABASE PERFORMANCE STATE') = 1 THEN 1
+			ELSE 0
+		END AS BIT)
+	`
+}
+
+// MSSQLCDCLatestScanSessionQuery returns the latest completed CDC log scan session.
+// Requires VIEW DATABASE STATE permission.
+func MSSQLCDCLatestScanSessionQuery() string {
+	return `
+		SELECT TOP (1) session_id, end_time, tran_count
+		FROM sys.dm_cdc_log_scan_sessions
+		WHERE scan_phase = 'Done'
+		ORDER BY session_id DESC
+	`
+}
+
+// MSSQLCDCCaptureJobConfigQuery returns maxtrans and pollinginterval settings for the CDC capture job.
+func MSSQLCDCCaptureJobConfigQuery() string {
+	return "SELECT maxtrans, pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID()"
+}
+
 // MSSQLCDCGetChangesQuery returns the query to fetch CDC changes for a capture instance
 func MSSQLCDCGetChangesQuery(captureInstance string) string {
 	return fmt.Sprintf(`
