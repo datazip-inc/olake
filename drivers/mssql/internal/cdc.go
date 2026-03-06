@@ -76,27 +76,40 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 }
 
 // StreamChanges fetches a bounded window of CDC changes for a specific stream.
-func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn abstract.CDCMsgFn) error {
+func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
 	// Get current position for this stream
-	lsnString := m.state.GetCursor(stream.Self(), cdcCursorKey)
-	lsnInState := lsnString.(string)
+	lsnVal := m.state.GetCursor(stream.Self(), cdcCursorKey)
+	lsnInState := lsnVal.(string)
+
+	rawMtState, exists := metadataStates[stream.ID()]
+	if exists && rawMtState != nil {
+		mtState, ok := rawMtState.(string)
+		if !ok {
+			return nil, fmt.Errorf("failed to typecast mtstate to string of type[%T]", rawMtState)
+		}
+		if mtState != lsnInState {
+			logger.Infof("Stream[%s] LSN mismatch, updating LSN in state", stream.ID())
+			m.lsnMap.Store(stream.ID(), mtState)
+			return mtState, nil
+		}
+	}
 
 	// Get target LSN (current max LSN in DB)
 	targetLSN, err := m.currentMaxLSN(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to get MSSQL max LSN: %s", err)
+		return nil, fmt.Errorf("failed to get MSSQL max LSN: %s", err)
 	}
 
 	// No changes yet
 	if lsnInState >= targetLSN {
-		return nil
+		return nil, nil
 	}
 
 	// prepare capture instance
 	captureInstances, err := m.prepareCaptureInstances(ctx, stream)
 	if err != nil {
-		return fmt.Errorf("failed to prepare capture instance for stream %s.%s: %s", stream.Namespace(), stream.Name(), err)
+		return nil, fmt.Errorf("failed to prepare capture instance for stream %s.%s: %s", stream.Namespace(), stream.Name(), err)
 	}
 
 	// When multiple capture instances exist for the same table (due to schema
@@ -112,7 +125,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 	// in the LSN range between the DDL and when the new capture instance becomes active.
 	captureIdx, selectedCapture := newestValidInstance(captureInstances, lsnInState)
 	if selectedCapture == nil {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"LSN %s is earlier than the start LSN of available capture instances for stream %s. Please perform full-refresh",
 			lsnInState,
 			stream.ID(),
@@ -136,13 +149,13 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, processFn ab
 	// Fetch changes
 	err = m.fetchTableChangesInLSNRange(ctx, stream, *selectedCapture, lsnInState, targetLSN, processFn)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Cache target LSN for this stream
 	m.lsnMap.Store(stream.ID(), targetLSN)
 
-	return nil
+	return targetLSN, nil
 }
 
 // PostCDC per stream state saving is handled here if no error occurred.

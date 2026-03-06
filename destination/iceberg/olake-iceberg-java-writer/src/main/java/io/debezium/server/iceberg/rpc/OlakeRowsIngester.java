@@ -53,7 +53,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             String identifierField = metadata.getIdentifierField();
             List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
             
-            if (threadId == null || threadId.isEmpty()) {
+            if ((threadId == null || threadId.isEmpty())) {
                 // file references are being stored through thread id
                 throw new Exception("Thread id not present in metadata");
             }
@@ -73,8 +73,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
             switch (request.getType()) {
                 case COMMIT:
-                    LOGGER.info("{} Received commit request for thread: {}", requestId, threadId);
-                    icebergTableOperator.commitThread(threadId, this.icebergTable);
+                    icebergTableOperator.commitThread(threadId, metadata.getPayload(), this.icebergTable);
                     sendResponse(responseObserver, requestId + " Successfully committed data for thread " + threadId);
                     LOGGER.debug("{} Successfully committed data for thread: {}", requestId, threadId);
                     break;
@@ -97,8 +96,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
 
                 case GET_OR_CREATE_TABLE:
-                    sendResponse(responseObserver, this.icebergTable.schema().toString());
-                    LOGGER.info("{} Successfully returned iceberg table {}", requestId, destTableName);
+                    String schemaStr = this.icebergTable.schema().toString();
+                    this.icebergTable.refresh();
+                    String getOrCreateCommitState = icebergTableOperator.getCommitState(this.icebergTable);
+                    String olake2pcResult = getOrCreateCommitState != null ? getOrCreateCommitState : "";
+                    sendResponse(responseObserver, schemaStr, olake2pcResult);
                     break;
 
                 case RECORDS:
@@ -109,7 +111,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.debug("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
                     break;
-                    
+
                 case DROP_TABLE:
                     String dropTable = metadata.getDestTableName();
                     String[] parts = dropTable.split("\\.", 2);
@@ -142,9 +144,15 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     }
 
     private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message) {
-        RecordIngest.RecordIngestResponse response = RecordIngest.RecordIngestResponse.newBuilder()
-            .setResult(message)
-            .build();
+        sendResponse(responseObserver, message, null);
+    }
+
+    private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message, String olake2pcState) {
+        RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder().setResult(message);
+        if (olake2pcState != null) {
+            builder.setOlake2PcState(olake2pcState);
+        }
+        RecordIngest.RecordIngestResponse response = builder.build();
         responseObserver.onNext(response);
         responseObserver.onCompleted();
     }
