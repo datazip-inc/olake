@@ -88,7 +88,8 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			}
 
 			// Add CDC specific columns only for CDC mode
-			if stream.GetSyncMode() == types.CDC {
+			syncMode := stream.GetStream().SyncMode
+			if syncMode == types.CDC || syncMode == types.STRICTCDC {
 				olakeColumns[constants.CdcTimestamp] = time.Unix(0, 0)
 			}
 
