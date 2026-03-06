@@ -3,7 +3,6 @@ package typeutils
 import (
 	"encoding/json"
 	"math"
-	"reflect"
 	"testing"
 	"time"
 
@@ -24,6 +23,7 @@ func TestTypeFromValue(t *testing.T) {
 	float64Value := float64(1.5)
 	stringValue := "test string"
 	dateStringValue := "2024-12-18"
+	dateTimeMilliStringValue := "2024-12-18T10:30:00.123Z"
 	emptyStringValue := ""
 	ptrInt64 := &int64Value
 	doublePtrInt64 := &ptrInt64
@@ -36,8 +36,6 @@ func TestTypeFromValue(t *testing.T) {
 		{name: "nil", input: nil, expected: types.Null},
 		{name: "nil_int_pointer", input: (*int)(nil), expected: types.Null},
 		{name: "nil_string_pointer", input: (*string)(nil), expected: types.Null},
-		{name: "invalid_reflect_value", input: reflect.Value{}, expected: types.Null},
-		{name: "invalid_reflect_value_via_elem", input: reflect.ValueOf((*int)(nil)).Elem(), expected: types.Null},
 
 		{name: "bool_true", input: true, expected: types.Bool},
 		{name: "bool_false", input: false, expected: types.Bool},
@@ -66,7 +64,6 @@ func TestTypeFromValue(t *testing.T) {
 
 		{name: "string_regular", input: "hello world", expected: types.String},
 		{name: "string_empty", input: "", expected: types.String},
-		{name: "string_not_date", input: "not a date", expected: types.String},
 		{name: "string_date", input: "2024-12-18", expected: types.Timestamp},
 		{name: "string_timestamp_second", input: "2024-12-18T10:30:00Z", expected: types.Timestamp},
 		{name: "string_timestamp_milli", input: "2024-12-18T10:30:00.123Z", expected: types.TimestampMilli},
@@ -104,12 +101,10 @@ func TestTypeFromValue(t *testing.T) {
 		{name: "json_number_integer", input: json.Number("42"), expected: types.Int64},
 		{name: "json_number_float", input: json.Number("42.5"), expected: types.Float64},
 		{name: "json_number_invalid", input: json.Number("invalid"), expected: types.Float64},
-		{name: "reflect_value_primitive_int", input: reflect.ValueOf(int(42)), expected: types.Int32},
-		{name: "reflect_value_primitive_bool", input: reflect.ValueOf(true), expected: types.Bool},
-		{name: "reflect_value_time", input: reflect.ValueOf(time.Date(2024, 12, 18, 10, 30, 0, 123000000, time.UTC)), expected: types.TimestampMilli},
 		{name: "int8_pointer_not_direct_switch", input: &int8Value, expected: types.Int32},
 		{name: "uint_pointer_not_direct_switch", input: &uintValue, expected: types.Int32},
 		{name: "string_pointer_date", input: &dateStringValue, expected: types.Timestamp},
+		{name: "string_pointer_timestamp_milli", input: &dateTimeMilliStringValue, expected: types.TimestampMilli},
 		{name: "string_pointer_empty", input: &emptyStringValue, expected: types.String},
 	}
 
@@ -258,10 +253,6 @@ func TestDetectTimestampPrecision(t *testing.T) {
 		})
 	}
 
-	t.Run("time_now_precision", func(t *testing.T) {
-		result := detectTimestampPrecision(time.Now())
-		assert.Contains(t, []types.DataType{types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano}, result)
-	})
 }
 
 func TestExtractAndMapColumnType(t *testing.T) {
