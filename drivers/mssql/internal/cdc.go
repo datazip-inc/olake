@@ -49,8 +49,6 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
 	}
 
-	var currentLSN string
-
 	streamIDs := make([]string, len(streams))
 	for i, s := range streams {
 		streamIDs[i] = s.ID()
@@ -62,6 +60,7 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("failed to discover capture instances: %w", err)
 	}
 
+	var currentLSN string
 	// check if CDC is enabled for each stream
 	for _, stream := range streams {
 		if _, found := captureInstancesMap[stream.ID()]; !found {
