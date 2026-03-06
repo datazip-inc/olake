@@ -252,7 +252,6 @@ func TestDetectTimestampPrecision(t *testing.T) {
 			assert.Equal(t, tc.expected, detectTimestampPrecision(tc.input))
 		})
 	}
-
 }
 
 func TestExtractAndMapColumnType(t *testing.T) {
