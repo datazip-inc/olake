@@ -18,9 +18,10 @@ const (
 	CDCStartLSN = "_cdc_start_lsn" // MSSQL start LSN
 	CDCSeqVal   = "_cdc_seqval"    // MSSQL seqval
 
-	cdcAgentPollInterval         = 2 * time.Second // interval between scan session checks
-	minCDCAgentCatchUpTimeout    = 15 * time.Minute
-	catchUpTimeoutPollMultiplier = 3
+	cdcAgentPollInterval          = 2 * time.Second // interval between scan session checks
+	defaultCDCAgentCatchUpTimeout = 15 * time.Minute
+	catchUpTimeoutPollMultiplier  = 3
+	defaultCDCAgentMaxTrans       = 500
 )
 
 // CDC capture instance for a table
@@ -366,10 +367,11 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 	)
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCCaptureJobConfigQuery()).Scan(&maxTrans, &pollingIntervalS)
 	if err != nil {
-		return "", fmt.Errorf("unable to query CDC capture job config: %s", err)
+		logger.Errorf("unable to query CDC capture job config: %s; using default max trans %d", err, defaultCDCAgentMaxTrans)
+		maxTrans = defaultCDCAgentMaxTrans
 	}
 
-	catchUpTimeout := max(minCDCAgentCatchUpTimeout, time.Duration(catchUpTimeoutPollMultiplier*pollingIntervalS)*time.Second)
+	catchUpTimeout := max(defaultCDCAgentCatchUpTimeout, time.Duration(catchUpTimeoutPollMultiplier*pollingIntervalS)*time.Second)
 
 	// Record the baseSession scan session before we start waiting.
 	baseSession, err := m.latestCDCScanSession(ctx)
@@ -380,7 +382,7 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 	logger.Infof("waiting for CDC capture agent to catch up (baseline end_time=%s, maxtrans=%d, pollinginterval=%ds, timeout=%s)", baseSession.endTime.Format(time.RFC3339), maxTrans, pollingIntervalS, catchUpTimeout)
 
 	deadline := time.After(catchUpTimeout)
-	ticker := time.NewTicker(cdcAgentPollInterval)
+	ticker := time.NewTicker(cdcAgentPollInterval) // poll every 2 seconds
 	defer ticker.Stop()
 
 	for {
@@ -388,7 +390,8 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-deadline:
-			return "", fmt.Errorf("CDC agent did not catch up within %s, the CDC agent may not be running", catchUpTimeout)
+			logger.Warnf("CDC agent did not catch up within %s, the CDC agent may not be running", catchUpTimeout)
+			return m.currentMaxLSN(ctx) // fallback to current max LSN
 		case <-ticker.C:
 			session, err := m.latestCDCScanSession(ctx)
 			if err != nil {
