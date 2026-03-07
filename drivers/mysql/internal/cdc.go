@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -10,24 +11,10 @@ import (
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
-func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, error) {
-	savedState := m.state.GetGlobal()
-	if savedState == nil || savedState.State == nil {
-		return nil, fmt.Errorf("invalid global state; state is missing")
-	}
-
-	var mySQLGlobalState MySQLGlobalState
-	if err := utils.Unmarshal(savedState.State, &mySQLGlobalState); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
-	}
-
-	// validate server id
-	if mySQLGlobalState.ServerID == 0 {
-		return nil, fmt.Errorf("invalid global state; server_id is missing")
-	}
-
+func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlobalState, streamsToSync []types.StreamInterface) (*binlog.Connection, error) {
 	// Build TLS config if SSL is configured
 	var tlsConfig *tls.Config
 	if m.config.SSLConfiguration != nil && m.config.SSLConfiguration.Mode != utils.SSLModeDisable {
@@ -54,7 +41,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context) (*binlog.Connection, erro
 		TLSConfig:               tlsConfig,
 	}
 
-	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, m.streams, m.dataTypeConverter)
+	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, streamsToSync, m.dataTypeConverter)
 }
 
 func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
@@ -78,19 +65,82 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
-func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, OnMessage abstract.CDCMsgFn) error {
-	conn, err := m.prepareBinlogConn(ctx)
+func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
+	savedState := m.state.GetGlobal()
+	if savedState == nil || savedState.State == nil {
+		return nil, fmt.Errorf("invalid global state; state is missing")
+	}
+
+	var mySQLGlobalState MySQLGlobalState
+	if err := utils.Unmarshal(savedState.State, &mySQLGlobalState); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
+	}
+
+	// validate server id
+	if mySQLGlobalState.ServerID == 0 {
+		return nil, fmt.Errorf("invalid global state; server_id is missing")
+	}
+
+	var finishedStreams []string
+	currentBinlogPos, err := binlog.GetCurrentBinlogPosition(ctx, m.client)
 	if err != nil {
-		return fmt.Errorf("failed to prepare binlog conn: %s", err)
+		return nil, fmt.Errorf("failed to get current binlog position: %s", err)
+	}
+
+	for streamID, rawMtState := range metadataStates {
+		if rawMtState == nil {
+			continue
+		}
+		if mtState, ok := rawMtState.(string); ok {
+			var mysqlMetadataState binlog.Binlog
+			err := json.Unmarshal([]byte(mtState), &mysqlMetadataState)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
+			}
+
+			if mysqlMetadataState.Position.Name != mySQLGlobalState.State.Position.Name || mysqlMetadataState.Position.Compare(mySQLGlobalState.State.Position) != 0 {
+				// recovery required as metadata state not matching with saved state
+				currentBinlogPos = mysqlMetadataState.Position
+				finishedStreams = append(finishedStreams, streamID)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to typecast raw metadata state of type[%T] to string", rawMtState)
+		}
+	}
+
+	var remainingStreams []types.StreamInterface
+	if len(finishedStreams) > 0 {
+		finishedStreamSet := types.NewSet(finishedStreams...)
+		_ = utils.ForEach(m.streams, func(stream types.StreamInterface) error {
+			if !finishedStreamSet.Exists(stream.ID()) {
+				logger.Infof("Running recovery sync for stream[%s]", stream.ID())
+				remainingStreams = append(remainingStreams, stream)
+			}
+			return nil
+		})
+	} else {
+		remainingStreams = m.streams
+	}
+
+	conn, err := m.prepareBinlogConn(ctx, mySQLGlobalState, remainingStreams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare binlog conn: %s", err)
 	}
 
 	// persist binlog connection for post cdc
 	m.BinlogConn = conn
 
-	return m.BinlogConn.StreamMessages(ctx, m.client, OnMessage)
+	err = m.BinlogConn.StreamMessages(ctx, m.client, currentBinlogPos, OnMessage)
+	if err != nil {
+		return nil, err
+	}
+	return binlog.Binlog{Position: m.BinlogConn.CurrentPos}, nil
 }
 
 func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
+	if m.BinlogConn == nil {
+		return nil
+	}
 	defer m.BinlogConn.Cleanup()
 	select {
 	case <-ctx.Done():

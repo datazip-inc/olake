@@ -149,7 +149,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                               }
                          }
 
-                         icebergTableOperator.commitThread(threadId, this.icebergTable);
+                         icebergTableOperator.commitThread(threadId, request.getMetadata().getPayload(), icebergTable);
                          sendResponse(responseObserver,
                                    String.format(
                                              "Successfully committed %d data files, %d equality delete files, and %d positional delete files for thread %s",

@@ -8,6 +8,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -124,9 +125,8 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			if len(pkCols) == 0 {
 				return nil
 			}
-
 			// Get the minimum and maximum values for the primary key columns
-			minVal, maxVal, err := m.getTableExtremesMSSQL(ctx, stream, pkCols, tx)
+			minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkCols, tx)
 			if err != nil {
 				return fmt.Errorf("failed to get table extremes: %s", err)
 			}
@@ -135,13 +135,25 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				return nil
 			}
 
+			columnType := ""
+			if len(pkCols) == 1 {
+				columnType, err = m.getColumnTypeMSSQL(ctx, stream, pkCols[0], tx)
+				if err != nil {
+					return fmt.Errorf("failed to get table column type: %s", err)
+				}
+			}
+
 			// Create the first chunk from the beginning up to the minimum value
 			chunks.Insert(types.Chunk{
 				Min: nil,
-				Max: utils.ConvertToString(minVal),
+				Max: normalizeBoundaryValue(minVal, pkCols, columnType),
 			})
 
-			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
+			logger.Infof(
+				"Stream %s extremes - min: %v, max: %v", stream.ID(),
+				normalizeBoundaryValue(minVal, pkCols, columnType),
+				normalizeBoundaryValue(maxVal, pkCols, columnType),
+			)
 
 			// Build query to find the next chunk boundary
 			query := jdbc.MSSQLNextChunkEndQuery(stream, pkCols, chunkSize)
@@ -149,7 +161,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			for {
 				// Split the current composite key value into individual column parts
-				columns := strings.Split(utils.ConvertToString(currentVal), ",")
+				columns := strings.Split(normalizeBoundaryValue(currentVal, pkCols, columnType), ",")
 
 				// Build query arguments for composite key comparison
 				args := make([]interface{}, 0)
@@ -173,8 +185,8 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				// Create a chunk between current and next boundary
 				if currentVal != nil {
 					chunks.Insert(types.Chunk{
-						Min: utils.ConvertToString(currentVal),
-						Max: utils.ConvertToString(nextValRaw),
+						Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
+						Max: normalizeBoundaryValue(nextValRaw, pkCols, columnType),
 					})
 				}
 
@@ -184,7 +196,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			// Create the final chunk from the last value to the end
 			if currentVal != nil {
 				chunks.Insert(types.Chunk{
-					Min: utils.ConvertToString(currentVal),
+					Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
 					Max: nil,
 				})
 			}
@@ -269,8 +281,58 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return chunks, err
 }
 
+// getColumnTypeMSSQL returns SQL data type for the requested column.
+func (m *MSSQL) getColumnTypeMSSQL(ctx context.Context, stream types.StreamInterface, column string, tx *sql.Tx) (string, error) {
+	var dataType string
+	err := tx.QueryRowContext(ctx, jdbc.MSSQLColumnTypeQuery(), stream.Namespace(), stream.Name(), column).Scan(&dataType)
+	if err != nil {
+		return "", err
+	}
+	return dataType, nil
+}
+
+// normalizeBoundaryValue converts key boundary values into a stable SQL-safe string form
+// before storing them in chunk state and reusing them as parameters for next-boundary queries.
+func normalizeBoundaryValue(value any, pkCols []string, columnType string) string {
+	// Typed normalization is only for single-key chunking.
+	// Composite keys are already materialized as a single CONCAT string.
+	if len(pkCols) != 1 {
+		return utils.ConvertToString(value)
+	}
+
+	columnType = strings.ToLower(columnType)
+
+	switch v := value.(type) {
+	case time.Time:
+		// SQL Server datetime types are timezone-naive, but Go scans them as time.Time with location.
+		// We normalize to SQL Server-compatible literal formats so chunk boundaries round-trip
+		// safely through state serialization and remain stable for subsequent boundary comparisons.
+		switch columnType {
+		case "date":
+			return v.Format("2006-01-02")
+		case "time":
+			return v.Format("15:04:05.9999999")
+		case "datetime", "datetime2", "smalldatetime":
+			return v.Format("2006-01-02 15:04:05.9999999")
+		}
+	case []byte:
+		switch columnType {
+		case "uniqueidentifier":
+			if uuid, converted := formatUniqueIdentifierBytes(v); converted {
+				return uuid
+			}
+		case "numeric", "decimal", "money", "smallmoney":
+			return string(v)
+		default:
+			// For non-UUID byte values, encode as hex string to avoid corruption.
+			return utils.HexEncode(v)
+		}
+	}
+	return utils.ConvertToString(value)
+}
+
 // getTableExtremes returns MIN and MAX key values for the given PK columns
-func (m *MSSQL) getTableExtremesMSSQL(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
+func (m *MSSQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
 	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
 	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
@@ -281,4 +343,20 @@ func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInter
 	query := jdbc.MSSQLPhysLocExtremesQuery(stream)
 	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
+}
+
+// formatUniqueIdentifierBytes converts SQL Server's mixed-endian UNIQUEIDENTIFIER
+// byte layout to canonical RFC4122 UUID string representation.
+func formatUniqueIdentifierBytes(v []byte) (string, bool) {
+	if len(v) != 16 {
+		return "", false
+	}
+
+	return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+		v[3], v[2], v[1], v[0], // first 4 bytes (little-endian)
+		v[5], v[4], // next 2 bytes (little-endian)
+		v[7], v[6], // next 2 bytes (little-endian)
+		v[8], v[9], // next 2 bytes (big-endian)
+		v[10], v[11], v[12], v[13], v[14], v[15], // last 6 bytes (big-endian)
+	), true
 }

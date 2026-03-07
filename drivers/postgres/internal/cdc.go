@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -44,48 +45,127 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	if globalState == nil || globalState.State == nil {
 		p.state.SetGlobal(waljs.WALState{LSN: slot.CurrentLSN.String()})
 		p.state.ResetStreams()
-		return waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String())
+		if err := waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String()); err != nil {
+			return err
+		}
 	}
 	p.streams = streams
-	return validateGlobalState(globalState, slot.LSN)
+	return nil
 }
 
-func (p *Postgres) StreamChanges(ctx context.Context, _ int, callback abstract.CDCMsgFn) error {
-	config, err := p.prepareWALJSConfig(p.streams...)
+func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[string]any, callback abstract.CDCMsgFn) (any, error) {
+	var postgresGlobalState waljs.WALState
+	rawGlobalState := p.state.GetGlobal()
+	if err := utils.Unmarshal(rawGlobalState.State, &postgresGlobalState); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
+	}
+
+	var metadataCommittedLSN string
+	var finishedStreams []string
+
+	for streamID, rawMtState := range metadataStates {
+		if rawMtState == nil {
+			// No previous CDC state for this stream (fresh run), skip recovery check.
+			continue
+		}
+		if stMtState, ok := rawMtState.(string); ok {
+			var mtState waljs.WALState
+			if err := json.Unmarshal([]byte(stMtState), &mtState); err != nil {
+				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
+			}
+
+			if mtState.LSN != postgresGlobalState.LSN {
+				metadataCommittedLSN = mtState.LSN
+				finishedStreams = append(finishedStreams, streamID)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState)
+		}
+	}
+
+	var remainingStreams []types.StreamInterface
+	// recoveryLSN is non-nil only when we need a bounded recovery sync; in the
+	// normal path it stays nil so NewReplicator uses the live IdentifySystem LSN.
+	var recoveryLSN *pglogrepl.LSN
+
+	if len(finishedStreams) > 0 {
+		// recovery sync required: read up to the LSN stored in the Iceberg metadata
+		parsed, err := pglogrepl.ParseLSN(metadataCommittedLSN)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse recovery LSN %q: %s", metadataCommittedLSN, err)
+		}
+		recoveryLSN = &parsed
+
+		finishedStreamSet := types.NewSet(finishedStreams...)
+		_ = utils.ForEach(p.streams, func(stream types.StreamInterface) error {
+			if exists := finishedStreamSet.Exists(stream.ID()); !exists {
+				logger.Infof("Running recovery sync for stream[%s]", stream.ID())
+				remainingStreams = append(remainingStreams, stream)
+			}
+			return nil
+		})
+	} else {
+		remainingStreams = p.streams
+	}
+
+	config, err := p.prepareWALJSConfig(remainingStreams...)
 	if err != nil {
-		return fmt.Errorf("failed to prepare wal config: %s", err)
+		return nil, fmt.Errorf("failed to prepare wal config: %s", err)
 	}
 
 	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
 	if err != nil {
-		return fmt.Errorf("failed to get slot position: %s", err)
+		return nil, fmt.Errorf("failed to get slot position: %s", err)
 	}
 
-	replicator, err := waljs.NewReplicator(ctx, config, slot, p.dataTypeConverter)
+	replicator, err := waljs.NewReplicator(ctx, config, slot, recoveryLSN, p.dataTypeConverter)
 	if err != nil {
-		return fmt.Errorf("failed to create wal connection: %s", err)
+		return nil, fmt.Errorf("failed to create wal connection: %s", err)
 	}
 
 	// persist replicator for post cdc
 	p.replicator = replicator
 
 	// validate global state (might got invalid during full load)
-	if err := validateGlobalState(p.state.GetGlobal(), slot.LSN); err != nil {
-		return fmt.Errorf("%w: invalid global state: %s", constants.ErrNonRetryable, err)
+	if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
+		return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
 	}
 
 	// choose replicator via factory based on OutputPlugin config (default wal2json)
-	return p.replicator.StreamChanges(ctx, p.client, callback)
+	err = p.replicator.StreamChanges(ctx, p.client, callback)
+	if err != nil {
+		return nil, err
+	}
+
+	// In recovery mode the replicator exits as soon as ClientXLogPos >= recoveryLSN,
+	// which means ClientXLogPos may overshoot (e.g. land on the next WAL boundary or a
+	// keepalive ServerWALEnd).  If we let that overshoot propagate, PostCDC will
+	// acknowledge the slot past the recovery target, permanently skipping any WAL
+	// records that fall between the target and the overshoot.
+	// Fix: pin ClientXLogPos to the exact recovery LSN so that both the Iceberg
+	// metadata state (returned here) and the PostCDC slot acknowledgement land on
+	// the same position that Iceberg already committed.
+	if recoveryLSN != nil {
+		p.replicator.Socket().ClientXLogPos = *recoveryLSN
+		return waljs.WALState{LSN: metadataCommittedLSN}, nil
+	}
+
+	finalLSN := p.replicator.Socket().ClientXLogPos.String()
+	return waljs.WALState{LSN: finalLSN}, nil
 }
 
 func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
+	if p.replicator == nil {
+		return nil
+	}
 	defer waljs.Cleanup(ctx, p.replicator.Socket())
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 		socket := p.replicator.Socket()
-		p.state.SetGlobal(waljs.WALState{LSN: socket.ClientXLogPos.String()})
+		finalLSN := socket.ClientXLogPos.String()
+		p.state.SetGlobal(waljs.WALState{LSN: finalLSN})
 		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
 	}
 }
@@ -118,12 +198,8 @@ func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string
 	return nil
 }
 
-func validateGlobalState(globalState *types.GlobalState, confirmedFlushLSN pglogrepl.LSN) error {
+func validateGlobalState(postgresGlobalState waljs.WALState, confirmedFlushLSN pglogrepl.LSN) error {
 	// global state exist check for cursor and cursor mismatch
-	var postgresGlobalState waljs.WALState
-	if err := utils.Unmarshal(globalState.State, &postgresGlobalState); err != nil {
-		return fmt.Errorf("failed to unmarshal global state: %s", err)
-	}
 	if postgresGlobalState.LSN == "" {
 		return fmt.Errorf("%w: lsn is empty, please proceed with clear destination", constants.ErrNonRetryable)
 	} else {
