@@ -4,7 +4,7 @@ gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
 golangci:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest;
+	GOTOOLCHAIN=$$(go env GOVERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest;
 	$(GOPATH)/bin/golangci-lint run
 
 trivy:

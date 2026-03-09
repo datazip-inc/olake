@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/db2
 
-go 1.24.0
+go 1.25.8
 
 require (
 	github.com/apache/arrow-go/v18 v18.2.0

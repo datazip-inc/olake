@@ -15,7 +15,10 @@ linters-settings:
     lines: 100
     statements: 50
   gci:
-    local-prefixes: github.com/golangci/golangci-lint
+    sections:
+      - standard
+      - default
+      - prefix(github.com/golangci/golangci-lint)
   goconst:
     min-len: 2
     min-occurrences: 2
@@ -51,7 +54,6 @@ linters-settings:
     excludes:
       - G204
   govet:
-    check-shadowing: false
     settings:
       printf:
         funcs:
@@ -133,7 +135,6 @@ linters:
   # - wsl
 
 issues:
-  # Excluding configuration per-path, per-linter, per-text and per-source
   exclude-rules:
     - path: _test\.go
       linters:
@@ -143,13 +144,13 @@ issues:
     - linters:
         - gocritic
       text: "unnecessaryDefer:"
-
-run:
-  skip-dirs:
+  exclude-dirs:
     - test/testdata_etc
     - internal/cache
     - internal/renameio
     - internal/robustio
+
+run:
   timeout: 5m
 
 # golangci.com configuration
