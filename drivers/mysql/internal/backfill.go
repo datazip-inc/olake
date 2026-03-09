@@ -3,11 +3,13 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -110,8 +112,8 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		chunkStepSize int64
 		minVal        any // to define lower range of the chunk
 		maxVal        any // to define upper range of the chunk
-		minFloat      float64
-		maxFloat      float64
+		minInt64      int64
+		maxInt64      int64
 	)
 
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -131,7 +133,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 	if len(pkColumns) == 1 {
 		// 1. Try Numeric Strategy
-		chunkStepSize, minFloat, maxFloat = IsNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize)
+		chunkStepSize, minInt64, maxInt64 = IsNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize)
 		// 2. If not numeric, check for supported String strategy
 		if chunkStepSize == 0 {
 			var dataType string
@@ -233,13 +235,13 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 
 	/*
-		splitEvenlyForInt generates chunk boundaries for numeric values by dividing the range [minFloat, maxFloat] using an arithmetic progression (AP).
+		splitEvenlyForInt generates chunk boundaries for numeric values by dividing the range [minInt64, maxInt64] using an arithmetic progression (AP).
 
 		Each boundary follows:
 		next = prev + chunkStepSize
 
 		Example:
-		minFloat = 0, maxFloat = 100, chunkStepSize = 25
+		minInt64 = 0, maxInt64 = 100, chunkStepSize = 25
 
 		AP sequence:
 		0 → 25 → 50 → 75 → 100
@@ -247,19 +249,18 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		Chunks formed:
 		(-∞, 0), [0,25), [25,50), [50,75), [75,100), [100, +∞)
 	*/
-	splitEvenlyForInt := func(chunks *types.Set[types.Chunk], chunkStepSize float64) error {
+	splitEvenlyForInt := func(chunks *types.Set[types.Chunk], chunkStepSize int64) error {
 		chunks.Insert(types.Chunk{
 			Min: nil,
-			Max: utils.ConvertToString(minFloat),
+			Max: utils.ConvertToString(minInt64),
 		})
-		prev := minFloat
-		for next := minFloat + chunkStepSize; next <= maxFloat; next += chunkStepSize {
-			// Detect float precision collapse to protect infinite loop
+		prev := minInt64
+		for next := minInt64 + chunkStepSize; next <= maxInt64; next += chunkStepSize {
+			// condition to protect from infinite loop
 			if next <= prev {
-				logger.Warnf("float precision collapse detected, falling back to SplitViaPrimaryKey for stream %s", stream.ID())
+				logger.Warnf("int precision collapse detected, falling back to SplitViaPrimaryKey for stream %s", stream.ID())
 				chunks.Clear()
-				err := splitViaPrimaryKey(stream, chunks)
-				return err
+				return splitViaPrimaryKey(stream, chunks)
 			}
 			chunks.Insert(types.Chunk{
 				Min: utils.ConvertToString(prev),
@@ -421,7 +422,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	switch {
 	case len(pkColumns) == 1 && chunkStepSize > 0:
 		logger.Infof("Using splitEvenlyForInt Method for stream %s", stream.ID())
-		err = splitEvenlyForInt(chunks, float64(chunkStepSize))
+		err = splitEvenlyForInt(chunks, chunkStepSize)
 	case len(pkColumns) == 1 && stringSupportedPk:
 		logger.Infof("Using splitEvenlyForString Method for stream %s", stream.ID())
 		err = splitEvenlyForString(chunks)
@@ -443,32 +444,33 @@ func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterfa
 }
 
 // checks if the pk column is numeric and evenly distributed
-func IsNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64) (int64, float64, float64) {
-	minFloat, err := typeutils.ReformatFloat64(minVal)
+func IsNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64) (int64, int64, int64) {
+	if exceedsInt64Limits(minVal) || exceedsInt64Limits(maxVal) {
+		logger.Debugf("minVal or maxVal exceeds int64 limits")
+		return 0, 0, 0
+	}
+
+	minInt64, err := typeutils.ReformatInt64(minVal)
 	if err != nil {
 		logger.Debugf("failed to parse minVal: %s", err)
 		return 0, 0, 0
 	}
 
-	maxFloat, err := typeutils.ReformatFloat64(maxVal)
+	maxInt64, err := typeutils.ReformatInt64(maxVal)
 	if err != nil {
 		logger.Debugf("failed to parse maxVal: %s", err)
 		return 0, 0, 0
 	}
-	if maxFloat > float64(math.MaxInt64) || minFloat < float64(math.MinInt64) {
-		logger.Debugf("Numeric range exceeds signed int64 limits, forcing PK fallback")
-		return 0, 0, 0
-	}
 
-	distributionFactor := (maxFloat - minFloat + 1) / float64(approxRowCount)
+	distributionFactor := float64(maxInt64 - minInt64 + 1) / float64(approxRowCount)
 
 	if distributionFactor < constants.DistributionLower || distributionFactor > constants.DistributionUpper {
 		logger.Debugf("distribution factor is not in the range of %f to %f", constants.DistributionLower, constants.DistributionUpper)
 		return 0, 0, 0
 	}
 
-	chunkStepSize := int64(math.Max(distributionFactor*float64(chunkSize), 1))
-	return chunkStepSize, minFloat, maxFloat
+	chunkStepSize := int64(math.Ceil(math.Max(distributionFactor*float64(chunkSize), 1)))
+	return chunkStepSize, minInt64, maxInt64
 }
 
 /*
@@ -546,4 +548,41 @@ func padRightWithNulls(s string, maxLength int) string {
 		return s
 	}
 	return s + strings.Repeat("\x00", maxLength-length)
+}
+
+// checks if a value exceeds int64 limits
+func exceedsInt64Limits(val any) bool {
+	switch v := val.(type) {
+	case json.Number:
+		if _, err := v.Int64(); err == nil {
+			return false
+		}
+		if floatVal, err := v.Float64(); err == nil {
+			return floatVal > float64(math.MaxInt64) || floatVal < float64(math.MinInt64)
+		}
+		return true
+	case float64:
+		return v > float64(math.MaxInt64) || v < float64(math.MinInt64)
+	case uint64:
+		return v > math.MaxInt64
+	case uint:
+		return uint64(v) > math.MaxInt64
+	case []uint8:
+		return exceedsInt64Limits(string(v))
+	case string:
+		if _, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return false
+		}
+		if u, err := strconv.ParseUint(v, 10, 64); err == nil {
+			return u > math.MaxInt64
+		}
+		return true
+	case *any:
+		if v != nil {
+			return exceedsInt64Limits(*v)
+		}
+		return false
+	default:
+		return false
+	}
 }
