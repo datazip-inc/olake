@@ -255,7 +255,6 @@ func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFi
 	// For upper bounds, it creates:
 	//   (c1 < v1) OR (c1 = v1 AND c2 < v2) OR (c1 = v1 AND c2 = v2 AND c3 < v3)
 	buildBound := func(values []string, isLower bool) (string, []any) {
-		//note: values can never be empty
 		var args []any
 		orGroups := make([]string, 0, len(quotedCols))
 
@@ -508,23 +507,22 @@ func MySQLPrimaryKeyQuery() string {
 	`
 }
 
-// MySQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
+// MySQLTableStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
 func MySQLTableStatsQuery() string {
 	return `
 		SELECT TABLE_ROWS,
 		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes,
-		DATA_LENGTH,
-		TABLE_COLLATION
+		DATA_LENGTH
 		FROM INFORMATION_SCHEMA.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?
 	`
 }
 
-// MySQLColumnTypeQuery returns a query that fetches the DATA_TYPE and CHARACTER_MAXIMUM_LENGTH of a column in MySQL.
-func MySQLColumnTypeQuery() string {
+// MySQLColumnStatsQuery returns a query that fetches the DATA_TYPE, CHARACTER_MAXIMUM_LENGTH and Collation type of a column in MySQL.
+func MySQLColumnStatsQuery() string {
 	return `
-	SELECT DATA_TYPE ,CHARACTER_MAXIMUM_LENGTH
+	SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, COALESCE(COLLATION_NAME, '')
 	FROM INFORMATION_SCHEMA.COLUMNS
 	WHERE TABLE_SCHEMA = DATABASE()
 	  AND TABLE_NAME = ?
@@ -534,11 +532,8 @@ func MySQLColumnTypeQuery() string {
 }
 
 // MySQLDistinctValuesWithCollationQuery builds a DISTINCT query over a slice of strings
-// using the table's collation type.
-func MySQLDistinctValuesWithCollationQuery(values []string, tableCollationType string) (string, []any) {
-	if len(values) == 0 {
-		return "", nil
-	}
+// using the column's collation type.
+func MySQLDistinctValuesWithCollationQuery(values []string, columnCollationType string) (string, []any) {
 	unionParts := make([]string, 0, len(values))
 	args := make([]any, 0, len(values))
 	for _, v := range values {
@@ -551,17 +546,13 @@ func MySQLDistinctValuesWithCollationQuery(values []string, tableCollationType s
 			%s
 		) AS t
 		ORDER BY val COLLATE %s;
-	`, tableCollationType, strings.Join(unionParts, "\nUNION ALL\n"), tableCollationType)
+	`, columnCollationType, strings.Join(unionParts, " UNION ALL "), columnCollationType)
 	return query, args
 }
 
 // MySQLCountGeneratedInRange builds a query that counts how many values from the provided slice
-// fall within [minVal, maxVal] using the table's collation ordering.
-func MySQLCountGeneratedInRange(values []string, tableCollationType string, minVal, maxVal string) (string, []any) {
-	if len(values) == 0 {
-		return "", nil
-	}
-
+// fall within [minVal, maxVal] using the column's collation ordering.
+func MySQLCountGeneratedInRange(values []string, columnCollationType string, minVal, maxVal string) (string, []any) {
 	unionParts := make([]string, 0, len(values))
 	args := make([]any, 0, len(values)+2)
 
@@ -584,7 +575,7 @@ func MySQLCountGeneratedInRange(values []string, tableCollationType string, minV
 		FROM (
 			%s
 		) AS t;
-	`, tableCollationType, tableCollationType, tableCollationType, tableCollationType, strings.Join(unionParts, "\nUNION ALL\n"))
+	`, columnCollationType, columnCollationType, columnCollationType, columnCollationType, strings.Join(unionParts, " UNION ALL "))
 
 	return query, args
 }
