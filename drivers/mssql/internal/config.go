@@ -10,14 +10,15 @@ import (
 
 // Config represents the configuration for connecting to a MSSQL database.
 type Config struct {
-	Host             string           `json:"host"`
-	Port             int              `json:"port"`
-	Database         string           `json:"database"`
-	Username         string           `json:"username"`
-	Password         string           `json:"password"`
-	MaxThreads       int              `json:"max_threads"`
-	RetryCount       int              `json:"retry_count"`
-	SSLConfiguration *utils.SSLConfig `json:"ssl"`
+	Host                   string           `json:"host"`
+	Port                   int              `json:"port"`
+	Database               string           `json:"database"`
+	Username               string           `json:"username"`
+	Password               string           `json:"password"`
+	MaxThreads             int              `json:"max_threads"`
+	RetryCount             int              `json:"retry_count"`
+	SSLConfiguration       *utils.SSLConfig `json:"ssl"`
+	ManageCaptureInstances bool             `json:"manage_capture_instances"`
 }
 
 // Validate checks and normalises MSSQL configuration.

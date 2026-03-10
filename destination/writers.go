@@ -26,8 +26,9 @@ type (
 
 	ThreadOptions func(opt *Options)
 	writerSchema  struct {
-		mu     sync.RWMutex
-		schema any
+		mu            sync.RWMutex
+		schema        any
+		metadataState *types.MetadataState
 	}
 
 	Stats struct {
@@ -128,7 +129,7 @@ func (w *WriterPool) GetStats() *Stats {
 	return w.stats
 }
 
-func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*WriterThread, error) {
+func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (*WriterThread, *types.MetadataState, error) {
 	w.stats.ThreadCount.Add(1)
 
 	opts := &Options{}
@@ -138,42 +139,46 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	rawStreamArtifact, ok := w.writerSchema.Load(stream.ID())
 	if !ok {
-		return nil, fmt.Errorf("failed to get stream artifacts for stream[%s]", stream.ID())
+		return nil, nil, fmt.Errorf("failed to get stream artifacts for stream[%s]", stream.ID())
 	}
 
 	streamArtifact, ok := rawStreamArtifact.(*writerSchema)
 	if !ok {
-		return nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
+		return nil, nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
 	}
 
 	var writerThread Writer
-	err := func() error {
+	prevStreamState, err := func() (*types.MetadataState, error) {
 		// init writer with configurations
 		writerThread = w.init()
 		w.configMutex.Lock()
 		err := utils.Unmarshal(w.config, writerThread.GetConfigRef())
 		w.configMutex.Unlock()
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		// setup table and schema
 		streamArtifact.mu.Lock()
 		defer streamArtifact.mu.Unlock()
 
-		output, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
+		output, prevStreamState, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
 		if err != nil {
-			return fmt.Errorf("failed to setup the writer thread: %s", err)
+			return nil, fmt.Errorf("failed to setup the writer thread: %s", err)
 		}
 
 		if streamArtifact.schema == nil {
+			// First thread for this stream: persist schema and the olake_2pc state
+			// so all subsequent threads (e.g. concurrent backfill chunks) can also
+			// check which chunks were already committed.
 			streamArtifact.schema = output
+			streamArtifact.metadataState = prevStreamState
 		}
 
-		return nil
+		return streamArtifact.metadataState, nil
 	}()
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup writer thread: %s", err)
+		return nil, nil, fmt.Errorf("failed to setup writer thread: %s", err)
 	}
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
@@ -183,7 +188,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		stats:          w.stats,
 		streamArtifact: streamArtifact,
 		group:          utils.NewCGroupWithLimit(ctx, 1), // currently only one thread (To make sure flush can run parallel when buffer filling)
-	}, nil
+	}, prevStreamState, nil
 }
 
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error {
@@ -252,10 +257,10 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
-func (wt *WriterThread) Close(ctx context.Context) (err error) {
+func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
 	select {
 	case <-ctx.Done():
-		err := wt.writer.Close(ctx)
+		err := wt.writer.Close(ctx, finalMetadataState)
 		if err != nil {
 			return fmt.Errorf("failed to close writer: %s", err)
 		}
@@ -266,7 +271,7 @@ func (wt *WriterThread) Close(ctx context.Context) (err error) {
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
 
-			closeErr := wt.writer.Close(ctx)
+			closeErr := wt.writer.Close(ctx, finalMetadataState)
 			if closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
 			}
