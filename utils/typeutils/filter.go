@@ -38,7 +38,7 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 		if err != nil {
 			return nil, err
 		}
-		parsedVal, err := ReformatValue(dataType, cond.Value)
+		parsedVal, err := ParseFilterValue(dataType, cond.Value)
 		if err != nil && err != ErrNullValue {
 			return nil, fmt.Errorf("failed to parse filter value for column [%s]: %s", cond.Column, err)
 		}

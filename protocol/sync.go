@@ -212,7 +212,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 						return false
 					}
 
-					if _, err := typeutils.ReformatValue(dataType, cond.Value); err != nil {
+					if _, err := typeutils.ParseFilterValue(dataType, cond.Value); err != nil {
 						logger.Warnf("Skipping; Configured Stream %s found invalid filter: invalid value type %v", elem.ID(), err)
 						return false
 					}
