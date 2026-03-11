@@ -26,7 +26,7 @@ package constants
 //     * Earlier if the session timezone or global was set in offset format, it was not parsed correctly and used to fallback to UTC.
 //     * Now it parses the offset correctly and uses the timezone offset to set the timezone for the connection.
 //
-//   - Version 4: (Current Version) Unsigned int/integer/bigint map to Int64.
+//   - Version 4: Unsigned int/integer/bigint map to Int64.
 //     * Earlier unsigned int/integer/bigint were mapped to Int32 which caused integer overflows.
 //
 //   - Version 5: (Current Version) Added []uint8 (byte slice) support in ReformatInt64

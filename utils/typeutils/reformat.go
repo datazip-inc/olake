@@ -280,7 +280,7 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 	return time.Unix(0, 0).UTC(), nil
 }
 
-// TODO: Add bytes array handling of int64 and other datatypes. Also add unit test cases for it.
+// TODO: Add unit test cases for ReformatInt64 and byte array handling for other datatypes as well.
 func ReformatInt64(v any) (int64, error) {
 	switch v := v.(type) {
 	case json.Number:
