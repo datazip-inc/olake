@@ -33,6 +33,15 @@ const (
 	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
 	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
 	DefaultStateTimestampFormat = "2006-01-02T15:04:05.000000000Z"
+	// DistributionLower and DistributionUpper define the acceptable range
+	// of the distribution factor for validating evenly distributed numeric PKs.
+	DistributionLower = 0.05
+	DistributionUpper = 100.0
+	// UnicodeSize is the total number of valid Unicode code points (0 to 0x10FFFF)
+	UnicodeSize = 1114112
+	// MysqlChunkAcceptanceRatio defines the minimum ratio of expected chunks that must be generated
+	// for the split to be considered valid.
+	MysqlChunkAcceptanceRatio = float64(0.8)
 )
 
 type DriverType string

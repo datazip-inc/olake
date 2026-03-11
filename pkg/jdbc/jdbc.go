@@ -230,6 +230,94 @@ func PostgresChunkScanQuery(stream types.StreamInterface, filterColumn string, c
 	return fmt.Sprintf(`SELECT * FROM %s WHERE %s`, quotedTable, chunkCond)
 }
 
+// TODO: Common out buildChunkConditionMySQL for MSSQL, DB2, and other drivers where needed.
+// MySQL-Specific Queries buildChunkConditionMySQL builds the condition for a chunk in MySQL
+func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) (string, []any) {
+	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
+
+	splitBoundaryValues := func(boundary any) []string {
+		if boundary == nil {
+			return nil
+		}
+		str := utils.ConvertToString(boundary)
+		parts := strings.Split(str, ",")
+		for i, part := range parts {
+			parts[i] = strings.TrimSpace(part)
+		}
+		return parts
+	}
+
+	// buildBound creates the expanded logic for:
+	//   (c1, c2, c3) >= (v1, v2, v3)
+	// as:
+	//   (c1 > v1) OR (c1 = v1 AND c2 > v2) OR (c1 = v1 AND c2 = v2 AND c3 >= v3)
+	//
+	// For upper bounds, it creates:
+	//   (c1 < v1) OR (c1 = v1 AND c2 < v2) OR (c1 = v1 AND c2 = v2 AND c3 < v3)
+	buildBound := func(values []string, isLower bool) (string, []any) {
+		var args []any
+		orGroups := make([]string, 0, len(quotedCols))
+
+		for colIdx := 0; colIdx < len(quotedCols); colIdx++ {
+			andConds := make([]string, 0, colIdx+1)
+
+			// Prefix columns must match exactly: c1 = v1 AND c2 = v2 ...
+			for prefixIdx := 0; prefixIdx < colIdx; prefixIdx++ {
+				if prefixIdx < len(values) {
+					andConds = append(andConds, fmt.Sprintf("%s = ?", quotedCols[prefixIdx]))
+					args = append(args, values[prefixIdx])
+				}
+			}
+
+			var op string
+			if isLower {
+				op = ">"
+				if colIdx == len(quotedCols)-1 {
+					op = ">="
+				}
+			} else {
+				op = "<"
+			}
+
+			if colIdx < len(values) {
+				andConds = append(andConds, fmt.Sprintf("%s %s ?", quotedCols[colIdx], op))
+				args = append(args, values[colIdx])
+			}
+			if len(andConds) > 0 {
+				orGroups = append(orGroups, "("+strings.Join(andConds, " AND ")+")")
+			}
+		}
+
+		return "(" + strings.Join(orGroups, " OR ") + ")", args
+	}
+
+	lowerValues := splitBoundaryValues(chunk.Min)
+	upperValues := splitBoundaryValues(chunk.Max)
+
+	chunkCond := ""
+	var args []any
+	switch {
+	case chunk.Min != nil && chunk.Max != nil:
+		lowerCond, lowerArgs := buildBound(lowerValues, true)
+		upperCond, upperArgs := buildBound(upperValues, false)
+		if lowerCond != "" && upperCond != "" {
+			chunkCond = fmt.Sprintf("(%s) AND (%s)", lowerCond, upperCond)
+			args = append(args, lowerArgs...)
+			args = append(args, upperArgs...)
+		}
+	case chunk.Min != nil:
+		chunkCond, args = buildBound(lowerValues, true)
+	case chunk.Max != nil:
+		chunkCond, args = buildBound(upperValues, false)
+	}
+
+	// Combine with any additional filter if present.
+	if extraFilter != "" && chunkCond != "" {
+		chunkCond = fmt.Sprintf("(%s) AND (%s)", chunkCond, extraFilter)
+	}
+	return chunkCond, args
+}
+
 // buildLexicographicChunkCondition builds a WHERE condition for a chunk scan using
 // lexicographic OR-groups over multiple ordering columns.
 //
@@ -326,13 +414,6 @@ func buildLexicographicChunkCondition(quotedColumns []string, chunk types.Chunk,
 	return chunkCond
 }
 
-// MySQL-Specific Queries
-// buildChunkConditionMySQL builds the condition for a chunk in MySQL.
-func buildChunkConditionMySQL(filterColumns []string, chunk types.Chunk, extraFilter string) string {
-	quotedCols := QuoteColumns(filterColumns, constants.MySQL)
-	return buildLexicographicChunkCondition(quotedCols, chunk, extraFilter)
-}
-
 // MysqlLimitOffsetScanQuery is used to get the rows
 func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
@@ -354,10 +435,10 @@ func MysqlLimitOffsetScanQuery(stream types.StreamInterface, chunk types.Chunk, 
 }
 
 // MySQLWithoutState builds a chunk scan query for MySql
-func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
-	condition := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
+func MysqlChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) (string, []any) {
+	condition, args := buildChunkConditionMySQL(filterColumns, chunk, extraFilter)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition)
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s", quotedTable, condition), args
 }
 
 // MinMaxQueryMySQL returns the query to fetch MIN and MAX values of a column in a MySQL table
@@ -426,15 +507,77 @@ func MySQLPrimaryKeyQuery() string {
 	`
 }
 
-// MySQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
-func MySQLTableRowStatsQuery() string {
+// MySQLTableStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
+func MySQLTableStatsQuery() string {
 	return `
 		SELECT TABLE_ROWS,
-		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes
+		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes,
+		DATA_LENGTH
 		FROM INFORMATION_SCHEMA.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?
 	`
+}
+
+// MySQLColumnStatsQuery returns a query that fetches the DATA_TYPE, CHARACTER_MAXIMUM_LENGTH and Collation type of a column in MySQL.
+func MySQLColumnStatsQuery() string {
+	return `
+	SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, COALESCE(COLLATION_NAME, '')
+	FROM INFORMATION_SCHEMA.COLUMNS
+	WHERE TABLE_SCHEMA = DATABASE()
+	  AND TABLE_NAME = ?
+	  AND COLUMN_NAME = ?
+	LIMIT 1;
+	`
+}
+
+// MySQLDistinctValuesWithCollationQuery builds a DISTINCT query over a slice of strings
+// using the column's collation type.
+func MySQLDistinctValuesWithCollationQuery(values []string, columnCollationType string) (string, []any) {
+	unionParts := make([]string, 0, len(values))
+	args := make([]any, 0, len(values))
+	for _, v := range values {
+		unionParts = append(unionParts, "SELECT ? AS val")
+		args = append(args, v)
+	}
+	query := fmt.Sprintf(`
+		SELECT DISTINCT val COLLATE %s AS val
+		FROM (
+			%s
+		) AS t
+		ORDER BY val COLLATE %s;
+	`, columnCollationType, strings.Join(unionParts, " UNION ALL "), columnCollationType)
+	return query, args
+}
+
+// MySQLCountGeneratedInRange builds a query that counts how many values from the provided slice
+// fall within [minVal, maxVal] using the column's collation ordering.
+func MySQLCountGeneratedInRange(values []string, columnCollationType string, minVal, maxVal string) (string, []any) {
+	unionParts := make([]string, 0, len(values))
+	args := make([]any, 0, len(values)+2)
+
+	args = append(args, minVal, maxVal, maxVal, minVal)
+
+	for _, v := range values {
+		unionParts = append(unionParts, "SELECT ? AS val")
+		args = append(args, v)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT GREATEST(
+			SUM(CASE 
+				WHEN val COLLATE %s >= ? AND val COLLATE %s <= ? 
+				THEN 1 ELSE 0 END),
+			SUM(CASE 
+				WHEN val COLLATE %s >= ? AND val COLLATE %s <= ? 
+				THEN 1 ELSE 0 END)
+		) AS max_count
+		FROM (
+			%s
+		) AS t;
+	`, columnCollationType, columnCollationType, columnCollationType, columnCollationType, strings.Join(unionParts, " UNION ALL "))
+
+	return query, args
 }
 
 // MySQLTableExistsQuery returns the query to check if a table has any rows using EXISTS
