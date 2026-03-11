@@ -3,13 +3,11 @@ package driver
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"math"
 	"math/big"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -112,8 +110,8 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		chunkStepSize int64
 		minVal        any // to define lower range of the chunk
 		maxVal        any // to define upper range of the chunk
-		minInt64      int64
-		maxInt64      int64
+		minBoundary   int64
+		maxBoundary   int64
 	)
 
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -132,17 +130,17 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	stringSupportedPk := false
 
 	if len(pkColumns) == 1 {
+		var dataType string
+		query := jdbc.MySQLColumnStatsQuery()
+		err = m.client.QueryRowContext(ctx, query, stream.Name(), pkColumns[0]).Scan(&dataType, &dataMaxLength, &columnCollationType)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch Column DataType and max length %s", err)
+		}
 		// 1. Try Numeric Strategy
-		chunkStepSize, minInt64, maxInt64 = IsNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize)
+		chunkStepSize, minBoundary, maxBoundary = IsNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType)
+
 		// 2. If not numeric, check for supported String strategy
 		if chunkStepSize == 0 {
-			var dataType string
-			query := jdbc.MySQLColumnStatsQuery()
-			err = m.client.QueryRowContext(ctx, query, stream.Name(), pkColumns[0]).Scan(&dataType, &dataMaxLength, &columnCollationType)
-			if err != nil {
-				return nil, fmt.Errorf("failed to fetch Column DataType and max length %s", err)
-			}
-
 			switch strings.ToLower(dataType) {
 			case "char", "varchar":
 				stringSupportedPk = true
@@ -235,13 +233,13 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 
 	/*
-		splitEvenlyForInt generates chunk boundaries for numeric values by dividing the range [minInt64, maxInt64] using an arithmetic progression (AP).
+		splitEvenlyForInt generates chunk boundaries for numeric values by dividing the range [minBoundary, maxBoundary] using an arithmetic progression (AP).
 
 		Each boundary follows:
 		next = prev + chunkStepSize
 
 		Example:
-		minInt64 = 0, maxInt64 = 100, chunkStepSize = 25
+		minBoundary = 0, maxBoundary = 100, chunkStepSize = 25
 
 		AP sequence:
 		0 → 25 → 50 → 75 → 100
@@ -252,10 +250,10 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	splitEvenlyForInt := func(chunks *types.Set[types.Chunk], chunkStepSize int64) error {
 		chunks.Insert(types.Chunk{
 			Min: nil,
-			Max: utils.ConvertToString(minInt64),
+			Max: utils.ConvertToString(minBoundary),
 		})
-		prev := minInt64
-		for next := minInt64 + chunkStepSize; next <= maxInt64; next += chunkStepSize {
+		prev := minBoundary
+		for next := minBoundary + chunkStepSize; next <= maxBoundary; next += chunkStepSize {
 			// condition to protect from infinite loop
 			if next <= prev {
 				logger.Warnf("int precision collapse detected, falling back to SplitViaPrimaryKey for stream %s", stream.ID())
@@ -323,21 +321,21 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		expectedChunks := int64(math.Ceil(float64(approxTableSize) / float64(constants.EffectiveParquetSize)))
 		expectedChunks = utils.Ternary(expectedChunks <= 0, int64(1), expectedChunks).(int64)
 
-		chunkDiff := new(big.Int).Sub(&maxEncodedBigIntValue, &minEncodedBigIntValue)
-		chunkDiff.Add(chunkDiff, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
-		chunkDiff.Div(chunkDiff, big.NewInt(expectedChunks)) //ceil division set up
+		stringChunkStepSize := new(big.Int).Sub(&maxEncodedBigIntValue, &minEncodedBigIntValue)
+		stringChunkStepSize.Add(stringChunkStepSize, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
+		stringChunkStepSize.Div(stringChunkStepSize, big.NewInt(expectedChunks)) //ceil division set up
 
 		rangeSlice := []string{}
 		// Try up to 5 times to generate balanced chunks by slightly adjusting the chunk size each iteration.
 		for retryAttempt := int64(0); retryAttempt < int64(5); retryAttempt++ {
-			temporaryChunkDiff := new(big.Int).Set(chunkDiff)
-			temporaryChunkDiff.Add(temporaryChunkDiff, big.NewInt(retryAttempt))
-			temporaryChunkDiff.Div(temporaryChunkDiff, big.NewInt(retryAttempt+1))
+			adjustedStepSize := new(big.Int).Set(stringChunkStepSize)
+			adjustedStepSize.Add(adjustedStepSize, big.NewInt(retryAttempt))
+			adjustedStepSize.Div(adjustedStepSize, big.NewInt(retryAttempt+1))
 			currentBoundary := new(big.Int).Set(&minEncodedBigIntValue)
 
 			for chunkIdx := int64(0); chunkIdx < expectedChunks*(retryAttempt+1) && currentBoundary.Cmp(&maxEncodedBigIntValue) < 0; chunkIdx++ {
 				rangeSlice = append(rangeSlice, decodeBigIntToUnicodeString(currentBoundary))
-				currentBoundary.Add(currentBoundary, temporaryChunkDiff)
+				currentBoundary.Add(currentBoundary, adjustedStepSize)
 			}
 
 			// Align boundaries with actual DB values using MySQL collation ordering
@@ -444,25 +442,26 @@ func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterfa
 }
 
 // checks if the pk column is numeric and evenly distributed
-func IsNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64) (int64, int64, int64) {
-	if exceedsInt64Limits(minVal) || exceedsInt64Limits(maxVal) {
-		logger.Debugf("minVal or maxVal exceeds int64 limits")
+func IsNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64, dataType string) (int64, int64, int64) {
+	icebergDataType := mysqlTypeToDataTypes[strings.ToLower(dataType)]
+	if icebergDataType != types.Int32 && icebergDataType != types.Int64 {
+		logger.Debugf("Current pk is not a supported numeric column")
 		return 0, 0, 0
 	}
 
-	minInt64, err := typeutils.ReformatInt64(minVal)
+	minBoundary, err := typeutils.ReformatInt64(minVal)
 	if err != nil {
 		logger.Debugf("failed to parse minVal: %s", err)
 		return 0, 0, 0
 	}
 
-	maxInt64, err := typeutils.ReformatInt64(maxVal)
+	maxBoundary, err := typeutils.ReformatInt64(maxVal)
 	if err != nil {
 		logger.Debugf("failed to parse maxVal: %s", err)
 		return 0, 0, 0
 	}
 
-	distributionFactor := float64(maxInt64 - minInt64 + 1) / float64(approxRowCount)
+	distributionFactor := (float64(maxBoundary) - float64(minBoundary) + 1) / float64(approxRowCount)
 
 	if distributionFactor < constants.DistributionLower || distributionFactor > constants.DistributionUpper {
 		logger.Debugf("distribution factor is not in the range of %f to %f", constants.DistributionLower, constants.DistributionUpper)
@@ -470,7 +469,7 @@ func IsNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, c
 	}
 
 	chunkStepSize := int64(math.Ceil(math.Max(distributionFactor*float64(chunkSize), 1)))
-	return chunkStepSize, minInt64, maxInt64
+	return chunkStepSize, minBoundary, maxBoundary
 }
 
 /*
@@ -548,41 +547,4 @@ func padRightWithNulls(s string, maxLength int) string {
 		return s
 	}
 	return s + strings.Repeat("\x00", maxLength-length)
-}
-
-// checks if a value exceeds int64 limits
-func exceedsInt64Limits(val any) bool {
-	switch v := val.(type) {
-	case json.Number:
-		if _, err := v.Int64(); err == nil {
-			return false
-		}
-		if floatVal, err := v.Float64(); err == nil {
-			return floatVal > float64(math.MaxInt64) || floatVal < float64(math.MinInt64)
-		}
-		return true
-	case float64:
-		return v > float64(math.MaxInt64) || v < float64(math.MinInt64)
-	case uint64:
-		return v > math.MaxInt64
-	case uint:
-		return uint64(v) > math.MaxInt64
-	case []uint8:
-		return exceedsInt64Limits(string(v))
-	case string:
-		if _, err := strconv.ParseInt(v, 10, 64); err == nil {
-			return false
-		}
-		if u, err := strconv.ParseUint(v, 10, 64); err == nil {
-			return u > math.MaxInt64
-		}
-		return true
-	case *any:
-		if v != nil {
-			return exceedsInt64Limits(*v)
-		}
-		return false
-	default:
-		return false
-	}
 }

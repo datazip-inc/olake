@@ -311,18 +311,6 @@ func ReformatInt64(v any) (int64, error) {
 	case uint64:
 		//nolint:gosec // G115: converting uint64 to int64 is safe for expected ranges
 		return int64(v), nil
-	case []uint8:
-		strVal := string(v)
-		intValue, err := strconv.ParseInt(strVal, 10, 64)
-		if err == nil {
-			return intValue, nil
-		}
-		uintValue, err := strconv.ParseUint(strVal, 10, 64)
-		if err != nil {
-			return int64(0), fmt.Errorf("failed to change []byte %v to int64: %v", v, err)
-		}
-		//nolint:gosec // G115: converting []uint8 to int64 is safe and required for backward compatibility
-		return int64(uintValue), nil
 	case bool:
 		if v {
 			return 1, nil
@@ -336,6 +324,19 @@ func ReformatInt64(v any) (int64, error) {
 		return intValue, nil
 	case *any:
 		return ReformatInt64(*v)
+	case []uint8:
+		if constants.LoadedStateVersion > 4 {
+			strVal := string(v)
+			intValue, err := strconv.ParseInt(strVal, 10, 64)
+			if err == nil {
+				return intValue, nil
+			}
+			uintValue, err := strconv.ParseUint(strVal, 10, 64)
+			if err == nil {
+				//nolint:gosec // G115: converting []uint8 to int64 is safe and required for backward compatibility
+				return int64(uintValue), nil
+			}
+		}
 	}
 
 	return int64(0), fmt.Errorf("failed to change %v (type:%T) to int64", v, v)

@@ -28,9 +28,13 @@ package constants
 //
 //   - Version 4: (Current Version) Unsigned int/integer/bigint map to Int64.
 //     * Earlier unsigned int/integer/bigint were mapped to Int32 which caused integer overflows.
+//
+//   - Version 5: (Current Version) Added []uint8 (byte slice) support in ReformatInt64
+//     * Previously, numeric values returned as byte slices (common in some SQL drivers) caused errors
+//     * Now these byte slices are parsed and converted into int64
 
 const (
-	LatestStateVersion = 4
+	LatestStateVersion = 5
 )
 
 // Used as the current version of the state when the program is running
