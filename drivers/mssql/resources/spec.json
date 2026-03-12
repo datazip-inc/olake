@@ -58,6 +58,12 @@
             "required": [
                 "mode"
             ]
+        },
+        "manage_capture_instances": {
+            "type": "boolean",
+            "title": "Manage Capture Instances",
+            "description": "Automatically manage MSSQL CDC capture instances for schema evolution",
+            "default": false
         }
     },
     "required": [
