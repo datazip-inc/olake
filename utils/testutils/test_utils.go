@@ -559,7 +559,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
-				strings.Contains(tc.name, "Full-Refresh"),
+				!strings.Contains(tc.name, "Full-Refresh"),
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
