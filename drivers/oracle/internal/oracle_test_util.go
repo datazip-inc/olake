@@ -86,6 +86,23 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				TIMESTAMP '2023-01-01 12:00:00+05:30'
 			)`, integrationTestTable)
 
+	case "insert_2":
+		query = fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_char, col_character,
+				col_varchar2, col_date, col_decimal,
+				col_double_precision, col_float, col_int, col_smallint,
+				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+			) VALUES (
+				7, 123456789012345, 'c', 'char_val',
+				'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
+				123.456789, 123.5, 123, 123, 12345,
+				'sample text', 'sample nclob',
+				TIMESTAMP '2023-01-01 12:00:00',
+				TIMESTAMP '2023-01-01 12:00:00+00:00',
+				TIMESTAMP '2023-01-01 12:00:00+05:30'
+			)`, integrationTestTable)
+
 	case "update":
 		query = fmt.Sprintf(`
         UPDATE %s SET
