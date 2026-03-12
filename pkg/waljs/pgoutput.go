@@ -94,7 +94,9 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 				if err != nil {
 					return fmt.Errorf("failed to parse primary keepalive message: %v", err)
 				}
-				p.socket.ClientXLogPos = pkm.ServerWALEnd
+				if pkm.ServerWALEnd > p.socket.ClientXLogPos {
+					p.socket.ClientXLogPos = pkm.ServerWALEnd
+				}
 				if pkm.ReplyRequested {
 					if err := AcknowledgeLSN(ctx, db, p.socket, true); err != nil {
 						return fmt.Errorf("failed to send standby status update: %v", err)

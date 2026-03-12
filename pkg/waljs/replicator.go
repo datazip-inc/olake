@@ -175,7 +175,7 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 				return fmt.Errorf("failed to get slot position: %s", err)
 			}
 
-			if slot.LSN == walPosition {
+			if slot.LSN >= walPosition {
 				return nil
 			}
 		}
