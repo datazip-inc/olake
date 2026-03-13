@@ -2,7 +2,9 @@ package driver
 
 import (
 	"context"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,7 +23,6 @@ const (
 	cdcAgentPollInterval          = 2 * time.Second // interval between scan session checks
 	defaultCDCAgentCatchUpTimeout = 15 * time.Minute
 	catchUpTimeoutPollMultiplier  = 3
-	defaultCDCAgentMaxTrans       = 500
 )
 
 // CDC capture instance for a table
@@ -485,21 +486,25 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 	)
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCCaptureJobConfigQuery()).Scan(&maxTrans, &pollingIntervalS)
 	if err != nil {
-		logger.Errorf("unable to query CDC capture job config: %s; using default max trans %d", err, defaultCDCAgentMaxTrans)
-		maxTrans = defaultCDCAgentMaxTrans
+		return "", fmt.Errorf("unable to query CDC capture job config: %s", err)
 	}
 
 	catchUpTimeout := max(defaultCDCAgentCatchUpTimeout, time.Duration(catchUpTimeoutPollMultiplier*pollingIntervalS)*time.Second)
 
-	// Record the baseSession scan session before we start waiting.
-	baseSession, err := m.latestCDCScanSession(ctx)
+	// Record the base session before we start waiting.
+	// If no completed session exists yet, keep polling until one appears.
+	baseSession, hasBaseSession, err := m.latestCDCScanSession(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to query CDC scan sessions: %s", err)
+		return "", fmt.Errorf("failed to query CDC scan sessions: %w", err)
+	}
+	if !hasBaseSession {
+		logger.Infof("no completed CDC scan session yet; waiting for first completed session (maxtrans=%d, pollinginterval=%ds, timeout=%s)", maxTrans, pollingIntervalS, catchUpTimeout)
+	} else {
+		logger.Infof("waiting for CDC capture agent to catch up (baseline end_time=%s, maxtrans=%d, pollinginterval=%ds, timeout=%s)", baseSession.endTime.Format(time.RFC3339), maxTrans, pollingIntervalS, catchUpTimeout)
 	}
 
-	logger.Infof("waiting for CDC capture agent to catch up (baseline end_time=%s, maxtrans=%d, pollinginterval=%ds, timeout=%s)", baseSession.endTime.Format(time.RFC3339), maxTrans, pollingIntervalS, catchUpTimeout)
-
-	deadline := time.After(catchUpTimeout)
+	timer := time.NewTimer(catchUpTimeout)
+	defer timer.Stop()
 	ticker := time.NewTicker(cdcAgentPollInterval) // poll every 2 seconds
 	defer ticker.Stop()
 
@@ -507,18 +512,22 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
-		case <-deadline:
+		case <-timer.C:
 			logger.Warnf("CDC agent did not catch up within %s, the CDC agent may not be running", catchUpTimeout)
 			return m.currentMaxLSN(ctx) // fallback to current max LSN
 		case <-ticker.C:
-			session, err := m.latestCDCScanSession(ctx)
+			session, found, err := m.latestCDCScanSession(ctx)
 			if err != nil {
-				return "", fmt.Errorf("failed to query CDC scan session: %s", err)
+				return "", fmt.Errorf("failed to query CDC scan session: %w", err)
+			}
+			if !found {
+				// CDC agent has not completed a scan session yet.
+				continue
 			}
 
-			// A session that completed after our baseSession and wasn't throttled
-			// means the agent has fully drained the transaction log.
-			if session.endTime.After(baseSession.endTime) && session.tranCount < maxTrans {
+			// A non-throttled session indicates catch-up.
+			// If a baseline exists, require a newer session than baseline.
+			if session.tranCount < maxTrans && (!hasBaseSession || session.endTime.After(baseSession.endTime)) {
 				logger.Infof("CDC agent caught up (session_id=%d, end_time=%s, tran_count=%d)", session.sessionID, session.endTime.Format(time.RFC3339), session.tranCount)
 				return m.currentMaxLSN(ctx)
 			}
@@ -527,10 +536,14 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 }
 
 // latestCDCScanSession returns the most recent completed CDC log scan session.
-func (m *MSSQL) latestCDCScanSession(ctx context.Context) (session cdcScanSession, err error) {
+// The boolean return value indicates whether a completed session exists.
+func (m *MSSQL) latestCDCScanSession(ctx context.Context) (session cdcScanSession, found bool, err error) {
 	err = m.client.QueryRowContext(ctx, jdbc.MSSQLCDCLatestScanSessionQuery()).Scan(&session.sessionID, &session.endTime, &session.tranCount)
 	if err != nil {
-		return session, fmt.Errorf("failed to query CDC log scan sessions: %s", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return cdcScanSession{}, false, nil
+		}
+		return cdcScanSession{}, false, fmt.Errorf("failed to query CDC log scan sessions: %w", err)
 	}
-	return session, nil
+	return session, true, nil
 }
