@@ -932,6 +932,46 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 		quotedTable, chunkMin, filterClause)
 }
 
+func OracleObjectIDQuery() string {
+	return `SELECT DATA_OBJECT_ID FROM ALL_OBJECTS WHERE OWNER = :1 AND OBJECT_NAME = :2 AND DATA_OBJECT_ID IS NOT NULL`
+}
+
+func OracleExtentsQuery() string {
+	return `SELECT
+	e.RELATIVE_FNO,
+	e.BLOCK_ID,
+	e.BLOCKS,
+	o.DATA_OBJECT_ID
+  FROM DBA_EXTENTS e
+  JOIN ALL_OBJECTS o
+	ON e.OWNER = o.OWNER
+   AND e.SEGMENT_NAME = o.OBJECT_NAME
+   AND NVL(e.PARTITION_NAME, 'NONE') = NVL(o.SUBOBJECT_NAME, 'NONE')
+  WHERE e.OWNER = :1
+	AND e.SEGMENT_NAME = :2
+	AND e.SEGMENT_TYPE IN ('TABLE', 'TABLE PARTITION', 'TABLE SUBPARTITION')
+	AND o.DATA_OBJECT_ID IS NOT NULL
+  ORDER BY o.DATA_OBJECT_ID, e.RELATIVE_FNO, e.BLOCK_ID;`
+}
+
+func OracleRowIDCreateQuery() string {
+	return `SELECT DBMS_ROWID.ROWID_CREATE(1, :1, :2, :3, 0) FROM DUAL`
+}
+
+func OracleMinMaxCountQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT MIN(ROWID) AS minRowId, MAX(ROWID) AS maxRowId AS totalRows FROM %q.%q`, stream.Namespace(), stream.Name())
+}
+
+// NextRowIDQuery returns the query to fetch the next max row id
+func NextRowIDQuery(stream types.StreamInterface, ROWID string, chunkSize int64) string {
+	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %q.%q AS WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), ROWID, chunkSize)
+}
+
+// OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
+func OracleTableSizeQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT SUM(bytes) AS size_kb FROM user_segments WHERE segment_name = '%s' AND segment_type = 'TABLE'`, stream.Name())
+}
+
 // OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
 func OracleTableRowStatsQuery() string {
 	return `SELECT NUM_ROWS FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
