@@ -287,7 +287,7 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 	if !isTimestampInDB && constants.LoadedStateVersion != 0 {
 		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 	}
-	logger.Debugf("***Failed to parse datetime from available formats: %s", err)
+	logger.Debugf("Failed to parse datetime from available formats: %s", err)
 	return time.Unix(0, 0).UTC(), nil
 }
 

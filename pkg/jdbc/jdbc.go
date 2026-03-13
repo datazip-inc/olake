@@ -1115,14 +1115,17 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 			// default: treat as escaped string
 			escaped := strings.ReplaceAll(v, "'", "''")
 			valueSQL = fmt.Sprintf("'%s'", escaped)
-			// Oracle-specific timestamp handling
-			if driverType == constants.Oracle && strings.Contains(v, "T") && (strings.Contains(v, "Z") || strings.Contains(v, "+") || (strings.Contains(v, "-") && len(v) > 19)) {
+			// Driver-specific timestamp handling for ISO 8601 / RFC3339 strings.
+			isISO8601 := strings.Contains(v, "T") && (strings.Contains(v, "Z") || strings.Contains(v, "+") || (strings.Contains(v, "-") && len(v) > 19))
+			if isISO8601 {
 				if t, err := time.Parse(time.RFC3339, v); err == nil {
-					timestampStr := t.Format("2006-01-02 15:04:05.000")
-					valueSQL = fmt.Sprintf(
-						"TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')",
-						timestampStr,
-					)
+					switch driverType {
+					case constants.Oracle:
+						valueSQL = fmt.Sprintf("TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')", t.UTC().Format("2006-01-02 15:04:05.000"))
+					case constants.DB2:
+						// DB2 TIMESTAMP() scalar accepts 'YYYY-MM-DD HH:MM:SS.ffffff'
+						valueSQL = fmt.Sprintf("TIMESTAMP('%s')", t.UTC().Format("2006-01-02 15:04:05.000000"))
+					}
 				}
 			}
 
