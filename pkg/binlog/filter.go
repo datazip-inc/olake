@@ -59,24 +59,10 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return nil
 	}
 
-	bitmapIdx := 0
-	bitMask := byte(0x80)
-	// Iterate through column types and determine if the column is unsigned using SignednessBitmap,
-	// which stores one bit per "signedness" column (integer, YEAR, DECIMAL).
+	unsignedMap := UnsignedMap(e.Table)
 	columnTypes := make([]string, len(e.Table.ColumnType))
 	for i, ct := range e.Table.ColumnType {
-		unsigned := false
-		if hasSignednessInBinlog(ct) && len(e.Table.SignednessBitmap) > 0 {
-			if bitmapIdx < len(e.Table.SignednessBitmap) {
-				unsigned = (e.Table.SignednessBitmap[bitmapIdx] & bitMask) != 0
-				bitMask >>= 1
-				if bitMask == 0 {
-					bitMask = 0x80
-					bitmapIdx++
-				}
-			}
-		}
-		columnTypes[i] = mysqlTypeName(ct, unsigned)
+		columnTypes[i] = mysqlTypeName(ct, unsignedMap[i])
 	}
 
 	var rowsToProcess [][]interface{}
@@ -230,9 +216,33 @@ func mysqlTypeName(t byte, unsigned bool) string {
 	}
 }
 
+// UnsignedMap returns a map: column index -> unsigned.
+// Note that only columns with signedness information will be returned.
+// nil is returned if not available or no signedness columns at all.
+func UnsignedMap(tableMap *replication.TableMapEvent) map[int]bool {
+	if len(tableMap.SignednessBitmap) == 0 {
+		return nil
+	}
+	ret := make(map[int]bool)
+	i := 0
+	for _, field := range tableMap.SignednessBitmap {
+		for c := byte(0x80); c != 0; {
+			if IsNumericColumn(i,tableMap) {
+				ret[i] = field&byte(c) != 0
+				c >>= 1
+			}
+			i++
+			if i>=len(tableMap.ColumnType){
+				break
+			}
+		}
+	}
+	return ret
+}
+
 // hasSignednessInBinlog returns true for column types that have a signedness bit in the TABLE_MAP_EVENT
-func hasSignednessInBinlog(t byte) bool {
-	switch t {
+func IsNumericColumn(i int,tableMap *replication.TableMapEvent) bool {
+	switch tableMap.ColumnType[i] {
 	case mysql.MYSQL_TYPE_TINY,
 		mysql.MYSQL_TYPE_SHORT,
 		mysql.MYSQL_TYPE_INT24,
