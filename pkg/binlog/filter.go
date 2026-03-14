@@ -226,14 +226,14 @@ func UnsignedMap(tableMap *replication.TableMapEvent) map[int]bool {
 	ret := make(map[int]bool)
 	i := 0
 	for _, field := range tableMap.SignednessBitmap {
-		for c := byte(0x80); c != 0; {
+		for c := 0x80; c != 0; {
 			if IsNumericColumn(i, tableMap) {
 				ret[i] = field&byte(c) != 0
 				c >>= 1
 			}
 			i++
 			if i >= len(tableMap.ColumnType) {
-				break
+				return ret
 			}
 		}
 	}
