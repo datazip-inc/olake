@@ -62,7 +62,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 	unsignedMap := UnsignedMap(e.Table)
 	columnTypes := make([]string, len(e.Table.ColumnType))
 	for i, ct := range e.Table.ColumnType {
-		columnTypes[i] = mysqlTypeName(ct, unsignedMap[i])
+		columnTypes[i] = mysqlTypeName(ct, unsignedMap != nil && unsignedMap[i])
 	}
 
 	var rowsToProcess [][]interface{}
