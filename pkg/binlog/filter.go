@@ -59,7 +59,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return nil
 	}
 
-	unsignedMap := UnsignedMap(e.Table)
+	unsignedMap := unsignedMap(e.Table)
 	columnTypes := make([]string, len(e.Table.ColumnType))
 	for i, ct := range e.Table.ColumnType {
 		columnTypes[i] = mysqlTypeName(ct, unsignedMap != nil && unsignedMap[i])
@@ -216,10 +216,10 @@ func mysqlTypeName(t byte, unsigned bool) string {
 	}
 }
 
-// UnsignedMap returns a map: column index -> unsigned.
+// unsignedMap returns a map: column index -> unsigned.
 // Note that only columns with signedness information will be returned.
 // nil is returned if not available or no signedness columns at all.
-func UnsignedMap(tableMap *replication.TableMapEvent) map[int]bool {
+func unsignedMap(tableMap *replication.TableMapEvent) map[int]bool {
 	if len(tableMap.SignednessBitmap) == 0 {
 		return nil
 	}
@@ -227,7 +227,7 @@ func UnsignedMap(tableMap *replication.TableMapEvent) map[int]bool {
 	i := 0
 	for _, field := range tableMap.SignednessBitmap {
 		for c := 0x80; c != 0; {
-			if IsNumericColumn(i, tableMap) {
+			if isNumericColumn(i, tableMap) {
 				ret[i] = field&byte(c) != 0
 				c >>= 1
 			}
@@ -240,7 +240,7 @@ func UnsignedMap(tableMap *replication.TableMapEvent) map[int]bool {
 	return ret
 }
 
-func IsNumericColumn(i int, tableMap *replication.TableMapEvent) bool {
+func isNumericColumn(i int, tableMap *replication.TableMapEvent) bool {
 	switch tableMap.ColumnType[i] {
 	case mysql.MYSQL_TYPE_TINY,
 		mysql.MYSQL_TYPE_SHORT,
