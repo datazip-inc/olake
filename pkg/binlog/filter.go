@@ -240,7 +240,8 @@ func UnsignedMap(tableMap *replication.TableMapEvent) map[int]bool {
 	return ret
 }
 
-// hasSignednessInBinlog returns true for column types that have a signedness bit in the TABLE_MAP_EVENT
+// NOTE: We use this custom implementation instead of go-mysql's IsNumericColumn
+// because go-mysql incorrectly omits YEAR and DECIMAL types, which misaligns the bitmap parsing.
 func IsNumericColumn(i int, tableMap *replication.TableMapEvent) bool {
 	switch tableMap.ColumnType[i] {
 	case mysql.MYSQL_TYPE_TINY,
