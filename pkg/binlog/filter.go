@@ -248,6 +248,8 @@ func IsNumericColumn(i int, tableMap *replication.TableMapEvent) bool {
 		mysql.MYSQL_TYPE_LONG,
 		mysql.MYSQL_TYPE_LONGLONG,
 		mysql.MYSQL_TYPE_YEAR,
+		mysql.MYSQL_TYPE_FLOAT,
+		mysql.MYSQL_TYPE_DOUBLE,
 		mysql.MYSQL_TYPE_DECIMAL,
 		mysql.MYSQL_TYPE_NEWDECIMAL:
 		return true
