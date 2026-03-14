@@ -134,7 +134,10 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	if err != nil {
 		return nil, err
 	}
-	return binlog.Binlog{Position: m.BinlogConn.CurrentPos}, nil
+	// Incase of recovery, the current binlog position is updated to the metadata state
+	// so that the next sync starts from the correct position
+	m.BinlogConn.CurrentPos = currentBinlogPos
+	return binlog.Binlog{Position: currentBinlogPos}, nil
 }
 
 func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
