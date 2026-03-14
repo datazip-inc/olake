@@ -59,10 +59,24 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return nil
 	}
 
-	unsignedMap := e.Table.UnsignedMap()
+	bitmapIdx := 0
+	bitMask := byte(0x80)
+	// Iterate through column types and determine if the column is unsigned using SignednessBitmap,
+	// which stores one bit per "signedness" column (integer, YEAR, DECIMAL).
 	columnTypes := make([]string, len(e.Table.ColumnType))
 	for i, ct := range e.Table.ColumnType {
-		columnTypes[i] = mysqlTypeName(ct, unsignedMap != nil && unsignedMap[i])
+		unsigned := false
+		if hasSignednessInBinlog(ct) && len(e.Table.SignednessBitmap) > 0 {
+			if bitmapIdx < len(e.Table.SignednessBitmap) {
+				unsigned = (e.Table.SignednessBitmap[bitmapIdx] & bitMask) != 0
+				bitMask >>= 1
+				if bitMask == 0 {
+					bitMask = 0x80
+					bitmapIdx++
+				}
+			}
+		}
+		columnTypes[i] = mysqlTypeName(ct, unsigned)
 	}
 
 	var rowsToProcess [][]interface{}
@@ -213,5 +227,22 @@ func mysqlTypeName(t byte, unsigned bool) string {
 		return "GEOMETRY"
 	default:
 		return fmt.Sprintf("UNKNOWN_TYPE: %d", t)
+	}
+}
+
+// hasSignednessInBinlog returns true for column types that have a signedness bit in the TABLE_MAP_EVENT
+func hasSignednessInBinlog(t byte) bool {
+	switch t {
+	case mysql.MYSQL_TYPE_TINY,
+		mysql.MYSQL_TYPE_SHORT,
+		mysql.MYSQL_TYPE_INT24,
+		mysql.MYSQL_TYPE_LONG,
+		mysql.MYSQL_TYPE_LONGLONG,
+		mysql.MYSQL_TYPE_YEAR,
+		mysql.MYSQL_TYPE_DECIMAL,
+		mysql.MYSQL_TYPE_NEWDECIMAL:
+		return true
+	default:
+		return false
 	}
 }
