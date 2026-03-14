@@ -34,8 +34,11 @@ func TestTypeFromValue(t *testing.T) {
 		expected types.DataType
 	}{
 		{name: "nil", input: nil, expected: types.Null},
+		{name: "nil_bool_pointer", input: (*bool)(nil), expected: types.Null},
 		{name: "nil_int_pointer", input: (*int)(nil), expected: types.Null},
+		{name: "nil_float64_pointer", input: (*float64)(nil), expected: types.Null},
 		{name: "nil_string_pointer", input: (*string)(nil), expected: types.Null},
+		{name: "nil_time_pointer", input: (*time.Time)(nil), expected: types.Null},
 
 		{name: "bool_true", input: true, expected: types.Bool},
 		{name: "bool_false", input: false, expected: types.Bool},
@@ -116,18 +119,34 @@ func TestTypeFromValue(t *testing.T) {
 }
 
 func TestMaximumOnDataTypeTimestamp(t *testing.T) {
+	leftPointer := time.Date(2024, 12, 18, 0, 0, 0, 0, time.UTC)
+	rightPointer := time.Date(2024, 12, 18, 0, 0, 0, 0, time.UTC)
+	leftValue := time.Date(2024, 12, 18, 0, 0, 0, 0, time.UTC)
+	rightValue := time.Date(2024, 12, 18, 0, 0, 0, 0, time.UTC)
+	nilLeftPointer := (*time.Time)(nil)
+	nilRightPointer := (*time.Time)(nil)
+
 	testCases := []struct {
 		name          string
-		leftArgument  string
-		rightArgument string
-		expected      string
+		leftArgument  any
+		rightArgument any
+		expected      any
 		expectError   bool
 	}{
 		{name: "left_is_max", leftArgument: "2024-12-18", rightArgument: "2024-12-17", expected: "2024-12-18"},
 		{name: "right_is_max", leftArgument: "2024-01-01", rightArgument: "2024-12-31", expected: "2024-12-31"},
 		{name: "equal_values_returns_left", leftArgument: "2024-12-18", rightArgument: "2024-12-18", expected: "2024-12-18"},
+		{name: "datetime_second_precision_right_is_max", leftArgument: "2024-12-18T10:30:00Z", rightArgument: "2024-12-18T10:30:01Z", expected: "2024-12-18T10:30:01Z"},
+		{name: "datetime_timezone_offset_left_is_max", leftArgument: "2024-12-18T10:30:00+05:30", rightArgument: "2024-12-18T04:59:59Z", expected: "2024-12-18T10:30:00+05:30"},
+		{name: "datetime_millisecond_right_is_max", leftArgument: "2024-12-18T10:30:00.122Z", rightArgument: "2024-12-18T10:30:00.123Z", expected: "2024-12-18T10:30:00.123Z"},
+		{name: "datetime_microsecond_left_is_max", leftArgument: "2024-12-18T10:30:00.123457Z", rightArgument: "2024-12-18T10:30:00.123456Z", expected: "2024-12-18T10:30:00.123457Z"},
+		{name: "date_vs_millisecond_datetime_right_is_max", leftArgument: "2024-12-18", rightArgument: "2024-12-18T00:00:00.001Z", expected: "2024-12-18T00:00:00.001Z"},
+		{name: "millisecond_datetime_vs_date_left_is_max", leftArgument: "2024-12-18T23:59:59.999Z", rightArgument: "2024-12-18", expected: "2024-12-18T23:59:59.999Z"},
+		{name: "equal_timestamps_return_left_value", leftArgument: &leftPointer, rightArgument: &rightPointer, expected: &leftPointer},
 		{name: "invalid_left_value", leftArgument: "invalid-date", rightArgument: "2024-12-18", expectError: true},
 		{name: "invalid_right_value", leftArgument: "2024-12-18", rightArgument: "invalid-date", expectError: true},
+		{name: "nil_left_time_pointer_returns_error_and_left", leftArgument: nilLeftPointer, rightArgument: &rightValue, expectError: true},
+		{name: "nil_right_time_pointer_returns_error_and_left", leftArgument: &leftValue, rightArgument: nilRightPointer, expectError: true},
 	}
 
 	for _, tc := range testCases {
@@ -136,6 +155,7 @@ func TestMaximumOnDataTypeTimestamp(t *testing.T) {
 			if tc.expectError {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "failed to reformat")
+				assert.Equal(t, tc.leftArgument, got)
 				return
 			}
 
@@ -143,15 +163,6 @@ func TestMaximumOnDataTypeTimestamp(t *testing.T) {
 			assert.Equal(t, tc.expected, got)
 		})
 	}
-
-	t.Run("equal_timestamps_return_left_value", func(t *testing.T) {
-		left := time.Date(2024, 12, 18, 0, 0, 0, 0, time.UTC)
-		right := time.Date(2024, 12, 18, 0, 0, 0, 0, time.UTC)
-
-		got, err := MaximumOnDataType(types.Timestamp, &left, &right)
-		require.NoError(t, err)
-		assert.Equal(t, &left, got)
-	})
 }
 
 func TestMaximumOnDataTypeInt64(t *testing.T) {
