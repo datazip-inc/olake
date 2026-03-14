@@ -19,6 +19,11 @@ const (
 
 )
 
+// TableMapEvent wraps replication.TableMapEvent so we can define receiver methods (unsignedMap, isNumericColumn).
+type TableMapEvent struct {
+	*replication.TableMapEvent
+}
+
 // ChangeFilter filters binlog events based on the specified streams.
 type ChangeFilter struct {
 	streams       map[string]types.StreamInterface // Keyed by "schema.table"
@@ -59,7 +64,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return nil
 	}
 
-	unsignedMap := e.Table.UnsignedMap()
+	unsignedMap := (&TableMapEvent{e.Table}).unsignedMap()
 	columnTypes := make([]string, len(e.Table.ColumnType))
 	for i, ct := range e.Table.ColumnType {
 		columnTypes[i] = mysqlTypeName(ct, unsignedMap != nil && unsignedMap[i])
@@ -213,5 +218,47 @@ func mysqlTypeName(t byte, unsigned bool) string {
 		return "GEOMETRY"
 	default:
 		return fmt.Sprintf("UNKNOWN_TYPE: %d", t)
+	}
+}
+
+// unsignedMap returns a map: column index -> unsigned.
+// Note that only columns with signedness information will be returned.
+// nil is returned if not available or no signedness columns at all.
+func (e *TableMapEvent) unsignedMap() map[int]bool {
+	if len(e.SignednessBitmap) == 0 {
+		return nil
+	}
+	ret := make(map[int]bool)
+	i := 0
+	for _, field := range e.SignednessBitmap {
+		for c := 0x80; c != 0; {
+			if e.isNumericColumn(i) {
+				ret[i] = field&byte(c) != 0
+				c >>= 1
+			}
+			i++
+			if i >= len(e.ColumnType) {
+				return ret
+			}
+		}
+	}
+	return ret
+}
+
+func (e *TableMapEvent) isNumericColumn(i int) bool {
+	switch e.ColumnType[i] {
+	case mysql.MYSQL_TYPE_TINY,
+		mysql.MYSQL_TYPE_SHORT,
+		mysql.MYSQL_TYPE_INT24,
+		mysql.MYSQL_TYPE_LONG,
+		mysql.MYSQL_TYPE_LONGLONG,
+		mysql.MYSQL_TYPE_YEAR,
+		mysql.MYSQL_TYPE_FLOAT,
+		mysql.MYSQL_TYPE_DOUBLE,
+		mysql.MYSQL_TYPE_DECIMAL,
+		mysql.MYSQL_TYPE_NEWDECIMAL:
+		return true
+	default:
+		return false
 	}
 }
