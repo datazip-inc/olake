@@ -227,12 +227,12 @@ func UnsignedMap(tableMap *replication.TableMapEvent) map[int]bool {
 	i := 0
 	for _, field := range tableMap.SignednessBitmap {
 		for c := byte(0x80); c != 0; {
-			if IsNumericColumn(i,tableMap) {
+			if IsNumericColumn(i, tableMap) {
 				ret[i] = field&byte(c) != 0
 				c >>= 1
 			}
 			i++
-			if i>=len(tableMap.ColumnType){
+			if i >= len(tableMap.ColumnType) {
 				break
 			}
 		}
@@ -241,7 +241,7 @@ func UnsignedMap(tableMap *replication.TableMapEvent) map[int]bool {
 }
 
 // hasSignednessInBinlog returns true for column types that have a signedness bit in the TABLE_MAP_EVENT
-func IsNumericColumn(i int,tableMap *replication.TableMapEvent) bool {
+func IsNumericColumn(i int, tableMap *replication.TableMapEvent) bool {
 	switch tableMap.ColumnType[i] {
 	case mysql.MYSQL_TYPE_TINY,
 		mysql.MYSQL_TYPE_SHORT,
