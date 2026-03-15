@@ -918,11 +918,18 @@ func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 
 // OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB
 func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
-	chunkMin := chunk.Min.(string)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Oracle)
-
 	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
+	if chunk.Min == nil {
+		if chunk.Max != nil {
+			return fmt.Sprintf("SELECT * FROM %s WHERE ROWID < '%v' %s", quotedTable, chunk.Max.(string), filterClause)
+		}
+		logger.Warnf("Nil to nil chunk received for table %s", stream.Name())
+		return ""
+	}
+
+	chunkMin := chunk.Min.(string)
 	if chunk.Max != nil {
 		chunkMax := chunk.Max.(string)
 		return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
@@ -930,11 +937,6 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 	}
 	return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' %s",
 		quotedTable, chunkMin, filterClause)
-}
-
-// OracleObjectIDQuery returns the query to fetch the data object id of a table in OracleDB
-func OracleObjectIDQuery() string {
-	return `SELECT DATA_OBJECT_ID FROM ALL_OBJECTS WHERE OWNER = :1 AND OBJECT_NAME = :2 AND DATA_OBJECT_ID IS NOT NULL`
 }
 
 // OracleExtentsQuery returns the query to fetch the extents of a table in OracleDB
@@ -968,7 +970,7 @@ func OracleMinMaxRowIDQuery(stream types.StreamInterface) string {
 
 // NextRowIDQuery returns the query to fetch the next max row id
 func NextRowIDQuery(stream types.StreamInterface, ROWID string, chunkSize int64) string {
-	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %q.%q AS WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), ROWID, chunkSize)
+	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %q.%q WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), ROWID, chunkSize)
 }
 
 // OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB

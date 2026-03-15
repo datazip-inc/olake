@@ -138,6 +138,11 @@ func (o *Oracle) splitViaExtents(ctx context.Context, stream types.StreamInterfa
 		}
 	}
 
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: startRowIDs[0],
+	})
+
 	// 3. Format the startRowIDs into the Min/Max Chunk structure
 	for idx, startRowID := range startRowIDs {
 		var maxRowID interface{}
@@ -186,6 +191,11 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 	rowsPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(avgRowSize)))
 
 	currRowId := minRowId
+
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: currRowId,
+	})
 
 	// 3. Iterate to create contiguous chunks
 	for {
@@ -262,6 +272,11 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 		}
 		startRowIDs = append(startRowIDs, startRowID)
 	}
+
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: startRowIDs[0],
+	})
 
 	for idx, startRowID := range startRowIDs {
 		var maxRowID interface{}
