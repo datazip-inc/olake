@@ -98,11 +98,16 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
 			}
 
-			if mysqlMetadataState.Position.Name != mySQLGlobalState.State.Position.Name || mysqlMetadataState.Position.Compare(mySQLGlobalState.State.Position) != 0 {
-				// recovery required as metadata state not matching with saved state
+			// Recovery is only needed when metadata is strictly AHEAD of state.
+			// metadata.Compare(state) > 0 means either:
+			//   - same file but metadata.Pos > state.Pos, OR
+			//   - metadata is on a later binlog file (e.g. mysql-bin.000043 vs .000042)
+			if mysqlMetadataState.Position.Compare(mySQLGlobalState.State.Position) > 0 {
+				// metadata ahead of state: genuine crash-recovery path
 				currentBinlogPos = mysqlMetadataState.Position
 				finishedStreams = append(finishedStreams, streamID)
 			}
+			// state >= metadata: blank sync scenario — stream forward normally
 		} else {
 			return nil, fmt.Errorf("failed to typecast raw metadata state of type[%T] to string", rawMtState)
 		}
