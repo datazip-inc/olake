@@ -932,10 +932,12 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 		quotedTable, chunkMin, filterClause)
 }
 
+// OracleObjectIDQuery returns the query to fetch the data object id of a table in OracleDB
 func OracleObjectIDQuery() string {
 	return `SELECT DATA_OBJECT_ID FROM ALL_OBJECTS WHERE OWNER = :1 AND OBJECT_NAME = :2 AND DATA_OBJECT_ID IS NOT NULL`
 }
 
+// OracleExtentsQuery returns the query to fetch the extents of a table in OracleDB
 func OracleExtentsQuery() string {
 	return `SELECT
 	e.RELATIVE_FNO,
@@ -954,12 +956,14 @@ func OracleExtentsQuery() string {
   ORDER BY o.DATA_OBJECT_ID, e.RELATIVE_FNO, e.BLOCK_ID;`
 }
 
+// OracleRowIDCreateQuery returns the query to create a row id in OracleDB based on the params: data object id, file id and block id
 func OracleRowIDCreateQuery() string {
 	return `SELECT DBMS_ROWID.ROWID_CREATE(1, :1, :2, :3, 0) FROM DUAL`
 }
 
-func OracleMinMaxCountQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT MIN(ROWID) AS minRowId, MAX(ROWID) AS maxRowId AS totalRows FROM %q.%q`, stream.Namespace(), stream.Name())
+// OracleMinMaxRowIDQuery returns the query to fetch the min and max row id of a table in OracleDB
+func OracleMinMaxRowIDQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT MIN(ROWID) AS minRowId, MAX(ROWID) AS maxRowId FROM %q.%q`, stream.Namespace(), stream.Name())
 }
 
 // NextRowIDQuery returns the query to fetch the next max row id
@@ -977,7 +981,7 @@ func OracleTableRowStatsQuery() string {
 	return `SELECT NUM_ROWS FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
 }
 
-// OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
+// OracleBlockSizeQuery returns the query to fetch the size of a block in bytes in OracleDB
 func OracleBlockSizeQuery() string {
 	return `SELECT CEIL(BYTES / NULLIF(BLOCKS, 0)) FROM user_segments WHERE BLOCKS IS NOT NULL AND ROWNUM =1`
 }
