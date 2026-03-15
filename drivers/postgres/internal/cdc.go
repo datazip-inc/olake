@@ -74,10 +74,21 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
 			}
 
-			if mtState.LSN != postgresGlobalState.LSN {
+			// Recovery is only needed when metadata is strictly AHEAD of state .
+			parsedMetaLSN, err := pglogrepl.ParseLSN(mtState.LSN)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse metadata LSN %q: %s", mtState.LSN, err)
+			}
+			parsedStateLSN, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse global state LSN %q: %s", postgresGlobalState.LSN, err)
+			}
+			if parsedMetaLSN > parsedStateLSN {
+				// metadata ahead of state: genuine crash-recovery path
 				metadataCommittedLSN = mtState.LSN
 				finishedStreams = append(finishedStreams, streamID)
 			}
+			// state >= metadata: blank sync scenario — stream forward normally
 		} else {
 			return nil, fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState)
 		}

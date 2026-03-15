@@ -175,7 +175,9 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 				return fmt.Errorf("failed to get slot position: %s", err)
 			}
 
-			if slot.LSN == walPosition {
+			// Use >= instead of == so that if the slot is already ahead of the
+			// position we sent (e.g. from a previous sync), we don't wait forever.
+			if slot.LSN >= walPosition {
 				return nil
 			}
 		}
