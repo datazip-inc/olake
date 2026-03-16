@@ -969,6 +969,7 @@ func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filte
 		quotedTable, chunkMin, filterClause)
 }
 
+/* Oracle Extents Based Chunking Strategy Related Queries
 // OracleExtentsQuery returns the query to fetch the extents of a table in OracleDB
 func OracleExtentsQuery() string {
 	return `SELECT
@@ -992,6 +993,7 @@ func OracleExtentsQuery() string {
 func OracleRowIDCreateQuery() string {
 	return `SELECT DBMS_ROWID.ROWID_CREATE(1, :1, :2, :3, 0) FROM DUAL`
 }
+*/
 
 // OracleMinMaxRowIDQuery returns the query to fetch the min and max row id of a table in OracleDB
 func OracleMinMaxRowIDQuery(stream types.StreamInterface) string {
@@ -1003,14 +1005,10 @@ func NextRowIDQuery(stream types.StreamInterface, ROWID string, chunkSize int64)
 	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %q.%q WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), ROWID, chunkSize)
 }
 
-// OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
-func OracleTableSizeQuery(stream types.StreamInterface) string {
-	return fmt.Sprintf(`SELECT SUM(bytes) AS size_kb FROM user_segments WHERE segment_name = '%s' AND segment_type = 'TABLE'`, stream.Name())
-}
-
 // OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
 func OracleTableRowStatsQuery() string {
-	return `SELECT NUM_ROWS FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
+	// NVL(AVG_ROW_LEN, 2048) is used to handle the case where the average row length is not available due to outdated stats we are assuming 2kb
+	return `SELECT NUM_ROWS, NVL(AVG_ROW_LEN, 2048) AS avg_row_len FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
 }
 
 // OracleBlockSizeQuery returns the query to fetch the size of a block in bytes in OracleDB

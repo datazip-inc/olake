@@ -21,7 +21,6 @@ type Config struct {
 	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	JDBCURLParams    map[string]string `json:"jdbc_url_params"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
-	ChunkingStrategy string            `json:"chunking_strategy"` // rowid, extents, iteration
 }
 
 func (c *Config) connectionString() string {

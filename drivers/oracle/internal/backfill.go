@@ -54,8 +54,9 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	// Get approximate row count from Oracle statistics for progress tracking
 	var approxRowCount int64
-	approxRowCountQuery := jdbc.OracleTableRowStatsQuery()
-	err := o.client.QueryRowContext(ctx, approxRowCountQuery, stream.Namespace(), stream.Name()).Scan(&approxRowCount)
+	var avgRowSize float64
+	approxRowStatsQuery := jdbc.OracleTableRowStatsQuery()
+	err := o.client.QueryRowContext(ctx, approxRowStatsQuery, stream.Namespace(), stream.Name()).Scan(&approxRowCount, &avgRowSize)
 	if err != nil {
 		logger.Debugf("Table statistics not available for %s.%s, progress tracking disabled. Run DBMS_STATS.GATHER_TABLE_STATS to enable.", stream.Namespace(), stream.Name())
 	}
@@ -80,138 +81,52 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 	}
 	blocksPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
 
-	switch o.config.ChunkingStrategy {
-	case "extents":
-		logger.Infof("Chunking using Extents strategy")
-		return o.splitViaExtents(ctx, stream, blocksPerChunk)
-	case "iteration":
-		logger.Infof("Chunking using Table Iteration strategy")
-		return o.splitViaTableIteration(ctx, stream, approxRowCount)
-	default:
-		logger.Infof("Chunking using RowID DBMS Parallel Execute strategy")
-		return o.splitViaRowId(ctx, stream, blocksPerChunk)
-	}
-}
+	logger.Debugf("Chunking via DBMS_PARALLEL_EXECUTE for %s.%s", stream.Namespace(), stream.Name())
+	chunks, err := o.splitViaRowId(ctx, stream, blocksPerChunk)
 
-// splitViaExtents manually chunks a table by using extents of the table in OracleDB
-func (o *Oracle) splitViaExtents(ctx context.Context, stream types.StreamInterface, blocksPerChunk int64) (*types.Set[types.Chunk], error) {
-	chunks := types.NewSet[types.Chunk]()
-
-	// 1. Get the Table's Data Object ID, Fetch all physical extents for the table
-	rows, err := o.client.QueryContext(ctx, jdbc.OracleExtentsQuery(), stream.Namespace(), stream.Name())
+	// If the fast RowID strategy fails for ANY reason (Read-Only, Permissions, etc.) fallback to Table Iteration strategy
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch extents: %s", err)
+		logger.Debugf("DBMS Parallel Execute failed (%v). Automatically falling back to Table Iteration strategy for stream [%s.%s]", err, stream.Namespace(), stream.Name())
+
+		return o.splitViaTableIteration(ctx, stream, avgRowSize)
 	}
-	defer rows.Close()
-
-	var (
-		startRowIDs   []string
-		currentBlocks int64 = 0
-		isFirstChunk        = true
-	)
-
-	// 2. Iterate through extents and group them into chunks
-	for rows.Next() {
-		var fileID, blockID, blocks, objectID int64
-		err = rows.Scan(&fileID, &blockID, &blocks, &objectID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan extents: %s", err)
-		}
-
-		// If this is the start of a new chunk, generate its starting ROWID
-		if isFirstChunk || currentBlocks == 0 {
-			var startRowID string
-			// Uses DBMS_ROWID.ROWID_CREATE to convert file/block to ROWID
-			err = o.client.QueryRowContext(ctx, jdbc.OracleRowIDCreateQuery(), objectID, fileID, blockID).Scan(&startRowID)
-			if err != nil {
-				return nil, err
-			}
-			startRowIDs = append(startRowIDs, startRowID)
-			isFirstChunk = false
-		}
-
-		currentBlocks += blocks
-
-		// If we hit our block limit, reset the counter so the next loop starts a new chunk
-		if currentBlocks >= blocksPerChunk {
-			currentBlocks = 0
-		}
-	}
-
-	chunks.Insert(types.Chunk{
-		Min: nil,
-		Max: startRowIDs[0],
-	})
-
-	// 3. Format the startRowIDs into the Min/Max Chunk structure
-	for idx, startRowID := range startRowIDs {
-		var maxRowID interface{}
-		if idx < len(startRowIDs)-1 {
-			maxRowID = startRowIDs[idx+1]
-		} else {
-			maxRowID = nil
-		}
-
-		chunks.Insert(types.Chunk{
-			Min: startRowID,
-			Max: maxRowID,
-		})
-	}
-
 	return chunks, nil
 }
 
 // splitViaTableIteration chunks a table by sequentially scanning and counting rows
-func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.StreamInterface, approxRowCount int64) (*types.Set[types.Chunk], error) {
-	var minRowId, maxRowId string
+func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.StreamInterface, avgRowSize float64) (*types.Set[types.Chunk], error) {
+	chunks := types.NewSet[types.Chunk]()
 
-	// 1. Get the absolute boundaries and total row count for the table
+	var minRowId, maxRowId string
 	query := jdbc.OracleMinMaxRowIDQuery(stream)
 	err := o.client.QueryRowContext(ctx, query).Scan(&minRowId, &maxRowId)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get min-max row id and total rows: %s", err)
+		return nil, fmt.Errorf("failed to get min-max row id: %s", err)
 	}
-
-	chunks := types.NewSet[types.Chunk]()
-
-	// Handle empty tables gracefully
-	if approxRowCount == 0 || minRowId == "" {
-		return chunks, nil
-	}
-
-	// 2. Determine the optimal number of rows per chunk
-	query = jdbc.OracleTableSizeQuery(stream)
-	var totalTableSize int64
-	err = o.client.QueryRowContext(ctx, query).Scan(&totalTableSize)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get total size of table: %s", err)
-	}
-
-	avgRowSize := math.Ceil(float64(totalTableSize) / float64(approxRowCount))
-	rowsPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(avgRowSize)))
+	rowsPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSize))
 
 	currRowId := minRowId
+	isFirstChunk := true
 
-	chunks.Insert(types.Chunk{
-		Min: nil,
-		Max: currRowId,
-	})
-
-	// 3. Iterate to create contiguous chunks
 	for {
 		var nextRowId string
 		var rowCount int64
 
-		// Fetch the ROWID that is 'rowsPerChunk' ahead of our current ROWID
 		nextRowIdQuery := jdbc.NextRowIDQuery(stream, currRowId, rowsPerChunk)
 		err = o.client.QueryRowContext(ctx, nextRowIdQuery).Scan(&nextRowId, &rowCount)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get next row id: %s", err)
 		}
 
-		// 4. Check if we've reached the end of the table
+		if isFirstChunk {
+			chunks.Insert(types.Chunk{
+				Min: nil,
+				Max: currRowId,
+			})
+			isFirstChunk = false
+		}
+
 		if rowCount < rowsPerChunk || nextRowId == maxRowId {
-			// Last chunk: upper boundary is nil to catch everything to the end
 			chunks.Insert(types.Chunk{
 				Min: currRowId,
 				Max: nil,
@@ -219,7 +134,6 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 			break
 		}
 
-		// 5. Insert the standard chunk and advance the pointer
 		chunks.Insert(types.Chunk{
 			Min: currRowId,
 			Max: nextRowId,
@@ -295,3 +209,74 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 
 	return chunks, rows.Err()
 }
+
+// TODO: Add support for oracle extents based chunking strategy
+/*
+splitViaExtents manually chunks a table by using extents of the table in OracleDB
+func (o *Oracle) splitViaExtents(ctx context.Context, stream types.StreamInterface, blocksPerChunk int64) (*types.Set[types.Chunk], error) {
+	chunks := types.NewSet[types.Chunk]()
+
+	// 1. Get the Table's Data Object ID, Fetch all physical extents for the table
+	rows, err := o.client.QueryContext(ctx, jdbc.OracleExtentsQuery(), stream.Namespace(), stream.Name())
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch extents: %s", err)
+	}
+	defer rows.Close()
+
+	var (
+		startRowIDs   []string
+		currentBlocks int64 = 0
+		isFirstChunk        = true
+	)
+
+	// 2. Iterate through extents and group them into chunks
+	for rows.Next() {
+		var fileID, blockID, blocks, objectID int64
+		err = rows.Scan(&fileID, &blockID, &blocks, &objectID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan extents: %s", err)
+		}
+
+		// If this is the start of a new chunk, generate its starting ROWID
+		if isFirstChunk || currentBlocks == 0 {
+			var startRowID string
+			// Uses DBMS_ROWID.ROWID_CREATE to convert file/block to ROWID
+			err = o.client.QueryRowContext(ctx, jdbc.OracleRowIDCreateQuery(), objectID, fileID, blockID).Scan(&startRowID)
+			if err != nil {
+				return nil, err
+			}
+			startRowIDs = append(startRowIDs, startRowID)
+			isFirstChunk = false
+		}
+
+		currentBlocks += blocks
+
+		// If we hit our block limit, reset the counter so the next loop starts a new chunk
+		if currentBlocks >= blocksPerChunk {
+			currentBlocks = 0
+		}
+	}
+
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: startRowIDs[0],
+	})
+
+	// 3. Format the startRowIDs into the Min/Max Chunk structure
+	for idx, startRowID := range startRowIDs {
+		var maxRowID interface{}
+		if idx < len(startRowIDs)-1 {
+			maxRowID = startRowIDs[idx+1]
+		} else {
+			maxRowID = nil
+		}
+
+		chunks.Insert(types.Chunk{
+			Min: startRowID,
+			Max: maxRowID,
+		})
+	}
+
+	return chunks, nil
+}
+*/
