@@ -200,6 +200,10 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				return false
 			}
 			if !isLegacy {
+				if len(filter.Conditions) > 2 {
+					logger.Warnf("Skipping; Configured Stream %s found invalid filter: greater than 2 conditions are not supported", elem.ID())
+					return false
+				}
 				for _, cond := range filter.Conditions {
 					if cond.Column == "" {
 						logger.Warnf("Skipping; Configured Stream %s found invalid filter: empty column", elem.ID())

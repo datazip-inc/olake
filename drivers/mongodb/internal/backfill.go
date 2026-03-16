@@ -493,8 +493,6 @@ func (m *Mongo) buildFilter(stream types.StreamInterface) (bson.D, error) {
 		allConditions = append(allConditions, buildMongoCondition(isLegacy, filter.Conditions[0]))
 	case len(filter.Conditions) == 2:
 		allConditions = append(allConditions, bson.D{{Key: "$" + filter.LogicalOperator, Value: bson.A{buildMongoCondition(isLegacy, filter.Conditions[0]), buildMongoCondition(isLegacy, filter.Conditions[1])}}})
-	default:
-		return nil, fmt.Errorf("multiple conditions are not supported in filter")
 	}
 
 	return bson.D{{Key: "$and", Value: allConditions}}, nil

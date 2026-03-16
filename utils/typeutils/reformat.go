@@ -121,7 +121,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 }
 
 // ParseFilterValue parses v into dataType strictly and returns the typed value.
-// For timestamp types, an unparseable string always returns an error (unlike
+// For timestamp types, an unparseable string always returns an error
 // ReformatValue which silently falls back to epoch when isTimestampInDB=true).
 func ParseFilterValue(dataType types.DataType, v any) (any, error) {
 	switch dataType {
