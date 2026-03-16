@@ -197,8 +197,8 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 //   - error:      non-nil only if the legacy string filter is non-empty and fails
 //     to parse; new structured filters do not return parse errors here.
 func (s *ConfiguredStream) GetFilter() (FilterConfig, bool, error) {
-	//new filter input
-	if s.StreamMetadata.FilterConfig != nil && len(s.StreamMetadata.FilterConfig.Conditions) > 0 {
+	//new filter input — only apply structured filter_config when normalization is enabled
+	if s.StreamMetadata.Normalization && s.StreamMetadata.FilterConfig != nil && len(s.StreamMetadata.FilterConfig.Conditions) > 0 {
 		s.StreamMetadata.FilterConfig.LogicalOperator = utils.Reformat(s.StreamMetadata.FilterConfig.LogicalOperator)
 		return *s.StreamMetadata.FilterConfig, false, nil
 	}
