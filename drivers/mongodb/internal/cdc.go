@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -64,13 +65,28 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
-func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
+	mtState := metadataStates[stream.ID()]
+	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
+	if prevResumeToken == nil {
+		return nil, fmt.Errorf("resume token not found for stream: %s", stream.ID())
+	}
+
+	// check for recoverySync (sync after failiure with broken state)
+	if mtState != nil {
+		cmp := typeutils.Compare(prevResumeToken, mtState)
+		if cmp != 0 {
+			logger.Infof("Stream[%s] resume token mismatch, updating resume token in state", stream.ID())
+			prevResumeToken = mtState
+		}
+	}
+
 	// lastOplogTime is the latest timestamp of any operation applied in the MongoDB cluster
 	lastOplogTime, err := m.getClusterOpTime(ctx, m.config.Database)
 	if err != nil {
 		logger.Warnf("Failed to get cluster op time: %s", err)
-		return err
+		return nil, err
 	}
 	pipeline := mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
@@ -80,40 +96,35 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
-	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
-	if prevResumeToken == nil {
-		return fmt.Errorf("resume token not found for stream: %s", stream.ID())
-	}
-
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
 	logger.Infof("Starting CDC sync for stream[%s] with resume token[%s]", stream.ID(), prevResumeToken)
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
-		return fmt.Errorf("failed to open change stream: %s", err)
+		return nil, fmt.Errorf("failed to open change stream: %s", err)
 	}
 	defer cursor.Close(ctx)
 
 	for {
 		hasNext := cursor.TryNext(ctx)
 		if err := cursor.Err(); err != nil {
-			return fmt.Errorf("change stream error: %s", err)
+			return nil, fmt.Errorf("change stream error: %s", err)
 		}
 
 		if hasNext {
-			if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
-				return err
+			if err := m.handleChangeDoc(ctx, cursor, stream, prevResumeToken.(string), OnMessage); err != nil {
+				return nil, err
 			}
 		}
 
 		// Check boundary AFTER emitting
-		if err := m.handleStreamCatchup(ctx, cursor, stream, lastOplogTime); err != nil {
+		if latestResumeToken, err := m.handleStreamCatchup(ctx, cursor, stream, lastOplogTime); err != nil {
 			if errors.Is(err, ErrIdleTermination) {
 				// graceful termination requested by helper
 				logger.Infof("change stream %s caught up to cluster opTime; terminating gracefully", stream.ID())
-				return nil
+				return latestResumeToken, nil
 			}
-			return err
+			return nil, err
 		}
 
 		if !hasNext {
@@ -124,10 +135,10 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, OnMessage ab
 	}
 }
 
-func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastOplogTime primitive.Timestamp) error {
+func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, lastOplogTime primitive.Timestamp) (string, error) {
 	token, err := GetResumeToken(cursor, stream.ID())
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// check pointing post batch resume token
@@ -135,18 +146,18 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 
 	streamOpTime, err := decodeResumeTokenOpTime(token)
 	if err != nil {
-		return fmt.Errorf("failed to decode resume token for stream %s: %s", stream.ID(), err)
+		return token, fmt.Errorf("failed to decode resume token for stream %s: %s", stream.ID(), err)
 	}
 
 	// If stream is caught up -> request graceful termination
 	if !lastOplogTime.After(streamOpTime) {
-		return ErrIdleTermination
+		return token, ErrIdleTermination
 	}
 
-	return nil
+	return token, nil
 }
 
-func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, startingResumeToken string, OnMessage abstract.CDCMsgFn) error {
 	var record CDCDocument
 	if err := cursor.Decode(&record); err != nil {
 		return fmt.Errorf("error while decoding: %s", err)

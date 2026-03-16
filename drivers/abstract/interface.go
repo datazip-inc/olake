@@ -37,6 +37,6 @@ type DriverInterface interface {
 	CDCSupported() bool
 	ChangeStreamConfig() (sequential bool, parallel bool, concurrent bool)
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
-	StreamChanges(ctx context.Context, identifier int, processFn CDCMsgFn) error
+	StreamChanges(ctx context.Context, identifier int, metadataState map[string]any, processFn CDCMsgFn) (any, error)
 	PostCDC(ctx context.Context, identifier int) error // to save state
 }

@@ -1,6 +1,8 @@
 package driver
 
-import "github.com/datazip-inc/olake/types"
+import (
+	"github.com/datazip-inc/olake/types"
+)
 
 // TODO: add support for utf-8 invalid and binary datatypes
 

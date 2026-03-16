@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -73,24 +74,57 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			incrementalCtx, incrementalCtxCancel := context.WithCancel(gCtx)
 			defer incrementalCtxCancel()
 
-			threadID := generateThreadID(stream.ID(), "")
-			inserter, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
+			threadID := generateThreadID(stream.ID(), fmt.Sprintf("%v_%v", maxPrimaryCursorValue, maxSecondaryCursorValue))
+			inserter, prevMetadataState, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
 			if err != nil {
 				return fmt.Errorf("failed to create new writer thread: %s", err)
 			}
 
+			defer func(ctx context.Context) {
+				if ctx.Err() != nil {
+					return
+				}
+				// Save cursor state on success
+				a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
+				a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
+			}(incrementalCtx)
+
+			defer func() {
+				mtState := map[string]any{primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue)}
+				if secondaryCursor != "" {
+					mtState[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
+				}
+				handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, mtState)
+			}()
+
+			// prevMetadataState id will be same as thread id if the state file failed to update
+			if prevMetadataState != nil && threadID == prevMetadataState.ID && prevMetadataState.State != nil {
+				stateString, ok := prevMetadataState.State.(string)
+				if !ok {
+					return fmt.Errorf("failed to unmarshal previous metadata state of type[%T]", prevMetadataState.State)
+				}
+
+				var mtState map[string]any
+				if err := json.Unmarshal([]byte(stateString), &mtState); err != nil {
+					return fmt.Errorf("failed to unmarshal previous metadata state: %s", err)
+				}
+
+				// detect cursor value difference
+				if mtState[primaryCursor] == nil || (secondaryCursor != "" && mtState[secondaryCursor] == nil) {
+					return fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID)
+				}
+
+				logger.Infof("Stream[%s] cursor(s) mismatch, updating cursor(s) in state", stream.ID())
+				maxPrimaryCursorValue = mtState[primaryCursor]
+				if secondaryCursor != "" {
+					maxSecondaryCursorValue = mtState[secondaryCursor]
+				}
+				return nil
+			}
+
 			logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
 
-			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID,
-				func(ctx context.Context) error {
-					if ctx.Err() != nil {
-						return ctx.Err()
-					}
-					// Save cursor state on success
-					a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
-					a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
-					return nil
-				})()
+			filterDataBySelectedColumnsFn := stream.RetainSelectedColumns()
 
 			// No retry logic here - retry happens at Read level
 			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
@@ -100,7 +134,8 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 					constants.OpType:         "u",
 					constants.OlakeTimestamp: time.Now().UTC(),
 				}
-				return inserter.Push(ctx, types.CreateRawRecord(record, olakeColumns))
+				filteredData := filterDataBySelectedColumnsFn(record)
+				return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
 			})
 		})
 		return nil
