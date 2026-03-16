@@ -199,8 +199,11 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 func (s *ConfiguredStream) GetFilter() (FilterConfig, bool, error) {
 	//new filter input — only apply structured filter_config when normalization is enabled
 	if s.StreamMetadata.Normalization && s.StreamMetadata.FilterConfig != nil && len(s.StreamMetadata.FilterConfig.Conditions) > 0 {
-		s.StreamMetadata.FilterConfig.LogicalOperator = utils.Reformat(s.StreamMetadata.FilterConfig.LogicalOperator)
-		return *s.StreamMetadata.FilterConfig, false, nil
+		// Copy before normalizing to avoid a data race: GetFilter is called concurrently
+		// from multiple chunk goroutines that share the same ConfiguredStream pointer.
+		fc := *s.StreamMetadata.FilterConfig
+		fc.LogicalOperator = utils.Reformat(fc.LogicalOperator)
+		return fc, false, nil
 	}
 
 	// legacy filter input
