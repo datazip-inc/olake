@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"strings"
@@ -83,21 +84,14 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
 
-	if c.SSLConfiguration.ServerCA != "" {
-		query.Add("sslrootcert", c.SSLConfiguration.ServerCA)
-	}
-
-	if c.SSLConfiguration.ClientCert != "" {
-		query.Add("sslcert", c.SSLConfiguration.ClientCert)
-	}
-
-	if c.SSLConfiguration.ClientKey != "" {
-		query.Add("sslkey", c.SSLConfiguration.ClientKey)
-	}
 	parsed.RawQuery = query.Encode()
 	c.Connection = parsed
 
 	return nil
+}
+
+func (c *Config) buildTLSConfig() (*tls.Config, error) {
+	return utils.BuildTLSConfig(c.Host, c.SSLConfiguration)
 }
 
 type Table struct {

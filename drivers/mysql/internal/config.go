@@ -2,7 +2,6 @@ package driver
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"maps"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // Config represents the configuration for connecting to a MySQL database
@@ -63,7 +61,7 @@ func (c *Config) URI() (string, error) {
 			if err != nil {
 				return "", fmt.Errorf("failed to build TLS config: %s", err)
 			}
-			
+
 			tlsConfigName := "mysql_" + utils.ULID()
 			if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
 				return "", fmt.Errorf("failed to register TLS config: %s", err)
@@ -86,76 +84,7 @@ func (c *Config) URI() (string, error) {
 
 // buildTLSConfig builds a custom TLS configuration for certificate-based SSL
 func (c *Config) buildTLSConfig() (*tls.Config, error) {
-	// For 'require' mode: encrypt the connection but don't verify server identity.
-	// This is the intended behavior per MySQL SSL mode specification.
-	// #nosec G402 -- InsecureSkipVerify is intentional for 'require' mode
-	if c.SSLConfiguration.Mode == utils.SSLModeRequire {
-		return &tls.Config{
-			InsecureSkipVerify: true, // #nosec G402
-			MinVersion:         tls.VersionTLS12,
-		}, nil
-	}
-
-	rootCertPool := x509.NewCertPool()
-
-	if c.SSLConfiguration.ServerCA != "" {
-		if ok := rootCertPool.AppendCertsFromPEM([]byte(c.SSLConfiguration.ServerCA)); !ok {
-			return nil, fmt.Errorf("failed to append CA certificate")
-		}
-	}
-
-	serverName := c.Host
-	tlsConfig := &tls.Config{
-		RootCAs:    rootCertPool,
-		MinVersion: tls.VersionTLS12,
-	}
-
-	// For verify-ca mode: verify certificate chain but NOT hostname
-	// This is done by skipping hostname verification only
-	if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA {
-		tlsConfig.InsecureSkipVerify = true
-		tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
-			if len(rawCerts) == 0 {
-				return fmt.Errorf("no server certificate provided")
-			}
-			cert, err := x509.ParseCertificate(rawCerts[0])
-			if err != nil {
-				return fmt.Errorf("failed to parse server certificate: %w", err)
-			}
-
-			intermediates := x509.NewCertPool()
-			for i := 1; i < len(rawCerts); i++ {
-				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
-				if err != nil {
-					logger.Warnf("failed to parse intermediate certificate at position %d: %v", i, err)
-					continue
-				}
-				intermediates.AddCert(intermediateCert)
-			}
-
-			opts := x509.VerifyOptions{
-				Roots:         rootCertPool,
-				Intermediates: intermediates,
-			}
-			if _, err := cert.Verify(opts); err != nil {
-				return fmt.Errorf("failed to verify server certificate against CA: %w", err)
-			}
-			return nil
-		}
-	} else {
-		// For verify-full mode: verify both certificate chain AND hostname
-		tlsConfig.ServerName = serverName
-	}
-
-	if c.SSLConfiguration.ClientCert != "" && c.SSLConfiguration.ClientKey != "" {
-		cert, err := tls.X509KeyPair([]byte(c.SSLConfiguration.ClientCert), []byte(c.SSLConfiguration.ClientKey))
-		if err != nil {
-			return nil, fmt.Errorf("failed to load client certificate and key: %s", err)
-		}
-		tlsConfig.Certificates = []tls.Certificate{cert}
-	}
-
-	return tlsConfig, nil
+	return utils.BuildTLSConfig(c.Host, c.SSLConfiguration)
 }
 
 // Validate checks the configuration for any missing or invalid fields
