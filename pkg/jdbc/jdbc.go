@@ -946,27 +946,25 @@ func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 	return fmt.Sprintf(`SELECT cols.column_name FROM all_constraints cons, all_cons_columns cols WHERE cons.constraint_type = 'P' AND cons.constraint_name = cols.constraint_name AND cons.owner = cols.owner AND cons.owner = '%s' AND cols.table_name = '%s'`, schemaName, tableName)
 }
 
-// OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB
-func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
+// OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB.
+// Both chunk.Min and chunk.Max nil is invalid and returns an error.
+func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) (string, error) {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Oracle)
 	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
-	if chunk.Min == nil {
-		if chunk.Max != nil {
-			return fmt.Sprintf("SELECT * FROM %s WHERE ROWID < '%v' %s", quotedTable, chunk.Max.(string), filterClause)
-		}
-		logger.Warnf("Nil to nil chunk received for table %s", stream.Name())
-		return ""
+	var rowidCond string
+	switch {
+	case chunk.Min == nil && chunk.Max == nil:
+		return "", fmt.Errorf("invalid chunk for table %s: both min and max are nil", stream.Name())
+	case chunk.Min == nil && chunk.Max != nil:
+		rowidCond = fmt.Sprintf("ROWID < '%v'", chunk.Max.(string))
+	case chunk.Min != nil && chunk.Max == nil:
+		rowidCond = fmt.Sprintf("ROWID >= '%v'", chunk.Min.(string))
+	default:
+		rowidCond = fmt.Sprintf("ROWID >= '%v' AND ROWID < '%v'", chunk.Min.(string), chunk.Max.(string))
 	}
 
-	chunkMin := chunk.Min.(string)
-	if chunk.Max != nil {
-		chunkMax := chunk.Max.(string)
-		return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
-			quotedTable, chunkMin, chunkMax, filterClause)
-	}
-	return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' %s",
-		quotedTable, chunkMin, filterClause)
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s %s", quotedTable, rowidCond, filterClause), nil
 }
 
 /* Oracle Extents Based Chunking Strategy Related Queries

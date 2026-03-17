@@ -41,8 +41,10 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 
 	logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 
-	stmt := jdbc.OracleChunkScanQuery(stream, chunk, filter)
-	// Use transaction for querielen(args)s
+	stmt, err := jdbc.OracleChunkScanQuery(stream, chunk, filter)
+	if err != nil {
+		return fmt.Errorf("failed to build chunk scan query: %s", err)
+	}
 	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
 		return tx.QueryContext(ctx, query, args...)
@@ -72,28 +74,17 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		return nil, fmt.Errorf("failed to check for rows: %s", err)
 	}
 
-	query = jdbc.OracleBlockSizeQuery()
-	var blockSize int64
-	err = o.client.QueryRowContext(ctx, query).Scan(&blockSize)
-	if err != nil || blockSize == 0 {
-		logger.Warnf("failed to get block size from query, switching to default block size value 8192")
-		blockSize = 8192
-	}
-	blocksPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
-
-	logger.Debugf("Chunking via DBMS_PARALLEL_EXECUTE for %s.%s", stream.Namespace(), stream.Name())
-	chunks, err := o.splitViaRowId(ctx, stream, blocksPerChunk)
-
+	chunks, err := o.splitViaRowId(ctx, stream)
 	// If the fast RowID strategy fails for ANY reason (Read-Only, Permissions, etc.) fallback to Table Iteration strategy
 	if err != nil {
-		logger.Debugf("DBMS Parallel Execute failed (%v). Automatically falling back to Table Iteration strategy for stream [%s.%s]", err, stream.Namespace(), stream.Name())
+		logger.Debugf("DBMS Parallel Execute strategy failed (%v). Automatically falling back to Table Iteration strategy for stream [%s.%s]", err, stream.Namespace(), stream.Name())
 
 		return o.splitViaTableIteration(ctx, stream, avgRowSize)
 	}
 	return chunks, nil
 }
 
-// splitViaTableIteration chunks a table by sequentially scanning and counting rows
+// TODO: Make this function more efficient by using a single query to get all the rowids in the table using one query
 func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.StreamInterface, avgRowSize float64) (*types.Set[types.Chunk], error) {
 	chunks := types.NewSet[types.Chunk]()
 
@@ -106,7 +97,10 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 	rowsPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSize))
 
 	currRowId := minRowId
-	isFirstChunk := true
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: currRowId,
+	})
 
 	for {
 		var nextRowId string
@@ -116,14 +110,6 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 		err = o.client.QueryRowContext(ctx, nextRowIdQuery).Scan(&nextRowId, &rowCount)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get next row id: %s", err)
-		}
-
-		if isFirstChunk {
-			chunks.Insert(types.Chunk{
-				Min: nil,
-				Max: currRowId,
-			})
-			isFirstChunk = false
 		}
 
 		if rowCount < rowsPerChunk || nextRowId == maxRowId {
@@ -146,10 +132,20 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 }
 
 // splitViaRowId chunks a table by using DBMS_PARALLEL_EXECUTE.CREATE_CHUNKS_BY_ROWID strategy
-func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface, blocksPerChunk int64) (*types.Set[types.Chunk], error) {
+func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+	logger.Debugf("Chunking via DBMS_PARALLEL_EXECUTE for %s.%s", stream.Namespace(), stream.Name())
+	query := jdbc.OracleBlockSizeQuery()
+	var blockSize int64
+	err := o.client.QueryRowContext(ctx, query).Scan(&blockSize)
+	if err != nil || blockSize == 0 {
+		logger.Warnf("failed to get block size from query, switching to default block size value 8192")
+		blockSize = 8192
+	}
+	blocksPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
+
 	taskName := fmt.Sprintf("chunk_%s_%s_%s", stream.Namespace(), stream.Name(), time.Now().Format("20060102150405.000000"))
-	query := jdbc.OracleTaskCreationQuery(taskName)
-	_, err := o.client.ExecContext(ctx, query)
+	query = jdbc.OracleTaskCreationQuery(taskName)
+	_, err = o.client.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create task: %s", err)
 	}
