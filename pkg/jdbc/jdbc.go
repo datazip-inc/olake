@@ -1006,7 +1006,7 @@ func NextRowIDQuery(stream types.StreamInterface, ROWID string, chunkSize int64)
 // OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
 func OracleTableRowStatsQuery() string {
 	// NVL(AVG_ROW_LEN, 2048) is used to handle the case where the average row length is not available due to outdated stats we are assuming 2kb
-	return `SELECT NUM_ROWS, NVL(AVG_ROW_LEN, 2048) AS avg_row_len FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
+	return `SELECT NUM_ROWS, NVL(AVG_ROW_LEN, 300) AS avg_row_len FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
 }
 
 // OracleBlockSizeQuery returns the query to fetch the size of a block in bytes in OracleDB

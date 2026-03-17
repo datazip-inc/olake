@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -62,6 +63,8 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 	if err != nil {
 		logger.Debugf("Table statistics not available for %s.%s, progress tracking disabled. Run DBMS_STATS.GATHER_TABLE_STATS to enable.", stream.Namespace(), stream.Name())
 	}
+	// If the oracle table stats are outdated we can get avg row size as 0 so we are assuming 300 bytes
+	avgRowSize = utils.Ternary(avgRowSize > 0, avgRowSize, 300).(float64)
 	pool.AddRecordsToSyncStats(approxRowCount)
 
 	query := jdbc.OracleEmptyCheckQuery(stream)
