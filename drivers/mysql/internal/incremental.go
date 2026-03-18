@@ -49,5 +49,12 @@ func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInt
 	if err != nil {
 		return nil, nil, err
 	}
-	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
+	return m.normalizeCursorValue(maxPrimaryCursorValue), m.normalizeCursorValue(maxSecondaryCursorValue), nil
+}
+
+func (m *MySQL) normalizeCursorValue(value any) any {
+	if v, ok := value.([]byte); ok {
+		return string(v)
+	}
+	return value
 }

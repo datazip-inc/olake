@@ -47,5 +47,12 @@ func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamIn
 	if err != nil {
 		return nil, nil, err
 	}
-	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
+	return o.normalizeCursorValue(maxPrimaryCursorValue), o.normalizeCursorValue(maxSecondaryCursorValue), nil
+}
+
+func (o *Oracle) normalizeCursorValue(value any) any {
+	if v, ok := value.([]byte); ok {
+		return string(v)
+	}
+	return value
 }

@@ -45,5 +45,12 @@ func (p *Postgres) FetchMaxCursorValues(ctx context.Context, stream types.Stream
 	if err != nil {
 		return nil, nil, err
 	}
-	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
+	return p.normalizeCursorValue(maxPrimaryCursorValue), p.normalizeCursorValue(maxSecondaryCursorValue), nil
+}
+
+func (p *Postgres) normalizeCursorValue(value any) any {
+	if v, ok := value.([]byte); ok {
+		return string(v)
+	}
+	return value
 }
