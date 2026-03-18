@@ -1,4 +1,4 @@
-package driver
+package testutils
 
 import (
 	"crypto/rand"
@@ -11,26 +11,25 @@ import (
 	"time"
 )
 
-type testCerts struct {
+type TestCerts struct {
 	CACert     string
 	ClientCert string
 	ClientKey  string
 }
 
 var (
-	generatedCerts *testCerts
+	generatedCerts *TestCerts
 	certOnce       sync.Once
 )
 
-// generateTestCerts creates self-signed test certificates for SSL testing
-func generateTestCerts() *testCerts {
+// GenerateTestCerts creates self-signed test certificates for SSL testing.
+func GenerateTestCerts() *TestCerts {
 	certOnce.Do(func() {
 		caKey, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			panic("failed to generate CA key: " + err.Error())
 		}
 
-		// CA certificate template
 		caTemplate := &x509.Certificate{
 			SerialNumber: big.NewInt(1),
 			Subject: pkix.Name{
@@ -56,7 +55,6 @@ func generateTestCerts() *testCerts {
 			Bytes: caCertDER,
 		})
 
-		// Client certificate for mutual TLS
 		clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			panic("failed to generate client key: " + err.Error())
@@ -68,7 +66,7 @@ func generateTestCerts() *testCerts {
 				Country:            []string{"IN"},
 				Organization:       []string{"Olake Test"},
 				OrganizationalUnit: []string{"Testing"},
-				CommonName:         "mysql",
+				CommonName:         "olake-client",
 			},
 			NotBefore:   time.Now().Add(-1 * time.Hour),
 			NotAfter:    time.Now().Add(24 * time.Hour),
@@ -91,7 +89,7 @@ func generateTestCerts() *testCerts {
 			Bytes: x509.MarshalPKCS1PrivateKey(clientKey),
 		})
 
-		generatedCerts = &testCerts{
+		generatedCerts = &TestCerts{
 			CACert:     string(caCertPEM),
 			ClientCert: string(clientCertPEM),
 			ClientKey:  string(clientKeyPEM),
