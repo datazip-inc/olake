@@ -26,6 +26,8 @@ const (
 	SSLFieldClientKey  SSLField = "ssl.client_key"
 )
 
+var ErrTLSConfigNotRequired = errors.New("tls config not required")
+
 // SSLConfig is a dto for deserialized SSL configuration for Postgres
 type SSLConfig struct {
 	Mode       string `mapstructure:"mode,omitempty" json:"mode,omitempty" yaml:"mode,omitempty"`
@@ -57,7 +59,7 @@ func (sc *SSLConfig) Validate() error {
 // BuildTLSConfig returns a TLS config based on OLake SSL mode semantics.
 func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 	if sc == nil || sc.Mode == SSLModeDisable {
-		return nil, nil
+		return nil, ErrTLSConfigNotRequired
 	}
 
 	// For 'require' mode: encrypt connection but skip server identity verification.
