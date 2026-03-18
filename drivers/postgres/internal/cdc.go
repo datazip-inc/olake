@@ -176,8 +176,14 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 	default:
 		socket := p.replicator.Socket()
 		finalLSN := socket.ClientXLogPos.String()
+		// Acknowledge the replication slot BEFORE writing the state file.
+		// If the ack fails the state stays at its old value, so both the slot and
+		// the state file remain consistent and the next run can simply retry.
+		if err := waljs.AcknowledgeLSN(ctx, p.client, socket, false); err != nil {
+			return err
+		}
 		p.state.SetGlobal(waljs.WALState{LSN: finalLSN})
-		return waljs.AcknowledgeLSN(ctx, p.client, socket, false)
+		return nil
 	}
 }
 

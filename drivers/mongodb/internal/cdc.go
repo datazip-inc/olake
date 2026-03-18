@@ -12,7 +12,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -73,13 +72,32 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 		return nil, fmt.Errorf("resume token not found for stream: %s", stream.ID())
 	}
 
-	// check for recoverySync (sync after failiure with broken state)
+	// Asymmetric recovery check — mirrors the postgres/mysql pattern:
+	//   metadata > state  →  metadata is further ahead (crash-recovery path: metadata
+	//                         was committed to the destination but state write failed).
+	//                         Use the metadata token so we don't re-read already-written events.
+	//   state >= metadata →  state is current or ahead; read forward normally.
 	if mtState != nil {
-		cmp := typeutils.Compare(prevResumeToken, mtState)
-		if cmp != 0 {
-			logger.Infof("Stream[%s] resume token mismatch, updating resume token in state", stream.ID())
-			prevResumeToken = mtState
+		mtStateStr, ok := mtState.(string)
+		if !ok {
+			return nil, fmt.Errorf("failed to typecast metadata state of type[%T] to string", mtState)
 		}
+		prevStateStr, ok := prevResumeToken.(string)
+		if !ok {
+			return nil, fmt.Errorf("failed to typecast state resume token of type[%T] to string", prevResumeToken)
+		}
+
+		cmp, err := compareResumeTokens(prevStateStr, mtStateStr)
+		if err != nil {
+			// Tokens could not be decoded — fall back to metadata for safety
+			logger.Warnf("Stream[%s] failed to compare resume tokens (%s), using metadata token", stream.ID(), err)
+			prevResumeToken = mtStateStr
+		} else if cmp < 0 {
+			// metadata is ahead of state: crash-recovery path
+			logger.Infof("Stream[%s] metadata ahead of state, using metadata resume token for recovery", stream.ID())
+			prevResumeToken = mtStateStr
+		}
+		// cmp >= 0: state is at or ahead of metadata — keep state, read forward normally
 	}
 
 	// lastOplogTime is the latest timestamp of any operation applied in the MongoDB cluster
@@ -271,6 +289,33 @@ func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 		T: binary.BigEndian.Uint32(dataBytes[1:5]),
 		I: binary.BigEndian.Uint32(dataBytes[5:9]),
 	}, nil
+}
+
+// compareResumeTokens compares two MongoDB resume token strings by their encoded
+// cluster timestamps. Returns -1 if a is older than b, 0 if equal, 1 if a is newer.
+// Uses decodeResumeTokenOpTime so all timestamp parsing stays in one place.
+func compareResumeTokens(a, b string) (int, error) {
+	tsA, err := decodeResumeTokenOpTime(a)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode state resume token: %s", err)
+	}
+	tsB, err := decodeResumeTokenOpTime(b)
+	if err != nil {
+		return 0, fmt.Errorf("failed to decode metadata resume token: %s", err)
+	}
+	if tsA.T < tsB.T {
+		return -1, nil
+	}
+	if tsA.T > tsB.T {
+		return 1, nil
+	}
+	if tsA.I < tsB.I {
+		return -1, nil
+	}
+	if tsA.I > tsB.I {
+		return 1, nil
+	}
+	return 0, nil
 }
 
 // GetResumeToken extracts and validates the resume token string from a change stream cursor
