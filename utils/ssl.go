@@ -118,7 +118,7 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 		tlsConfig.ServerName = host
 	}
 
-	if sc.ClientCert != "" || sc.ClientKey != "" {
+	if sc.ClientCert != "" && sc.ClientKey != "" {
 		clientCertPEM, err := readPEMData(sc.ClientCert, SSLFieldClientCert, true)
 		if err != nil {
 			return nil, err
