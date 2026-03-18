@@ -49,7 +49,6 @@
         },
         "ssl": {
             "type": "object",
-            "description": "SSL/TLS configuration for secure database connections",
             "properties": {
                 "mode": {
                     "type": "string",
@@ -192,7 +191,9 @@
                             "const": "no_tunnel"
                         }
                     },
-                    "required": ["type"]
+                    "required": [
+                        "type"
+                    ]
                 },
                 {
                     "type": "object",
