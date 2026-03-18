@@ -211,10 +211,29 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 	return stream, pkRows.Err()
 }
 
+// tzNaiveOracleTypes are Oracle column types that store wall-clock time with no timezone.
+// go-ora attaches the session timezone offset to these values when returning time.Time,
+// which breaks cursor comparisons. Strip the offset so the wall-clock digits are preserved
+// as UTC, making all comparisons timezone-consistent.
+var tzNaiveOracleTypes = map[string]bool{
+	"timestampdty": true,
+	"date":         true,
+}
+
 func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, oracleTypeToDataTypes)
-	return typeutils.ReformatValue(olakeType, value)
+	result, err := typeutils.ReformatValue(olakeType, value)
+	if err != nil {
+		return result, err
+	}
+	// Strip the session-timezone offset that go-ora attaches to timezone-naive columns.
+	if tzNaiveOracleTypes[strings.ToLower(columnType)] {
+		if t, ok := result.(time.Time); ok {
+			result = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.UTC)
+		}
+	}
+	return result, nil
 }

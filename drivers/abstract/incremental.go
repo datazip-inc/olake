@@ -197,6 +197,14 @@ func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
 		if a.driver.Type() == string(constants.DB2) {
 			return v.Format(constants.DB2StateTimestampFormat)
 		}
+		// Oracle plain TIMESTAMP is timezone-naive (wall-clock only). go-ora attaches the
+		// session timezone offset when returning time.Time values. Stripping the offset
+		// (rather than calling .UTC()) preserves the wall-clock digits so that
+		// TO_TIMESTAMP comparisons in Oracle match correctly across all Oracle versions.
+		if a.driver.Type() == string(constants.Oracle) {
+			wallClock := time.Date(v.Year(), v.Month(), v.Day(), v.Hour(), v.Minute(), v.Second(), v.Nanosecond(), time.UTC)
+			return wallClock.Format(constants.DefaultStateTimestampFormat)
+		}
 		return v.UTC().Format(constants.DefaultStateTimestampFormat)
 	case primitive.ObjectID:
 		return v.Hex()
