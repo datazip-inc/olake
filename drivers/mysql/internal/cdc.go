@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlobalState, streamsToSync []types.StreamInterface) (*binlog.Connection, error) {
@@ -82,10 +83,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	}
 
 	var finishedStreams []string
-	currentBinlogPos, err := binlog.GetCurrentBinlogPosition(ctx, m.client)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current binlog position: %s", err)
-	}
+	var recoveryPos mysql.Position
 
 	for streamID, rawMtState := range metadataStates {
 		if rawMtState == nil {
@@ -104,7 +102,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 			//   - metadata is on a later binlog file (e.g. mysql-bin.000043 vs .000042)
 			if mysqlMetadataState.Position.Compare(mySQLGlobalState.State.Position) > 0 {
 				// metadata ahead of state: genuine crash-recovery path
-				currentBinlogPos = mysqlMetadataState.Position
+				recoveryPos = mysqlMetadataState.Position
 				finishedStreams = append(finishedStreams, streamID)
 			}
 			// state >= metadata: blank sync scenario — stream forward normally
@@ -135,14 +133,16 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	// persist binlog connection for post cdc
 	m.BinlogConn = conn
 
-	err = m.BinlogConn.StreamMessages(ctx, m.client, currentBinlogPos, OnMessage)
+	err = m.BinlogConn.StreamMessages(ctx, m.client, recoveryPos, OnMessage)
 	if err != nil {
 		return nil, err
 	}
-	// Incase of recovery, the current binlog position is updated to the metadata state
-	// so that the next sync starts from the correct position
-	m.BinlogConn.CurrentPos = currentBinlogPos
-	return binlog.Binlog{Position: currentBinlogPos}, nil
+
+	if recoveryPos.Name != "" {
+		m.BinlogConn.CurrentPos = recoveryPos
+	}
+
+	return binlog.Binlog{Position: m.BinlogConn.CurrentPos}, nil
 }
 
 func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
