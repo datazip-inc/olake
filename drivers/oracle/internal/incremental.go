@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // StreamIncrementalChanges implements incremental sync for Oracle
@@ -66,8 +67,10 @@ func (o *Oracle) normalizeCursorValue(ctx context.Context, stream types.StreamIn
 		return value
 	}
 	var dataType string
-	query := jdbc.OracleColumnDataTypeQuery(stream.Namespace(), stream.Name(), cursorField)
+	query := jdbc.OracleColumnDataTypeQuery(stream.Namespace(), stream.Name(), strings.ToUpper(cursorField))
 	if err := o.client.QueryRowContext(ctx, query).Scan(&dataType); err != nil {
+		logger.Warnf("normalizeCursorValue: failed to get DATA_TYPE for %s.%s.%s, cursor may be incorrect: %s",
+			stream.Namespace(), stream.Name(), cursorField, err)
 		return value
 	}
 	// GetMaxCursorValues bypasses dataTypeConverter, so go-ora attaches the session timezone
