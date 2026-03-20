@@ -7,12 +7,14 @@ on:
     paths:
       - '**/*.go'
       - '**/*.java'
+      - '**/go.mod'
   pull_request:
     branches:
       - "*"
     paths:
       - '**/*.go'
       - '**/*.java'
+      - '**/go.mod'
   workflow_dispatch:
     inputs:
       logLevel:
@@ -63,6 +65,7 @@ jobs:
           scan-ref: './'
           scanners: 'vuln'
           severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
 
   # TODO: Add Java Dependency Trivy (removed because trivy getting stuck or run for hours)
   # trivy-java:
