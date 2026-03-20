@@ -72,12 +72,16 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	if prevResumeToken == nil {
 		return nil, fmt.Errorf("resume token not found for stream: %s", stream.ID())
 	}
-
-	// check for recoverySync (sync after failiure with broken state)
+	//   metadata > state  →  metadata is further ahead (crash-recovery path: metadata
+	//                         was committed to the destination but state write failed).
+	//                         Use the metadata token so we don't re-read already-written events.
+	//   state >= metadata →  state is current or ahead; read forward normally.
 	if mtState != nil {
-		cmp := typeutils.Compare(prevResumeToken, mtState)
-		if cmp != 0 {
-			logger.Infof("Stream[%s] resume token mismatch, updating resume token in state", stream.ID())
+		// TODO: addition of all the state updations in metadata file even for blank sync scenario
+		// metadata > state → crash-recovery path (metadata committed but state write failed).
+		// state >= metadata → read forward normally.
+		if typeutils.Compare(prevResumeToken, mtState) < 0 {
+			logger.Infof("Stream[%s] metadata ahead of state, using metadata resume token for recovery", stream.ID())
 			prevResumeToken = mtState
 		}
 	}
