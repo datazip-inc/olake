@@ -87,11 +87,10 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		pgCfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
 			return p.sshClient.Dial("tcp", addr)
 		}
-		db = stdlib.OpenDB(*pgCfg)
-	} else {
-		db = stdlib.OpenDB(*pgCfg)
+
 	}
 
+	db = stdlib.OpenDB(*pgCfg)
 	sqlxDB := sqlx.NewDb(db, "pgx")
 	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
