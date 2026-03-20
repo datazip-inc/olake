@@ -6,13 +6,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -77,21 +77,12 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	//                         Use the metadata token so we don't re-read already-written events.
 	//   state >= metadata →  state is current or ahead; read forward normally.
 	if mtState != nil {
-		mtStateStr, ok := mtState.(string)
-		if !ok {
-			return nil, fmt.Errorf("failed to typecast metadata state of type[%T] to string", mtState)
-		}
-		prevStateStr, ok := prevResumeToken.(string)
-		if !ok {
-			return nil, fmt.Errorf("failed to typecast state resume token of type[%T] to string", prevResumeToken)
-		}
-
 		// TODO: addition of all the state updations in metadata file even for blank sync scenario
 		// metadata > state → crash-recovery path (metadata committed but state write failed).
 		// state >= metadata → read forward normally.
-		if strings.Compare(prevStateStr, mtStateStr) < 0 {
+		if typeutils.Compare(prevResumeToken, mtState) < 0 {
 			logger.Infof("Stream[%s] metadata ahead of state, using metadata resume token for recovery", stream.ID())
-			prevResumeToken = mtStateStr
+			prevResumeToken = mtState
 		}
 	}
 
