@@ -2,7 +2,6 @@ package waljs
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"strings"
@@ -80,8 +79,7 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 		return false
 	}
 	if config.TLSConfig != nil {
-		// TODO: use proper TLS Configurations
-		cfg.TLSConfig = &tls.Config{InsecureSkipVerify: false, MinVersion: tls.VersionTLS12}
+		cfg.TLSConfig = config.TLSConfig
 	}
 
 	// Establish PostgreSQL connection

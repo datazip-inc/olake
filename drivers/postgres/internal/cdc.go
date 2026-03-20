@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,12 +22,18 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
 	}
 
+	tlsConfig, err := p.config.buildTLSConfig()
+	if err != nil && !errors.Is(err, utils.ErrTLSConfigNotRequired) {
+		return nil, fmt.Errorf("failed to build tls config for wal replication: %s", err)
+	}
+
 	return &waljs.Config{
 		Connection:          *p.config.Connection,
 		SSHClient:           p.sshClient,
 		ReplicationSlotName: p.cdcConfig.ReplicationSlot,
 		InitialWaitTime:     time.Duration(p.cdcConfig.InitialWaitTime) * time.Second,
 		Tables:              types.NewSet(streams...),
+		TLSConfig:           tlsConfig,
 		Publication:         p.cdcConfig.Publication,
 	}, nil
 }

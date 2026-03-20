@@ -30,6 +30,7 @@ func GenerateTestCerts() *TestCerts {
 			panic("failed to generate CA key: " + err.Error())
 		}
 
+		// CA certificate template
 		caTemplate := &x509.Certificate{
 			SerialNumber: big.NewInt(1),
 			Subject: pkix.Name{
