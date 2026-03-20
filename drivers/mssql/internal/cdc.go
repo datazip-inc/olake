@@ -101,11 +101,14 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 		if !ok {
 			return nil, fmt.Errorf("failed to typecast mtstate to string of type[%T]", rawMtState)
 		}
-		if mtState != lsnInState {
-			logger.Infof("Stream[%s] LSN mismatch, updating LSN in state", stream.ID())
+		// Recovery is only needed when metadata is strictly AHEAD of state.
+		if mtState > lsnInState {
+			// metadata ahead of state: genuine crash-recovery path
+			logger.Infof("Stream[%s] LSN crash-recovery: metadata(%s) ahead of state(%s)", stream.ID(), mtState, lsnInState)
 			m.lsnMap.Store(stream.ID(), mtState)
 			return mtState, nil
 		}
+		// state >= metadata: blank sync scenario — stream forward normally
 	}
 
 	// Get target LSN (current max LSN in DB)
