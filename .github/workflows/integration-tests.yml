@@ -1,6 +1,6 @@
 name: Integration Tests
 on:
-  push: 
+  push:
     branches:
       - "master"
     paths:
