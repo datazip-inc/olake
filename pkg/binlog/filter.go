@@ -130,9 +130,8 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 				// during such a case, we need to find out the enum value of it from the index
 				if idx, isInt64 := val.(int64); isInt64 {
 					// MySQL stores invalid ENUM inserts as index 0 (special error value), which maps to empty string.
-					if idx == 0 {
-						val = ""
-					} else {
+					val = ""
+					if idx > 0 {
 						val = enumValues[idx-1]
 					}
 				}
