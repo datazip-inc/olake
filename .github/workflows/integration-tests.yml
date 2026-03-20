@@ -3,14 +3,12 @@ on:
   push: 
     branches:
       - "master"
-      - "fix/security-ci"
     paths:
       - '**/*.go'
       - '**/*.java'
   pull_request:
     branches:
       - "*"
-      - "fix/security-ci"
     paths:
       - '**/*.go'
       - '**/*.java'
