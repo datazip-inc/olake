@@ -2,7 +2,6 @@ package driver
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"maps"
 	"strings"
@@ -59,7 +58,7 @@ func (c *Config) URI() (string, error) {
 			cfg.TLSConfig = "false"
 		case utils.SSLModeRequire, utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
 			tlsConfig, err := c.buildTLSConfig()
-			if err != nil && !errors.Is(err, utils.ErrTLSConfigNotRequired) {
+			if err != nil {
 				return "", fmt.Errorf("failed to build TLS config: %s", err)
 			}
 

@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -74,7 +73,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to parse postgres connection string: %s", err)
 	}
 	tlsConfig, err := p.config.buildTLSConfig()
-	if err != nil && !errors.Is(err, utils.ErrTLSConfigNotRequired) {
+	if err != nil {
 		return fmt.Errorf("failed to build tls config: %s", err)
 	}
 	if tlsConfig != nil {

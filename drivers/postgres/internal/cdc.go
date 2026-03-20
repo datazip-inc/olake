@@ -3,7 +3,6 @@ package driver
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -23,7 +22,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 	}
 
 	tlsConfig, err := p.config.buildTLSConfig()
-	if err != nil && !errors.Is(err, utils.ErrTLSConfigNotRequired) {
+	if err != nil {
 		return nil, fmt.Errorf("failed to build tls config for wal replication: %s", err)
 	}
 
