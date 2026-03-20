@@ -46,6 +46,7 @@ const (
 	S3       DriverType = "s3"
 	Kafka    DriverType = "kafka"
 	MSSQL    DriverType = "mssql"
+	Iceberg  DriverType = "iceberg"
 )
 
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
