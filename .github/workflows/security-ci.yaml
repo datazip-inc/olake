@@ -7,12 +7,14 @@ on:
     paths:
       - '**/*.go'
       - '**/*.java'
+      - '**/go.mod'
   pull_request:
     branches:
       - "*"
     paths:
       - '**/*.go'
       - '**/*.java'
+      - '**/go.mod'
   workflow_dispatch:
     inputs:
       logLevel:
