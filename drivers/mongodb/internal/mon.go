@@ -124,7 +124,6 @@ func (m *Mongo) CDCSupported() bool {
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {
-
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		sshClient, err := m.config.SSHConfig.SetupSSHConnection()
