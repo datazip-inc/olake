@@ -57,7 +57,7 @@ func (sc *SSLConfig) Validate() error {
 // BuildTLSConfig returns a TLS config based on OLake SSL mode semantics.
 func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 	if sc == nil || sc.Mode == SSLModeDisable {
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	}
 
 	// For 'require' mode: encrypt connection but skip server identity verification.
