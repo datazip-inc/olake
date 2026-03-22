@@ -56,6 +56,7 @@ func GenerateTestCerts() *TestCerts {
 			Bytes: caCertDER,
 		})
 
+		// Client certificate for mutual TLS
 		clientKey, err := rsa.GenerateKey(rand.Reader, 2048)
 		if err != nil {
 			panic("failed to generate client key: " + err.Error())
