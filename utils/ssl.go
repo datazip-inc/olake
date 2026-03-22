@@ -57,6 +57,7 @@ func (sc *SSLConfig) Validate() error {
 // BuildTLSConfig returns a TLS config based on OLake SSL mode semantics.
 func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 	if sc == nil || sc.Mode == SSLModeDisable {
+		// ssl is disabled, return nil (intentional nilnil)
 		return nil, nil //nolint:nilnil
 	}
 
