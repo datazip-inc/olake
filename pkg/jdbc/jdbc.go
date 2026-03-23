@@ -1081,7 +1081,7 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 	var dbDatatype string
 	switch opts.Driver {
 	case constants.Oracle:
-		query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
+		query := OracleColumnDataTypeQuery(stream.Namespace(), stream.Name(), cursorField)
 		err = opts.Client.QueryRowContext(ctx, query).Scan(&dbDatatype)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to get column datatype: %s", err)

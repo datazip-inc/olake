@@ -216,13 +216,12 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 //
 //	DATE (12)          → "DATE"         — Oracle DATE columns
 //	TimeStampDTY (180) → "TimeStampDTY" — TIMESTAMP columns in regular SELECT results
-//	TIMESTAMP (187)    → "TIMESTAMP"    — TIMESTAMP in RETURNING INTO / PL/SQL OUT params
+//	TODO: Add support for TIMESTAMP (187)    → "TIMESTAMP"    — TIMESTAMP in RETURNING INTO / PL/SQL OUT params
 //
 // Strip the attached offset to preserve wall-clock digits consistently as UTC.
 var tzNaiveOracleTypes = map[string]bool{
 	"date":         true,
 	"timestampdty": true,
-	"timestamp":    true,
 }
 
 func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
