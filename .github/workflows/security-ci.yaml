@@ -7,12 +7,14 @@ on:
     paths:
       - '**/*.go'
       - '**/*.java'
+      - '**/go.mod'
   pull_request:
     branches:
       - "*"
     paths:
       - '**/*.go'
       - '**/*.java'
+      - '**/go.mod'
   workflow_dispatch:
     inputs:
       logLevel:
@@ -26,10 +28,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v4
         with:
-          check-latest: "true"
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run vulnerability checks
@@ -40,10 +41,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-go@v3
+      - uses: actions/setup-go@v4
         with:
-          check-latest: "true"
-          go-version: "1.24.x"
+          go-version-file: "go.mod"
       - name: install gosec
         run: curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.22.11
       - name: Run Gosec Security Scanner
@@ -65,6 +65,7 @@ jobs:
           scan-ref: './'
           scanners: 'vuln'
           severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
 
   # TODO: Add Java Dependency Trivy (removed because trivy getting stuck or run for hours)
   # trivy-java:

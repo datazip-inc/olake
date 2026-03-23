@@ -801,11 +801,41 @@ func MSSQLCDCDiscoverQuery(streamIDs []string) string {
 	)
 }
 
+// MSSQLViewDatabaseStatePermissionQuery checks for VIEW DATABASE STATE (all versions) or
+// VIEW DATABASE PERFORMANCE STATE (SQL Server 2022+). Either permission grants access to
+// sys.dm_cdc_log_scan_sessions.
+func MSSQLViewDatabaseStatePermissionQuery() string {
+	return `
+		SELECT CAST(CASE
+			WHEN HAS_PERMS_BY_NAME(NULL, 'DATABASE', 'VIEW DATABASE STATE') = 1 THEN 1
+			WHEN HAS_PERMS_BY_NAME(NULL, 'DATABASE', 'VIEW DATABASE PERFORMANCE STATE') = 1 THEN 1
+			ELSE 0
+		END AS BIT)
+	`
+}
+
+// MSSQLCDCLatestScanSessionQuery returns the latest completed CDC log scan session.
+// Requires VIEW DATABASE STATE permission.
+func MSSQLCDCLatestScanSessionQuery() string {
+	return `
+		SELECT TOP (1) session_id, end_time, tran_count
+		FROM sys.dm_cdc_log_scan_sessions
+		WHERE scan_phase = 'Done'
+		ORDER BY session_id DESC
+	`
+}
+
+// MSSQLCDCCaptureJobConfigQuery returns maxtrans and pollinginterval settings for the CDC capture job.
+func MSSQLCDCCaptureJobConfigQuery() string {
+	return "SELECT maxtrans, pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID()"
+}
+
 // MSSQLCDCGetChangesQuery returns the query to fetch CDC changes for a capture instance
 func MSSQLCDCGetChangesQuery(captureInstance string) string {
 	return fmt.Sprintf(`
 		SELECT *
 		FROM cdc.[fn_cdc_get_all_changes_%s](@p1, @p2, 'all')
+		ORDER BY [__$start_lsn], [__$seqval]
 	`, captureInstance)
 }
 
@@ -1059,28 +1089,70 @@ func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 	return fmt.Sprintf(`SELECT cols.column_name FROM all_constraints cons, all_cons_columns cols WHERE cons.constraint_type = 'P' AND cons.constraint_name = cols.constraint_name AND cons.owner = cols.owner AND cons.owner = '%s' AND cols.table_name = '%s'`, schemaName, tableName)
 }
 
-// OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB
-func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
-	chunkMin := chunk.Min.(string)
+// OracleChunkScanQuery returns the query to fetch the rows of a table in OracleDB.
+// Both chunk.Min and chunk.Max nil is invalid and returns an error.
+func OracleChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) (string, error) {
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Oracle)
-
 	filterClause := utils.Ternary(filter == "", "", " AND ("+filter+")").(string)
 
-	if chunk.Max != nil {
-		chunkMax := chunk.Max.(string)
-		return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' AND ROWID < '%v' %s",
-			quotedTable, chunkMin, chunkMax, filterClause)
+	var rowidCond string
+	switch {
+	case chunk.Min == nil && chunk.Max == nil:
+		return "", fmt.Errorf("invalid chunk for table %s: both min and max are nil", stream.Name())
+	case chunk.Min == nil && chunk.Max != nil:
+		rowidCond = fmt.Sprintf("ROWID < '%v'", chunk.Max.(string))
+	case chunk.Min != nil && chunk.Max == nil:
+		rowidCond = fmt.Sprintf("ROWID >= '%v'", chunk.Min.(string))
+	default:
+		rowidCond = fmt.Sprintf("ROWID >= '%v' AND ROWID < '%v'", chunk.Min.(string), chunk.Max.(string))
 	}
-	return fmt.Sprintf("SELECT * FROM %s WHERE ROWID >= '%v' %s",
-		quotedTable, chunkMin, filterClause)
+
+	return fmt.Sprintf("SELECT * FROM %s WHERE %s %s", quotedTable, rowidCond, filterClause), nil
+}
+
+/* Oracle Extents Based Chunking Strategy Related Queries
+// OracleExtentsQuery returns the query to fetch the extents of a table in OracleDB
+func OracleExtentsQuery() string {
+	return `SELECT
+	e.RELATIVE_FNO,
+	e.BLOCK_ID,
+	e.BLOCKS,
+	o.DATA_OBJECT_ID
+  FROM DBA_EXTENTS e
+  JOIN ALL_OBJECTS o
+	ON e.OWNER = o.OWNER
+   AND e.SEGMENT_NAME = o.OBJECT_NAME
+   AND NVL(e.PARTITION_NAME, 'NONE') = NVL(o.SUBOBJECT_NAME, 'NONE')
+  WHERE e.OWNER = :1
+	AND e.SEGMENT_NAME = :2
+	AND e.SEGMENT_TYPE IN ('TABLE', 'TABLE PARTITION', 'TABLE SUBPARTITION')
+	AND o.DATA_OBJECT_ID IS NOT NULL
+  ORDER BY o.DATA_OBJECT_ID, e.RELATIVE_FNO, e.BLOCK_ID;`
+}
+
+// OracleRowIDCreateQuery returns the query to create a row id in OracleDB based on the params: data object id, file id and block id
+func OracleRowIDCreateQuery() string {
+	return `SELECT DBMS_ROWID.ROWID_CREATE(1, :1, :2, :3, 0) FROM DUAL`
+}
+*/
+
+// OracleMinMaxRowIDQuery returns the query to fetch the min and max row id of a table in OracleDB
+func OracleMinMaxRowIDQuery(stream types.StreamInterface) string {
+	return fmt.Sprintf(`SELECT MIN(ROWID) AS minRowId, MAX(ROWID) AS maxRowId FROM %q.%q`, stream.Namespace(), stream.Name())
+}
+
+// NextRowIDQuery returns the query to fetch the next max row id
+func NextRowIDQuery(stream types.StreamInterface, ROWID string, chunkSize int64) string {
+	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %q.%q WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), ROWID, chunkSize)
 }
 
 // OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
 func OracleTableRowStatsQuery() string {
-	return `SELECT NUM_ROWS FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
+	// NVL(AVG_ROW_LEN, 2048) is used to handle the case where the average row length is not available due to outdated stats we are assuming 2kb
+	return `SELECT NUM_ROWS, NVL(AVG_ROW_LEN, 300) AS avg_row_len FROM ALL_TABLES WHERE OWNER = :1 AND TABLE_NAME = :2`
 }
 
-// OracleTableSizeQuery returns the query to fetch the size of a table in bytes in OracleDB
+// OracleBlockSizeQuery returns the query to fetch the size of a block in bytes in OracleDB
 func OracleBlockSizeQuery() string {
 	return `SELECT CEIL(BYTES / NULLIF(BLOCKS, 0)) FROM user_segments WHERE BLOCKS IS NOT NULL AND ROWNUM =1`
 }
