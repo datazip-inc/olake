@@ -68,25 +68,28 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	}
 
 	var db *sql.DB
+	pgCfg, err := pgx.ParseConfig(p.config.Connection.String())
+	if err != nil {
+		return fmt.Errorf("failed to parse postgres connection string: %s", err)
+	}
+	tlsConfig, err := p.config.buildTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build tls config: %s", err)
+	}
+	if tlsConfig != nil {
+		pgCfg.TLSConfig = tlsConfig
+	}
+
 	if p.sshClient != nil {
 		logger.Info("Connecting to Postgres via SSH tunnel")
-		pgCfg, err := pgx.ParseConfig(p.config.Connection.String())
-		if err != nil {
-			return fmt.Errorf("failed to parse postgres connection string: %s", err)
-		}
-
 		// Allows pgx to use the SSH client to connect to the database
 		pgCfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
 			return p.sshClient.Dial("tcp", addr)
 		}
-		db = stdlib.OpenDB(*pgCfg)
-	} else {
-		db, err = sql.Open("pgx", p.config.Connection.String())
-		if err != nil {
-			return fmt.Errorf("failed to open database connection: %s", err)
-		}
+
 	}
 
+	db = stdlib.OpenDB(*pgCfg)
 	sqlxDB := sqlx.NewDb(db, "pgx")
 	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
