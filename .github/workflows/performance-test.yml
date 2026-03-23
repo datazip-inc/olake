@@ -4,6 +4,7 @@ on:
   push:
     branches:
     - "staging"
+    - "fix/perf-test"
     paths:
     - '**/*.go'
     - '**/*.java'
