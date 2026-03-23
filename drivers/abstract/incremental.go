@@ -75,7 +75,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			defer incrementalCtxCancel()
 
 			threadID := generateThreadID(stream.ID(), fmt.Sprintf("%v_%v", maxPrimaryCursorValue, maxSecondaryCursorValue))
-			inserter, prevMetadataState, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
+			inserter, prevMetadataState, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
 			if err != nil {
 				return fmt.Errorf("failed to create new writer thread: %s", err)
 			}

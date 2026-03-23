@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -142,7 +143,9 @@ var syncCmd = &cobra.Command{
 
 		state.LogWithLock()
 		// TODO: record count also contain records which arrived in retry attempts, need to remove them
-		logger.Infof("Total records read: %d", pool.GetStats().ReadCount.Load())
+		stats := pool.GetStats()
+		readRecordsCount := max(int64(0), stats.ReadCount.Load()-stats.RecordsFiltered.Load())
+		logger.Infof("Total records read: %d", readRecordsCount)
 		return nil
 	},
 }
@@ -189,6 +192,35 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
 				return false
+			}
+			// TODO: move filter validation to validate method in types package
+			filter, isLegacy, err := elem.GetFilter()
+			if err != nil {
+				logger.Warnf("Skipping; Configured Stream %s failed to get filter: %s", elem.ID(), err)
+				return false
+			}
+			if !isLegacy {
+				if len(filter.Conditions) > 2 {
+					logger.Warnf("Skipping; Configured Stream %s found invalid filter: greater than 2 conditions are not supported", elem.ID())
+					return false
+				}
+				for _, cond := range filter.Conditions {
+					if cond.Column == "" {
+						logger.Warnf("Skipping; Configured Stream %s found invalid filter: empty column", elem.ID())
+						return false
+					}
+
+					dataType, err := elem.Schema().GetType(cond.Column)
+					if err != nil || dataType == types.Null {
+						logger.Warnf("Skipping; Configured Stream %s found invalid filter: invalid column type %v", elem.ID(), err)
+						return false
+					}
+
+					if _, err := typeutils.ParseFilterValue(dataType, cond.Value); err != nil {
+						logger.Warnf("Skipping; Configured Stream %s found invalid filter: invalid value type %v", elem.ID(), err)
+						return false
+					}
+				}
 			}
 		}
 
