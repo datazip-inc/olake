@@ -73,7 +73,7 @@ func (o *Oracle) normalizeCursorValue(ctx context.Context, stream types.StreamIn
 			stream.Namespace(), stream.Name(), cursorField, err)
 		return value
 	}
-	// GetMaxCursorValues bypasses dataTypeConverter, so go-ora attaches the session timezone
+	// FetchMaxCursorValues bypasses dataTypeConverter, so go-ora attaches the session timezone
 	// to TZ-naive columns and the original timezone to TZ-aware columns. Normalize here so
 	// the cursor values entering FormatCursorValue are already plain UTC.
 	upper := strings.ToUpper(dataType)
