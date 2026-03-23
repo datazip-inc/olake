@@ -408,11 +408,11 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}); err != nil {
 		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
 	}
-	filter, isLegacy, err := p.stream.GetFilter()
-	if err != nil {
-		return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", err)
-	}
 	if p.options.ApplyFilter {
+		filter, isLegacy, filterErr := p.stream.GetFilter()
+		if filterErr != nil {
+			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
+		}
 		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, p.schema)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
