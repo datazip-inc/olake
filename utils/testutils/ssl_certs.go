@@ -87,7 +87,7 @@ func GenerateTestCerts() *TestCerts {
 		})
 
 		clientKeyPEM := pem.EncodeToMemory(&pem.Block{
-			Type:  "PRIVATE KEY",
+			Type:  "RSA PRIVATE KEY",
 			Bytes: x509.MarshalPKCS1PrivateKey(clientKey),
 		})
 

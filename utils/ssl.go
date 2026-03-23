@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 const (
@@ -100,6 +102,7 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 			for i := 1; i < len(rawCerts); i++ {
 				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
 				if err != nil {
+					logger.Warnf("failed to parse intermediate certificate at position %d: %s", i, err)
 					continue
 				}
 				intermediates.AddCert(intermediateCert)
