@@ -941,6 +941,11 @@ func OracleTableDetailsQuery(schemaName, tableName string) string {
 	return fmt.Sprintf("SELECT column_name, data_type, nullable, data_precision, data_scale FROM all_tab_columns WHERE owner = '%s' AND table_name = '%s'", schemaName, tableName)
 }
 
+// OracleColumnDataTypeQuery returns the query to fetch the data type of a column in OracleDB
+func OracleColumnDataTypeQuery(schemaName, tableName, columnName string) string {
+	return fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", schemaName, tableName, columnName)
+}
+
 // OraclePrimaryKeyQuery returns the query to fetch all the primary key columns of a table in OracleDB
 func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 	return fmt.Sprintf(`SELECT cols.column_name FROM all_constraints cons, all_cons_columns cols WHERE cons.constraint_type = 'P' AND cons.constraint_name = cols.constraint_name AND cons.owner = cols.owner AND cons.owner = '%s' AND cols.table_name = '%s'`, schemaName, tableName)
@@ -1076,7 +1081,7 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 	var dbDatatype string
 	switch opts.Driver {
 	case constants.Oracle:
-		query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
+		query := OracleColumnDataTypeQuery(stream.Namespace(), stream.Name(), cursorField)
 		err = opts.Client.QueryRowContext(ctx, query).Scan(&dbDatatype)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
