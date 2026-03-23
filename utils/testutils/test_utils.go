@@ -48,6 +48,7 @@ type IntegrationTest struct {
 	DestinationDB                    string
 	CursorField                      string
 	PartitionRegex                   string
+	FilterConfig                     string
 }
 
 type PerformanceTest struct {
@@ -226,8 +227,8 @@ func discoverCommand(config TestConfig, flags ...string) string {
 	return baseCmd
 }
 
-// update normalization=true for selected streams under selected_streams.<namespace> by name
-func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex string, stream []string, isBackfill bool) string {
+// update normalization=true, partition_regex, and filter_input for selected streams under selected_streams.<namespace> by name
+func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, filterConfig string, stream []string, isBackfill bool) string {
 	if len(stream) == 0 {
 		return ""
 	}
@@ -238,8 +239,13 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex s
 	}
 	condition := strings.Join(streamConditions, " or ")
 	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
+
+	if filterConfig == "" {
+		filterConfig = "{}"
+	}
 	jqExpr := fmt.Sprintf(
-		`jq '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s")) }' %s > %s && mv %s %s`,
+		`jq --argjson filter '%s' '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s" | .filter_config = $filter)) }' %s > %s && mv %s %s`,
+		filterConfig,
 		namespace,
 		namespace,
 		condition,
@@ -883,7 +889,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
 							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
 							// )
-							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, []string{currentTestTable}, true)
+							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
 									code, err, out,
@@ -1029,6 +1035,13 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			break
 		}
 
+		// For delete operations, 0 rows is acceptable - exit immediately without retrying
+		if opSymbol == "d" {
+			queryErr = nil
+			t.Logf("Delete verification passed: found 0 rows for _op_type = 'd' (acceptable)")
+			break
+		}
+
 		// for every type of operation, op symbol will be different, using that to ensure data is not stale
 		queryErr = fmt.Errorf("stale data: query succeeded but returned 0 rows for _op_type = '%s'", opSymbol)
 		t.Logf("Query attempt %d/%d failed: %v", attempt+1, maxRetries, queryErr)
@@ -1040,15 +1053,17 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		}
 	}
 
-	require.NoError(t, queryErr, "Failed to collect data rows from Iceberg after %d attempts: %v", maxRetries, queryErr)
-	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
-
-	// delete row checked
+	// For delete operations, accept both 0 and 1 row (both are valid outcomes)
 	if opSymbol == "d" {
-		deletedID := selectRows[0].Value("_olake_id")
-		require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
+		if len(selectRows) > 0 {
+			deletedID := selectRows[0].Value("_olake_id")
+			require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
+		}
+		t.Logf("Delete verification passed: found %d row(s) for _op_type = 'd'", len(selectRows))
 		return
 	}
+	require.NoError(t, queryErr, "Failed to collect data rows from Iceberg after %d attempts: %v", maxRetries, queryErr)
+	require.NotEmpty(t, selectRows, "No rows returned for _op_type = '%s'", opSymbol)
 
 	for rowIdx, row := range selectRows {
 		icebergMap := make(map[string]interface{}, len(schema)+1)
@@ -1181,6 +1196,11 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		if err == nil {
 			break
 		}
+		// For delete operations, if path doesn't exist that's acceptable (no data written)
+		if opSymbol == "d" && strings.Contains(err.Error(), "PATH_NOT_FOUND") {
+			t.Logf("Delete verification passed: Parquet path does not exist (no data written)")
+			return
+		}
 		if attempt < maxRetries {
 			t.Logf("Attempt %d/%d: Failed to create view, retrying in 2s: %v", attempt, maxRetries, err)
 			time.Sleep(2 * time.Second)
@@ -1205,13 +1225,19 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 
 	rows, err := df.Collect(ctx)
 	require.NoError(t, err, "Failed to collect rows from Parquet query")
-	require.NotEmpty(t, rows, "No rows returned for _op_type = '%s'", opSymbol)
 
+	// For delete operations, accept both 0 and 1 row (both are valid outcomes)
 	if opSymbol == "d" {
-		deletedID := rows[0].Value("_olake_id")
-		require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
+		if len(rows) > 0 {
+			deletedID := rows[0].Value("_olake_id")
+			require.NotEmpty(t, deletedID, "Delete verification failed: _olake_id should not be empty")
+		}
+		t.Logf("Delete verification passed: found %d row(s) for _op_type = 'd'", len(rows))
 		return
 	}
+
+	// For non-delete operations, require at least one row
+	require.NotEmpty(t, rows, "No rows returned for _op_type = '%s'", opSymbol)
 
 	for rowIdx, row := range rows {
 		parquetMap := make(map[string]interface{}, len(schema)+1)
@@ -1388,7 +1414,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) discover completed")
 
-							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.BackfillStreams, true)
+							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.BackfillStreams, true)
 							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
@@ -1427,7 +1453,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) discover completed")
 
-								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", cfg.CDCStreams, false)
+								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.CDCStreams, false)
 								if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}

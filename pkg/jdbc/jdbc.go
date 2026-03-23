@@ -941,6 +941,11 @@ func OracleTableDetailsQuery(schemaName, tableName string) string {
 	return fmt.Sprintf("SELECT column_name, data_type, nullable, data_precision, data_scale FROM all_tab_columns WHERE owner = '%s' AND table_name = '%s'", schemaName, tableName)
 }
 
+// OracleColumnDataTypeQuery returns the query to fetch the data type of a column in OracleDB
+func OracleColumnDataTypeQuery(schemaName, tableName, columnName string) string {
+	return fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", schemaName, tableName, columnName)
+}
+
 // OraclePrimaryKeyQuery returns the query to fetch all the primary key columns of a table in OracleDB
 func OraclePrimaryKeyColummsQuery(schemaName, tableName string) string {
 	return fmt.Sprintf(`SELECT cols.column_name FROM all_constraints cons, all_cons_columns cols WHERE cons.constraint_type = 'P' AND cons.constraint_name = cols.constraint_name AND cons.owner = cols.owner AND cons.owner = '%s' AND cols.table_name = '%s'`, schemaName, tableName)
@@ -1076,7 +1081,7 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 	var dbDatatype string
 	switch opts.Driver {
 	case constants.Oracle:
-		query := fmt.Sprintf("SELECT DATA_TYPE FROM ALL_TAB_COLUMNS WHERE OWNER = '%s' AND TABLE_NAME = '%s' AND COLUMN_NAME = '%s'", stream.Namespace(), stream.Name(), cursorField)
+		query := OracleColumnDataTypeQuery(stream.Namespace(), stream.Name(), cursorField)
 		err = opts.Client.QueryRowContext(ctx, query).Scan(&dbDatatype)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
@@ -1107,72 +1112,133 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 
 // ParseFilter converts a filter string to a valid SQL WHERE condition, also appends the threshold filter if present
 func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter string) (string, error) {
-	buildCondition := func(cond types.Condition, driver string) (string, error) {
-		var driverType constants.DriverType
-		switch driver {
-		case "mysql":
-			driverType = constants.MySQL
-		case "postgres":
-			driverType = constants.Postgres
-		case "oracle":
-			driverType = constants.Oracle
-		case "mssql":
-			driverType = constants.MSSQL
-		case "db2":
-			driverType = constants.DB2
-		default:
-			driverType = constants.Postgres // default fallback
-		}
+	// Resolve driver type once.
+	var driverType constants.DriverType
+	switch strings.ToLower(driver) {
+	case "mysql":
+		driverType = constants.MySQL
+	case "postgres":
+		driverType = constants.Postgres
+	case "oracle":
+		driverType = constants.Oracle
+	case "mssql":
+		driverType = constants.MSSQL
+	case "db2":
+		driverType = constants.DB2
+	default:
+		driverType = constants.Postgres
+	}
 
+	filter, isLegacy, err := stream.GetFilter()
+	if err != nil {
+		return "", fmt.Errorf("failed to parse stream filter: %s", err)
+	}
+
+	// buildCondition builds the SQL condition for a single filter condition.
+	buildCondition := func(cond types.FilterCondition) (string, error) {
 		quotedColumn := QuoteIdentifier(cond.Column, driverType)
 
-		// Handle unquoted null value
-		if cond.Value == "null" {
+		// ---------- NULL handling ----------
+		isNullKeyword := false
+		if isLegacy {
+			if s, ok := cond.Value.(string); ok && strings.EqualFold(strings.TrimSpace(s), "null") {
+				isNullKeyword = true
+			}
+		}
+
+		if cond.Value == nil || isNullKeyword {
 			switch cond.Operator {
 			case "=":
 				return fmt.Sprintf("%s IS NULL", quotedColumn), nil
 			case "!=":
 				return fmt.Sprintf("%s IS NOT NULL", quotedColumn), nil
 			default:
-				return fmt.Sprintf("%s %s NULL", quotedColumn, cond.Operator), nil
+				return "", fmt.Errorf("operator %s not supported with NULL", cond.Operator)
 			}
 		}
 
-		// Parse and format value
-		value := cond.Value
-		if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
-			// Handle quoted strings
-			unquoted := value[1 : len(value)-1]
-			escaped := strings.ReplaceAll(unquoted, "'", "''")
-			value = fmt.Sprintf("'%s'", escaped)
-		} else {
-			_, err := strconv.ParseFloat(value, 64)
-			booleanValue := strings.EqualFold(value, "true") || strings.EqualFold(value, "false")
-			if err != nil && !booleanValue {
-				escaped := strings.ReplaceAll(value, "'", "''")
+		// ---------- value formatting ----------
+		var valueSQL string
+
+		if isLegacy {
+			// Legacy filters: value always comes in as a string token from the
+			// original filter expression (e.g. 10, "foo", true, null).
+			value, ok := cond.Value.(string)
+			if !ok {
+				value = fmt.Sprint(cond.Value)
+			}
+
+			if strings.HasPrefix(value, "\"") && strings.HasSuffix(value, "\"") {
+				// Handle quoted strings
+				unquoted := value[1 : len(value)-1]
+				escaped := strings.ReplaceAll(unquoted, "'", "''")
 				value = fmt.Sprintf("'%s'", escaped)
+			} else {
+				_, err := strconv.ParseFloat(value, 64)
+				booleanValue := strings.EqualFold(value, "true") || strings.EqualFold(value, "false")
+				if err != nil && !booleanValue {
+					escaped := strings.ReplaceAll(value, "'", "''")
+					value = fmt.Sprintf("'%s'", escaped)
+				}
 			}
+
+			return fmt.Sprintf("%s %s %s", quotedColumn, cond.Operator, value), nil
 		}
 
-		return fmt.Sprintf("%s %s %s", quotedColumn, cond.Operator, value), nil
+		// New JSON filter path: use the real Go type coming from JSON decoding.
+		switch v := cond.Value.(type) {
+		case string:
+			// TODO: Audit Unicode handling of string filters with special characters (Ω, ⚡, emoji, etc.) for all JDBC drivers (MSSQL, Postgres, MySQL, Oracle, DB2).
+			// default: treat as escaped string
+			escaped := strings.ReplaceAll(v, "'", "''")
+			valueSQL = fmt.Sprintf("'%s'", escaped)
+			// Driver-specific timestamp handling for ISO 8601 / RFC3339 strings.
+			isISO8601 := strings.Contains(v, "T") && (strings.Contains(v, "Z") || strings.Contains(v, "+") || (strings.Contains(v, "-") && len(v) > 19))
+			if isISO8601 {
+				if t, err := time.Parse(time.RFC3339, v); err == nil {
+					switch driverType {
+					case constants.Oracle:
+						valueSQL = fmt.Sprintf("TO_TIMESTAMP('%s', 'YYYY-MM-DD HH24:MI:SS.FF')", t.UTC().Format("2006-01-02 15:04:05.000"))
+					case constants.DB2:
+						// DB2 TIMESTAMP() scalar accepts 'YYYY-MM-DD HH:MM:SS.ffffff'
+						valueSQL = fmt.Sprintf("TIMESTAMP('%s')", t.UTC().Format("2006-01-02 15:04:05.000000"))
+					}
+				}
+			}
+
+		case bool:
+			// SQL standard boolean
+			valueSQL = utils.Ternary(v, "TRUE", "FALSE").(string)
+		case int:
+			valueSQL = strconv.Itoa(v)
+		case int64:
+			valueSQL = strconv.FormatInt(v, 10)
+		case float64:
+			valueSQL = strconv.FormatFloat(v, 'f', -1, 64)
+		default:
+			// last-resort safety
+			escaped := strings.ReplaceAll(fmt.Sprint(v), "'", "''")
+			valueSQL = fmt.Sprintf("'%s'", escaped)
+		}
+
+		return fmt.Sprintf("%s %s %s", quotedColumn, cond.Operator, valueSQL), nil
 	}
 
-	filter, err := stream.GetFilter()
-	if err != nil {
-		return "", fmt.Errorf("failed to parse stream filter: %s", err)
-	}
-
+	// ---------- build SQL ----------
 	var finalFilter string
 	var filterErr error
-	switch {
-	case len(filter.Conditions) == 0:
+	switch len(filter.Conditions) {
+	case 0:
 		return thresholdFilter, nil
-	case len(filter.Conditions) == 1:
-		finalFilter, filterErr = buildCondition(filter.Conditions[0], driver)
+	case 1:
+		finalFilter, err = buildCondition(filter.Conditions[0])
+		if err != nil {
+			return "", err
+		}
 	default:
 		conditions := make([]string, 0, len(filter.Conditions))
-		err := utils.ForEach(filter.Conditions, func(cond types.Condition) error {
-			formatted, err := buildCondition(cond, driver)
+		err := utils.ForEach(filter.Conditions, func(cond types.FilterCondition) error {
+			formatted, err := buildCondition(cond)
 			if err != nil {
 				return err
 			}

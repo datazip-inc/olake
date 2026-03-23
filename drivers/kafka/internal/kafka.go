@@ -319,6 +319,7 @@ func parseSASLPlain(jassConfig string) (string, string, error) {
 	return matches[1], matches[2], nil
 }
 
+// TODO: check if we can use the utils.BuildTLSConfig function here (kafka)
 // buildTLSConfig creates TLS configuration with optional external certificates
 func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 	tlsConfig := &tls.Config{
