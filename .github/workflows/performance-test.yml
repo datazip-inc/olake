@@ -4,12 +4,9 @@ on:
   push:
     branches:
     - "staging"
-    - "fix/perf-test"
-    - "feature/perf-test"
     paths:
     - '**/*.go'
     - '**/*.java'
-    - '**/*.yml'
 permissions:
   actions: read
   id-token: write

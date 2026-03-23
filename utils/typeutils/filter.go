@@ -20,14 +20,14 @@ type parsedCondition struct {
 }
 
 // FilterRecords applies filtering ONLY for new filters.
-// For legacy filters (applied at SQL level), records are returned unchanged.
+// For legacy filters, records are returned unchanged.
 func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any) ([]types.RawRecord, error) {
 	if len(filter.Conditions) == 0 {
 		return records, nil
 	}
 	if isLegacy {
 		// Legacy filters are pushed down to SQL (see pkg/jdbc SQLFilter); skip re-filtering here.
-		logger.Warnf("legacy filter detected, skipping destination filtering")
+		logger.Warnf("legacy filter detected, skipping filtering records")
 		return records, nil
 	}
 	logger.Infof("filtering records with filter: %+v", filter)
