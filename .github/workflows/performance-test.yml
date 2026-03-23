@@ -5,6 +5,7 @@ on:
     branches:
     - "staging"
     - "fix/perf-test"
+    - "feature/perf-test"
     paths:
     - '**/*.go'
     - '**/*.java'
