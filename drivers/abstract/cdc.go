@@ -106,7 +106,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 	defer func() {
 		if postCDCErr := a.driver.PostCDC(cdcCtx, streamIndex); postCDCErr != nil {
-			err = fmt.Errorf("post cdc error: %s", postCDCErr)
+			err = utils.Ternary(err == nil, fmt.Errorf("post cdc error: %s", postCDCErr), fmt.Errorf("%s: post cdc error: %s", err, postCDCErr)).(error)
 		}
 	}()
 
@@ -116,7 +116,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 	for _, stream := range streams {
 		threadID := generateThreadID(stream.ID(), "")
-		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID))
+		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
 		if createErr != nil {
 			return fmt.Errorf("failed to create CDC writer for stream %s: %s", stream.ID(), createErr)
 		}
@@ -128,9 +128,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		metadataStates[stream.ID()] = writerMetaState
 	}
 
-	defer func() {
-		handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", finalMetadataState)
-	}()
+	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", &finalMetadataState)
 
 	finalMetadataState, err = a.driver.StreamChanges(cdcCtx, streamIndex, metadataStates, func(ctx context.Context, change CDCChange) error {
 		writer := writers[change.Stream.ID()]

@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlobalState, streamsToSync []types.StreamInterface) (*binlog.Connection, error) {
@@ -82,10 +83,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	}
 
 	var finishedStreams []string
-	currentBinlogPos, err := binlog.GetCurrentBinlogPosition(ctx, m.client)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current binlog position: %s", err)
-	}
+	var recoveryPos mysql.Position
 
 	for streamID, rawMtState := range metadataStates {
 		if rawMtState == nil {
@@ -98,11 +96,16 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
 			}
 
-			if mysqlMetadataState.Position.Name != mySQLGlobalState.State.Position.Name || mysqlMetadataState.Position.Compare(mySQLGlobalState.State.Position) != 0 {
-				// recovery required as metadata state not matching with saved state
-				currentBinlogPos = mysqlMetadataState.Position
+			// Recovery is only needed when metadata is strictly AHEAD of state.
+			// metadata.Compare(state) > 0 means either:
+			//   - same file but metadata.Pos > state.Pos, OR
+			//   - metadata is on a later binlog file (e.g. mysql-bin.000043 vs .000042)
+			if mysqlMetadataState.Position.Compare(mySQLGlobalState.State.Position) > 0 {
+				// metadata ahead of state: genuine crash-recovery path
+				recoveryPos = mysqlMetadataState.Position
 				finishedStreams = append(finishedStreams, streamID)
 			}
+			// state >= metadata: blank sync scenario — stream forward normally
 		} else {
 			return nil, fmt.Errorf("failed to typecast raw metadata state of type[%T] to string", rawMtState)
 		}
@@ -130,10 +133,15 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	// persist binlog connection for post cdc
 	m.BinlogConn = conn
 
-	err = m.BinlogConn.StreamMessages(ctx, m.client, currentBinlogPos, OnMessage)
+	err = m.BinlogConn.StreamMessages(ctx, m.client, recoveryPos, OnMessage)
 	if err != nil {
 		return nil, err
 	}
+
+	if recoveryPos.Name != "" {
+		m.BinlogConn.CurrentPos = recoveryPos
+	}
+
 	return binlog.Binlog{Position: m.BinlogConn.CurrentPos}, nil
 }
 

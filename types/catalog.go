@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
@@ -46,14 +47,18 @@ type SelectedColumns struct {
 }
 
 type StreamMetadata struct {
-	ChunkColumn     string           `json:"chunk_column,omitempty"`
-	PartitionRegex  string           `json:"partition_regex"`
-	StreamName      string           `json:"stream_name"`
-	AppendMode      bool             `json:"append_mode,omitempty"`
-	Normalization   bool             `json:"normalization"`
-	Filter          string           `json:"filter,omitempty"`
+	ChunkColumn    string `json:"chunk_column,omitempty"`
+	PartitionRegex string `json:"partition_regex"`
+	StreamName     string `json:"stream_name"`
+	AppendMode     bool   `json:"append_mode,omitempty"`
+	Normalization  bool   `json:"normalization"`
+	//legacy filter input
+	Filter string `json:"filter,omitempty"`
+	//new filter input
+	FilterConfig    *FilterConfig    `json:"filter_config,omitempty"`
 	SelectedColumns *SelectedColumns `json:"selected_columns"`
 }
+
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
@@ -307,6 +312,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
+					!reflect.DeepEqual(oldMetadata.FilterConfig, newMetadata.FilterConfig) ||
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
 					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||

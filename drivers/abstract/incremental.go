@@ -75,7 +75,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			defer incrementalCtxCancel()
 
 			threadID := generateThreadID(stream.ID(), fmt.Sprintf("%v_%v", maxPrimaryCursorValue, maxSecondaryCursorValue))
-			inserter, prevMetadataState, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID))
+			inserter, prevMetadataState, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
 			if err != nil {
 				return fmt.Errorf("failed to create new writer thread: %s", err)
 			}
@@ -84,17 +84,19 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				if ctx.Err() != nil {
 					return
 				}
-				// Save cursor state on success
 				a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
 				a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
 			}(incrementalCtx)
 
+			var mtState any
+			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, &mtState)
+
 			defer func() {
-				mtState := map[string]any{primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue)}
+				mtStateMap := map[string]any{primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue)}
 				if secondaryCursor != "" {
-					mtState[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
+					mtStateMap[secondaryCursor] = a.FormatCursorValue(maxSecondaryCursorValue)
 				}
-				handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, mtState)
+				mtState = mtStateMap
 			}()
 
 			// prevMetadataState id will be same as thread id if the state file failed to update
