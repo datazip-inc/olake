@@ -8,7 +8,7 @@ on:
     paths:
     - '**/*.go'
     - '**/*.java'
-
+    - '**/*.yml'
 permissions:
   actions: read
   id-token: write
