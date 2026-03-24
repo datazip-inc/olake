@@ -7,6 +7,7 @@ import (
 	"net"
 	"sync"
 	"time"
+	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -163,6 +164,12 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 		if collectionType, ok := collectionInfo["type"].(string); ok && collectionType == "view" {
 			continue
 		}
+
+		// Skip if collection is system.*
+		if name, ok := collectionInfo["name"].(string); ok && strings.HasPrefix(name, "system.") {
+			continue
+		}
+
 		streamNames = append(streamNames, collectionInfo["name"].(string))
 	}
 	return streamNames, collections.Err()

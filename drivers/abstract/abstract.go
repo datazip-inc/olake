@@ -237,10 +237,11 @@ func generateThreadID(streamID, hash string) string {
 // The writer parameter can be either:
 //   - *destination.WriterThread for a single writer
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
-//
-// The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState any) {
-	// Cancel context if there's an error, so other threads using this context can detect the failure
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any) {
+	if r := recover(); r != nil {
+		*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: panic recovered: %v", *err, r)).(error)
+	}
+
 	if *err != nil {
 		cancel()
 	}
@@ -248,7 +249,7 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	var metadataState any
 	var closeErr error
 	if mtState != nil {
-		metadataState, closeErr = types.SetMetadataState(mtState, threadID)
+		metadataState, closeErr = types.SetMetadataState(*mtState, threadID)
 		if closeErr != nil {
 			closeErr = fmt.Errorf("failed to set metadata state: %s", closeErr)
 		}
@@ -275,12 +276,6 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	if closeErr != nil {
 		*err = utils.Ternary(*err == nil, closeErr, fmt.Errorf("%s: prev error: %w", closeErr, *err)).(error)
 	}
-
-	// check for panics before post-processing
-	if r := recover(); r != nil {
-		*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
-	}
-
 	if *err != nil {
 		cancel()
 	}

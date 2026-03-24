@@ -91,6 +91,30 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				VARGRAPHIC('vargraphic_val'),
 				TRUE
 			)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		// insert a filtered row — timestamp is before the filter threshold, so it won't be synced
+		filteredQuery := fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_char, col_character,
+				col_varchar, col_date, col_decimal,
+				col_double, col_real, col_int, col_smallint,
+				col_clob, col_blob, col_timestamp, col_time,
+				col_graphic, col_vargraphic, col_bool
+			) VALUES (
+				-1, 111111111111111, 'x', 'filtered',
+				'filtered_val', DATE('2022-06-15'), 50.123,
+				50.123, 50.0, 0, 0,
+				CLOB('filtered text'), BLOB(X'00'),
+				TIMESTAMP('2022-06-15-10.00.00.000000'),
+				TIME('10.00.00'),
+				GRAPHIC('filtered'),
+				VARGRAPHIC('filtered'),
+				FALSE
+			)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, filteredQuery)
+		require.NoError(t, err, "Failed to insert filtered test data row")
+		return
 
 	case "insert_2":
 		query = fmt.Sprintf(`
@@ -169,6 +193,27 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data")
 	}
+	// insert a filtered row — timestamp is before the filter threshold, so it won't be synced
+	filteredQuery := fmt.Sprintf(`
+		INSERT INTO %s (
+			col_cursor, col_bigint, col_char, col_character,
+			col_varchar, col_date, col_decimal,
+			col_double, col_real, col_int, col_smallint,
+			col_clob, col_blob, col_timestamp, col_time,
+			col_graphic, col_vargraphic, col_bool
+		) VALUES (
+			-1, 111111111111111, 'x', 'filtered',
+			'filtered_val', DATE('2021-06-15'), 500234.123,
+			500234.123, 500234.0, 0, 0,
+			CLOB('filtered text'), BLOB(X'00'),
+			TIMESTAMP('2021-06-15-10.00.00.000000'),
+			TIME('10.00.00'),
+			GRAPHIC('filtered'),
+			VARGRAPHIC('filtered'),
+			FALSE
+		)`, tableName)
+	_, err := db.ExecContext(ctx, filteredQuery)
+	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
 var ExpectedDB2Data = map[string]interface{}{
