@@ -3,6 +3,7 @@ package parquet
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -569,15 +571,113 @@ func (p *Parquet) clearLocalFiles(paths []string) error {
 	return nil
 }
 
+// isRateLimitError checks if the error is a rate-limit/throttle response from S3 or GCP.
+// AWS S3 returns HTTP 503 for throttling (SlowDown / ServiceUnavailable).
+// GCP Cloud Storage returns HTTP 429 (Too Many Requests).
+//
+// For batch delete operations, errors are wrapped in s3manager.BatchError which does NOT
+// implement awserr.RequestFailure directly. The actual RequestFailure is nested inside
+// BatchError.Errors[].OrigErr, so we must inspect those inner errors as well.
+func isRateLimitError(err error) bool {
+	// Case 1: Direct RequestFailure (from individual DeleteObject calls)
+	var reqErr awserr.RequestFailure
+	if errors.As(err, &reqErr) {
+		return reqErr.StatusCode() == 429 || reqErr.StatusCode() == 503
+	}
+
+	// Case 2: BatchError from s3manager batch delete — inspect inner errors
+	var batchErr awserr.Error
+	if errors.As(err, &batchErr) {
+		if origErr := batchErr.OrigErr(); origErr != nil {
+			return isRateLimitError(origErr)
+		}
+	}
+
+	return false
+}
+
+// retryOnRateLimit retries the given operation with linear backoff when a
+// rate-limit error is encountered. Non-rate-limit errors are returned immediately.
+func retryOnRateLimit(ctx context.Context, maxRetries int, operation string, fn func() error) error {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		err := fn()
+		if err == nil {
+			return nil
+		}
+
+		if !isRateLimitError(err) {
+			return err
+		}
+
+		if attempt == maxRetries {
+			return fmt.Errorf("%s after %d retries due to rate limiting: %v", operation, maxRetries, err)
+		}
+
+		backoff := time.Duration(attempt+1) * time.Minute
+		logger.Warnf("rate limited on %s, retrying in %v (attempt %d/%d): %v", operation, backoff, attempt+1, maxRetries, err)
+
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
+}
+
 func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
-	deleteS3PrefixStandard := func(filtPath string) error {
-		iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
+	deleteS3PrefixIndividually := func(filtPath string) error {
+		var allKeys []string
+		err := p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
 			Bucket: aws.String(p.config.Bucket),
 			Prefix: aws.String(filtPath),
+		}, func(page *s3.ListObjectsOutput, _ bool) bool {
+			for _, obj := range page.Contents {
+				allKeys = append(allKeys, *obj.Key)
+			}
+			return true
+		})
+		if err != nil {
+			return fmt.Errorf("failed to list objects for prefix %s: %v", filtPath, err)
+		}
+
+		if len(allKeys) == 0 {
+			return nil
+		}
+
+		logger.Debugf("individual delete: found %d objects under %s, deleting ", len(allKeys), filtPath)
+
+		// GCP allows 5000 mutations per second per bucket
+		concurrency := min(runtime.GOMAXPROCS(0)*4, len(allKeys))
+		return utils.Concurrent(ctx, allKeys, concurrency, func(_ context.Context, key string, _ int) error {
+			return retryOnRateLimit(ctx, 3, fmt.Sprintf("%s/%s", p.config.Bucket, key), func() error {
+				_, err := p.s3Client.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
+					Bucket: aws.String(p.config.Bucket),
+					Key:    aws.String(key),
+				})
+				if err != nil {
+					return err
+				}
+				logger.Debugf("successfully deleted S3 object s3://%s/%s", p.config.Bucket, key)
+				return nil
+			})
+		})
+	}
+
+	deleteS3PrefixStandard := func(filtPath string) error {
+		err := retryOnRateLimit(ctx, 3, fmt.Sprintf("batch deleting prefix %s", filtPath), func() error {
+			iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
+				Bucket: aws.String(p.config.Bucket),
+				Prefix: aws.String(filtPath),
+			})
+			return s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter)
 		})
 
-		if err := s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter); err != nil {
-			return fmt.Errorf("batch delete failed for filtPath %s: %s", filtPath, err)
+		if err != nil {
+			logger.Warnf("batch delete failed for filtPath %s, falling back to individual deletes: %v", filtPath, err)
+			if fallbackErr := deleteS3PrefixIndividually(filtPath); fallbackErr != nil {
+				return fmt.Errorf("batch delete failed: %v, and fallback individual delete also failed for filtPath %s: %s", err, filtPath, fallbackErr)
+			}
 		}
 		return nil
 	}
@@ -592,7 +692,15 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 		s3TablePath := filepath.Join(prefix, namespace, tableName, "/")
 
 		logger.Debugf("clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
-		if err := deleteS3PrefixStandard(s3TablePath); err != nil {
+
+		var err error
+		if strings.Contains(p.config.S3Endpoint, "googleapis.com") {
+			err = deleteS3PrefixIndividually(s3TablePath)
+		} else {
+			err = deleteS3PrefixStandard(s3TablePath)
+		}
+
+		if err != nil {
 			return fmt.Errorf("failed to clear S3 prefix %s: %s", s3TablePath, err)
 		}
 
