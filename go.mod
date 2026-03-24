@@ -16,6 +16,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.3
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
+	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/minio/minio-go/v7 v7.0.34
 	github.com/parquet-go/parquet-go v0.25.0
 	github.com/rs/zerolog v1.34.0
