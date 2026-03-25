@@ -1,0 +1,13 @@
+{
+  "bootstrap_servers": "host.docker.internal:39092",
+  "protocol": {
+    "security_protocol": "PLAINTEXT"
+  },
+  "consumer_group_id": "kafka-integration-test-group",
+  "max_threads": 1,
+  "threads_equal_total_partitions": false,
+  "backoff_retry_count": 3,
+  "schema_registry": {
+    "endpoint": "http://127.0.0.1:8081"
+  }
+}
