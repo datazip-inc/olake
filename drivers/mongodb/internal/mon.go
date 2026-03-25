@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strings"
 	"sync"
 	"time"
-	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -263,7 +263,17 @@ func filterMongoObject(doc bson.M) {
 		case primitive.Timestamp:
 			doc[key] = value.T
 		case primitive.DateTime:
-			doc[key] = value.Time()
+			t := value.Time()
+			// To ensure consistent behavior whether Olake normalization is
+			// true or false, we clamp any year < 1 to the 1970 epoch.
+			if t.Year() < 1 {
+				logger.Debugf("Detected invalid year %d (year 0000 or negative). Converting to epoch start time (1970-01-01 00:00:00 UTC)", t.Year())
+				doc[key] = time.Unix(0, 0).UTC()
+			} else if t.Year() > 9999 {
+				doc[key] = t.AddDate(-(t.Year() - 9999), 0, 0)
+			} else {
+				doc[key] = t
+			}
 		case primitive.Null:
 			doc[key] = nil
 		case primitive.Binary:
