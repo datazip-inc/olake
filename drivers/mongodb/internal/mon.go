@@ -264,15 +264,11 @@ func filterMongoObject(doc bson.M) {
 			doc[key] = value.T
 		case primitive.DateTime:
 			t := value.Time()
-			// To ensure consistent behavior whether Olake normalization is
-			// true or false, we clamp any year < 1 to the 1970 epoch.
-			if t.Year() < 1 {
-				logger.Debugf("Detected invalid year %d (year 0000 or negative). Converting to epoch start time (1970-01-01 00:00:00 UTC)", t.Year())
+			var err error
+			doc[key], err = typeutils.ReformatDate(t, true)
+			if err != nil {
+				logger.Warnf("failed to reformat date for key %s: %s", key, err)
 				doc[key] = time.Unix(0, 0).UTC()
-			} else if t.Year() > 9999 {
-				doc[key] = t.AddDate(-(t.Year() - 9999), 0, 0)
-			} else {
-				doc[key] = t
 			}
 		case primitive.Null:
 			doc[key] = nil
