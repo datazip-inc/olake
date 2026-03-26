@@ -2,11 +2,6 @@ name: Performance Tests
 
 on:
   push:
-    branches:
-    - "staging"
-    paths:
-    - '**/*.go'
-    - '**/*.java'
 
 permissions:
   actions: read
@@ -109,7 +104,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        PREVIOUS_ID=$(gh run list --workflow ".github/workflows/performance-test.yml" --branch "staging" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+        PREVIOUS_ID=$(gh run list --workflow ".github/workflows/performance-test.yml" --branch "${{ github.ref_name }}" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
         
         if [ -n "$PREVIOUS_ID" ]; then
           echo "id=$PREVIOUS_ID" >> $GITHUB_OUTPUT
