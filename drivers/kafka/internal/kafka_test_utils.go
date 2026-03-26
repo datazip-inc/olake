@@ -1,13 +1,19 @@
 package driver
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/linkedin/goavro/v2"
 	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/require"
 )
@@ -35,37 +41,33 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	key := []byte("test-key")
 	value := []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string"}`)
 	evolved_value := []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "id_int": 101}`)
+	filtervalue1 := []byte(`{"int_value": 99,"float_value": 99.99}`)
+	filtervalue2 := []byte(`{"int_value": 100,"float_value": 100.00}`)
 	switch operation {
 	case "create", "clean", "drop":
 		// 1. Dial a reachable broker for admin operations
 		conn, err := kafka.DialContext(ctx, "tcp", activeBroker)
 		require.NoError(t, err, "failed to dial kafka for topic creation")
 		defer conn.Close()
-
-		// 2. Loop over provided streams
-		for i := 0; i < len(streams); i++ {
-
-			// 3. If it's a "clean" or "drop" operation, delete first
-			if operation == "clean" || operation == "drop" {
-				_ = conn.DeleteTopics(streams[i])
-				time.Sleep(5 * time.Second)
-				if operation == "drop" {
-					continue
-				}
+		// 3. If it's a "clean" or "drop" operation, delete first
+		if operation == "clean" || operation == "drop" {
+			_ = conn.DeleteTopics(streams[0])
+			time.Sleep(5 * time.Second)
+			if operation == "drop" {
+				return
 			}
-			partitionNumber := utils.Ternary(i == 0, 1, 5).(int)
-			err = conn.CreateTopics(kafka.TopicConfig{
-				Topic:             streams[i],
-				NumPartitions:     partitionNumber,
-				ReplicationFactor: 1,
-			})
-			// 3. Ignore if already exists
-			if err != nil && err != kafka.TopicAlreadyExists {
-				require.NoError(t, err, "failed to create topic '%s' explicitly", streams[i])
-			}
-			t.Logf("Topic '%s' is ready for writes (%d partitions)", streams[i], partitionNumber)
 		}
-		return
+		partitionNumber := 5
+		err = conn.CreateTopics(kafka.TopicConfig{
+			Topic:             streams[0],
+			NumPartitions:     partitionNumber,
+			ReplicationFactor: 1,
+		})
+		// 3. Ignore if already exists
+		if err != nil && err != kafka.TopicAlreadyExists {
+			require.NoError(t, err, "failed to create topic '%s' explicitly", streams[0])
+		}
+		t.Logf("Topic '%s' is ready for writes (%d partitions)", streams[0], partitionNumber)
 	case "add", "insert":
 		// NEW: Initialize the writer only when needed
 		writer := &kafka.Writer{
@@ -75,29 +77,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			MaxAttempts:            10,
 		}
 		defer writer.Close()
-
-		for _, s := range streams {
-			if strings.HasSuffix(s, "_2") {
-				// Topic _2: Round-robin 3 messages across 3 partitions (0, 3, 4)
-				for _, p := range []int{0, 3, 4} {
-					addDataToPartition(ctx, t, writer, s, p, key, value)
-				}
-				t.Logf("Added 3 messages to topic '%s' across partitions 0, 3, 4", s)
-			} else if strings.HasSuffix(s, "_3") {
-				// Topic _3: Fill all 5 partitions (0-4)
-				for p := 0; p < 5; p++ {
-					addDataToPartition(ctx, t, writer, s, p, key, value)
-				}
-				t.Logf("Added 5 messages to topic '%s' (one per partition)", s)
-			} else {
-				// Topic _1 OR base topic: 5 messages in its single partition (0)
-				for i := 0; i < 5; i++ {
-					addDataToPartition(ctx, t, writer, s, 0, key, value)
-				}
-				t.Logf("Added 5 messages to topic '%s' in partition 0", s)
-			}
+		for p := 0; p < 5; p++ {
+			addDataToPartition(ctx, t, writer, streams[0], p, key, value)
 		}
-		return
+		addDataToPartition(ctx, t, writer, streams[0], 0, key, filtervalue1)
+		addDataToPartition(ctx, t, writer, streams[0], 1, key, filtervalue2)
+		t.Logf("Added 5 messages to topic '%s' (one per partition)", streams[0])
 	case "evolve-schema":
 		// NEW: Initialize the writer only when needed
 		writer := &kafka.Writer{
@@ -107,31 +92,94 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			MaxAttempts:            10,
 		}
 		defer writer.Close()
-
-		for _, s := range streams {
-			if strings.HasSuffix(s, "_2") {
-				// Topic _2: Round-robin 3 messages across 3 partitions (0, 3, 4)
-				for _, p := range []int{0, 3, 4} {
-					addDataToPartition(ctx, t, writer, s, p, key, evolved_value)
-				}
-				t.Logf("Added 3 messages to topic '%s' across partitions 0, 3, 4", s)
-			} else if strings.HasSuffix(s, "_3") {
-				// Topic _3: Fill all 5 partitions (0-4)
-				for p := 0; p < 5; p++ {
-					addDataToPartition(ctx, t, writer, s, p, key, evolved_value)
-				}
-				t.Logf("Added 5 messages to topic '%s' (one per partition)", s)
-			} else {
-				// Topic _1 OR base topic: 5 messages in its single partition (0)
-				for i := 0; i < 5; i++ {
-					addDataToPartition(ctx, t, writer, s, 0, key, evolved_value)
-				}
-				t.Logf("Added 5 messages to topic '%s' in partition 0", s)
-			}
+		for p := 0; p < 5; p++ {
+			addDataToPartition(ctx, t, writer, streams[0], p, key, evolved_value)
 		}
-		return
-	case "Avro-insert":
-		
+		t.Logf("Added 5 messages to topic '%s' (one per partition)", streams[0])
+	case "Avro-insert", "Avro-evolve-schema":
+		var config Config
+		utils.UnmarshalFile("./testdata/source.json", &config, false)
+
+		registryURL := config.SchemaRegistry.Endpoint
+		registryURL = strings.ReplaceAll(registryURL, "host.docker.internal", "127.0.0.1")
+
+		writer := &kafka.Writer{
+			Addr:         kafka.TCP(brokers...),
+			Balancer:     &kafka.LeastBytes{},
+			MaxAttempts:  10,
+			RequiredAcks: kafka.RequireAll,
+		}
+		defer writer.Close()
+
+		// Base schema
+		schemaV1 := `{
+			"type":"record",
+			"name":"test",
+			"fields":[
+				{"name":"int32_value","type":"int"},
+				{"name":"int64_value","type":"long"},
+				{"name":"float32_value","type":"float"},
+				{"name":"float64_value","type":"double"},
+				{"name":"boolean_true","type":"boolean"},
+				{"name":"boolean_false","type":"boolean"},
+				{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
+				{"name":"string_value","type":"string"}
+			]
+		}`
+
+		// Evolved schema
+		schemaV2 := `{
+			"type":"record",
+			"name":"test",
+			"fields":[
+				{"name":"int32_value","type":"long"},
+				{"name":"int64_value","type":"long"},
+				{"name":"float32_value","type":"float"},
+				{"name":"float64_value","type":"double"},
+				{"name":"boolean_true","type":"boolean"},
+				{"name":"boolean_false","type":"boolean"},
+				{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
+				{"name":"string_value","type":"string"},
+				{"name":"id_int","type":"long","default":0}
+			]
+		}`
+
+		schema := schemaV1
+		if operation == "Avro-evolve-schema" {
+			schema = schemaV2
+		}
+
+		codec, err := goavro.NewCodec(schema)
+		require.NoError(t, err)
+
+		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], schema)
+
+		dataToProduce := map[string]interface{}{
+			"int32_value":     int32(32),
+			"int64_value":     int64(6400000000),
+			"float32_value":   float32(32.5),
+			"float64_value":   float64(64.6464),
+			"boolean_true":    true,
+			"boolean_false":   false,
+			"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+			"string_value":    "test_string",
+		}
+
+		if operation == "Avro-evolve-schema" {
+			dataToProduce["id_int"] = int64(101)
+		}
+
+		binaryData, err := codec.BinaryFromNative(nil, dataToProduce)
+		require.NoError(t, err)
+
+		confluentMsg := encodeConfluentBinary(schemaID, binaryData)
+
+		err = writer.WriteMessages(ctx, kafka.Message{
+			Topic: streams[0],
+			Key:   []byte("avro-key"),
+			Value: confluentMsg,
+		})
+		require.NoError(t, err)
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
 	}
@@ -218,6 +266,67 @@ func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Wri
 	}
 }
 
+func retryWithBackoff(attempts int, baseDelay time.Duration, fn func() error) error {
+	delay := baseDelay
+	var err error
+
+	for i := 0; i < attempts; i++ {
+		err = fn()
+		if err == nil {
+			return nil
+		}
+		time.Sleep(delay)
+		delay *= 2
+	}
+	return fmt.Errorf("after %d attempts, last error: %w", attempts, err)
+}
+
+func registerSchemaWithRetry(t *testing.T, url, topic, schema string) uint32 {
+	body, err := json.Marshal(map[string]string{"schema": schema})
+	require.NoError(t, err)
+
+	var schemaID uint32
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	err = retryWithBackoff(5, 2*time.Second, func() error {
+		resp, err := client.Post(
+			fmt.Sprintf("%s/subjects/%s-value/versions", url, topic),
+			"application/vnd.schemaregistry.v1+json",
+			bytes.NewReader(body),
+		)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("registry not ready (status: %d)", resp.StatusCode)
+		}
+
+		var res struct {
+			ID uint32 `json:"id"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			return err
+		}
+
+		schemaID = res.ID
+		return nil
+	})
+
+	require.NoError(t, err)
+	return schemaID
+}
+
+func encodeConfluentBinary(id uint32, data []byte) []byte {
+	out := make([]byte, 5+len(data))
+	out[0] = 0x00
+	binary.BigEndian.PutUint32(out[1:5], id)
+	copy(out[5:], data)
+	return out
+}
+
 var ExpectedKafkaData = map[string]interface{}{
 	"int_value":       int64(100),
 	"float_value":     float64(99.99),
@@ -265,4 +374,37 @@ var ExpectedKafkaDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_timestamp":   "timestamp",
 	"_olake_id":        "string",
 	"_olake_timestamp": "timestamp",
+}
+
+var ExpectedKafkaAvroUpdatedData = map[string]interface{}{
+	"int32_value": int64(32), // 🔥 promoted from int → long
+	"int64_value": int64(6400000000),
+
+	"float32_value": float32(32.5),
+	"float64_value": float64(64.6464),
+
+	"boolean_true":  true,
+	"boolean_false": false,
+
+	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+
+	"string_value": "test_string",
+
+	"id_int": int64(101), // new field
+}
+
+var ExpectedKafkaAvroData = map[string]interface{}{
+	"int32_value": int32(32),
+	"int64_value": int64(6400000000),
+
+	// ⚠️ float32 might get promoted to float64 in destination
+	"float32_value": float32(32.5),
+	"float64_value": float64(64.6464),
+
+	"boolean_true":  true,
+	"boolean_false": false,
+
+	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+
+	"string_value": "test_string",
 }

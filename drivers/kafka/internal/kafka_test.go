@@ -21,7 +21,25 @@ func TestKafkaIntegration(t *testing.T) {
 		DestinationDB:                    "kafka_topics",
 		CursorField:                      "int_value:bigint",
 		PartitionRegex:                   "/{int_value,identity}",
-		FilterConfig:                     "",
+		ExtraExpectedData: map[string]map[string]interface{}{
+			"Avro-insert":        ExpectedKafkaAvroData,
+			"Avro-evolve-schema": ExpectedKafkaAvroUpdatedData,
+		},
+		FilterConfig: `{
+			"logical_operator": "And",
+			"conditions": [
+				{
+					"column": "int_value",
+					"operator": ">=",
+					"value": 100
+				},
+				{
+					"column": "float_value",
+					"operator": "<",
+					"value": 100.00
+				}
+			]
+		}`,
 	}
 	testConfig.TestIntegration(t)
 }

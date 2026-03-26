@@ -13,6 +13,6 @@
     "aws_secret_key": "password",
     "iceberg_db": "olake_iceberg",
     "aws_region": "us-east-1",
-    "arrow_writes": true
+    "arrow_writes": false
   }
 }

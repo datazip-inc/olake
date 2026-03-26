@@ -4,10 +4,10 @@
     "security_protocol": "PLAINTEXT"
   },
   "consumer_group_id": "kafka-integration-test-group",
-  "max_threads": 1,
-  "threads_equal_total_partitions": false,
+  "max_threads": 10,
+  "threads_equal_total_partitions": true,
   "backoff_retry_count": 3,
   "schema_registry": {
-    "endpoint": "http://127.0.0.1:8081"
+    "endpoint": "http://host.docker.internal:8081"
   }
 }

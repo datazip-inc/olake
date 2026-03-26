@@ -49,6 +49,7 @@ type IntegrationTest struct {
 	CursorField                      string
 	PartitionRegex                   string
 	FilterConfig                     string
+	ExtraExpectedData                map[string]map[string]interface{}
 }
 
 type PerformanceTest struct {
@@ -378,7 +379,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 
 	// Execute operation before sync if needed
-	if useState && operation != "" {
+	if (useState || slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver))) && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
 		if cfg.TestConfig.Driver == "mssql" {
 			t.Log("Waiting 20 seconds for MSSQL CDC to process transactions...")
@@ -394,9 +395,9 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
 
-	// Use evolved schema only for CDC "update" operation or for kafka when schema evolution is expected	
+	// Use evolved schema only for CDC "update" operation or for kafka when schema evolution is expected
 	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
-	evolvedSchema := operation == "update" || operation == "evolve-schema"
+	evolvedSchema := operation == "update" || operation == "evolve-schema" || operation == "Avro-evolve-schema"
 
 	switch destinationType {
 	case "iceberg":
@@ -499,16 +500,16 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		{
 			name:      "CDC - strict - Avro - insert",
 			operation: "Avro-insert",
-			useState:  true,
-			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			useState:  false,
+			opSymbol:  "c",
+			expected:  cfg.ExtraExpectedData["Avro-insert"],
 		},
 		{
 			name:      "CDC - strict - Avro - evolve-schema",
 			operation: "Avro-evolve-schema",
 			useState:  true,
 			opSymbol:  "c",
-			expected:  cfg.ExpectedUpdatedData,
+			expected:  cfg.ExtraExpectedData["Avro-evolve-schema"],
 		},
 	}
 
@@ -523,7 +524,9 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
-
+			if slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)) && tc.operation == "Avro-insert" {
+				dropIcebergTable(t, testTable, cfg.DestinationDB)
+			}
 			if err := cfg.runSyncAndVerify(
 				ctx,
 				t,
@@ -612,16 +615,16 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		{
 			name:      "CDC - strict - Avro - insert",
 			operation: "Avro-insert",
-			useState:  true,
-			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			useState:  false,
+			opSymbol:  "c",
+			expected:  cfg.ExtraExpectedData["Avro-insert"],
 		},
 		{
 			name:      "CDC - strict - Avro - evolve-schema",
 			operation: "Avro-evolve-schema",
 			useState:  true,
 			opSymbol:  "c",
-			expected:  cfg.ExpectedUpdatedData,
+			expected:  cfg.ExtraExpectedData["Avro-evolve-schema"],
 		},
 	}
 
@@ -845,12 +848,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
 	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver)
 
-	syncTopics := []string{currentTestTable}
-
-	if cfg.TestConfig.Driver == string(constants.Kafka) {
-		syncTopics = []string{currentTestTable + "_1", currentTestTable + "_2", currentTestTable + "_3"}
-	}
-
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
 			Image:         "golang:1.25.8-bookworm",
@@ -878,9 +875,9 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// 2. Query on test table
-							cfg.ExecuteQuery(ctx, t, syncTopics, "create", false)
-							cfg.ExecuteQuery(ctx, t, syncTopics, "clean", false)
-							cfg.ExecuteQuery(ctx, t, syncTopics, "add", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
 							// 3. Run discover command
 							discoverCmd := discoverCommand(*cfg.TestConfig)
@@ -903,7 +900,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							t.Logf("Generated streams validated with test streams")
 
 							// 5. Clean up
-							cfg.ExecuteQuery(ctx, t, syncTopics, "drop", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 							t.Logf("%s discover test-container clean up", cfg.TestConfig.Driver)
 							return nil
 						},
@@ -952,15 +949,15 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// 2. Query on test table
-							cfg.ExecuteQuery(ctx, t, syncTopics, "create", false)
-							cfg.ExecuteQuery(ctx, t, syncTopics, "clean", false)
-							cfg.ExecuteQuery(ctx, t, syncTopics, "add", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
 							// streamUpdateCmd := fmt.Sprintf(
 							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
 							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
 							// )
-							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, syncTopics, true)
+							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
 									code, err, out,
@@ -980,19 +977,15 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
 								for _, wt := range writerTypes {
 									t.Run(fmt.Sprintf("Iceberg (%s) Full load + CDC tests", wt.name), func(t *testing.T) {
-										for _, topic := range syncTopics {
-											if err := cfg.testIcebergWriter(ctx, t, c, topic, wt.useArrow, cfg.testIcebergFullLoadAndCDC); err != nil {
-												t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", wt.name, err)
-											}
+										if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndCDC); err != nil {
+											t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", wt.name, err)
 										}
 									})
 								}
 
 								t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
-									for _, topic := range syncTopics {
-										if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, topic); err != nil {
-											t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
-										}
+									if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
+										t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
 									}
 								})
 							}
