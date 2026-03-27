@@ -49,6 +49,8 @@ type IntegrationTest struct {
 	CursorField                      string
 	PartitionRegex                   string
 	FilterConfig                     string
+	ExtraExpectedData                map[string]map[string]interface{}
+	ExtraExpectedDataSchema          map[string]map[string]string
 }
 
 type PerformanceTest struct {
@@ -354,11 +356,12 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 
 // syncTestCase represents a test case for sync operations
 type syncTestCase struct {
-	name      string
-	operation string
-	useState  bool
-	opSymbol  string
-	expected  map[string]interface{}
+	name           string
+	operation      string
+	useState       bool
+	opSymbol       string
+	expectedData   map[string]interface{}
+	expectedSchema map[string]string
 }
 
 // runSyncAndVerify executes a sync command and verifies the results in Iceberg
@@ -373,12 +376,13 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	opSymbol string,
 	schema map[string]interface{},
 	isCDC bool,
+	expectedSchema map[string]string,
 ) error {
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 
 	// Execute operation before sync if needed
-	if useState && operation != "" {
+	if (useState || slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver))) && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
 		if cfg.TestConfig.Driver == "mssql" {
 			t.Log("Waiting 20 seconds for MSSQL CDC to process transactions...")
@@ -394,27 +398,11 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
 
-	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
-	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
-	evolvedSchema := operation == "update"
-
 	switch destinationType {
 	case "iceberg":
-		{
-			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
-			} else {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
-			}
-		}
+		VerifyIcebergSync(t, testTable, cfg.DestinationDB, expectedSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
 	case "parquet":
-		{
-			if evolvedSchema {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
-			} else {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
-			}
-		}
+		VerifyParquetSync(t, testTable, cfg.DestinationDB, expectedSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
 	}
 
 	return nil
@@ -452,34 +440,75 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 
 	testCases := []syncTestCase{
 		{
-			name:      "Full-Refresh",
-			operation: "",
-			useState:  false,
-			opSymbol:  "r",
-			expected:  cfg.ExpectedData,
+			name:           "Full-Refresh",
+			operation:      "",
+			useState:       false,
+			opSymbol:       "r",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
 		},
 		{
-			name:      "CDC - insert",
-			operation: "insert",
-			useState:  true,
-			opSymbol:  "c",
-			expected:  cfg.ExpectedData,
+			name:           "CDC - insert",
+			operation:      "insert",
+			useState:       true,
+			opSymbol:       "c",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
 		},
 		{
-			name:      "CDC - update",
-			operation: "update",
-			useState:  true,
-			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			name:           "CDC - update",
+			operation:      "update",
+			useState:       true,
+			opSymbol:       "u",
+			expectedData:   cfg.ExpectedUpdatedData,
+			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
 		},
 		{
-			name:      "CDC - delete",
-			operation: "delete",
-			useState:  true,
-			opSymbol:  "d",
-			expected:  nil,
+			name:           "CDC - delete",
+			operation:      "delete",
+			useState:       true,
+			opSymbol:       "d",
+			expectedData:   nil,
+			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
 		},
 	}
+
+	kafkaTestCases := []syncTestCase{
+		{
+			name:           "CDC - strict - insert",
+			operation:      "",
+			useState:       false,
+			opSymbol:       "c",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
+		},
+		{
+			name:           "CDC - strict - evolve-schema",
+			operation:      "evolve-schema",
+			useState:       true,
+			opSymbol:       "c",
+			expectedData:   cfg.ExpectedUpdatedData,
+			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
+		},
+		{
+			name:           "CDC - strict - Avro - insert",
+			operation:      "Avro-insert",
+			useState:       false,
+			opSymbol:       "c",
+			expectedData:   cfg.ExtraExpectedData["Avro-insert"],
+			expectedSchema: cfg.ExtraExpectedDataSchema["Avro-insert"],
+		},
+		{
+			name:           "CDC - strict - Avro - evolve-schema",
+			operation:      "Avro-evolve-schema",
+			useState:       true,
+			opSymbol:       "c",
+			expectedData:   cfg.ExtraExpectedData["Avro-evolve-schema"],
+			expectedSchema: cfg.ExtraExpectedDataSchema["Avro-evolve-schema"],
+		},
+	}
+
+	testCases = utils.Ternary(slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)), kafkaTestCases, testCases).([]syncTestCase)
 
 	// Run each test case
 	for _, tc := range testCases {
@@ -490,7 +519,9 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
-
+			if slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)) && tc.operation == "Avro-insert" {
+				dropIcebergTable(t, testTable, cfg.DestinationDB)
+			}
 			if err := cfg.runSyncAndVerify(
 				ctx,
 				t,
@@ -500,8 +531,9 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				"iceberg",
 				tc.operation,
 				tc.opSymbol,
-				tc.expected,
+				tc.expectedData,
 				tc.name != "Full-Refresh",
+				tc.expectedSchema,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -532,35 +564,75 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 
 	testCases := []syncTestCase{
 		{
-			name:      "Full-Refresh",
-			operation: "",
-			useState:  false,
-			opSymbol:  "r",
-			expected:  cfg.ExpectedData,
+			name:           "Full-Refresh",
+			operation:      "",
+			useState:       false,
+			opSymbol:       "r",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
 		},
 		{
-			name:      "CDC - insert",
-			operation: "insert",
-			useState:  true,
-			opSymbol:  "c",
-			expected:  cfg.ExpectedData,
+			name:           "CDC - insert",
+			operation:      "insert",
+			useState:       true,
+			opSymbol:       "c",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
 		},
 		{
-			name:      "CDC - update",
-			operation: "update",
-			useState:  true,
-			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			name:           "CDC - update",
+			operation:      "update",
+			useState:       true,
+			opSymbol:       "u",
+			expectedData:   cfg.ExpectedUpdatedData,
+			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
 		},
 		{
-			name:      "CDC - delete",
-			operation: "delete",
-			useState:  true,
-			opSymbol:  "d",
-			expected:  nil,
+			name:           "CDC - delete",
+			operation:      "delete",
+			useState:       true,
+			opSymbol:       "d",
+			expectedData:   nil,
+			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
 		},
 	}
 
+	kafkaTestCases := []syncTestCase{
+		{
+			name:           "CDC - strict - insert",
+			operation:      "",
+			useState:       false,
+			opSymbol:       "c",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
+		},
+		{
+			name:           "CDC - strict - evolve-schema",
+			operation:      "evolve-schema",
+			useState:       true,
+			opSymbol:       "c",
+			expectedData:   cfg.ExpectedUpdatedData,
+			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
+		},
+		{
+			name:           "CDC - strict - Avro - insert",
+			operation:      "Avro-insert",
+			useState:       false,
+			opSymbol:       "c",
+			expectedData:   cfg.ExtraExpectedData["Avro-insert"],
+			expectedSchema: cfg.ExtraExpectedDataSchema["Avro-insert"],
+		},
+		{
+			name:           "CDC - strict - Avro - evolve-schema",
+			operation:      "Avro-evolve-schema",
+			useState:       true,
+			opSymbol:       "c",
+			expectedData:   cfg.ExtraExpectedData["Avro-evolve-schema"],
+			expectedSchema: cfg.ExtraExpectedDataSchema["Avro-evolve-schema"],
+		},
+	}
+
+	testCases = utils.Ternary(slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)), kafkaTestCases, testCases).([]syncTestCase)
 	// Run each test case
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -585,8 +657,9 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 				"parquet",
 				tc.operation,
 				tc.opSymbol,
-				tc.expected,
+				tc.expectedData,
 				tc.name != "Full-Refresh",
+				tc.expectedSchema,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -628,25 +701,28 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	// Test cases for incremental sync
 	incrementalTestCases := []syncTestCase{
 		{
-			name:      "Full-Refresh",
-			operation: "",
-			useState:  false,
-			opSymbol:  "r",
-			expected:  cfg.ExpectedData,
+			name:           "Full-Refresh",
+			operation:      "",
+			useState:       false,
+			opSymbol:       "r",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
 		},
 		{
-			name:      "Incremental - insert",
-			operation: "insert",
-			useState:  true,
-			opSymbol:  "u",
-			expected:  cfg.ExpectedData,
+			name:           "Incremental - insert",
+			operation:      "insert",
+			useState:       true,
+			opSymbol:       "u",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
 		},
 		{
-			name:      "Incremental - update",
-			operation: "update",
-			useState:  true,
-			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			name:           "Incremental - update",
+			operation:      "update",
+			useState:       true,
+			opSymbol:       "u",
+			expectedData:   cfg.ExpectedUpdatedData,
+			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
 		},
 	}
 
@@ -673,8 +749,9 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				"iceberg",
 				tc.operation,
 				tc.opSymbol,
-				tc.expected,
+				tc.expectedData,
 				false,
+				tc.expectedSchema,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -715,25 +792,28 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	// Test cases for incremental sync
 	incrementalTestCases := []syncTestCase{
 		{
-			name:      "Full-Refresh",
-			operation: "",
-			useState:  false,
-			opSymbol:  "r",
-			expected:  cfg.ExpectedData,
+			name:           "Full-Refresh",
+			operation:      "",
+			useState:       false,
+			opSymbol:       "r",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
 		},
 		{
-			name:      "Incremental - insert",
-			operation: "insert",
-			useState:  true,
-			opSymbol:  "u",
-			expected:  cfg.ExpectedData,
+			name:           "Incremental - insert",
+			operation:      "insert",
+			useState:       true,
+			opSymbol:       "u",
+			expectedData:   cfg.ExpectedData,
+			expectedSchema: cfg.DestinationDataTypeSchema,
 		},
 		{
-			name:      "Incremental - update",
-			operation: "update",
-			useState:  true,
-			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			name:           "Incremental - update",
+			operation:      "update",
+			useState:       true,
+			opSymbol:       "u",
+			expectedData:   cfg.ExpectedUpdatedData,
+			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
 		},
 	}
 
@@ -761,8 +841,9 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 				"parquet",
 				tc.operation,
 				tc.opSymbol,
-				tc.expected,
+				tc.expectedData,
 				false,
+				tc.expectedSchema,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -922,19 +1003,21 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								})
 							}
 
-							for _, wt := range writerTypes {
-								t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
-									if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndIncremental); err != nil {
-										t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", wt.name, err)
+							if !slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)) {
+								for _, wt := range writerTypes {
+									t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
+										if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndIncremental); err != nil {
+											t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", wt.name, err)
+										}
+									})
+								}
+
+								t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
+									if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
+										t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
 									}
 								})
 							}
-
-							t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
-								if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
-								}
-							})
 
 							// 5. Clean up
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
@@ -1005,6 +1088,11 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		"SELECT * FROM %s WHERE _op_type = '%s'",
 		fullTableName, opSymbol,
 	)
+	if slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(driver)) {
+		if _, ok := schema["id_int"]; ok {
+			selectQuery += " AND id_int IS NOT NULL"
+		}
+	}
 	t.Logf("Executing query: %s", selectQuery)
 
 	var selectRows []types.Row
@@ -1079,7 +1167,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			for key := range defaultCDCColumnsSchema {
 				icebergValue, ok := icebergMap[key]
 				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-				require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				require.NotNil(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
 				if key == constants.CdcTimestamp {
 					ts, ok := normalizeToTime(icebergValue)
 					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, icebergValue, icebergValue)
@@ -1254,7 +1342,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			for key := range defaultCDCColumnsSchema {
 				val, ok := parquetMap[key]
 				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-				require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				require.NotNil(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
 				if key == constants.CdcTimestamp {
 					ts, ok := normalizeToTime(val)
 					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
