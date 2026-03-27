@@ -383,40 +383,40 @@ var ExpectedKafkaDefaultCDCColumnsSchema = map[string]string{
 }
 
 var ExpectedKafkaAvroDataSchema = map[string]string{
-	"int32_value": "int",
-	"int64_value": "bigint",
-	"int_value": "bigint",
-	"float32_value": "float",
-	"float64_value": "double",
-	"float_value": "double",
-	"boolean_true": "boolean",
-	"boolean_false": "boolean",
+	"int32_value":     "int",
+	"int64_value":     "bigint",
+	"int_value":       "bigint",
+	"float32_value":   "float",
+	"float64_value":   "double",
+	"float_value":     "double",
+	"boolean_true":    "boolean",
+	"boolean_false":   "boolean",
 	"timestamp_value": "timestamp",
-	"string_value": "string",
+	"string_value":    "string",
 }
-	
+
 var ExpectedKafkaAvroUpdatedDataSchema = map[string]string{
-	"int32_value": "bigint",
-	"int64_value": "bigint",
-	"int_value": "bigint",
-	"float32_value": "float",
-	"float64_value": "double",
-	"float_value": "double",
-	"boolean_true": "boolean",
-	"boolean_false": "boolean",
+	"int32_value":     "bigint",
+	"int64_value":     "bigint",
+	"int_value":       "bigint",
+	"float32_value":   "float",
+	"float64_value":   "double",
+	"float_value":     "double",
+	"boolean_true":    "boolean",
+	"boolean_false":   "boolean",
 	"timestamp_value": "timestamp",
-	"string_value": "string",
-	"id_int": "bigint",
+	"string_value":    "string",
+	"id_int":          "bigint",
 }
 
 var ExpectedKafkaAvroUpdatedData = map[string]interface{}{
 	"int32_value": int64(132), // promoted from int → long
 	"int64_value": int64(6400000000),
-	"int_value": int64(101),
+	"int_value":   int64(101),
 
 	"float32_value": float32(32.5),
 	"float64_value": float64(64.6464),
-	"float_value":     float64(66.6666),
+	"float_value":   float64(66.6666),
 
 	"boolean_true":  true,
 	"boolean_false": false,
@@ -431,11 +431,11 @@ var ExpectedKafkaAvroUpdatedData = map[string]interface{}{
 var ExpectedKafkaAvroData = map[string]interface{}{
 	"int32_value": int32(132),
 	"int64_value": int64(6400000000),
-	"int_value": int64(101),
+	"int_value":   int64(101),
 
 	"float32_value": float32(32.5),
 	"float64_value": float64(64.6464),
-	"float_value":     float64(66.6666),
+	"float_value":   float64(66.6666),
 
 	"boolean_true":  true,
 	"boolean_false": false,
