@@ -624,7 +624,6 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 						if err != nil {
 							return err
 						}
-						logger.Debugf("successfully deleted S3 object s3://%s/%s", p.config.Bucket, key)
 						return nil
 					})
 				}); pageErr != nil {
