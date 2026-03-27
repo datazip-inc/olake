@@ -218,12 +218,12 @@ func waitForAnyKafkaBroker(ctx context.Context, t *testing.T, brokers []string) 
 				continue
 			}
 
-			// 🔥 Real readiness check: metadata must be available
+			// Real readiness check: metadata must be available
 			_, err = conn.ReadPartitions()
 			if err != nil {
 				lastErr = err
 				t.Logf("Waiting for Kafka broker %s to initialize metadata... (%v)", b, err)
-				_ = conn.Close() // IMPORTANT: avoid connection leaks
+				_ = conn.Close()
 				continue
 			}
 
@@ -231,7 +231,7 @@ func waitForAnyKafkaBroker(ctx context.Context, t *testing.T, brokers []string) 
 
 			t.Logf("Kafka broker %s is fully ready (metadata available)", b)
 
-			// Optional: small buffer for stability in slower environments
+			// small buffer for stability in slower environments
 			time.Sleep(1 * time.Second)
 
 			return b
@@ -250,6 +250,8 @@ func waitForAnyKafkaBroker(ctx context.Context, t *testing.T, brokers []string) 
 func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Writer, msg kafka.Message) {
 	t.Helper()
 
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
 	var lastErr error
 	var attempts int
 	nextLog := time.Now()
@@ -263,10 +265,10 @@ func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Wri
 			require.NoError(t, lastErr, "failed to write seed kafka message after %d attempts (topic=%q partition=%d)", attempts, writer.Topic, msg.Partition)
 			return
 		}
-		// Without this, a bad broker/topic state spins silently until the test timeout (e.g. 30m).
+		// Without this, a bad broker/topic state spins silently until the test timeout (e.g. 3m).
 		if time.Now().After(nextLog) {
 			t.Logf("kafka seed write retry: attempt=%d topic=%q partition=%d err=%v", attempts, writer.Topic, msg.Partition, lastErr)
-			nextLog = time.Now().Add(5 * time.Second)
+			nextLog = time.Now().Add(20 * time.Second)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
