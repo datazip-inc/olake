@@ -455,6 +455,38 @@ func SplitAndTrim(s string) []string {
 	return result
 }
 
+// RetryWithSkip calls f once and retries up to maxRetries more times on error,
+// using linear backoff ((retry+1)*sleep) between each attempt.
+// shouldRetry is called on each non-nil error: return true to keep retrying, false to surface the
+// error immediately without waiting. A nil shouldRetry retries all errors.
+func RetryWithSkip(ctx context.Context, maxRetries int, sleep time.Duration, shouldRetry func(error) bool, f func(ctx context.Context) error) (err error) {
+	for cur := range maxRetries + 1 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if err = f(ctx); err == nil {
+				return nil
+			}
+		}
+
+		if shouldRetry != nil && !shouldRetry(err) {
+			return err
+		}
+
+		if cur != maxRetries {
+			backoff := time.Duration(cur+1) * sleep
+			logger.Infof("retry attempt[%d/%d], retrying after %.2f seconds due to err: %s", cur+1, maxRetries, backoff.Seconds(), err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+	}
+	return err
+}
+
 // RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
 func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
 	for cur := range attempts {
