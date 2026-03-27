@@ -1335,6 +1335,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		}
 
 		averageRPS, observations := benchmarks.stats(isBackfill)
+		t.Logf("currentRPS: %.2f, averageRPS: %.2f, observations: %d", rps, averageRPS, observations)
 
 		// No benchmarks exist yet for this driver/mode
 		// Skip validation to allow initial benchmarking.
@@ -1342,7 +1343,6 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			t.Logf("No benchmarks exist yet for %s %s mode, skipping validation", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
 			return true, rps, nil
 		}
-		t.Logf("currentRPS: %.2f, averageRPS: %.2f, observations: %d", rps, averageRPS, observations)
 		if rps < BenchmarkThreshold*averageRPS {
 			return false, rps, nil
 		}
