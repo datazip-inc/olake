@@ -356,11 +356,11 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 
 // syncTestCase represents a test case for sync operations
 type syncTestCase struct {
-	name      string
-	operation string
-	useState  bool
-	opSymbol  string
-	expectedData  map[string]interface{}
+	name           string
+	operation      string
+	useState       bool
+	opSymbol       string
+	expectedData   map[string]interface{}
 	expectedSchema map[string]string
 }
 
