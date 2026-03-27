@@ -402,7 +402,7 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		return ""
 	}
 
-	timeoutSec := 30
+	timeoutSec := 300
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
 	defer cancel()
