@@ -3,10 +3,10 @@ name: Performance Tests
 on:
   push:
     branches:
-      - 'staging'
+    - 'staging'
     paths:
-      - '**/*.go'
-      - '**/*.java'
+    - '**/*.go'
+    - '**/*.java'
 
 permissions:
   actions: read
