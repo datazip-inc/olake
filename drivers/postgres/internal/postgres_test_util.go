@@ -14,7 +14,8 @@ import (
 )
 
 const (
-	replicationSlot = "performance_slot"
+	replicationSlot    = "performance_slot"
+	cdcPublicationName = "performance_publication"
 )
 
 func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
@@ -187,6 +188,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		createQuery := fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput');`, replicationSlot)
 		_, err = db.ExecContext(ctx, createQuery)
 		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+
+		_, err = db.ExecContext(ctx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s;", cdcPublicationName))
+		require.NoError(t, err, fmt.Sprintf("failed to drop publication %s", cdcPublicationName))
+
+		_, err = db.ExecContext(ctx, fmt.Sprintf("CREATE PUBLICATION %s FOR ALL TABLES;", cdcPublicationName))
+		require.NoError(t, err, fmt.Sprintf("failed to create publication %s", cdcPublicationName))
 		return
 
 	case "setup_cdc":
