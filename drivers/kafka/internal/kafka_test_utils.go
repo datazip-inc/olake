@@ -118,8 +118,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			"fields":[
 				{"name":"int32_value","type":"int"},
 				{"name":"int64_value","type":"long"},
+				{"name":"int_value","type":"long"},
 				{"name":"float32_value","type":"float"},
 				{"name":"float64_value","type":"double"},
+				{"name":"float_value","type":"double"},
 				{"name":"boolean_true","type":"boolean"},
 				{"name":"boolean_false","type":"boolean"},
 				{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
@@ -134,8 +136,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			"fields":[
 				{"name":"int32_value","type":"long"},
 				{"name":"int64_value","type":"long"},
+				{"name":"int_value","type":"long"},
 				{"name":"float32_value","type":"float"},
 				{"name":"float64_value","type":"double"},
+				{"name":"float_value","type":"double"},
 				{"name":"boolean_true","type":"boolean"},
 				{"name":"boolean_false","type":"boolean"},
 				{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
@@ -155,10 +159,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], schema)
 
 		dataToProduce := map[string]interface{}{
-			"int32_value":     int32(32),
+			"int32_value":     int32(132),
 			"int64_value":     int64(6400000000),
+			"int_value":       int64(101),
 			"float32_value":   float32(32.5),
 			"float64_value":   float64(64.6464),
+			"float_value":     float64(66.6666),
 			"boolean_true":    true,
 			"boolean_false":   false,
 			"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -376,12 +382,41 @@ var ExpectedKafkaDefaultCDCColumnsSchema = map[string]string{
 	"_olake_timestamp": "timestamp",
 }
 
+var ExpectedKafkaAvroDataSchema = map[string]string{
+	"int32_value": "int",
+	"int64_value": "bigint",
+	"int_value": "bigint",
+	"float32_value": "float",
+	"float64_value": "double",
+	"float_value": "double",
+	"boolean_true": "boolean",
+	"boolean_false": "boolean",
+	"timestamp_value": "timestamp",
+	"string_value": "string",
+}
+	
+var ExpectedKafkaAvroUpdatedDataSchema = map[string]string{
+	"int32_value": "bigint",
+	"int64_value": "bigint",
+	"int_value": "bigint",
+	"float32_value": "float",
+	"float64_value": "double",
+	"float_value": "double",
+	"boolean_true": "boolean",
+	"boolean_false": "boolean",
+	"timestamp_value": "timestamp",
+	"string_value": "string",
+	"id_int": "bigint",
+}
+
 var ExpectedKafkaAvroUpdatedData = map[string]interface{}{
-	"int32_value": int64(32), // 🔥 promoted from int → long
+	"int32_value": int64(132), // promoted from int → long
 	"int64_value": int64(6400000000),
+	"int_value": int64(101),
 
 	"float32_value": float32(32.5),
 	"float64_value": float64(64.6464),
+	"float_value":     float64(66.6666),
 
 	"boolean_true":  true,
 	"boolean_false": false,
@@ -394,12 +429,13 @@ var ExpectedKafkaAvroUpdatedData = map[string]interface{}{
 }
 
 var ExpectedKafkaAvroData = map[string]interface{}{
-	"int32_value": int32(32),
+	"int32_value": int32(132),
 	"int64_value": int64(6400000000),
+	"int_value": int64(101),
 
-	// ⚠️ float32 might get promoted to float64 in destination
 	"float32_value": float32(32.5),
 	"float64_value": float64(64.6464),
+	"float_value":     float64(66.6666),
 
 	"boolean_true":  true,
 	"boolean_false": false,

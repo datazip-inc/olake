@@ -25,6 +25,10 @@ func TestKafkaIntegration(t *testing.T) {
 			"Avro-insert":        ExpectedKafkaAvroData,
 			"Avro-evolve-schema": ExpectedKafkaAvroUpdatedData,
 		},
+		ExtraExpectedDataSchema: map[string]map[string]string{
+			"Avro-insert":        ExpectedKafkaAvroDataSchema,
+			"Avro-evolve-schema": ExpectedKafkaAvroUpdatedDataSchema,
+		},
 		FilterConfig: `{
 			"logical_operator": "And",
 			"conditions": [
