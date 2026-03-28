@@ -116,6 +116,25 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err = collection.InsertOne(ctx, filteredDoc)
 		require.NoError(t, err, "Failed to insert filtered test data row")
 
+	case "insert_2":
+		doc2 := bson.M{
+			"id_bigint":         int64(123456789012345),
+			"id_int":            int32(100),
+			"id_timestamp":      time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
+			"id_double":         float64(123.456),
+			"id_bool":           true,
+			"id_cursor":         int32(7),
+			"created_timestamp": primitive.Timestamp{T: uint32(1754905992), I: 1},
+			"id_nil":            nil,
+			"id_regex":          primitive.Regex{Pattern: "test.*", Options: "i"},
+			"id_nested":         nestedDoc,
+			"id_minkey":         primitive.MinKey{},
+			"id_maxkey":         primitive.MaxKey{},
+			"name_varchar":      "varchar_val",
+		}
+		_, err2 := collection.InsertOne(ctx, doc2)
+		require.NoError(t, err2, "Failed to insert document (insert_2)")
+
 	case "update":
 		filter := bson.M{"id": int32(1)}
 		update := bson.M{
