@@ -2,8 +2,40 @@ package constants
 
 import (
 	"fmt"
+	"os"
 	"time"
 )
+
+// Build-time version information, injected via ldflags.
+// Defaults are used when running locally without build flags.
+var (
+	version        = "dev"
+	commitSHA      = "unknown"
+	releaseChannel = "dev"
+)
+
+// GetVersion returns the OLake build version. It first checks the build-time
+// injected variable, then falls back to the DRIVER_VERSION environment variable
+// (set in Docker images), and finally returns "dev" if neither is available.
+func GetVersion() string {
+	if version != "" && version != "dev" {
+		return version
+	}
+	if v := os.Getenv("DRIVER_VERSION"); v != "" {
+		return v
+	}
+	return "dev"
+}
+
+// GetCommitSHA returns the git commit SHA used for the build.
+func GetCommitSHA() string {
+	return commitSHA
+}
+
+// GetReleaseChannel returns the release channel (e.g., stable, beta, dev).
+func GetReleaseChannel() string {
+	return releaseChannel
+}
 
 const (
 	DefaultRetryCount      = 3
