@@ -296,11 +296,8 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 	return count
 }
 
-// getOlakeCLIVersion() extracts the olake version from the ENV embedded in the olake image
+// getOlakeCLIVersion returns the OLake CLI version using the centralized
+// version resolution from the constants package.
 func getOlakeCLIVersion() string {
-	version := os.Getenv("DRIVER_VERSION")
-	if version == "" {
-		return "Not Available"
-	}
-	return version
+	return constants.GetVersion()
 }

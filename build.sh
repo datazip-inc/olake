@@ -224,7 +224,7 @@ function build_and_run() {
     cd $path || fail "Failed to navigate to path: $path"
     
     go mod tidy
-    go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
+    go build -ldflags="-w -s -X github.com/datazip-inc/olake/constants.version=${GIT_VERSION} -X github.com/datazip-inc/olake/constants.commitSHA=${GIT_COMMITSHA} -X github.com/datazip-inc/olake/constants.releaseChannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
     echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
     ./olake $joined_arguments
 }

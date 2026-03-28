@@ -66,6 +66,7 @@ var RootCmd = &cobra.Command{
 
 		// logger uses CONFIG_FOLDER
 		logger.Init()
+		logger.Infof("OLake version: %s (commit: %s, channel: %s)", constants.GetVersion(), constants.GetCommitSHA(), constants.GetReleaseChannel())
 		telemetry.Init()
 
 		if len(args) == 0 {
