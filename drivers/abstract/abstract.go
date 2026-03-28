@@ -122,6 +122,13 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int) (
 	return finalStreams, nil
 }
 
+// GetSourceStreamNames returns the list of stream names available in the source
+// without producing schemas. This is used during sync to verify stream existence
+// without the overhead of full schema discovery.
+func (a *AbstractDriver) GetSourceStreamNames(ctx context.Context) ([]string, error) {
+	return a.driver.GetStreamNames(ctx)
+}
+
 func (a *AbstractDriver) Setup(ctx context.Context) error {
 	return a.driver.Setup(ctx)
 }

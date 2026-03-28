@@ -87,14 +87,16 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// Get Source Streams, sending 0 max discover threads to discover
-		streams, err := connector.Discover(cmd.Context(), 0)
+		// Get source stream names without producing schemas to avoid expensive
+		// schema inference (e.g., MongoDB samples 10k+ documents per collection).
+		// The catalog already contains the full schema from a prior discover run.
+		sourceStreamNames, err := connector.GetSourceStreamNames(cmd.Context())
 		if err != nil {
 			return err
 		}
 
 		// get all types of selected streams
-		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
+		selectedStreamsMetadata, err := classifyStreams(catalog, sourceStreamNames, state)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
 		}
@@ -129,7 +131,7 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 		// Sync Telemetry tracking
-		telemetry.TrackSyncStarted(syncID, streams, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
+		telemetry.TrackSyncStarted(syncID, len(sourceStreamNames), selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
 			telemetry.TrackSyncCompleted(syncID, err == nil, pool.GetStats().ReadCount.Load())
 			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
@@ -150,7 +152,7 @@ var syncCmd = &cobra.Command{
 	},
 }
 
-func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
+func classifyStreams(catalog *types.Catalog, sourceStreamNames []string, state *types.State) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
 		SelectedStreams:    []string{},
@@ -173,6 +175,15 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
 	}
 
+	// Build a set of source stream names for fast existence checks.
+	// Stream names from GetStreamNames may be in different formats per driver
+	// (e.g., "schema.table" for relational DBs, "collectionName" for MongoDB,
+	// "topicName" for Kafka), so we check both elem.ID() and elem.Name().
+	var sourceStreamSet *types.Set[string]
+	if sourceStreamNames != nil {
+		sourceStreamSet = types.NewSet(sourceStreamNames...)
+	}
+
 	_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 		sMetadata, selected := selectedStreamsMap[elem.ID()]
 		// Check if the stream is in the selectedStreamMap
@@ -181,18 +192,15 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			return false
 		}
 
-		if streams != nil {
-			source, found := types.StreamsToMap(streams...)[elem.ID()]
-			if !found {
+		if sourceStreamSet != nil {
+			// Verify the configured stream still exists in the source.
+			// Check both full ID (namespace.name) and bare name to handle
+			// all driver naming conventions.
+			if !sourceStreamSet.Exists(elem.ID()) && !sourceStreamSet.Exists(elem.Name()) {
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
 			elem.StreamMetadata = sMetadata
-			err := elem.Validate(source)
-			if err != nil {
-				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
-				return false
-			}
 			// TODO: move filter validation to validate method in types package
 			filter, isLegacy, err := elem.GetFilter()
 			if err != nil {
@@ -245,8 +253,8 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		return false
 	})
 	// Clear previous state streams for non-selected streams.
-	// Must not be called during clear destination to retain the global and stream state. (clear dest. -> when streams == nil)
-	if streams != nil {
+	// Must not be called during clear destination to retain the global and stream state. (clear dest. -> when sourceStreamNames == nil)
+	if sourceStreamNames != nil {
 		state.Streams = classifications.NewStreamsState
 	}
 	if len(classifications.SelectedStreams) == 0 {
