@@ -137,17 +137,13 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return nil, fmt.Errorf("failed to fetch Column DataType and max length %s", err)
 		}
 		// 1. Try Numeric Strategy
-		chunkStepSize, minBoundary, maxBoundary = IsNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType)
+		chunkStepSize, minBoundary, maxBoundary = isNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType)
 
 		// 2. If not numeric, check for supported String strategy
 		if chunkStepSize == 0 {
 			switch strings.ToLower(dataType) {
 			case "char", "varchar":
 				stringSupportedPk = true
-				logger.Infof("%s is a string type PK", pkColumns[0])
-				if dataMaxLength.Valid {
-					logger.Infof("Data Max Length: %d", dataMaxLength.Int64)
-				}
 			default:
 				logger.Infof("%s is not a string type PK", pkColumns[0])
 			}
@@ -256,7 +252,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		for next := minBoundary + chunkStepSize; next <= maxBoundary; next += chunkStepSize {
 			// condition to protect from infinite loop
 			if next <= prev {
-				logger.Warnf("int precision collapse detected, falling back to SplitViaPrimaryKey for stream %s", stream.ID())
+				logger.Warnf("int64 arithmetic overflow, falling back to SplitViaPrimaryKey for stream %s", stream.ID())
 				chunks.Clear()
 				return splitViaPrimaryKey(stream, chunks)
 			}
@@ -390,26 +386,20 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return nil
 		}
 
-		prev := rangeSlice[0]
 		chunks.Insert(types.Chunk{
 			Min: nil,
-			Max: prev,
+			Max: rangeSlice[0],
 		})
 
-		for idx := range rangeSlice {
-			if idx == 0 {
-				continue
-			}
-			currVal := rangeSlice[idx]
+		for idx := 1; idx < len(rangeSlice); idx++ {
 			chunks.Insert(types.Chunk{
-				Min: prev,
-				Max: currVal,
+				Min: rangeSlice[idx-1],
+				Max: rangeSlice[idx],
 			})
-			prev = currVal
 		}
 
 		chunks.Insert(types.Chunk{
-			Min: prev,
+			Min: rangeSlice[len(rangeSlice)-1],
 			Max: nil,
 		})
 
@@ -418,10 +408,10 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	}
 
 	switch {
-	case len(pkColumns) == 1 && chunkStepSize > 0:
+	case chunkStepSize > 0:
 		logger.Infof("Using splitEvenlyForInt Method for stream %s", stream.ID())
 		err = splitEvenlyForInt(chunks, chunkStepSize)
-	case len(pkColumns) == 1 && stringSupportedPk:
+	case stringSupportedPk:
 		logger.Infof("Using splitEvenlyForString Method for stream %s", stream.ID())
 		err = splitEvenlyForString(chunks)
 	case len(pkColumns) > 0:
@@ -442,9 +432,9 @@ func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterfa
 }
 
 // checks if the pk column is numeric and evenly distributed
-func IsNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64, dataType string) (int64, int64, int64) {
-	icebergDataType := mysqlTypeToDataTypes[strings.ToLower(dataType)]
-	if icebergDataType != types.Int32 && icebergDataType != types.Int64 {
+func isNumericAndEvenDistributed(minVal any, maxVal any, approxRowCount int64, chunkSize int64, dataType string) (int64, int64, int64) {
+	destinationDataType := mysqlTypeToDataTypes[strings.ToLower(dataType)]
+	if destinationDataType != types.Int32 && destinationDataType != types.Int64 {
 		logger.Debugf("Current pk is not a supported numeric column")
 		return 0, 0, 0
 	}
