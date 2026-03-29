@@ -26,8 +26,8 @@ func (tc *TLSConfig) Validate() error {
 	if tc.Mode == "" || tc.Mode == "disable" {
 		return nil
 	}
-	if tc.ServerCA == "" {
-		return fmt.Errorf("tls.server_ca is required when TLS is enabled")
+	if (tc.Mode == "verify-ca" || tc.Mode == "verify-full") && tc.ServerCA == "" {
+		return fmt.Errorf("tls.server_ca is required for %s mode", tc.Mode)
 	}
 	if tc.ClientCert != "" && tc.ClientKey == "" {
 		return fmt.Errorf("tls.client_key is required when tls.client_cert is provided")
