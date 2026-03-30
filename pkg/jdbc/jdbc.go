@@ -532,50 +532,27 @@ func MySQLColumnStatsQuery() string {
 }
 
 // MySQLDistinctValuesWithCollationQuery builds a DISTINCT query over a slice of strings
-// using the column's collation type.
-func MySQLDistinctValuesWithCollationQuery(values []string, columnCollationType string) (string, []any) {
+// using the column's collation type between min and max and remove unnecessary values outside the range.
+func MySQLDistinctValuesWithCollationQuery(values []string, columnCollationType string, minValPadded, maxValPadded string) (string, []any) {
 	unionParts := make([]string, 0, len(values))
-	args := make([]any, 0, len(values))
+	args := make([]any, 0, len(values)+2)
+
 	for _, v := range values {
 		unionParts = append(unionParts, "SELECT ? AS val")
 		args = append(args, v)
 	}
+
+	args = append(args, minValPadded, maxValPadded)
+
 	query := fmt.Sprintf(`
 		SELECT DISTINCT val COLLATE %s AS val
 		FROM (
 			%s
 		) AS t
-		ORDER BY val COLLATE %s;
-	`, columnCollationType, strings.Join(unionParts, " UNION ALL "), columnCollationType)
-	return query, args
-}
-
-// MySQLCountGeneratedInRange builds a query that counts how many values from the provided slice
-// fall within [minVal, maxVal] using the column's collation ordering.
-func MySQLCountGeneratedInRange(values []string, columnCollationType string, minVal, maxVal string) (string, []any) {
-	unionParts := make([]string, 0, len(values))
-	args := make([]any, 0, len(values)+2)
-
-	args = append(args, minVal, maxVal, maxVal, minVal)
-
-	for _, v := range values {
-		unionParts = append(unionParts, "SELECT ? AS val")
-		args = append(args, v)
-	}
-
-	query := fmt.Sprintf(`
-		SELECT GREATEST(
-			SUM(CASE 
-				WHEN val COLLATE %s >= ? AND val COLLATE %s <= ? 
-				THEN 1 ELSE 0 END),
-			SUM(CASE 
-				WHEN val COLLATE %s >= ? AND val COLLATE %s <= ? 
-				THEN 1 ELSE 0 END)
-		) AS max_count
-		FROM (
-			%s
-		) AS t;
-	`, columnCollationType, columnCollationType, columnCollationType, columnCollationType, strings.Join(unionParts, " UNION ALL "))
+		WHERE
+		val COLLATE %s >= ? AND val COLLATE %s <= ?
+		ORDER BY val;
+	`, columnCollationType, strings.Join(unionParts, " UNION ALL "), columnCollationType, columnCollationType)
 
 	return query, args
 }

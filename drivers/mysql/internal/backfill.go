@@ -282,8 +282,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		4. Iteratively (up to 5 attempts):
 		- Adjust the interval using an AP-based variation.
 		- Generate candidate boundaries in numeric space and map them back to strings.
-		- Query distinct values using collation-aware SQL (ordering handled in query).
-		- Validate the number of effective chunks using a count query.
+		- Query distinct values using collation-aware SQL between min and max (ordering handled in query).
 		- If at least the required threshold (~80%) of chunks is achieved, accept and stop.
 		5. If all attempts fail, fallback to primary key–based chunking.
 
@@ -301,8 +300,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		(-∞, "aa"), ["aa","ai"), ["ai","ar"), ["ar","az"), ["az", +∞)
 	*/
 	splitEvenlyForString := func(chunks *types.Set[types.Chunk]) error {
-		var validChunksCount int
-
 		maxValPadded := utils.ConvertToString(maxVal)
 		minValPadded := utils.ConvertToString(minVal)
 
@@ -336,14 +333,12 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			// Align boundaries with actual DB values using MySQL collation ordering
 			rangeSlice = append(rangeSlice, decodeBigIntToUnicodeString(&maxEncodedBigIntValue))
-			query, args := jdbc.MySQLDistinctValuesWithCollationQuery(rangeSlice, columnCollationType)
+			query, args := jdbc.MySQLDistinctValuesWithCollationQuery(rangeSlice, columnCollationType, minValPadded, maxValPadded)
 			rows, err := m.client.QueryContext(ctx, query, args...)
 			if err != nil {
 				return fmt.Errorf("failed to run distinct query: %s", err)
 			}
 			rangeSlice = rangeSlice[:0]
-			// Some chunks generated might be completely empty when boundaries greater
-			// than the max value and smaller than the min value exists
 			for rows.Next() {
 				var val string
 				if err := rows.Scan(&val); err != nil {
@@ -357,21 +352,11 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				return fmt.Errorf("row iteration error during distinct boundaries iteration: %s", err)
 			}
 
-			// Counting the number of valid chunks generated i.e., between min and max
-			query, args = jdbc.MySQLCountGeneratedInRange(rangeSlice, columnCollationType, minValPadded, maxValPadded)
-			err = m.client.QueryRowContext(ctx, query, args...).Scan(&validChunksCount)
-			if err != nil {
-				return fmt.Errorf("failed to run count query: %s", err)
-			}
-
 			// Accept boundaries if enough valid chunks are produced
-			if float64(validChunksCount) >= float64(expectedChunks)*constants.MysqlChunkAcceptanceRatio {
+			if float64(len(rangeSlice)) >= float64(expectedChunks)*constants.MysqlChunkAcceptanceRatio {
 				logger.Infof("Successfully Generated Chunks using splitEvenlyForString Method for stream %s", stream.ID())
 				break
-			}
-
-			// If the number of valid chunks generated is less than the expected chunks * a constant factor even after 5 iterations, we fallback to splitViaPrimaryKey
-			if float64(validChunksCount) < float64(expectedChunks)*constants.MysqlChunkAcceptanceRatio && retryAttempt == 4 {
+			} else if retryAttempt == int64(4) {
 				logger.Warnf("failed to generate chunks for stream %s, falling back to splitviaprimarykey method", stream.ID())
 				err = splitViaPrimaryKey(stream, chunks)
 				if err != nil {
