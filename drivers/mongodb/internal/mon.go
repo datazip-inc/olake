@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -16,11 +17,51 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/bsoncodec"
+	"go.mongodb.org/mongo-driver/bson/bsonrw"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/ssh"
 )
+
+// safeDecodeRegistry is a BSON decode registry registered on the MongoDB client.
+// It overrides how the driver decodes BSON DateTime values that land in interface{}
+// slots (i.e. every field value inside a bson.M / map[string]any).
+//
+// The default driver behaviour is: BSON DateTime → primitive.DateTime (an int64).
+// primitive.DateTime.MarshalJSON() calls time.Time.MarshalJSON(), which panics for
+// years outside [0, 9999].  By intercepting at decode time we produce time.Time
+// with the year already clamped, so all downstream json.Marshal calls are safe —
+// no recursion, no extra passes over the document, zero change to filterMongoObject.
+var safeDecodeRegistry = func() *bsoncodec.Registry {
+	tEmpty := reflect.TypeOf((*interface{})(nil)).Elem()
+	reg := bson.NewRegistry()
+	// Capture the stock interface{} decoder before we replace it so the fallback
+	fallback, _ := reg.LookupDecoder(tEmpty)
+	reg.RegisterTypeDecoder(
+		tEmpty,
+		bsoncodec.ValueDecoderFunc(func(dc bsoncodec.DecodeContext, vr bsonrw.ValueReader, val reflect.Value) error {
+			if vr.Type() == bson.TypeDateTime {
+				ms, err := vr.ReadDateTime()
+				if err != nil {
+					return err
+				}
+				t := primitive.DateTime(ms).Time().UTC()
+				switch {
+				case t.Year() < 1:
+					t = time.Unix(0, 0).UTC()
+				case t.Year() > 9999:
+					t = t.AddDate(-(t.Year() - 9999), 0, 0)
+				}
+				val.Set(reflect.ValueOf(t))
+				return nil
+			}
+			return fallback.DecodeValue(dc, vr, val)
+		}),
+	)
+	return reg
+}()
 
 const (
 	cdcCursorField = "_data"
@@ -84,6 +125,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
+	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}
