@@ -47,12 +47,9 @@ var safeDecodeRegistry = func() *bsoncodec.Registry {
 				if err != nil {
 					return err
 				}
-				t := primitive.DateTime(ms).Time().UTC()
-				switch {
-				case t.Year() < 1:
-					t = time.Unix(0, 0).UTC()
-				case t.Year() > 9999:
-					t = t.AddDate(-(t.Year() - 9999), 0, 0)
+				t, err := typeutils.ReformatDate(primitive.DateTime(ms).Time().UTC(), true)
+				if err != nil {
+					return err
 				}
 				val.Set(reflect.ValueOf(t))
 				return nil
@@ -125,7 +122,9 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
-	opts.SetRegistry(safeDecodeRegistry)
+	if constants.LoadedStateVersion > 4 {
+		opts.SetRegistry(safeDecodeRegistry)
+	}
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}

@@ -26,11 +26,15 @@ package constants
 //     * Earlier if the session timezone or global was set in offset format, it was not parsed correctly and used to fallback to UTC.
 //     * Now it parses the offset correctly and uses the timezone offset to set the timezone for the connection.
 //
-//   - Version 4: (Current Version) Unsigned int/integer/bigint map to Int64.
+//   - Version 4: Unsigned int/integer/bigint map to Int64.
 //     * Earlier unsigned int/integer/bigint were mapped to Int32 which caused integer overflows.
+//
+//   - Version 5: (Current Version) MongoDB nested DateTime values decoded as UTC time.Time.
+//     * BSON DateTime at any depth is now decoded directly to time.Time (UTC) via a custom client registry, preventing json.Marshal crashes for out-of-range years ([0,9999]).
+//     * Top-level DateTime fields that previously formatted with the local machine timezone (e.g. "+05:30") now always output UTC ("Z").
 
 const (
-	LatestStateVersion = 4
+	LatestStateVersion = 5
 )
 
 // Used as the current version of the state when the program is running
