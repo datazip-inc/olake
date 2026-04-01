@@ -1,1 +1,0 @@
-{"level":"fatal","time":"2026-04-01T21:03:17Z","message":"/test-olake/drivers/kafka/internal/testdata/source.json/json does not exist: stat /test-olake/drivers/kafka/internal/testdata/source.json/json: no such file or directory"}
