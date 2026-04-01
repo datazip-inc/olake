@@ -26,33 +26,49 @@ import (
 )
 
 // safeDecodeRegistry is a BSON decode registry registered on the MongoDB client.
-// It overrides how the driver decodes BSON DateTime values that land in interface{}
-// slots (i.e. every field value inside a bson.M / map[string]any).
+// It intercepts two problem cases for interface{} slots (every value in bson.M):
 //
-// The default driver behaviour is: BSON DateTime → primitive.DateTime (an int64).
-// primitive.DateTime.MarshalJSON() calls time.Time.MarshalJSON(), which panics for
-// years outside [0, 9999].  By intercepting at decode time we produce time.Time
-// with the year already clamped, so all downstream json.Marshal calls are safe —
-// no recursion, no extra passes over the document, zero change to filterMongoObject.
+//  1. BSON Double (float64) — NaN and ±Inf are not valid JSON; they crash
+//     encoding/json.  These are coerced to nil for all state versions.
+//
+//  2. BSON DateTime — primitive.DateTime.MarshalJSON calls time.Time.MarshalJSON
+//     which panics for years outside [0, 9999].  For state version > 4, DateTime
+//     is decoded as a clamped UTC time.Time so downstream json.Marshal is always
+//     safe.  For state version ≤ 4 the fallback (primitive.DateTime) is used to
+//     preserve the pre-existing local-timezone output format.
 var safeDecodeRegistry = func() *bsoncodec.Registry {
 	tEmpty := reflect.TypeOf((*interface{})(nil)).Elem()
 	reg := bson.NewRegistry()
-	// Capture the stock interface{} decoder before we replace it so the fallback
+	// Capture the stock interface{} decoder before replacing it.
 	fallback, _ := reg.LookupDecoder(tEmpty)
 	reg.RegisterTypeDecoder(
 		tEmpty,
 		bsoncodec.ValueDecoderFunc(func(dc bsoncodec.DecodeContext, vr bsonrw.ValueReader, val reflect.Value) error {
-			if vr.Type() == bson.TypeDateTime {
-				ms, err := vr.ReadDateTime()
+			switch vr.Type() {
+			case bson.TypeDouble:
+				f, err := vr.ReadDouble()
 				if err != nil {
 					return err
 				}
-				t, err := typeutils.ReformatDate(primitive.DateTime(ms).Time().UTC(), true)
-				if err != nil {
-					return err
+				if math.IsNaN(f) || math.IsInf(f, 0) {
+					val.Set(reflect.Zero(val.Type()))
+				} else {
+					val.Set(reflect.ValueOf(f))
 				}
-				val.Set(reflect.ValueOf(t))
 				return nil
+			case bson.TypeDateTime:
+				if constants.LoadedStateVersion > 4 {
+					ms, err := vr.ReadDateTime()
+					if err != nil {
+						return err
+					}
+					t, err := typeutils.ReformatDate(primitive.DateTime(ms).Time().UTC(), true)
+					if err != nil {
+						return err
+					}
+					val.Set(reflect.ValueOf(t))
+					return nil
+				}
 			}
 			return fallback.DecodeValue(dc, vr, val)
 		}),
@@ -122,9 +138,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
-	if constants.LoadedStateVersion > 4 {
-		opts.SetRegistry(safeDecodeRegistry)
-	}
+	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}
@@ -319,12 +333,6 @@ func filterMongoObject(doc bson.M) {
 			doc[key] = value.String()
 		case primitive.ObjectID:
 			doc[key] = value.Hex()
-		case float64:
-			if math.IsNaN(value) || math.IsInf(value, 0) {
-				doc[key] = nil
-			} else {
-				doc[key] = value
-			}
 		default:
 			doc[key] = value
 		}
