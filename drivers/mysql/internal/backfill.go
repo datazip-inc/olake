@@ -46,15 +46,13 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 		// Get chunks from state or calculate new ones
 		stmt := ""
-		var chunkArgs []any
 		if chunkColumn != "" {
-			stmt, chunkArgs = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
+			stmt = jdbc.MysqlChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
 		} else if len(pkColumns) > 0 {
-			stmt, chunkArgs = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
+			stmt = jdbc.MysqlChunkScanQuery(stream, pkColumns, chunk, filter)
 		} else {
 			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
 		}
-		args = append(chunkArgs, args...)
 		logger.Debugf("Executing chunk query: %s", stmt)
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
@@ -282,9 +280,10 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		4. Iteratively (up to 5 attempts):
 		- Adjust the interval using an AP-based variation.
 		- Generate candidate boundaries in numeric space and map them back to strings.
+		- Align boundaries with actual DB values using MySQL where clause.
 		- Query distinct values using collation-aware SQL between min and max (ordering handled in query).
-		- If at least the required threshold (~80%) of chunks is achieved, accept and stop.
-		5. If all attempts fail, fallback to primary key–based chunking.
+		- If enough usable boundaries are produced, accept and stop.
+		5. If acceptance still fails on the final retry, fallback to primary key-based chunking.
 
 		Final Step:
 		- Use the validated boundary values to construct non-overlapping chunks
@@ -333,6 +332,22 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 
 			// Align boundaries with actual DB values using MySQL collation ordering
 			rangeSlice = append(rangeSlice, decodeBigIntToUnicodeString(&maxEncodedBigIntValue))
+
+			firstPKAtOrAfterStringQuery := jdbc.MySQLFirstPKAtOrAfterStringQuery(stream, pkColumns[0])
+			dbAlignedStrings := make([]string, 0, len(rangeSlice))
+			for _, currentSyntheticString := range rangeSlice {
+				var actualDBString string
+				err = m.client.QueryRowContext(ctx, firstPKAtOrAfterStringQuery, currentSyntheticString).Scan(&actualDBString)
+				if err != nil {
+					if err == sql.ErrNoRows {
+						continue
+					}
+					return fmt.Errorf("failed to align chunk boundary for stream %s: %s", stream.ID(), err)
+				}
+				dbAlignedStrings = append(dbAlignedStrings, actualDBString)
+			}
+			rangeSlice = dbAlignedStrings
+
 			query, args := jdbc.MySQLDistinctValuesWithCollationQuery(rangeSlice, columnCollationType, minValPadded, maxValPadded)
 			rows, err := m.client.QueryContext(ctx, query, args...)
 			if err != nil {
@@ -353,7 +368,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			}
 
 			// Accept boundaries if enough valid chunks are produced
-			if float64(len(rangeSlice)) >= float64(expectedChunks)*constants.MysqlChunkAcceptanceRatio {
+			if float64(len(rangeSlice)) >= float64(min(expectedChunks, int64(len(rangeSlice))))*constants.MysqlChunkAcceptanceRatio {
 				logger.Infof("Successfully Generated Chunks using splitEvenlyForString Method for stream %s", stream.ID())
 				break
 			} else if retryAttempt == int64(4) {
