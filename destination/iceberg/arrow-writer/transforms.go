@@ -97,7 +97,7 @@ func identityTransform(val any, colType string) (pathStr string, typedVal any, e
 		s := val.(string)
 		return s, s, nil
 	case "timestamptz":
-		t, err := typeutils.ReformatDate(val, false)
+		t, err := typeutils.ReformatDate(val, true)
 		if err != nil {
 			return "", nil, err
 		}
@@ -118,7 +118,7 @@ func timeTransform(val any, unit string, colType string) (pathStr string, typedV
 		return "", nil, fmt.Errorf("unsupported time transform %q", unit)
 	}
 
-	v, err := typeutils.ReformatDate(val, false)
+	v, err := typeutils.ReformatDate(val, true)
 	if err != nil {
 		return "", nil, err
 	}
@@ -167,9 +167,9 @@ func bucketTransform(val any, num int, colType string) (pathStr string, typedVal
 		}
 		h = hashInt(v)
 	case "timestamptz":
-		tm, err := typeutils.ReformatDate(val, false)
+		tm, err := typeutils.ReformatDate(val, true)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("got error: %s, expected time.Time for colType %q, got %T", err, colType, val)
 		}
 		if tm.IsZero() {
 			return NULL, nil, nil

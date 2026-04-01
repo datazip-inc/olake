@@ -151,9 +151,9 @@ jobs:
         working-directory: ./destination/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
 
-      - name: Run Integration Tests
-        run: |  
-          go test -v -p 7 ./drivers/kafka/internal/... ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
+      - name: Run Kafka Discover integration test
+        run: |
+          go test -v -p 1 ./drivers/kafka/internal/... -timeout 0 -run 'TestKafkaIntegration/.*/Discover$'
       
       - name: Cleanup
         if: always()

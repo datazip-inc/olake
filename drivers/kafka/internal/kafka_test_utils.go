@@ -18,168 +18,203 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// ExecuteQuery executes Kafka queries for testing based on the operation type
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+var (
+	// Message key and value for JSON
+	key            = []byte("test-key")
+	value          = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string"}`)
+	evolved_value  = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "id_int": 101}`)
+	filtervalue1   = []byte(`{"int_value": 99,"float_value": 99.99}`)
+	filtervalue2   = []byte(`{"int_value": 100,"float_value": 100.00}`)
+	partitionCount = 5
+
+	// Base Avro schema
+	Avroschema = `{
+		"type":"record",
+		"name":"test",
+		"fields":[
+			{"name":"int32_value","type":"int","default":0},
+			{"name":"int64_value","type":"long","default":0},
+			{"name":"int_value","type":"long","default":0},
+			{"name":"float32_value","type":"float","default":0},
+			{"name":"float64_value","type":"double","default":0},
+			{"name":"float_value","type":"double","default":0},
+			{"name":"boolean_true","type":"boolean","default":false},
+			{"name":"boolean_false","type":"boolean","default":false},
+			{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"},"default":0},
+			{"name":"string_value","type":"string","default":""}
+		]
+	}`
+
+	// Evolved Avro schema
+	UpdatedAvroschema = `{
+		"type":"record",
+		"name":"test",
+		"fields":[
+			{"name":"int32_value","type":"long","default":0},
+			{"name":"int64_value","type":"long","default":0},
+			{"name":"int_value","type":"long","default":0},
+			{"name":"float32_value","type":"float","default":0},
+			{"name":"float64_value","type":"double","default":0},
+			{"name":"float_value","type":"double","default":0},
+			{"name":"boolean_true","type":"boolean","default":false},
+			{"name":"boolean_false","type":"boolean","default":false},
+			{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"},"default":0},
+			{"name":"string_value","type":"string","default":""},
+			{"name":"id_int","type":"long","default":0}
+		]
+	}`
+
+	dataToProduce = map[string]interface{}{
+		"int32_value":     int32(132),
+		"int64_value":     int64(6400000000),
+		"int_value":       int64(101),
+		"float32_value":   float32(32.5),
+		"float64_value":   float64(64.6464),
+		"float_value":     float64(66.6666),
+		"boolean_true":    true,
+		"boolean_false":   false,
+		"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+		"string_value":    "test_string",
+	}
+	dataToProduceFilter = map[string]interface{}{
+		"int_value":   99,
+		"float_value": 99.99,
+	}
+	evolvedDataToProduce = map[string]interface{}{
+		"int32_value":     int32(132),
+		"int64_value":     int64(6400000000),
+		"int_value":       int64(101),
+		"float32_value":   float32(32.5),
+		"float64_value":   float64(64.6464),
+		"float_value":     float64(66.6666),
+		"boolean_true":    true,
+		"boolean_false":   false,
+		"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+		"string_value":    "test_string",
+		"id_int":          int64(101),
+	}
+)
+
+// ExecuteQueryForJson executes Kafka queries for testing based on the operation type
+func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
-	var brokers []string
+	var broker string
 	if fileConfig {
 		var config Config
 		require.NoError(t, utils.UnmarshalFile("./testdata/source.json", &config, false), "failed to unmarshal kafka test source config")
-		brokers = strings.Split(config.BootstrapServers, ",")
+		broker = config.BootstrapServers
 	} else {
-		brokers = []string{"127.0.0.1:29092"}
+		broker = "127.0.0.1:29092"
 	}
 
-	for i, b := range brokers {
-		brokers[i] = strings.TrimSpace(strings.ReplaceAll(b, "host.docker.internal", "127.0.0.1"))
+	broker = strings.ReplaceAll(broker, "host.docker.internal", "127.0.0.1")
+	writer := &kafka.Writer{
+		Addr:                   kafka.TCP(broker),
+		Topic:                  streams[0],
+		Balancer:               &kafka.RoundRobin{},
+		AllowAutoTopicCreation: false,
 	}
+	defer writer.Close()
 
-	activeBroker := waitForAnyKafkaBroker(ctx, t, brokers)
-
-	// Message key and value
-	key := []byte("test-key")
-	value := []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string"}`)
-	evolved_value := []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "id_int": 101}`)
-	filtervalue1 := []byte(`{"int_value": 99,"float_value": 99.99}`)
-	filtervalue2 := []byte(`{"int_value": 100,"float_value": 100.00}`)
 	switch operation {
-	case "create", "clean", "drop":
-		// 1. Dial a reachable broker for admin operations
-		conn, err := kafka.DialContext(ctx, "tcp", activeBroker)
-		require.NoError(t, err, "failed to dial kafka for topic creation")
-		defer conn.Close()
-		// 3. If it's a "clean" or "drop" operation, delete first
-		if operation == "clean" || operation == "drop" {
-			_ = conn.DeleteTopics(streams[0])
-			time.Sleep(5 * time.Second)
-			if operation == "drop" {
-				return
-			}
+	case "create":
+		createKafkaTopic(ctx, t, broker, streams[0])
+	case "clean":
+		deleteKafkaTopic(ctx, t, broker, streams[0])
+		createKafkaTopic(ctx, t, broker, streams[0])
+	case "drop":
+		deleteKafkaTopic(ctx, t, broker, streams[0])
+	case "add":
+		for partition := 0; partition < partitionCount; partition++ {
+			writeMessagesWithRetry(ctx, t, writer, kafka.Message{
+				Key:   key,
+				Value: value,
+			})
 		}
-		partitionNumber := 5
-		err = conn.CreateTopics(kafka.TopicConfig{
-			Topic:             streams[0],
-			NumPartitions:     partitionNumber,
-			ReplicationFactor: 1,
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{
+			Key:   key,
+			Value: filtervalue1,
 		})
-		// 3. Ignore if already exists
-		if err != nil && err != kafka.TopicAlreadyExists {
-			require.NoError(t, err, "failed to create topic '%s' explicitly", streams[0])
-		}
-		t.Logf("Topic '%s' is ready for writes (%d partitions)", streams[0], partitionNumber)
-	case "add", "insert":
-		// NEW: Initialize the writer only when needed
-		writer := &kafka.Writer{
-			Addr:                   kafka.TCP(brokers...),
-			Balancer:               &kafka.LeastBytes{},
-			AllowAutoTopicCreation: false, // Much safer!
-			MaxAttempts:            10,
-		}
-		defer writer.Close()
-		for p := 0; p < 5; p++ {
-			addDataToPartition(ctx, t, writer, streams[0], p, key, value)
-		}
-		addDataToPartition(ctx, t, writer, streams[0], 0, key, filtervalue1)
-		addDataToPartition(ctx, t, writer, streams[0], 1, key, filtervalue2)
-		t.Logf("Added 5 messages to topic '%s' (one per partition)", streams[0])
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{
+			Key:   key,
+			Value: filtervalue2,
+		})
+		t.Logf("Added 7 messages to topic '%s' (one per partition and two for filters)", streams[0])
 	case "evolve-schema":
-		// NEW: Initialize the writer only when needed
-		writer := &kafka.Writer{
-			Addr:                   kafka.TCP(brokers...),
-			Balancer:               &kafka.LeastBytes{},
-			AllowAutoTopicCreation: false,
-			MaxAttempts:            10,
+		for partition := 0; partition < partitionCount; partition++ {
+			writeMessagesWithRetry(ctx, t, writer, kafka.Message{
+				Key:       key,
+				Value:     evolved_value,
+				Partition: partition,
+			})
 		}
-		defer writer.Close()
-		for p := 0; p < 5; p++ {
-			addDataToPartition(ctx, t, writer, streams[0], p, key, evolved_value)
-		}
-		t.Logf("Added 5 messages to topic '%s' (one per partition)", streams[0])
-	case "Avro-insert", "Avro-evolve-schema":
-		var config Config
-		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		t.Logf("Added 5 messages to topic '%s' (each per partition)", streams[0])
+	default:
+		t.Fatalf("unsupported operation: %s", operation)
+	}
+}
 
-		registryURL := config.SchemaRegistry.Endpoint
-		registryURL = strings.ReplaceAll(registryURL, "host.docker.internal", "127.0.0.1")
+// ExecuteQueryForAvro executes Kafka queries for testing based on the operation type
+func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+	t.Helper()
 
-		writer := &kafka.Writer{
-			Addr:         kafka.TCP(brokers...),
-			Balancer:     &kafka.LeastBytes{},
-			MaxAttempts:  10,
-			RequiredAcks: kafka.RequireAll,
-		}
-		defer writer.Close()
+	var broker string
+	var config Config
+	require.NoError(t, utils.UnmarshalFile("./testdata/source.json", &config, false), "failed to unmarshal kafka test source config")
+	if fileConfig {
+		broker = config.BootstrapServers
+	} else {
+		broker = "127.0.0.1:29092"
+	}
 
-		// Base schema
-		schemaV1 := `{
-			"type":"record",
-			"name":"test",
-			"fields":[
-				{"name":"int32_value","type":"int"},
-				{"name":"int64_value","type":"long"},
-				{"name":"int_value","type":"long"},
-				{"name":"float32_value","type":"float"},
-				{"name":"float64_value","type":"double"},
-				{"name":"float_value","type":"double"},
-				{"name":"boolean_true","type":"boolean"},
-				{"name":"boolean_false","type":"boolean"},
-				{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
-				{"name":"string_value","type":"string"}
-			]
-		}`
+	registryURL := config.SchemaRegistry.Endpoint
+	registryURL = strings.ReplaceAll(registryURL, "host.docker.internal", "127.0.0.1")
 
-		// Evolved schema
-		schemaV2 := `{
-			"type":"record",
-			"name":"test",
-			"fields":[
-				{"name":"int32_value","type":"long"},
-				{"name":"int64_value","type":"long"},
-				{"name":"int_value","type":"long"},
-				{"name":"float32_value","type":"float"},
-				{"name":"float64_value","type":"double"},
-				{"name":"float_value","type":"double"},
-				{"name":"boolean_true","type":"boolean"},
-				{"name":"boolean_false","type":"boolean"},
-				{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
-				{"name":"string_value","type":"string"},
-				{"name":"id_int","type":"long","default":0}
-			]
-		}`
+	broker = strings.ReplaceAll(broker, "host.docker.internal", "127.0.0.1")
 
-		schema := schemaV1
-		if operation == "Avro-evolve-schema" {
-			schema = schemaV2
-		}
-
+	writer := &kafka.Writer{
+		Addr:                   kafka.TCP(broker),
+		Topic:                  streams[0],
+		Balancer:               &kafka.RoundRobin{},
+		AllowAutoTopicCreation: false,
+	}
+	defer writer.Close()
+	switch operation {
+	case "create":
+		createKafkaTopic(ctx, t, broker, streams[0])
+	case "clean":
+		deleteKafkaTopic(ctx, t, broker, streams[0])
+		createKafkaTopic(ctx, t, broker, streams[0])
+	case "drop":
+		deleteKafkaTopic(ctx, t, broker, streams[0])
+	case "add":
+		schema := Avroschema
 		codec, err := goavro.NewCodec(schema)
 		require.NoError(t, err)
 
 		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], schema)
 
-		dataToProduce := map[string]interface{}{
-			"int32_value":     int32(132),
-			"int64_value":     int64(6400000000),
-			"int_value":       int64(101),
-			"float32_value":   float32(32.5),
-			"float64_value":   float64(64.6464),
-			"float_value":     float64(66.6666),
-			"boolean_true":    true,
-			"boolean_false":   false,
-			"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-			"string_value":    "test_string",
-		}
-
-		if operation == "Avro-evolve-schema" {
-			dataToProduce["id_int"] = int64(101)
-		}
-
 		binaryData, err := codec.BinaryFromNative(nil, dataToProduce)
 		require.NoError(t, err)
+		binaryDataFilter, err := codec.BinaryFromNative(nil, dataToProduceFilter)
+		require.NoError(t, err)
 
+		confluentBaseMsg := encodeConfluentBinary(schemaID, binaryData)
+		confluentFilterMsg := encodeConfluentBinary(schemaID, binaryDataFilter)
+		err = writer.WriteMessages(ctx,
+			kafka.Message{Topic: streams[0], Key: []byte("avro-key"), Value: confluentBaseMsg},
+			kafka.Message{Topic: streams[0], Key: []byte("avro-key"), Value: confluentFilterMsg},
+		)
+		require.NoError(t, err)
+	case "evolve-schema":
+		schema := UpdatedAvroschema
+		codec, err := goavro.NewCodec(schema)
+		require.NoError(t, err)
+		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], schema)
+		binaryData, err := codec.BinaryFromNative(nil, evolvedDataToProduce)
+		require.NoError(t, err)
 		confluentMsg := encodeConfluentBinary(schemaID, binaryData)
-
 		err = writer.WriteMessages(ctx, kafka.Message{
 			Topic: streams[0],
 			Key:   []byte("avro-key"),
@@ -191,60 +226,39 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	}
 }
 
-func addDataToPartition(ctx context.Context, t *testing.T, writer *kafka.Writer, topic string, partition int, key, value []byte) {
+// deleteTopic deletes the topic and waits briefly so the broker can settle (matches prior test harness behavior).
+func deleteKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
 	t.Helper()
-	originalBalancer := writer.Balancer
-	writer.Balancer = nil
-	writer.Topic = topic
-	defer func() { writer.Balancer = originalBalancer }()
-	writeMessagesWithRetry(ctx, t, writer, kafka.Message{
-		Key:       key,
-		Value:     value,
-		Partition: partition,
-	})
-	t.Logf("Added message to topic '%s', partition %d", topic, partition)
+	conn := dialKafkaAdminConn(ctx, t, broker)
+	defer conn.Close()
+	err := conn.DeleteTopics(topic)
+	require.NoError(t, err, "failed to delete topic '%s'", topic)
+	time.Sleep(5 * time.Second)
 }
 
-func waitForAnyKafkaBroker(ctx context.Context, t *testing.T, brokers []string) string {
+// createTopic creates the test topic with a fixed partition count and replication factor 1.
+func createKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
 	t.Helper()
+	conn := dialKafkaAdminConn(ctx, t, broker)
+	defer conn.Close()
 
-	var lastErr error
-
-	for {
-		for _, b := range brokers {
-			conn, err := kafka.DialContext(ctx, "tcp", b)
-			if err != nil {
-				lastErr = err
-				continue
-			}
-
-			// Real readiness check: metadata must be available
-			_, err = conn.ReadPartitions()
-			if err != nil {
-				lastErr = err
-				t.Logf("Waiting for Kafka broker %s to initialize metadata... (%v)", b, err)
-				_ = conn.Close()
-				continue
-			}
-
-			_ = conn.Close()
-
-			t.Logf("Kafka broker %s is fully ready (metadata available)", b)
-
-			// small buffer for stability in slower environments
-			time.Sleep(1 * time.Second)
-
-			return b
-		}
-
-		// Respect test context timeout
-		if err := ctx.Err(); err != nil {
-			t.Fatalf("kafka brokers not ready (tried: %v): last error: %v", brokers, lastErr)
-		}
-
-		// Slightly relaxed retry interval
-		time.Sleep(1 * time.Second)
+	err := conn.CreateTopics(kafka.TopicConfig{
+		Topic:             topic,
+		NumPartitions:     partitionCount,
+		ReplicationFactor: 1,
+	})
+	if err != nil && err != kafka.TopicAlreadyExists {
+		require.NoError(t, err, "failed to create topic '%s' explicitly", topic)
 	}
+}
+
+func dialKafkaAdminConn(ctx context.Context, t *testing.T, broker string) *kafka.Conn {
+	t.Helper()
+	conn, err := kafka.DialContext(ctx, "tcp", broker)
+	require.NoError(t, err, "failed to dial kafka broker")
+	_, err = conn.ReadPartitions()
+	require.NoError(t, err, "failed to read kafka partitions metadata")
+	return conn
 }
 
 func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Writer, msg kafka.Message) {
@@ -335,7 +349,7 @@ func encodeConfluentBinary(id uint32, data []byte) []byte {
 	return out
 }
 
-var ExpectedKafkaData = map[string]interface{}{
+var ExpectedKafkaJSONData = map[string]interface{}{
 	"int_value":       int64(100),
 	"float_value":     float64(99.99),
 	"boolean_true":    true,
@@ -344,7 +358,7 @@ var ExpectedKafkaData = map[string]interface{}{
 	"string_value":    "test_string",
 }
 
-var ExpectedKafkaUpdatedData = map[string]interface{}{
+var ExpectedKafkaUpdatedJSONData = map[string]interface{}{
 	"int_value":       int64(100),
 	"float_value":     float64(99.99),
 	"boolean_true":    true,
@@ -354,7 +368,7 @@ var ExpectedKafkaUpdatedData = map[string]interface{}{
 	"id_int":          int64(101),
 }
 
-var KafkaToDestinationSchema = map[string]string{
+var KafkaToDestinationJSONSchema = map[string]string{
 	"int_value":       "bigint",
 	"float_value":     "double",
 	"boolean_true":    "boolean",
@@ -363,7 +377,7 @@ var KafkaToDestinationSchema = map[string]string{
 	"string_value":    "string",
 }
 
-var EvolvedKafkaToDestinationSchema = map[string]string{
+var EvolvedKafkaToDestinationJSONSchema = map[string]string{
 	"int_value":       "bigint",
 	"float_value":     "double",
 	"boolean_true":    "boolean",
@@ -373,18 +387,7 @@ var EvolvedKafkaToDestinationSchema = map[string]string{
 	"id_int":          "bigint",
 }
 
-var ExpectedKafkaDefaultCDCColumnsSchema = map[string]string{
-	"_kafka_key":       "string",
-	"_kafka_offset":    "bigint",
-	"_kafka_partition": "int",
-	"_kafka_timestamp": "timestamp",
-	"_op_type":         "string",
-	"_cdc_timestamp":   "timestamp",
-	"_olake_id":        "string",
-	"_olake_timestamp": "timestamp",
-}
-
-var ExpectedKafkaAvroDataSchema = map[string]string{
+var KafkaToDestinationAvroSchema = map[string]string{
 	"int32_value":     "int",
 	"int64_value":     "bigint",
 	"int_value":       "bigint",
@@ -397,7 +400,7 @@ var ExpectedKafkaAvroDataSchema = map[string]string{
 	"string_value":    "string",
 }
 
-var ExpectedKafkaAvroUpdatedDataSchema = map[string]string{
+var EvolvedKafkaToDestinationAvroSchema = map[string]string{
 	"int32_value":     "bigint",
 	"int64_value":     "bigint",
 	"int_value":       "bigint",
@@ -411,38 +414,40 @@ var ExpectedKafkaAvroUpdatedDataSchema = map[string]string{
 	"id_int":          "bigint",
 }
 
-var ExpectedKafkaAvroUpdatedData = map[string]interface{}{
-	"int32_value": int64(132), // promoted from int → long
-	"int64_value": int64(6400000000),
-	"int_value":   int64(101),
-
-	"float32_value": float32(32.5),
-	"float64_value": float64(64.6464),
-	"float_value":   float64(66.6666),
-
-	"boolean_true":  true,
-	"boolean_false": false,
-
+var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
+	"int32_value":     int64(132), // promoted from int → long
+	"int64_value":     int64(6400000000),
+	"int_value":       int64(101),
+	"float32_value":   float32(32.5),
+	"float64_value":   float64(64.6464),
+	"float_value":     float64(66.6666),
+	"boolean_true":    true,
+	"boolean_false":   false,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-
-	"string_value": "test_string",
-
-	"id_int": int64(101), // new field
+	"string_value":    "test_string",
+	"id_int":          int64(101), // new field
 }
 
 var ExpectedKafkaAvroData = map[string]interface{}{
-	"int32_value": int32(132),
-	"int64_value": int64(6400000000),
-	"int_value":   int64(101),
-
-	"float32_value": float32(32.5),
-	"float64_value": float64(64.6464),
-	"float_value":   float64(66.6666),
-
-	"boolean_true":  true,
-	"boolean_false": false,
-
+	"int32_value":     int32(132),
+	"int64_value":     int64(6400000000),
+	"int_value":       int64(101),
+	"float32_value":   float32(32.5),
+	"float64_value":   float64(64.6464),
+	"float_value":     float64(66.6666),
+	"boolean_true":    true,
+	"boolean_false":   false,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"string_value":    "test_string",
+}
 
-	"string_value": "test_string",
+var ExpectedKafkaDefaultCDCColumnsSchema = map[string]string{
+	"_kafka_key":       "string",
+	"_kafka_offset":    "bigint",
+	"_kafka_partition": "int",
+	"_kafka_timestamp": "timestamp",
+	"_op_type":         "string",
+	"_cdc_timestamp":   "timestamp",
+	"_olake_id":        "string",
+	"_olake_timestamp": "timestamp",
 }

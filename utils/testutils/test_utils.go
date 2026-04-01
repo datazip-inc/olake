@@ -49,8 +49,6 @@ type IntegrationTest struct {
 	CursorField                      string
 	PartitionRegex                   string
 	FilterConfig                     string
-	ExtraExpectedData                map[string]map[string]interface{}
-	ExtraExpectedDataSchema          map[string]map[string]string
 }
 
 type PerformanceTest struct {
@@ -182,7 +180,7 @@ func GetTestConfig(driver string) *TestConfig {
 	// root path is olake's root path
 	rootPath := filepath.Join(pwd, "../../..")
 
-	containerTestDataPath := "/test-olake/drivers/%s/internal/testdata/%s"
+	containerTestDataPath := "/test-olake/drivers/%s/internal/testdata/json/%s"
 	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", "%s")
 	return &TestConfig{
 		Driver:                 driver,
@@ -356,12 +354,11 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 
 // syncTestCase represents a test case for sync operations
 type syncTestCase struct {
-	name           string
-	operation      string
-	useState       bool
-	opSymbol       string
-	expectedData   map[string]interface{}
-	expectedSchema map[string]string
+	name      string
+	operation string
+	useState  bool
+	opSymbol  string
+	expected  map[string]interface{}
 }
 
 // runSyncAndVerify executes a sync command and verifies the results in Iceberg
@@ -376,7 +373,6 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	opSymbol string,
 	schema map[string]interface{},
 	isCDC bool,
-	expectedSchema map[string]string,
 ) error {
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
@@ -398,11 +394,26 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
 
+	// Use evolved datatype map when the sync is expected to see an evolved table:
+	// relational drivers pass operation "update" (after a separate evolve-schema insert); Kafka strict CDC passes "evolve-schema" as the operation to ExecuteQuery.
+	// Incremental "insert" uses opSymbol "u" but doesn't pair with evolved schema here.
+	evolvedSchema := operation == "update" || operation == "evolve-schema"
+
 	switch destinationType {
 	case "iceberg":
-		VerifyIcebergSync(t, testTable, cfg.DestinationDB, expectedSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+		if evolvedSchema {
+			VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+		} else {
+			VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+		}
 	case "parquet":
-		VerifyParquetSync(t, testTable, cfg.DestinationDB, expectedSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
+		{
+			if evolvedSchema {
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
+			} else {
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
+			}
+		}
 	}
 
 	return nil
@@ -440,71 +451,49 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 
 	testCases := []syncTestCase{
 		{
-			name:           "Full-Refresh",
-			operation:      "",
-			useState:       false,
-			opSymbol:       "r",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "Full-Refresh",
+			operation: "",
+			useState:  false,
+			opSymbol:  "r",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "CDC - insert",
-			operation:      "insert",
-			useState:       true,
-			opSymbol:       "c",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "CDC - insert",
+			operation: "insert",
+			useState:  true,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "CDC - update",
-			operation:      "update",
-			useState:       true,
-			opSymbol:       "u",
-			expectedData:   cfg.ExpectedUpdatedData,
-			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
+			name:      "CDC - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 		{
-			name:           "CDC - delete",
-			operation:      "delete",
-			useState:       true,
-			opSymbol:       "d",
-			expectedData:   nil,
-			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
+			name:      "CDC - delete",
+			operation: "delete",
+			useState:  true,
+			opSymbol:  "d",
+			expected:  nil,
 		},
 	}
 
 	kafkaTestCases := []syncTestCase{
 		{
-			name:           "CDC - strict - insert",
-			operation:      "",
-			useState:       false,
-			opSymbol:       "c",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "CDC - strict - insert",
+			operation: "",
+			useState:  false,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "CDC - strict - evolve-schema",
-			operation:      "evolve-schema",
-			useState:       true,
-			opSymbol:       "c",
-			expectedData:   cfg.ExpectedUpdatedData,
-			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
-		},
-		{
-			name:           "CDC - strict - Avro - insert",
-			operation:      "Avro-insert",
-			useState:       false,
-			opSymbol:       "c",
-			expectedData:   cfg.ExtraExpectedData["Avro-insert"],
-			expectedSchema: cfg.ExtraExpectedDataSchema["Avro-insert"],
-		},
-		{
-			name:           "CDC - strict - Avro - evolve-schema",
-			operation:      "Avro-evolve-schema",
-			useState:       true,
-			opSymbol:       "c",
-			expectedData:   cfg.ExtraExpectedData["Avro-evolve-schema"],
-			expectedSchema: cfg.ExtraExpectedDataSchema["Avro-evolve-schema"],
+			name:      "CDC - evolve-schema",
+			operation: "evolve-schema",
+			useState:  true,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
@@ -519,9 +508,6 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
-			if slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)) && tc.operation == "Avro-insert" {
-				dropIcebergTable(t, testTable, cfg.DestinationDB)
-			}
 			if err := cfg.runSyncAndVerify(
 				ctx,
 				t,
@@ -531,9 +517,8 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				"iceberg",
 				tc.operation,
 				tc.opSymbol,
-				tc.expectedData,
+				tc.expected,
 				tc.name != "Full-Refresh",
-				tc.expectedSchema,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -564,71 +549,49 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 
 	testCases := []syncTestCase{
 		{
-			name:           "Full-Refresh",
-			operation:      "",
-			useState:       false,
-			opSymbol:       "r",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "Full-Refresh",
+			operation: "",
+			useState:  false,
+			opSymbol:  "r",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "CDC - insert",
-			operation:      "insert",
-			useState:       true,
-			opSymbol:       "c",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "CDC - insert",
+			operation: "insert",
+			useState:  true,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "CDC - update",
-			operation:      "update",
-			useState:       true,
-			opSymbol:       "u",
-			expectedData:   cfg.ExpectedUpdatedData,
-			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
+			name:      "CDC - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 		{
-			name:           "CDC - delete",
-			operation:      "delete",
-			useState:       true,
-			opSymbol:       "d",
-			expectedData:   nil,
-			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
+			name:      "CDC - delete",
+			operation: "delete",
+			useState:  true,
+			opSymbol:  "d",
+			expected:  nil,
 		},
 	}
 
 	kafkaTestCases := []syncTestCase{
 		{
-			name:           "CDC - strict - insert",
-			operation:      "",
-			useState:       false,
-			opSymbol:       "c",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "CDC - strict - insert",
+			operation: "",
+			useState:  false,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "CDC - strict - evolve-schema",
-			operation:      "evolve-schema",
-			useState:       true,
-			opSymbol:       "c",
-			expectedData:   cfg.ExpectedUpdatedData,
-			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
-		},
-		{
-			name:           "CDC - strict - Avro - insert",
-			operation:      "Avro-insert",
-			useState:       false,
-			opSymbol:       "c",
-			expectedData:   cfg.ExtraExpectedData["Avro-insert"],
-			expectedSchema: cfg.ExtraExpectedDataSchema["Avro-insert"],
-		},
-		{
-			name:           "CDC - strict - Avro - evolve-schema",
-			operation:      "Avro-evolve-schema",
-			useState:       true,
-			opSymbol:       "c",
-			expectedData:   cfg.ExtraExpectedData["Avro-evolve-schema"],
-			expectedSchema: cfg.ExtraExpectedDataSchema["Avro-evolve-schema"],
+			name:      "CDC - evolve-schema",
+			operation: "evolve-schema",
+			useState:  true,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
@@ -657,9 +620,8 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 				"parquet",
 				tc.operation,
 				tc.opSymbol,
-				tc.expectedData,
+				tc.expected,
 				tc.name != "Full-Refresh",
-				tc.expectedSchema,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
@@ -701,28 +663,25 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	// Test cases for incremental sync
 	incrementalTestCases := []syncTestCase{
 		{
-			name:           "Full-Refresh",
-			operation:      "",
-			useState:       false,
-			opSymbol:       "r",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "Full-Refresh",
+			operation: "",
+			useState:  false,
+			opSymbol:  "r",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "Incremental - insert",
-			operation:      "insert",
-			useState:       true,
-			opSymbol:       "u",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "Incremental - insert",
+			operation: "insert",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "Incremental - update",
-			operation:      "update",
-			useState:       true,
-			opSymbol:       "u",
-			expectedData:   cfg.ExpectedUpdatedData,
-			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
+			name:      "Incremental - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
@@ -749,9 +708,8 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				"iceberg",
 				tc.operation,
 				tc.opSymbol,
-				tc.expectedData,
+				tc.expected,
 				false,
-				tc.expectedSchema,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}
@@ -792,28 +750,25 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	// Test cases for incremental sync
 	incrementalTestCases := []syncTestCase{
 		{
-			name:           "Full-Refresh",
-			operation:      "",
-			useState:       false,
-			opSymbol:       "r",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "Full-Refresh",
+			operation: "",
+			useState:  false,
+			opSymbol:  "r",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "Incremental - insert",
-			operation:      "insert",
-			useState:       true,
-			opSymbol:       "u",
-			expectedData:   cfg.ExpectedData,
-			expectedSchema: cfg.DestinationDataTypeSchema,
+			name:      "Incremental - insert",
+			operation: "insert",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedData,
 		},
 		{
-			name:           "Incremental - update",
-			operation:      "update",
-			useState:       true,
-			opSymbol:       "u",
-			expectedData:   cfg.ExpectedUpdatedData,
-			expectedSchema: cfg.UpdatedDestinationDataTypeSchema,
+			name:      "Incremental - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "u",
+			expected:  cfg.ExpectedUpdatedData,
 		},
 	}
 
@@ -841,9 +796,8 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 				"parquet",
 				tc.operation,
 				tc.opSymbol,
-				tc.expectedData,
+				tc.expected,
 				false,
-				tc.expectedSchema,
 			); err != nil {
 				t.Fatalf("Incremental test %s failed: %v", tc.name, err)
 			}

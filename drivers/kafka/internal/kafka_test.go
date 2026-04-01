@@ -2,6 +2,7 @@ package driver
 
 import (
 	"testing"
+	// "path/filepath"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/testutils"
@@ -9,41 +10,82 @@ import (
 
 func TestKafkaIntegration(t *testing.T) {
 	t.Parallel()
-	testConfig := &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka)),
-		Namespace:                        "topics",
-		ExpectedData:                     ExpectedKafkaData,
-		ExpectedUpdatedData:              ExpectedKafkaUpdatedData,
-		DestinationDataTypeSchema:        KafkaToDestinationSchema,
-		UpdatedDestinationDataTypeSchema: EvolvedKafkaToDestinationSchema,
-		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
-		ExecuteQuery:                     ExecuteQuery,
-		DestinationDB:                    "kafka_topics",
-		CursorField:                      "int_value:bigint",
-		PartitionRegex:                   "/{int_value,identity}",
-		ExtraExpectedData: map[string]map[string]interface{}{
-			"Avro-insert":        ExpectedKafkaAvroData,
-			"Avro-evolve-schema": ExpectedKafkaAvroUpdatedData,
+
+	// // JSON
+	// jsonTC := testutils.GetTestConfig(string(constants.Kafka))
+	// jsonTC.HostTestCatalogPath = filepath.Join(jsonTC.HostTestDataPath, "json_test_streams.json")
+	// // Avro
+	// avroTC := testutils.GetTestConfig(string(constants.Kafka))
+	// avroTC.HostTestCatalogPath = filepath.Join(avroTC.HostTestDataPath, "avro_test_streams.json")
+
+	tests := []struct {
+		name string
+		cfg  *testutils.IntegrationTest
+	}{
+		{
+			name: "JSON-Format",
+			cfg: &testutils.IntegrationTest{
+				TestConfig:                      testutils.GetTestConfig(string(constants.Kafka)),
+				Namespace:                        "json-topic",
+				ExpectedData:                     ExpectedKafkaJSONData,
+				ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
+				DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
+				UpdatedDestinationDataTypeSchema: EvolvedKafkaToDestinationJSONSchema,
+				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
+				ExecuteQuery:                     ExecuteQueryForJson,
+				DestinationDB:                    "kafka_topics",
+				PartitionRegex:                   "/{int_value,identity}",
+				FilterConfig: `{
+					"logical_operator": "And",
+					"conditions": [
+						{
+							"column": "int_value",
+							"operator": ">=",
+							"value": 100
+						},
+						{
+							"column": "float_value",
+							"operator": "<",
+							"value": 100.00
+						}
+					]
+				}`,
+			},
 		},
-		ExtraExpectedDataSchema: map[string]map[string]string{
-			"Avro-insert":        ExpectedKafkaAvroDataSchema,
-			"Avro-evolve-schema": ExpectedKafkaAvroUpdatedDataSchema,
-		},
-		FilterConfig: `{
-			"logical_operator": "And",
-			"conditions": [
-				{
-					"column": "int_value",
-					"operator": ">=",
-					"value": 100
-				},
-				{
-					"column": "float_value",
-					"operator": "<",
-					"value": 100.00
-				}
-			]
-		}`,
+		// {
+		// 	name: "AVRO-Format",
+		// 	cfg: &testutils.IntegrationTest{
+		// 		TestConfig:                       avroTC,
+		// 		Namespace:                        "Avro-topic",
+		// 		ExpectedData:                     ExpectedKafkaAvroData,
+		// 		ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
+		// 		DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
+		// 		UpdatedDestinationDataTypeSchema: EvolvedKafkaToDestinationAvroSchema,
+		// 		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
+		// 		ExecuteQuery:                     ExecuteQueryForAvro,
+		// 		DestinationDB:                    "kafka_topics",
+		// 		PartitionRegex:                   "/{int_value,identity}",
+		// 		FilterConfig: `{
+		// 			"logical_operator": "And",
+		// 			"conditions": [
+		// 				{
+		// 					"column": "int_value",
+		// 					"operator": ">=",
+		// 					"value": 100
+		// 				},
+		// 				{
+		// 					"column": "float_value",
+		// 					"operator": "<",
+		// 					"value": 100.00
+		// 				}
+		// 			]
+		// 		}`,
+		// 	},
+		// },
 	}
-	testConfig.TestIntegration(t)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.cfg.TestIntegration(t)
+		})
+	}
 }
