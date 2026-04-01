@@ -322,7 +322,6 @@ func filterMongoObject(doc bson.M) {
 			var err error
 			doc[key], err = typeutils.ReformatDate(t, true)
 			if err != nil {
-				logger.Warnf("failed to reformat date for key %s: %s", key, err)
 				doc[key] = time.Unix(0, 0).UTC()
 			}
 		case primitive.Null:
