@@ -261,8 +261,10 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 		return fmt.Errorf("invalid sync mode[%s]; valid are %v", s.Stream.SyncMode, source.SupportedSyncModes)
 	}
 
-	// no cursor validation in cdc and backfill sync
-	if s.Stream.SyncMode == INCREMENTAL {
+	// no cursor validation in cdc and backfill sync;
+	// also skip when AvailableCursorFields is empty — the source produced a
+	// lightweight schema (e.g. sync fast-path) and we trust the streams.json.
+	if s.Stream.SyncMode == INCREMENTAL && len(source.AvailableCursorFields.Array()) > 0 {
 		primaryCursor, secondaryCursor := s.Cursor()
 		if !source.AvailableCursorFields.Exists(primaryCursor) {
 			return fmt.Errorf("invalid cursor field [%s]; valid are %v", primaryCursor, source.AvailableCursorFields)

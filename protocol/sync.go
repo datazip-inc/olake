@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -82,13 +83,18 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		// Mark context as sync command so drivers can skip expensive schema inference
+		// (e.g., MongoDB document sampling, Kafka message reading) since the schema
+		// is already available in the catalog (streams.json) from a prior discover run.
+		ctx := context.WithValue(cmd.Context(), constants.SyncContext{}, true)
+
 		// setup conector first
-		err := connector.Setup(cmd.Context())
+		err := connector.Setup(ctx)
 		if err != nil {
 			return err
 		}
 		// Get Source Streams, sending 0 max discover threads to discover
-		streams, err := connector.Discover(cmd.Context(), 0)
+		streams, err := connector.Discover(ctx, 0)
 		if err != nil {
 			return err
 		}
