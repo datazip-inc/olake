@@ -336,7 +336,7 @@ func ReformatInt64(v any) (int64, error) {
 	case *any:
 		return ReformatInt64(*v)
 	case []uint8:
-		if constants.LoadedStateVersion > 4 {
+		if constants.LoadedStateVersion > 5 {
 			strVal := string(v)
 			intValue, err := strconv.ParseInt(strVal, 10, 64)
 			if err == nil {
