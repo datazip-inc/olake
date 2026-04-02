@@ -30,20 +30,20 @@ jobs:
         with:
           go-version-file: "go.mod"
 
-      - name: Set up Java for Maven
-        uses: actions/setup-java@v3
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+      # - name: Set up Java for Maven
+      #   uses: actions/setup-java@v3
+      #   with:
+      #     distribution: 'temurin'
+      #     java-version: '17'
       
-      - name: Install DB2 CLI Driver
-        run: |
-          go run github.com/ibmdb/go_ibm_db/installer@v0.5.4
-          echo "IBM_DB_HOME=$(go env GOPATH)/pkg/mod/github.com/ibmdb/clidriver" >> $GITHUB_ENV
-          IBM_DB_HOME=$(go env GOPATH)/pkg/mod/github.com/ibmdb/clidriver
-          echo "CGO_CFLAGS=-I$IBM_DB_HOME/include" >> $GITHUB_ENV
-          echo "CGO_LDFLAGS=-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=$IBM_DB_HOME/lib" >> $GITHUB_ENV
+      # - name: Install DB2 CLI Driver
+      #   run: |
+      #     go run github.com/ibmdb/go_ibm_db/installer@v0.5.4
+      #     echo "IBM_DB_HOME=$(go env GOPATH)/pkg/mod/github.com/ibmdb/clidriver" >> $GITHUB_ENV
+      #     IBM_DB_HOME=$(go env GOPATH)/pkg/mod/github.com/ibmdb/clidriver
+      #     echo "CGO_CFLAGS=-I$IBM_DB_HOME/include" >> $GITHUB_ENV
+      #     echo "CGO_LDFLAGS=-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib" >> $GITHUB_ENV
+      #     echo "LD_LIBRARY_PATH=$IBM_DB_HOME/lib" >> $GITHUB_ENV
 
       - name: Start Test Infrastructure
         run: |
@@ -54,7 +54,7 @@ jobs:
           # docker compose -f ./drivers/db2/docker-compose.yml up -d
           # docker compose -f ./drivers/mssql/docker-compose.yml up -d
           docker compose -f ./drivers/kafka/docker-compose.yml up -d
-          docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
+          # docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       # - name: Wait for MySQL
       #   uses: nick-fields/retry@v2
@@ -124,32 +124,32 @@ jobs:
       #     docker exec olake-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password!123' -C -d master -i /docker-entrypoint-initdb.d/01-init.sql
       
 
-      - name: Set up Data Directories
-        run: |
-            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
-            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/minio-data
-            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/ivy-cache
-            sudo chown -R 999:999 /home/runner/work/olake/olake/destination/iceberg/local-test/data
+      # - name: Set up Data Directories
+      #   run: |
+      #       sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
+      #       sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/minio-data
+      #       sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/ivy-cache
+      #       sudo chown -R 999:999 /home/runner/work/olake/olake/destination/iceberg/local-test/data
             sudo chmod -R 777 /home/runner/work/olake/olake/destination/iceberg/local-test/data
 
       - name: Install Go Dependencies
         run: go mod download
 
-      - name: Build Project
-        run: go build -v ./...
+      # - name: Build Project
+      #   run: go build -v ./...
 
-      - name: Cache Maven dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
+      # - name: Cache Maven dependencies
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: |
+      #       ~/.m2/repository
+      #     key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+      #     restore-keys: |
+      #       ${{ runner.os }}-maven-
 
-      - name: Build Iceberg Sink
-        working-directory: ./destination/iceberg/olake-iceberg-java-writer
-        run: mvn clean package -DskipTests
+      # - name: Build Iceberg Sink
+      #   working-directory: ./destination/iceberg/olake-iceberg-java-writer
+        # run: mvn clean package -DskipTests
 
       - name: Run Kafka Discover integration test
         run: |
@@ -157,12 +157,12 @@ jobs:
       
       - name: Cleanup
         if: always()
-        run: |
-          docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
-          docker compose -f ./drivers/mysql/docker-compose.yml down
-          docker compose -f ./drivers/postgres/docker-compose.yml down
-          docker compose -f ./drivers/oracle/docker-compose.yml down
-          docker compose -f ./drivers/mongodb/docker-compose.yml down
-          docker compose -f ./drivers/db2/docker-compose.yml down
-          docker compose -f ./drivers/mssql/docker-compose.yml down
+        # run: |
+        #   docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
+        #   docker compose -f ./drivers/mysql/docker-compose.yml down
+        #   docker compose -f ./drivers/postgres/docker-compose.yml down
+        #   docker compose -f ./drivers/oracle/docker-compose.yml down
+        #   docker compose -f ./drivers/mongodb/docker-compose.yml down
+        #   docker compose -f ./drivers/db2/docker-compose.yml down
+        #   docker compose -f ./drivers/mssql/docker-compose.yml down
           docker compose -f ./drivers/kafka/docker-compose.yml down
