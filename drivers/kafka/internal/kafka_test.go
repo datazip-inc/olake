@@ -11,13 +11,6 @@ import (
 func TestKafkaIntegration(t *testing.T) {
 	t.Parallel()
 
-	// // JSON
-	// jsonTC := testutils.GetTestConfig(string(constants.Kafka))
-	// jsonTC.HostTestCatalogPath = filepath.Join(jsonTC.HostTestDataPath, "json_test_streams.json")
-	// // Avro
-	// avroTC := testutils.GetTestConfig(string(constants.Kafka))
-	// avroTC.HostTestCatalogPath = filepath.Join(avroTC.HostTestDataPath, "avro_test_streams.json")
-
 	tests := []struct {
 		name string
 		cfg  *testutils.IntegrationTest
@@ -25,7 +18,7 @@ func TestKafkaIntegration(t *testing.T) {
 		{
 			name: "JSON-Format",
 			cfg: &testutils.IntegrationTest{
-				TestConfig:                      testutils.GetTestConfig(string(constants.Kafka)),
+				TestConfig:                      testutils.GetTestConfig(string(constants.Kafka),"Json"),
 				Namespace:                        "json-topic",
 				ExpectedData:                     ExpectedKafkaJSONData,
 				ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
@@ -52,39 +45,40 @@ func TestKafkaIntegration(t *testing.T) {
 				}`,
 			},
 		},
-		// {
-		// 	name: "AVRO-Format",
-		// 	cfg: &testutils.IntegrationTest{
-		// 		TestConfig:                       avroTC,
-		// 		Namespace:                        "Avro-topic",
-		// 		ExpectedData:                     ExpectedKafkaAvroData,
-		// 		ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
-		// 		DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
-		// 		UpdatedDestinationDataTypeSchema: EvolvedKafkaToDestinationAvroSchema,
-		// 		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
-		// 		ExecuteQuery:                     ExecuteQueryForAvro,
-		// 		DestinationDB:                    "kafka_topics",
-		// 		PartitionRegex:                   "/{int_value,identity}",
-		// 		FilterConfig: `{
-		// 			"logical_operator": "And",
-		// 			"conditions": [
-		// 				{
-		// 					"column": "int_value",
-		// 					"operator": ">=",
-		// 					"value": 100
-		// 				},
-		// 				{
-		// 					"column": "float_value",
-		// 					"operator": "<",
-		// 					"value": 100.00
-		// 				}
-		// 			]
-		// 		}`,
-		// 	},
-		// },
+		{
+			name: "AVRO-Format",
+			cfg: &testutils.IntegrationTest{
+				TestConfig:                       testutils.GetTestConfig(string(constants.Kafka),"Avro"),
+				Namespace:                        "Avro-topic",
+				ExpectedData:                     ExpectedKafkaAvroData,
+				ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
+				DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
+				UpdatedDestinationDataTypeSchema: EvolvedKafkaToDestinationAvroSchema,
+				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
+				ExecuteQuery:                     ExecuteQueryForAvro,
+				DestinationDB:                    "kafka_topics",
+				PartitionRegex:                   "/{int_value,identity}",
+				FilterConfig: `{
+					"logical_operator": "And",
+					"conditions": [
+						{
+							"column": "int_value",
+							"operator": ">=",
+							"value": 100
+						},
+						{
+							"column": "float_value",
+							"operator": "<",
+							"value": 100.00
+						}
+					]
+				}`,
+			},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
 			test.cfg.TestIntegration(t)
 		})
 	}

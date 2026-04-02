@@ -171,7 +171,7 @@ func (s *benchmarkStore) stats(
 }
 
 // GetTestConfig returns the test config for the given driver
-func GetTestConfig(driver string) *TestConfig {
+func GetTestConfig(driver string,dataFormat string) *TestConfig {
 	// pwd is olake/drivers/(driver)/internal
 	pwd, err := os.Getwd()
 	if err != nil {
@@ -179,9 +179,8 @@ func GetTestConfig(driver string) *TestConfig {
 	}
 	// root path is olake's root path
 	rootPath := filepath.Join(pwd, "../../..")
-
-	containerTestDataPath := "/test-olake/drivers/%s/internal/testdata/json/%s"
-	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", "%s")
+	containerTestDataPath := filepath.Join("/test-olake", "drivers", "%s", "internal", "testdata", dataFormat, "%s")
+	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", dataFormat, "%s")
 	return &TestConfig{
 		Driver:                 driver,
 		HostRootPath:           rootPath,

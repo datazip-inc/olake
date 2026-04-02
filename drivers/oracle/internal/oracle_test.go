@@ -10,7 +10,7 @@ import (
 func TestOracleIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Oracle)),
+		TestConfig:                       testutils.GetTestConfig(string(constants.Oracle),""),
 		Namespace:                        "MYUSER",
 		ExpectedData:                     ExpectedOracleData,
 		ExpectedUpdatedData:              ExpectedUpdatedOracleData,

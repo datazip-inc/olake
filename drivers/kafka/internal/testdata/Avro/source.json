@@ -3,8 +3,8 @@
   "protocol": {
     "security_protocol": "PLAINTEXT"
   },
-  "consumer_group_id": "kafka-integration-test-group",
-  "max_threads": 10,
+  "consumer_group_id": "kafka-Avro-integration-test-group",
+  "max_threads": 40,
   "threads_equal_total_partitions": true,
   "backoff_retry_count": 3,
   "schema_registry": {
