@@ -20,7 +20,8 @@ import (
 
 var (
 	// Message key and value for JSON
-	key            = []byte("test-key")
+	Jsonkey            = []byte("json-key")
+	Avrokey            = []byte("avro-key")
 	value          = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string"}`)
 	evolved_value  = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "id_int": 101}`)
 	filtervalue1   = []byte(`{"int_value": 99,"float_value": 99.99}`)
@@ -128,23 +129,23 @@ func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, op
 	case "add":
 		for partition := 0; partition < partitionCount; partition++ {
 			writeMessagesWithRetry(ctx, t, writer, kafka.Message{
-				Key:   key,
+				Key:   Jsonkey,
 				Value: value,
 			})
 		}
 		writeMessagesWithRetry(ctx, t, writer, kafka.Message{
-			Key:   key,
+			Key:   Jsonkey,
 			Value: filtervalue1,
 		})
 		writeMessagesWithRetry(ctx, t, writer, kafka.Message{
-			Key:   key,
+			Key:   Jsonkey,
 			Value: filtervalue2,
 		})
 		t.Logf("Added 7 messages to topic '%s' (one per partition and two for filters)", streams[0])
 	case "evolve-schema":
 		for partition := 0; partition < partitionCount; partition++ {
 			writeMessagesWithRetry(ctx, t, writer, kafka.Message{
-				Key:       key,
+				Key:       Jsonkey,
 				Value:     evolved_value,
 				Partition: partition,
 			})
@@ -203,8 +204,8 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 		confluentBaseMsg := encodeConfluentBinary(schemaID, binaryData)
 		confluentFilterMsg := encodeConfluentBinary(schemaID, binaryDataFilter)
 		err = writer.WriteMessages(ctx,
-			kafka.Message{Topic: streams[0], Key: []byte("avro-key"), Value: confluentBaseMsg},
-			kafka.Message{Topic: streams[0], Key: []byte("avro-key"), Value: confluentFilterMsg},
+			kafka.Message{Key: Avrokey, Value: confluentBaseMsg},
+			kafka.Message{Key: Avrokey, Value: confluentFilterMsg},
 		)
 		require.NoError(t, err)
 	case "evolve-schema":
@@ -216,8 +217,7 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 		require.NoError(t, err)
 		confluentMsg := encodeConfluentBinary(schemaID, binaryData)
 		err = writer.WriteMessages(ctx, kafka.Message{
-			Topic: streams[0],
-			Key:   []byte("avro-key"),
+			Key:   Avrokey,
 			Value: confluentMsg,
 		})
 		require.NoError(t, err)

@@ -75,6 +75,7 @@ type TestConfig struct {
 	HostTestDataPath       string
 	HostCatalogPath        string
 	HostTestCatalogPath    string
+	DataFormat             string
 }
 
 // history stores the RPS values and the last updated time for a given mode.
@@ -184,6 +185,7 @@ func GetTestConfig(driver string,dataFormat string) *TestConfig {
 	return &TestConfig{
 		Driver:                 driver,
 		HostRootPath:           rootPath,
+		DataFormat:             dataFormat,
 		HostTestDataPath:       fmt.Sprintf(hostTestDataPath, driver, ""),
 		HostTestCatalogPath:    fmt.Sprintf(hostTestDataPath, driver, "test_streams.json"),
 		HostCatalogPath:        fmt.Sprintf(hostTestDataPath, driver, "streams.json"),
@@ -813,6 +815,9 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
 	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver)
+	if cfg.TestConfig.DataFormat != "" {
+		currentTestTable = fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)
+	}
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{

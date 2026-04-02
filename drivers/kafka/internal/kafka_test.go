@@ -19,14 +19,14 @@ func TestKafkaIntegration(t *testing.T) {
 			name: "JSON-Format",
 			cfg: &testutils.IntegrationTest{
 				TestConfig:                      testutils.GetTestConfig(string(constants.Kafka),"Json"),
-				Namespace:                        "json-topic",
+				Namespace:                        "topics",
 				ExpectedData:                     ExpectedKafkaJSONData,
 				ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
 				DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
 				UpdatedDestinationDataTypeSchema: EvolvedKafkaToDestinationJSONSchema,
 				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 				ExecuteQuery:                     ExecuteQueryForJson,
-				DestinationDB:                    "kafka_topics",
+				DestinationDB:                    "kafka_json_topics",
 				PartitionRegex:                   "/{int_value,identity}",
 				FilterConfig: `{
 					"logical_operator": "And",
@@ -49,14 +49,14 @@ func TestKafkaIntegration(t *testing.T) {
 			name: "AVRO-Format",
 			cfg: &testutils.IntegrationTest{
 				TestConfig:                       testutils.GetTestConfig(string(constants.Kafka),"Avro"),
-				Namespace:                        "Avro-topic",
+				Namespace:                        "topics",
 				ExpectedData:                     ExpectedKafkaAvroData,
 				ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
 				DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
 				UpdatedDestinationDataTypeSchema: EvolvedKafkaToDestinationAvroSchema,
 				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 				ExecuteQuery:                     ExecuteQueryForAvro,
-				DestinationDB:                    "kafka_topics",
+				DestinationDB:                    "kafka_avro_topics",
 				PartitionRegex:                   "/{int_value,identity}",
 				FilterConfig: `{
 					"logical_operator": "And",
