@@ -162,7 +162,7 @@ jobs:
 
       - name: Run Kafka Discover integration test
         run: |
-          go test -v -p 2 ./drivers/kafka/internal/... -timeout 0 -run 'TestKafkaIntegration/.*/Discover$'
+          go test -v -p 2 ./drivers/kafka/internal/... -timeout 0 -run 'TestKafkaIntegration/.*/Sync$'
       
       - name: Cleanup
         if: always()
