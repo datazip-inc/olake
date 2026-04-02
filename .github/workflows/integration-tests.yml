@@ -110,6 +110,15 @@ jobs:
           command: |
             docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list
 
+      - name: Wait for Kafka2
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 30
+          retry_wait_seconds: 5
+          command: |
+            docker exec kafka2 kafka-topics --bootstrap-server localhost:9092 --list
+
       # - name: Wait for MSSQL
       #   uses: nick-fields/retry@v2
       #   with:
@@ -153,7 +162,7 @@ jobs:
 
       - name: Run Kafka Discover integration test
         run: |
-          go test -v -p 1 ./drivers/kafka/internal/... -timeout 0 -run 'TestKafkaIntegration/.*/Discover$'
+          go test -v -p 2 ./drivers/kafka/internal/... -timeout 0 -run 'TestKafkaIntegration/.*/Discover$'
       
       - name: Cleanup
         if: always()

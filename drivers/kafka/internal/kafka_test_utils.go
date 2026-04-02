@@ -166,7 +166,8 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 	if fileConfig {
 		broker = config.BootstrapServers
 	} else {
-		broker = "127.0.0.1:29092"
+		// kafka2 EXTERNAL_HOST (drivers/kafka/docker-compose.yml); JSON uses 29092 on kafka1
+		broker = "127.0.0.1:29192"
 	}
 
 	registryURL := config.SchemaRegistry.Endpoint

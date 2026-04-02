@@ -1,5 +1,5 @@
 {
-  "bootstrap_servers": "host.docker.internal:39092",
+  "bootstrap_servers": "host.docker.internal:39192",
   "protocol": {
     "security_protocol": "PLAINTEXT"
   },
