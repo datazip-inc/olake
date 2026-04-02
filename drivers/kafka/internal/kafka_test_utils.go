@@ -20,8 +20,8 @@ import (
 
 var (
 	// Message key and value for JSON
-	Jsonkey            = []byte("json-key")
-	Avrokey            = []byte("avro-key")
+	Jsonkey        = []byte("json-key")
+	Avrokey        = []byte("avro-key")
 	value          = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string"}`)
 	evolved_value  = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "id_int": 101}`)
 	filtervalue1   = []byte(`{"int_value": 99,"float_value": 99.99}`)
@@ -103,7 +103,7 @@ func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, op
 	var broker string
 	if fileConfig {
 		var config Config
-		require.NoError(t, utils.UnmarshalFile("./testdata/Json/source.json", &config, false), "failed to unmarshal kafka test source config")
+		require.NoError(t, utils.UnmarshalFile("./testdata/json/source.json", &config, false), "failed to unmarshal kafka test source config")
 		broker = config.BootstrapServers
 	} else {
 		broker = "127.0.0.1:29092"
@@ -128,27 +128,14 @@ func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, op
 		deleteKafkaTopic(ctx, t, broker, streams[0])
 	case "add":
 		for partition := 0; partition < partitionCount; partition++ {
-			writeMessagesWithRetry(ctx, t, writer, kafka.Message{
-				Key:   Jsonkey,
-				Value: value,
-			})
+			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: value, Partition: partition})
 		}
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{
-			Key:   Jsonkey,
-			Value: filtervalue1,
-		})
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{
-			Key:   Jsonkey,
-			Value: filtervalue2,
-		})
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: filtervalue1})
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: filtervalue2})
 		t.Logf("Added 7 messages to topic '%s' (one per partition and two for filters)", streams[0])
 	case "evolve-schema":
 		for partition := 0; partition < partitionCount; partition++ {
-			writeMessagesWithRetry(ctx, t, writer, kafka.Message{
-				Key:       Jsonkey,
-				Value:     evolved_value,
-				Partition: partition,
-			})
+			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: evolved_value, Partition: partition})
 		}
 		t.Logf("Added 5 messages to topic '%s' (each per partition)", streams[0])
 	default:
@@ -162,7 +149,7 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 
 	var broker string
 	var config Config
-	require.NoError(t, utils.UnmarshalFile("./testdata/Avro/source.json", &config, false), "failed to unmarshal kafka test source config")
+	require.NoError(t, utils.UnmarshalFile("./testdata/avro/source.json", &config, false), "failed to unmarshal kafka test source config")
 	if fileConfig {
 		broker = config.BootstrapServers
 	} else {
@@ -204,11 +191,8 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 
 		confluentBaseMsg := encodeConfluentBinary(schemaID, binaryData)
 		confluentFilterMsg := encodeConfluentBinary(schemaID, binaryDataFilter)
-		err = writer.WriteMessages(ctx,
-			kafka.Message{Key: Avrokey, Value: confluentBaseMsg},
-			kafka.Message{Key: Avrokey, Value: confluentFilterMsg},
-		)
-		require.NoError(t, err)
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Avrokey, Value: confluentBaseMsg})
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Avrokey, Value: confluentFilterMsg})
 	case "evolve-schema":
 		schema := UpdatedAvroschema
 		codec, err := goavro.NewCodec(schema)
@@ -217,11 +201,7 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 		binaryData, err := codec.BinaryFromNative(nil, evolvedDataToProduce)
 		require.NoError(t, err)
 		confluentMsg := encodeConfluentBinary(schemaID, binaryData)
-		err = writer.WriteMessages(ctx, kafka.Message{
-			Key:   Avrokey,
-			Value: confluentMsg,
-		})
-		require.NoError(t, err)
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Avrokey, Value: confluentMsg})
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
 	}

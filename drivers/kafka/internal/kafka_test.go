@@ -18,7 +18,7 @@ func TestKafkaIntegration(t *testing.T) {
 		{
 			name: "JSON-Format",
 			cfg: &testutils.IntegrationTest{
-				TestConfig:                      testutils.GetTestConfig(string(constants.Kafka),"Json"),
+				TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "json"),
 				Namespace:                        "topics",
 				ExpectedData:                     ExpectedKafkaJSONData,
 				ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
@@ -26,7 +26,7 @@ func TestKafkaIntegration(t *testing.T) {
 				UpdatedDestinationDataTypeSchema: EvolvedKafkaToDestinationJSONSchema,
 				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 				ExecuteQuery:                     ExecuteQueryForJson,
-				DestinationDB:                    "kafka_json_topics",
+				DestinationDB:                    "kafka_topics",
 				PartitionRegex:                   "/{int_value,identity}",
 				FilterConfig: `{
 					"logical_operator": "And",
@@ -48,7 +48,7 @@ func TestKafkaIntegration(t *testing.T) {
 		{
 			name: "AVRO-Format",
 			cfg: &testutils.IntegrationTest{
-				TestConfig:                       testutils.GetTestConfig(string(constants.Kafka),"Avro"),
+				TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "avro"),
 				Namespace:                        "topics",
 				ExpectedData:                     ExpectedKafkaAvroData,
 				ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
@@ -56,7 +56,7 @@ func TestKafkaIntegration(t *testing.T) {
 				UpdatedDestinationDataTypeSchema: EvolvedKafkaToDestinationAvroSchema,
 				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 				ExecuteQuery:                     ExecuteQueryForAvro,
-				DestinationDB:                    "kafka_avro_topics",
+				DestinationDB:                    "kafka_topics",
 				PartitionRegex:                   "/{int_value,identity}",
 				FilterConfig: `{
 					"logical_operator": "And",
