@@ -1,4 +1,0 @@
-# ./drivers/kafka/internal/...
-pattern ./drivers/kafka/internal/...: lstat ./drivers/kafka/internal/: no such file or directory
-FAIL	./drivers/kafka/internal/... [setup failed]
-FAIL

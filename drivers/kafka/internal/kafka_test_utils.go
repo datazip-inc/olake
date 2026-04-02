@@ -102,7 +102,7 @@ func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, op
 	var broker string
 	if fileConfig {
 		var config Config
-		require.NoError(t, utils.UnmarshalFile("./testdata/source.json", &config, false), "failed to unmarshal kafka test source config")
+		require.NoError(t, utils.UnmarshalFile("./testdata/Json/source.json", &config, false), "failed to unmarshal kafka test source config")
 		broker = config.BootstrapServers
 	} else {
 		broker = "127.0.0.1:29092"
@@ -161,7 +161,7 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 
 	var broker string
 	var config Config
-	require.NoError(t, utils.UnmarshalFile("./testdata/source.json", &config, false), "failed to unmarshal kafka test source config")
+	require.NoError(t, utils.UnmarshalFile("./testdata/Avro/source.json", &config, false), "failed to unmarshal kafka test source config")
 	if fileConfig {
 		broker = config.BootstrapServers
 	} else {
