@@ -461,27 +461,26 @@ func MySQLColumnStatsQuery() string {
 	`
 }
 
-// MySQLDistinctValuesWithCollationQuery builds a DISTINCT query over a slice of strings
-// using the column's collation type between min and max and remove unnecessary values outside the range.
-func MySQLDistinctValuesWithCollationQuery(values []string, columnCollationType string, minValPadded, maxValPadded string) (string, []any) {
-	unionParts := make([]string, 0, len(values))
-	args := make([]any, 0, len(values)+2)
+func MySQLDistinctAlignedPKValuesWithCollationQuery(stream types.StreamInterface, pkColumn string, bounds []string, columnCollationType string, minValPadded string, maxValPadded string) (string, []any) {
+	quotedCol := QuoteIdentifier(pkColumn, constants.MySQL)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
 
-	for _, v := range values {
-		unionParts = append(unionParts, "SELECT ? AS val")
+	firstAtOrAfter := fmt.Sprintf(`(SELECT %s FROM %s WHERE %s >= ? ORDER BY %s ASC LIMIT 1)`, quotedCol, quotedTable, quotedCol, quotedCol)
+
+	unionParts := make([]string, 0, len(bounds))
+	args := make([]any, 0, len(bounds)+2)
+
+	for _, v := range bounds {
+		unionParts = append(unionParts, fmt.Sprintf("SELECT %s AS actual_pk", firstAtOrAfter))
 		args = append(args, v)
 	}
 
 	args = append(args, minValPadded, maxValPadded)
 
 	query := fmt.Sprintf(`
-		SELECT DISTINCT val COLLATE %s AS val
-		FROM (
-			%s
-		) AS t
-		WHERE
-		val COLLATE %s >= ? AND val COLLATE %s <= ?
-		ORDER BY val;
+		SELECT DISTINCT actual_pk COLLATE %s AS val
+		FROM (%s) AS aligned
+			WHERE actual_pk COLLATE %s >= ? AND actual_pk COLLATE %s <= ? ORDER BY val
 	`, columnCollationType, strings.Join(unionParts, " UNION ALL "), columnCollationType, columnCollationType)
 
 	return query, args

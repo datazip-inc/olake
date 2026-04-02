@@ -333,22 +333,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			// Align boundaries with actual DB values using MySQL collation ordering
 			rangeSlice = append(rangeSlice, decodeBigIntToUnicodeString(&maxEncodedBigIntValue))
 
-			firstPKAtOrAfterStringQuery := jdbc.MySQLFirstPKAtOrAfterStringQuery(stream, pkColumns[0])
-			dbAlignedStrings := make([]string, 0, len(rangeSlice))
-			for _, currentSyntheticString := range rangeSlice {
-				var actualDBString string
-				err = m.client.QueryRowContext(ctx, firstPKAtOrAfterStringQuery, currentSyntheticString).Scan(&actualDBString)
-				if err != nil {
-					if err == sql.ErrNoRows {
-						continue
-					}
-					return fmt.Errorf("failed to align chunk boundary for stream %s: %s", stream.ID(), err)
-				}
-				dbAlignedStrings = append(dbAlignedStrings, actualDBString)
-			}
-			rangeSlice = dbAlignedStrings
-
-			query, args := jdbc.MySQLDistinctValuesWithCollationQuery(rangeSlice, columnCollationType, minValPadded, maxValPadded)
+			query, args := jdbc.MySQLDistinctAlignedPKValuesWithCollationQuery(stream, pkColumns[0], rangeSlice, columnCollationType, minValPadded, maxValPadded)
 			rows, err := m.client.QueryContext(ctx, query, args...)
 			if err != nil {
 				return fmt.Errorf("failed to run distinct query: %s", err)
@@ -368,7 +353,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			}
 
 			// Accept boundaries if enough valid chunks are produced
-			if float64(len(rangeSlice)) >= float64(min(expectedChunks, int64(len(rangeSlice))))*constants.MysqlChunkAcceptanceRatio {
+			if float64(len(rangeSlice)) >= float64(expectedChunks)*constants.MysqlChunkAcceptanceRatio {
 				logger.Infof("Successfully Generated Chunks using splitEvenlyForString Method for stream %s", stream.ID())
 				break
 			} else if retryAttempt == int64(4) {
