@@ -396,17 +396,6 @@ func MySQLDiscoverTablesQuery() string {
 	`
 }
 
-// MySQLFirstPKAtOrAfterStringQuery returns SQL that selects the smallest pkColumn value that is
-// greater than or equal to the bound.
-func MySQLFirstPKAtOrAfterStringQuery(stream types.StreamInterface, pkColumn string) string {
-	quotedCol := QuoteIdentifier(pkColumn, constants.MySQL)
-	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
-	return fmt.Sprintf(
-		`SELECT %s FROM %s WHERE %s >= ? ORDER BY %s ASC LIMIT 1`,
-		quotedCol, quotedTable, quotedCol, quotedCol,
-	)
-}
-
 // MySQLTableSchemaQuery returns the query to fetch schema information for a table in MySQL
 func MySQLTableSchemaQuery() string {
 	return `
