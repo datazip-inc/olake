@@ -18,6 +18,7 @@ func TestMSSQLIntegration(t *testing.T) {
 		UpdatedDestinationDataTypeSchema: MSSQLToDestinationSchema,
 		DefaultCDCColumnsSchema:          ExpectedMSSQLDefaultCDCColumnsSchema,
 		ExecuteQuery:                     ExecuteQuery,
+		ColumnToExclude:                  "excludedColumn",
 		DestinationDB:                    "mssql_olake_mssql_test_dbo",
 		CursorField:                      "id_cursor:col_int",
 		PartitionRegex:                   "/{id,identity}",

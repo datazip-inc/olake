@@ -57,7 +57,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_timestamp TIMESTAMP,
 				col_time TIME,
 				col_graphic GRAPHIC(11),
-				col_vargraphic VARGRAPHIC(14)
+				col_vargraphic VARGRAPHIC(14),
+				excludedColumn INT NULL
 			)`, integrationTestTable)
 
 	case "drop":
@@ -79,7 +80,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_varchar, col_date, col_decimal,
 				col_double, col_real, col_int, col_smallint,
 				col_clob, col_blob, col_timestamp, col_time,
-				col_graphic, col_vargraphic, col_bool
+				col_graphic, col_vargraphic, col_bool, excludedColumn
 			) VALUES (
 				6, 12345678901234, 'c', 'char_val',
 				'varchar_val', DATE('2023-01-01'), 123.45,
@@ -89,7 +90,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				TIME('12.00.00'),
 				GRAPHIC('graphic_val'),
 				VARGRAPHIC('vargraphic_val'),
-				TRUE
+				TRUE,
+				101
 			)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
@@ -100,7 +102,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_varchar, col_date, col_decimal,
 				col_double, col_real, col_int, col_smallint,
 				col_clob, col_blob, col_timestamp, col_time,
-				col_graphic, col_vargraphic, col_bool
+				col_graphic, col_vargraphic, col_bool, excludedColumn
 			) VALUES (
 				-1, 111111111111111, 'x', 'filtered',
 				'filtered_val', DATE('2022-06-15'), 50.123,
@@ -110,7 +112,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				TIME('10.00.00'),
 				GRAPHIC('filtered'),
 				VARGRAPHIC('filtered'),
-				FALSE
+				FALSE,
+				200
 			)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, filteredQuery)
 		require.NoError(t, err, "Failed to insert filtered test data row")
@@ -121,7 +124,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
         UPDATE %s SET
             col_cursor = NULL,
             col_smallint = 321,
-			col_timestamp = TIMESTAMP('2024-01-01-12.00.00.000000')
+			col_timestamp = TIMESTAMP('2024-01-01-12.00.00.000000'),
+			excludedColumn = 102
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
@@ -157,7 +161,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_varchar, col_date, col_decimal,
 			col_double, col_real, col_int, col_smallint,
 			col_clob, col_blob, col_timestamp, col_time,
-			col_graphic, col_vargraphic, col_bool
+			col_graphic, col_vargraphic, col_bool, excludedColumn
 		) VALUES (
 			%d, 12345678901234, 'c', 'char_val',
 			'varchar_val', DATE('2023-01-01'), 123.45,
@@ -167,7 +171,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			TIME('12.00.00'),
 			GRAPHIC('graphic_val'),
 			VARGRAPHIC('vargraphic_val'),
-			TRUE
+			TRUE,
+			100
 		)`, tableName, i)
 
 		_, err := db.ExecContext(ctx, query)
@@ -180,7 +185,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_varchar, col_date, col_decimal,
 			col_double, col_real, col_int, col_smallint,
 			col_clob, col_blob, col_timestamp, col_time,
-			col_graphic, col_vargraphic, col_bool
+			col_graphic, col_vargraphic, col_bool, excludedColumn
 		) VALUES (
 			-1, 111111111111111, 'x', 'filtered',
 			'filtered_val', DATE('2021-06-15'), 500234.123,
@@ -190,7 +195,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			TIME('10.00.00'),
 			GRAPHIC('filtered'),
 			VARGRAPHIC('filtered'),
-			FALSE
+			FALSE,
+			200
 		)`, tableName)
 	_, err := db.ExecContext(ctx, filteredQuery)
 	require.NoError(t, err, "Failed to insert filtered test data row")

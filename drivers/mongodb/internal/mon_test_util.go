@@ -101,17 +101,19 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			"id_minkey":         primitive.MinKey{},
 			"id_maxkey":         primitive.MaxKey{},
 			"name_varchar":      "varchar_val",
+			"excludedColumn":    101,
 		}
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert document")
 		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 		filteredDoc := bson.M{
-			"id":           999,
-			"id_cursor":    -1,
-			"id_bigint":    int64(111111111111111),
-			"id_int":       int32(0),
-			"id_timestamp": time.Date(2022, 6, 15, 10, 0, 0, 0, time.UTC),
-			"id_double":    float64(50.123),
+			"id":             999,
+			"id_cursor":      -1,
+			"id_bigint":      int64(111111111111111),
+			"id_int":         int32(0),
+			"id_timestamp":   time.Date(2022, 6, 15, 10, 0, 0, 0, time.UTC),
+			"id_double":      float64(50.123),
+			"excludedColumn": 200,
 		}
 		_, err = collection.InsertOne(ctx, filteredDoc)
 		require.NoError(t, err, "Failed to insert filtered test data row")
@@ -133,6 +135,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				"id_minkey":         primitive.MinKey{},
 				"id_maxkey":         primitive.MaxKey{},
 				"name_varchar":      "updated varchar",
+				"excludedColumn":    102,
 			},
 		}
 		_, err := collection.UpdateOne(ctx, filter, update)
@@ -210,6 +213,7 @@ func insertTestData(t *testing.T, ctx context.Context, collection *mongo.Collect
 			"id_minkey":         primitive.MinKey{},
 			"id_maxkey":         primitive.MaxKey{},
 			"name_varchar":      "varchar_val",
+			"excludedColumn":    100,
 		}
 
 		_, err := collection.InsertOne(ctx, doc)
@@ -217,12 +221,13 @@ func insertTestData(t *testing.T, ctx context.Context, collection *mongo.Collect
 	}
 	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 	filteredDoc := bson.M{
-		"id":           999,
-		"id_cursor":    -1,
-		"id_bigint":    int64(111111111111111),
-		"id_int":       int32(0),
-		"id_timestamp": time.Date(2021, 6, 15, 10, 0, 0, 0, time.UTC),
-		"id_double":    float64(500234.123),
+		"id":             999,
+		"id_cursor":      -1,
+		"id_bigint":      int64(111111111111111),
+		"id_int":         int32(0),
+		"id_timestamp":   time.Date(2021, 6, 15, 10, 0, 0, 0, time.UTC),
+		"id_double":      float64(500234.123),
+		"excludedColumn": 200,
 	}
 	_, err := collection.InsertOne(ctx, filteredDoc)
 	require.NoError(t, err, "Failed to insert filtered test data row")

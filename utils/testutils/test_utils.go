@@ -49,6 +49,7 @@ type IntegrationTest struct {
 	CursorField                      string
 	PartitionRegex                   string
 	FilterConfig                     string
+	ColumnToExclude                  string
 }
 
 type PerformanceTest struct {
@@ -228,7 +229,7 @@ func discoverCommand(config TestConfig, flags ...string) string {
 }
 
 // update normalization=true, partition_regex, and filter_input for selected streams under selected_streams.<namespace> by name
-func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, filterConfig string, stream []string, isBackfill bool) string {
+func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, filterConfig string, stream []string, isBackfill bool, columnToExclude string) string {
 	if len(stream) == 0 {
 		return ""
 	}
@@ -244,8 +245,9 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 		filterConfig = "{}"
 	}
 	jqExpr := fmt.Sprintf(
-		`jq --argjson filter '%s' '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s" | .filter_config = $filter)) }' %s > %s && mv %s %s`,
+		`jq --argjson filter '%s' --arg col '%s' '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s" | .filter_config = $filter | .selected_columns.columns -= [$col])) }' %s > %s && mv %s %s`,
 		filterConfig,
+		columnToExclude,
 		namespace,
 		namespace,
 		condition,
@@ -889,7 +891,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
 							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
 							// )
-							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true)
+							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true, cfg.ColumnToExclude)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
 									code, err, out,
@@ -1414,7 +1416,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) discover completed")
 
-							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.BackfillStreams, true)
+							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.BackfillStreams, true, "")
 							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
@@ -1453,7 +1455,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) discover completed")
 
-								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.CDCStreams, false)
+								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.CDCStreams, false, "")
 								if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
