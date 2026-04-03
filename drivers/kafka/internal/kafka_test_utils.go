@@ -133,7 +133,7 @@ func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, op
 		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: filtervalue1})
 		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: filtervalue2})
 		t.Logf("Added 7 messages to topic '%s' (one per partition and two for filters)", streams[0])
-	case "evolve-schema":
+	case "update":
 		for partition := 0; partition < partitionCount; partition++ {
 			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: evolved_value, Partition: partition})
 		}
@@ -193,7 +193,7 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 		confluentFilterMsg := encodeConfluentBinary(schemaID, binaryDataFilter)
 		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Avrokey, Value: confluentBaseMsg})
 		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Avrokey, Value: confluentFilterMsg})
-	case "evolve-schema":
+	case "update":
 		schema := UpdatedAvroschema
 		codec, err := goavro.NewCodec(schema)
 		require.NoError(t, err)

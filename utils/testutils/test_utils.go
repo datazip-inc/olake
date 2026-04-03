@@ -180,6 +180,7 @@ func GetTestConfig(driver string, dataFormat string) *TestConfig {
 	}
 	// root path is olake's root path
 	rootPath := filepath.Join(pwd, "../../..")
+
 	containerTestDataPath := filepath.Join("/test-olake", "drivers", "%s", "internal", "testdata", "%s")
 	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", dataFormat, "%s")
 	return &TestConfig{
@@ -379,7 +380,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 
 	// Execute operation before sync if needed
-	if (useState || slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver))) && operation != "" {
+	if useState && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
 		if cfg.TestConfig.Driver == "mssql" {
 			t.Log("Waiting 20 seconds for MSSQL CDC to process transactions...")
@@ -395,17 +396,18 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
 
-	// Use evolved datatype map when the sync is expected to see an evolved table:
-	// relational drivers pass operation "update" (after a separate evolve-schema insert); Kafka strict CDC passes "evolve-schema" as the operation to ExecuteQuery.
-	// Incremental "insert" uses opSymbol "u" but doesn't pair with evolved schema here.
-	evolvedSchema := operation == "update" || operation == "evolve-schema"
+	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
+	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
+	evolvedSchema := operation == "update"
 
 	switch destinationType {
 	case "iceberg":
-		if evolvedSchema {
-			VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
-		} else {
-			VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+		{
+			if evolvedSchema {
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+			} else {
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+			}
 		}
 	case "parquet":
 		{
@@ -490,8 +492,8 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "CDC - evolve-schema",
-			operation: "evolve-schema",
+			name:      "CDC - update",
+			operation: "update",
 			useState:  true,
 			opSymbol:  "c",
 			expected:  cfg.ExpectedUpdatedData,
@@ -505,10 +507,11 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" {
+				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" && cfg.TestConfig.Driver != "kafka" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
+
 			if err := cfg.runSyncAndVerify(
 				ctx,
 				t,
@@ -588,8 +591,8 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "CDC - evolve-schema",
-			operation: "evolve-schema",
+			name:      "CDC - update",
+			operation: "update",
 			useState:  true,
 			opSymbol:  "c",
 			expected:  cfg.ExpectedUpdatedData,
@@ -597,12 +600,13 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	}
 
 	testCases = utils.Ternary(slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)), kafkaTestCases, testCases).([]syncTestCase)
+
 	// Run each test case
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" {
+				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" && cfg.TestConfig.Driver != "kafka" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
