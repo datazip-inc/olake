@@ -2,7 +2,6 @@ package driver
 
 import (
 	"testing"
-	// "path/filepath"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils/testutils"

@@ -19,17 +19,17 @@ import (
 )
 
 var (
-	// Message key and value for JSON
-	Jsonkey        = []byte("json-key")
-	Avrokey        = []byte("avro-key")
-	value          = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string"}`)
-	evolved_value  = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "id_int": 101}`)
-	filtervalue1   = []byte(`{"int_value": 99,"float_value": 99.99}`)
-	filtervalue2   = []byte(`{"int_value": 100,"float_value": 100.00}`)
-	partitionCount = 5
+	// Message key and value for JSON and Avro
+	jsonKey          = []byte("json-key")
+	avroKey          = []byte("avro-key")
+	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string"}`)
+	jsonEvolvedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "id_int": 101}`)
+	filterValue1     = []byte(`{"int_value": 99,"float_value": 99.99}`)
+	filterValue2     = []byte(`{"int_value": 100,"float_value": 100.00}`)
+	partitionCount   = 5
 
 	// Base Avro schema
-	Avroschema = `{
+	avroSchema = `{
 		"type":"record",
 		"name":"test",
 		"fields":[
@@ -47,7 +47,7 @@ var (
 	}`
 
 	// Evolved Avro schema
-	UpdatedAvroschema = `{
+	updatedAvroSchema = `{
 		"type":"record",
 		"name":"test",
 		"fields":[
@@ -65,7 +65,7 @@ var (
 		]
 	}`
 
-	dataToProduce = map[string]interface{}{
+	avroValue = map[string]interface{}{
 		"int32_value":     int32(132),
 		"int64_value":     int64(6400000000),
 		"int_value":       int64(101),
@@ -77,11 +77,11 @@ var (
 		"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 		"string_value":    "test_string",
 	}
-	dataToProduceFilter = map[string]interface{}{
+	avroFilterValue = map[string]interface{}{
 		"int_value":   99,
 		"float_value": 99.99,
 	}
-	evolvedDataToProduce = map[string]interface{}{
+	avroEvolvedValue = map[string]interface{}{
 		"int32_value":     int32(132),
 		"int64_value":     int64(6400000000),
 		"int_value":       int64(101),
@@ -100,16 +100,7 @@ var (
 func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
-	var broker string
-	if fileConfig {
-		var config Config
-		require.NoError(t, utils.UnmarshalFile("./testdata/json/source.json", &config, false), "failed to unmarshal kafka test source config")
-		broker = config.BootstrapServers
-	} else {
-		broker = "127.0.0.1:29092"
-	}
-
-	broker = strings.ReplaceAll(broker, "host.docker.internal", "127.0.0.1")
+	broker := "127.0.0.1:29092"
 	writer := &kafka.Writer{
 		Addr:                   kafka.TCP(broker),
 		Topic:                  streams[0],
@@ -128,14 +119,14 @@ func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, op
 		deleteKafkaTopic(ctx, t, broker, streams[0])
 	case "add":
 		for partition := 0; partition < partitionCount; partition++ {
-			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: value, Partition: partition})
+			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: jsonValue, Partition: partition})
 		}
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: filtervalue1})
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: filtervalue2})
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: filterValue1})
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: filterValue2})
 		t.Logf("Added 7 messages to topic '%s' (one per partition and two for filters)", streams[0])
 	case "update":
 		for partition := 0; partition < partitionCount; partition++ {
-			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Jsonkey, Value: evolved_value, Partition: partition})
+			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: jsonEvolvedValue, Partition: partition})
 		}
 		t.Logf("Added 5 messages to topic '%s' (each per partition)", streams[0])
 	default:
@@ -147,20 +138,10 @@ func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, op
 func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
-	var broker string
 	var config Config
 	require.NoError(t, utils.UnmarshalFile("./testdata/avro/source.json", &config, false), "failed to unmarshal kafka test source config")
-	if fileConfig {
-		broker = config.BootstrapServers
-	} else {
-		// kafka2 EXTERNAL_HOST (drivers/kafka/docker-compose.yml); JSON uses 29092 on kafka1
-		broker = "127.0.0.1:29192"
-	}
-
-	registryURL := config.SchemaRegistry.Endpoint
-	registryURL = strings.ReplaceAll(registryURL, "host.docker.internal", "127.0.0.1")
-
-	broker = strings.ReplaceAll(broker, "host.docker.internal", "127.0.0.1")
+	broker := "127.0.0.1:29192"
+	registryURL := strings.ReplaceAll(config.SchemaRegistry.Endpoint, "host.docker.internal", "127.0.0.1")
 
 	writer := &kafka.Writer{
 		Addr:                   kafka.TCP(broker),
@@ -178,30 +159,16 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 	case "drop":
 		deleteKafkaTopic(ctx, t, broker, streams[0])
 	case "add":
-		schema := Avroschema
-		codec, err := goavro.NewCodec(schema)
+		codec, err := goavro.NewCodec(avroSchema)
 		require.NoError(t, err)
-
-		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], schema)
-
-		binaryData, err := codec.BinaryFromNative(nil, dataToProduce)
-		require.NoError(t, err)
-		binaryDataFilter, err := codec.BinaryFromNative(nil, dataToProduceFilter)
-		require.NoError(t, err)
-
-		confluentBaseMsg := encodeConfluentBinary(schemaID, binaryData)
-		confluentFilterMsg := encodeConfluentBinary(schemaID, binaryDataFilter)
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Avrokey, Value: confluentBaseMsg})
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Avrokey, Value: confluentFilterMsg})
+		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], avroSchema)
+		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroValue)
+		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroFilterValue)
 	case "update":
-		schema := UpdatedAvroschema
-		codec, err := goavro.NewCodec(schema)
+		codec, err := goavro.NewCodec(updatedAvroSchema)
 		require.NoError(t, err)
-		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], schema)
-		binaryData, err := codec.BinaryFromNative(nil, evolvedDataToProduce)
-		require.NoError(t, err)
-		confluentMsg := encodeConfluentBinary(schemaID, binaryData)
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: Avrokey, Value: confluentMsg})
+		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], updatedAvroSchema)
+		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroEvolvedValue)
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
 	}
@@ -222,12 +189,7 @@ func createKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
 	t.Helper()
 	conn := dialKafkaAdminConn(ctx, t, broker)
 	defer conn.Close()
-
-	err := conn.CreateTopics(kafka.TopicConfig{
-		Topic:             topic,
-		NumPartitions:     partitionCount,
-		ReplicationFactor: 1,
-	})
+	err := conn.CreateTopics(kafka.TopicConfig{Topic: topic, NumPartitions: partitionCount, ReplicationFactor: 1})
 	if err != nil && err != kafka.TopicAlreadyExists {
 		require.NoError(t, err, "failed to create topic '%s' explicitly", topic)
 	}
@@ -247,87 +209,64 @@ func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Wri
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	var lastErr error
-	var attempts int
-	nextLog := time.Now()
 	for {
-		lastErr = writer.WriteMessages(ctx, msg)
-		if lastErr == nil {
+		err := writer.WriteMessages(ctx, msg)
+		if err == nil {
 			return
 		}
-		attempts++
-		if err := ctx.Err(); err != nil {
-			require.NoError(t, lastErr, "failed to write seed kafka message after %d attempts (topic=%q partition=%d)", attempts, writer.Topic, msg.Partition)
+
+		if ctx.Err() != nil {
+			require.NoError(t, err, "failed to write seed kafka message (topic=%q partition=%d)", writer.Topic, msg.Partition)
 			return
-		}
-		// Without this, a bad broker/topic state spins silently until the test timeout (e.g. 3m).
-		if time.Now().After(nextLog) {
-			t.Logf("kafka seed write retry: attempt=%d topic=%q partition=%d err=%v", attempts, writer.Topic, msg.Partition, lastErr)
-			nextLog = time.Now().Add(20 * time.Second)
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-}
-
-func retryWithBackoff(attempts int, baseDelay time.Duration, fn func() error) error {
-	delay := baseDelay
-	var err error
-
-	for i := 0; i < attempts; i++ {
-		err = fn()
-		if err == nil {
-			return nil
-		}
-		time.Sleep(delay)
-		delay *= 2
-	}
-	return fmt.Errorf("after %d attempts, last error: %w", attempts, err)
 }
 
 func registerSchemaWithRetry(t *testing.T, url, topic, schema string) uint32 {
 	body, err := json.Marshal(map[string]string{"schema": schema})
 	require.NoError(t, err)
 
-	var schemaID uint32
-
 	client := &http.Client{Timeout: 10 * time.Second}
+	delay := 2 * time.Second
 
-	err = retryWithBackoff(5, 2*time.Second, func() error {
+	for i := 0; i < 5; i++ {
 		resp, err := client.Post(
 			fmt.Sprintf("%s/subjects/%s-value/versions", url, topic),
 			"application/vnd.schemaregistry.v1+json",
 			bytes.NewReader(body),
 		)
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("registry not ready (status: %d)", resp.StatusCode)
-		}
-
-		var res struct {
-			ID uint32 `json:"id"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-			return err
+		if err == nil {
+			if resp.StatusCode == http.StatusOK {
+				var res struct {
+					ID uint32 `json:"id"`
+				}
+				err = json.NewDecoder(resp.Body).Decode(&res)
+				resp.Body.Close()
+				require.NoError(t, err)
+				return res.ID
+			}
+			resp.Body.Close()
 		}
 
-		schemaID = res.ID
-		return nil
-	})
+		time.Sleep(delay)
+		delay *= 2
+	}
 
-	require.NoError(t, err)
-	return schemaID
+	require.FailNow(t, "failed to register schema")
+	return 0
 }
 
-func encodeConfluentBinary(id uint32, data []byte) []byte {
-	out := make([]byte, 5+len(data))
-	out[0] = 0x00
-	binary.BigEndian.PutUint32(out[1:5], id)
-	copy(out[5:], data)
-	return out
+// encodeAndWriteAvro encodes the Avro value and writes it to the Kafka topic
+func encodeAndWriteAvro(ctx context.Context, t *testing.T, writer *kafka.Writer, codec *goavro.Codec, schemaID uint32, key []byte, value map[string]interface{}) {
+	t.Helper()
+	binaryData, err := codec.BinaryFromNative(nil, value)
+	require.NoError(t, err)
+	msg := make([]byte, 5+len(binaryData))
+	msg[0] = 0x00
+	binary.BigEndian.PutUint32(msg[1:5], schemaID)
+	copy(msg[5:], binaryData)
+	writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: key, Value: msg})
 }
 
 var ExpectedKafkaJSONData = map[string]interface{}{

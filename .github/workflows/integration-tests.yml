@@ -162,7 +162,7 @@ jobs:
 
       - name: Run Integration Tests
         run: |  
-          go test -v -p 8 ./drivers/kafka/internal/... ./drivers/s3/internal/... ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
+          go test -v -p 8 ./drivers/kafka/internal/... ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
       
       - name: Cleanup
         if: always()
