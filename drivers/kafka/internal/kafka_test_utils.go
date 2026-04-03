@@ -24,8 +24,8 @@ var (
 	avroKey          = []byte("avro-key")
 	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string"}`)
 	jsonEvolvedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "id_int": 101}`)
-	filterValue1     = []byte(`{"int_value": 99,"float_value": 99.99}`)
-	filterValue2     = []byte(`{"int_value": 100,"float_value": 100.00}`)
+	filterValue1     = []byte(`{"string_value": "","float_value": 99.99}`)
+	filterValue2     = []byte(`{"string_value": "filter_string","float_value": 100.00}`)
 	partitionCount   = 5
 
 	// Base Avro schema
@@ -78,7 +78,6 @@ var (
 		"string_value":    "test_string",
 	}
 	avroFilterValue = map[string]interface{}{
-		"int_value":   99,
 		"float_value": 99.99,
 	}
 	avroEvolvedValue = map[string]interface{}{

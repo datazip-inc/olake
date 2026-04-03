@@ -31,9 +31,9 @@ func TestKafkaIntegration(t *testing.T) {
 					"logical_operator": "And",
 					"conditions": [
 						{
-							"column": "int_value",
-							"operator": ">=",
-							"value": 100
+							"column": "string_value",
+							"operator": "!=",
+							"value": ""
 						},
 						{
 							"column": "float_value",
@@ -61,9 +61,9 @@ func TestKafkaIntegration(t *testing.T) {
 					"logical_operator": "And",
 					"conditions": [
 						{
-							"column": "int_value",
-							"operator": ">=",
-							"value": 100
+							"column": "string_value",
+							"operator": "!=",
+							"value": ""
 						},
 						{
 							"column": "float_value",
