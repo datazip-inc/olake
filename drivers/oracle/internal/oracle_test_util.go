@@ -56,7 +56,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_blob BLOB,
 				col_timestamp TIMESTAMP,
 				col_timestamptz TIMESTAMP WITH TIME ZONE,
-				col_timestampltz TIMESTAMP WITH LOCAL TIME ZONE
+				col_timestampltz TIMESTAMP WITH LOCAL TIME ZONE,
+				excludedColumn INT NULL
 			)`, integrationTestTable)
 
 	case "drop":
@@ -75,7 +76,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_cursor, col_bigint, col_char, col_character,
 				col_varchar2, col_date, col_decimal,
 				col_double_precision, col_float, col_int, col_smallint,
-				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+				excludedColumn
 			) VALUES (
 				6, 123456789012345, 'c', 'char_val',
 				'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
@@ -83,7 +85,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'sample text', 'sample nclob',
 				TIMESTAMP '2023-01-01 12:00:00',
 				TIMESTAMP '2023-01-01 12:00:00+00:00',
-				TIMESTAMP '2023-01-01 12:00:00+05:30'
+				TIMESTAMP '2023-01-01 12:00:00+05:30',
+				101
 			)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
@@ -93,7 +96,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_cursor, col_bigint, col_char, col_character,
 				col_varchar2, col_date, col_decimal,
 				col_double_precision, col_float, col_int, col_smallint,
-				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+				excludedColumn
 			) VALUES (
 				-1, 111111111111111, 'x', 'filtered',
 				'filtered_val', TO_DATE('2022-06-15', 'YYYY-MM-DD'), 50.123,
@@ -101,7 +105,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'filtered text', 'filtered nclob',
 				TIMESTAMP '2022-06-15 10:00:00',
 				TIMESTAMP '2022-06-15 10:00:00+00:00',
-				TIMESTAMP '2022-06-15 10:00:00+05:30'
+				TIMESTAMP '2022-06-15 10:00:00+05:30',
+				200
 			)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, filteredQuery)
 		require.NoError(t, err, "Failed to insert filtered test data row")
@@ -111,7 +116,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
         UPDATE %s SET
             col_cursor = NULL,
-            col_smallint = 321
+            col_smallint = 321,
+            excludedColumn = 102
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
@@ -137,7 +143,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_cursor, col_bigint, col_char, col_character,
 			col_varchar2, col_date, col_decimal,
 			col_double_precision, col_float, col_int, col_smallint,
-			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+			excludedColumn
 		) VALUES (
 			%d,123456789012345, 'c', 'char_val',
 			'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
@@ -145,7 +152,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'sample text', 'sample nclob',
 			TIMESTAMP '2023-01-01 12:00:00',
 			TIMESTAMP '2023-01-01 12:00:00+00:00',
-			TIMESTAMP '2023-01-01 12:00:00+05:30'
+			TIMESTAMP '2023-01-01 12:00:00+05:30',
+			100
 		)`, tableName, i)
 
 		_, err := db.ExecContext(ctx, query)
@@ -157,7 +165,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_cursor, col_bigint, col_char, col_character,
 			col_varchar2, col_date, col_decimal,
 			col_double_precision, col_float, col_int, col_smallint,
-			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+			excludedColumn
 		) VALUES (
 			-1, 111111111111111, 'x', 'filtered',
 			'filtered_val', TO_DATE('2021-06-15', 'YYYY-MM-DD'), 500234.123,
@@ -165,7 +174,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'filtered text', 'filtered nclob',
 			TIMESTAMP '2021-06-15 10:00:00',
 			TIMESTAMP '2021-06-15 10:00:00+00:00',
-			TIMESTAMP '2021-06-15 10:00:00+05:30'
+			TIMESTAMP '2021-06-15 10:00:00+05:30',
+			200
 		)`, tableName)
 	_, err := db.ExecContext(ctx, filteredQuery)
 	require.NoError(t, err, "Failed to insert filtered test data row")
