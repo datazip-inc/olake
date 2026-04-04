@@ -59,7 +59,12 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int) ([]*types.Stream, error) {
+// Discover returns the schema for every stream visible to the driver.
+// When selectedNames is provided (sync path only), ProduceSchema is called only
+// for those stream names; GetStreamNames still runs in full so that drivers with
+// side-effectful discovery (e.g. S3 populating discoveredFiles) behave correctly.
+// The discover command passes no selectedNames, preserving its existing behavior.
+func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, selectedNames ...string) ([]*types.Stream, error) {
 	// set max connections, uses maxDiscoverThreads if discover command is used
 	if maxDiscoverThreads > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
@@ -71,6 +76,21 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int) (
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream names: %s", err)
 	}
+
+	if len(selectedNames) > 0 {
+		selectedSet := make(map[string]bool, len(selectedNames))
+		for _, name := range selectedNames {
+			selectedSet[name] = true
+		}
+		filtered := make([]string, 0, len(selectedNames))
+		for _, name := range streams {
+			if selectedSet[name] {
+				filtered = append(filtered, name)
+			}
+		}
+		streams = filtered
+	}
+
 	var streamMap sync.Map
 
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream string) error {

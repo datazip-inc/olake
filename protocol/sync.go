@@ -93,8 +93,20 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// Get Source Streams, sending 0 max discover threads to discover
-		streams, err := connector.Discover(ctx, 0)
+
+		// Build the set of raw stream names for selected streams only.
+		// SQL drivers format stream names as "namespace.name"; NoSQL and streaming
+		// drivers use a bare "name". Both forms are added so the filter inside
+		// Discover works correctly regardless of driver type.
+		selectedNames := make([]string, 0)
+		for namespace, metadataList := range catalog.SelectedStreams {
+			for _, metadata := range metadataList {
+				selectedNames = append(selectedNames, metadata.StreamName)
+				selectedNames = append(selectedNames, fmt.Sprintf("%s.%s", namespace, metadata.StreamName))
+			}
+		}
+
+		streams, err := connector.Discover(ctx, 0, selectedNames...)
 		if err != nil {
 			return err
 		}
