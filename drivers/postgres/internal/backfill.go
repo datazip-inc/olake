@@ -254,6 +254,9 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 		maxPageCountAcrossPartitions = max(maxPageCountAcrossPartitions, p.Pages)
 		partitions = append(partitions, p)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate partition pages: %s", err)
+	}
 
 	if len(partitions) == 0 {
 		partitions = append(partitions, PartitionPage{Name: stream.Name(), Pages: 1})
@@ -262,7 +265,15 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 	}
 
 	if maxPageCountAcrossPartitions == 0 {
-		return nil, 0, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE on the table and its partitions to update statistics", stream.ID())
+		var hasRows bool
+		if err := db.QueryRowContext(ctx, jdbc.PostgresTableExistsQuery(stream)).Scan(&hasRows); err != nil {
+			return nil, 0, fmt.Errorf("failed to check if table has rows: %s", err)
+		}
+		if hasRows {
+			return nil, 0, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE on the table and its partitions to update statistics", stream.ID())
+		}
+		logger.Warnf("table [%s] is empty, skipping chunking", stream.ID())
+		return []PartitionPage{}, 0, nil
 	}
 
 	return partitions, maxPageCountAcrossPartitions, nil
