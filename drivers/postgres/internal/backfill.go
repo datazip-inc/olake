@@ -219,16 +219,32 @@ type PartitionPage struct {
 	Pages uint32
 }
 
-// loadPartitionPages fetches partition-level relpages using PostgresPartitionPages query.
+// postgresMinVersionPG12 is the server_version_num for PostgreSQL 12.0.
+// pg_partition_tree() (PG 12+) is preferred; older versions use a recursive CTE.
+const postgresMinVersionPG12 = 120000
+
 func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInterface) ([]PartitionPage, uint32, error) {
-	query := jdbc.PostgresPartitionPages(stream)
+	var serverVersionNum int
+	if err := db.QueryRowContext(ctx, jdbc.PostgresServerVersionNum()).Scan(&serverVersionNum); err != nil {
+		return nil, 0, fmt.Errorf("failed to detect postgres server version: %s", err)
+	}
+
+	var query string
+	if serverVersionNum >= postgresMinVersionPG12 {
+		logger.Debugf("using pg_partition_tree for partition page discovery (server_version_num=%d)", serverVersionNum)
+		query = jdbc.PostgresPartitionPagesPG12(stream)
+	} else {
+		logger.Debugf("using recursive CTE for partition page discovery (server_version_num=%d)", serverVersionNum)
+		query = jdbc.PostgresPartitionPages(stream)
+	}
+
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to load partition pages: %s", err)
 	}
-	var maxPageCountAcrossPartitions uint32
 	defer rows.Close()
 
+	var maxPageCountAcrossPartitions uint32
 	var partitions []PartitionPage
 	for rows.Next() {
 		var p PartitionPage
@@ -241,7 +257,14 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 
 	if len(partitions) == 0 {
 		partitions = append(partitions, PartitionPage{Name: stream.Name(), Pages: 1})
+		maxPageCountAcrossPartitions = 1
+		return partitions, maxPageCountAcrossPartitions, nil
 	}
+
+	if maxPageCountAcrossPartitions == 0 {
+		return nil, 0, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE on the table and its partitions to update statistics", stream.ID())
+	}
+
 	return partitions, maxPageCountAcrossPartitions, nil
 }
 

@@ -134,43 +134,60 @@ func PostgresBlockSizeQuery() string {
 	return `SHOW block_size`
 }
 
-// PostgresPartitionPages returns total relpages for each partition and the parent table.
-// This can be used to dynamically adjust chunk sizes based on partition distribution.
-func PostgresPartitionPages(stream types.StreamInterface) string {
+// PostgresServerVersionNum returns the server version as an integer (e.g. PG 14.5 → 140005).
+func PostgresServerVersionNum() string {
+	return `SELECT current_setting('server_version_num')::int`
+}
+
+// PostgresPartitionPagesPG12 returns leaf-partition page counts using pg_partition_tree (PG 12+).
+// Intermediate partitions are excluded via isleaf=true; works for any partition depth.
+func PostgresPartitionPagesPG12(stream types.StreamInterface) string {
 	return fmt.Sprintf(`
-        WITH parent AS (
-            SELECT c.oid AS parent_oid
-            FROM pg_class c
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = '%s'
-                AND c.relname = '%s'
-        ),
-        partitions AS (
-            SELECT
-                child.relname AS name,
-                CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int)) AS pages
-            FROM pg_inherits i
-            JOIN pg_class child ON child.oid = i.inhrelid
-            JOIN parent p ON p.parent_oid = i.inhparent
-            
-            UNION ALL
-            
-            SELECT
-                c.relname AS name,
-                CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int)) AS pages
-            FROM pg_class c
-            JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = '%s'
-                AND c.relname = '%s'
-        )
-        SELECT 
-            name, 
-            pages 
-        FROM partitions 
+        SELECT
+            pt.relid::text AS name,
+            CEIL(1.05 * (pg_relation_size(pt.relid::oid) / current_setting('block_size')::int))::bigint AS pages
+        FROM pg_partition_tree('%s.%s') pt
+        WHERE pt.isleaf = true
         ORDER BY pages DESC;
     `,
 		stream.Namespace(),
 		stream.Name(),
+	)
+}
+
+// PostgresPartitionPages returns leaf-partition page counts using a recursive CTE over
+// pg_inherits. Works on all Postgres versions (10+); used as fallback for PG < 12.
+func PostgresPartitionPages(stream types.StreamInterface) string {
+	return fmt.Sprintf(`
+        WITH RECURSIVE partition_tree AS (
+            SELECT
+                c.oid,
+                c.relname AS name,
+                CEIL(1.05 * (pg_relation_size(c.oid) / current_setting('block_size')::int))::bigint AS pages
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = '%s'
+                AND c.relname = '%s'
+
+            UNION ALL
+
+            SELECT
+                child.oid,
+                child.relname AS name,
+                CEIL(1.05 * (pg_relation_size(child.oid) / current_setting('block_size')::int))::bigint AS pages
+            FROM pg_inherits i
+            JOIN pg_class child ON child.oid = i.inhrelid
+            JOIN partition_tree pt ON pt.oid = i.inhparent
+        )
+        SELECT
+            name,
+            pages
+        FROM partition_tree
+        WHERE NOT EXISTS (
+            SELECT 1 FROM pg_inherits WHERE inhparent = partition_tree.oid
+        )
+        ORDER BY pages DESC;
+    `,
 		stream.Namespace(),
 		stream.Name(),
 	)
