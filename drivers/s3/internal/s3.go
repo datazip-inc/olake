@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/types"
@@ -290,6 +291,12 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 
 	// Create stream
 	stream := types.NewStream(streamName, "s3", &s.config.BucketName)
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+
+	if ctx.Value(constants.SyncContext{}) != nil {
+		logger.Infof("sync context detected, skipping schema inference for stream [%s]", streamName)
+		return stream, nil
+	}
 
 	// Infer schema from the first file in the stream
 	firstFile := files[0]
@@ -318,7 +325,6 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	inferredStream.UpsertField(lastModifiedField, types.String, false, false)
 	inferredStream.WithCursorField(lastModifiedField)
 
-	inferredStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	return inferredStream, nil
 }
 

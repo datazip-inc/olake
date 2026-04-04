@@ -188,6 +188,14 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		schemaName, tableName := parts[0], parts[1]
 		stream := types.NewStream(tableName, schemaName, &m.config.Database)
 
+		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+		if m.CDCSupported() {
+			stream.UpsertField(CDCStartLSN, types.String, true, true)
+			stream.UpsertField(CDCSeqVal, types.String, true, true)
+			stream.WithSyncMode(types.CDC, types.STRICTCDC)
+		}
+
+
 		columnQuery := jdbc.MSSQLTableSchemaQuery()
 		rows, err := m.client.QueryContext(ctx, columnQuery, schemaName, tableName)
 		if err != nil {
@@ -215,17 +223,18 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 
 		for _, column := range columns {
-			stream.WithCursorField(column.name)
 
-			datatype := types.Unknown
-			if val, found := mssqlTypeToDataTypes[strings.ToLower(column.dataType)]; found {
-				datatype = val
-			} else {
-				logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", column.dataType, streamName, column.name)
-				datatype = types.String
+			if ctx.Value(constants.SyncContext{}) == nil {
+				stream.WithCursorField(column.name)
+				datatype := types.Unknown
+				if val, found := mssqlTypeToDataTypes[strings.ToLower(column.dataType)]; found {
+					datatype = val
+				} else {
+					logger.Warnf("Unsupported MSSQL type '%s' for column '%s.%s', defaulting to String", column.dataType, streamName, column.name)
+					datatype = types.String
+				}
+				stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"), false)
 			}
-			stream.UpsertField(column.name, datatype, strings.EqualFold(column.isNullable, "YES"), false)
-
 			if column.isPrimaryKey {
 				stream.WithPrimaryKey(column.name)
 			}
@@ -239,13 +248,6 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
 		}
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
-	}
-
-	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-	if m.CDCSupported() {
-		stream.UpsertField(CDCStartLSN, types.String, true, true)
-		stream.UpsertField(CDCSeqVal, types.String, true, true)
-		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 
 	return stream, nil

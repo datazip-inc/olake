@@ -127,6 +127,11 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 		schemaName, tableName := parts[0], parts[1]
 		stream := types.NewStream(tableName, schemaName, &d.config.Database)
 
+		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+		if d.CDCSupported() {
+			stream.WithSyncMode(types.CDC, types.STRICTCDC)
+		}
+
 		rows, err := d.client.QueryContext(ctx, jdbc.DB2TableSchemaAndPrimaryKeysQuery(), schemaName, tableName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query column metadata: %s", err)
@@ -145,16 +150,18 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 				return nil, fmt.Errorf("failed to scan column: %s", err)
 			}
 
-			stream.WithCursorField(columnName)
-			datatype := types.Unknown
-
-			if val, found := db2TypeToDataTypes[strings.ToLower(dataType)]; found {
-				datatype = val
-			} else {
-				logger.Debugf("unsupported DB2 type '%s' for column '%s.%s', defaulting to String", dataType, streamName, columnName)
-				datatype = types.String
+			// Skip cursor field and data type inference during sync
+			if ctx.Value(constants.SyncContext{}) == nil {
+				stream.WithCursorField(columnName)
+				datatype := types.Unknown
+				if val, found := db2TypeToDataTypes[strings.ToLower(dataType)]; found {
+					datatype = val
+				} else {
+					logger.Debugf("unsupported DB2 type '%s' for column '%s.%s', defaulting to String", dataType, streamName, columnName)
+					datatype = types.String
+				}
+				stream.UpsertField(columnName, datatype, isNullable == "Y", false)
 			}
-			stream.UpsertField(columnName, datatype, isNullable == "Y", false)
 
 			if pkColumn != nil {
 				stream.WithPrimaryKey(columnName)
@@ -169,11 +176,6 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
 		}
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
-	}
-
-	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-	if d.CDCSupported() {
-		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 
 	return stream, nil
