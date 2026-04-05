@@ -195,7 +195,6 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		schemaName, streamName := streamParts[0], streamParts[1]
 		stream := types.NewStream(streamName, schemaName, &p.config.Database)
 
-		// Primary key query is lightweight (indexed catalog lookup) and needed by both paths.
 		var primaryKeyOutput []ColumnDetails
 		if err := p.client.SelectContext(ctx, &primaryKeyOutput, getTablePrimaryKey, schemaName, streamName); err != nil {
 			return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %s", streamName, err)

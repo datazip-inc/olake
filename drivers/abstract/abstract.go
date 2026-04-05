@@ -61,9 +61,7 @@ func (a *AbstractDriver) Type() string {
 
 // Discover returns the schema for every stream visible to the driver.
 // When selectedNames is provided (sync path only), ProduceSchema is called only
-// for those stream names; GetStreamNames still runs in full so that drivers with
-// side-effectful discovery (e.g. S3 populating discoveredFiles) behave correctly.
-// The discover command passes no selectedNames, preserving its existing behavior.
+// for those stream names.
 func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, selectedNames ...string) ([]*types.Stream, error) {
 	// set max connections, uses maxDiscoverThreads if discover command is used
 	if maxDiscoverThreads > 0 {

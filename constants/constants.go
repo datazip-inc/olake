@@ -61,5 +61,5 @@ var SkipCDCDrivers = []DriverType{Oracle, DB2}
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
 
 // SyncContext is used as a context key to signal that ProduceSchema is being called during
-// sync. Drivers that perform expensive sampling (e.g. MongoDB, Kafka) can check for it to skip schema inference.
+// sync. Drivers will skip schema inference for this context.
 type SyncContext struct{}
