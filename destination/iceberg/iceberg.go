@@ -365,7 +365,18 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
 
-	return schemaDifference, records, recordsSchema, err
+	if i.options.ApplyFilter {
+		filter, isLegacy, filterErr := i.stream.GetFilter()
+		if filterErr != nil {
+			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
+		}
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+		}
+	}
+
+	return schemaDifference, records, recordsSchema, nil
 }
 
 // compares with global schema and update schema in destination accordingly

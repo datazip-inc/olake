@@ -49,26 +49,23 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		defer backfillCtxCancel()
 
 		threadID := generateThreadID(stream.ID(), fmt.Sprintf("min[%v]-max[%v]", chunk.Min, chunk.Max))
-		inserter, prevMetadataState, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID))
+		inserter, prevMetadataState, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID), destination.WithApplyFilter(slices.Contains(constants.FullRefreshPostReadFilterDrivers, constants.DriverType(a.driver.Type()))))
 		if err != nil {
 			return fmt.Errorf("failed to create new writer thread: %s", err)
 		}
 
 		defer func(ctx context.Context) {
-			// Pass nil metadata payload for backfill.
-			// Java 2PC appends threadId into full_refresh_committed_ids when payload is empty.
-			handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID, nil)
-
 			if ctx.Err() != nil {
 				return
 			}
-
 			chunksLeft := a.state.RemoveChunk(stream.Self(), chunk)
 			if chunksLeft == 0 && backfilledStreams != nil {
 				backfilledStreams <- stream.ID()
 			}
 			logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 		}(backfillCtx)
+
+		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID, nil)
 
 		if prevMetadataState != nil {
 			if slices.Contains(prevMetadataState.FullRefreshCommittedIDs, threadID) {
