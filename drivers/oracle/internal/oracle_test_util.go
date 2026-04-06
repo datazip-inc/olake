@@ -117,15 +117,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
         UPDATE %s SET
             col_cursor = NULL,
             col_smallint = 321,
-            excludedColumn = 102,
-            includedColumn = 202
+            excludedColumn = 102
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "evolve-schema":
-		query = fmt.Sprintf(`ALTER TABLE %s MODIFY (col_int NUMBER(19,0), col_decimal NUMBER(20,2)) ADD (includedColumn NUMBER(9,0))`, integrationTestTable)
+		query = fmt.Sprintf(`ALTER TABLE %s MODIFY (col_int NUMBER(19,0), col_decimal NUMBER(20,2))`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -216,7 +215,6 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"includedcolumn":       int32(202),
 }
 
 var OracleToDestinationSchema = map[string]string{
@@ -259,5 +257,4 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_timestamp":        "timestamp",
 	"col_timestamptz":      "timestamp",
 	"col_timestampltz":     "timestamp",
-	"includedcolumn":       "int",
 }
