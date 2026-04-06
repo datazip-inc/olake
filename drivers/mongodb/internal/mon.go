@@ -252,16 +252,17 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 	}
 
-	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-	if m.CDCSupported() {
-		stream.UpsertField(CDCResumeToken, types.String, true, true)
-		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	setSyncModes := func() {
+		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+		if m.CDCSupported() {
+			stream.UpsertField(CDCResumeToken, types.String, true, true)
+			stream.WithSyncMode(types.CDC, types.STRICTCDC)
+		}
 	}
-
 	// During sync, skip expensive document sampling for schema inference.
 	// The full schema is already available in the catalog (streams.json) from a prior discover run.
 	if ctx.Value(constants.SyncContext{}) != nil {
-		logger.Infof("sync context detected, skipping schema inference for stream [%s]", streamName)
+		setSyncModes()
 		return stream, nil
 	}
 
@@ -307,6 +308,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 		return true
 	})
+	setSyncModes()
 
 	return stream, nil
 }
