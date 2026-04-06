@@ -125,7 +125,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
             col_cursor = NULL,
             col_smallint = 321,
 			col_timestamp = TIMESTAMP('2024-01-01-12.00.00.000000'),
-			excludedColumn = 102
+			excludedColumn = 102,
+			includedColumn = 202
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
@@ -134,6 +135,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "evolve-schema":
 		evolveQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_SMALLINT SET DATA TYPE BIGINT`, integrationTestTable)
 		_, err = db.ExecContext(ctx, evolveQuery)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		// Add new column
+		addColumnQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ADD COLUMN includedColumn INTEGER`, integrationTestTable)
+		_, err = db.ExecContext(ctx, addColumnQuery)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 		// to clear REORG pending state of DB2 after schema evolution
@@ -240,6 +245,7 @@ var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_time":       "12:00:00",
 	"col_graphic":    "graphic_val",
 	"col_vargraphic": "vargraphic_val",
+	"includedcolumn": int32(202),
 }
 
 var DB2ToDestinationSchema = map[string]string{
@@ -284,4 +290,5 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 	"col_time":       "string",
 	"col_graphic":    "string",
 	"col_vargraphic": "string",
+	"includedcolumn": "integer",
 }

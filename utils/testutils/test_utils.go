@@ -404,17 +404,17 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC, cfg.ColumnToExclude)
 			} else {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC, cfg.ColumnToExclude)
 			}
 		}
 	case "parquet":
 		{
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC, cfg.ColumnToExclude)
 			} else {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC, cfg.ColumnToExclude)
 			}
 		}
 	}
@@ -991,7 +991,7 @@ func dropIcebergTable(t *testing.T, tableName, icebergDB string) {
 
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -1114,6 +1114,11 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		}
 	}
 
+	if excludedColumn != "" {
+		_, ok := icebergSchema[utils.Reformat(excludedColumn)]
+		require.Falsef(t, ok, "Excluded column %q should not exist in Iceberg schema", excludedColumn)
+	}
+
 	for col, dbType := range datatypeSchema {
 		iceType, found := icebergSchema[col]
 		require.True(t, found, "Column %s not found in Iceberg schema", col)
@@ -1158,7 +1163,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
-func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool) {
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -1289,6 +1294,10 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		if !strings.HasPrefix(colName, "#") {
 			parquetSchema[colName] = dataType
 		}
+	}
+	if excludedColumn != "" {
+		_, ok := parquetSchema[utils.Reformat(excludedColumn)]
+		require.Falsef(t, ok, "Excluded column %q should not exist in Parquet schema", excludedColumn)
 	}
 
 	for col, dbType := range datatypeSchema {

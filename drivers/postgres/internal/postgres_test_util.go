@@ -179,7 +179,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_point = '(15.5,25.5)'::point,
 				col_polygon = '((5,5),(15,5),(15,15),(5,15),(5,5))'::polygon,
 				col_circle = '<(10,10),5.5>'::circle,
-				excludedColumn = 102
+				excludedColumn = 102,
+				includedColumn = 202
 			WHERE col_bigserial = 1`, integrationTestTable)
 
 	case "delete":
@@ -234,7 +235,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		return
 
 	case "evolve-schema":
-		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT`, integrationTestTable)
+		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT, ADD COLUMN includedColumn INTEGER`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -364,6 +365,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"col_point":             "(15.5,25.5)",
 	"col_polygon":           "((5,5),(15,5),(15,15),(5,15),(5,5))",
 	"col_circle":            "<(10,10),5.5>",
+	"includedcolumn":        int32(202),
 }
 
 var PostgresToDestinationSchema = map[string]string{
@@ -426,6 +428,7 @@ var UpdatedPostgresToDestinationSchema = map[string]string{
 	"col_point":             "point",
 	"col_polygon":           "polygon",
 	"col_circle":            "circle",
+	"includedcolumn":        "integer",
 }
 
 var ExpectedPostgresDefaultCDCColumnsSchema = map[string]string{

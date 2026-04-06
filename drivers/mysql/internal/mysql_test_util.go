@@ -165,7 +165,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				created_date = '2024-07-01 15:30:00',
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0,
-				status = 'pending', priority = 'low', excludedColumn = 102
+				status = 'pending', priority = 'low', excludedColumn = 102,
+				includedColumn = 202
 			WHERE id = 6`, integrationTestTable)
 
 	case "delete":
@@ -209,7 +210,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		return
 
 	case "evolve-schema":
-		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE;", integrationTestTable)
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -341,6 +342,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"name_bool":              int32(0),
 	"status":                 "pending",
 	"priority":               "low",
+	"includedcolumn":         int32(202),
 }
 
 var MySQLToDestinationSchema = map[string]string{
@@ -410,6 +412,7 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"name_bool":              "tinyint",
 	"status":                 "enum",
 	"priority":               "enum",
+	"includedcolumn":         "int",
 }
 var ExpectedMySQLDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_timestamp":        "timestamp",

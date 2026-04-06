@@ -136,6 +136,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				"id_maxkey":         primitive.MaxKey{},
 				"name_varchar":      "updated varchar",
 				"excludedColumn":    102,
+				"includedColumn":    int32(202),
 			},
 		}
 		_, err := collection.UpdateOne(ctx, filter, update)
@@ -259,6 +260,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "updated varchar",
+	"includedcolumn":    int32(202),
 }
 
 var MongoToDestinationSchema = map[string]string{
@@ -287,6 +289,7 @@ var UpdatedMongoToDestinationSchema = map[string]string{
 	"id_minkey":         "string",
 	"id_maxkey":         "string",
 	"name_varchar":      "string",
+	"includedcolumn":    "int",
 }
 
 var ExpectedMongoDbDefaultCDCColumnsSchema = map[string]string{
