@@ -78,7 +78,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				name_bool TINYINT(1) DEFAULT '1',
 				status ENUM('active','inactive','pending') DEFAULT NULL,
 				priority ENUM('low','medium','high') DEFAULT 'low',
-				PRIMARY KEY (id)
+				PRIMARY KEY (id),
+				excludedColumn INT
 			)`, integrationTestTable)
 
 	case "drop":
@@ -102,7 +103,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
-			long_varchar, name_bool, status, priority
+			long_varchar, name_bool, status, priority, excludedColumn
 		) VALUES (
 			6, 6, 123456789012345,
 			100, 101, 102, 103,
@@ -113,7 +114,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
-			'long_varchar_val', 1, 'active', 'high'
+			'long_varchar_val', 1, 'active', 'high', 101
 		)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
@@ -128,7 +129,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
-			long_varchar, name_bool, status, priority
+			long_varchar, name_bool, status, priority, excludedColumn
 		) VALUES (
 			-1, 999, 111111111111111,
 			0, 0, 0, 0,
@@ -139,7 +140,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
 			'filtered medium', 'filtered long', '2022-06-15 10:00:00',
 			'2021-06-15 10:00:00', 0,
-			'filtered long varchar', 0, 'inactive', 'low'
+			'filtered long varchar', 0, 'inactive', 'low', 200
 		)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, filteredQuery)
 		require.NoError(t, err, "Failed to insert filtered test data row")
@@ -164,7 +165,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				created_date = '2024-07-01 15:30:00',
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0,
-				status = 'pending', priority = 'low'
+				status = 'pending', priority = 'low', excludedColumn = 102,
+				includedColumn = 202
 			WHERE id = 6`, integrationTestTable)
 
 	case "delete":
@@ -208,7 +210,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		return
 
 	case "evolve-schema":
-		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE;", integrationTestTable)
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -232,7 +234,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active, long_varchar, name_bool, status, priority
+			created_timestamp, is_active, long_varchar, name_bool, status, priority, excludedColumn
 		) VALUES (
 			%d, %d, 123456789012345,
 			100, 101, 102, 103,
@@ -242,7 +244,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high'
+			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high', 100
 		)`, tableName, i, i)
 
 		_, err := db.ExecContext(ctx, query)
@@ -258,7 +260,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active, long_varchar, name_bool, status, priority
+			created_timestamp, is_active, long_varchar, name_bool, status, priority, excludedColumn
 		) VALUES (
 			-1, 998, 111111111111111,
 			0, 0, 0, 0,
@@ -268,7 +270,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			500234.123, 500234.0, 500234.123, 500234.123,
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
 			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
-			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low'
+			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low', 200
 		)`, tableName)
 	_, err := db.ExecContext(ctx, filteredQuery)
 	require.NoError(t, err, "Failed to insert filtered test data row")
@@ -340,6 +342,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"name_bool":              int32(0),
 	"status":                 "pending",
 	"priority":               "low",
+	"includedcolumn":         int32(202),
 }
 
 var MySQLToDestinationSchema = map[string]string{
@@ -409,6 +412,7 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"name_bool":              "tinyint",
 	"status":                 "enum",
 	"priority":               "enum",
+	"includedcolumn":         "int",
 }
 var ExpectedMySQLDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_timestamp":        "timestamp",
