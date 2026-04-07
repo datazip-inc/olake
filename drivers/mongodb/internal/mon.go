@@ -230,77 +230,69 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 	return streamNames, collections.Err()
 }
 
+// TODO: omit usage of ProduceSchema when sync command is used
 func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	database := m.client.Database(m.config.Database)
-	collection := database.Collection(streamName)
-	stream := types.NewStream(streamName, database.Name(), nil)
+	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
+		logger.Infof("producing type schema for stream [%s]", streamName)
 
-	// Query indexes for primary keys (lightweight, always needed for validation)
-	indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
-	if err != nil {
-		return nil, err
-	}
-	defer indexesCursor.Close(ctx)
-
-	for indexesCursor.Next(ctx) {
-		var indexes bson.M
-		if err := indexesCursor.Decode(&indexes); err != nil {
+		// initialize stream
+		collection := db.Collection(streamName)
+		stream := types.NewStream(streamName, db.Name(), nil)
+		// find primary keys
+		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
+		if err != nil {
 			return nil, err
 		}
-		for key := range indexes["key"].(bson.M) {
-			stream.WithPrimaryKey(key)
-		}
-	}
+		defer indexesCursor.Close(ctx)
 
-	setSyncModes := func() {
-		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-		if m.CDCSupported() {
-			stream.UpsertField(CDCResumeToken, types.String, true, true)
-			stream.WithSyncMode(types.CDC, types.STRICTCDC)
-		}
-	}
-	// During sync, skip expensive document sampling for schema inference.
-	// The full schema is already available in the catalog (streams.json) from a prior discover run.
-	if ctx.Value(constants.SyncContext{}) != nil {
-		setSyncModes()
-		return stream, nil
-	}
-
-	logger.Infof("producing type schema for stream [%s]", streamName)
-
-	// Define find options for fetching documents in ascending and descending order.
-	findOpts := []*options.FindOptions{
-		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
-		options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
-	}
-
-	if err := utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
-		cursor, err := collection.Find(ctx, bson.D{}, findOpt)
-		if err != nil {
-			return err
-		}
-		defer cursor.Close(ctx)
-
-		for cursor.Next(ctx) {
-			var row bson.M
-			if err := cursor.Decode(&row); err != nil {
-				return err
+		for indexesCursor.Next(ctx) {
+			var indexes bson.M
+			if err := indexesCursor.Decode(&indexes); err != nil {
+				return nil, err
 			}
-
-			filterMongoObject(row)
-			if err := typeutils.Resolve(stream, row); err != nil {
-				return err
+			for key := range indexes["key"].(bson.M) {
+				stream.WithPrimaryKey(key)
 			}
 		}
 
-		return cursor.Err()
-	}); err != nil {
+		// Define find options for fetching documents in ascending and descending order.
+		findOpts := []*options.FindOptions{
+			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
+			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
+		}
+
+		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+			cursor, err := collection.Find(ctx, bson.D{}, findOpt)
+			if err != nil {
+				return err
+			}
+			defer cursor.Close(ctx)
+
+			for cursor.Next(ctx) {
+				var row bson.M
+				if err := cursor.Decode(&row); err != nil {
+					return err
+				}
+
+				filterMongoObject(row)
+				if err := typeutils.Resolve(stream, row); err != nil {
+					return err
+				}
+			}
+
+			return cursor.Err()
+		})
+	}
+	database := m.client.Database(m.config.Database)
+	// Either wait for covering 100k records from both sides for all streams
+	// Or wait till discoverCtx exits
+	stream, err := produceCollectionSchema(ctx, database, streamName)
+	if err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
 		}
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
 	}
-
 	// Add all discovered fields as potential cursor fields
 	stream.Schema.Properties.Range(func(key, value interface{}) bool {
 		if fieldName, ok := key.(string); ok {
@@ -308,9 +300,14 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 		return true
 	})
-	setSyncModes()
 
-	return stream, nil
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if m.CDCSupported() {
+		stream.UpsertField(CDCResumeToken, types.String, true, true)
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
+	}
+
+	return stream, err
 }
 
 func filterMongoObject(doc bson.M) {

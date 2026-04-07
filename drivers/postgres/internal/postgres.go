@@ -194,34 +194,21 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		streamParts := strings.Split(streamName, ".")
 		schemaName, streamName := streamParts[0], streamParts[1]
 		stream := types.NewStream(streamName, schemaName, &p.config.Database)
-
-		var primaryKeyOutput []ColumnDetails
-		if err := p.client.SelectContext(ctx, &primaryKeyOutput, getTablePrimaryKey, schemaName, streamName); err != nil {
-			return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %s", streamName, err)
-		}
-		for _, column := range primaryKeyOutput {
-			stream.WithPrimaryKey(column.Name)
-		}
-
-		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-		if p.CDCSupported() {
-			stream.UpsertField(waljs.CDCLSN, types.String, true, true)
-			stream.WithSyncMode(types.CDC, types.STRICTCDC)
-		}
-
-		if ctx.Value(constants.SyncContext{}) != nil {
-			logger.Infof("sync context detected, skipping schema inference for stream [%s]", streamName)
-			return stream, nil
-		}
-
 		var columnSchemaOutput []ColumnDetails
-		if err := p.client.SelectContext(ctx, &columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName); err != nil {
+		err := p.client.SelectContext(ctx, &columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
+		if err != nil {
 			return stream, fmt.Errorf("failed to retrieve column details for table %s: %s", streamName, err)
 		}
 
 		if len(columnSchemaOutput) == 0 {
 			logger.Warnf("no columns found in table [%s.%s]", schemaName, streamName)
 			return stream, nil
+		}
+
+		var primaryKeyOutput []ColumnDetails
+		err = p.client.SelectContext(ctx, &primaryKeyOutput, getTablePrimaryKey, schemaName, streamName)
+		if err != nil {
+			return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %s", streamName, err)
 		}
 
 		for _, column := range columnSchemaOutput {
@@ -233,7 +220,19 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 				logger.Debugf("failed to get respective type in datatypes for column: %s[%s]", column.Name, *column.DataType)
 				datatype = types.String
 			}
+
 			stream.UpsertField(column.Name, datatype, strings.EqualFold("yes", *column.IsNullable), false)
+		}
+
+		// add primary keys for stream
+		for _, column := range primaryKeyOutput {
+			stream.WithPrimaryKey(column.Name)
+		}
+
+		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+		if p.CDCSupported() {
+			stream.UpsertField(waljs.CDCLSN, types.String, true, true)
+			stream.WithSyncMode(types.CDC, types.STRICTCDC)
 		}
 
 		return stream, nil

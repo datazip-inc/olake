@@ -210,14 +210,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 		schemaName, tableName := parts[0], parts[1]
 		stream := types.NewStream(tableName, schemaName, nil)
-
-		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-		if m.CDCSupported() {
-			stream.UpsertField(binlog.CDCBinlogFileName, types.String, true, true)
-			stream.UpsertField(binlog.CDCBinlogFilePos, types.Int64, true, true)
-			stream.WithSyncMode(types.CDC, types.STRICTCDC)
-		}
-
 		query := jdbc.MySQLTableSchemaQuery()
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
@@ -231,18 +223,16 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %s", err)
 			}
-			// Skip cursor field and data type inference during sync
-			if ctx.Value(constants.SyncContext{}) == nil {
-				stream.WithCursorField(columnName)
-				datatype := types.Unknown
-				if val, found := mysqlTypeToDataTypes[dataType]; found {
-					datatype = val
-				} else {
-					logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
-					datatype = types.String
-				}
-				stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable), false)
+			stream.WithCursorField(columnName)
+			datatype := types.Unknown
+			if val, found := mysqlTypeToDataTypes[dataType]; found {
+				datatype = val
+			} else {
+				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
+				datatype = types.String
 			}
+			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable), false)
+
 			// Mark primary keys
 			if columnKey == "PRI" {
 				stream.WithPrimaryKey(columnName)
@@ -256,6 +246,13 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
 		}
 		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
+	}
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	if m.CDCSupported() {
+		stream.UpsertField(binlog.CDCBinlogFileName, types.String, true, true)
+		stream.UpsertField(binlog.CDCBinlogFilePos, types.Int64, true, true)
+		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 
 	return stream, nil

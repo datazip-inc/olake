@@ -59,7 +59,3 @@ var SkipCDCDrivers = []DriverType{Oracle, DB2}
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
-
-// SyncContext is used as a context key to signal that ProduceSchema is being called during
-// sync. Drivers will skip schema inference for this context.
-type SyncContext struct{}

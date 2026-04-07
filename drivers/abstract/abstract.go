@@ -59,10 +59,7 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-// Discover returns the schema for every stream visible to the driver.
-// When selectedNames is provided (sync path only), ProduceSchema is called only
-// for those stream names.
-func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, selectedNames ...string) ([]*types.Stream, error) {
+func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, isSync bool) ([]*types.Stream, error) {
 	// set max connections, uses maxDiscoverThreads if discover command is used
 	if maxDiscoverThreads > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
@@ -75,18 +72,13 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 		return nil, fmt.Errorf("failed to get stream names: %s", err)
 	}
 
-	if len(selectedNames) > 0 {
-		selectedSet := make(map[string]bool, len(selectedNames))
-		for _, name := range selectedNames {
-			selectedSet[name] = true
-		}
-		filtered := make([]string, 0, len(selectedNames))
-		for _, name := range streams {
-			if selectedSet[name] {
-				filtered = append(filtered, name)
-			}
-		}
-		streams = filtered
+	// During sync, skip ProduceSchema entirely streams.json already holds
+	// the full schema from discover run. GetStreamNames still runs
+	// above because S3 uses it to populate discoveredFiles (needed for chunking
+	// and incremental sync). Returning nil signals classifyStreams to skip
+	// source-side validation and trust the catalog directly.
+	if isSync {
+		return nil, nil
 	}
 
 	var streamMap sync.Map

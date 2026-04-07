@@ -153,15 +153,6 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	stream := types.NewStream(streamName, "topics", nil)
 	stream.WithSyncMode(types.STRICTCDC)
 	stream.SyncMode = types.STRICTCDC
-	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
-
-	// During sync, skip expensive message reading for schema inference.
-	// The full schema is already available in the catalog (streams.json) from a prior discover run.
-	// Only structural metadata (sync modes, primary keys) is needed for stream validation.
-	if ctx.Value(constants.SyncContext{}) != nil {
-		logger.Infof("sync context detected, skipping schema inference for topic [%s]", streamName)
-		return stream, nil
-	}
 
 	// create reader manager for schema discovery
 	readerManager := kafkapkg.NewReaderManager(kafkapkg.ReaderConfig{
@@ -239,6 +230,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
 	}
 
+	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
 	return stream, nil
 }
 

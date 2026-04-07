@@ -166,31 +166,6 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 	schemaName, tableName := parts[0], parts[1]
 	stream := types.NewStream(tableName, schemaName, nil)
 
-	// Primary key query is lightweight (data dictionary lookup) and needed by both paths.
-	pkQuery := jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)
-	pkRows, err := o.client.QueryContext(ctx, pkQuery)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query primary key information: %s", err)
-	}
-	defer pkRows.Close()
-	for pkRows.Next() {
-		var columnName string
-		if err := pkRows.Scan(&columnName); err != nil {
-			return nil, fmt.Errorf("failed to scan primary key column: %s", err)
-		}
-		stream.WithPrimaryKey(columnName)
-	}
-	if err := pkRows.Err(); err != nil {
-		return nil, err
-	}
-
-	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-
-	if ctx.Value(constants.SyncContext{}) != nil {
-		logger.Infof("sync context detected, skipping schema inference for stream [%s]", streamName)
-		return stream, nil
-	}
-
 	// Get column information
 	query := jdbc.OracleTableDetailsQuery(schemaName, tableName)
 	rows, err := o.client.QueryContext(ctx, query)
@@ -213,10 +188,27 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 			logger.Warnf("Unsupported Oracle type '%s' for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 			datatype = types.String
 		}
+
 		stream.UpsertField(columnName, datatype, strings.EqualFold("Y", isNullable), false)
 	}
 
-	return stream, rows.Err()
+	query = jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)
+	pkRows, err := o.client.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query primary key information: %s", err)
+	}
+	defer pkRows.Close()
+
+	for pkRows.Next() {
+		var columnName string
+		if err := pkRows.Scan(&columnName); err != nil {
+			return nil, fmt.Errorf("failed to scan primary key column: %s", err)
+		}
+		stream.WithPrimaryKey(columnName)
+	}
+
+	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
+	return stream, pkRows.Err()
 }
 
 // tzNaiveOracleTypes are Oracle column types that store only wall-clock time with no timezone.

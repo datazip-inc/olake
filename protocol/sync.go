@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -83,30 +82,13 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		// Mark context as sync command so drivers can skip expensive schema inference
-		// (e.g., MongoDB document sampling, Kafka message reading) since the schema
-		// is already available in the catalog (streams.json) from a prior discover run.
-		ctx := context.WithValue(cmd.Context(), constants.SyncContext{}, true)
-
 		// setup conector first
-		err := connector.Setup(ctx)
+		err := connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
-
-		// Build the set of raw stream names for selected streams only.
-		// SQL drivers format stream names as "namespace.name"; NoSQL and streaming
-		// drivers use a bare "name". Both forms are added so the filter inside
-		// Discover works correctly regardless of driver type.
-		selectedNames := make([]string, 0)
-		for namespace, metadataList := range catalog.SelectedStreams {
-			for _, metadata := range metadataList {
-				selectedNames = append(selectedNames, metadata.StreamName)
-				selectedNames = append(selectedNames, fmt.Sprintf("%s.%s", namespace, metadata.StreamName))
-			}
-		}
-
-		streams, err := connector.Discover(ctx, 0, selectedNames...)
+		// Get Source Streams, sending 0 max discover threads to discover
+		streams, err := connector.Discover(cmd.Context(), 0, true)
 		if err != nil {
 			return err
 		}
@@ -115,6 +97,10 @@ var syncCmd = &cobra.Command{
 		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
+		}
+
+		if streams == nil {
+			state.Streams = selectedStreamsMetadata.NewStreamsState
 		}
 
 		// for clearing streams
@@ -199,13 +185,14 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			return false
 		}
 
+		elem.StreamMetadata = sMetadata
+
 		if streams != nil {
 			source, found := types.StreamsToMap(streams...)[elem.ID()]
 			if !found {
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
-			elem.StreamMetadata = sMetadata
 			err := elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
