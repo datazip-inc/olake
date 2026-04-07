@@ -227,7 +227,7 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"includedColumn":       int32(202),
+	"includedcolumn":       int32(202),
 }
 
 var OracleToDestinationSchema = map[string]string{
@@ -270,5 +270,5 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_timestamp":        "timestamp",
 	"col_timestamptz":      "timestamp",
 	"col_timestampltz":     "timestamp",
-	"includedColumn":       "int",
+	"includedcolumn":       "int",
 }
