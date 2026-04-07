@@ -155,6 +155,7 @@ func PostgresPartitionPagesPG12(stream types.StreamInterface) string {
 	)
 }
 
+// TODO:check this query might be more optimized for performance
 // PostgresPartitionPages returns leaf-partition page counts using a recursive CTE over
 // pg_inherits. Works on all Postgres versions (10+); used as fallback for PG < 12.
 func PostgresPartitionPages(stream types.StreamInterface) string {

@@ -258,11 +258,6 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 		return nil, 0, fmt.Errorf("failed to iterate partition pages: %s", err)
 	}
 
-	if len(partitions) == 0 {
-		partitions = append(partitions, PartitionPage{Name: stream.Name(), Pages: 1})
-		maxPageCountAcrossPartitions = 1
-	}
-
 	if maxPageCountAcrossPartitions == 0 {
 		logger.Warnf("all partitions are empty for stream[%s], skipping chunking", stream.ID())
 		return partitions, 0, nil
