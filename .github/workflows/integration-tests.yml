@@ -143,7 +143,7 @@ jobs:
 
       - name: Run Integration Tests
         run: |  
-          go test -v -p 1 ./drivers/oracle/internal/... -timeout 0 -run 'Integration'
+          go test -v -p 6 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
       
       - name: Cleanup
         if: always()
