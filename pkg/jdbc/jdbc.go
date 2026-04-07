@@ -215,13 +215,6 @@ func PostgresRelPageCount(stream types.StreamInterface) string {
 	return fmt.Sprintf(`SELECT relpages FROM pg_class WHERE relname = '%s' AND relnamespace = (SELECT oid FROM pg_namespace WHERE nspname = '%s')`, stream.Name(), stream.Namespace())
 }
 
-// PostgresTableExistsQuery returns whether the table contains at least one row.
-// Used to distinguish a genuinely empty table from one with stale pg_class statistics.
-func PostgresTableExistsQuery(stream types.StreamInterface) string {
-	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.Postgres)
-	return fmt.Sprintf("SELECT EXISTS(SELECT 1 FROM %s LIMIT 1)", quotedTable)
-}
-
 // PostgresWalLSNQuery returns the query to fetch the current WAL LSN in PostgreSQL
 func PostgresWalLSNQuery() string {
 	return `SELECT pg_current_wal_lsn()::text::pg_lsn`
