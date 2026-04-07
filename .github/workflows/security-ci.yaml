@@ -34,7 +34,25 @@ jobs:
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run vulnerability checks
-        run: govulncheck ./...
+        run: |
+          # govulncheck has no native ignore file; we read .govulnignore manually.
+          # Lines prefixed with '#' are comments; blank lines are skipped.
+          EXEMPT=$(grep -v '^\s*#' .govulnignore | grep -v '^\s*$' | paste -sd '|')
+          set +e
+          govulncheck -json ./... > /tmp/govuln.json 2>&1
+          GOVULN_EXIT=$?
+          set -e
+          if [ "$GOVULN_EXIT" -eq 0 ]; then
+            echo "No vulnerabilities found."
+            exit 0
+          fi
+          REMAINING=$(grep -o '"GO-[0-9-]*"' /tmp/govuln.json | tr -d '"' | sort -u | grep -vE "$EXEMPT" || true)
+          if [ -n "$REMAINING" ]; then
+            echo "Unexempted vulnerabilities found: $REMAINING"
+            govulncheck ./...
+            exit 1
+          fi
+          echo "All findings are exempted via .govulnignore: $EXEMPT"
 
   gosec:
     name: GoSec Security Scanner

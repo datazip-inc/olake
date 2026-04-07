@@ -94,7 +94,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 					col_varchar_nullable VARCHAR(255) NULL,
 					col_datetime2_nullable DATETIME2(6) NULL,
 
-					created_at DATETIME2(6) NOT NULL
+					created_at DATETIME2(6) NOT NULL,
+					excludedColumn INT NULL,
 				);
 			END;
 		`, integrationTestTable, integrationTestTable)
@@ -176,7 +177,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_xml, col_sysname,
 				col_image, col_hierarchyid, col_sql_variant,
 				col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
-				created_at
+				created_at,
+				excludedColumn
 			) VALUES (
 				6,
 				3, 5, 10, 19,
@@ -190,11 +192,46 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
-				'2023-01-01 12:00:00'
+				'2023-01-01 12:00:00',
+				101
 			);
 		`, integrationTestTable)
 		_, err := db.ExecContext(ctx, insertOne)
 		require.NoError(t, err, "failed to insert CDC row")
+
+		filteredQuery := fmt.Sprintf(`
+			INSERT INTO dbo.%s (
+					id_cursor,
+					col_tinyint, col_smallint, col_int, col_bigint,
+					col_decimal, col_numeric, col_smallmoney, col_money,
+					col_float, col_real, col_bit,
+					col_char, col_varchar, col_text, col_nchar, col_nvarchar, col_ntext,
+					col_date, col_time, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
+					col_uniqueidentifier,
+					col_xml, col_sysname,
+					col_image, col_hierarchyid, col_sql_variant,
+					col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
+					created_at,
+					excludedColumn
+				) VALUES (
+					6,
+					3, 5, 10, 19,
+					239835.89, 10.12500, 1.2500, 2.5000,
+					123.50, 12.50, 1,
+					'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
+					'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
+					'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+					'123e4567-e89b-12d3-a456-426614174000',
+					'<xml>test</xml>', 'sysname_val',
+					0x43434343,
+					hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
+					NULL, NULL, NULL,
+					'2023-01-01 12:00:00',
+					101
+			);
+		`, integrationTestTable)
+		_, err = db.ExecContext(ctx, filteredQuery)
+		require.NoError(t, err, "failed to insert filtered CDC row")
 
 	case "update":
 		updateRow := fmt.Sprintf(`
@@ -214,7 +251,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_int_nullable = 123,
 				col_varchar_nullable = 'nullable updated',
 				col_datetime2_nullable = '2024-07-01 15:30:00',
-				created_at = '2024-07-01 15:30:00'
+				created_at = '2024-07-01 15:30:00',
+				excludedColumn = 102
 			WHERE id = 6;
 		`, integrationTestTable)
 		_, err := db.ExecContext(ctx, updateRow)
@@ -287,7 +325,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 				col_xml, col_sysname,
 				col_image, col_hierarchyid, col_sql_variant,
 				col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
-				created_at
+				created_at,
+				excludedColumn
 			) VALUES (
 				%d,
 				3, 5, 10, 19,
@@ -301,7 +340,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 				0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
-				'2023-01-01 12:00:00'
+				'2023-01-01 12:00:00',
+				100
 			);
 		`, tableName, i)
 		_, err := db.ExecContext(ctx, query)

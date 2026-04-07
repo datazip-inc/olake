@@ -21,6 +21,7 @@ func TestMongodbIntegration(t *testing.T) {
 		DestinationDB:                    "mongodb_olake_mongodb_test",
 		CursorField:                      "id_cursor:id_int",
 		PartitionRegex:                   "/{_id,identity}",
+		ColumnToExclude:                  "excludedColumn",
 		FilterConfig: `{
 			"logical_operator": "And",
 			"conditions": [
