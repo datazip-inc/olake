@@ -56,7 +56,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_blob BLOB,
 				col_timestamp TIMESTAMP,
 				col_timestamptz TIMESTAMP WITH TIME ZONE,
-				col_timestampltz TIMESTAMP WITH LOCAL TIME ZONE
+				col_timestampltz TIMESTAMP WITH LOCAL TIME ZONE,
+				excludedColumn INT NULL
 			)`, integrationTestTable)
 
 	case "drop":
@@ -75,7 +76,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_cursor, col_bigint, col_char, col_character,
 				col_varchar2, col_date, col_decimal,
 				col_double_precision, col_float, col_int, col_smallint,
-				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+				excludedColumn
 			) VALUES (
 				6, 123456789012345, 'c', 'char_val',
 				'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
@@ -83,7 +85,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'sample text', 'sample nclob',
 				TIMESTAMP '2023-01-01 12:00:00',
 				TIMESTAMP '2023-01-01 12:00:00+00:00',
-				TIMESTAMP '2023-01-01 12:00:00+05:30'
+				TIMESTAMP '2023-01-01 12:00:00+05:30',
+				101
 			)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
@@ -93,7 +96,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_cursor, col_bigint, col_char, col_character,
 				col_varchar2, col_date, col_decimal,
 				col_double_precision, col_float, col_int, col_smallint,
-				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+				excludedColumn
 			) VALUES (
 				-1, 111111111111111, 'x', 'filtered',
 				'filtered_val', TO_DATE('2022-06-15', 'YYYY-MM-DD'), 50.123,
@@ -101,7 +105,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'filtered text', 'filtered nclob',
 				TIMESTAMP '2022-06-15 10:00:00',
 				TIMESTAMP '2022-06-15 10:00:00+00:00',
-				TIMESTAMP '2022-06-15 10:00:00+05:30'
+				TIMESTAMP '2022-06-15 10:00:00+05:30',
+				200
 			)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, filteredQuery)
 		require.NoError(t, err, "Failed to insert filtered test data row")
@@ -111,14 +116,25 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
         UPDATE %s SET
             col_cursor = NULL,
-            col_smallint = 321
+            col_smallint = 321,
+            excludedColumn = 102,
+			includedColumn = 202
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "evolve-schema":
-		query = fmt.Sprintf(`ALTER TABLE %s MODIFY (col_int NUMBER(19,0), col_decimal NUMBER(20,2))`, integrationTestTable)
+		// evolve the schema by modifying the col_int column to be a bigint
+		query = fmt.Sprintf(`ALTER TABLE %s MODIFY (col_int NUMBER(19,0))`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+
+		// add a new column to the table
+		query = fmt.Sprintf(`ALTER TABLE %s ADD (includedColumn NUMBER(9,0))`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		return
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -137,7 +153,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_cursor, col_bigint, col_char, col_character,
 			col_varchar2, col_date, col_decimal,
 			col_double_precision, col_float, col_int, col_smallint,
-			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+			excludedColumn
 		) VALUES (
 			%d,123456789012345, 'c', 'char_val',
 			'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
@@ -145,7 +162,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'sample text', 'sample nclob',
 			TIMESTAMP '2023-01-01 12:00:00',
 			TIMESTAMP '2023-01-01 12:00:00+00:00',
-			TIMESTAMP '2023-01-01 12:00:00+05:30'
+			TIMESTAMP '2023-01-01 12:00:00+05:30',
+			100
 		)`, tableName, i)
 
 		_, err := db.ExecContext(ctx, query)
@@ -157,7 +175,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_cursor, col_bigint, col_char, col_character,
 			col_varchar2, col_date, col_decimal,
 			col_double_precision, col_float, col_int, col_smallint,
-			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+			excludedColumn
 		) VALUES (
 			-1, 111111111111111, 'x', 'filtered',
 			'filtered_val', TO_DATE('2021-06-15', 'YYYY-MM-DD'), 500234.123,
@@ -165,7 +184,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'filtered text', 'filtered nclob',
 			TIMESTAMP '2021-06-15 10:00:00',
 			TIMESTAMP '2021-06-15 10:00:00+00:00',
-			TIMESTAMP '2021-06-15 10:00:00+05:30'
+			TIMESTAMP '2021-06-15 10:00:00+05:30',
+			200
 		)`, tableName)
 	_, err := db.ExecContext(ctx, filteredQuery)
 	require.NoError(t, err, "Failed to insert filtered test data row")
@@ -182,6 +202,7 @@ var ExpectedOracleData = map[string]interface{}{
 	"col_float":            float32(123.5),
 	"col_int":              int32(123),
 	"col_integer":          int64(12345),
+	"col_smallint":         int32(123),
 	"col_clob":             "sample text",
 	"col_nclob":            "sample nclob",
 	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -198,13 +219,15 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_decimal":          float64(123.45),
 	"col_double_precision": 123.456789,
 	"col_float":            float32(123.5),
-	"col_int":              int32(123),
+	"col_int":              int64(123),
 	"col_integer":          int64(12345),
+	"col_smallint":         int32(321),
 	"col_clob":             "sample text",
 	"col_nclob":            "sample nclob",
 	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"includedcolumn":       int32(202),
 }
 
 var OracleToDestinationSchema = map[string]string{
@@ -238,7 +261,7 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_decimal":          "double",
 	"col_double_precision": "double",
 	"col_float":            "float",
-	"col_int":              "int",
+	"col_int":              "bigint",
 	"col_smallint":         "int",
 	"col_integer":          "bigint",
 	"col_clob":             "string",
@@ -247,4 +270,5 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_timestamp":        "timestamp",
 	"col_timestamptz":      "timestamp",
 	"col_timestampltz":     "timestamp",
+	"includedcolumn":       "int",
 }

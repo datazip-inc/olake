@@ -20,6 +20,7 @@ func TestDB2Integration(t *testing.T) {
 		DestinationDB:                    "db2_testdb_db2inst1",
 		CursorField:                      "COL_CURSOR:COL_TIMESTAMP",
 		PartitionRegex:                   "/{id, identity}",
+		ColumnToExclude:                  "EXCLUDEDCOLUMN",
 		FilterConfig: `{
                     "logical_operator": "And",
                     "conditions": [

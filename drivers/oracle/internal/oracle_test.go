@@ -20,6 +20,7 @@ func TestOracleIntegration(t *testing.T) {
 		DestinationDB:                    "oracle_myuser",
 		CursorField:                      "COL_CURSOR:COL_SMALLINT",
 		PartitionRegex:                   "/{id, identity}",
+		ColumnToExclude:                  "EXCLUDEDCOLUMN",
 		FilterConfig: `{
                     "logical_operator": "And",
                     "conditions": [
