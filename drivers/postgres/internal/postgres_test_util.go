@@ -78,7 +78,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_point POINT,
 				col_polygon POLYGON,
 				col_circle CIRCLE,
-				CONSTRAINT unique_custom_key UNIQUE (col_bigserial)
+				CONSTRAINT unique_custom_key UNIQUE (col_bigserial),
+				excludedColumn INT NULL
 			)`, integrationTestTable)
 
 	case "drop":
@@ -100,7 +101,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_integer, col_interval, col_json, col_jsonb,
 				col_name, col_numeric, col_real, col_text,
 				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
-				col_point, col_polygon, col_circle
+				col_point, col_polygon, col_circle,
+				excludedColumn
 			) VALUES (
 				6, 123456789012345, TRUE, 'c', 'charac_val',
 				'varchar_val', '2023-01-01', 123.45,
@@ -112,7 +114,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'<tag>value</tag>',
 				'(10.5,20.5)'::point,
 				'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
-				'<(5,5),3.5>'::circle
+				'<(5,5),3.5>'::circle,
+				101
 			)`, integrationTestTable)
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
@@ -125,7 +128,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_integer, col_interval, col_json, col_jsonb,
 				col_name, col_numeric, col_real, col_text,
 				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
-				col_point, col_polygon, col_circle
+				col_point, col_polygon, col_circle,
+				excludedColumn
 			) VALUES (
 				-1, 111111111111111, FALSE, 'x', 'filtered',
 				'filtered_val', '2021-06-15', 50.123,
@@ -137,7 +141,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				'<filtered>value</filtered>',
 				'(0.0,0.0)'::point,
 				'((0,0),(0,0),(0,0),(0,0),(0,0))'::polygon,
-				'<(0,0),0.0>'::circle
+				'<(0,0),0.0>'::circle,
+				200
 			)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, filteredQuery)
 		require.NoError(t, err, "Failed to insert filtered test data row")
@@ -173,7 +178,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_xml = '<updated>value</updated>',
 				col_point = '(15.5,25.5)'::point,
 				col_polygon = '((5,5),(15,5),(15,15),(5,15),(5,5))'::polygon,
-				col_circle = '<(10,10),5.5>'::circle
+				col_circle = '<(10,10),5.5>'::circle,
+				excludedColumn = 102,
+				includedColumn = 202
 			WHERE col_bigserial = 1`, integrationTestTable)
 
 	case "delete":
@@ -228,7 +235,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		return
 
 	case "evolve-schema":
-		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT`, integrationTestTable)
+		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT, ADD COLUMN includedColumn INTEGER`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -251,7 +258,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_interval, col_json, col_jsonb, col_name, col_numeric,
 			col_real, col_text, col_timestamp, col_timestamptz,
 			col_uuid, col_varbit, col_xml,
-			col_point, col_polygon, col_circle
+			col_point, col_polygon, col_circle,
+			excludedColumn
 		) VALUES (
 			%d, 123456789012345, DEFAULT, TRUE, 'c', 'charac_val',
 			'varchar_val', '2023-01-01', 123.45,
@@ -263,7 +271,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'<tag>value</tag>',
 			'(10.5,20.5)'::point,
 			'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
-			'<(5,5),3.5>'::circle
+			'<(5,5),3.5>'::circle,
+			100
 		)`, tableName, i)
 
 		_, err := db.ExecContext(ctx, query)
@@ -278,7 +287,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			col_interval, col_json, col_jsonb, col_name, col_numeric,
 			col_real, col_text, col_timestamp, col_timestamptz,
 			col_uuid, col_varbit, col_xml,
-			col_point, col_polygon, col_circle
+			col_point, col_polygon, col_circle,
+			excludedColumn
 		) VALUES (
 			-1, 111111111111111, DEFAULT, FALSE, 'x', 'filtered',
 			'filtered_val', '2021-06-15', 500234.123,
@@ -290,7 +300,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'<filtered>value</filtered>',
 			'(0.0,0.0)'::point,
 			'((0,0),(0,0),(0,0),(0,0),(0,0))'::polygon,
-			'<(0,0),0.0>'::circle
+			'<(0,0),0.0>'::circle,
+			200
 		)`, tableName)
 	_, err := db.ExecContext(ctx, filteredQuery)
 	require.NoError(t, err, "Failed to insert filtered test data row")
@@ -354,6 +365,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"col_point":             "(15.5,25.5)",
 	"col_polygon":           "((5,5),(15,5),(15,15),(5,15),(5,5))",
 	"col_circle":            "<(10,10),5.5>",
+	"includedcolumn":        int32(202),
 }
 
 var PostgresToDestinationSchema = map[string]string{
@@ -416,6 +428,7 @@ var UpdatedPostgresToDestinationSchema = map[string]string{
 	"col_point":             "point",
 	"col_polygon":           "polygon",
 	"col_circle":            "circle",
+	"includedcolumn":        "integer",
 }
 
 var ExpectedPostgresDefaultCDCColumnsSchema = map[string]string{
