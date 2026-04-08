@@ -213,7 +213,6 @@ func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Wri
 		if err == nil {
 			return
 		}
-		t.Logf("retrying kafka write (topic=%s partition=%d): %v", writer.Topic, msg.Partition, err)
 		if ctx.Err() != nil {
 			require.NoError(t, err, "timed out writing kafka message after retries (topic=%q partition=%d): %v", writer.Topic, msg.Partition, err)
 			return
