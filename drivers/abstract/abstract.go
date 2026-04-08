@@ -59,18 +59,28 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int) ([]*types.Stream, error) {
-	// set max connections, uses maxDiscoverThreads if discover command is used
+func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, isSync bool) ([]*types.Stream, error) {
+	streams, err := a.driver.GetStreamNames(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stream names: %s", err)
+	}
+
+	// During sync, skip ProduceSchema entirely streams.json already holds
+	// the full schema from discover run. GetStreamNames still runs
+	// above because S3 uses it to populate discoveredFiles (needed for chunking
+	// and incremental sync). Returning nil signals classifyStreams to skip
+	// source-side validation and trust the catalog directly.
+	if isSync {
+		return nil, nil
+	}
+
+	// Set max connections for the ProduceSchema
 	if maxDiscoverThreads > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
 	} else if a.driver.MaxConnections() > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
-	streams, err := a.driver.GetStreamNames(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get stream names: %s", err)
-	}
 	var streamMap sync.Map
 
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream string) error {
