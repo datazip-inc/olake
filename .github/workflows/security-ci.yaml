@@ -9,6 +9,7 @@ on:
       - '**/*.go'
       - '**/*.java'
       - '**/go.mod'
+      - '**/go.yaml'
   pull_request:
     branches:
       - "*"
@@ -16,6 +17,7 @@ on:
       - '**/*.go'
       - '**/*.java'
       - '**/go.mod'
+      - '**/go.yaml'
   workflow_dispatch:
     inputs:
       logLevel:
