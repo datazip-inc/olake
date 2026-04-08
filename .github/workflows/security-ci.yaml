@@ -46,10 +46,13 @@ jobs:
             exit "$VULN_EXIT"
           fi
 
-          IGNORED=$(grep -oE 'GO-[0-9]+-[0-9]+' ../.govulnignore 2>/dev/null | sort -u | paste -sd'|')
+          # Repo root is the job working directory; do not use ../.govulnignore
+          IGNORED=$(grep -vE '^\s*(#|$)' .govulnignore 2>/dev/null | grep -oE 'GO-[0-9]+-[0-9]+' | sort -u | paste -s -d '|' -)
           FOUND=$(grep -oE 'GO-[0-9]+-[0-9]+' /tmp/govuln.txt | sort -u)
           UNKNOWN="$FOUND"
-          [ -n "$IGNORED" ] && UNKNOWN=$(echo "$UNKNOWN" | grep -vxE "$IGNORED" || true)
+          if [ -n "$IGNORED" ]; then
+            UNKNOWN=$(echo "$UNKNOWN" | grep -vE "$IGNORED" || true)
+          fi
 
           if [ -n "$UNKNOWN" ]; then
             echo "Unsuppressed vulnerabilities found: $UNKNOWN"
