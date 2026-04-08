@@ -27,6 +27,7 @@ func TestKafkaIntegration(t *testing.T) {
 				ExecuteQuery:                     ExecuteQueryForJson,
 				DestinationDB:                    "kafka_topics",
 				PartitionRegex:                   "/{int_value,identity}",
+				ColumnToExclude:                  "excludedColumn",
 				FilterConfig: `{
 					"logical_operator": "And",
 					"conditions": [
@@ -56,7 +57,8 @@ func TestKafkaIntegration(t *testing.T) {
 				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 				ExecuteQuery:                     ExecuteQueryForAvro,
 				DestinationDB:                    "kafka_topics",
-				PartitionRegex:                   "/{int_value,identity}",
+				PartitionRegex:                   "/{int64_value,identity}",
+				ColumnToExclude:                  "excludedColumn",
 				FilterConfig: `{
 					"logical_operator": "And",
 					"conditions": [
@@ -66,7 +68,7 @@ func TestKafkaIntegration(t *testing.T) {
 							"value": ""
 						},
 						{
-							"column": "float_value",
+							"column": "float64_value",
 							"operator": "<",
 							"value": 100.00
 						}

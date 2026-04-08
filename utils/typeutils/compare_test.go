@@ -1,8 +1,10 @@
 package typeutils
 
 import (
+	"encoding/json"
 	"errors"
 	"math"
+	"strconv"
 	"testing"
 	"time"
 
@@ -99,6 +101,18 @@ func TestCompare(t *testing.T) {
 		{"numeric_string_lex_order_1", "10", "9", -1},
 		{"numeric_string_lex_order_2", "2", "100", 1},
 		{"unicode_comparison_less", "α", "β", -1},
+
+		// json.Number
+		{"json_number_int_equal", json.Number("123"), int64(123), 0},
+		{"json_number_float_equal", json.Number("123.45"), float64(123.45), 0},
+		{"json_number_int_less", json.Number("100"), int64(200), -1},
+		{"json_number_float_greater", json.Number("500.5"), float64(100.1), 1},
+		{"json_number_int64_max_equal", json.Number(strconv.FormatInt(math.MaxInt64, 10)), json.Number(strconv.FormatInt(math.MaxInt64, 10)), 0},
+		{"json_number_int64_min_equal", json.Number(strconv.FormatInt(math.MinInt64, 10)), json.Number(strconv.FormatInt(math.MinInt64, 10)), 0},
+		{"json_number_int64_min_vs_max", json.Number(strconv.FormatInt(math.MinInt64, 10)), json.Number(strconv.FormatInt(math.MaxInt64, 10)), -1},
+		{"json_number_int64_max_vs_min", json.Number(strconv.FormatInt(math.MaxInt64, 10)), json.Number(strconv.FormatInt(math.MinInt64, 10)), 1},
+		{"json_number_vs_string_numeric_equal", json.Number("123"), "123", 0},
+		{"json_number_invalid_int_fallback_string", json.Number("abc"), "abc", 0},
 
 		// fallback
 		{"fallback_string_vs_int", "123", 123, 0},

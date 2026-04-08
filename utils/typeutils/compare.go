@@ -67,12 +67,16 @@ func Compare(a, b any) int {
 		}
 		return 0
 	case json.Number:
-		// Try int64 first, then fall back to float64.
-		if aInt, err := aVal.Int64(); err == nil {
-			return Compare(aInt, b)
+		// Try int64 first, float64 then fallback to string comparison
+		if aInt, errA := ReformatInt64(aVal); errA == nil {
+			if bInt, errB := ReformatInt64(b); errB == nil {
+				return Compare(aInt, bInt)
+			}
 		}
-		if aFloat, err := aVal.Float64(); err == nil {
-			return Compare(aFloat, b)
+		if aFloat, errA := ReformatFloat64(aVal); errA == nil {
+			if bFloat, errB := ReformatFloat64(b); errB == nil {
+				return Compare(aFloat, bFloat)
+			}
 		}
 		return strings.Compare(aVal.String(), fmt.Sprintf("%v", b))
 	default:

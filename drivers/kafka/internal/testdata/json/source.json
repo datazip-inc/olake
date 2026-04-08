@@ -4,10 +4,6 @@
     "security_protocol": "PLAINTEXT"
   },
   "consumer_group_id": "kafka-Json-integration-test-group",
-  "max_threads": 40,
   "threads_equal_total_partitions": true,
-  "backoff_retry_count": 3,
-  "schema_registry": {
-    "endpoint": "http://host.docker.internal:8081"
-  }
+  "backoff_retry_count": 3
 }

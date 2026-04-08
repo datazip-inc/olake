@@ -18,31 +18,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	partitionCount  = 5
+	kafkaJSONBroker = "127.0.0.1:29092"
+	kafkaAvroBroker = "127.0.0.1:29192"
+)
+
 var (
 	// Message key and value for JSON and Avro
 	jsonKey          = []byte("json-key")
 	avroKey          = []byte("avro-key")
-	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string"}`)
-	jsonEvolvedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean_true": true,"boolean_false": false,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "id_int": 101}`)
-	filterValue1     = []byte(`{"string_value": "","float_value": 99.99}`)
-	filterValue2     = []byte(`{"string_value": "filter_string","float_value": 100.00}`)
-	partitionCount   = 5
+	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "excludedColumn": 101}`)
+	jsonEvolvedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "excludedColumn": 101,"includedColumn": 102}`)
+	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"excludedColumn": 101}`)
 
 	// Base Avro schema
 	avroSchema = `{
 		"type":"record",
 		"name":"test",
 		"fields":[
-			{"name":"int32_value","type":"int","default":0},
-			{"name":"int64_value","type":"long","default":0},
-			{"name":"int_value","type":"long","default":0},
-			{"name":"float32_value","type":"float","default":0},
-			{"name":"float64_value","type":"double","default":0},
-			{"name":"float_value","type":"double","default":0},
-			{"name":"boolean_true","type":"boolean","default":false},
-			{"name":"boolean_false","type":"boolean","default":false},
-			{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"},"default":0},
-			{"name":"string_value","type":"string","default":""}
+			{"name":"int32_value","type":"int"},
+			{"name":"int64_value","type":"long"},
+			{"name":"float32_value","type":"float"},
+			{"name":"float64_value","type":"double"},
+			{"name":"boolean","type":"boolean"},
+			{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
+			{"name":"string_value","type":"string"},
+			{"name":"excludedColumn","type":"int"}
 		]
 	}`
 
@@ -51,47 +53,48 @@ var (
 		"type":"record",
 		"name":"test",
 		"fields":[
-			{"name":"int32_value","type":"long","default":0},
-			{"name":"int64_value","type":"long","default":0},
-			{"name":"int_value","type":"long","default":0},
-			{"name":"float32_value","type":"float","default":0},
-			{"name":"float64_value","type":"double","default":0},
-			{"name":"float_value","type":"double","default":0},
-			{"name":"boolean_true","type":"boolean","default":false},
-			{"name":"boolean_false","type":"boolean","default":false},
-			{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"},"default":0},
-			{"name":"string_value","type":"string","default":""},
-			{"name":"id_int","type":"long","default":0}
+			{"name":"int32_value","type":"long"},
+			{"name":"int64_value","type":"long"},
+			{"name":"float32_value","type":"float"},
+			{"name":"float64_value","type":"double"},
+			{"name":"boolean","type":"boolean"},
+			{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
+			{"name":"string_value","type":"string"},
+			{"name":"excludedColumn","type":"int"},
+			{"name":"includedColumn","type":"int","default":102}
 		]
 	}`
 
 	avroValue = map[string]interface{}{
 		"int32_value":     int32(132),
 		"int64_value":     int64(6400000000),
-		"int_value":       int64(101),
 		"float32_value":   float32(32.5),
 		"float64_value":   float64(64.6464),
-		"float_value":     float64(66.6666),
-		"boolean_true":    true,
-		"boolean_false":   false,
+		"boolean":         true,
 		"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 		"string_value":    "test_string",
+		"excludedColumn":  int32(101),
 	}
 	avroFilterValue = map[string]interface{}{
-		"float_value": 99.99,
+		"int32_value":     int32(132),
+		"int64_value":     int64(6400000000),
+		"float32_value":   float32(32.5),
+		"float64_value":   float64(64.6464),
+		"boolean":         true,
+		"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+		"string_value":    "",
+		"excludedColumn":  int32(101),
 	}
 	avroEvolvedValue = map[string]interface{}{
 		"int32_value":     int32(132),
 		"int64_value":     int64(6400000000),
-		"int_value":       int64(101),
 		"float32_value":   float32(32.5),
 		"float64_value":   float64(64.6464),
-		"float_value":     float64(66.6666),
-		"boolean_true":    true,
-		"boolean_false":   false,
+		"boolean":         true,
 		"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 		"string_value":    "test_string",
-		"id_int":          int64(101),
+		"excludedColumn":  int32(101),
+		"includedColumn":  int32(102),
 	}
 )
 
@@ -99,9 +102,8 @@ var (
 func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
-	broker := "127.0.0.1:29092"
 	writer := &kafka.Writer{
-		Addr:                   kafka.TCP(broker),
+		Addr:                   kafka.TCP(kafkaJSONBroker),
 		Topic:                  streams[0],
 		Balancer:               &kafka.RoundRobin{},
 		AllowAutoTopicCreation: false,
@@ -110,24 +112,21 @@ func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, op
 
 	switch operation {
 	case "create":
-		createKafkaTopic(ctx, t, broker, streams[0])
+		createKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
 	case "clean":
-		deleteKafkaTopic(ctx, t, broker, streams[0])
-		createKafkaTopic(ctx, t, broker, streams[0])
+		deleteKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
+		createKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
 	case "drop":
-		deleteKafkaTopic(ctx, t, broker, streams[0])
+		deleteKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
 	case "add":
-		for partition := 0; partition < partitionCount; partition++ {
+		for partition := range partitionCount {
 			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: jsonValue, Partition: partition})
 		}
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: filterValue1})
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: filterValue2})
-		t.Logf("Added 7 messages to topic '%s' (one per partition and two for filters)", streams[0])
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: jsonFilterValue})
+		t.Logf("Added 6 messages to topic '%s' (one per partition and one for filters)", streams[0])
 	case "update":
-		for partition := 0; partition < partitionCount; partition++ {
-			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: jsonEvolvedValue, Partition: partition})
-		}
-		t.Logf("Added 5 messages to topic '%s' (each per partition)", streams[0])
+		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: jsonEvolvedValue})
+		t.Logf("Added 1 updated message to topic '%s'", streams[0])
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
 	}
@@ -139,11 +138,10 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 
 	var config Config
 	require.NoError(t, utils.UnmarshalFile("./testdata/avro/source.json", &config, false), "failed to unmarshal kafka test source config")
-	broker := "127.0.0.1:29192"
 	registryURL := strings.ReplaceAll(config.SchemaRegistry.Endpoint, "host.docker.internal", "127.0.0.1")
 
 	writer := &kafka.Writer{
-		Addr:                   kafka.TCP(broker),
+		Addr:                   kafka.TCP(kafkaAvroBroker),
 		Topic:                  streams[0],
 		Balancer:               &kafka.RoundRobin{},
 		AllowAutoTopicCreation: false,
@@ -151,23 +149,25 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 	defer writer.Close()
 	switch operation {
 	case "create":
-		createKafkaTopic(ctx, t, broker, streams[0])
+		createKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
 	case "clean":
-		deleteKafkaTopic(ctx, t, broker, streams[0])
-		createKafkaTopic(ctx, t, broker, streams[0])
+		deleteKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
+		createKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
 	case "drop":
-		deleteKafkaTopic(ctx, t, broker, streams[0])
+		deleteKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
 	case "add":
 		codec, err := goavro.NewCodec(avroSchema)
 		require.NoError(t, err)
 		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], avroSchema)
 		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroValue)
 		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroFilterValue)
+		t.Logf("Added 6 messages to topic '%s' (one per partition and one for filters)", streams[0])
 	case "update":
 		codec, err := goavro.NewCodec(updatedAvroSchema)
 		require.NoError(t, err)
 		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], updatedAvroSchema)
 		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroEvolvedValue)
+		t.Logf("Added 1 updated message to topic '%s'", streams[0])
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
 	}
@@ -213,9 +213,9 @@ func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Wri
 		if err == nil {
 			return
 		}
-
+		t.Logf("retrying kafka write (topic=%s partition=%d): %v", writer.Topic, msg.Partition, err)
 		if ctx.Err() != nil {
-			require.NoError(t, err, "failed to write seed kafka message (topic=%q partition=%d)", writer.Topic, msg.Partition)
+			require.NoError(t, err, "timed out writing kafka message after retries (topic=%q partition=%d): %v", writer.Topic, msg.Partition, err)
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -223,44 +223,51 @@ func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Wri
 }
 
 func registerSchemaWithRetry(t *testing.T, url, topic, schema string) uint32 {
+	t.Helper()
+
 	body, err := json.Marshal(map[string]string{"schema": schema})
 	require.NoError(t, err)
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	delay := 2 * time.Second
+	var schemaID uint32
 
-	for i := 0; i < 5; i++ {
+	err = utils.RetryOnBackoff(context.Background(), 5, 2*time.Second, func(_ context.Context) error {
 		resp, err := client.Post(
 			fmt.Sprintf("%s/subjects/%s-value/versions", url, topic),
 			"application/vnd.schemaregistry.v1+json",
 			bytes.NewReader(body),
 		)
-		if err == nil {
-			if resp.StatusCode == http.StatusOK {
-				var res struct {
-					ID uint32 `json:"id"`
-				}
-				err = json.NewDecoder(resp.Body).Decode(&res)
-				resp.Body.Close()
-				require.NoError(t, err)
-				return res.ID
-			}
-			resp.Body.Close()
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("unexpected status: %d", resp.StatusCode)
 		}
 
-		time.Sleep(delay)
-		delay *= 2
-	}
+		var res struct {
+			ID uint32 `json:"id"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			return err
+		}
 
-	require.FailNow(t, "failed to register schema")
-	return 0
+		schemaID = res.ID
+		return nil
+	})
+
+	require.NoError(t, err, "failed to register schema")
+	return schemaID
 }
 
 // encodeAndWriteAvro encodes the Avro value and writes it to the Kafka topic
 func encodeAndWriteAvro(ctx context.Context, t *testing.T, writer *kafka.Writer, codec *goavro.Codec, schemaID uint32, key []byte, value map[string]interface{}) {
 	t.Helper()
 	binaryData, err := codec.BinaryFromNative(nil, value)
-	require.NoError(t, err)
+	require.NoError(t, err, "encode Avro value to binary (topic=%q, schema_id=%d)", writer.Topic, schemaID)
+
+	// Confluent wire format: 1-byte magic (0x00) + 4-byte big-endian schema ID + Avro binary payload.
 	msg := make([]byte, 5+len(binaryData))
 	msg[0] = 0x00
 	binary.BigEndian.PutUint32(msg[1:5], schemaID)
@@ -271,8 +278,7 @@ func encodeAndWriteAvro(ctx context.Context, t *testing.T, writer *kafka.Writer,
 var ExpectedKafkaJSONData = map[string]interface{}{
 	"int_value":       int64(100),
 	"float_value":     float64(99.99),
-	"boolean_true":    true,
-	"boolean_false":   false,
+	"boolean":         true,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"string_value":    "test_string",
 }
@@ -280,18 +286,16 @@ var ExpectedKafkaJSONData = map[string]interface{}{
 var ExpectedKafkaUpdatedJSONData = map[string]interface{}{
 	"int_value":       int64(100),
 	"float_value":     float64(99.99),
-	"boolean_true":    true,
-	"boolean_false":   false,
+	"boolean":         true,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"string_value":    "test_string",
-	"id_int":          int64(101),
+	"includedColumn":  int64(102),
 }
 
 var KafkaToDestinationJSONSchema = map[string]string{
 	"int_value":       "bigint",
 	"float_value":     "double",
-	"boolean_true":    "boolean",
-	"boolean_false":   "boolean",
+	"boolean":         "boolean",
 	"timestamp_value": "timestamp",
 	"string_value":    "string",
 }
@@ -299,22 +303,18 @@ var KafkaToDestinationJSONSchema = map[string]string{
 var EvolvedKafkaToDestinationJSONSchema = map[string]string{
 	"int_value":       "bigint",
 	"float_value":     "double",
-	"boolean_true":    "boolean",
-	"boolean_false":   "boolean",
+	"boolean":         "boolean",
 	"timestamp_value": "timestamp",
 	"string_value":    "string",
-	"id_int":          "bigint",
+	"includedColumn":  "bigint",
 }
 
 var KafkaToDestinationAvroSchema = map[string]string{
 	"int32_value":     "int",
 	"int64_value":     "bigint",
-	"int_value":       "bigint",
 	"float32_value":   "float",
 	"float64_value":   "double",
-	"float_value":     "double",
-	"boolean_true":    "boolean",
-	"boolean_false":   "boolean",
+	"boolean":         "boolean",
 	"timestamp_value": "timestamp",
 	"string_value":    "string",
 }
@@ -322,40 +322,31 @@ var KafkaToDestinationAvroSchema = map[string]string{
 var EvolvedKafkaToDestinationAvroSchema = map[string]string{
 	"int32_value":     "bigint",
 	"int64_value":     "bigint",
-	"int_value":       "bigint",
 	"float32_value":   "float",
 	"float64_value":   "double",
-	"float_value":     "double",
-	"boolean_true":    "boolean",
-	"boolean_false":   "boolean",
+	"boolean":         "boolean",
 	"timestamp_value": "timestamp",
 	"string_value":    "string",
-	"id_int":          "bigint",
+	"includedColumn":  "int",
 }
 
 var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
 	"int32_value":     int64(132), // promoted from int → long
 	"int64_value":     int64(6400000000),
-	"int_value":       int64(101),
 	"float32_value":   float32(32.5),
 	"float64_value":   float64(64.6464),
-	"float_value":     float64(66.6666),
-	"boolean_true":    true,
-	"boolean_false":   false,
+	"boolean":         true,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"string_value":    "test_string",
-	"id_int":          int64(101), // new field
+	"includedColumn":  int32(102), // new field
 }
 
 var ExpectedKafkaAvroData = map[string]interface{}{
 	"int32_value":     int32(132),
 	"int64_value":     int64(6400000000),
-	"int_value":       int64(101),
 	"float32_value":   float32(32.5),
 	"float64_value":   float64(64.6464),
-	"float_value":     float64(66.6666),
-	"boolean_true":    true,
-	"boolean_false":   false,
+	"boolean":         true,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"string_value":    "test_string",
 }

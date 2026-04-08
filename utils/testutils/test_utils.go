@@ -454,7 +454,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
-	testCases := []syncTestCase{
+	dbTestCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
 			operation: "",
@@ -494,7 +494,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "CDC - update",
+			name:      "CDC - strict - update",
 			operation: "update",
 			useState:  true,
 			opSymbol:  "c",
@@ -502,7 +502,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		},
 	}
 
-	testCases = utils.Ternary(slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)), kafkaTestCases, testCases).([]syncTestCase)
+	testCases := utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
 
 	// Run each test case
 	for _, tc := range testCases {
@@ -553,7 +553,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		return fmt.Errorf("failed to reset table: %s", err)
 	}
 
-	testCases := []syncTestCase{
+	dbTestCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
 			operation: "",
@@ -593,7 +593,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 			expected:  cfg.ExpectedData,
 		},
 		{
-			name:      "CDC - update",
+			name:      "CDC - strict - update",
 			operation: "update",
 			useState:  true,
 			opSymbol:  "c",
@@ -601,7 +601,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		},
 	}
 
-	testCases = utils.Ternary(slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)), kafkaTestCases, testCases).([]syncTestCase)
+	testCases := utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
 
 	// Run each test case
 	for _, tc := range testCases {
@@ -820,10 +820,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
-	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver)
-	if cfg.TestConfig.DataFormat != "" {
-		currentTestTable = fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)
-	}
+	currentTestTable := utils.Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
@@ -951,6 +948,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								{"Arrow", true},
 							}
 
+							// Skip cdc tests for drivers not supporting cdc mode
 							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
 								for _, wt := range writerTypes {
 									t.Run(fmt.Sprintf("Iceberg (%s) Full load + CDC tests", wt.name), func(t *testing.T) {
@@ -967,6 +965,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								})
 							}
 
+							// Skip incremental tests for drivers not supporting incremental mode
 							if !slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)) {
 								for _, wt := range writerTypes {
 									t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
@@ -1052,9 +1051,10 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		"SELECT * FROM %s WHERE _op_type = '%s'",
 		fullTableName, opSymbol,
 	)
+	// For strict CDC drivers, filter by the new column since _op_type is always 'c'
 	if slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(driver)) {
-		if _, ok := schema["id_int"]; ok {
-			selectQuery += " AND id_int IS NOT NULL"
+		if _, ok := schema["includedcolumn"]; ok {
+			selectQuery += " AND includedcolumn IS NOT NULL"
 		}
 	}
 	t.Logf("Executing query: %s", selectQuery)
@@ -1275,6 +1275,12 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		"SELECT * FROM %s WHERE `_op_type` = '%s'",
 		viewName, opSymbol,
 	)
+	// For strict CDC drivers, filter by the new column since _op_type is always 'c'
+	if slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(driver)) {
+		if _, ok := schema["includedcolumn"]; ok {
+			selectQuery += " AND includedcolumn IS NOT NULL"
+		}
+	}
 	t.Logf("Executing Parquet query: %s", selectQuery)
 
 	df, err := spark.Sql(ctx, selectQuery)

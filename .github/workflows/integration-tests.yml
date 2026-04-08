@@ -109,14 +109,6 @@ jobs:
           retry_wait_seconds: 5
           command: |
             docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list
-
-      - name: Wait for Kafka2
-        uses: nick-fields/retry@v2
-        with:
-          timeout_minutes: 5
-          max_attempts: 30
-          retry_wait_seconds: 5
-          command: |
             docker exec kafka2 kafka-topics --bootstrap-server localhost:9092 --list
 
       - name: Wait for MSSQL
@@ -162,7 +154,7 @@ jobs:
 
       - name: Run Integration Tests
         run: |  
-          go test -v -p 8 ./drivers/kafka/internal/... ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
+          go test -v -p 7 ./drivers/kafka/internal/... ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
       
       - name: Cleanup
         if: always()
