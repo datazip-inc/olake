@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "master"
+      - "fix/govulncheck-ci"
     paths:
       - '**/*.go'
       - '**/*.java'
