@@ -49,6 +49,7 @@ type IntegrationTest struct {
 	CursorField                      string
 	PartitionRegex                   string
 	FilterConfig                     string
+	ColumnToExclude                  string
 }
 
 type PerformanceTest struct {
@@ -228,7 +229,7 @@ func discoverCommand(config TestConfig, flags ...string) string {
 }
 
 // update normalization=true, partition_regex, and filter_input for selected streams under selected_streams.<namespace> by name
-func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, filterConfig string, stream []string, isBackfill bool) string {
+func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, filterConfig string, stream []string, isBackfill bool, columnToExclude string) string {
 	if len(stream) == 0 {
 		return ""
 	}
@@ -244,8 +245,9 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 		filterConfig = "{}"
 	}
 	jqExpr := fmt.Sprintf(
-		`jq --argjson filter '%s' '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s" | .filter_config = $filter)) }' %s > %s && mv %s %s`,
+		`jq --argjson filter '%s' --arg col '%s' '.selected_streams = { "%s": (.selected_streams["%s"] | map(select(%s) | .normalization = true | .partition_regex = "%s" | .filter_config = $filter | .selected_columns.columns -= [$col])) }' %s > %s && mv %s %s`,
 		filterConfig,
+		columnToExclude,
 		namespace,
 		namespace,
 		condition,
@@ -402,17 +404,17 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC, cfg.ColumnToExclude)
 			} else {
-				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC)
+				VerifyIcebergSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.PartitionRegex, cfg.TestConfig.Driver, isCDC, cfg.ColumnToExclude)
 			}
 		}
 	case "parquet":
 		{
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC, cfg.ColumnToExclude)
 			} else {
-				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC)
+				VerifyParquetSync(t, testTable, cfg.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC, cfg.ColumnToExclude)
 			}
 		}
 	}
@@ -655,7 +657,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) && cfg.TestConfig.Driver != "mssql" {
+				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -742,7 +744,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != string(constants.Oracle) && cfg.TestConfig.Driver != "mssql" {
+				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != "mssql" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -889,7 +891,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
 							// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
 							// )
-							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true)
+							streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true, cfg.ColumnToExclude)
 							if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
 									code, err, out,
@@ -989,7 +991,7 @@ func dropIcebergTable(t *testing.T, tableName, icebergDB string) {
 
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -1112,6 +1114,11 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		}
 	}
 
+	if excludedColumn != "" {
+		_, ok := icebergSchema[utils.Reformat(excludedColumn)]
+		require.Falsef(t, ok, "Excluded column %q should not exist in Iceberg schema", excludedColumn)
+	}
+
 	for col, dbType := range datatypeSchema {
 		iceType, found := icebergSchema[col]
 		require.True(t, found, "Column %s not found in Iceberg schema", col)
@@ -1156,7 +1163,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
-func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool) {
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string) {
 	t.Helper()
 	ctx := context.Background()
 
@@ -1288,6 +1295,10 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			parquetSchema[colName] = dataType
 		}
 	}
+	if excludedColumn != "" {
+		_, ok := parquetSchema[utils.Reformat(excludedColumn)]
+		require.Falsef(t, ok, "Excluded column %q should not exist in Parquet schema", excludedColumn)
+	}
 
 	for col, dbType := range datatypeSchema {
 		pqType, found := parquetSchema[col]
@@ -1414,7 +1425,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 							t.Log("(backfill) discover completed")
 
-							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.BackfillStreams, true)
+							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.BackfillStreams, true, "")
 							if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
@@ -1453,7 +1464,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								}
 								t.Log("(cdc) discover completed")
 
-								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.CDCStreams, false)
+								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.CDCStreams, false, "")
 								if code, _, err := utils.ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
