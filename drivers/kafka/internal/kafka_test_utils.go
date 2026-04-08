@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +21,7 @@ const (
 	partitionCount  = 5
 	kafkaJSONBroker = "127.0.0.1:29092"
 	kafkaAvroBroker = "127.0.0.1:29192"
+	registryURL     = "http://127.0.0.1:8081"
 )
 
 var (
@@ -86,7 +86,7 @@ var (
 		"excludedColumn":  int32(101),
 	}
 	avroEvolvedValue = map[string]interface{}{
-		"int32_value":     int32(132),
+		"int32_value":     int64(132),
 		"int64_value":     int64(6400000000),
 		"float32_value":   float32(32.5),
 		"float64_value":   float64(64.6464),
@@ -136,10 +136,6 @@ func ExecuteQueryForJson(ctx context.Context, t *testing.T, streams []string, op
 func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
-	var config Config
-	require.NoError(t, utils.UnmarshalFile("./testdata/avro/source.json", &config, false), "failed to unmarshal kafka test source config")
-	registryURL := strings.ReplaceAll(config.SchemaRegistry.Endpoint, "host.docker.internal", "127.0.0.1")
-
 	writer := &kafka.Writer{
 		Addr:                   kafka.TCP(kafkaAvroBroker),
 		Topic:                  streams[0],
@@ -161,7 +157,7 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 		schemaID := registerSchemaWithRetry(t, registryURL, streams[0], avroSchema)
 		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroValue)
 		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroFilterValue)
-		t.Logf("Added 6 messages to topic '%s' (one per partition and one for filters)", streams[0])
+		t.Logf("Added 2 messages to topic '%s' (one valid for sync and one filtered out)", streams[0])
 	case "update":
 		codec, err := goavro.NewCodec(updatedAvroSchema)
 		require.NoError(t, err)
@@ -176,9 +172,10 @@ func ExecuteQueryForAvro(ctx context.Context, t *testing.T, streams []string, op
 // deleteTopic deletes the topic and waits briefly so the broker can settle (matches prior test harness behavior).
 func deleteKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
 	t.Helper()
-	conn := dialKafkaAdminConn(ctx, t, broker)
+	conn, err := kafka.DialContext(ctx, "tcp", broker)
+	require.NoError(t, err, "failed to dial kafka broker")
 	defer conn.Close()
-	err := conn.DeleteTopics(topic)
+	err = conn.DeleteTopics(topic)
 	require.NoError(t, err, "failed to delete topic '%s'", topic)
 	time.Sleep(5 * time.Second)
 }
@@ -186,23 +183,17 @@ func deleteKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
 // createTopic creates the test topic with a fixed partition count and replication factor 1.
 func createKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
 	t.Helper()
-	conn := dialKafkaAdminConn(ctx, t, broker)
+	conn, err := kafka.DialContext(ctx, "tcp", broker)
+	require.NoError(t, err, "failed to dial kafka broker")
 	defer conn.Close()
-	err := conn.CreateTopics(kafka.TopicConfig{Topic: topic, NumPartitions: partitionCount, ReplicationFactor: 1})
+
+	err = conn.CreateTopics(kafka.TopicConfig{Topic: topic, NumPartitions: partitionCount, ReplicationFactor: 1})
 	if err != nil && err != kafka.TopicAlreadyExists {
 		require.NoError(t, err, "failed to create topic '%s' explicitly", topic)
 	}
 }
 
-func dialKafkaAdminConn(ctx context.Context, t *testing.T, broker string) *kafka.Conn {
-	t.Helper()
-	conn, err := kafka.DialContext(ctx, "tcp", broker)
-	require.NoError(t, err, "failed to dial kafka broker")
-	_, err = conn.ReadPartitions()
-	require.NoError(t, err, "failed to read kafka partitions metadata")
-	return conn
-}
-
+// Writes a Kafka message with retries until success or context timeout.
 func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Writer, msg kafka.Message) {
 	t.Helper()
 
@@ -221,6 +212,7 @@ func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Wri
 	}
 }
 
+// Registers a schema with retries and returns its schema ID.
 func registerSchemaWithRetry(t *testing.T, url, topic, schema string) uint32 {
 	t.Helper()
 

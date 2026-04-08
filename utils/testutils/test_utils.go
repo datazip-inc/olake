@@ -966,7 +966,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							}
 
 							// Skip incremental tests for drivers not supporting incremental mode
-							if !slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(cfg.TestConfig.Driver)) {
+							if cfg.TestConfig.Driver != string(constants.Kafka) {
 								for _, wt := range writerTypes {
 									t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
 										if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndIncremental); err != nil {
@@ -1051,8 +1051,9 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		"SELECT * FROM %s WHERE _op_type = '%s'",
 		fullTableName, opSymbol,
 	)
-	// For strict CDC drivers, filter by the new column since _op_type is always 'c'
-	if slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(driver)) {
+// In strict CDC drivers, `_op_type` is always 'c', so it can’t be used for filtering.
+// After schema evolution, `includedcolumn` appears only in new rows, it is used to skip older data.
+	if driver == string(constants.Kafka) {
 		if _, ok := schema["includedcolumn"]; ok {
 			selectQuery += " AND includedcolumn IS NOT NULL"
 		}
@@ -1276,7 +1277,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		viewName, opSymbol,
 	)
 	// For strict CDC drivers, filter by the new column since _op_type is always 'c'
-	if slices.Contains(constants.OnlyStrictCDCDriver, constants.DriverType(driver)) {
+	if driver == string(constants.Kafka) {
 		if _, ok := schema["includedcolumn"]; ok {
 			selectQuery += " AND includedcolumn IS NOT NULL"
 		}
