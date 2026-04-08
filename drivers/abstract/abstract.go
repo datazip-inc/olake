@@ -60,13 +60,6 @@ func (a *AbstractDriver) Type() string {
 }
 
 func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, isSync bool) ([]*types.Stream, error) {
-	// set max connections, uses maxDiscoverThreads if discover command is used
-	if maxDiscoverThreads > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
-	} else if a.driver.MaxConnections() > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
-	}
-
 	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream names: %s", err)
@@ -79,6 +72,13 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 	// source-side validation and trust the catalog directly.
 	if isSync {
 		return nil, nil
+	}
+
+	// Set max connections for the ProduceSchema
+	if maxDiscoverThreads > 0 {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
+	} else if a.driver.MaxConnections() > 0 {
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
 	var streamMap sync.Map

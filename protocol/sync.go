@@ -193,6 +193,8 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
+			// TODO: addition of validation of fields during sync
+			// along with option to discover schema during sync
 			err := elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
