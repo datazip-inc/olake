@@ -57,7 +57,7 @@ func TestKafkaIntegration(t *testing.T) {
 				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 				ExecuteQuery:                     ExecuteQueryForAvro,
 				DestinationDB:                    "kafka_topics",
-				PartitionRegex:                   "/{timestamp_value,day}",
+				PartitionRegex:                   "/{int64_value,identity}",
 				ColumnToExclude:                  "excludedColumn",
 				FilterConfig: `{
 					"logical_operator": "And",
