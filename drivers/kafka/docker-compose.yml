@@ -1,27 +1,27 @@
 
 services:
-  zookeeper:
+  zookeeperJson:
     image: confluentinc/cp-zookeeper:7.6.0
-    container_name: zookeeper
+    container_name: zookeeperJson
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
-  kafka:
+  kafkaJson:
     image: confluentinc/cp-kafka:7.6.0
-    container_name: kafka
+    container_name: kafkaJson
     restart: unless-stopped
     depends_on:
-      - zookeeper
+      - zookeeperJson
     ports:
       - "29092:29092"
       - "39092:39092"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ZOOKEEPER_CONNECT: zookeeperJson:2181
       KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL_HOST://0.0.0.0:29092,EXTERNAL_CONT://0.0.0.0:39092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL_HOST://127.0.0.1:29092,EXTERNAL_CONT://host.docker.internal:39092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafkaJson:9092,EXTERNAL_HOST://127.0.0.1:29092,EXTERNAL_CONT://host.docker.internal:39092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL_HOST:PLAINTEXT,EXTERNAL_CONT:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -34,43 +34,43 @@ services:
       retries: 5
       start_period: 30s
     volumes:
-      - kafka_storage:/var/lib/kafka/data
+      - kafkaJson_storage:/var/lib/kafka/data
 
   schema-registry:
     image: confluentinc/cp-schema-registry:7.6.0
     container_name: schema-registry
     depends_on:
-      kafka:
+      kafkaAvro:
         condition: service_healthy
     ports:
       - "8081:8081"
     environment:
       SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafka:9092'
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'kafkaAvro:9092'
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
 
-  zookeeper2:
+  zookeeperAvro:
     image: confluentinc/cp-zookeeper:7.6.0
-    container_name: zookeeper2
+    container_name: zookeeperAvro
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
-  kafka2:
+  kafkaAvro:
     image: confluentinc/cp-kafka:7.6.0
-    container_name: kafka2
+    container_name: kafkaAvro
     restart: unless-stopped
     depends_on:
-      - zookeeper2
+      - zookeeperAvro
     ports:
       - "29192:29092"
       - "39192:39092"
     environment:
       KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper2:2181
+      KAFKA_ZOOKEEPER_CONNECT: zookeeperAvro:2181
       KAFKA_LISTENERS: INTERNAL://0.0.0.0:9092,EXTERNAL_HOST://0.0.0.0:29092,EXTERNAL_CONT://0.0.0.0:39092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka2:9092,EXTERNAL_HOST://127.0.0.1:29192,EXTERNAL_CONT://host.docker.internal:39192
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafkaAvro:9092,EXTERNAL_HOST://127.0.0.1:29192,EXTERNAL_CONT://host.docker.internal:39192
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL_HOST:PLAINTEXT,EXTERNAL_CONT:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -83,8 +83,8 @@ services:
       retries: 5
       start_period: 30s
     volumes:
-      - kafka2_storage:/var/lib/kafka/data
+      - kafkaAvro_storage:/var/lib/kafka/data
 
 volumes:
-  kafka_storage:
-  kafka2_storage:
+  kafkaJson_storage:
+  kafkaAvro_storage:

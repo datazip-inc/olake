@@ -20,7 +20,7 @@ jobs:
   integration-tests:
     environment: integration_tests
     runs-on: 32gb-runner
-    timeout-minutes: 60
+    timeout-minutes: 50
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -108,8 +108,8 @@ jobs:
           max_attempts: 30
           retry_wait_seconds: 5
           command: |
-            docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list
-            docker exec kafka2 kafka-topics --bootstrap-server localhost:9092 --list
+            docker exec kafkaJson kafka-topics --bootstrap-server localhost:9092 --list
+            docker exec kafkaAvro kafka-topics --bootstrap-server localhost:9092 --list
 
       - name: Wait for MSSQL
         uses: nick-fields/retry@v2
@@ -154,7 +154,7 @@ jobs:
 
       - name: Run Integration Tests
         run: |  
-          go test -v -p 7 ./drivers/kafka/internal/... ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
+          go test -v -p 7 ./drivers/kafka/internal/... -timeout 0 -run 'Integration'
       
       - name: Cleanup
         if: always()

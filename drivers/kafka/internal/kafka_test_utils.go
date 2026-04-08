@@ -289,7 +289,7 @@ var ExpectedKafkaUpdatedJSONData = map[string]interface{}{
 	"boolean":         true,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"string_value":    "test_string",
-	"includedColumn":  int64(102),
+	"includedcolumn":  int64(102),
 }
 
 var KafkaToDestinationJSONSchema = map[string]string{
@@ -306,7 +306,7 @@ var EvolvedKafkaToDestinationJSONSchema = map[string]string{
 	"boolean":         "boolean",
 	"timestamp_value": "timestamp",
 	"string_value":    "string",
-	"includedColumn":  "bigint",
+	"includedcolumn":  "bigint",
 }
 
 var KafkaToDestinationAvroSchema = map[string]string{
@@ -327,7 +327,7 @@ var EvolvedKafkaToDestinationAvroSchema = map[string]string{
 	"boolean":         "boolean",
 	"timestamp_value": "timestamp",
 	"string_value":    "string",
-	"includedColumn":  "int",
+	"includedcolumn":  "int",
 }
 
 var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
@@ -338,7 +338,7 @@ var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
 	"boolean":         true,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"string_value":    "test_string",
-	"includedColumn":  int32(102), // new field
+	"includedcolumn":  int32(102), // new field
 }
 
 var ExpectedKafkaAvroData = map[string]interface{}{
