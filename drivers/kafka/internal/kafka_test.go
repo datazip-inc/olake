@@ -27,7 +27,7 @@ func TestKafkaIntegration(t *testing.T) {
 				ExecuteQuery:                     ExecuteQueryForJson,
 				DestinationDB:                    "kafka_topics",
 				PartitionRegex:                   "/{int_value,identity}",
-				ColumnToExclude:                  "excludedColumn",
+				ColumnToExclude:                  "col_excluded",
 				FilterConfig: `{
 					"logical_operator": "And",
 					"conditions": [
@@ -58,7 +58,7 @@ func TestKafkaIntegration(t *testing.T) {
 				ExecuteQuery:                     ExecuteQueryForAvro,
 				DestinationDB:                    "kafka_topics",
 				PartitionRegex:                   "/{int64_value,identity}",
-				ColumnToExclude:                  "excludedColumn",
+				ColumnToExclude:                  "col_excluded",
 				FilterConfig: `{
 					"logical_operator": "And",
 					"conditions": [

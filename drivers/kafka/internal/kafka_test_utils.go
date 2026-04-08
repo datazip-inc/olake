@@ -28,9 +28,9 @@ var (
 	// Message key and value for JSON and Avro
 	jsonKey          = []byte("json-key")
 	avroKey          = []byte("avro-key")
-	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "excludedColumn": 101}`)
-	jsonEvolvedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "excludedColumn": 101,"includedColumn": 102}`)
-	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"excludedColumn": 101}`)
+	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
+	jsonEvolvedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
 
 	// Base Avro schema
 	avroSchema = `{
@@ -44,7 +44,7 @@ var (
 			{"name":"boolean","type":"boolean"},
 			{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
 			{"name":"string_value","type":"string"},
-			{"name":"excludedColumn","type":"int"}
+			{"name":"col_excluded","type":"int"}
 		]
 	}`
 
@@ -60,8 +60,8 @@ var (
 			{"name":"boolean","type":"boolean"},
 			{"name":"timestamp_value","type":{"type":"long","logicalType":"timestamp-micros"}},
 			{"name":"string_value","type":"string"},
-			{"name":"excludedColumn","type":"int"},
-			{"name":"includedColumn","type":"int","default":102}
+			{"name":"col_excluded","type":"int"},
+			{"name":"col_included","type":"int","default": 102}
 		]
 	}`
 
@@ -73,7 +73,7 @@ var (
 		"boolean":         true,
 		"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 		"string_value":    "test_string",
-		"excludedColumn":  int32(101),
+		"col_excluded":    int32(101),
 	}
 	avroFilterValue = map[string]interface{}{
 		"int32_value":     int32(132),
@@ -83,7 +83,7 @@ var (
 		"boolean":         true,
 		"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 		"string_value":    "",
-		"excludedColumn":  int32(101),
+		"col_excluded":    int32(101),
 	}
 	avroEvolvedValue = map[string]interface{}{
 		"int32_value":     int64(132),
@@ -93,8 +93,8 @@ var (
 		"boolean":         true,
 		"timestamp_value": int64(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 		"string_value":    "test_string",
-		"excludedColumn":  int32(101),
-		"includedColumn":  int32(102),
+		"col_excluded":    int32(101),
+		"col_included":    int32(102),
 	}
 )
 
@@ -280,7 +280,7 @@ var ExpectedKafkaUpdatedJSONData = map[string]interface{}{
 	"boolean":         true,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"string_value":    "test_string",
-	"includedcolumn":  int64(102),
+	"col_included":    int64(102),
 }
 
 var KafkaToDestinationJSONSchema = map[string]string{
@@ -297,7 +297,7 @@ var EvolvedKafkaToDestinationJSONSchema = map[string]string{
 	"boolean":         "boolean",
 	"timestamp_value": "timestamp",
 	"string_value":    "string",
-	"includedcolumn":  "bigint",
+	"col_included":    "bigint",
 }
 
 var KafkaToDestinationAvroSchema = map[string]string{
@@ -318,7 +318,7 @@ var EvolvedKafkaToDestinationAvroSchema = map[string]string{
 	"boolean":         "boolean",
 	"timestamp_value": "timestamp",
 	"string_value":    "string",
-	"includedcolumn":  "int",
+	"col_included":    "int",
 }
 
 var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
@@ -329,7 +329,7 @@ var ExpectedKafkaUpdatedAvroData = map[string]interface{}{
 	"boolean":         true,
 	"timestamp_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"string_value":    "test_string",
-	"includedcolumn":  int32(102), // new field
+	"col_included":    int32(102), // new field
 }
 
 var ExpectedKafkaAvroData = map[string]interface{}{
