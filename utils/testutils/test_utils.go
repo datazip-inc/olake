@@ -1051,8 +1051,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		"SELECT * FROM %s WHERE _op_type = '%s'",
 		fullTableName, opSymbol,
 	)
-// In strict CDC drivers, `_op_type` is always 'c', so it can’t be used for filtering.
-// After schema evolution, `includedcolumn` appears only in new rows, it is used to skip older data.
+	// In strict CDC drivers, _op_type is always 'c', so it can't be used for filtering.
+	// After schema evolution, includedcolumn appears only in new rows; it is used to skip older data.
 	if driver == string(constants.Kafka) {
 		if _, ok := schema["includedcolumn"]; ok {
 			selectQuery += " AND includedcolumn IS NOT NULL"
