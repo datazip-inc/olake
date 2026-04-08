@@ -230,7 +230,6 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 	return streamNames, collections.Err()
 }
 
-// TODO: omit usage of ProduceSchema when sync command is used
 func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)

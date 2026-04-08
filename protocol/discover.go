@@ -53,7 +53,7 @@ var discoverCmd = &cobra.Command{
 		discoverCtx, cancel := context.WithTimeout(cmd.Context(), discoverTimeout)
 		defer cancel()
 
-		streams, err := connector.Discover(discoverCtx, maxDiscoverThreads)
+		streams, err := connector.Discover(discoverCtx, maxDiscoverThreads, false)
 		if err != nil {
 			return err
 		}
