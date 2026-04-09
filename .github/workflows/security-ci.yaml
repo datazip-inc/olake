@@ -35,24 +35,28 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: Run vulnerability checks
         run: |
-          # govulncheck has no native ignore file; we read .govulnignore manually.
-          # Lines prefixed with '#' are comments; blank lines are skipped.
-          EXEMPT=$(grep -v '^\s*#' .govulnignore | grep -v '^\s*$' | paste -sd '|')
-          set +e
-          govulncheck -json ./... > /tmp/govuln.json 2>&1
-          GOVULN_EXIT=$?
-          set -e
-          if [ "$GOVULN_EXIT" -eq 0 ]; then
-            echo "No vulnerabilities found."
-            exit 0
+          govulncheck ./... >/tmp/govuln.txt 2>&1 || VULN_EXIT=$?
+          VULN_EXIT=${VULN_EXIT:-0}
+          cat /tmp/govuln.txt
+
+          if [ "$VULN_EXIT" -ne 3 ]; then
+            exit "$VULN_EXIT"
           fi
-          REMAINING=$(grep -o '"GO-[0-9-]*"' /tmp/govuln.json | tr -d '"' | sort -u | grep -vE "$EXEMPT" || true)
-          if [ -n "$REMAINING" ]; then
-            echo "Unexempted vulnerabilities found: $REMAINING"
-            govulncheck ./...
+
+          # Repo root is the job working directory; do not use ../.govulnignore
+          IGNORED=$(grep -vE '^\s*(#|$)' .govulnignore 2>/dev/null | grep -oE 'GO-[0-9]+-[0-9]+' | sort -u | paste -s -d '|' -)
+          FOUND=$(grep -oE 'GO-[0-9]+-[0-9]+' /tmp/govuln.txt | sort -u)
+          UNKNOWN="$FOUND"
+          if [ -n "$IGNORED" ]; then
+            UNKNOWN=$(echo "$UNKNOWN" | grep -vE "$IGNORED" || true)
+          fi
+
+          if [ -n "$UNKNOWN" ]; then
+            echo "Unsuppressed vulnerabilities found: $UNKNOWN"
             exit 1
           fi
-          echo "All findings are exempted via .govulnignore: $EXEMPT"
+
+          echo -e "\033[0;32m✅ govulncheck: all findings suppressed via .govulnignore\033[0m"
 
   gosec:
     name: GoSec Security Scanner
