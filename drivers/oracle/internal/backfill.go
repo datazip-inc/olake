@@ -87,8 +87,58 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 	return chunks, nil
 }
 
-// TODO: Make this function more efficient by using a single query to get all the rowids in the table using one query
 func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.StreamInterface, avgRowSize float64) (*types.Set[types.Chunk], error) {
+	rowsPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSize))
+	if rowsPerChunk <= 0 {
+		rowsPerChunk = 1
+	}
+
+	var numRows int64
+	err := o.client.QueryRowContext(ctx, jdbc.OracleTableRowStatsQuery(), stream.Namespace(), stream.Name()).Scan(&numRows, new(float64))
+	if err != nil || numRows <= 0 {
+		if err != nil {
+			logger.Debugf("Oracle table stats unavailable for [%s.%s], falling back to row-by-row chunk iteration: %v", stream.Namespace(), stream.Name(), err)
+		} else {
+			logger.Debugf("Oracle table stats returned num_rows=%d for [%s.%s], falling back to row-by-row chunk iteration", numRows, stream.Namespace(), stream.Name())
+		}
+		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
+	}
+
+	numChunks := int64(math.Ceil(float64(numRows) / float64(rowsPerChunk)))
+	if numChunks <= 0 {
+		numChunks = 1
+	}
+
+	rows, err := o.client.QueryContext(ctx, jdbc.AllChunkBoundaryRowIDsQuery(stream, numChunks))
+	if err != nil {
+		logger.Debugf("NTILE boundary query failed for [%s.%s], falling back to row-by-row chunk iteration: %v", stream.Namespace(), stream.Name(), err)
+		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
+	}
+	defer rows.Close()
+
+	var startRowIDs []string
+	for rows.Next() {
+		var bucketID int64
+		var minRowID, maxRowID string
+		err = rows.Scan(&bucketID, &minRowID, &maxRowID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan chunk boundary rowids: %s", err)
+		}
+		startRowIDs = append(startRowIDs, minRowID)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate chunk boundary rowids: %s", err)
+	}
+	if len(startRowIDs) == 0 {
+		logger.Debugf("NTILE boundary query returned no rowids for [%s.%s], falling back to row-by-row chunk iteration", stream.Namespace(), stream.Name())
+		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
+	}
+
+	return buildChunksFromStartRowIDs(startRowIDs), nil
+}
+
+func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.StreamInterface, rowsPerChunk int64) (*types.Set[types.Chunk], error) {
 	chunks := types.NewSet[types.Chunk]()
 
 	var minRowId, maxRowId string
@@ -97,7 +147,6 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 	if err != nil {
 		return nil, fmt.Errorf("failed to get min-max row id: %s", err)
 	}
-	rowsPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSize))
 
 	currRowId := minRowId
 	chunks.Insert(types.Chunk{
@@ -166,7 +215,6 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 		return nil, fmt.Errorf("failed to create chunks: %s", err)
 	}
 
-	chunks := types.NewSet[types.Chunk]()
 	chunkQuery := jdbc.OracleChunkRetrievalQuery(taskName)
 	rows, err := o.client.QueryContext(ctx, chunkQuery)
 	if err != nil {
@@ -186,6 +234,15 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 		startRowIDs = append(startRowIDs, startRowID)
 	}
 
+	return buildChunksFromStartRowIDs(startRowIDs), rows.Err()
+}
+
+func buildChunksFromStartRowIDs(startRowIDs []string) *types.Set[types.Chunk] {
+	chunks := types.NewSet[types.Chunk]()
+	if len(startRowIDs) == 0 {
+		return chunks
+	}
+
 	chunks.Insert(types.Chunk{
 		Min: nil,
 		Max: startRowIDs[0],
@@ -193,11 +250,8 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 
 	for idx, startRowID := range startRowIDs {
 		var maxRowID interface{}
-
 		if idx < len(startRowIDs)-1 {
 			maxRowID = startRowIDs[idx+1]
-		} else {
-			maxRowID = nil
 		}
 
 		chunks.Insert(types.Chunk{
@@ -206,7 +260,7 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 		})
 	}
 
-	return chunks, rows.Err()
+	return chunks
 }
 
 // TODO: Add support for oracle extents based chunking strategy
