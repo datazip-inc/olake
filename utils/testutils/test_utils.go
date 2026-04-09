@@ -1051,8 +1051,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		"SELECT * FROM %s WHERE _op_type = '%s'",
 		fullTableName, opSymbol,
 	)
-	// In strict CDC drivers, _op_type is always 'c', so it can't be used for filtering.
-	// After schema evolution, col_included appears only in new rows; it is used to skip older data.
+	// In kafka, _op_type is always 'c' and col_included appears only in new rows.
+	// To check new record, col_included is used.
 	if driver == string(constants.Kafka) {
 		if _, ok := schema["col_included"]; ok {
 			selectQuery += " AND col_included IS NOT NULL"
@@ -1276,7 +1276,8 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		"SELECT * FROM %s WHERE `_op_type` = '%s'",
 		viewName, opSymbol,
 	)
-	// For strict CDC drivers, filter by the new column since _op_type is always 'c'
+	// In kafka, _op_type is always 'c' and col_included appears only in new rows.
+	// To check new record, col_included is used.
 	if driver == string(constants.Kafka) {
 		if _, ok := schema["col_included"]; ok {
 			selectQuery += " AND `col_included` IS NOT NULL"
