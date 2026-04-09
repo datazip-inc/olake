@@ -1128,6 +1128,13 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 	return fmt.Sprintf("%s %s %s", quotedCol, operator, argumentPlaceholder), formattedValue, nil
 }
 
+func formatFilterBoolValue(driverType constants.DriverType, value bool) string {
+	if driverType == constants.MSSQL {
+		return utils.Ternary(value, "1", "0").(string)
+	}
+	return utils.Ternary(value, "TRUE", "FALSE").(string)
+}
+
 // ParseFilter converts a filter string to a valid SQL WHERE condition, also appends the threshold filter if present
 func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter string) (string, error) {
 	// Resolve driver type once.
@@ -1197,6 +1204,8 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 				if err != nil && !booleanValue {
 					escaped := strings.ReplaceAll(value, "'", "''")
 					value = fmt.Sprintf("'%s'", escaped)
+				} else if booleanValue {
+					value = formatFilterBoolValue(driverType, strings.EqualFold(value, "true"))
 				}
 			}
 
@@ -1225,8 +1234,7 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 			}
 
 		case bool:
-			// SQL standard boolean
-			valueSQL = utils.Ternary(v, "TRUE", "FALSE").(string)
+			valueSQL = formatFilterBoolValue(driverType, v)
 		case int:
 			valueSQL = strconv.Itoa(v)
 		case int64:
