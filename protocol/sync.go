@@ -88,7 +88,7 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 		// Get Source Streams, sending 0 max discover threads to discover
-		streams, err := connector.Discover(cmd.Context(), 0)
+		streams, err := connector.Discover(cmd.Context(), 0, true)
 		if err != nil {
 			return err
 		}
@@ -97,6 +97,10 @@ var syncCmd = &cobra.Command{
 		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
+		}
+
+		if streams == nil {
+			state.Streams = selectedStreamsMetadata.NewStreamsState
 		}
 
 		// for clearing streams
@@ -129,7 +133,7 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 		// Sync Telemetry tracking
-		telemetry.TrackSyncStarted(syncID, streams, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
+		telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
 			telemetry.TrackSyncCompleted(syncID, err == nil, pool.GetStats().ReadCount.Load())
 			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
@@ -181,45 +185,48 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			return false
 		}
 
+		elem.StreamMetadata = sMetadata
+
 		if streams != nil {
 			source, found := types.StreamsToMap(streams...)[elem.ID()]
 			if !found {
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
-			elem.StreamMetadata = sMetadata
+			// TODO: addition of validation of fields during sync
+			// along with option to discover schema during sync
 			err := elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
 				return false
 			}
-			// TODO: move filter validation to validate method in types package
-			filter, isLegacy, err := elem.GetFilter()
-			if err != nil {
-				logger.Warnf("Skipping; Configured Stream %s failed to get filter: %s", elem.ID(), err)
+		}
+
+		filter, isLegacy, err := elem.GetFilter()
+		if err != nil {
+			logger.Warnf("Skipping; Configured Stream %s failed to get filter: %s", elem.ID(), err)
+			return false
+		}
+		if !isLegacy {
+			if len(filter.Conditions) > 2 {
+				logger.Warnf("Skipping; Configured Stream %s found invalid filter: greater than 2 conditions are not supported", elem.ID())
 				return false
 			}
-			if !isLegacy {
-				if len(filter.Conditions) > 2 {
-					logger.Warnf("Skipping; Configured Stream %s found invalid filter: greater than 2 conditions are not supported", elem.ID())
+			for _, cond := range filter.Conditions {
+				if cond.Column == "" {
+					logger.Warnf("Skipping; Configured Stream %s found invalid filter: empty column", elem.ID())
 					return false
 				}
-				for _, cond := range filter.Conditions {
-					if cond.Column == "" {
-						logger.Warnf("Skipping; Configured Stream %s found invalid filter: empty column", elem.ID())
-						return false
-					}
 
-					dataType, err := elem.Schema().GetType(cond.Column)
-					if err != nil || dataType == types.Null {
-						logger.Warnf("Skipping; Configured Stream %s found invalid filter: invalid column type %v", elem.ID(), err)
-						return false
-					}
+				dataType, err := elem.Schema().GetType(cond.Column)
+				if err != nil || dataType == types.Null {
+					logger.Warnf("Skipping; Configured Stream %s found invalid filter: invalid column type %v", elem.ID(), err)
+					return false
+				}
 
-					if _, err := typeutils.ParseFilterValue(dataType, cond.Value); err != nil {
-						logger.Warnf("Skipping; Configured Stream %s found invalid filter: invalid value type %v", elem.ID(), err)
-						return false
-					}
+				if _, err := typeutils.ParseFilterValue(dataType, cond.Value); err != nil {
+					logger.Warnf("Skipping; Configured Stream %s found invalid filter: invalid value type %v", elem.ID(), err)
+					return false
 				}
 			}
 		}
