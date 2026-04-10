@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
-
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/twmb/murmur3"
 )
 
@@ -64,25 +64,47 @@ func hashString(s string) uint32 {
 func identityTransform(val any, colType string) (pathStr string, typedVal any, err error) {
 	switch colType {
 	case "boolean":
-		b := val.(bool)
+		b, err := typeutils.ReformatBool(val)
+		if err != nil {
+			return "", nil, err
+		}
 		return strconv.FormatBool(b), b, nil
 	case "int":
-		v := val.(int32)
+		v, err := typeutils.ReformatInt32(val)
+		if err != nil {
+			return "", nil, err
+		}
 		return fmt.Sprintf("%d", v), v, nil
 	case "long":
-		v := val.(int64)
+		v, err := typeutils.ReformatInt64(val)
+		if err != nil {
+			return "", nil, err
+		}
 		return fmt.Sprintf("%d", v), v, nil
 	case "float":
-		v := val.(float32)
+		v, err := typeutils.ReformatFloat32(val)
+		if err != nil {
+			return "", nil, err
+		}
 		return fmt.Sprintf("%g", v), v, nil
 	case "double":
-		v := val.(float64)
+		v, err := typeutils.ReformatFloat64(val)
+		if err != nil {
+			return "", nil, err
+		}
 		return fmt.Sprintf("%g", v), v, nil
 	case "string":
-		s := val.(string)
+		s, ok := val.(string)
+		if !ok {
+			return "", nil, fmt.Errorf("expected string for colType %q, got %T", colType, val)
+		}
 		return s, s, nil
 	case "timestamptz":
-		t := val.(time.Time).UTC()
+		t, err := typeutils.ReformatDate(val, true)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to parse timestamp for identity transform (colType %q, valType %T): %s", colType, val, err)
+		}
+		t = t.UTC()
 		if t.IsZero() {
 			return NULL, nil, nil
 		}
@@ -99,7 +121,10 @@ func timeTransform(val any, unit string, colType string) (pathStr string, typedV
 		return "", nil, fmt.Errorf("unsupported time transform %q", unit)
 	}
 
-	v, _ := val.(time.Time)
+	v, err := typeutils.ReformatDate(val, true)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to parse timestamp for time transform (colType %q, valType %T): %s", colType, val, err)
+	}
 	v = v.UTC()
 	if v.IsZero() {
 		return NULL, nil, nil
@@ -133,15 +158,21 @@ func bucketTransform(val any, num int, colType string) (pathStr string, typedVal
 	var h uint32
 	switch colType {
 	case "int":
-		v, _ := val.(int32)
+		v, err := typeutils.ReformatInt32(val)
+		if err != nil {
+			return "", nil, err
+		}
 		h = hashInt(v)
 	case "long":
-		v, _ := val.(int64)
+		v, err := typeutils.ReformatInt64(val)
+		if err != nil {
+			return "", nil, err
+		}
 		h = hashInt(v)
 	case "timestamptz":
-		tm, ok := val.(time.Time)
-		if !ok {
-			return "", nil, fmt.Errorf("expected time.Time for colType %q, got %T", colType, val)
+		tm, err := typeutils.ReformatDate(val, true)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to parse timestamp for bucket transform (colType %q, valType %T): %s", colType, val, err)
 		}
 		if tm.IsZero() {
 			return NULL, nil, nil
@@ -169,7 +200,10 @@ func truncateTransform(val any, n int, colType string) (pathStr string, typedVal
 
 	switch colType {
 	case "int":
-		v, _ := val.(int32)
+		v, err := typeutils.ReformatInt32(val)
+		if err != nil {
+			return "", nil, err
+		}
 		if n > math.MaxInt32 {
 			return "", nil, fmt.Errorf("truncate width %d exceeds int32 range", n)
 		}
@@ -177,7 +211,10 @@ func truncateTransform(val any, n int, colType string) (pathStr string, typedVal
 		trunc := v - (((v % n32) + n32) % n32)
 		return fmt.Sprintf("%d", trunc), trunc, nil
 	case "long":
-		v, _ := val.(int64)
+		v, err := typeutils.ReformatInt64(val)
+		if err != nil {
+			return "", nil, err
+		}
 		n64 := int64(n)
 		// Using Iceberg's formula for proper negative number handling
 		trunc := v - (((v % n64) + n64) % n64)
