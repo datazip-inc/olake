@@ -10,7 +10,7 @@ import (
 func TestMSSQLIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.MSSQL), ""),
+		TestConfig:                       testutils.GetTestConfig(string(constants.MSSQL)),
 		Namespace:                        "dbo",
 		ExpectedData:                     ExpectedMSSQLData,
 		ExpectedUpdatedData:              ExpectedUpdatedMSSQLData,

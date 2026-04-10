@@ -11,7 +11,7 @@ import (
 func TestPostgresIntegration(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Postgres), ""),
+		TestConfig:                       testutils.GetTestConfig(string(constants.Postgres)),
 		Namespace:                        "public",
 		ExpectedData:                     ExpectedPostgresData,
 		ExpectedUpdatedData:              ExpectedUpdatedData,
@@ -44,7 +44,7 @@ func TestPostgresIntegration(t *testing.T) {
 
 func TestPostgresPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:      testutils.GetTestConfig(string(constants.Postgres), ""),
+		TestConfig:      testutils.GetTestConfig(string(constants.Postgres)),
 		Namespace:       "public",
 		BackfillStreams: []string{"trips", "fhv_trips"},
 		CDCStreams:      []string{"trips_cdc", "fhv_trips_cdc"},

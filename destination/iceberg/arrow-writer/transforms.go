@@ -94,7 +94,10 @@ func identityTransform(val any, colType string) (pathStr string, typedVal any, e
 		}
 		return fmt.Sprintf("%g", v), v, nil
 	case "string":
-		s := val.(string)
+		s, ok := val.(string)
+		if !ok {
+			return "", nil, fmt.Errorf("expected string for colType %q, got %T", colType, val)
+		}
 		return s, s, nil
 	case "timestamptz":
 		t, err := typeutils.ReformatDate(val, true)

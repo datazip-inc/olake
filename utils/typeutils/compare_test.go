@@ -113,6 +113,12 @@ func TestCompare(t *testing.T) {
 		{"json_number_int64_max_vs_min", json.Number(strconv.FormatInt(math.MaxInt64, 10)), json.Number(strconv.FormatInt(math.MinInt64, 10)), 1},
 		{"json_number_vs_string_numeric_equal", json.Number("123"), "123", 0},
 		{"json_number_invalid_int_fallback_string", json.Number("abc"), "abc", 0},
+		{"json_number_int_vs_float_equal", json.Number("123"), json.Number("123.0"), 0},
+		{"json_number_int_vs_float_greater", json.Number("124"), json.Number("123.5"), 1},
+		{"json_number_float_vs_int_less", json.Number("123.5"), json.Number("124"), -1},
+		{"json_number_string_vs_string_equal", json.Number("abc"), json.Number("123"), 1},
+		{"json_number_string_vs_string_not_equal", json.Number("123"), json.Number("abc"), -1},
+		{"json_number_string_vs_string_lex_greater", json.Number("bcd"), json.Number("abc"), 1},
 
 		// fallback
 		{"fallback_string_vs_int", "123", 123, 0},

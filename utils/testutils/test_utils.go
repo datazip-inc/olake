@@ -173,7 +173,7 @@ func (s *benchmarkStore) stats(
 }
 
 // GetTestConfig returns the test config for the given driver
-func GetTestConfig(driver string, dataFormat string) *TestConfig {
+func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 	// pwd is olake/drivers/(driver)/internal
 	pwd, err := os.Getwd()
 	if err != nil {
@@ -181,7 +181,10 @@ func GetTestConfig(driver string, dataFormat string) *TestConfig {
 	}
 	// root path is olake's root path
 	rootPath := filepath.Join(pwd, "../../..")
-
+	dataFormat := ""
+	if len(extraParams) > 0 {
+		dataFormat = extraParams[0]
+	}
 	containerTestDataPath := "/test-olake/drivers/%s/internal/testdata/%s"
 	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", dataFormat, "%s")
 	return &TestConfig{
@@ -1132,7 +1135,12 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			for key := range defaultCDCColumnsSchema {
 				icebergValue, ok := icebergMap[key]
 				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-				require.NotNil(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
+				if key == "_kafka_offset" || key == "_kafka_partition" {
+					require.NotNil(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				} else {
+					require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				}
 				if key == constants.CdcTimestamp {
 					ts, ok := normalizeToTime(icebergValue)
 					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, icebergValue, icebergValue)
@@ -1319,7 +1327,12 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			for key := range defaultCDCColumnsSchema {
 				val, ok := parquetMap[key]
 				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-				require.NotNil(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
+				if key == "_kafka_offset" || key == "_kafka_partition" {
+					require.NotNil(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				} else {
+					require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				}
 				if key == constants.CdcTimestamp {
 					ts, ok := normalizeToTime(val)
 					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
