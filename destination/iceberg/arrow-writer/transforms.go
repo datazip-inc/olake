@@ -102,7 +102,7 @@ func identityTransform(val any, colType string) (pathStr string, typedVal any, e
 	case "timestamptz":
 		t, err := typeutils.ReformatDate(val, true)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("failed to parse timestamp for identity transform (colType %q, valType %T): %s", colType, val, err)
 		}
 		t = t.UTC()
 		if t.IsZero() {
@@ -123,7 +123,7 @@ func timeTransform(val any, unit string, colType string) (pathStr string, typedV
 
 	v, err := typeutils.ReformatDate(val, true)
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("failed to parse timestamp for time transform (colType %q, valType %T): %s", colType, val, err)
 	}
 	v = v.UTC()
 	if v.IsZero() {
@@ -172,7 +172,7 @@ func bucketTransform(val any, num int, colType string) (pathStr string, typedVal
 	case "timestamptz":
 		tm, err := typeutils.ReformatDate(val, true)
 		if err != nil {
-			return "", nil, fmt.Errorf("got error: %s, expected time.Time for colType %q, got %T", err, colType, val)
+			return "", nil, fmt.Errorf("failed to parse timestamp for bucket transform (colType %q, valType %T): %s", colType, val, err)
 		}
 		if tm.IsZero() {
 			return NULL, nil, nil
