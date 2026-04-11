@@ -16,6 +16,12 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+// oracleNTILERowLimit caps the table size for the single-query NTILE boundary strategy.
+// NTILE sorts every ROWID into N buckets in one pass; on very large tables Oracle spills
+// the sort to temporary tablespace and can raise ORA-1652 (unable to extend temp segment).
+// Tables above this limit fall back to the iterative loop path, which bounds memory per query.
+const oracleNTILERowLimit int64 = 500_000_000
+
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
@@ -82,34 +88,35 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 	if err != nil {
 		logger.Debugf("DBMS Parallel Execute strategy failed (%v). Automatically falling back to Table Iteration strategy for stream [%s.%s]", err, stream.Namespace(), stream.Name())
 
-		return o.splitViaTableIteration(ctx, stream, avgRowSize)
+		return o.splitViaTableIteration(ctx, stream, approxRowCount, avgRowSize)
 	}
 	return chunks, nil
 }
 
-func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.StreamInterface, avgRowSize float64) (*types.Set[types.Chunk], error) {
-	rowsPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSize))
-	if rowsPerChunk <= 0 {
-		rowsPerChunk = 1
-	}
+func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.StreamInterface, approxRowCount int64, avgRowSize float64) (*types.Set[types.Chunk], error) {
+	rowsPerChunk := utils.Ternary(
+		int64(math.Ceil(float64(constants.EffectiveParquetSize)/avgRowSize)) > 0,
+		int64(math.Ceil(float64(constants.EffectiveParquetSize)/avgRowSize)),
+		int64(1),
+	).(int64)
 
-	var numRows int64
-	err := o.client.QueryRowContext(ctx, jdbc.OracleTableRowStatsQuery(), stream.Namespace(), stream.Name()).Scan(&numRows, new(float64))
-	if err != nil || numRows <= 0 {
-		if err != nil {
-			logger.Debugf("Oracle table stats unavailable for [%s.%s], falling back to row-by-row chunk iteration: %v", stream.Namespace(), stream.Name(), err)
-		} else {
-			logger.Debugf("Oracle table stats returned num_rows=%d for [%s.%s], falling back to row-by-row chunk iteration", numRows, stream.Namespace(), stream.Name())
-		}
+	if approxRowCount <= 0 {
+		logger.Debugf("Oracle table stats unavailable for [%s.%s], falling back to row-by-row chunk iteration", stream.Namespace(), stream.Name())
 		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
 	}
 
-	numChunks := int64(math.Ceil(float64(numRows) / float64(rowsPerChunk)))
-	if numChunks <= 0 {
-		numChunks = 1
+	if approxRowCount > oracleNTILERowLimit {
+		logger.Debugf("Oracle table [%s.%s] has approxRowCount=%d exceeding NTILE limit=%d, falling back to row-by-row chunk iteration to avoid ORA-1652", stream.Namespace(), stream.Name(), approxRowCount, oracleNTILERowLimit)
+		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
 	}
 
-	rows, err := o.client.QueryContext(ctx, jdbc.AllChunkBoundaryRowIDsQuery(stream, numChunks))
+	numberOfChunks := utils.Ternary(
+		int64(math.Ceil(float64(approxRowCount)/float64(rowsPerChunk))) > 0,
+		int64(math.Ceil(float64(approxRowCount)/float64(rowsPerChunk))),
+		int64(1),
+	).(int64)
+
+	rows, err := o.client.QueryContext(ctx, jdbc.AllChunkBoundaryRowIDsQuery(stream, numberOfChunks))
 	if err != nil {
 		logger.Debugf("NTILE boundary query failed for [%s.%s], falling back to row-by-row chunk iteration: %v", stream.Namespace(), stream.Name(), err)
 		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
