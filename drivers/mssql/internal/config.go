@@ -19,6 +19,7 @@ type Config struct {
 	RetryCount             int              `json:"retry_count"`
 	SSLConfiguration       *utils.SSLConfig `json:"ssl"`
 	ManageCaptureInstances bool             `json:"manage_capture_instances"`
+	SSHConfig              *utils.SSHConfig `json:"ssh_config"`
 }
 
 // Validate checks and normalises MSSQL configuration.

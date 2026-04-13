@@ -3,6 +3,8 @@ package driver
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"strings"
 	"time"
 
@@ -15,12 +17,15 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/ssh"
 )
 
 type DB2 struct {
-	client *sqlx.DB
-	config *Config
-	state  *types.State
+	client      *sqlx.DB
+	config      *Config
+	state       *types.State
+	sshClient   *ssh.Client
+	sshListener net.Listener
 }
 
 func (d *DB2) CDCSupported() bool {
@@ -32,8 +37,34 @@ func (d *DB2) Setup(ctx context.Context) error {
 		return err
 	}
 
-	// Build DSN
-	dsn := d.config.BuildDSN()
+	if d.config.SSHConfig != nil && d.config.SSHConfig.Host != "" {
+		logger.Info("Found SSH Configuration")
+		var err error
+		d.sshClient, err = d.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
+	}
+
+	var dsn string
+	if d.sshClient != nil {
+		logger.Info("Connecting to DB2 via SSH tunnel")
+
+		listener, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			return fmt.Errorf("failed to create local listener for SSH tunnel: %s", err)
+		}
+		d.sshListener = listener
+
+		remoteAddr := fmt.Sprintf("%s:%d", d.config.Host, d.config.Port)
+		go d.forwardConnections(listener, remoteAddr)
+
+		localAddr := listener.Addr().(*net.TCPAddr)
+		dsn = d.config.BuildTunnelDSN(localAddr.Port)
+	} else {
+		dsn = d.config.BuildDSN()
+	}
+
 	client, err := sqlx.Open("go_ibm_db", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open db2 connection: %s", err)
@@ -75,6 +106,43 @@ func (d *DB2) CloseConnection() {
 		if err := d.client.Close(); err != nil {
 			logger.Error("failed to close db2 connection: %s", err)
 		}
+	}
+
+	if d.sshListener != nil {
+		if err := d.sshListener.Close(); err != nil {
+			logger.Errorf("failed to close SSH tunnel listener: %s", err)
+		}
+	}
+
+	if d.sshClient != nil {
+		if err := d.sshClient.Close(); err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+		}
+	}
+}
+
+func (d *DB2) forwardConnections(listener net.Listener, remoteAddr string) {
+	for {
+		localConn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		remoteConn, err := d.sshClient.Dial("tcp", remoteAddr)
+		if err != nil {
+			localConn.Close()
+			continue
+		}
+
+		go func() {
+			defer localConn.Close()
+			defer remoteConn.Close()
+
+			done := make(chan struct{}, 2)
+			go func() { io.Copy(localConn, remoteConn); done <- struct{}{} }()
+			go func() { io.Copy(remoteConn, localConn); done <- struct{}{} }()
+			<-done
+		}()
 	}
 }
 
