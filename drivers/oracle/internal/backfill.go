@@ -105,16 +105,21 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
 	}
 
-	if approxRowCount > oracleNTILERowLimit {
-		logger.Debugf("Oracle table [%s.%s] has approxRowCount=%d exceeding NTILE limit=%d, falling back to row-by-row chunk iteration to avoid ORA-1652", stream.Namespace(), stream.Name(), approxRowCount, oracleNTILERowLimit)
-		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
-	}
-
 	numberOfChunks := utils.Ternary(
 		int64(math.Ceil(float64(approxRowCount)/float64(rowsPerChunk))) > 0,
 		int64(math.Ceil(float64(approxRowCount)/float64(rowsPerChunk))),
 		int64(1),
 	).(int64)
+
+	if approxRowCount > oracleNTILERowLimit {
+		logger.Debugf("Oracle table [%s.%s] has approxRowCount=%d exceeding NTILE limit=%d, using SAMPLE BLOCK estimation", stream.Namespace(), stream.Name(), approxRowCount, oracleNTILERowLimit)
+		chunks, err := o.splitViaTableIterationSample(ctx, stream, approxRowCount, numberOfChunks)
+		if err != nil {
+			logger.Debugf("SAMPLE BLOCK estimation failed for [%s.%s]: %v, falling back to iterative loop", stream.Namespace(), stream.Name(), err)
+			return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
+		}
+		return chunks, nil
+	}
 
 	rows, err := o.client.QueryContext(ctx, jdbc.AllChunkBoundaryRowIDsQuery(stream, numberOfChunks))
 	if err != nil {
@@ -188,6 +193,59 @@ func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.St
 	}
 
 	return chunks, nil
+}
+
+// splitViaTableIterationSample uses Oracle's SAMPLE BLOCK clause to estimate chunk
+// boundaries without a full table scan. Reads a small percentage of data blocks,
+// sorts the sampled ROWIDs, and picks evenly-spaced boundaries.
+func (o *Oracle) splitViaTableIterationSample(ctx context.Context, stream types.StreamInterface, approxRowCount int64, numberOfChunks int64) (*types.Set[types.Chunk], error) {
+	// We want at least 10x numberOfChunks sample rows for reasonable boundary accuracy.
+	minSampleRows := numberOfChunks * 10
+	samplePercent := float64(minSampleRows) / float64(approxRowCount) * 100.0
+
+	// Clamp: Oracle SAMPLE requires (0.000001, 100). Floor at 0.001 for practical minimum.
+	if samplePercent < 0.001 {
+		samplePercent = 0.001
+	}
+	if samplePercent > 50 {
+		samplePercent = 50
+	}
+
+	logger.Debugf("Sampling %.4f%% of blocks from [%s.%s] for chunk boundaries (approxRows=%d, chunks=%d)",
+		samplePercent, stream.Namespace(), stream.Name(), approxRowCount, numberOfChunks)
+
+	rows, err := o.client.QueryContext(ctx, jdbc.SampleBlockBoundaryQuery(stream, samplePercent))
+	if err != nil {
+		return nil, fmt.Errorf("sample block query failed: %s", err)
+	}
+	defer rows.Close()
+
+	var sampledRowIDs []string
+	for rows.Next() {
+		var rowID string
+		if err := rows.Scan(&rowID); err != nil {
+			return nil, fmt.Errorf("failed to scan sampled rowid: %s", err)
+		}
+		sampledRowIDs = append(sampledRowIDs, rowID)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate sampled rowids: %s", err)
+	}
+
+	if int64(len(sampledRowIDs)) < numberOfChunks {
+		return nil, fmt.Errorf("sample returned %d rows, need at least %d for %d chunks",
+			len(sampledRowIDs), numberOfChunks, numberOfChunks)
+	}
+
+	// Pick evenly-spaced boundaries from the sorted sample
+	step := float64(len(sampledRowIDs)) / float64(numberOfChunks)
+	var startRowIDs []string
+	for i := int64(0); i < numberOfChunks; i++ {
+		idx := int(float64(i) * step)
+		startRowIDs = append(startRowIDs, sampledRowIDs[idx])
+	}
+
+	return buildChunksFromStartRowIDs(startRowIDs), nil
 }
 
 // splitViaRowId chunks a table by using DBMS_PARALLEL_EXECUTE.CREATE_CHUNKS_BY_ROWID strategy
