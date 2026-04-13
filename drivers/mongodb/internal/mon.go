@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
-	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -16,11 +17,64 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/bsoncodec"
+	"go.mongodb.org/mongo-driver/bson/bsonrw"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/ssh"
 )
+
+// safeDecodeRegistry is a BSON decode registry registered on the MongoDB client.
+// It intercepts two problem cases for interface{} slots (every value in bson.M):
+//
+//  1. BSON Double (float64) — NaN and ±Inf are not valid JSON; they crash
+//     encoding/json.  These are coerced to nil for all state versions.
+//
+//  2. BSON DateTime — primitive.DateTime.MarshalJSON calls time.Time.MarshalJSON
+//     which panics for years outside [0, 9999].  For state version > 4, DateTime
+//     is decoded as a clamped UTC time.Time so downstream json.Marshal is always
+//     safe.  For state version ≤ 4 the fallback (primitive.DateTime) is used to
+//     preserve the pre-existing local-timezone output format.
+var safeDecodeRegistry = func() *bsoncodec.Registry {
+	tEmpty := reflect.TypeOf((*interface{})(nil)).Elem()
+	reg := bson.NewRegistry()
+	// Capture the stock interface{} decoder before replacing it.
+	fallback, _ := reg.LookupDecoder(tEmpty)
+	reg.RegisterTypeDecoder(
+		tEmpty,
+		bsoncodec.ValueDecoderFunc(func(dc bsoncodec.DecodeContext, vr bsonrw.ValueReader, val reflect.Value) error {
+			switch vr.Type() {
+			case bson.TypeDouble:
+				f, err := vr.ReadDouble()
+				if err != nil {
+					return err
+				}
+				if math.IsNaN(f) || math.IsInf(f, 0) {
+					val.Set(reflect.Zero(val.Type()))
+				} else {
+					val.Set(reflect.ValueOf(f))
+				}
+				return nil
+			case bson.TypeDateTime:
+				if constants.LoadedStateVersion > 4 {
+					ms, err := vr.ReadDateTime()
+					if err != nil {
+						return err
+					}
+					t, err := typeutils.ReformatDate(primitive.DateTime(ms).Time().UTC(), true)
+					if err != nil {
+						return err
+					}
+					val.Set(reflect.ValueOf(t))
+					return nil
+				}
+			}
+			return fallback.DecodeValue(dc, vr, val)
+		}),
+	)
+	return reg
+}()
 
 const (
 	cdcCursorField = "_data"
@@ -84,6 +138,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
+	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}
@@ -175,7 +230,6 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 	return streamNames, collections.Err()
 }
 
-// TODO: omit usage of ProduceSchema when sync command is used
 func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
@@ -263,7 +317,12 @@ func filterMongoObject(doc bson.M) {
 		case primitive.Timestamp:
 			doc[key] = value.T
 		case primitive.DateTime:
-			doc[key] = value.Time()
+			t := value.Time()
+			var err error
+			doc[key], err = typeutils.ReformatDate(t, true)
+			if err != nil {
+				doc[key] = time.Unix(0, 0).UTC()
+			}
 		case primitive.Null:
 			doc[key] = nil
 		case primitive.Binary:
@@ -272,12 +331,6 @@ func filterMongoObject(doc bson.M) {
 			doc[key] = value.String()
 		case primitive.ObjectID:
 			doc[key] = value.Hex()
-		case float64:
-			if math.IsNaN(value) || math.IsInf(value, 0) {
-				doc[key] = nil
-			} else {
-				doc[key] = value
-			}
 		default:
 			doc[key] = value
 		}

@@ -109,18 +109,18 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 			return nil, fmt.Errorf("failed to load partition pages: %s", err)
 		}
 
-		batchPages := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
+		batchPages := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
 		partionsInRange := PartitionPagesGreaterThan(partitions, 0)
-		batchSize := uint32(math.Ceil(float64(batchPages) / float64(partionsInRange)))
+		batchSize := int64(math.Ceil(float64(batchPages) / float64(partionsInRange)))
 
 		chunks := types.NewSet[types.Chunk]()
-		for start := uint32(0); start < maxPageCountAcrossPartitions; start += batchSize {
+		for start := int64(0); start < maxPageCountAcrossPartitions; start += batchSize {
 			lastChunkEnd := start + batchSize
 			partionsInRange := PartitionPagesGreaterThan(partitions, lastChunkEnd)
-			batchSize = uint32(math.Ceil(float64(batchPages) / float64(partionsInRange)))
+			batchSize = int64(math.Ceil(float64(batchPages) / float64(partionsInRange)))
 			end := start + batchSize
 			if end >= maxPageCountAcrossPartitions {
-				end = ^uint32(0)
+				end = int64(^uint32(0))
 			}
 
 			chunks.Insert(types.Chunk{
@@ -216,19 +216,35 @@ func (p *Postgres) nextChunkEnd(ctx context.Context, stream types.StreamInterfac
 
 type PartitionPage struct {
 	Name  string
-	Pages uint32
+	Pages int64
 }
 
-// loadPartitionPages fetches partition-level relpages using PostgresPartitionPages query.
-func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInterface) ([]PartitionPage, uint32, error) {
-	query := jdbc.PostgresPartitionPages(stream)
+// postgresMinVersionPG12 is the server_version_num for PostgreSQL 12.0.
+// pg_partition_tree() (PG 12+) is preferred; older versions use a recursive CTE.
+const postgresMinVersionPG12 = 120000
+
+func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInterface) ([]PartitionPage, int64, error) {
+	var serverVersionNum int
+	if err := db.QueryRowContext(ctx, jdbc.PostgresServerVersionNum()).Scan(&serverVersionNum); err != nil {
+		return nil, 0, fmt.Errorf("failed to detect postgres server version: %s", err)
+	}
+
+	var query string
+	if serverVersionNum >= postgresMinVersionPG12 {
+		logger.Debugf("using pg_partition_tree for partition page discovery (server_version_num=%d)", serverVersionNum)
+		query = jdbc.PostgresPartitionPagesPG12(stream)
+	} else {
+		logger.Debugf("using recursive CTE for partition page discovery (server_version_num=%d)", serverVersionNum)
+		query = jdbc.PostgresPartitionPages(stream)
+	}
+
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to load partition pages: %s", err)
 	}
-	var maxPageCountAcrossPartitions uint32
 	defer rows.Close()
 
+	var maxPageCountAcrossPartitions int64
 	var partitions []PartitionPage
 	for rows.Next() {
 		var p PartitionPage
@@ -238,15 +254,20 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 		maxPageCountAcrossPartitions = max(maxPageCountAcrossPartitions, p.Pages)
 		partitions = append(partitions, p)
 	}
-
-	if len(partitions) == 0 {
-		partitions = append(partitions, PartitionPage{Name: stream.Name(), Pages: 1})
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("failed to iterate partition pages: %s", err)
 	}
+
+	if maxPageCountAcrossPartitions == 0 {
+		logger.Warnf("all partitions are empty for stream[%s], skipping chunking", stream.ID())
+		return partitions, 0, nil
+	}
+
 	return partitions, maxPageCountAcrossPartitions, nil
 }
 
 // PartitionPagesGreaterThan returns how many partitions have pages greater than the given 'end' page.
-func PartitionPagesGreaterThan(partitions []PartitionPage, end uint32) int {
+func PartitionPagesGreaterThan(partitions []PartitionPage, end int64) int {
 	count := 0
 	for _, p := range partitions {
 		if p.Pages > end {
