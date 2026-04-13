@@ -1,6 +1,7 @@
 package typeutils
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -65,6 +66,19 @@ func Compare(a, b any) int {
 			return 1
 		}
 		return 0
+	case json.Number:
+		// Try int64 first, float64 then fallback to string comparison
+		if aInt, errA := ReformatInt64(aVal); errA == nil {
+			if bInt, errB := ReformatInt64(b); errB == nil {
+				return Compare(aInt, bInt)
+			}
+		}
+		if aFloat, errA := ReformatFloat64(aVal); errA == nil {
+			if bFloat, errB := ReformatFloat64(b); errB == nil {
+				return Compare(aFloat, bFloat)
+			}
+		}
+		return strings.Compare(aVal.String(), fmt.Sprintf("%v", b))
 	default:
 		// check for custom timestamp
 		aTime, aOk := a.(Time)
