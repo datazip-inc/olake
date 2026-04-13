@@ -284,11 +284,6 @@ func resetStateFileCommand(config TestConfig) string {
 	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
 }
 
-// corruptStateFileCommand writes an empty JSON object to state.json, simulating state loss.
-func corruptStateFileCommand(config TestConfig) string {
-	return fmt.Sprintf(`echo '{}' > %s`, config.StatePath)
-}
-
 // saveStateFileCommand copies the current state.json to a checkpoint backup inside the container.
 func saveStateFileCommand(config TestConfig) string {
 	return fmt.Sprintf(`cp %s %s`, config.StatePath, stateCheckpointPath(config))
@@ -496,18 +491,6 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			expectedDistinctCount: 5,
 		},
 		{
-			name:                  "Full-Refresh - State Update Failure",
-			operation:             "",
-			useState:              false,
-			opSymbol:              "r",
-			expected:              cfg.ExpectedData,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 5,
-			preSetupCmds: []string{
-				corruptStateFileCommand(*cfg.TestConfig),
-			},
-		},
-		{
 			name:      "CDC - insert",
 			operation: "insert",
 			useState:  true,
@@ -518,16 +501,32 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			},
 		},
 		{
-			name:                  "CDC - Checkpoint Restore: Only New Row Syncs",
+			name:                  "CDC - No New Records",
+			useState:              true,
+			opSymbol:              "c",
+			expected:              cfg.ExpectedData,
+			verifyNoDuplicates:    true,
+			expectedDistinctCount: 1,
+		},
+		{
+			name:                  "CDC - State save failure sync",
+			useState:              true,
+			opSymbol:              "c",
+			expected:              cfg.ExpectedData,
+			verifyNoDuplicates:    true,
+			expectedDistinctCount: 1,
+			preSetupCmds: []string{
+				restoreStateFileCommand(*cfg.TestConfig),
+			},
+		},
+		{
+			name:                  "CDC - Recovery Sync",
 			operation:             "insert_2",
 			useState:              true,
 			opSymbol:              "c",
 			expected:              cfg.ExpectedData,
 			verifyNoDuplicates:    true,
 			expectedDistinctCount: 2,
-			preSetupCmds: []string{
-				restoreStateFileCommand(*cfg.TestConfig),
-			},
 		},
 		{
 			name:      "CDC - update",
@@ -567,7 +566,6 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	// Run each test case
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Execute any pre-setup shell commands (e.g. state file corruption) inside the container
 			for _, cmd := range tc.preSetupCmds {
 				if code, out, execErr := utils.ExecCommand(ctx, c, cmd); execErr != nil || code != 0 {
 					t.Fatalf("%s pre-setup command failed (%d): %v\n%s", tc.name, code, execErr, out)
@@ -749,19 +747,6 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			expectedDistinctCount: 5,
 		},
 		{
-			name:                  "Full-Refresh - State Update Failure",
-			operation:             "",
-			useState:              false,
-			skipTableDrop:         true,
-			opSymbol:              "r",
-			expected:              cfg.ExpectedData,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 5,
-			preSetupCmds: []string{
-				corruptStateFileCommand(*cfg.TestConfig),
-			},
-		},
-		{
 			name:      "Incremental - insert",
 			operation: "insert",
 			useState:  true,
@@ -772,17 +757,35 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			},
 		},
 		{
-			name:                  "Incremental - Insert after state loss",
-			operation:             "insert_2",
+			name:                  "Incremental - No New Records",
 			useState:              true,
 			opSymbol:              "u",
-			skipTableDrop:         true,
 			expected:              cfg.ExpectedData,
+			skipTableDrop:         true,
 			verifyNoDuplicates:    true,
-			expectedDistinctCount: 2,
+			expectedDistinctCount: 1,
+		},
+		{
+			name:                  "Incremental - State Save Failure Sync",
+			useState:              true,
+			opSymbol:              "u",
+			expected:              cfg.ExpectedData,
+			skipTableDrop:         true,
+			verifyNoDuplicates:    true,
+			expectedDistinctCount: 1,
 			preSetupCmds: []string{
 				restoreStateFileCommand(*cfg.TestConfig),
 			},
+		},
+		{
+			name:                  "Incremental - Recovery Sync",
+			operation:             "insert_2",
+			useState:              true,
+			opSymbol:              "u",
+			expected:              cfg.ExpectedData,
+			skipTableDrop:         true,
+			verifyNoDuplicates:    true,
+			expectedDistinctCount: 2,
 		},
 		{
 			name:      "Incremental - update",
