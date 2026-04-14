@@ -1152,6 +1152,13 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 		return "", fmt.Errorf("failed to parse stream filter: %s", err)
 	}
 
+	formatFilterBoolValue := func(driverType constants.DriverType, value bool) string {
+		if driverType == constants.MSSQL {
+			return utils.Ternary(value, "1", "0").(string)
+		}
+		return utils.Ternary(value, "TRUE", "FALSE").(string)
+	}
+
 	// buildCondition builds the SQL condition for a single filter condition.
 	buildCondition := func(cond types.FilterCondition) (string, error) {
 		quotedColumn := QuoteIdentifier(cond.Column, driverType)
@@ -1197,6 +1204,8 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 				if err != nil && !booleanValue {
 					escaped := strings.ReplaceAll(value, "'", "''")
 					value = fmt.Sprintf("'%s'", escaped)
+				} else if booleanValue {
+					value = formatFilterBoolValue(driverType, strings.EqualFold(value, "true"))
 				}
 			}
 
@@ -1225,8 +1234,7 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 			}
 
 		case bool:
-			// SQL standard boolean
-			valueSQL = utils.Ternary(v, "TRUE", "FALSE").(string)
+			valueSQL = formatFilterBoolValue(driverType, v)
 		case int:
 			valueSQL = strconv.Itoa(v)
 		case int64:
