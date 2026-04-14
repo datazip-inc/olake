@@ -300,11 +300,11 @@ func normalizeBoundaryValue(value any, pkCols []string, columnType string) strin
 		return utils.ConvertToString(value)
 	}
 
-	value = normalizeMSSQLValueForState(value, columnType)
+	value = normalizeMSSQLValue(value, columnType)
 	return utils.ConvertToString(value)
 }
 
-func normalizeMSSQLValueForState(value any, columnType string) any {
+func normalizeMSSQLValue(value any, columnType string) any {
 	columnType = strings.ToLower(columnType)
 
 	switch v := value.(type) {

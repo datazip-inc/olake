@@ -66,7 +66,7 @@ func (m *MSSQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInt
 }
 
 func (m *MSSQL) normalizeCursorValue(ctx context.Context, stream types.StreamInterface, cursorField string, value any) (any, error) {
-	if cursorField == "" || value == nil {
+	if value == nil {
 		return value, nil
 	}
 
@@ -75,5 +75,5 @@ func (m *MSSQL) normalizeCursorValue(ctx context.Context, stream types.StreamInt
 		return nil, fmt.Errorf("failed to get MSSQL cursor type: %s", err)
 	}
 
-	return normalizeMSSQLValueForState(value, dataType), nil
+	return normalizeMSSQLValue(value, dataType), nil
 }
