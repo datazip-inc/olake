@@ -46,7 +46,7 @@
           "type": "string",
           "title": "Catalog Name",
           "pattern": "^[a-z_]+$",
-          "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+          "description": "User defined catalog name, only lowercase letters and underscores are allowed."
         },
         "arrow_writes": {
           "type": "boolean",
@@ -58,7 +58,8 @@
       "required": [
         "catalog_type",
         "aws_region",
-        "iceberg_s3_path"
+        "iceberg_s3_path",
+        "catalog_name"
       ],
       "dependencies": {
         "catalog_type": {
@@ -214,6 +215,12 @@
                   "type": "string",
                   "title": "S3 Endpoint",
                   "description": "Specifies the endpoint URL for S3 compatible services (e.g., MinIO)"
+                },
+                "s3_path_style": {
+                  "type": "boolean",
+                  "default": false,
+                  "title": "Use Path Style for S3",
+                  "description": "Enables path-style addressing for S3 API requests"
                 }
               },
               "required": [
