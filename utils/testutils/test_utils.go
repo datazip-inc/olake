@@ -17,9 +17,9 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	"github.com/docker/docker/api/types/container"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/moby/moby/api/types/container"
 
 	// load pq driver for SQL tests
 	_ "github.com/lib/pq"
