@@ -1376,7 +1376,6 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %s", err)
 		}
 	}
-
 	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }
 
