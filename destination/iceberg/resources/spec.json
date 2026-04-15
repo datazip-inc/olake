@@ -46,7 +46,8 @@
           "type": "string",
           "title": "Catalog Name",
           "pattern": "^[a-z_]+$",
-          "description": "User defined catalog name, only lowercase letters and underscores are allowed."
+          "default": "olake_iceberg",
+          "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
         },
         "arrow_writes": {
           "type": "boolean",
@@ -58,8 +59,7 @@
       "required": [
         "catalog_type",
         "aws_region",
-        "iceberg_s3_path",
-        "catalog_name"
+        "iceberg_s3_path"
       ],
       "dependencies": {
         "catalog_type": {
