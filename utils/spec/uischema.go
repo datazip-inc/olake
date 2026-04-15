@@ -121,6 +121,22 @@ const PostgresUISchema = `{
           "ui:options": {
             "rows": 1
           }
+        },
+        "host_key_verification_mode": {
+          "ui:widget": "radio",
+          "ui:grid": [
+            { "strict": 12, "insecure": 12}
+          ],
+          "ui:options": {
+            "title": false,
+            "description": false
+          }
+        },
+        "known_hosts_file_path": {
+          "ui:widget": "text",
+          "ui:options": {
+            "placeholder": "Enter the path to the known_hosts file"
+          }
         }
       }
     }`
@@ -181,6 +197,22 @@ const MySQLUISchema = `{
       "ui:widget": "textarea",
       "ui:options": {
         "rows": 1
+      }
+    },
+    "host_key_verification_mode": {
+      "ui:widget": "radio",
+      "ui:grid": [
+        { "strict": 12, "insecure": 12}
+      ],
+      "ui:options": {
+        "title": false,
+        "description": false
+      }
+    },
+    "known_hosts_file_path": {
+      "ui:widget": "text",
+      "ui:options": {
+        "placeholder": "Enter the path to the known_hosts file"
       }
     }
   }
