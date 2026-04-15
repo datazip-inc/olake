@@ -1346,6 +1346,20 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 
 	var maxPrimaryCursorValue, maxSecondaryCursorValue any
 
+	bytesConverter := func(value any) any {
+		// MSSQL has type-aware normalization in the driver.
+		if driverType == constants.MSSQL {
+			return value
+		}
+
+		switch v := value.(type) {
+		case []byte:
+			return string(v)
+		default:
+			return v
+		}
+	}
+
 	cursorValueQuery := utils.Ternary(secondaryCursor == "",
 		fmt.Sprintf("SELECT MAX(%s) FROM %s", primaryCursorQuoted, quotedTable),
 		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable)).(string)
@@ -1355,6 +1369,7 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %s", err)
 		}
+		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
 	} else {
 		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
@@ -1362,9 +1377,7 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 		}
 	}
 
-	// Raw scanned values are returned as is.
-	// Drivers must normalize cursor values before persisting to state (e.g., convert []byte to valid string)
-	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
+	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }
 
 // ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.

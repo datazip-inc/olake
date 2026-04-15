@@ -62,10 +62,6 @@ func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamIn
 // normalizeCursorTime converts a cursor time.Time from GetMaxCursorValues to plain UTC,
 // applying wall-clock strip for TZ-naive Oracle columns and .UTC() for TZ-aware ones.
 func (o *Oracle) normalizeCursorValue(ctx context.Context, stream types.StreamInterface, cursorField string, value any) any {
-	if v, ok := value.([]byte); ok {
-		value = string(v)
-	}
-
 	t, ok := value.(time.Time)
 	if !ok {
 		return value

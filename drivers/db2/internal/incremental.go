@@ -15,15 +15,7 @@ func (d *DB2) FetchMaxCursorValues(ctx context.Context, stream types.StreamInter
 	if err != nil {
 		return nil, nil, err
 	}
-
-	return d.normalizeCursorValue(maxPrimaryCursorValue), d.normalizeCursorValue(maxSecondaryCursorValue), nil
-}
-
-func (d *DB2) normalizeCursorValue(value any) any {
-	if v, ok := value.([]byte); ok {
-		return string(v)
-	}
-	return value
+	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }
 
 func (d *DB2) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
