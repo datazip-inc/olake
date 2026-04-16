@@ -269,7 +269,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "update":
 		updateRow := fmt.Sprintf(`
 			UPDATE dbo.%s SET
-				id_cursor = 7,
+				id_cursor = 100,
 				col_bigint = 20,
 				col_decimal = 543.25,
 				col_money = 9.7500,
