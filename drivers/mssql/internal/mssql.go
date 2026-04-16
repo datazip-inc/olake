@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
-	_ "github.com/microsoft/go-mssqldb"
+	mssql "github.com/microsoft/go-mssqldb"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -19,6 +20,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/ssh"
 )
 
 type MSSQL struct {
@@ -29,6 +31,7 @@ type MSSQL struct {
 	lsnMap       sync.Map
 	streams      []types.StreamInterface
 	cdcSupported bool
+	sshClient    *ssh.Client
 }
 
 // GetConfigRef implements abstract.DriverInterface.
@@ -52,20 +55,43 @@ func (m *MSSQL) CDCSupported() bool {
 }
 
 // Setup establishes the database connection and initialises CDC settings.
-// TODO: Add support for SSH Connection (bastion/jump node)
 func (m *MSSQL) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	var client *sqlx.DB
-	connStr := m.buildConnectionString()
-	db, err := sql.Open("sqlserver", connStr)
-	if err != nil {
-		return fmt.Errorf("failed to open MSSQL connection: %s", err)
+	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
+		logger.Info("Found SSH Configuration")
+		var err error
+		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
 	}
 
-	client = sqlx.NewDb(db, "sqlserver").Unsafe()
+	var client *sqlx.DB
+	connStr := m.buildConnectionString()
+
+	if m.sshClient != nil {
+		logger.Info("Connecting to MSSQL via SSH tunnel")
+
+		connector, err := mssql.NewConnector(connStr)
+		if err != nil {
+			return fmt.Errorf("failed to create MSSQL connector: %s", err)
+		}
+
+		connector.Dialer = &mssqlSSHDialer{sshClient: m.sshClient, host: m.config.Host}
+
+		db := sql.OpenDB(connector)
+		client = sqlx.NewDb(db, "sqlserver").Unsafe()
+	} else {
+		db, err := sql.Open("sqlserver", connStr)
+		if err != nil {
+			return fmt.Errorf("failed to open MSSQL connection: %s", err)
+		}
+		client = sqlx.NewDb(db, "sqlserver").Unsafe()
+	}
+
 	// Set connection pool size
 	client.SetMaxOpenConns(m.config.MaxThreads)
 
@@ -135,7 +161,29 @@ func (m *MSSQL) Close() error {
 			logger.Errorf("failed to close connection with MSSQL: %s", err)
 		}
 	}
+
+	if m.sshClient != nil {
+		if err := m.sshClient.Close(); err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+		}
+	}
+
 	return nil
+}
+
+type mssqlSSHDialer struct {
+	sshClient *ssh.Client
+	host      string
+}
+
+func (d *mssqlSSHDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return d.sshClient.DialContext(ctx, network, addr)
+}
+
+// HostName implements go-mssqldb's HostDialer interface, signalling that DNS
+// resolution should happen on the remote (SSH) side rather than locally.
+func (d *mssqlSSHDialer) HostName() string {
+	return d.host
 }
 
 // SetupState wires global state reference.
