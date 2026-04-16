@@ -1026,25 +1026,6 @@ func NextRowIDQuery(stream types.StreamInterface, ROWID string, chunkSize int64)
 	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %q.%q WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), ROWID, chunkSize)
 }
 
-// AllChunkBoundaryRowIDsQuery returns the min and max ROWID for each NTILE bucket in OracleDB
-func AllChunkBoundaryRowIDsQuery(stream types.StreamInterface, numChunks int64) string {
-	return fmt.Sprintf(`
-		WITH bucketed_rows AS (
-			SELECT
-				ROWID AS row_id,
-				NTILE(%d) OVER (ORDER BY ROWID) AS bucket_id
-			FROM %q.%q
-		)
-		SELECT
-			bucket_id,
-			MIN(row_id) AS min_row_id,
-			MAX(row_id) AS max_row_id
-		FROM bucketed_rows
-		GROUP BY bucket_id
-		ORDER BY bucket_id
-	`, numChunks, stream.Namespace(), stream.Name())
-}
-
 // SampleBlockBoundaryQuery returns a query that uses Oracle's SAMPLE BLOCK clause
 // to read a small percentage of data blocks and return sorted ROWIDs. This avoids
 // the full-table sort that NTILE requires, making it safe for tables with billions of rows.

@@ -16,11 +16,19 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// oracleNTILERowLimit caps the table size for the single-query NTILE boundary strategy.
-// NTILE sorts every ROWID into N buckets in one pass; on very large tables Oracle spills
-// the sort to temporary tablespace and can raise ORA-1652 (unable to extend temp segment).
-// Tables above this limit fall back to the iterative loop path, which bounds memory per query.
-const oracleNTILERowLimit int64 = 500_000_000
+// Oracle SAMPLE BLOCK clamp bounds for boundary estimation. Oracle allows
+// (0.000001, 100) but 0.001 is the practical floor where the sampler still
+// produces useful output on very large tables, and 50 caps worst-case block
+// scanning so a misconfigured stats row count cannot escalate to a full table
+// scan equivalent.
+const (
+	sampleBlockPercentMin = 0.001
+	sampleBlockPercentMax = 50.0
+	// sampleRowsPerChunkMultiplier gives each chunk boundary ~10x sampled ROWIDs
+	// to pick from, which produces evenly spaced boundaries even when block
+	// sampling is clustered (e.g. freshly inserted rows land in adjacent blocks).
+	sampleRowsPerChunkMultiplier int64 = 10
+)
 
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
@@ -111,43 +119,12 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 		int64(1),
 	).(int64)
 
-	if approxRowCount > oracleNTILERowLimit {
-		logger.Debugf("Oracle table [%s.%s] has approxRowCount=%d exceeding NTILE limit=%d, using SAMPLE BLOCK estimation", stream.Namespace(), stream.Name(), approxRowCount, oracleNTILERowLimit)
-		chunks, err := o.splitViaTableIterationSample(ctx, stream, approxRowCount, numberOfChunks)
-		if err != nil {
-			logger.Debugf("SAMPLE BLOCK estimation failed for [%s.%s]: %v, falling back to iterative loop", stream.Namespace(), stream.Name(), err)
-			return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
-		}
-		return chunks, nil
-	}
-
-	rows, err := o.client.QueryContext(ctx, jdbc.AllChunkBoundaryRowIDsQuery(stream, numberOfChunks))
+	chunks, err := o.splitViaTableIterationSample(ctx, stream, approxRowCount, numberOfChunks)
 	if err != nil {
-		logger.Debugf("NTILE boundary query failed for [%s.%s], falling back to row-by-row chunk iteration: %v", stream.Namespace(), stream.Name(), err)
+		logger.Debugf("SAMPLE BLOCK estimation failed for [%s.%s]: %v, falling back to iterative loop", stream.Namespace(), stream.Name(), err)
 		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
 	}
-	defer rows.Close()
-
-	var startRowIDs []string
-	for rows.Next() {
-		var bucketID int64
-		var minRowID, maxRowID string
-		err = rows.Scan(&bucketID, &minRowID, &maxRowID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan chunk boundary rowids: %s", err)
-		}
-		startRowIDs = append(startRowIDs, minRowID)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate chunk boundary rowids: %s", err)
-	}
-	if len(startRowIDs) == 0 {
-		logger.Debugf("NTILE boundary query returned no rowids for [%s.%s], falling back to row-by-row chunk iteration", stream.Namespace(), stream.Name())
-		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
-	}
-
-	return buildChunksFromStartRowIDs(startRowIDs), nil
+	return chunks, nil
 }
 
 func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.StreamInterface, rowsPerChunk int64) (*types.Set[types.Chunk], error) {
@@ -197,19 +174,13 @@ func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.St
 
 // splitViaTableIterationSample uses Oracle's SAMPLE BLOCK clause to estimate chunk
 // boundaries without a full table scan. Reads a small percentage of data blocks,
-// sorts the sampled ROWIDs, and picks evenly-spaced boundaries.
+// sorts the sampled ROWIDs, and picks evenly-spaced boundaries. This avoids the
+// full-table sort that NTILE requires, making it safe on tables with billions of
+// rows where NTILE would spill to temp tablespace and risk ORA-1652.
 func (o *Oracle) splitViaTableIterationSample(ctx context.Context, stream types.StreamInterface, approxRowCount int64, numberOfChunks int64) (*types.Set[types.Chunk], error) {
-	// We want at least 10x numberOfChunks sample rows for reasonable boundary accuracy.
-	minSampleRows := numberOfChunks * 10
+	minSampleRows := numberOfChunks * sampleRowsPerChunkMultiplier
 	samplePercent := float64(minSampleRows) / float64(approxRowCount) * 100.0
-
-	// Clamp: Oracle SAMPLE requires (0.000001, 100). Floor at 0.001 for practical minimum.
-	if samplePercent < 0.001 {
-		samplePercent = 0.001
-	}
-	if samplePercent > 50 {
-		samplePercent = 50
-	}
+	samplePercent = math.Max(sampleBlockPercentMin, math.Min(sampleBlockPercentMax, samplePercent))
 
 	logger.Debugf("Sampling %.4f%% of blocks from [%s.%s] for chunk boundaries (approxRows=%d, chunks=%d)",
 		samplePercent, stream.Namespace(), stream.Name(), approxRowCount, numberOfChunks)
