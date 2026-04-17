@@ -481,6 +481,9 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
+	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
+	blankStatefulSyncCmd := syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
+
 	dbTestCases := []syncTestCase{
 		{
 			name:                  "Full-Refresh",
@@ -502,14 +505,6 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			},
 		},
 		{
-			name:                  "CDC - No New Records",
-			useState:              true,
-			opSymbol:              "c",
-			expected:              cfg.ExpectedData,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 1,
-		},
-		{
 			name:                  "CDC - Recovery Sync",
 			operation:             "insert_2",
 			useState:              true,
@@ -521,6 +516,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				restoreStateFileCommand(*cfg.TestConfig),
 			},
 		},
+		// During recovery sync, no new record gets synced only the state gets updated.
 		{
 			name:                  "CDC - Post Recovery Sync",
 			useState:              true,
@@ -535,6 +531,11 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			useState:  true,
 			opSymbol:  "u",
 			expected:  cfg.ExpectedUpdatedData,
+			// Run a blank stateful sync (no DB operation) before update. This exercises
+			// the "state ahead of metadata shouldn't block next sync",
+			preSetupCmds: []string{
+				blankStatefulSyncCmd,
+			},
 		},
 		{
 			name:      "CDC - delete",
@@ -738,6 +739,8 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
 	}
+	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
+	blankStatefulSyncCmd := syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 
 	incrementalTestCases := []syncTestCase{
 		{
@@ -759,14 +762,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				saveStateFileCommand(*cfg.TestConfig),
 			},
 		},
-		{
-			name:                  "Incremental - No New Records",
-			useState:              true,
-			opSymbol:              "u",
-			expected:              cfg.ExpectedData,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 1,
-		},
+		// During recovery sync, no new record gets synced only the state gets updated.
 		{
 			name:                  "Incremental - State Save Failure Sync",
 			operation:             "insert_2",
@@ -774,7 +770,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			opSymbol:              "u",
 			expected:              cfg.ExpectedData,
 			verifyNoDuplicates:    true,
-			expectedDistinctCount: 2,
+			expectedDistinctCount: 1,
 			preSetupCmds: []string{
 				restoreStateFileCommand(*cfg.TestConfig),
 			},
@@ -787,7 +783,10 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			expected:              cfg.ExpectedUpdatedData,
 			latestRowOnly:         true,
 			verifyNoDuplicates:    true,
-			expectedDistinctCount: 2,
+			expectedDistinctCount: 3,
+			preSetupCmds: []string{
+				blankStatefulSyncCmd,
+			},
 		},
 	}
 
