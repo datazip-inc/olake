@@ -1026,6 +1026,14 @@ func NextRowIDQuery(stream types.StreamInterface, ROWID string, chunkSize int64)
 	return fmt.Sprintf("SELECT MAX(ROWID),COUNT(*) AS row_count FROM(SELECT ROWID FROM %q.%q WHERE ROWID >= '%s' ORDER BY ROWID FETCH FIRST %d ROWS ONLY)", stream.Namespace(), stream.Name(), ROWID, chunkSize)
 }
 
+// SampleBlockBoundaryQuery returns a query that uses Oracle's SAMPLE BLOCK clause
+// to read a small percentage of data blocks and return sorted ROWIDs. This avoids
+// the full-table sort that NTILE requires, making it safe for tables with billions of rows.
+func SampleBlockBoundaryQuery(stream types.StreamInterface, samplePercent float64) string {
+	return fmt.Sprintf("SELECT ROWID FROM %q.%q SAMPLE BLOCK(%.6f) ORDER BY ROWID",
+		stream.Namespace(), stream.Name(), samplePercent)
+}
+
 // OracleTableRowStatsQuery returns the query to fetch the estimated row count of a table in Oracle
 func OracleTableRowStatsQuery() string {
 	// NVL(AVG_ROW_LEN, 2048) is used to handle the case where the average row length is not available due to outdated stats we are assuming 2kb
