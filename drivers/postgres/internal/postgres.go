@@ -325,10 +325,16 @@ func (p *Postgres) reformatNaiveTimestamp(value interface{}) (interface{}, error
 }
 
 func parseTimestampInLocation(value string, loc *time.Location) (time.Time, error) {
+	if loc == nil {
+		loc = time.UTC
+	}
+
 	for _, layout := range typeutils.DateTimeFormats {
 		if parsed, err := time.ParseInLocation(layout, value, loc); err == nil {
 			return parsed, nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("failed to parse postgres timestamp %q in timezone %s", value, loc)
+
+	logger.Warnf("failed to parse postgres timestamp %q in timezone %s; falling back to epoch start", value, loc.String())
+	return time.Unix(0, 0).UTC(), nil
 }
