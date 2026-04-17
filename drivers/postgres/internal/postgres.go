@@ -39,14 +39,15 @@ const (
 )
 
 type Postgres struct {
-	client     *sqlx.DB
-	sshClient  *ssh.Client
-	config     *Config // postgres driver connection config
-	CDCSupport bool    // indicates if the Postgres instance supports CDC
-	cdcConfig  CDC
-	replicator waljs.Replicator
-	state      *types.State // reference to globally present state
-	streams    []types.StreamInterface
+	client      *sqlx.DB
+	sshClient   *ssh.Client
+	config      *Config // postgres driver connection config
+	CDCSupport  bool    // indicates if the Postgres instance supports CDC
+	cdcConfig   CDC
+	replicator  waljs.Replicator
+	state       *types.State // reference to globally present state
+	streams     []types.StreamInterface
+	effectiveTZ *time.Location
 }
 
 func (p *Postgres) CDCSupported() bool {
@@ -101,6 +102,8 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
+
+	p.effectiveTZ = p.resolveEffectiveTimeZone(ctx, pgClient)
 	// TODO: correct cdc setup
 	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")
 	if found {
@@ -264,6 +267,68 @@ func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (inte
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
+
+	switch strings.ToLower(strings.TrimSpace(columnType)) {
+	case "timestamp", "timestamp without time zone":
+		return p.reformatNaiveTimestamp(value)
+	}
+
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, pgTypeToDataTypes)
 	return typeutils.ReformatValue(olakeType, value)
+}
+
+func (p *Postgres) resolveEffectiveTimeZone(ctx context.Context, client *sqlx.DB) *time.Location {
+	for key, value := range p.config.JDBCURLParams {
+		if strings.EqualFold(key, "timezone") && strings.TrimSpace(value) != "" {
+			return resolvePostgresTimeZone(value)
+		}
+	}
+
+	var sessionTimeZone string
+	if err := client.QueryRowContext(ctx, "SHOW TIME ZONE").Scan(&sessionTimeZone); err != nil {
+		logger.Warnf("postgres timezone detection failed; defaulting to UTC: %s", err)
+		return time.UTC
+	}
+
+	return resolvePostgresTimeZone(sessionTimeZone)
+}
+
+func resolvePostgresTimeZone(name string) *time.Location {
+	loc, err := utils.LoadLocationOrFixedOffset(name)
+	if err != nil {
+		logger.Warnf("failed to load postgres timezone location %s, falling back to UTC. Set jdbc_url_params.timezone to override: %s", name, err)
+		return time.UTC
+	}
+	return loc
+}
+
+func (p *Postgres) reformatNaiveTimestamp(value interface{}) (interface{}, error) {
+	loc := p.effectiveTZ
+	if loc == nil {
+		loc = time.UTC
+	}
+
+	switch v := value.(type) {
+	case string:
+		return parseTimestampInLocation(v, loc)
+	case []byte:
+		return parseTimestampInLocation(string(v), loc)
+	case []int8:
+		b := make([]byte, 0, len(v))
+		for _, i := range v {
+			b = append(b, byte(i))
+		}
+		return parseTimestampInLocation(string(b), loc)
+	default:
+		return typeutils.ReformatValue(types.Timestamp, value)
+	}
+}
+
+func parseTimestampInLocation(value string, loc *time.Location) (time.Time, error) {
+	for _, layout := range typeutils.DateTimeFormats {
+		if parsed, err := time.ParseInLocation(layout, value, loc); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("failed to parse postgres timestamp %q in timezone %s", value, loc)
 }
