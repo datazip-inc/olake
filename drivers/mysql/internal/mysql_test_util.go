@@ -146,6 +146,31 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
 
+	case "insert_2":
+		query = fmt.Sprintf(`
+			INSERT INTO %s (
+			id_cursor, id, id_bigint,
+			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
+			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			price_double_precision, price_float, price_numeric, price_real,
+			name_char, name_varchar, name_text, name_tinytext,
+			name_mediumtext, name_longtext, created_date,
+			created_timestamp, is_active,
+			long_varchar, name_bool, status, priority
+		) VALUES (
+			7, 7, 123456789012345,
+			100, 101, 102, 103,
+			5001, 5002, 101, 102,
+			50, 51,
+			123.45, 5330197.27, 123.456,
+			123.456,  123.45, 123.45, 123.456,
+			'c', 'varchar_val', 'text_val', 'tinytext_val',
+			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
+			'2023-01-01 12:00:00', 1,
+			'long_varchar_val', 1, 'active', 'high'
+		)`, integrationTestTable)
+
 	case "update":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
@@ -167,7 +192,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				long_varchar = 'updated long...', name_bool = 0,
 				status = 'pending', priority = 'low', excludedColumn = 102,
 				includedColumn = 202
-			WHERE id = 6`, integrationTestTable)
+			WHERE id = 1`, integrationTestTable)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
