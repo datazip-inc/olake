@@ -78,11 +78,12 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	//   state >= metadata →  state is current or ahead; read forward normally.
 	if mtState != nil {
 		// TODO: addition of all the state updations in metadata file even for blank sync scenario
-		// metadata > state → crash-recovery path (metadata committed but state write failed).
+		// metadata > state → crash-recovery path (metadata committed but state write failed), no further sync for this stream just update the state to metadata resume token.
 		// state >= metadata → read forward normally.
 		if typeutils.Compare(prevResumeToken, mtState) < 0 {
 			logger.Infof("Stream[%s] metadata ahead of state, using metadata resume token for recovery", stream.ID())
-			prevResumeToken = mtState
+			m.cdcCursor.Store(stream.ID(), mtState)
+			return mtState, nil
 		}
 	}
 

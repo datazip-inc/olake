@@ -286,7 +286,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_datetime2_nullable = '2024-07-01 15:30:00',
 				created_at = '2024-07-01 15:30:00',
 				excludedColumn = 102
-			WHERE id = 6;
+			WHERE id = 1;
 		`, integrationTestTable)
 		_, err := db.ExecContext(ctx, updateRow)
 		require.NoError(t, err, "failed to update CDC row")

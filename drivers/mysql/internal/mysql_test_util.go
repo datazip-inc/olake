@@ -192,7 +192,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				long_varchar = 'updated long...', name_bool = 0,
 				status = 'pending', priority = 'low', excludedColumn = 102,
 				includedColumn = 202
-			WHERE id = 6`, integrationTestTable)
+			WHERE id = 1`, integrationTestTable)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
