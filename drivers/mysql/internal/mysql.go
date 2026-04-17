@@ -363,19 +363,13 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-// TODO: Add consistent timezone detection for CDC of other drivers as well.
 // resolveMySQLTimeZone returns a *time.Location for interpreting TIMESTAMP values (e.g. CDC binlog).
 // Precedence: session > global > system; "SYSTEM" is skipped so the next level is used.
 // Invalid or missing IANA names fall back to UTC.
 func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string) *time.Location {
-	// Strip surrounding quotes so "'Asia/Tokyo'" or "\"UTC\"" from jdbc params become valid IANA names.
-	normalize := func(s string) string {
-		return strings.Trim(strings.TrimSpace(s), `'"`)
-	}
-
-	session := normalize(sessionTimezone)
-	global := normalize(globalTimezone)
-	system := normalize(systemTimezone)
+	session := utils.NormalizeTimeZoneName(sessionTimezone)
+	global := utils.NormalizeTimeZoneName(globalTimezone)
+	system := utils.NormalizeTimeZoneName(systemTimezone)
 
 	var name string
 	switch {
@@ -387,12 +381,21 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 		name = system
 	}
 
-	offsetSeconds, ok := parseMySQLTimeZoneOffset(name)
-	if constants.LoadedStateVersion > 2 && ok {
-		return time.FixedZone(name, offsetSeconds)
+	var (
+		loc *time.Location
+		err error
+	)
+	if constants.LoadedStateVersion > 2 {
+		if offsetSeconds, ok := parseMySQLTimeZoneOffset(name); ok {
+			loc = time.FixedZone(name, offsetSeconds)
+		} else if looksLikeUTCOffset(name) {
+			err = fmt.Errorf("invalid mysql timezone offset %q", name)
+		} else {
+			loc, err = utils.LoadLocationOrFixedOffset(name)
+		}
+	} else {
+		loc, err = time.LoadLocation(name)
 	}
-
-	loc, err := time.LoadLocation(name)
 	if err != nil {
 		logger.Warnf("failed to load mysql timezone location %s, falling back to UTC. Set jdbc_url_params.time_zone to override: %s", name, err)
 		return time.UTC
@@ -400,9 +403,7 @@ func resolveMySQLTimeZone(sessionTimezone, globalTimezone, systemTimezone string
 	return loc
 }
 
-// parseMySQTimeZoneOffset parses MySQL-style timezone offset. Returns offset in seconds and true, or 0, false.
 func parseMySQLTimeZoneOffset(s string) (int, bool) {
-	// MySql supports offsets ranging from -13:59 to +14:00
 	mysqlOffsetRegex := regexp.MustCompile(`^([+-])(0?\d|1[0-4]):([0-5]\d)$`)
 
 	s = strings.TrimSpace(s)
@@ -410,13 +411,21 @@ func parseMySQLTimeZoneOffset(s string) (int, bool) {
 	if matches == nil {
 		return 0, false
 	}
-	signStr, hourStr, minuteStr := matches[1], matches[2], matches[3]
 
+	signStr, hourStr, minuteStr := matches[1], matches[2], matches[3]
 	hours, err1 := strconv.Atoi(hourStr)
 	minutes, err2 := strconv.Atoi(minuteStr)
 	if err1 != nil || err2 != nil || (hours == 14 && minutes > 0) || (signStr == "-" && hours == 14) {
 		return 0, false
 	}
+
 	offsetSeconds := hours*3600 + minutes*60
-	return utils.Ternary(signStr == "-", -offsetSeconds, offsetSeconds).(int), true
+	if signStr == "-" {
+		offsetSeconds = -offsetSeconds
+	}
+	return offsetSeconds, true
+}
+
+func looksLikeUTCOffset(name string) bool {
+	return strings.HasPrefix(name, "+") || strings.HasPrefix(name, "-")
 }
