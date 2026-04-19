@@ -37,8 +37,6 @@ const (
 	// of the distribution factor for validating evenly distributed numeric PKs.
 	DistributionLower = 0.05
 	DistributionUpper = 1000.0
-	// UnicodeSize is the total number of valid Unicode code points (0 to 0x10FFFF)
-	UnicodeSize = 1114112
 	// MysqlChunkAcceptanceRatio defines the minimum ratio of expected chunks that must be generated
 	// for the split to be considered valid.
 	MysqlChunkAcceptanceRatio = float64(0.8)
