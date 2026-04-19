@@ -199,7 +199,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 		if message.Value != nil {
 			data, key, err = k.parseKafkaData(message)
 			if err != nil {
-				logger.Warnf("failed to parse message at offset %d: %s", message.Offset, err)
+				logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
 				shouldSkip = true
 			} else {
 				data[Partition] = message.Partition
