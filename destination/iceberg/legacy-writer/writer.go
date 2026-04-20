@@ -40,6 +40,10 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		})
 	}
 
+	// FlattenAndCleanData pre-shapes record.Data for both normalization modes:
+	//   normalization=true:  typed columns + OlakeColumns merged in
+	//   normalization=false: StringifiedData + OlakeColumns + partition columns
+	// A single loop over protoSchema covers both cases.
 	protoRecords := make([]*proto.IcebergPayload_IceRecord, 0, len(records))
 	for _, record := range records {
 		if record.Data == nil {
@@ -47,26 +51,17 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		}
 
 		protoColumnsValue := make([]*proto.IcebergPayload_IceRecord_FieldValue, 0, len(protoSchema))
-		var err error
-		if !w.stream.NormalizationEnabled() {
-			protoColumnsValue, err = RawDataColumnBuffer(record, protoSchema)
+		for _, field := range protoSchema {
+			val, exist := record.Data[field.Key]
+			if !exist {
+				protoColumnsValue = append(protoColumnsValue, nil)
+				continue
+			}
+			fv, err := toProtoFieldValue(field.IceType, val)
 			if err != nil {
-				return fmt.Errorf("failed to create raw data column buffer: %s", err)
+				return fmt.Errorf("field[%s]: %s", field.Key, err)
 			}
-		} else {
-			for _, field := range protoSchema {
-				val, exist := record.Data[field.Key]
-				if !exist {
-					protoColumnsValue = append(protoColumnsValue, nil)
-					continue
-				}
-				fv, err := toProtoFieldValue(field.IceType, val)
-				if err != nil {
-					return fmt.Errorf("field[%s]: %s", field.Key, err)
-				}
-
-				protoColumnsValue = append(protoColumnsValue, fv)
-			}
+			protoColumnsValue = append(protoColumnsValue, fv)
 		}
 
 		if len(protoColumnsValue) > 0 {
@@ -146,6 +141,9 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 	return nil
 }
 
+// RawDataColumnBuffer is used by the connection health check in iceberg.go to build proto
+// field values for a synthetic non-normalized test record.
+// Normal write-path records are pre-shaped by FlattenAndCleanData and use the standard field loop in Write.
 func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPayload_SchemaField) ([]*proto.IcebergPayload_IceRecord_FieldValue, error) {
 	// 1. Start with a copy of OlakeColumns (already prepared upstream)
 	dataMap := make(map[string]any, len(record.OlakeColumns)+1)
