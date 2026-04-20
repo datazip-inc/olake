@@ -79,7 +79,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 	}()
 
-	err := k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord, shouldSkip bool) (bool, error) {
+	err := k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
@@ -87,9 +87,8 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
 		}
 
-		// record nil is safety check, should not happen
-		if !shouldSkip && record.Data != nil {
-			// process the change
+		// process the change if data is present
+		if record.Data != nil {
 			err := processFn(ctx, abstract.CDCChange{
 				Stream:    currentPartitionMeta.Stream,
 				Timestamp: record.Message.Time,
@@ -183,7 +182,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 }
 
 // for processing messages from a Kafka reader.
-func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, stopProcessFn func(record types.KafkaRecord, shouldSkip bool) (bool, error)) error {
+func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
 	for {
 		message, err := reader.FetchMessage(ctx)
 		if err != nil {
@@ -191,28 +190,26 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 		}
 
 		var (
-			key        string
-			data       map[string]interface{}
-			shouldSkip bool
+			key  string
+			data map[string]interface{}
 		)
 
-		if message.Value != nil {
-			data, key, err = k.parseKafkaData(message)
+		// parse message value and key
+		data, key, err = k.parseKafkaData(message)
+		if err != nil {
+			logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
+		} else if data != nil {
+			// for cases of unparseable message, or null in message value, data map will be nil so nil check is required
+			data[Partition] = message.Partition
+			data[Offset] = message.Offset
+			data[Key] = key
+			data[KafkaTimestamp], err = typeutils.ReformatDate(message.Time, true)
 			if err != nil {
-				logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
-				shouldSkip = true
-			} else {
-				data[Partition] = message.Partition
-				data[Offset] = message.Offset
-				data[Key] = key
-				data[KafkaTimestamp], err = typeutils.ReformatDate(message.Time, true)
-				if err != nil {
-					return fmt.Errorf("failed to reformat date: %s", err)
-				}
+				return fmt.Errorf("failed to reformat date: %s", err)
 			}
 		}
 
-		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message}, shouldSkip)
+		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
 		if err != nil {
 			return err
 		}
