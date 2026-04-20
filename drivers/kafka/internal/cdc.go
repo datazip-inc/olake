@@ -80,11 +80,6 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	}()
 
 	err := k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
-		if record.Data == nil {
-			logger.Warnf("received nil message value at offset %d for topic %s, partition %d", record.Message.Offset, record.Message.Topic, record.Message.Partition)
-			return false, nil
-		}
-
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
@@ -92,15 +87,17 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
 		}
 
-		// process the change
-		err := processFn(ctx, abstract.CDCChange{
-			Stream:    currentPartitionMeta.Stream,
-			Timestamp: record.Message.Time,
-			Kind:      "create",
-			Data:      record.Data,
-		})
-		if err != nil {
-			return false, err
+		// process the change if data is present
+		if record.Data != nil {
+			err := processFn(ctx, abstract.CDCChange{
+				Stream:    currentPartitionMeta.Stream,
+				Timestamp: record.Message.Time,
+				Kind:      "create",
+				Data:      record.Data,
+			})
+			if err != nil {
+				return false, err
+			}
 		}
 
 		lastMessages[currentPartitionKey] = record.Message
@@ -192,14 +189,17 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 			return fmt.Errorf("error reading message in Kafka CDC sync: %s", err)
 		}
 
-		var data map[string]interface{}
-		if message.Value != nil {
-			var key string
-			data, key, err = k.parseKafkaData(message)
-			if err != nil {
-				logger.Warnf("failed to parse message at offset %d: %s", message.Offset, err)
-				continue
-			}
+		var (
+			key  string
+			data map[string]interface{}
+		)
+
+		// parse message value and key
+		data, key, err = k.parseKafkaData(message)
+		if err != nil {
+			logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
+		} else if data != nil {
+			// data map will be nil (in cases like null and unparseable message values) so nil check is required
 			data[Partition] = message.Partition
 			data[Offset] = message.Offset
 			data[Key] = key
