@@ -199,7 +199,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, 
 		if err != nil {
 			logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
 		} else if data != nil {
-			// for cases of unparseable message, or null in message value, data map will be nil so nil check is required
+			// data map will be nil (in cases like null and unparseable message values) so nil check is required
 			data[Partition] = message.Partition
 			data[Offset] = message.Offset
 			data[Key] = key
