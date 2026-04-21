@@ -86,6 +86,21 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to parse partition regex: %s", err)
 		}
+
+		// For normalization=false, partition columns must exist in the discovered schema
+		// with a concrete type — Iceberg partition specs reference columns by field ID
+		if !stream.NormalizationEnabled() {
+			for _, pInfo := range i.partitionInfo {
+				found, prop := stream.Schema().GetProperty(pInfo.Field)
+				if !found {
+					return nil, nil, fmt.Errorf("partition field %s not found in stream schema; with normalization=false, partition columns must exist in the discovered schema", pInfo.Field)
+				}
+				colType := prop.DataType()
+				if colType == types.Null || colType == types.Unknown {
+					return nil, nil, fmt.Errorf("partition field %s has type %s in stream schema; cannot create Iceberg partition spec without a concrete column type", pInfo.Field, colType)
+				}
+			}
+		}
 	}
 
 	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
@@ -103,8 +118,17 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	if globalSchema == nil {
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
+		// when normalization=false, include partition columns in the Iceberg schema so
+		// the Java server can build the partition spec (spec references columns by field ID)
+		partitionFields := make([]string, 0, len(i.partitionInfo))
+		if !stream.NormalizationEnabled() {
+			for _, p := range i.partitionInfo {
+				partitionFields = append(partitionFields, p.Field)
+			}
+		}
+
 		var requestPayload proto.IcebergPayload
-		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream)
+		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
 		requestPayload = proto.IcebergPayload{
 			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
@@ -357,6 +381,32 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}
 
 	if !i.stream.NormalizationEnabled() {
+		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
+			// JSON-encode original source data before overwriting the map
+			dataBytes, err := json.Marshal(record.Data)
+			if err != nil {
+				return fmt.Errorf("failed to marshal raw data: %s", err)
+			}
+			records[idx].Data = make(map[string]any, len(record.OlakeColumns)+1+len(i.partitionInfo))
+			records[idx].Data[constants.StringifiedData] = string(dataBytes)
+			maps.Copy(records[idx].Data, record.OlakeColumns)
+			// include partition column values from the original source data so writers
+			// can apply the Iceberg partition spec without a separate data buffer.
+			// Read with Field (original source key), write with SchemaField (reformatted
+			// destination key) so downstream lookups against the Iceberg schema succeed.
+			for _, pInfo := range i.partitionInfo {
+				if pInfo.Field == constants.OlakeTimestamp {
+					continue // _olake_timestamp is already copied via OlakeColumns above
+				}
+				if v, ok := record.Data[pInfo.Field]; ok {
+					records[idx].Data[pInfo.SchemaField] = v
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to pre-shape raw records: %s", err)
+		}
 		return false, records, i.schema, nil
 	}
 
@@ -475,10 +525,13 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		colName := strings.Replace(strings.TrimSpace(strings.Trim(match[1], `'"`)), "now()", constants.OlakeTimestamp, 1)
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
-		// Append to ordered slice to preserve partition order
+		// Append to ordered slice to preserve partition order.
+		// SchemaField is reformatted once here so all consumers use the consistent
+		// destination column name without scattering utils.Reformat() calls.
 		i.partitionInfo = append(i.partitionInfo, internal.PartitionInfo{
-			Field:     colName,
-			Transform: transform,
+			Field:       colName,
+			SchemaField: utils.Reformat(colName),
+			Transform:   transform,
 		})
 	}
 

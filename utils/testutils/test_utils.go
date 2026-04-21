@@ -17,9 +17,9 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	"github.com/docker/docker/api/types/container"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/moby/moby/api/types/container"
 
 	// load pq driver for SQL tests
 	_ "github.com/lib/pq"
@@ -76,6 +76,7 @@ type TestConfig struct {
 	HostTestDataPath       string
 	HostCatalogPath        string
 	HostTestCatalogPath    string
+	DataFormat             string
 }
 
 // history stores the RPS values and the last updated time for a given mode.
@@ -172,7 +173,7 @@ func (s *benchmarkStore) stats(
 }
 
 // GetTestConfig returns the test config for the given driver
-func GetTestConfig(driver string) *TestConfig {
+func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 	// pwd is olake/drivers/(driver)/internal
 	pwd, err := os.Getwd()
 	if err != nil {
@@ -180,12 +181,16 @@ func GetTestConfig(driver string) *TestConfig {
 	}
 	// root path is olake's root path
 	rootPath := filepath.Join(pwd, "../../..")
-
+	dataFormat := ""
+	if len(extraParams) > 0 {
+		dataFormat = extraParams[0]
+	}
 	containerTestDataPath := "/test-olake/drivers/%s/internal/testdata/%s"
-	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", "%s")
+	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", dataFormat, "%s")
 	return &TestConfig{
 		Driver:                 driver,
 		HostRootPath:           rootPath,
+		DataFormat:             dataFormat,
 		HostTestDataPath:       fmt.Sprintf(hostTestDataPath, driver, ""),
 		HostTestCatalogPath:    fmt.Sprintf(hostTestDataPath, driver, "test_streams.json"),
 		HostCatalogPath:        fmt.Sprintf(hostTestDataPath, driver, "streams.json"),
@@ -452,7 +457,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
-	testCases := []syncTestCase{
+	dbTestCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
 			operation: "",
@@ -483,12 +488,31 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		},
 	}
 
+	kafkaTestCases := []syncTestCase{
+		{
+			name:      "CDC - strict - insert",
+			operation: "",
+			useState:  false,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedData,
+		},
+		{
+			name:      "CDC - strict - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedUpdatedData,
+		},
+	}
+
+	testCases := utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
+
 	// Run each test case
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" {
+				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" && cfg.TestConfig.Driver != "kafka" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -532,7 +556,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		return fmt.Errorf("failed to reset table: %s", err)
 	}
 
-	testCases := []syncTestCase{
+	dbTestCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
 			operation: "",
@@ -563,12 +587,31 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		},
 	}
 
+	kafkaTestCases := []syncTestCase{
+		{
+			name:      "CDC - strict - insert",
+			operation: "",
+			useState:  false,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedData,
+		},
+		{
+			name:      "CDC - strict - update",
+			operation: "update",
+			useState:  true,
+			opSymbol:  "c",
+			expected:  cfg.ExpectedUpdatedData,
+		},
+	}
+
+	testCases := utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
+
 	// Run each test case
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
-				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" {
+				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" && cfg.TestConfig.Driver != "kafka" {
 					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
 				}
 			}
@@ -780,7 +823,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
-	currentTestTable := fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver)
+	currentTestTable := utils.Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
@@ -908,6 +951,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								{"Arrow", true},
 							}
 
+							// Skip cdc tests for drivers not supporting cdc mode
 							if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
 								for _, wt := range writerTypes {
 									t.Run(fmt.Sprintf("Iceberg (%s) Full load + CDC tests", wt.name), func(t *testing.T) {
@@ -924,19 +968,22 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 								})
 							}
 
-							for _, wt := range writerTypes {
-								t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
-									if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndIncremental); err != nil {
-										t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", wt.name, err)
+							// Skip incremental tests for drivers not supporting incremental mode
+							if cfg.TestConfig.Driver != string(constants.Kafka) {
+								for _, wt := range writerTypes {
+									t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
+										if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndIncremental); err != nil {
+											t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", wt.name, err)
+										}
+									})
+								}
+
+								t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
+									if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
+										t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
 									}
 								})
 							}
-
-							t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
-								if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
-									t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
-								}
-							})
 
 							// 5. Clean up
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
@@ -1007,6 +1054,13 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		"SELECT * FROM %s WHERE _op_type = '%s'",
 		fullTableName, opSymbol,
 	)
+	// In kafka, _op_type is always 'c' and col_included appears only in new rows.
+	// To check new record, col_included is used.
+	if driver == string(constants.Kafka) {
+		if _, ok := schema["col_included"]; ok {
+			selectQuery += " AND col_included IS NOT NULL"
+		}
+	}
 	t.Logf("Executing query: %s", selectQuery)
 
 	var selectRows []types.Row
@@ -1081,7 +1135,12 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 			for key := range defaultCDCColumnsSchema {
 				icebergValue, ok := icebergMap[key]
 				require.Truef(t, ok, "Row %d: missing column %q in Iceberg result", rowIdx, key)
-				require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
+				if key == "_kafka_offset" || key == "_kafka_partition" {
+					require.NotNil(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				} else {
+					require.NotEmpty(t, icebergValue, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, icebergValue)
+				}
 				if key == constants.CdcTimestamp {
 					ts, ok := normalizeToTime(icebergValue)
 					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, icebergValue, icebergValue)
@@ -1225,6 +1284,13 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		"SELECT * FROM %s WHERE `_op_type` = '%s'",
 		viewName, opSymbol,
 	)
+	// In kafka, _op_type is always 'c' and col_included appears only in new rows.
+	// To check new record, col_included is used.
+	if driver == string(constants.Kafka) {
+		if _, ok := schema["col_included"]; ok {
+			selectQuery += " AND `col_included` IS NOT NULL"
+		}
+	}
 	t.Logf("Executing Parquet query: %s", selectQuery)
 
 	df, err := spark.Sql(ctx, selectQuery)
@@ -1261,7 +1327,12 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 			for key := range defaultCDCColumnsSchema {
 				val, ok := parquetMap[key]
 				require.Truef(t, ok, "Row %d: missing column %q in Parquet result", rowIdx, key)
-				require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				// Kafka offset, partition can be 0, NotEmpty fails for 0 so we check for NotNil instead.
+				if key == "_kafka_offset" || key == "_kafka_partition" {
+					require.NotNil(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				} else {
+					require.NotEmpty(t, val, "Row %d: expected column %q to be non-empty, got %#v", rowIdx, key, val)
+				}
 				if key == constants.CdcTimestamp {
 					ts, ok := normalizeToTime(val)
 					require.Truef(t, ok, "Row %d: expected %q to be a timestamp, got %T (%#v)", rowIdx, key, val, val)
