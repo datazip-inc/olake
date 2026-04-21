@@ -49,5 +49,31 @@ func (m *MSSQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInt
 	if err != nil {
 		return nil, nil, err
 	}
+
+	primaryCursor, secondaryCursor := stream.Cursor()
+	maxPrimaryCursorValue, err = m.normalizeCursorValue(ctx, stream, primaryCursor, maxPrimaryCursorValue)
+	if err != nil {
+		return nil, nil, err
+	}
+	if secondaryCursor != "" {
+		maxSecondaryCursorValue, err = m.normalizeCursorValue(ctx, stream, secondaryCursor, maxSecondaryCursorValue)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
 	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
+}
+
+func (m *MSSQL) normalizeCursorValue(ctx context.Context, stream types.StreamInterface, cursorField string, value any) (any, error) {
+	if value == nil {
+		return value, nil
+	}
+
+	var dataType string
+	if err := m.client.QueryRowContext(ctx, jdbc.MSSQLColumnTypeQuery(), stream.Namespace(), stream.Name(), cursorField).Scan(&dataType); err != nil {
+		return nil, fmt.Errorf("failed to get MSSQL cursor type: %s", err)
+	}
+
+	return normalizeMSSQLValue(value, dataType), nil
 }

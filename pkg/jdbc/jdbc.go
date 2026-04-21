@@ -1347,6 +1347,11 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 	var maxPrimaryCursorValue, maxSecondaryCursorValue any
 
 	bytesConverter := func(value any) any {
+		// MSSQL has type-aware normalization in the driver.
+		if driverType == constants.MSSQL {
+			return value
+		}
+
 		switch v := value.(type) {
 		case []byte:
 			return string(v)
