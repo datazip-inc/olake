@@ -568,7 +568,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		t.Run(tc.name, func(t *testing.T) {
 			for _, cmd := range tc.preSetupCommands {
 				if code, out, execErr := utils.ExecCommand(ctx, c, cmd); execErr != nil || code != 0 {
-					t.Fatalf("%s pre-sync command failed (%d): %s\n%s", tc.name, code, execErr, out)
+					t.Fatalf("%s pre-sync command failed (%d): %v\n%s", tc.name, code, execErr, out)
 				}
 			}
 
@@ -807,7 +807,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		t.Run(tc.name, func(t *testing.T) {
 			for _, cmd := range tc.preSetupCommands {
 				if code, out, execErr := utils.ExecCommand(ctx, c, cmd); execErr != nil || code != 0 {
-					t.Fatalf("%s pre-sync command failed (%d): %s\n%s", tc.name, code, execErr, out)
+					t.Fatalf("%s pre-sync command failed (%d): %v\n%s", tc.name, code, execErr, out)
 				}
 			}
 
