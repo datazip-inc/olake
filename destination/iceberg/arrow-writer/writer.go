@@ -93,12 +93,14 @@ func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp 
 	values := make([]any, 0, len(w.partitionInfo))
 
 	for _, pInfo := range w.partitionInfo {
-		colType, ok := w.schema[pInfo.Field]
+		// SchemaField is the reformatted destination column name — matches w.schema keys
+		// and record.Data keys after FlattenAndCleanData pre-shaping.
+		colType, ok := w.schema[pInfo.SchemaField]
 		if !ok {
-			return "", nil, fmt.Errorf("partition field %q not in schema", pInfo.Field)
+			return "", nil, fmt.Errorf("partition field %q not in schema", pInfo.SchemaField)
 		}
 
-		fieldValue := utils.Ternary(pInfo.Field == constants.OlakeTimestamp, olakeTimestamp, record.Data[pInfo.Field])
+		fieldValue := utils.Ternary(pInfo.Field == constants.OlakeTimestamp, olakeTimestamp, record.Data[pInfo.SchemaField])
 		if colType == "timestamptz" {
 			if ts, err := typeutils.ReformatDate(fieldValue, true); err == nil {
 				fieldValue = ts
@@ -110,7 +112,7 @@ func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp 
 			return "", nil, fmt.Errorf("failed to get transformed value: %s", err)
 		}
 
-		paths = append(paths, ConstructColPath(pathStr, pInfo.Field, pInfo.Transform))
+		paths = append(paths, ConstructColPath(pathStr, pInfo.SchemaField, pInfo.Transform))
 		values = append(values, typedVal)
 	}
 
@@ -238,7 +240,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 			}
 		}
 
-		record, err := createArrowRecord(writer.data, w.allocator, w.arrowSchema[fileTypeData], w.stream.NormalizationEnabled())
+		record, err := createArrowRecord(writer.data, w.allocator, w.arrowSchema[fileTypeData])
 		if err != nil {
 			return fmt.Errorf("failed to create arrow record: %s", err)
 		}

@@ -59,7 +59,7 @@ func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo,
 		partitionFields := make([]map[string]string, 0, len(partitionInfo))
 		for _, info := range partitionInfo {
 			partitionFields = append(partitionFields, map[string]string{
-				"field":     info.Field,
+				"field":     info.SchemaField, // reformatted to match the Iceberg schema field name
 				"transform": info.Transform,
 			})
 		}
