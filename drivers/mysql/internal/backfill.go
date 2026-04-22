@@ -130,7 +130,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		query := jdbc.MySQLColumnStatsQuery()
 		err = m.client.QueryRowContext(ctx, query, stream.Name(), pkColumns[0]).Scan(&dataType, &dataMaxLength, &columnCollationType)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch Column DataType and max length %s", err)
+			return nil, fmt.Errorf("failed to fetch column datatype and max length for column %s: %s", pkColumns[0], err)
 		}
 		// 1. Try Numeric Strategy
 		numericChunkBounds = isNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType)
@@ -298,14 +298,20 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		stringChunkStepSize.Add(stringChunkStepSize, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
 		stringChunkStepSize.Div(stringChunkStepSize, big.NewInt(expectedChunks))
 
-		chunkBoundaries := []string{}
+		var (
+			chunkBoundaries  = []string{}   // final chunk boundary values from DB
+			rangeSlice       = []string{}   // reusable slice for boundary values per iteration
+			adjustedStepSize = new(big.Int) // step size adjusted each iteration for balanced chunking
+			currentBoundary  = new(big.Int) // current position in keyspace while generating boundaries
+		)
+
 		// Try to generate balanced chunks by adaptively adjusting the step size across exponentially increasing attempts.
 		for stepShrinkFactor := int64(1); stepShrinkFactor <= int64(1000000); stepShrinkFactor = stepShrinkFactor * 2 {
-			rangeSlice := []string{}
-			adjustedStepSize := new(big.Int).Set(stringChunkStepSize)
+			rangeSlice = rangeSlice[:0]
+			adjustedStepSize.Set(stringChunkStepSize)
 			adjustedStepSize.Add(adjustedStepSize, big.NewInt(stepShrinkFactor))
 			adjustedStepSize.Div(adjustedStepSize, big.NewInt(stepShrinkFactor+1))
-			currentBoundary := new(big.Int).Set(stringChunkBounds.minEncodedBigIntValue)
+			currentBoundary.Set(stringChunkBounds.minEncodedBigIntValue)
 
 			for chunkIdx := int64(0); chunkIdx < expectedChunks*(stepShrinkFactor+1) && currentBoundary.Cmp(stringChunkBounds.maxEncodedBigIntValue) < 0; chunkIdx++ {
 				rangeSlice = append(rangeSlice, decodeBigIntToCharsetString(currentBoundary))
@@ -335,7 +341,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 				return fmt.Errorf("row iteration error during distinct boundaries iteration: %s", err)
 			}
 			if len(rangeSlice) > len(chunkBoundaries) {
-				chunkBoundaries = append([]string{}, rangeSlice...)
+				chunkBoundaries = slices.Clone(rangeSlice)
 			}
 			if len(rangeSlice) >= int(expectedChunks) {
 				break
@@ -487,13 +493,13 @@ type (
 	}
 )
 
-/*
-	Custom charset:
-	0–9 (10) + A–Z (26) + a–z (26) + special characters (33) = 95 chars
-*/
-var charset = []rune("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz[\\]^_`{|}~!\"#$%&'()*+,-./:;<=>?@ ")
+var (
+	// 95-character set: digits + uppercase + lowercase + symbols
+	charset = []rune("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz[\\]^_`{|}~!\"#$%&'()*+,-./:;<=>?@ ")
 
-var charToIndex, indexToChar = buildCharsetMaps()
+	charToIndex, indexToChar = buildCharsetMaps()              // maps for character to index and index to character
+	charsetBase              = big.NewInt(int64(len(charset))) // base for the charset
+)
 
 // buildCharsetMaps builds the character to index and index to character maps
 func buildCharsetMaps() (map[rune]int64, map[int64]rune) {
@@ -509,7 +515,6 @@ func buildCharsetMaps() (map[rune]int64, map[int64]rune) {
 
 // encodeCharsetStringToBigInt converts a string to a big.Int using a custom charset and 1-based index
 func encodeCharsetStringToBigInt(s string) (*big.Int, error) {
-	base := big.NewInt(int64(len(charset)))
 	val := big.NewInt(0)
 
 	for _, ch := range []rune(s) {
@@ -517,7 +522,7 @@ func encodeCharsetStringToBigInt(s string) (*big.Int, error) {
 		if !ok {
 			return big.NewInt(0), fmt.Errorf("unsupported character: %s", string(ch))
 		}
-		val.Mul(val, base)
+		val.Mul(val, charsetBase)
 		val.Add(val, big.NewInt(idx))
 	}
 	return val, nil
@@ -529,19 +534,18 @@ func decodeBigIntToCharsetString(n *big.Int) string {
 		return ""
 	}
 
-	base := big.NewInt(int64(len(charset)))
 	x := new(big.Int).Set(n)
 	var runes []rune
 
 	for x.Cmp(big.NewInt(0)) > 0 {
-		rem := new(big.Int).Mod(x, base)
+		rem := new(big.Int).Mod(x, charsetBase)
 		if rem.Cmp(big.NewInt(0)) == 0 {
-			rem = base
+			rem = charsetBase
 			x.Sub(x, big.NewInt(1))
 		}
 		ch := indexToChar[rem.Int64()]
 		runes = append(runes, ch)
-		x.Div(x, base)
+		x.Div(x, charsetBase)
 	}
 
 	slices.Reverse(runes)
