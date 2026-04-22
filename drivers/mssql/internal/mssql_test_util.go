@@ -233,7 +233,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err = db.ExecContext(ctx, filteredQuery)
 		require.NoError(t, err, "failed to insert filtered CDC row")
 
-	case "insert_2":
+	case "insert_2pc":
 		insertTwo := fmt.Sprintf(`
 			INSERT INTO dbo.%s (
 				id_cursor,
@@ -264,7 +264,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			);
 		`, integrationTestTable)
 		_, err2 := db.ExecContext(ctx, insertTwo)
-		require.NoError(t, err2, "failed to insert CDC row (insert_2)")
+		require.NoError(t, err2, "failed to insert CDC row (insert_2pc)")
 
 	case "update":
 		updateRow := fmt.Sprintf(`

@@ -71,6 +71,7 @@ type TestConfig struct {
 	IcebergDestinationPath string
 	ParquetDestinationPath string
 	StatePath              string
+	StateCheckpointPath    string // backup of state.json used in 2PC recovery tests
 	StatsPath              string
 	BenchmarksPath         string
 	HostTestDataPath       string
@@ -200,6 +201,7 @@ func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 		IcebergDestinationPath: fmt.Sprintf(containerTestDataPath, driver, "iceberg_destination.json"),
 		ParquetDestinationPath: fmt.Sprintf(containerTestDataPath, driver, "parquet_destination.json"),
 		StatePath:              fmt.Sprintf(containerTestDataPath, driver, "state.json"),
+		StateCheckpointPath:    fmt.Sprintf(containerTestDataPath, driver, "state_checkpoint.json"),
 		StatsPath:              fmt.Sprintf(containerTestDataPath, driver, "stats.json"),
 	}
 }
@@ -284,23 +286,14 @@ func resetStateFileCommand(config TestConfig) string {
 	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
 }
 
-// saveStateFileCommand copies the current state.json to a checkpoint backup inside the container.
-func saveStateFileCommand(config TestConfig) string {
-	return fmt.Sprintf(`cp %s %s`, config.StatePath, stateCheckpointPath(config))
+// saveStateFileCommand copies state.json to the checkpoint state file.
+func saveStateFileCommand(config *TestConfig) string {
+	return fmt.Sprintf(`cp %s %s`, config.StatePath, config.StateCheckpointPath)
 }
 
 // restoreStateFileCommand replaces state.json with the previously saved checkpoint backup.
-func restoreStateFileCommand(config TestConfig) string {
-	return fmt.Sprintf(`cp %s %s`, stateCheckpointPath(config), config.StatePath)
-}
-
-// stateCheckpointPath returns the container path for the state checkpoint backup file.
-func stateCheckpointPath(config TestConfig) string {
-	lastSlash := strings.LastIndex(config.StatePath, "/")
-	if lastSlash < 0 {
-		return "state_checkpoint.json"
-	}
-	return config.StatePath[:lastSlash+1] + "state_checkpoint.json"
+func restoreStateFileCommand(config *TestConfig) string {
+	return fmt.Sprintf(`cp %s %s`, config.StateCheckpointPath, config.StatePath)
 }
 
 func toggleArrowIcebergWrites(config TestConfig, enabled bool) string {
@@ -380,15 +373,15 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 
 // syncTestCase represents a test case for sync operations
 type syncTestCase struct {
-	name                  string
-	operation             string
-	useState              bool
-	opSymbol              string
-	expected              map[string]interface{}
-	preSetupCmds          []string // shell commands to execute in the container before the sync
-	verifyNoDuplicates    bool     // if true, assert COUNT(*) == COUNT(DISTINCT _olake_id) after sync
-	expectedDistinctCount int64    // when > 0, also assert COUNT(DISTINCT _olake_id) == expectedDistinctCount
-	latestRowOnly         bool     // if true, verify only the most-recently written row (ORDER BY _olake_timestamp DESC LIMIT 1)
+	name                     string
+	operation                string
+	useState                 bool
+	opSymbol                 string
+	expected                 map[string]interface{}
+	preSetupCommands         []string // shell commands to execute in the container before the sync
+	verifyNoDuplicates       bool     // if true, assert COUNT(*) == COUNT(DISTINCT _olake_id) after sync
+	expectedRowCountByOpType int64    // when > 0, assert COUNT(DISTINCT _olake_id) == this value (catches over-sync and under-sync)
+	latestRowOnly            bool     // if true, verify only the most-recently written row (ORDER BY _olake_timestamp DESC LIMIT 1)
 }
 
 // runSyncAndVerify executes a sync command and verifies the results in Iceberg
@@ -482,17 +475,16 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	}
 
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
-	blankStatefulSyncCmd := syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 
 	dbTestCases := []syncTestCase{
 		{
-			name:                  "Full-Refresh",
-			operation:             "",
-			useState:              false,
-			opSymbol:              "r",
-			expected:              cfg.ExpectedData,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 5,
+			name:                     "Full-Refresh",
+			operation:                "",
+			useState:                 false,
+			opSymbol:                 "r",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 5, // 5 seed rows written as op_type='r'
 		},
 		{
 			name:      "CDC - insert",
@@ -500,30 +492,36 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			useState:  true,
 			opSymbol:  "c",
 			expected:  cfg.ExpectedData,
-			preSetupCmds: []string{
-				saveStateFileCommand(*cfg.TestConfig),
+			preSetupCommands: []string{
+				saveStateFileCommand(cfg.TestConfig),
 			},
 		},
 		{
-			name:                  "CDC - Recovery Sync",
-			operation:             "insert_2",
-			useState:              true,
-			opSymbol:              "c",
-			expected:              cfg.ExpectedData,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 1,
-			preSetupCmds: []string{
-				restoreStateFileCommand(*cfg.TestConfig),
+			// Simulate 2PC failure: restore state to pre-insert checkpoint, insert a
+			// second record, run sync. The driver recovers: it advances state to the
+			// committed metadata LSN by making a bounded sync.
+			// expectedRowCountByOpType=1 because no new data lands in Iceberg here,
+			// as it just recovers the sync from state -> metadata LSN.
+			name:                     "CDC - Recovery Sync",
+			operation:                "insert_2pc",
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 1,
+			preSetupCommands: []string{
+				restoreStateFileCommand(cfg.TestConfig),
 			},
 		},
-		// During recovery sync, no new record gets synced only the state gets updated.
 		{
-			name:                  "CDC - Post Recovery Sync",
-			useState:              true,
-			opSymbol:              "c",
-			expected:              cfg.ExpectedData,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 2,
+			// After the recovery sync advanced state to the committed metadata LSN,
+			// a normal sync should see both the original insert and insert_2pc rows.
+			name:                     "CDC - Post Recovery Sync",
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 2, // insert row + insert_2pc row, both unique by _olake_id
 		},
 		{
 			name:      "CDC - update",
@@ -531,10 +529,10 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			useState:  true,
 			opSymbol:  "u",
 			expected:  cfg.ExpectedUpdatedData,
-			// Run a blank stateful sync (no DB operation) before update. This exercises
-			// the "state ahead of metadata shouldn't block next sync",
-			preSetupCmds: []string{
-				blankStatefulSyncCmd,
+			// Run a blank stateful sync before update to exercise
+			// the "state ahead of metadata should not block the next sync" path.
+			preSetupCommands: []string{
+				syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix),
 			},
 		},
 		{
@@ -568,9 +566,9 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	// Run each test case
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, cmd := range tc.preSetupCmds {
+			for _, cmd := range tc.preSetupCommands {
 				if code, out, execErr := utils.ExecCommand(ctx, c, cmd); execErr != nil || code != 0 {
-					t.Fatalf("%s pre-setup command failed (%d): %v\n%s", tc.name, code, execErr, out)
+					t.Fatalf("%s pre-sync command failed (%d): %s\n%s", tc.name, code, execErr, out)
 				}
 			}
 
@@ -591,14 +589,14 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				tc.operation,
 				tc.opSymbol,
 				tc.expected,
-				!strings.Contains(tc.name, "Full-Refresh"),
+				tc.name != "Full-Refresh",
 				tc.latestRowOnly,
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
 
 			if tc.verifyNoDuplicates {
-				VerifyIcebergNoDuplicates(t, testTable, cfg.DestinationDB, tc.opSymbol, tc.expectedDistinctCount)
+				VerifyIcebergNoDuplicates(ctx, t, testTable, cfg.DestinationDB, tc.opSymbol, tc.expectedRowCountByOpType)
 			}
 		})
 	}
@@ -740,17 +738,16 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 		return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
 	}
 	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
-	blankStatefulSyncCmd := syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 
 	incrementalTestCases := []syncTestCase{
 		{
-			name:                  "Full-Refresh",
-			operation:             "",
-			useState:              false,
-			opSymbol:              "r",
-			expected:              cfg.ExpectedData,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 5,
+			name:                     "Full-Refresh",
+			operation:                "",
+			useState:                 false,
+			opSymbol:                 "r",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 5, // 5 seed rows written as op_type='r'
 		},
 		{
 			name:      "Incremental - insert",
@@ -758,34 +755,49 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			useState:  true,
 			opSymbol:  "u",
 			expected:  cfg.ExpectedData,
-			preSetupCmds: []string{
-				saveStateFileCommand(*cfg.TestConfig),
-			},
-		},
-		// During recovery sync, no new record gets synced only the state gets updated.
-		{
-			name:                  "Incremental - State Save Failure Sync",
-			operation:             "insert_2",
-			useState:              true,
-			opSymbol:              "u",
-			expected:              cfg.ExpectedData,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 1,
-			preSetupCmds: []string{
-				restoreStateFileCommand(*cfg.TestConfig),
+			preSetupCommands: []string{
+				saveStateFileCommand(cfg.TestConfig),
 			},
 		},
 		{
-			name:                  "Incremental - update",
-			operation:             "update",
-			useState:              true,
-			opSymbol:              "u",
-			expected:              cfg.ExpectedUpdatedData,
-			latestRowOnly:         true,
-			verifyNoDuplicates:    true,
-			expectedDistinctCount: 3,
-			preSetupCmds: []string{
-				blankStatefulSyncCmd,
+			// Simulate 2PC failure: restore cursor to pre-insert checkpoint, insert a
+			// second record, run sync. The cursor re-reads the range and deduplicates
+			// the original insert via MERGE INTO; insert_2pc is net-new.
+			// expectedRowCountByOpType=1: only insert_2pc is visible (original deduplicated).
+			name:                     "Incremental - State Save Failure Sync",
+			operation:                "insert_2pc",
+			useState:                 true,
+			opSymbol:                 "u",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 1,
+			preSetupCommands: []string{
+				restoreStateFileCommand(cfg.TestConfig),
+			},
+		},
+		{
+			// After recovery, state is now consistent. A normal sync should see both
+			// the original insert row and insert_2pc row — 2 distinct records total.
+			name:                     "Incremental - Post Recovery Sync",
+			useState:                 true,
+			opSymbol:                 "u",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 2, // insert row + insert_2pc row, both unique by _olake_id
+		},
+		{
+			name:                     "Incremental - update",
+			operation:                "update",
+			useState:                 true,
+			opSymbol:                 "u",
+			expected:                 cfg.ExpectedUpdatedData,
+			latestRowOnly:            true,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 3, // insert + insert_2pc + update rows (each unique)
+			preSetupCommands: []string{
+				// Run a blank stateful sync before update to exercise the
+				// "state ahead of metadata should not block next sync" path.
+				syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix),
 			},
 		},
 	}
@@ -793,9 +805,9 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	// Run each incremental test case
 	for _, tc := range incrementalTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, cmd := range tc.preSetupCmds {
+			for _, cmd := range tc.preSetupCommands {
 				if code, out, execErr := utils.ExecCommand(ctx, c, cmd); execErr != nil || code != 0 {
-					t.Fatalf("%s pre-setup command failed (%d): %v\n%s", tc.name, code, execErr, out)
+					t.Fatalf("%s pre-sync command failed (%d): %s\n%s", tc.name, code, execErr, out)
 				}
 			}
 
@@ -823,7 +835,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			}
 
 			if tc.verifyNoDuplicates {
-				VerifyIcebergNoDuplicates(t, testTable, cfg.DestinationDB, tc.opSymbol, tc.expectedDistinctCount)
+				VerifyIcebergNoDuplicates(ctx, t, testTable, cfg.DestinationDB, tc.opSymbol, tc.expectedRowCountByOpType)
 			}
 		})
 	}
@@ -1333,9 +1345,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 
 // VerifyIcebergNoDuplicates asserts that no duplicate _olake_id values exist for the given
 // _op_type in the Iceberg table.
-func VerifyIcebergNoDuplicates(t *testing.T, tableName, icebergDB, opSymbol string, expectedDistinctCount int64) {
+func VerifyIcebergNoDuplicates(ctx context.Context, t *testing.T, tableName, icebergDB, opSymbol string, expectedRowCountByOpType int64) {
 	t.Helper()
-	ctx := context.Background()
 
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 	require.NoError(t, err, "Failed to connect to Spark Connect server for duplicate check")
@@ -1381,15 +1392,15 @@ func VerifyIcebergNoDuplicates(t *testing.T, tableName, icebergDB, opSymbol stri
 	// 2. Exact count: when caller specifies an expected row count, enforce it so that both
 	//    over-sync (old rows re-processed and inserted again) and under-sync (new rows missed)
 	//    are caught.
-	if expectedDistinctCount > 0 {
-		require.Equal(t, expectedDistinctCount, distinct,
+	if expectedRowCountByOpType > 0 {
+		require.Equal(t, expectedRowCountByOpType, distinct,
 			"Row count mismatch for _op_type='%s': expected %d distinct rows, got %d. "+
 				"Either old rows were re-synced (over-sync) or new rows were missed (under-sync).",
-			opSymbol, expectedDistinctCount, distinct)
+			opSymbol, expectedRowCountByOpType, distinct)
 	}
 
 	t.Logf("Duplicate check passed for _op_type='%s': %d rows, all unique by _olake_id (expected %d)",
-		opSymbol, distinct, expectedDistinctCount)
+		opSymbol, distinct, expectedRowCountByOpType)
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO

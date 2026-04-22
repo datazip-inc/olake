@@ -118,7 +118,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err = collection.InsertOne(ctx, filteredDoc)
 		require.NoError(t, err, "Failed to insert filtered test data row")
 
-	case "insert_2":
+	case "insert_2pc":
 		doc2 := bson.M{
 			"id_bigint":         int64(123456789012345),
 			"id_int":            int32(100),
@@ -135,7 +135,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			"name_varchar":      "varchar_val",
 		}
 		_, err2 := collection.InsertOne(ctx, doc2)
-		require.NoError(t, err2, "Failed to insert document (insert_2)")
+		require.NoError(t, err2, "Failed to insert document (insert_2pc)")
 
 	case "update":
 		filter := bson.M{"id": int32(1)}

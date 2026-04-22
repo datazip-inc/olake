@@ -148,7 +148,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
 
-	case "insert_2":
+	case "insert_2pc":
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
 				col_cursor, col_bigint, col_bool, col_char, col_character,
