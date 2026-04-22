@@ -143,9 +143,13 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	// persist replicator for post cdc
 	p.replicator = replicator
 
-	// validate global state (might got invalid during full load)
-	if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
-		return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
+	// validateGlobalState ensures slot and state agree before WAL replay begins.
+	// Skip it when remainingStreams is empty: all streams are already committed in
+	// Iceberg, so no WAL will be replayed and the slot/state relationship is irrelevant.
+	if len(remainingStreams) > 0 {
+		if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
+			return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
+		}
 	}
 
 	// choose replicator via factory based on OutputPlugin config (default wal2json)

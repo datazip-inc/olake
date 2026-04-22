@@ -13,7 +13,7 @@ require (
 	github.com/goccy/go-json v0.10.5
 	github.com/jackc/pglogrepl v0.0.0-20250322012620-f1e2b1498ed6
 	github.com/jackc/pgtype v1.14.0
-	github.com/jackc/pgx/v5 v5.7.3
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
 	github.com/linkedin/goavro/v2 v2.15.0
