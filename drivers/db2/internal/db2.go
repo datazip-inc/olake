@@ -130,6 +130,7 @@ func (d *DB2) forwardConnections(listener net.Listener, remoteAddr string) {
 
 		remoteConn, err := d.sshClient.Dial("tcp", remoteAddr)
 		if err != nil {
+			logger.Warnf("failed to dial DB2 target %s through SSH tunnel: %s", remoteAddr, err)
 			localConn.Close()
 			continue
 		}

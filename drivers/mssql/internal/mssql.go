@@ -83,13 +83,13 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		connector.Dialer = &mssqlSSHDialer{sshClient: m.sshClient, host: m.config.Host}
 
 		db := sql.OpenDB(connector)
-		client = sqlx.NewDb(db, "sqlserver").Unsafe()
+		client = sqlx.NewDb(db, "sqlserver")
 	} else {
 		db, err := sql.Open("sqlserver", connStr)
 		if err != nil {
 			return fmt.Errorf("failed to open MSSQL connection: %s", err)
 		}
-		client = sqlx.NewDb(db, "sqlserver").Unsafe()
+		client = sqlx.NewDb(db, "sqlserver")
 	}
 
 	// Set connection pool size
