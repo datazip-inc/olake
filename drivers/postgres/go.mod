@@ -6,7 +6,7 @@ require (
 	github.com/apache/arrow-go/v18 v18.2.0
 	github.com/datazip-inc/olake v0.0.0-20250414061859-a168ad00bb4b
 	github.com/jackc/pglogrepl v0.0.0-20250322012620-f1e2b1498ed6
-	github.com/jackc/pgx/v5 v5.7.3
+	github.com/jackc/pgx/v5 v5.9.2
 	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.48.0
