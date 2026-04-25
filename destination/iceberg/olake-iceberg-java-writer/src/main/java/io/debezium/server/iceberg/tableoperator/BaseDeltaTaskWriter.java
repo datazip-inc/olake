@@ -2,6 +2,7 @@ package io.debezium.server.iceberg.tableoperator;
 
 import com.google.common.collect.Sets;
 import org.apache.iceberg.*;
+import org.apache.iceberg.deletes.DeleteGranularity;
 import org.apache.iceberg.data.InternalRecordWrapper;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
@@ -62,7 +63,8 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
 
   public class RowDataDeltaWriter extends BaseEqualityDeltaWriter {
     RowDataDeltaWriter(PartitionKey partition) {
-      super(partition, schema, deleteSchema);
+      // create one positional delete file per referenced data file,
+      super(partition, schema, deleteSchema, DeleteGranularity.FILE);
     }
 
     @Override
