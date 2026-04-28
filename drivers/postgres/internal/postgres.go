@@ -226,9 +226,6 @@ func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
 	)
 
 	if len(p.config.Schemas) > 0 {
-		if err := p.validateConfiguredSchemas(ctx, p.client); err != nil {
-			return nil, err
-		}
 		logger.Infof("Schema filter applied, discovering only schemas: %v", p.config.Schemas)
 		err = p.client.SelectContext(ctx, &tableNamesOutput, getPrivilegedTablesFilteredTmpl, pq.Array(p.config.Schemas))
 	} else {
