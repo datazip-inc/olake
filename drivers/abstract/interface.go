@@ -20,6 +20,7 @@ type DriverInterface interface {
 	Type() string
 	// specific to test & setup
 	Setup(ctx context.Context) error
+	ValidateConfiguredSchemas(ctx context.Context) error
 	SetupState(state *types.State)
 	// sync artifacts
 	MaxConnections() int

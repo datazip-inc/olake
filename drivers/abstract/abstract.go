@@ -136,6 +136,10 @@ func (a *AbstractDriver) Setup(ctx context.Context) error {
 	return a.driver.Setup(ctx)
 }
 
+func (a *AbstractDriver) ValidateConfiguredSchemas(ctx context.Context) error {
+	return a.driver.ValidateConfiguredSchemas(ctx)
+}
+
 func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.State, error) {
 	if a.state == nil {
 		return &types.State{}, nil

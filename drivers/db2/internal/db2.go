@@ -84,6 +84,10 @@ func (d *DB2) Setup(ctx context.Context) error {
 	return nil
 }
 
+func (d *DB2) ValidateConfiguredSchemas(_ context.Context) error {
+	return nil
+}
+
 func (d *DB2) StateType() types.StateType {
 	return types.StreamType
 }

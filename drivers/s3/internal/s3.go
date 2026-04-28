@@ -122,6 +122,10 @@ func (s *S3) Setup(ctx context.Context) error {
 	return nil
 }
 
+func (s *S3) ValidateConfiguredSchemas(_ context.Context) error {
+	return nil
+}
+
 // SetupState sets the state reference for tracking sync progress
 func (s *S3) SetupState(state *types.State) {
 	s.state = state

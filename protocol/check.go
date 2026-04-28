@@ -42,7 +42,11 @@ var checkCmd = &cobra.Command{
 			}
 
 			if configPath != "not-set" {
-				return connector.Setup(cmd.Context())
+				ctx := cmd.Context()
+				if err := connector.Setup(ctx); err != nil {
+					return err
+				}
+				return connector.ValidateConfiguredSchemas(ctx)
 			}
 
 			return nil

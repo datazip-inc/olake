@@ -40,7 +40,7 @@ const (
 	// configured schema names that are missing from pg_namespace or lack USAGE for current_user
 	validateConfiguredSchemasTmpl = `
 		WITH requested AS (
-			SELECT DISTINCT btrim(unnest($1::text[])) AS schema_name
+			SELECT DISTINCT unnest($1::text[]) AS schema_name
 		)
 		SELECT r.schema_name
 		FROM requested r
@@ -117,9 +117,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to ping database: %s", err)
 	}
-	if err := p.validateConfiguredSchemas(ctx, pgClient); err != nil {
-		return err
-	}
 	// TODO: correct cdc setup
 	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")
 	if found {
@@ -192,6 +189,13 @@ func (p *Postgres) CloseConnection() {
 			logger.Error("failed to close SSH connection: %s", err)
 		}
 	}
+}
+
+func (p *Postgres) ValidateConfiguredSchemas(ctx context.Context) error {
+	if p.client == nil {
+		return fmt.Errorf("postgres driver not initialized; call Setup first")
+	}
+	return p.validateConfiguredSchemas(ctx, p.client)
 }
 
 func (p *Postgres) validateConfiguredSchemas(ctx context.Context, db *sqlx.DB) error {
