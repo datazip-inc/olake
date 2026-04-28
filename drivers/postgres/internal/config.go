@@ -88,9 +88,8 @@ func (c *Config) Validate() error {
 	parsed.RawQuery = query.Encode()
 	c.Connection = parsed
 
-	for i := range c.Schemas {
-		c.Schemas[i] = strings.TrimSpace(c.Schemas[i])
-		if c.Schemas[i] == "" {
+	for i, s := range c.Schemas {
+		if strings.TrimSpace(s) == "" {
 			return fmt.Errorf("schemas[%d] must not be blank", i)
 		}
 	}

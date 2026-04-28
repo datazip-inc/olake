@@ -122,10 +122,6 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	return nil
 }
 
-func (k *Kafka) ValidateConfiguredSchemas(_ context.Context) error {
-	return nil
-}
-
 func (k *Kafka) Close() error {
 	k.adminClient = nil
 	k.dialer = nil

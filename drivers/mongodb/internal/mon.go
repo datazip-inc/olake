@@ -167,10 +167,6 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	return m.client.Ping(pingCtx, options.Client().ReadPreference)
 }
 
-func (m *Mongo) ValidateConfiguredSchemas(_ context.Context) error {
-	return nil
-}
-
 func (m *Mongo) Close(ctx context.Context) error {
 	if m.client != nil {
 		if err := m.client.Disconnect(ctx); err != nil {

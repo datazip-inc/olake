@@ -163,10 +163,6 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	return nil
 }
 
-func (m *MySQL) ValidateConfiguredSchemas(_ context.Context) error {
-	return nil
-}
-
 // Type returns the database type
 func (m *MySQL) Type() string {
 	return string(constants.MySQL)

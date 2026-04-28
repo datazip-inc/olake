@@ -89,10 +89,6 @@ func (o *Oracle) Setup(ctx context.Context) error {
 	return nil
 }
 
-func (o *Oracle) ValidateConfiguredSchemas(_ context.Context) error {
-	return nil
-}
-
 func (o *Oracle) GetConfigRef() abstract.Config {
 	o.config = &Config{}
 	return o.config

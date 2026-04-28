@@ -116,10 +116,6 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	return nil
 }
 
-func (m *MSSQL) ValidateConfiguredSchemas(_ context.Context) error {
-	return nil
-}
-
 func (m *MSSQL) buildConnectionString() string {
 	host := m.config.Host
 	if !strings.Contains(host, ":") {
