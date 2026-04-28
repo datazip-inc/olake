@@ -37,6 +37,17 @@ const (
 	// extends getPrivilegedTablesTmpl to restrict to user-specified schemas
 	getPrivilegedTablesFilteredTmpl = getPrivilegedTablesTmpl + `
 		AND nspname = ANY($1)`
+	// configured schema names that are missing from pg_namespace or lack USAGE for current_user
+	validateConfiguredSchemasTmpl = `
+		WITH requested AS (
+			SELECT DISTINCT btrim(unnest($1::text[])) AS schema_name
+		)
+		SELECT r.schema_name
+		FROM requested r
+		LEFT JOIN pg_namespace n ON n.nspname = r.schema_name
+		WHERE n.oid IS NULL
+		OR NOT has_schema_privilege(current_user, r.schema_name, 'USAGE')
+		ORDER BY r.schema_name`
 	// get table schema
 	getTableSchemaTmpl = `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
 	// get primary key columns
@@ -105,6 +116,9 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	err = pgClient.PingContext(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to ping database: %s", err)
+	}
+	if err := p.validateConfiguredSchemas(ctx, pgClient); err != nil {
+		return err
 	}
 	// TODO: correct cdc setup
 	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")
@@ -180,6 +194,29 @@ func (p *Postgres) CloseConnection() {
 	}
 }
 
+func (p *Postgres) validateConfiguredSchemas(ctx context.Context, db *sqlx.DB) error {
+	if len(p.config.Schemas) == 0 {
+		return nil
+	}
+	var invalidSchemas []struct {
+		SchemaName string `db:"schema_name"`
+	}
+	err := db.SelectContext(ctx, &invalidSchemas, validateConfiguredSchemasTmpl, pq.Array(p.config.Schemas))
+	if err != nil {
+		return fmt.Errorf("failed to validate configured schemas %v: %s", p.config.Schemas, err)
+	}
+	if len(invalidSchemas) == 0 {
+		return nil
+	}
+	names := make([]string, len(invalidSchemas))
+	for i, row := range invalidSchemas {
+		names[i] = row.SchemaName
+	}
+	return fmt.Errorf(
+		"configured schema(s) not found or current user lacks USAGE privilege (check spelling and grants): %s",
+		strings.Join(names, ", "))
+}
+
 func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
 
@@ -189,6 +226,9 @@ func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
 	)
 
 	if len(p.config.Schemas) > 0 {
+		if err := p.validateConfiguredSchemas(ctx, p.client); err != nil {
+			return nil, err
+		}
 		logger.Infof("Schema filter applied, discovering only schemas: %v", p.config.Schemas)
 		err = p.client.SelectContext(ctx, &tableNamesOutput, getPrivilegedTablesFilteredTmpl, pq.Array(p.config.Schemas))
 	} else {
