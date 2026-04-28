@@ -17,12 +17,12 @@ import (
 )
 
 // Oracle SAMPLE BLOCK clamp bounds for boundary estimation. Oracle allows
-// (0.000001, 100) but 0.001 is the practical floor where the sampler still
-// produces useful output on very large tables, and 50 caps worst-case block
-// scanning so a misconfigured stats row count cannot escalate to a full table
-// scan equivalent.
+// (0.000001, 100) but 0.01 is the practical floor; staging tests on a ~500 GB
+// table showed it improves chunk boundary quality at negligible runtime cost
+// (a couple of seconds). 50 caps worst-case block scanning so a misconfigured
+// stats row count cannot escalate to a full table scan equivalent.
 const (
-	sampleBlockPercentMin = 0.001
+	sampleBlockPercentMin = 0.01
 	sampleBlockPercentMax = 50.0
 	// sampleRowsPerChunkMultiplier gives each chunk boundary ~10x sampled ROWIDs
 	// to pick from, which produces evenly spaced boundaries even when block
