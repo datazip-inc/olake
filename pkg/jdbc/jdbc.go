@@ -444,15 +444,53 @@ func MySQLPrimaryKeyQuery() string {
 	`
 }
 
-// MySQLTableRowStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
-func MySQLTableRowStatsQuery() string {
+// MySQLTableStatsQuery returns the query to fetch the estimated row count and average row size of a table in MySQL
+func MySQLTableStatsQuery() string {
 	return `
 		SELECT TABLE_ROWS,
-		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes
+		CEIL(data_length / NULLIF(table_rows, 0)) AS avg_row_bytes,
+		DATA_LENGTH
 		FROM INFORMATION_SCHEMA.TABLES
 		WHERE TABLE_SCHEMA = DATABASE()
 		AND TABLE_NAME = ?
 	`
+}
+
+// MySQLColumnStatsQuery returns a query that fetches the DATA_TYPE, CHARACTER_MAXIMUM_LENGTH and Collation type of a column in MySQL.
+func MySQLColumnStatsQuery() string {
+	return `
+	SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, COALESCE(COLLATION_NAME, '')
+	FROM INFORMATION_SCHEMA.COLUMNS
+	WHERE TABLE_SCHEMA = DATABASE()
+	  AND TABLE_NAME = ?
+	  AND COLUMN_NAME = ?
+	LIMIT 1;
+	`
+}
+
+func MySQLDistinctAlignedPKValuesWithCollationQuery(stream types.StreamInterface, pkColumn string, bounds []string, columnCollationType string, minValPadded string, maxValPadded string) (string, []any) {
+	quotedCol := QuoteIdentifier(pkColumn, constants.MySQL)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MySQL)
+
+	firstAtOrAfter := fmt.Sprintf(`(SELECT %s FROM %s WHERE %s >= ? ORDER BY %s ASC LIMIT 1)`, quotedCol, quotedTable, quotedCol, quotedCol)
+
+	unionParts := make([]string, 0, len(bounds))
+	args := make([]any, 0, len(bounds)+2)
+
+	for _, v := range bounds {
+		unionParts = append(unionParts, fmt.Sprintf("SELECT %s AS actual_pk", firstAtOrAfter))
+		args = append(args, v)
+	}
+
+	args = append(args, minValPadded, maxValPadded)
+
+	query := fmt.Sprintf(`
+		SELECT DISTINCT actual_pk COLLATE %s AS val
+		FROM (%s) AS aligned
+			WHERE actual_pk COLLATE %s >= ? AND actual_pk COLLATE %s <= ? ORDER BY val
+	`, columnCollationType, strings.Join(unionParts, " UNION ALL "), columnCollationType, columnCollationType)
+
+	return query, args
 }
 
 // MySQLTableExistsQuery returns the query to check if a table has any rows using EXISTS
