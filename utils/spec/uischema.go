@@ -61,12 +61,17 @@ const MongoDBUISchema = `{
 const PostgresUISchema = `{
       "ui:grid": [
         { "host": 12, "database": 12 },
-        { "username": 12, "password": 12 },
-        { "port": 12, "jdbc_url_params": 12 },
-        { "ssl": 12, "max_threads": 12 },
-        { "update_method": 12, "retry_count": 12 },
-        { "ssh_config": 12 }
+        { "schemas": 12, "username": 12 },
+        { "password": 12, "port": 12 },
+        { "jdbc_url_params": 12, "ssl": 12 },
+        { "max_threads": 12, "update_method": 12 },
+        { "retry_count": 12, "ssh_config": 12 }
       ],
+      "schemas": {
+        "ui:options": {
+          "label": false
+        }
+      },
       "ssl": {
         "ui:options": {
           "title": false

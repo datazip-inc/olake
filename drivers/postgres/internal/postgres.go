@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -31,7 +32,11 @@ const (
 		AND has_schema_privilege(current_user, nspname, 'USAGE')
 		AND relkind IN ('r', 'm', 't', 'f', 'p')
 		AND nspname NOT LIKE 'pg_%'  -- Exclude default system schemas
-		AND nspname != 'information_schema';  -- Exclude information_schema`
+		AND nspname != 'information_schema'` // Exclude information_schema
+
+	// extends getPrivilegedTablesTmpl to restrict to user-specified schemas
+	getPrivilegedTablesFilteredTmpl = getPrivilegedTablesTmpl + `
+		AND nspname = ANY($1)`
 	// get table schema
 	getTableSchemaTmpl = `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
 	// get primary key columns, query copied from pgjdbc's PgDatabaseMetaData.getPrimaryKeys() with the always-NULL TABLE_CAT column omitted
@@ -196,12 +201,24 @@ func (p *Postgres) CloseConnection() {
 
 func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
-	var tableNamesOutput []Table
-	err := p.client.SelectContext(ctx, &tableNamesOutput, getPrivilegedTablesTmpl)
+
+	var (
+		tableNamesOutput []Table
+		err              error
+	)
+
+	if len(p.config.Schemas) > 0 {
+		logger.Infof("Schema filter applied, discovering only schemas: %v", p.config.Schemas)
+		err = p.client.SelectContext(ctx, &tableNamesOutput, getPrivilegedTablesFilteredTmpl, pq.Array(p.config.Schemas))
+	} else {
+		err = p.client.SelectContext(ctx, &tableNamesOutput, getPrivilegedTablesTmpl)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve table names: %s", err)
 	}
-	tablesNames := []string{}
+
+	tablesNames := make([]string, 0, len(tableNamesOutput))
 	for _, table := range tableNamesOutput {
 		tablesNames = append(tablesNames, fmt.Sprintf("%s.%s", table.Schema, table.Name))
 	}
