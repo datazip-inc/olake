@@ -34,8 +34,27 @@ const (
 		AND nspname != 'information_schema';  -- Exclude information_schema`
 	// get table schema
 	getTableSchemaTmpl = `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
-	// get primary key columns
-	getTablePrimaryKey = `SELECT column_name FROM information_schema.key_column_usage WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
+	// get primary key columns, query copied from pgjdbc's PgDatabaseMetaData.getPrimaryKeys() with the always-NULL TABLE_CAT column omitted
+	// ref: https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java#L2134
+	getTablePrimaryKey = `SELECT result.column_name
+		FROM (
+			SELECT n.nspname AS table_schema,
+				ct.relname AS table_name,
+				a.attname  AS column_name,
+				(information_schema._pg_expandarray(i.indkey)).n AS key_seq,
+				information_schema._pg_expandarray(i.indkey)     AS keys,
+				a.attnum AS a_attnum
+			FROM pg_catalog.pg_class ct
+			JOIN pg_catalog.pg_attribute a ON (ct.oid = a.attrelid)
+			JOIN pg_catalog.pg_namespace n ON (ct.relnamespace = n.oid)
+			JOIN pg_catalog.pg_index i     ON (a.attrelid = i.indrelid)
+			JOIN pg_catalog.pg_class ci    ON (ci.oid = i.indexrelid)
+			WHERE i.indisprimary
+		) result
+		WHERE result.table_schema = $1
+		  AND result.table_name   = $2
+		  AND result.a_attnum     = (result.keys).x
+		ORDER BY result.key_seq`
 )
 
 type Postgres struct {
