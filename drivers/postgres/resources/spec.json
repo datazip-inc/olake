@@ -135,6 +135,7 @@
             "type": "array",
             "title": "Schemas",
             "description": "List of PostgreSQL schemas to discover and sync. If omitted or empty, all accessible non-system schemas are discovered.",
+            "uniqueItems": true,
             "items": {
                 "type": "string"
             }
