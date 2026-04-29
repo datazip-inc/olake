@@ -208,3 +208,9 @@ func (st *Set[T]) UnmarshalJSON(data []byte) error {
 func (st *Set[T]) MarshalJSON() ([]byte, error) {
 	return json.Marshal(st.Array())
 }
+
+// Clear removes all elements from the set
+func (st *Set[T]) Clear() {
+	st.hash = make(map[string]nothing)
+	st.storage = make(map[string]T)
+}

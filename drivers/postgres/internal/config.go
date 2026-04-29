@@ -23,6 +23,7 @@ type Config struct {
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
+	Schemas          []string          `json:"schemas,omitempty"`
 }
 
 // Capture Write Ahead Logs
@@ -86,6 +87,12 @@ func (c *Config) Validate() error {
 
 	parsed.RawQuery = query.Encode()
 	c.Connection = parsed
+
+	for i, s := range c.Schemas {
+		if strings.TrimSpace(s) == "" {
+			return fmt.Errorf("schemas[%d] must not be blank", i)
+		}
+	}
 
 	return nil
 }
