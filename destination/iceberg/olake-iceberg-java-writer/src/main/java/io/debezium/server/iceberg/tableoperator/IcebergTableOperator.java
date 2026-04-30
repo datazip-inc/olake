@@ -82,6 +82,7 @@ public class IcebergTableOperator {
   private static final String STATE_KEY_2PC = "olake_2pc";
   private static final String STATE_FIELD_LATEST_THREAD_ID = "id";
   private static final String STATE_FIELD_FULL_REFRESH_COMMITTED_IDS = "full_refresh_committed_ids";
+  private static final String STATE_FIELD_DEDUP_INSERTS = "dedup_inserts";
 
 
   @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
@@ -457,6 +458,7 @@ public class IcebergTableOperator {
               }
           } else {
               // No payload => backfill/snapshot style: append threadId to full_refresh_committed_ids
+              // and mark that the first CDC sync must use equality deletes (overlap window open).
               com.fasterxml.jackson.databind.node.ArrayNode committedIds;
               if (rootNode.has(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS) && rootNode.get(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS).isArray()) {
                   committedIds = (com.fasterxml.jackson.databind.node.ArrayNode) rootNode.get(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS);
@@ -464,6 +466,7 @@ public class IcebergTableOperator {
                   committedIds = rootNode.putArray(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS);
               }
               committedIds.add(threadId);
+              rootNode.put(STATE_FIELD_DEDUP_INSERTS, true);
           }
 
           updateProperties.set(STATE_KEY_2PC, mapper.writeValueAsString(rootNode));

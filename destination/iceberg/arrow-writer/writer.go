@@ -153,6 +153,8 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 }
 
 // extract partitions records and tracks deletes for upsert mode.
+// Equality + positional dedup runs only for "d", "u", "i".  "c" (steady-state CDC insert)
+// and "r" (backfill read) skip both — no prior committed row can exist for those keys.
 func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) error {
 	for _, rec := range records {
 		pKey, values, err := w.getRecordPartition(rec, rec.OlakeColumns[constants.OlakeTimestamp].(time.Time))
@@ -168,8 +170,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		writer.data = append(writer.data, rec)
 		recordOpType := rec.OlakeColumns[constants.OpType].(string)
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
-		// Track deletes for upsert operations (d, u, c all need delete handling)
-		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "c") {
+		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i") {
 			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
 			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {

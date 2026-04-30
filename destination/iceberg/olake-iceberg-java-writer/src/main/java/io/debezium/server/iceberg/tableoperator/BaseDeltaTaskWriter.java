@@ -54,8 +54,11 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
     if (rowOperation == Operation.DELETE && !keepDeletes) {
       // deletes. doing hard delete. when keepDeletes = FALSE we dont keep deleted record
       writer.deleteKey(keyProjection.wrap(row));
+    } else if ("c".equals(String.valueOf(row.getField("_op_type")))) {
+      // Steady-state CDC insert: no prior committed row exists for this key, skip equality delete.
+      writer.write(row);
     } else {
-      // We are deleting key even for insert operations to avoid duplicate records for handling inserts happening while full-load
+      // "i" (first-CDC overlap) / UPDATE / READ: equality-delete the prior version, then write.
       writer.deleteKey(keyProjection.wrap(row));
       writer.write(row);
     }
