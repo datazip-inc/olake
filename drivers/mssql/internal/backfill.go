@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"sort"
@@ -19,6 +21,30 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
+
+// physLocChunkValueLen is the hex-encoded BINARY(8) %%physloc%% shape:
+// "0x" + 16 hex chars. Used to route chunks to physloc scans.
+const physLocChunkValueLen = 18
+
+// usableBytesPerPage is an upper bound for in-row payload per 8KB page
+// (IN_ROW_DATA max row size). Using the ceiling yields smaller chunks.
+const usableBytesPerPage = 8060
+
+// isPhysLocChunk reports whether the chunk's boundaries are %%physloc%%
+// hex literals (the shape produced by IAM walk and the iterative physloc
+// planner). Either Min or Max is sufficient to identify the format because
+// both planners always set at least one boundary.
+func isPhysLocChunk(chunk types.Chunk) bool {
+	check := func(v any) bool {
+		s, ok := v.(string)
+		if !ok || len(s) != physLocChunkValueLen || !strings.HasPrefix(s, "0x") {
+			return false
+		}
+		_, err := hex.DecodeString(s[2:])
+		return err == nil
+	}
+	return check(chunk.Min) || check(chunk.Max)
+}
 
 // ChunkIterator implements snapshot iteration over MSSQL chunks.
 func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, onMessage abstract.BackfillMsgFn) error {
@@ -48,11 +74,14 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 		// Build query for the chunk
 		stmt := ""
-		if chunkColumn != "" {
+		switch {
+		case chunkColumn != "":
 			stmt = jdbc.MSSQLChunkScanQuery(stream, []string{chunkColumn}, chunk, filter)
-		} else if len(pkColumns) > 0 {
+		case isPhysLocChunk(chunk):
+			stmt = jdbc.MSSQLPhysLocChunkScanQuery(stream, chunk, filter)
+		case len(pkColumns) > 0:
 			stmt = jdbc.MSSQLChunkScanQuery(stream, pkColumns, chunk, filter)
-		} else {
+		default:
 			stmt = jdbc.MSSQLPhysLocChunkScanQuery(stream, chunk, filter)
 		}
 
@@ -103,6 +132,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return nil, fmt.Errorf("failed to get avg row size: %s", err)
 	}
 	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
+	numberOfChunks := max(int64(math.Ceil(float64(approxRowCount)/float64(chunkSize))), int64(1))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -270,15 +300,210 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		})
 	}
 
-	if len(pkColumns) > 0 {
-		logger.Debugf("Stream %s: Using PK-based chunking with columns: %v", stream.ID(), pkColumns)
+	// physLocSampleThenFallback tries TABLESAMPLE physloc sampling and, if that
+	// produces no usable chunks, falls back to PK or iterative physloc scan.
+	physLocSampleThenFallback := func() error {
+		sampleChunks, sampleErr := m.splitViaPhysLocSample(ctx, stream, approxRowCount, numberOfChunks)
+		if sampleErr == nil && sampleChunks.Len() > 0 {
+			logger.Infof("Stream %s: TABLESAMPLE physloc sampling produced %d chunks", stream.ID(), sampleChunks.Len())
+			chunks = sampleChunks
+			return nil
+		}
+		logger.Debugf("Stream %s: TABLESAMPLE physloc sampling failed %s", stream.ID(), sampleErr)
+		chunks = types.NewSet[types.Chunk]()
+		if len(pkColumns) > 0 {
+			return splitViaPrimaryKey(stream, chunks, pkColumns)
+		}
+		return splitViaPhysLoc(stream, chunks)
+	}
+
+	switch {
+	case chunkColumn != "":
+		logger.Debugf("Stream %s: chunkColumn=%s set, using PK-based chunking", stream.ID(), chunkColumn)
 		err = splitViaPrimaryKey(stream, chunks, pkColumns)
-	} else {
-		logger.Debugf("Stream %s: Using %%physloc%% chunking (no PK or chunkColumn available)", stream.ID())
-		err = splitViaPhysLoc(stream, chunks)
+	case m.probeIAMWalkCapability(ctx):
+		logger.Debugf("Stream %s: Attempting IAM walk chunking", stream.ID())
+		err = m.splitViaIAMWalk(ctx, stream, chunks)
+		if err != nil || chunks.Len() == 0 {
+			logger.Warnf("Stream %s: IAM walk failed %s", stream.ID(), err)
+			chunks = types.NewSet[types.Chunk]()
+			err = physLocSampleThenFallback()
+		} else {
+			logger.Infof("Stream %s: IAM walk produced %d chunks", stream.ID(), chunks.Len())
+		}
+	default:
+		logger.Debugf("Stream %s: IAM walk unavailable, trying TABLESAMPLE physloc sampling", stream.ID())
+		err = physLocSampleThenFallback()
 	}
 
 	return chunks, err
+}
+
+// packPhysLoc encodes a (file_id, page_id) pair as a uint64 whose
+// unsigned-integer comparison matches SQL Server's binary comparison of
+// the equivalent BINARY(8) %%physloc%% value.
+//
+// %%physloc%% wire layout: bytes 0..7 = [page_id LE 4B][file_id LE 2B][slot_id LE 2B].
+// SQL Server compares BINARY(N) byte-by-byte starting from byte 0, so we
+// pack physloc byte 0 into the highest 8 bits of the uint64 and physloc
+// byte 7 into the lowest. slot_id is fixed at 0xFFFF so each boundary
+// represents "after the last possible row on the page": chunk filter
+// `%%physloc%% <= b` includes every row on b's page, and `> b` starts
+// cleanly on the next page.
+//
+// This lets us sort []uint64 with native uint64 comparison (instead of
+// allocating an 8-byte slice per page and sorting with bytes.Compare),
+// halving memory on large tables and skipping the per-page encode step
+// entirely; we encode only the few sampled boundaries.
+func packPhysLoc(fileID, pageID int32) uint64 {
+	p := uint32(pageID)
+	f := uint32(uint16(fileID))
+	return uint64(p&0xFF)<<56 |
+		uint64((p>>8)&0xFF)<<48 |
+		uint64((p>>16)&0xFF)<<40 |
+		uint64((p>>24)&0xFF)<<32 |
+		uint64(f&0xFF)<<24 |
+		uint64((f>>8)&0xFF)<<16 |
+		0xFFFF
+}
+
+// physLocBytes converts a packed uint64 boundary back to its 8-byte
+// %%physloc%% wire representation. Because packPhysLoc places physloc
+// byte 0 at the uint64's most significant 8 bits, writing the uint64 in
+// big-endian order reproduces the wire layout exactly.
+func physLocBytes(packed uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, packed)
+	return b
+}
+
+// splitViaPhysLocSample estimates chunk boundaries using TABLESAMPLE SYSTEM.
+// It reads a small percentage of data pages (no full table scan), sorts the
+// sampled %%physloc%% values, and picks evenly-spaced boundaries in Go.
+func (m *MSSQL) splitViaPhysLocSample(ctx context.Context, stream types.StreamInterface, approxRowCount int64, numberOfChunks int64) (*types.Set[types.Chunk], error) {
+	samplePercent := abstract.ComputeSamplePercent(approxRowCount, numberOfChunks)
+
+	logger.Debugf("TABLESAMPLE sampling %.4f%% of pages from [%s.%s] for chunk boundaries (approxRows=%d, chunks=%d)",
+		samplePercent, stream.Namespace(), stream.Name(), approxRowCount, numberOfChunks)
+
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLPhysLocSampleBoundaryQuery(stream, samplePercent))
+	if err != nil {
+		return nil, fmt.Errorf("TABLESAMPLE %%%%physloc%%%% query failed: %s", err)
+	}
+	defer rows.Close()
+
+	var sampledLocs [][]byte
+	for rows.Next() {
+		var loc []byte
+		if err := rows.Scan(&loc); err != nil {
+			return nil, fmt.Errorf("failed to scan sampled %%%%physloc%%%%: %s", err)
+		}
+		sampledLocs = append(sampledLocs, loc)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate sampled %%%%physloc%%%% rows: %s", err)
+	}
+
+	if int64(len(sampledLocs)) < numberOfChunks {
+		return nil, fmt.Errorf("TABLESAMPLE returned %d rows, need at least %d for %d chunks",
+			len(sampledLocs), numberOfChunks, numberOfChunks)
+	}
+
+	chunks := types.NewSet[types.Chunk]()
+	step := float64(len(sampledLocs)) / float64(numberOfChunks)
+	var prev any = nil
+	for i := int64(0); i < numberOfChunks; i++ {
+		curr := utils.HexEncode(sampledLocs[int(float64(i)*step)])
+		chunks.Insert(types.Chunk{Min: prev, Max: curr})
+		prev = curr
+	}
+	chunks.Insert(types.Chunk{Min: prev, Max: nil})
+
+	return chunks, nil
+}
+
+// splitViaIAMWalk plans chunks for any heap or clustered table by reading
+// only the table's Index Allocation Map pages via
+// sys.dm_db_database_page_allocations.
+func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
+	var objectID int64
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLObjectIDQuery(), stream.Namespace(), stream.Name()).Scan(&objectID)
+	if err != nil {
+		return fmt.Errorf("failed to resolve object_id for IAM walk: %s", err)
+	}
+
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLIAMWalkQuery(), objectID)
+	if err != nil {
+		return fmt.Errorf("failed to run IAM walk query: %s", err)
+	}
+	defer rows.Close()
+
+	pages := make([]uint64, 0, 1024)
+	for rows.Next() {
+		var fileID, pageID int32
+		if err := rows.Scan(&fileID, &pageID); err != nil {
+			return fmt.Errorf("failed to scan IAM walk page: %s", err)
+		}
+		pages = append(pages, packPhysLoc(fileID, pageID))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate IAM walk rows: %s", err)
+	}
+
+	total := int64(len(pages))
+	if total == 0 {
+		return fmt.Errorf("IAM walk returned no allocated pages")
+	}
+
+	// Sort defensively — the DMF does not guarantee any output order.
+	sort.Slice(pages, func(i, j int) bool { return pages[i] < pages[j] })
+
+	pagesPerChunk := constants.EffectiveParquetSize / usableBytesPerPage
+	pagesPerChunk = max(pagesPerChunk, 1)
+
+	// Walk the sorted page list, emitting an open→closed chunk every
+	// pagesPerChunk pages. The trailing chunk is open-ended on the high
+	// side. If the table fits in a single chunk (total ≤ pagesPerChunk)
+	// this naturally produces just {nil, nil}.
+	var prev any = nil
+	for i := pagesPerChunk; i < total; i += pagesPerChunk {
+		max := utils.HexEncode(physLocBytes(pages[i]))
+		chunks.Insert(types.Chunk{Min: prev, Max: max})
+		prev = max
+	}
+	chunks.Insert(types.Chunk{Min: prev, Max: nil})
+
+	return nil
+}
+
+// probeIAMWalkCapability checks if IAM walk
+func (m *MSSQL) probeIAMWalkCapability(ctx context.Context) bool {
+	var majorVersion, engineEdition int
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLIAMWalkServerPropertiesQuery()).Scan(&majorVersion, &engineEdition)
+	if err != nil {
+		logger.Debugf("IAM walk probe: failed to read server properties: %s", err)
+		return false
+	}
+	if majorVersion < 11 {
+		logger.Debugf("IAM walk probe: SQL Server major version %d < 11, IAM walk unsupported", majorVersion)
+		return false
+	}
+	// EngineEdition 5 = Azure SQL Database, 8 = Azure SQL Managed Instance.
+	// sys.dm_db_database_page_allocations is blocked on both.
+	if engineEdition == 5 || engineEdition == 8 {
+		logger.Debugf("IAM walk probe: EngineEdition %d (Azure SQL DB/MI) blocks the DMF", engineEdition)
+		return false
+	}
+
+	// Permission probe: TOP 0 evaluates the DMF without returning any rows.
+	// Failure here means the current login lacks VIEW DATABASE STATE.
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLIAMWalkPermissionQuery())
+	if err != nil {
+		logger.Debugf("IAM walk probe: permission test failed (likely missing VIEW DATABASE STATE): %s", err)
+		return false
+	}
+	rows.Close()
+	return true
 }
 
 // getColumnTypeMSSQL returns SQL data type for the requested column.
