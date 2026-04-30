@@ -1029,6 +1029,17 @@ func MSSQLTableRowStatsQuery() string {
 	`
 }
 
+// MSSQLPhysLocSampleBoundaryQuery returns a query that uses TABLESAMPLE SYSTEM to
+// sample a percentage of data pages and return sorted %%physloc%% binary values.
+func MSSQLPhysLocSampleBoundaryQuery(stream types.StreamInterface, samplePercent float64) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
+	return fmt.Sprintf(`
+		SELECT %%%%physloc%%%%
+		FROM %s TABLESAMPLE SYSTEM (%.6f PERCENT) WITH (NOLOCK)
+		ORDER BY %%%%physloc%%%%
+	`, quotedTable, samplePercent)
+}
+
 // OracleDB Specific Queries
 
 // OracleTableDiscoveryQuery returns the query to fetch the username and table name of all the tables which the current user has access to in OracleDB

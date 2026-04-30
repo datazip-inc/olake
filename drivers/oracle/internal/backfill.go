@@ -16,19 +16,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// Oracle SAMPLE BLOCK clamp bounds for boundary estimation. Oracle allows
-// (0.000001, 100) but 0.01 is the practical floor; staging tests on a ~500 GB
-// table showed it improves chunk boundary quality at negligible runtime cost
-// (a couple of seconds). 50 caps worst-case block scanning so a misconfigured
-// stats row count cannot escalate to a full table scan equivalent.
-const (
-	sampleBlockPercentMin = 0.01
-	sampleBlockPercentMax = 50.0
-	// sampleRowsPerChunkMultiplier gives each chunk boundary ~10x sampled ROWIDs
-	// to pick from, which produces evenly spaced boundaries even when block
-	// sampling is clustered (e.g. freshly inserted rows land in adjacent blocks).
-	sampleRowsPerChunkMultiplier int64 = 10
-)
 
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
@@ -178,9 +165,7 @@ func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.St
 // full-table sort that NTILE requires, making it safe on tables with billions of
 // rows where NTILE would spill to temp tablespace and risk ORA-1652.
 func (o *Oracle) splitViaTableIterationSample(ctx context.Context, stream types.StreamInterface, approxRowCount int64, numberOfChunks int64) (*types.Set[types.Chunk], error) {
-	minSampleRows := numberOfChunks * sampleRowsPerChunkMultiplier
-	samplePercent := float64(minSampleRows) / float64(approxRowCount) * 100.0
-	samplePercent = math.Max(sampleBlockPercentMin, math.Min(sampleBlockPercentMax, samplePercent))
+	samplePercent := abstract.ComputeSamplePercent(approxRowCount, numberOfChunks)
 
 	logger.Debugf("Sampling %.4f%% of blocks from [%s.%s] for chunk boundaries (approxRows=%d, chunks=%d)",
 		samplePercent, stream.Namespace(), stream.Name(), approxRowCount, numberOfChunks)

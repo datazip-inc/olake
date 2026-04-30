@@ -132,6 +132,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return nil, fmt.Errorf("failed to get avg row size: %s", err)
 	}
 	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
+	numberOfChunks := max(int64(math.Ceil(float64(approxRowCount)/float64(chunkSize))), int64(1))
 	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -299,6 +300,23 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		})
 	}
 
+	// physLocSampleThenFallback tries TABLESAMPLE physloc sampling and, if that
+	// produces no usable chunks, falls back to PK or iterative physloc scan.
+	physLocSampleThenFallback := func() error {
+		sampleChunks, sampleErr := m.splitViaPhysLocSample(ctx, stream, approxRowCount, numberOfChunks)
+		if sampleErr == nil && sampleChunks.Len() > 0 {
+			logger.Infof("Stream %s: TABLESAMPLE physloc sampling produced %d chunks", stream.ID(), sampleChunks.Len())
+			chunks = sampleChunks
+			return nil
+		}
+		logger.Debugf("Stream %s: TABLESAMPLE physloc sampling failed %s", stream.ID(), sampleErr)
+		chunks = types.NewSet[types.Chunk]()
+		if len(pkColumns) > 0 {
+			return splitViaPrimaryKey(stream, chunks, pkColumns)
+		}
+		return splitViaPhysLoc(stream, chunks)
+	}
+
 	switch {
 	case chunkColumn != "":
 		logger.Debugf("Stream %s: chunkColumn=%s set, using PK-based chunking", stream.ID(), chunkColumn)
@@ -307,22 +325,15 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		logger.Debugf("Stream %s: Attempting IAM walk chunking", stream.ID())
 		err = m.splitViaIAMWalk(ctx, stream, chunks)
 		if err != nil || chunks.Len() == 0 {
-			logger.Warnf("Stream %s: IAM walk failed (%v, chunks=%d), falling back to existing strategy", stream.ID(), err, chunks.Len())
+			logger.Warnf("Stream %s: IAM walk failed %s", stream.ID(), err)
 			chunks = types.NewSet[types.Chunk]()
-			if len(pkColumns) > 0 {
-				err = splitViaPrimaryKey(stream, chunks, pkColumns)
-			} else {
-				err = splitViaPhysLoc(stream, chunks)
-			}
+			err = physLocSampleThenFallback()
 		} else {
 			logger.Infof("Stream %s: IAM walk produced %d chunks", stream.ID(), chunks.Len())
 		}
-	case len(pkColumns) > 0:
-		logger.Debugf("Stream %s: IAM walk unavailable, using PK-based chunking with columns: %v", stream.ID(), pkColumns)
-		err = splitViaPrimaryKey(stream, chunks, pkColumns)
 	default:
-		logger.Debugf("Stream %s: IAM walk unavailable and no PK, using %%physloc%% iterative", stream.ID())
-		err = splitViaPhysLoc(stream, chunks)
+		logger.Debugf("Stream %s: IAM walk unavailable, trying TABLESAMPLE physloc sampling", stream.ID())
+		err = physLocSampleThenFallback()
 	}
 
 	return chunks, err
@@ -364,6 +375,51 @@ func physLocBytes(packed uint64) []byte {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, packed)
 	return b
+}
+
+// splitViaPhysLocSample estimates chunk boundaries using TABLESAMPLE SYSTEM.
+// It reads a small percentage of data pages (no full table scan), sorts the
+// sampled %%physloc%% values, and picks evenly-spaced boundaries in Go.
+func (m *MSSQL) splitViaPhysLocSample(ctx context.Context, stream types.StreamInterface, approxRowCount int64, numberOfChunks int64) (*types.Set[types.Chunk], error) {
+	samplePercent := abstract.ComputeSamplePercent(approxRowCount, numberOfChunks)
+
+	logger.Debugf("TABLESAMPLE sampling %.4f%% of pages from [%s.%s] for chunk boundaries (approxRows=%d, chunks=%d)",
+		samplePercent, stream.Namespace(), stream.Name(), approxRowCount, numberOfChunks)
+
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLPhysLocSampleBoundaryQuery(stream, samplePercent))
+	if err != nil {
+		return nil, fmt.Errorf("TABLESAMPLE %%%%physloc%%%% query failed: %s", err)
+	}
+	defer rows.Close()
+
+	var sampledLocs [][]byte
+	for rows.Next() {
+		var loc []byte
+		if err := rows.Scan(&loc); err != nil {
+			return nil, fmt.Errorf("failed to scan sampled %%%%physloc%%%%: %s", err)
+		}
+		sampledLocs = append(sampledLocs, loc)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate sampled %%%%physloc%%%% rows: %s", err)
+	}
+
+	if int64(len(sampledLocs)) < numberOfChunks {
+		return nil, fmt.Errorf("TABLESAMPLE returned %d rows, need at least %d for %d chunks",
+			len(sampledLocs), numberOfChunks, numberOfChunks)
+	}
+
+	chunks := types.NewSet[types.Chunk]()
+	step := float64(len(sampledLocs)) / float64(numberOfChunks)
+	var prev any = nil
+	for i := int64(0); i < numberOfChunks; i++ {
+		curr := utils.HexEncode(sampledLocs[int(float64(i)*step)])
+		chunks.Insert(types.Chunk{Min: prev, Max: curr})
+		prev = curr
+	}
+	chunks.Insert(types.Chunk{Min: prev, Max: nil})
+
+	return chunks, nil
 }
 
 // splitViaIAMWalk plans chunks for any heap or clustered table by reading

@@ -97,3 +97,13 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)
 	return nil
 }
+
+// ComputeSamplePercent returns the TABLESAMPLE / SAMPLE BLOCK percentage to use
+// for chunk boundary estimation. The result is clamped to
+// [constants.SamplePercentMin, constants.SamplePercentMax] so callers never
+// request a near-zero or near-full scan regardless of row-count estimates.
+func ComputeSamplePercent(approxRowCount, numberOfChunks int64) float64 {
+	minSampleRows := numberOfChunks * constants.SampleRowsPerChunkMultiplier
+	samplingPercentage := float64(minSampleRows) / float64(approxRowCount) * 100.0
+	return max(constants.SamplePercentMin, min(constants.SamplePercentMax, samplingPercentage))
+}
