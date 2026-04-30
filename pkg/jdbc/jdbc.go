@@ -660,6 +660,50 @@ func MSSQLPhysLocNextChunkEndQuery(stream types.StreamInterface, chunkSize int64
 	`, quotedTable, chunkSize)
 }
 
+// MSSQLIAMWalkQuery returns a streaming IAM-walk page list for a table:
+// (file_id, page_id) from sys.dm_db_database_page_allocations in LIMITED mode.
+// Params: @p1 = object_id. Requires VIEW DATABASE STATE; SQL Server 2012+;
+// blocked on Azure SQL DB/MI.
+func MSSQLIAMWalkQuery() string {
+	return `
+		SELECT
+			allocated_page_file_id AS file_id,
+			allocated_page_page_id AS page_id
+		FROM sys.dm_db_database_page_allocations(
+			DB_ID(),
+			@p1,
+			NULL,
+			NULL,
+			'LIMITED'
+		)
+		WHERE is_allocated         = 1
+		  AND is_iam_page          = 0
+		  AND index_id             IN (0, 1)
+		  AND allocation_unit_type = 1
+	`
+}
+
+// MSSQLObjectIDQuery returns the query to resolve a fully qualified
+// schema + table name to its object_id using QUOTENAME for safety.
+// Parameters: @p1 = schema name, @p2 = table name
+func MSSQLObjectIDQuery() string {
+	return "SELECT OBJECT_ID(QUOTENAME(@p1) + '.' + QUOTENAME(@p2))"
+}
+
+// MSSQLIAMWalkServerPropertiesQuery returns the query used by the IAM walk
+// capability probe to fetch server major version and engine edition.
+func MSSQLIAMWalkServerPropertiesQuery() string {
+	return "SELECT CAST(SERVERPROPERTY('ProductMajorVersion') AS INT), CAST(SERVERPROPERTY('EngineEdition') AS INT)"
+}
+
+// MSSQLIAMWalkPermissionQuery returns a query that evaluates
+// sys.dm_db_database_page_allocations without returning any rows.
+// Failure indicates the login likely lacks VIEW DATABASE STATE or the DMF
+// is blocked by the platform (Azure SQL DB/MI).
+func MSSQLIAMWalkPermissionQuery() string {
+	return "SELECT TOP 0 1 FROM sys.dm_db_database_page_allocations(DB_ID(), OBJECT_ID('sys.objects'), NULL, NULL, 'LIMITED')"
+}
+
 // MSSQLCDCSupportQuery returns the query to check if CDC is enabled for the current database
 func MSSQLCDCSupportQuery() string {
 	return `
