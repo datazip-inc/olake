@@ -113,8 +113,8 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	var finalMetadataState any
 	writers := make(map[string]*destination.WriterThread)
 	metadataStates := make(map[string]any)
-	// dedupInserts[id]=true → first CDC after backfill, inserts emit "i" (equality delete needed).
-	// false → steady-state CDC, inserts emit "c" (no equality delete).  Defaults to true.
+	// true (default) → overlap window open, inserts emit "i" (equality delete + write).
+	// false          → steady-state, inserts emit "c" (write only).
 	dedupInserts := make(map[string]bool, len(streams))
 
 	for _, stream := range streams {
@@ -158,7 +158,10 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	})
 
 	// On successful CDC, clear the dedup flag so subsequent syncs skip equality deletes.
-	if err == nil && finalMetadataState != nil {
+	// Wrap unconditionally on success: drivers that return a nil state (e.g. Kafka) still
+	// need the flag persisted, and SetMetadataState drops a nil State via omitempty so
+	// the existing `state` Iceberg property is left untouched in that case.
+	if err == nil {
 		f := false
 		finalMetadataState = &types.MetadataState{State: finalMetadataState, DedupInserts: &f}
 	}
