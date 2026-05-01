@@ -33,12 +33,16 @@ package constants
 //     * BSON DateTime at any depth is now decoded directly to time.Time (UTC) via a custom client registry, preventing json.Marshal crashes for out-of-range years ([0,9999]).
 //     * Top-level DateTime fields that previously formatted with the local machine timezone (e.g. "+05:30") now always output UTC ("Z").
 //
-//   - Version 6: (Current Version) Added []uint8 (byte slice) support in ReformatInt64
+//   - Version 6: Added []uint8 (byte slice) support in ReformatInt64
 //     * Previously, numeric values returned as byte slices (common in some SQL drivers) caused errors
 //     * Now these byte slices are parsed and converted into int64
+//
+//   - Version 7: (Current Version) Fixed issues in Reformat.go: ReformatBool and ReformatValue
+//     * Fixed boolean conversion for numeric inputs (int, int8, int16, int32, int64) in ReformatBool
+//     * Fixed float32 and float64 string conversion ("%d" → "%v") in ReformatValue
 
 const (
-	LatestStateVersion = 6
+	LatestStateVersion = 7
 )
 
 // Used as the current version of the state when the program is running

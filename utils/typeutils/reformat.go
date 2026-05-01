@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -95,6 +96,10 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		case uint, uint8, uint16, uint32, uint64:
 			return fmt.Sprintf("%d", v), nil
 		case float32, float64:
+			// Fixed float string conversion (%v) for v>6; older versions retain %d for backward compatibility
+			if constants.LoadedStateVersion > 6 {
+				return fmt.Sprintf("%v", v), nil
+			}
 			return fmt.Sprintf("%d", v), nil
 		case string:
 			return v, nil
@@ -144,13 +149,25 @@ func ReformatBool(v interface{}) (bool, error) {
 			return false, nil
 		}
 	case int, int16, int32, int64, int8:
-		switch booleanValue {
-		case 1:
-			return true, nil
-		case 0:
-			return false, nil
-		default:
-			return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
+		// Fixed int8/int16/int32/int64 bool handling for v>6; older versions keep strict comparison
+		if constants.LoadedStateVersion > 6 {
+			switch reflect.ValueOf(booleanValue).Int() {
+			case 1:
+				return true, nil
+			case 0:
+				return false, nil
+			default:
+				return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
+			}
+		} else {
+			switch booleanValue {
+			case 1:
+				return true, nil
+			case 0:
+				return false, nil
+			default:
+				return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
+			}
 		}
 	default:
 		return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
@@ -199,6 +216,9 @@ func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 				return time.Time{}, fmt.Errorf("invalid null time")
 			}
 		case *sql.NullTime:
+			if v == nil {
+				return time.Time{}, fmt.Errorf("null time passed")
+			}
 			switch v.Valid {
 			case true:
 				return v.Time, nil
@@ -291,7 +311,7 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 	return time.Unix(0, 0).UTC(), nil
 }
 
-// TODO: Add unit test cases for ReformatInt64 and byte array handling for other datatypes as well.
+// TODO: Add byte array handling for other datatypes as well.
 func ReformatInt64(v any) (int64, error) {
 	switch v := v.(type) {
 	case json.Number:
