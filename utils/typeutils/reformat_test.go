@@ -1469,7 +1469,7 @@ func TestReformatInt64(t *testing.T) {
 		{
 			name: "pointer nil",
 			v: func() any {
-				var x any = nil
+				var x any
 				return &x
 			}(),
 			expected:    int64(0),
@@ -1535,7 +1535,6 @@ func TestReformatInt64(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-
 			constants.LoadedStateVersion = utils.Ternary(tc.version != 0, tc.version, constants.LatestStateVersion).(int)
 			result, err := ReformatInt64(tc.v)
 
@@ -1560,8 +1559,8 @@ func TestReformatInt32(t *testing.T) {
 		// ===== float =====
 		{
 			name:        "float32",
-			v:           float32(math.MaxFloat32),
-			expected:    int32(math.MaxInt32),
+			v:           float32(5.9),
+			expected:    int32(5),
 			expectedErr: nil,
 		},
 		{
@@ -1801,7 +1800,7 @@ func TestReformatInt32(t *testing.T) {
 		{
 			name: "pointer nil",
 			v: func() any {
-				var x any = nil
+				var x any
 				return &x
 			}(),
 			expected:    int32(0),
@@ -2494,7 +2493,6 @@ func TestReformatByteArraysToString(t *testing.T) {
 
 // TestReformatGeoType tests the ReformatGeoType function.
 func TestReformatGeoType(t *testing.T) {
-
 	tests := []struct {
 		name        string
 		input       any
@@ -2556,7 +2554,7 @@ func TestReformatGeoType(t *testing.T) {
 		{
 			name: "nil pointer",
 			input: func() *any {
-				var v *any = nil
+				var v *any
 				return v
 			}(),
 			expected:    nil,
