@@ -251,7 +251,8 @@ public class IcebergUtil {
           null,
           null,
           null)
-          .setAll(icebergTable.properties());
+          .setAll(icebergTable.properties())
+          .set("write.metadata.metrics.column.file_path", "full");
     } else {
       return new GenericAppenderFactory(
           icebergTable.schema(),
@@ -259,7 +260,8 @@ public class IcebergUtil {
           Ints.toArray(identifierFieldIds),
           TypeUtil.select(icebergTable.schema(), Sets.newHashSet(identifierFieldIds)),
           null)
-          .setAll(icebergTable.properties());
+          .setAll(icebergTable.properties())
+          .set("write.metadata.metrics.column.file_path", "full");
     }
   }
 

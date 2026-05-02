@@ -148,6 +148,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 			newStream.Stream.CursorField = oldStream.Stream.CursorField
 			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
 			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
+			newStream.Stream.SourceDefinedPrimaryKey = oldStream.Stream.SourceDefinedPrimaryKey
 			return nil
 		}
 
