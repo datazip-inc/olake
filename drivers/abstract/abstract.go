@@ -268,16 +268,25 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 		}
 	}
 
+	// closeArg must be a true nil interface (not a typed nil pointer) when metadataState is nil.
+	// A typed nil *MetadataState stored in `any` is NOT nil, which causes LegacyWriter.Close to
+	// marshal it as "null" and send a non-empty payload — skipping Java's else-branch that sets
+	// dedup_inserts=true and updates full_refresh_committed_ids.
+	var closeArg any
+	if metadataState != nil {
+		closeArg = metadataState
+	}
+
 	switch w := writer.(type) {
 	case *destination.WriterThread:
-		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
+		if threadErr := w.Close(ctx, closeArg); threadErr != nil {
 			closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
 		}
 	case map[string]*destination.WriterThread:
 		// Multiple writers keyed by stream ID
 		for streamID, inserter := range w {
 			if inserter != nil {
-				if threadErr := inserter.Close(ctx, metadataState); threadErr != nil {
+				if threadErr := inserter.Close(ctx, closeArg); threadErr != nil {
 					closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
 				}
 			}
