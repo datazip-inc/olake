@@ -10,7 +10,7 @@ type MetadataState struct {
 	ID                      any      `json:"id,omitempty"`
 	State                   any      `json:"state,omitempty"`
 	FullRefreshCommittedIDs []string `json:"full_refresh_committed_ids,omitempty"`
-	// nil/true = overlap window open -> inserts emit "i" (equality delete + write).
+	// nil/true = overlap window open -> inserts emit "i" (equality delete + write), prevents phantom reads
 	// false    = steady state -> inserts emit "c" (write only).
 	DedupInserts *bool `json:"dedup_inserts,omitempty"`
 }

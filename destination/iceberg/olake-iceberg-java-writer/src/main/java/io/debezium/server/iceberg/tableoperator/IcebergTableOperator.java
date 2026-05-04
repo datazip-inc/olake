@@ -467,14 +467,7 @@ public class IcebergTableOperator {
                   committedIds = rootNode.putArray(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS);
               }
               committedIds.add(threadId);
-              // Only flip the flag when it isn't already true: skips a redundant update
-              // property write for every chunk after the first in a backfill, and
-              // correctly reopens the overlap window if a previous CDC had cleared
-              // it (dedup_inserts == false) and we're now committing new backfill data.
-              JsonNode dedup = rootNode.get(STATE_FIELD_DEDUP_INSERTS);
-              if (dedup == null || !dedup.isBoolean() || !dedup.booleanValue()) {
-                  rootNode.put(STATE_FIELD_DEDUP_INSERTS, true);
-              }
+              rootNode.put(STATE_FIELD_DEDUP_INSERTS, true);
           }
 
           updateProperties.set(STATE_KEY_2PC, mapper.writeValueAsString(rootNode));
