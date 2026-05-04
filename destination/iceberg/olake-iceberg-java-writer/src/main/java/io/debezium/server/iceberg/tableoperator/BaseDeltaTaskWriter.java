@@ -58,7 +58,11 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
       // Steady-state CDC insert: no prior committed row exists for this key, skip equality delete.
       writer.write(row);
     } else {
-      // "i" (first-CDC overlap) / UPDATE / READ: equality-delete the prior version, then write.
+      // Phantom read possible: equality-delete before write to evict any prior committed version.
+      // Normalise "i" → "c" in the data file so downstream consumers see a consistent op type.
+      if ("i".equals(String.valueOf(row.getField("_op_type")))) {
+        row.setField("_op_type", "c");
+      }
       writer.deleteKey(keyProjection.wrap(row));
       writer.write(row);
     }

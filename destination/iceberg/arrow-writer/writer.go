@@ -192,6 +192,11 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 				}
 			}
 		}
+
+		// Normalise "i" → "c" in the data file so downstream consumers see a consistent op type.
+		if recordOpType == "i" {
+			rec.OlakeColumns[constants.OpType] = "c"
+		}
 	}
 
 	return nil
