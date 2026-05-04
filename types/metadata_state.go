@@ -15,6 +15,13 @@ type MetadataState struct {
 	DedupInserts *bool `json:"dedup_inserts,omitempty"`
 }
 
+// SetDedupInserts sets DedupInserts on ms only when both ms and dedupInserts are non-nil.
+func SetDedupInserts(ms *MetadataState, dedupInserts *bool) {
+	if ms != nil && dedupInserts != nil {
+		ms.DedupInserts = dedupInserts
+	}
+}
+
 // SetMetadataState creates a MetadataState with State always stored as a JSON string.
 // Callers must not pass a nil mtState; use the nil guard at the call site.
 // If mtState is already a string it is used directly; otherwise it is JSON-marshaled into string.
