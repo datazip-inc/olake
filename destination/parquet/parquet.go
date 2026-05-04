@@ -166,6 +166,13 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		// consumers must see a consistent "c" for all CDC inserts.
 		if opType, ok := record.OlakeColumns[constants.OpType].(string); ok && opType == "i" {
 			record.OlakeColumns[constants.OpType] = "c"
+			// FlattenAndCleanData (normalized path) already merged OlakeColumns into Data,
+			// so fix the Data map as well when the field is present.
+			if record.Data != nil {
+				if _, exists := record.Data[constants.OpType]; exists {
+					record.Data[constants.OpType] = "c"
+				}
+			}
 		}
 		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeColumns[constants.OlakeTimestamp].(time.Time))
 		partitionFiles, exists := p.partitionedFiles[partitionedPath]
@@ -367,12 +374,8 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
 	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-		// Normalise "i" → "c" before merging so the correct value lands in Data.
-		if opType, ok := record.OlakeColumns[constants.OpType].(string); ok && opType == "i" {
-			records[idx].OlakeColumns[constants.OpType] = "c"
-		}
 		// Add common fields
-		maps.Copy(records[idx].Data, records[idx].OlakeColumns)
+		maps.Copy(records[idx].Data, record.OlakeColumns)
 		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
