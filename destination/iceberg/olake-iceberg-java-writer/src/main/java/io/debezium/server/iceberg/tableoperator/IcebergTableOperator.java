@@ -74,7 +74,8 @@ public class IcebergTableOperator {
     cdcSourceTsMsField = "_cdc_timestamp";
   }
 
-  static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1,
+  static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(
+      Operation.INSERT, 1, Operation.CREATE, 1,
       Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
   private static final ObjectMapper mapper = new ObjectMapper();

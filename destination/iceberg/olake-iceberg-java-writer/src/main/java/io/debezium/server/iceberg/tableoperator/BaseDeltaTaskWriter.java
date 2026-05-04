@@ -54,13 +54,13 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
     if (rowOperation == Operation.DELETE && !keepDeletes) {
       // deletes. doing hard delete. when keepDeletes = FALSE we dont keep deleted record
       writer.deleteKey(keyProjection.wrap(row));
-    } else if ("c".equals(String.valueOf(row.getField("_op_type")))) {
+    } else if (rowOperation == Operation.CREATE) {
       // Steady-state CDC insert: no prior committed row exists for this key, skip equality delete.
       writer.write(row);
     } else {
       // Phantom read possible: equality-delete before write to evict any prior committed version.
-      // Normalise "i" → "c" in the data file so downstream consumers see a consistent op type.
-      if ("i".equals(String.valueOf(row.getField("_op_type")))) {
+      // Normalise "i" → "c" so downstream sees a consistent op type.
+      if (rowOperation == Operation.INSERT) {
         row.setField("_op_type", "c");
       }
       writer.deleteKey(keyProjection.wrap(row));

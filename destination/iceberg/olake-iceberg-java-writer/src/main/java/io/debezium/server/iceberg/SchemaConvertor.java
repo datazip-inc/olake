@@ -138,7 +138,7 @@ public class SchemaConvertor {
       case "u" -> Operation.UPDATE;
       case "d" -> Operation.DELETE;
       case "r" -> Operation.READ;
-      case "c" -> Operation.INSERT;
+      case "c" -> Operation.CREATE;
       case "i" -> Operation.INSERT;
       default ->
           throw new RuntimeException("Unexpected `" + cdcOpField + "` operation value received, expecting one of ['u','d','r','c', 'i']");

@@ -111,6 +111,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	}()
 
 	var finalMetadataState any
+	clearDedup := false
 	writers := make(map[string]*destination.WriterThread)
 	metadataStates := make(map[string]any)
 	// true (default) → overlap window open, inserts emit "i" (equality delete + write).
@@ -135,7 +136,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		metadataStates[stream.ID()] = writerMetaState
 	}
 
-	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", &finalMetadataState)
+	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", &finalMetadataState, &clearDedup)
 
 	finalMetadataState, err = a.driver.StreamChanges(cdcCtx, streamIndex, metadataStates, func(ctx context.Context, change CDCChange) error {
 		writer := writers[change.Stream.ID()]
@@ -156,15 +157,6 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
 	})
-
-	// On successful CDC, clear the dedup flag so subsequent syncs skip equality deletes.
-	// Wrap unconditionally on success: drivers that return a nil state (e.g. Kafka) still
-	// need the flag persisted, and SetMetadataState drops a nil State via omitempty so
-	// the existing `state` Iceberg property is left untouched in that case.
-	if err == nil {
-		f := false
-		finalMetadataState = &types.MetadataState{State: finalMetadataState, DedupInserts: &f}
-	}
 
 	return err
 }

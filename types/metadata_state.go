@@ -15,34 +15,21 @@ type MetadataState struct {
 	DedupInserts *bool `json:"dedup_inserts,omitempty"`
 }
 
-// SetMetadataState returns a MetadataState with State stored as a JSON string.
-// If mtState is already a *MetadataState, its non-State fields (DedupInserts,
-// FullRefreshCommittedIDs, etc.) are preserved on a *copy* of the input — the
-// caller's struct is never mutated. Otherwise mtState itself becomes State.
-// A nil rawState produces a result with State unset so it's omitted from JSON,
-// leaving any previously-persisted `state` property untouched downstream.
+// SetMetadataState creates a MetadataState with State always stored as a JSON string.
+// Callers must not pass a nil mtState; use the nil guard at the call site.
+// If mtState is already a string it is used directly; otherwise it is JSON-marshaled into string.
 func SetMetadataState(mtState any, threadID string) (*MetadataState, error) {
-	result, rawState := &MetadataState{ID: threadID}, mtState
-	if existing, ok := mtState.(*MetadataState); ok {
-		clone := *existing
-		result, rawState = &clone, existing.State
-		if threadID != "" {
-			result.ID = threadID
-		}
-	}
+	metadataState := &MetadataState{ID: threadID}
 
-	switch s := rawState.(type) {
-	case nil:
-		// leave result.State unset; omitempty drops it from the marshaled JSON
-	case string:
-		result.State = s
-	default:
-		stateBytes, err := json.Marshal(s)
+	if value, ok := mtState.(string); ok {
+		metadataState.State = value
+	} else {
+		stateBytes, err := json.Marshal(mtState)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal metadata state: %s", err)
 		}
-		result.State = string(stateBytes)
+		metadataState.State = string(stateBytes)
 	}
 
-	return result, nil
+	return metadataState, nil
 }
