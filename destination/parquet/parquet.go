@@ -168,7 +168,7 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		// where FlattenAndCleanData has already merged OlakeColumns into Data.
 		if opType, ok := record.OlakeColumns[constants.OpType].(string); ok && opType == "i" {
 			record.OlakeColumns[constants.OpType] = "c"
-			if v, ok := record.Data[constants.OpType].(string); ok && v == "i" {
+			if _, exists := record.Data[constants.OpType]; exists {
 				record.Data[constants.OpType] = "c"
 			}
 		}
