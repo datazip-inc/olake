@@ -262,6 +262,8 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 		ms, setErr := types.SetMetadataState(*mtState, threadID)
 		if setErr != nil {
 			closeErr = fmt.Errorf("failed to set metadata state: %s", setErr)
+			cancel()
+			return
 		}
 		types.SetDedupInserts(ms, dedupInserts)
 		metadataState = ms
