@@ -3,6 +3,7 @@ package binlog
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -324,8 +325,12 @@ func decodeBytesToString(b []byte, collationID uint64) (string, error) {
 	if len(b) == 0 {
 		return "", nil
 	}
-	coll, err := charset.GetCollationByID(int(collationID))
-	if err != nil || coll == nil {
+	// MySQL collation IDs are small integers; guard against overflow before casting.
+	if collationID > math.MaxInt32 {
+		return string(b), nil
+	}
+	coll, _ := charset.GetCollationByID(int(collationID)) //nolint:gosec // bounds checked above
+	if coll == nil {
 		return string(b), nil
 	}
 	decoder, ok := mysqlStringDecoders[coll.CharsetName]
