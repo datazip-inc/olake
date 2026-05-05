@@ -10,6 +10,16 @@ type MetadataState struct {
 	ID                      any      `json:"id,omitempty"`
 	State                   any      `json:"state,omitempty"`
 	FullRefreshCommittedIDs []string `json:"full_refresh_committed_ids,omitempty"`
+	// nil/true = overlap window open -> inserts emit "i" (equality delete + write), prevents phantom reads
+	// false    = steady state -> inserts emit "c" (write only).
+	DedupInserts *bool `json:"dedup_inserts,omitempty"`
+}
+
+// SetDedupInserts sets DedupInserts on ms only when both ms and dedupInserts are non-nil.
+func SetDedupInserts(ms *MetadataState, dedupInserts *bool) {
+	if ms != nil && dedupInserts != nil {
+		ms.DedupInserts = dedupInserts
+	}
 }
 
 // SetMetadataState creates a MetadataState with State always stored as a JSON string.

@@ -152,7 +152,7 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 	return writer, nil
 }
 
-// extract partitions records and tracks deletes for upsert mode.
+// extract partitions records and tracks deletes for upsert mode ("d"/"u"/"i" only; "c"/"r" skip dedup).
 func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) error {
 	for _, rec := range records {
 		pKey, values, err := w.getRecordPartition(rec, rec.OlakeColumns[constants.OlakeTimestamp].(time.Time))
@@ -168,8 +168,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		writer.data = append(writer.data, rec)
 		recordOpType := rec.OlakeColumns[constants.OpType].(string)
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
-		// Track deletes for upsert operations (d, u, c all need delete handling)
-		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "c") {
+		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i") {
 			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
 			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
@@ -192,6 +191,11 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 					Position: filePosition,
 				}
 			}
+		}
+
+		// Normalise "i" → "c" in the data file so downstream consumers see a consistent op type.
+		if recordOpType == "i" {
+			rec.OlakeColumns[constants.OpType] = "c"
 		}
 	}
 

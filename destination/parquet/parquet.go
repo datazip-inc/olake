@@ -162,6 +162,16 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
+		// Normalise "i" -? "c": Parquet has no equality-delete concept; downstream
+		// consumers must see a consistent "c" for all CDC inserts.
+		// OlakeColumns covers the non-normalized path; Data covers the normalized path
+		// where FlattenAndCleanData has already merged OlakeColumns into Data.
+		if opType, ok := record.OlakeColumns[constants.OpType].(string); ok && opType == "i" {
+			record.OlakeColumns[constants.OpType] = "c"
+			if _, exists := record.Data[constants.OpType]; exists {
+				record.Data[constants.OpType] = "c"
+			}
+		}
 		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeColumns[constants.OlakeTimestamp].(time.Time))
 		partitionFiles, exists := p.partitionedFiles[partitionedPath]
 		if !exists {
