@@ -126,11 +126,8 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		}
 		writers[stream.ID()] = w
 		var writerMetaState any
-		// STRICTCDC streams (e.g. Kafka) never have a backfill overlap window,
-		// so the dedup-insert window defaults to false (steady-state, emit "c" directly).
-		// Non-STRICTCDC streams default to true until state says otherwise.
-		isStrictCDC := stream.GetStream().SyncMode == types.STRICTCDC
-		dedupInserts[stream.ID()] = !isStrictCDC
+
+		dedupInserts[stream.ID()] = true
 		if writerMeta != nil {
 			writerMetaState = writerMeta.State
 			if writerMeta.DedupInserts != nil {
