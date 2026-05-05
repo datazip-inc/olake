@@ -59,10 +59,8 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
       writer.write(row);
     } else {
       // Phantom read possible: equality-delete before write to evict any prior committed version.
-      // Normalise "i" → "c" so downstream sees a consistent op type.
-      if (rowOperation == Operation.INSERT) {
-        row.setField("_op_type", "c");
-      }
+      // _op_type normalisation ("i" -> "c") is done upstream in IcebergTableOperator
+      // for all writer types before reaching here.
       writer.deleteKey(keyProjection.wrap(row));
       writer.write(row);
     }

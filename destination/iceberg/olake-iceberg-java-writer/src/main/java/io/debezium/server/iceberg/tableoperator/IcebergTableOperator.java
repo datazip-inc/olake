@@ -272,6 +272,14 @@ public class IcebergTableOperator {
     try {
       for (RecordWrapper record : events) {
         try{
+          // Normalise "i" -> "c" for all writer types before routing to the writer.
+          // Append writers (Operation.READ) have no normalisation in BaseDeltaTaskWriter,
+          // so we must handle them here. Delta writers still see Operation.INSERT on the
+          // RecordWrapper (op() is immutable) and correctly fire the equality-delete path;
+          // only the stored _op_type field in the output file is corrected to "c".
+          if ("i".equals(record.getField("_op_type"))) {
+            record.setField("_op_type", "c");
+          }
            writer.write(record);
         }catch (Exception ex) {
           LOGGER.error("Failed to write data: {}, exception: {}", record,ex);
