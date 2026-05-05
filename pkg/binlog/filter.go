@@ -11,6 +11,9 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/pingcap/tidb/pkg/parser/charset"
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/encoding/unicode"
 )
 
 const (
@@ -118,22 +121,40 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(columns), len(row))
 	}
 
-	enumMap := tableMap.EnumStrValueMap()
+	enumRaw := tableMap.EnumStrValue                   // [][][]byte: one entry per ENUM column
+	enumCollationMap := tableMap.EnumSetCollationMap() // col idx -> collation ID for ENUM/SET
+	collationMap := tableMap.CollationMap()
+	enumP := 0 // index into enumRaw; advances only for ENUM columns
 
 	// NOTE: For MySQL CDC (binlog-based), FLOAT values are read directly from the binlog and may
 	// differ from SELECT output due to SQL-layer formatting/rounding.
 	record := make(map[string]interface{})
 	for i, val := range row {
-		if tableMap.IsEnumColumn(i) && val != nil {
-			if enumValues, ok := enumMap[i]; ok {
-				// for an update CDC event, the key of enum value is passed in binlog events which is always in int64
-				// during such a case, we need to find out the enum value of it from the index
+		if tableMap.IsEnumColumn(i) {
+			// for an update CDC event, the key of enum value is passed in binlog events which is always in int64
+			// during such a case, we need to find out the enum value of it from the index
+
+			if val != nil && enumP < len(enumRaw) {
 				if idx, isInt64 := val.(int64); isInt64 {
 					// MySQL stores invalid ENUM inserts as index 0 (special error value), which maps to empty string.
 					val = ""
 					if idx > 0 {
-						val = enumValues[idx-1]
+						raw := enumRaw[enumP][idx-1]
+						if s, decErr := decodeBytesToString(raw, enumCollationMap[i]); decErr == nil {
+							val = s
+						} else {
+							val = string(raw) // fallback
+						}
 					}
+				}
+			}
+			enumP++ // always advance, even for NULL values, to keep p in sync with EnumStrValue
+		} else if b, isByte := val.([]byte); isByte {
+			// Decode raw binlog bytes to UTF-8 using the column's collation.
+			// CollationMap only covers character columns, so binary BLOBs are left untouched.
+			if collID, exists := collationMap[i]; exists {
+				if decoded, decErr := decodeBytesToString(b, collID); decErr == nil {
+					val = decoded
 				}
 			}
 		}
@@ -214,7 +235,7 @@ func mysqlTypeName(t byte, unsigned bool) string {
 	case mysql.MYSQL_TYPE_LONG_BLOB:
 		return "LONGBLOB"
 	case mysql.MYSQL_TYPE_STRING:
-		return "STRING"
+		return "CHAR"
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		return "GEOMETRY"
 	default:
@@ -262,4 +283,54 @@ func (e *TableMapEvent) isNumericColumn(i int) bool {
 	default:
 		return false
 	}
+}
+
+// mysqlStringDecoders maps MySQL charset names to their byte-to-UTF-8 decoder functions.
+// Charsets not listed here fall back to a raw string cast (passthrough), which is correct
+// for utf8/utf8mb4/ascii since their bytes are already valid UTF-8.
+var mysqlStringDecoders = map[string]func([]byte) (string, error){
+	"utf8":    decodeRawString,
+	"utf8mb3": decodeRawString,
+	"utf8mb4": decodeRawString,
+	"ascii":   decodeRawString,
+	"latin1":  decodeLatin1,
+	"ucs2":    decodeUTF16BE, // UCS-2 is Big Endian, BMP-only subset of UTF-16
+	"utf16":   decodeUTF16BE,
+	"utf16le": decodeUTF16LE,
+}
+
+func decodeRawString(b []byte) (string, error) {
+	return string(b), nil
+}
+
+func decodeLatin1(b []byte) (string, error) {
+	out, err := charmap.ISO8859_1.NewDecoder().Bytes(b)
+	return string(out), err
+}
+
+func decodeUTF16BE(b []byte) (string, error) {
+	out, err := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM).NewDecoder().Bytes(b)
+	return string(out), err
+}
+
+func decodeUTF16LE(b []byte) (string, error) {
+	out, err := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder().Bytes(b)
+	return string(out), err
+}
+
+// decodeBytesToString converts raw binlog bytes to a UTF-8 string using the MySQL collation ID.
+// Falls back to a raw string cast for unknown collations or charsets.
+func decodeBytesToString(b []byte, collationID uint64) (string, error) {
+	if len(b) == 0 {
+		return "", nil
+	}
+	coll, err := charset.GetCollationByID(int(collationID))
+	if err != nil || coll == nil {
+		return string(b), nil
+	}
+	decoder, ok := mysqlStringDecoders[coll.CharsetName]
+	if !ok {
+		return string(b), nil
+	}
+	return decoder(b)
 }
