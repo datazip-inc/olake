@@ -273,11 +273,12 @@ public class IcebergTableOperator {
       for (RecordWrapper record : events) {
         try{
           // Normalise _op_type "i" → "c" before routing to any writer.
-          // op() is immutable on RecordWrapper, so delta writers still see Operation.INSERT
-          // and correctly fire the equality-delete path; only the stored field is corrected.
-          // Note: append-mode records carry Operation.READ and are not normalised here;
-          // Go already emits "c" for STRICTCDC streams, so this covers all CDC insert cases.
-          if (record.op() == Operation.INSERT) {
+          //   - Delta writers (upsert=true):  op() == INSERT, field == "i" → both would work
+          //   - Append writers (upsert=false, AppendMode/backfill): op() == READ, field == "i"
+          //     → op()-based check misses these entirely
+          // op() on RecordWrapper is immutable, so delta writers still see Operation.INSERT
+          // and correctly fire the equality-delete path in BaseDeltaTaskWriter.
+          if ("i".equals(record.getField("_op_type"))) {
             record.setField("_op_type", "c");
           }
            writer.write(record);

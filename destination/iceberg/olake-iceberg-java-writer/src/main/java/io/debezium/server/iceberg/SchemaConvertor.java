@@ -88,7 +88,6 @@ public class SchemaConvertor {
       }
       // check if it is append only or upsert
       if(!upsert) { 
-        // TODO: need a discussion previously Operation.Insert was being used
         return new RecordWrapper(genericRow, Operation.READ);
       }
       return new RecordWrapper(genericRow, cdcOpValue(data.getRecordType()));
