@@ -89,7 +89,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			}(incrementalCtx)
 
 			var mtState any
-			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, &mtState)
+			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, &mtState, nil)
 
 			defer func() {
 				mtStateMap := map[string]any{primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue)}

@@ -65,7 +65,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 		}(backfillCtx)
 
-		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID, nil)
+		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID, nil, nil)
 
 		if prevMetadataState != nil {
 			if slices.Contains(prevMetadataState.FullRefreshCommittedIDs, threadID) {
