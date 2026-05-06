@@ -151,7 +151,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'filtered medium', 'filtered long', '2022-06-15 10:00:00',
 			'2021-06-15 10:00:00', 0,
 			'filtered long varchar', 0, 'inactive', 'low',
-			'x', 'x', 'x', 'x',
+			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
 			200
 		)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, filteredQuery)
@@ -291,8 +291,8 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			500234.123, 500234.0, 500234.123, 500234.123,
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
 			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
-			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low',
-			'x', 'x', 'x', 'x',
+			'2021-06-15 10:00:00', 0, 			'filtered long varchar', 0, 'inactive', 'low',
+			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
 			200
 		)`, tableName)
 	_, err := db.ExecContext(ctx, filteredQuery)
