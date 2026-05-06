@@ -134,7 +134,6 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 		if tableMap.IsEnumColumn(i) {
 			// for an update CDC event, the key of enum value is passed in binlog events which is always in int64
 			// during such a case, we need to find out the enum value of it from the index
-
 			if val != nil && enumP < len(enumRaw) {
 				if idx, isInt64 := val.(int64); isInt64 {
 					// MySQL stores invalid ENUM inserts as index 0 (special error value), which maps to empty string.
@@ -150,11 +149,19 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 				}
 			}
 			enumP++ // always advance, even for NULL values, to keep p in sync with EnumStrValue
-		} else if b, isByte := val.([]byte); isByte {
-			// Decode raw binlog bytes to UTF-8 using the column's collation.
-			// CollationMap only covers character columns, so binary BLOBs are left untouched.
-			if collID, exists := collationMap[i]; exists {
-				if decoded, decErr := decodeBytesToString(b, collID); decErr == nil {
+		} else if collID, exists := collationMap[i]; exists {
+			// go-mysql blindly casts VARCHAR/CHAR bytes to string via ByteSliceToString;
+			// BLOBs arrive as []byte. In both cases, cast back to bytes to recover the
+			// original charset bytes, then decode properly.
+			var raw []byte
+			switch v := val.(type) {
+			case string:
+				raw = []byte(v)
+			case []byte:
+				raw = v
+			}
+			if raw != nil {
+				if decoded, decErr := decodeBytesToString(raw, collID); decErr == nil {
 					val = decoded
 				}
 			}
