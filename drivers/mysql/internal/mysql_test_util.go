@@ -76,11 +76,15 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				is_active TINYINT(1),
 				long_varchar MEDIUMTEXT,
 				name_bool TINYINT(1) DEFAULT '1',
-				status ENUM('active','inactive','pending') DEFAULT NULL,
-				priority ENUM('low','medium','high') DEFAULT 'low',
-				PRIMARY KEY (id),
-				excludedColumn INT
-			)`, integrationTestTable)
+			status ENUM('active','inactive','pending') DEFAULT NULL,
+			priority ENUM('low','medium','high') DEFAULT 'low',
+			name_latin1 VARCHAR(100) CHARACTER SET latin1,
+			name_ucs2 VARCHAR(100) CHARACTER SET ucs2,
+			name_utf16le VARCHAR(100) CHARACTER SET utf16le,
+			grade ENUM('naïve','café','résumé') CHARACTER SET latin1,
+			PRIMARY KEY (id),
+			excludedColumn INT
+		)`, integrationTestTable)
 
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
@@ -103,7 +107,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
-			long_varchar, name_bool, status, priority, excludedColumn
+			long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			excludedColumn
 		) VALUES (
 			6, 6, 123456789012345,
 			100, 101, 102, 103,
@@ -114,7 +120,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
-			'long_varchar_val', 1, 'active', 'high', 101
+			'long_varchar_val', 1, 'active', 'high',
+			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			101
 		)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
@@ -129,7 +137,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
-			long_varchar, name_bool, status, priority, excludedColumn
+			long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			excludedColumn
 		) VALUES (
 			-1, 999, 111111111111111,
 			0, 0, 0, 0,
@@ -140,7 +150,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
 			'filtered medium', 'filtered long', '2022-06-15 10:00:00',
 			'2021-06-15 10:00:00', 0,
-			'filtered long varchar', 0, 'inactive', 'low', 200
+			'filtered long varchar', 0, 'inactive', 'low',
+			'x', 'x', 'x', 'x',
+			200
 		)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, filteredQuery)
 		require.NoError(t, err, "Failed to insert filtered test data row")
@@ -165,9 +177,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				created_date = '2024-07-01 15:30:00',
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0,
-				status = 'pending', priority = 'low', excludedColumn = 102,
-				includedColumn = 202
-			WHERE id = 6`, integrationTestTable)
+			status = 'pending', priority = 'low',
+			name_latin1 = 'updated latin1', name_ucs2 = 'updated ucs2',
+			name_utf16le = 'updated utf16le', grade = 'café',
+			excludedColumn = 102,
+			includedColumn = 202
+		WHERE id = 6`, integrationTestTable)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
@@ -234,7 +249,9 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active, long_varchar, name_bool, status, priority, excludedColumn
+			created_timestamp, is_active, long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			excludedColumn
 		) VALUES (
 			%d, %d, 123456789012345,
 			100, 101, 102, 103,
@@ -244,7 +261,9 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high', 100
+			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high',
+			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			100
 		)`, tableName, i, i)
 
 		_, err := db.ExecContext(ctx, query)
@@ -260,7 +279,9 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active, long_varchar, name_bool, status, priority, excludedColumn
+			created_timestamp, is_active, long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			excludedColumn
 		) VALUES (
 			-1, 998, 111111111111111,
 			0, 0, 0, 0,
@@ -270,7 +291,9 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			500234.123, 500234.0, 500234.123, 500234.123,
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
 			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
-			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low', 200
+			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low',
+			'x', 'x', 'x', 'x',
+			200
 		)`, tableName)
 	_, err := db.ExecContext(ctx, filteredQuery)
 	require.NoError(t, err, "Failed to insert filtered test data row")
@@ -306,8 +329,12 @@ var ExpectedMySQLData = map[string]interface{}{
 	"is_active":              int32(1),
 	"long_varchar":           "long_varchar_val",
 	"name_bool":              int32(1),
-	"status":                 "active",
-	"priority":               "high",
+	"status":       "active",
+	"priority":     "high",
+	"name_latin1":  "latin1_val",
+	"name_ucs2":    "ucs2_val",
+	"name_utf16le": "utf16le_val",
+	"grade":        "naïve",
 }
 
 var ExpectedUpdatedData = map[string]interface{}{
@@ -340,9 +367,13 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"is_active":              int32(0),
 	"long_varchar":           "updated long...",
 	"name_bool":              int32(0),
-	"status":                 "pending",
-	"priority":               "low",
-	"includedcolumn":         int32(202),
+	"status":       "pending",
+	"priority":     "low",
+	"name_latin1":  "updated latin1",
+	"name_ucs2":    "updated ucs2",
+	"name_utf16le": "updated utf16le",
+	"grade":        "café",
+	"includedcolumn": int32(202),
 }
 
 var MySQLToDestinationSchema = map[string]string{
@@ -375,8 +406,12 @@ var MySQLToDestinationSchema = map[string]string{
 	"is_active":              "tinyint",
 	"long_varchar":           "mediumtext",
 	"name_bool":              "tinyint",
-	"status":                 "enum",
-	"priority":               "enum",
+	"status":       "enum",
+	"priority":     "enum",
+	"name_latin1":  "varchar",
+	"name_ucs2":    "varchar",
+	"name_utf16le": "varchar",
+	"grade":        "enum",
 }
 
 var EvolvedMySQLToDestinationSchema = map[string]string{
@@ -410,9 +445,13 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"is_active":              "tinyint",
 	"long_varchar":           "mediumtext",
 	"name_bool":              "tinyint",
-	"status":                 "enum",
-	"priority":               "enum",
-	"includedcolumn":         "int",
+	"status":       "enum",
+	"priority":     "enum",
+	"name_latin1":  "varchar",
+	"name_ucs2":    "varchar",
+	"name_utf16le": "varchar",
+	"grade":        "enum",
+	"includedcolumn": "int",
 }
 var ExpectedMySQLDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_timestamp":        "timestamp",

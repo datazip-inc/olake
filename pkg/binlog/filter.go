@@ -132,9 +132,9 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 	record := make(map[string]interface{})
 	for i, val := range row {
 		if tableMap.IsEnumColumn(i) {
-			// for an update CDC event, the key of enum value is passed in binlog events which is always in int64
-			// during such a case, we need to find out the enum value of it from the index
 			if val != nil && enumP < len(enumRaw) {
+				// for an update CDC event, the key of enum value is passed in binlog events which is always in int64
+				// during such a case, we need to find out the enum value of it from the index
 				if idx, isInt64 := val.(int64); isInt64 {
 					// MySQL stores invalid ENUM inserts as index 0 (special error value), which maps to empty string.
 					val = ""
