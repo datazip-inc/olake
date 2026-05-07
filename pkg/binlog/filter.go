@@ -243,7 +243,7 @@ func mysqlTypeName(t byte, unsigned bool) string {
 	case mysql.MYSQL_TYPE_LONG_BLOB:
 		return "LONGBLOB"
 	case mysql.MYSQL_TYPE_STRING:
-		return "CHAR"
+		return "CHAR" // for mysql, string type is char type
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		return "GEOMETRY"
 	default:
