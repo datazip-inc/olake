@@ -140,11 +140,12 @@ var syncCmd = &cobra.Command{
 			time.Sleep(5 * time.Second)
 		}()
 
+		timeSyncStart := time.Now()
 		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
-
+		logger.Infof("🟡 [SYNC] SYNC TIME: %v", time.Since(timeSyncStart))
 		state.LogWithLock()
 		// TODO: record count also contain records which arrived in retry attempts, need to remove them
 		stats := pool.GetStats()

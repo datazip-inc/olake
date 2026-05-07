@@ -18,6 +18,8 @@ import (
 func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
+	logger.Info("🟡 [BACKFILL] CHUNKING STARTED")
+	timeStart := time.Now()
 	if chunksSet == nil || chunksSet.Len() == 0 {
 		chunksSet, err = a.driver.GetOrSplitChunks(mainCtx, pool, stream)
 		if err != nil {
@@ -33,6 +35,8 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		}
 		return nil
 	}
+	logger.Info("🟡 [BACKFILL] CHUNKING COMPLETED")
+	logger.Infof("🟡 [BACKFILL] CHUNKING TIME: %v", time.Since(timeStart))
 
 	// Sort chunks by their minimum value
 	sort.Slice(chunks, func(i, j int) bool {

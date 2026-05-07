@@ -1626,6 +1626,16 @@ func DB2NextChunkEndQuery(stream types.StreamInterface, columns []string, chunkS
 	return query.String()
 }
 
+// DB2TablesampleRidQuery returns a query that uses DB2's TABLESAMPLE SYSTEM clause to read
+// approximately samplePercent of physical pages and return sorted RID values. This is the DB2
+// equivalent of Oracle's SAMPLE BLOCK clause: only n% of pages are read, not every row.
+// Requires DB2 LUW 9.7+. samplePercent must be in (0, 100) exclusive.
+func DB2TablesampleRidQuery(stream types.StreamInterface, samplePercent float64) string {
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.DB2)
+	// DB2 TABLESAMPLE requires a table alias; RID() takes the alias as its argument.
+	return fmt.Sprintf(`SELECT RID(t) AS rid FROM %s AS t TABLESAMPLE SYSTEM(%.6f) ORDER BY rid`, quotedTable, samplePercent)
+}
+
 // DB2PKChunkScanQuery builds a chunk scan query for DB2 using Primary Keys
 func DB2PKChunkScanQuery(stream types.StreamInterface, filterColumns []string, chunk types.Chunk, extraFilter string) string {
 	quotedCols := QuoteColumns(filterColumns, constants.DB2)
