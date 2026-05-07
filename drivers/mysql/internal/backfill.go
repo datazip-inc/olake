@@ -61,7 +61,6 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	})
 }
 
-// TODO: Separate chunking-related logic from this function so the individual components can be unit tested independently.
 func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var (
 		approxRowCount      int64
@@ -101,7 +100,6 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return nil, fmt.Errorf("failed to get avg row size: %s", err)
 	}
 	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
-	chunks := types.NewSet[types.Chunk]()
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 
 	var (
@@ -141,256 +139,238 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		}
 	}
 
-	// Takes the user defined batch size as chunkSize
-	// TODO: common-out the chunking logic for db2, mssql, mysql
-	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
-		return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
-			if minVal == nil {
-				return nil
-			}
-			chunks.Insert(types.Chunk{
-				Min: nil,
-				Max: utils.ConvertToString(minVal),
-			})
+	switch {
+	case numericChunkBounds != nil:
+		logger.Infof("Using splitEvenlyForInt Method for stream %s", stream.ID())
+		chunks, err := splitEvenlyForInt(numericChunkBounds)
+		if err != nil {
+			logger.Warnf("int64 arithmetic overflow, falling back to splitViaPrimaryKey for stream %s", stream.ID())
+			return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
+		}
+		logger.Infof("Chunking completed using splitEvenlyForInt Method for stream %s", stream.ID())
+		return chunks, nil
+	case stringChunkBounds != nil:
+		logger.Infof("Using splitEvenlyForString Method for stream %s", stream.ID())
+		chunks, err := m.splitEvenlyForString(ctx, stream, stringChunkBounds, pkColumns[0], columnCollationType, approxTableSize)
+		if err != nil {
+			return nil, err
+		}
+		if chunks == nil {
+			logger.Warnf("failed to generate chunks for stream %s, falling back to splitViaPrimaryKey method", stream.ID())
+			return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
+		}
+		logger.Infof("Chunking completed using splitEvenlyForString Method for stream %s", stream.ID())
+		return chunks, nil
+	case len(pkColumns) > 0:
+		logger.Infof("Using splitViaPrimaryKey Method for stream %s", stream.ID())
+		return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
+	default:
+		logger.Infof("Falling back to limit offset method for stream %s", stream.ID())
+		chunks := limitOffsetChunks(approxRowCount, chunkSize)
+		logger.Infof("Chunking completed using limit offset method for stream %s", stream.ID())
+		return chunks, nil
+	}
+}
 
-			logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
+func (m *MySQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInterface, minVal, maxVal any, pkColumns []string, chunkSize int64) (*types.Set[types.Chunk], error) {
+	chunks := types.NewSet[types.Chunk]()
+	return chunks, jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
+		if minVal == nil {
+			return nil
+		}
+		chunks.Insert(types.Chunk{
+			Min: nil,
+			Max: utils.ConvertToString(minVal),
+		})
 
-			// Generate chunks based on range
-			query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
-			currentVal := minVal
-			for {
-				// Split the current value into parts
-				columns := strings.Split(utils.ConvertToString(currentVal), ",")
+		logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
 
-				// Create args array with the correct number of arguments for the query
-				args := make([]interface{}, 0)
-				for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
-					// For each column combination in the WHERE clause, we need to add the necessary parts
-					for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
-						args = append(args, columns[partIndex])
-					}
-				}
-				var nextValRaw interface{}
-				err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
-				if err == sql.ErrNoRows || nextValRaw == nil {
-					break
-				} else if err != nil {
-					return fmt.Errorf("failed to get next chunk end: %s", err)
-				}
-				if currentVal != nil && nextValRaw != nil {
-					chunks.Insert(types.Chunk{
-						Min: utils.ConvertToString(currentVal),
-						Max: utils.ConvertToString(nextValRaw),
-					})
-				}
-				currentVal = nextValRaw
+		query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
+		currentVal := minVal
+		for {
+			args := primaryKeyChunkArgs(currentVal, len(pkColumns))
+			var nextValRaw any
+			err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
+			if err == sql.ErrNoRows || nextValRaw == nil {
+				break
+			} else if err != nil {
+				return fmt.Errorf("failed to get next chunk end: %s", err)
 			}
 			if currentVal != nil {
 				chunks.Insert(types.Chunk{
 					Min: utils.ConvertToString(currentVal),
-					Max: nil,
+					Max: utils.ConvertToString(nextValRaw),
 				})
 			}
-
-			logger.Infof("Chunking completed using splitViaPrimaryKey Method for stream %s", stream.ID())
-			return nil
-		})
-	}
-	limitOffsetChunking := func(chunks *types.Set[types.Chunk]) error {
-		return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
+			currentVal = nextValRaw
+		}
+		if currentVal != nil {
 			chunks.Insert(types.Chunk{
-				Min: nil,
-				Max: utils.ConvertToString(chunkSize),
-			})
-			lastChunk := chunkSize
-			for lastChunk < approxRowCount {
-				chunks.Insert(types.Chunk{
-					Min: utils.ConvertToString(lastChunk),
-					Max: utils.ConvertToString(lastChunk + chunkSize),
-				})
-				lastChunk += chunkSize
-			}
-			chunks.Insert(types.Chunk{
-				Min: utils.ConvertToString(lastChunk),
+				Min: utils.ConvertToString(currentVal),
 				Max: nil,
 			})
-			logger.Infof("Chunking completed using limit offset method for stream %s", stream.ID())
-			return nil
-		})
+		}
+
+		logger.Infof("Chunking completed using splitViaPrimaryKey Method for stream %s", stream.ID())
+		return nil
+	})
+}
+
+func primaryKeyChunkArgs(currentVal any, pkColumnCount int) []any {
+	columns := strings.Split(utils.ConvertToString(currentVal), ",")
+	args := make([]any, 0)
+	for columnIndex := 0; columnIndex < pkColumnCount; columnIndex++ {
+		for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
+			args = append(args, columns[partIndex])
+		}
 	}
+	return args
+}
 
-	/*
-		splitEvenlyForInt generates chunk boundaries for numeric values by dividing the range [minBoundary, maxBoundary] using an arithmetic progression (AP).
-
-		Each boundary follows:
-		next = prev + chunkStepSize
-
-		Example:
-		minBoundary = 0, maxBoundary = 100, chunkStepSize = 25
-
-		AP sequence:
-		0 → 25 → 50 → 75 → 100
-
-		Chunks formed:
-		(-∞, 0), [0,25), [25,50), [50,75), [75,100), [100, +∞)
-	*/
-	splitEvenlyForInt := func(chunks *types.Set[types.Chunk]) error {
+func limitOffsetChunks(approxRowCount, chunkSize int64) *types.Set[types.Chunk] {
+	chunks := types.NewSet[types.Chunk]()
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: utils.ConvertToString(chunkSize),
+	})
+	lastChunk := chunkSize
+	for lastChunk < approxRowCount {
 		chunks.Insert(types.Chunk{
-			Min: nil,
-			Max: utils.ConvertToString(numericChunkBounds.MinBoundary),
+			Min: utils.ConvertToString(lastChunk),
+			Max: utils.ConvertToString(lastChunk + chunkSize),
 		})
-		prev := numericChunkBounds.MinBoundary
-		for next := numericChunkBounds.MinBoundary + numericChunkBounds.ChunkStep; next <= numericChunkBounds.MaxBoundary; next += numericChunkBounds.ChunkStep {
-			// Guard against int64 overflow causing `next` to wrap and become ≤ prev
-			if next <= prev {
-				logger.Warnf("int64 arithmetic overflow, falling back to splitViaPrimaryKey for stream %s", stream.ID())
-				chunks.Clear()
-				return splitViaPrimaryKey(stream, chunks)
-			}
-			chunks.Insert(types.Chunk{
-				Min: utils.ConvertToString(prev),
-				Max: utils.ConvertToString(next),
-			})
-			prev = next
+		lastChunk += chunkSize
+	}
+	chunks.Insert(types.Chunk{
+		Min: utils.ConvertToString(lastChunk),
+		Max: nil,
+	})
+	return chunks
+}
+
+/*
+splitEvenlyForInt generates chunk boundaries for numeric values by dividing the range [minBoundary, maxBoundary] using an arithmetic progression.
+
+Example:
+minBoundary = 0, maxBoundary = 100, chunkStepSize = 25
+Chunks formed:
+(-inf, 0), [0,25), [25,50), [50,75), [75,100), [100, +inf)
+*/
+func splitEvenlyForInt(bounds *NumericChunkBounds) (*types.Set[types.Chunk], error) {
+	chunks := types.NewSet[types.Chunk]()
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: utils.ConvertToString(bounds.MinBoundary),
+	})
+	prev := bounds.MinBoundary
+	for next := bounds.MinBoundary + bounds.ChunkStep; next <= bounds.MaxBoundary; next += bounds.ChunkStep {
+		if next <= prev {
+			return nil, fmt.Errorf("int64 arithmetic overflow")
 		}
 		chunks.Insert(types.Chunk{
 			Min: utils.ConvertToString(prev),
-			Max: nil,
+			Max: utils.ConvertToString(next),
 		})
-		logger.Infof("Chunking completed using splitEvenlyForInt Method for stream %s", stream.ID())
-		return nil
+		prev = next
+	}
+	chunks.Insert(types.Chunk{
+		Min: utils.ConvertToString(prev),
+		Max: nil,
+	})
+	return chunks, nil
+}
+
+func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInterface, bounds *StringChunkBounds, pkColumn, columnCollationType string, approxTableSize int64) (*types.Set[types.Chunk], error) {
+	expectedChunks := expectedStringChunkCount(approxTableSize)
+	stringChunkStepSize := stringChunkStepSize(bounds, expectedChunks)
+	chunkBoundaries := []string{}
+
+	for stepShrinkFactor := int64(1); stepShrinkFactor <= int64(1000000); stepShrinkFactor = stepShrinkFactor * 2 {
+		rangeSlice := stringChunkCandidates(bounds, stringChunkStepSize, expectedChunks, stepShrinkFactor)
+
+		query, args := jdbc.MySQLDistinctAlignedPKValuesWithCollationQuery(stream, pkColumn, rangeSlice, columnCollationType, bounds.MinPadded, bounds.MaxPadded)
+		rows, err := m.client.QueryContext(ctx, query, args...)
+		if err != nil {
+			logger.Debugf("distinct boundary query failed for stream %s: %s", stream.ID(), err)
+			break
+		}
+		rangeSlice = rangeSlice[:0]
+		for rows.Next() {
+			var val string
+			if err := rows.Scan(&val); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("failed to scan row: %s", err)
+			}
+			rangeSlice = append(rangeSlice, val)
+		}
+
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("row iteration error during distinct boundaries iteration: %s", err)
+		}
+		if len(rangeSlice) > len(chunkBoundaries) {
+			chunkBoundaries = slices.Clone(rangeSlice)
+		}
+		if len(rangeSlice) >= int(expectedChunks) {
+			break
+		}
 	}
 
-	/*
-		splitEvenlyForString generates chunk boundaries for string-based primary keys
-		by converting string values into a numeric (big.Int) space and iteratively
-		splitting that range.
+	if len(chunkBoundaries) < int(math.Ceil(float64(constants.MysqlChunkAcceptanceRatio*float64(expectedChunks)))) {
+		return nil, nil
+	}
+	return chunksFromBoundaries(condenseStrings(chunkBoundaries, expectedChunks)), nil
+}
 
-		Workflow:
-		1. Convert min and max string values into padded form and map them into big.Int using custom charset-based encoding.
-		2. Estimate the expected number of chunks based on table size and target file size.
-		3. Compute an initial chunk step size using ceil division on the numeric range based on expected chunk count.
-		4. Iteratively (with exponentially increasing attempts):
-			- Adjust the interval dynamically using a scaling factor (stepShrinkFactor).
-			- Generate candidate boundaries in numeric space and map them back to strings.
-			- Align boundaries with actual DB values using MySQLDistinctAlignedPKValuesWithCollationQuery to fetch distinct collation-aware values between min and max.
-			- Keep the best boundary set seen so far (max coverage).
-			- Stop early if sufficient boundaries are obtained or no better boundary set can be produced due to query/result constraints.
+func expectedStringChunkCount(approxTableSize int64) int64 {
+	expectedChunks := int64(math.Ceil(float64(approxTableSize) / float64(constants.EffectiveParquetSize)))
+	if expectedChunks <= 0 {
+		return 1
+	}
+	return expectedChunks
+}
 
-		Final Step:
-		- If sufficient boundaries are not obtained, fallback to primary key-based chunking.
-		- Reduce boundary count to match expectedChunks if needed by evenly subsampling while preserving order.
+func stringChunkStepSize(bounds *StringChunkBounds, expectedChunks int64) *big.Int {
+	stepSize := new(big.Int).Sub(bounds.maxEncodedBigIntValue, bounds.minEncodedBigIntValue)
+	stepSize.Add(stepSize, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
+	stepSize.Div(stepSize, big.NewInt(expectedChunks))
+	return stepSize
+}
 
-		Example:
-		minVal = "aa", maxVal = "az", expectedChunks = 4
+func stringChunkCandidates(bounds *StringChunkBounds, stepSize *big.Int, expectedChunks, stepShrinkFactor int64) []string {
+	rangeSlice := []string{}
+	adjustedStepSize := new(big.Int).Set(stepSize)
+	adjustedStepSize.Add(adjustedStepSize, big.NewInt(stepShrinkFactor))
+	adjustedStepSize.Div(adjustedStepSize, big.NewInt(stepShrinkFactor+1))
+	currentBoundary := new(big.Int).Set(bounds.minEncodedBigIntValue)
 
-		Generated boundaries after refining boundaries using collation-aware DB queries:
-		["aa", "ai", "ar", "az"]
+	for chunkIdx := int64(0); chunkIdx < expectedChunks*(stepShrinkFactor+1) && currentBoundary.Cmp(bounds.maxEncodedBigIntValue) < 0; chunkIdx++ {
+		rangeSlice = append(rangeSlice, decodeBigIntToCharsetString(currentBoundary))
+		currentBoundary.Add(currentBoundary, adjustedStepSize)
+	}
 
-		Chunks:
-		(-∞, "aa"), ["aa","ai"), ["ai","ar"), ["ar","az"), ["az", +∞)
-	*/
-	splitEvenlyForString := func(chunks *types.Set[types.Chunk]) error {
-		expectedChunks := int64(math.Ceil(float64(approxTableSize) / float64(constants.EffectiveParquetSize)))
-		expectedChunks = utils.Ternary(expectedChunks <= 0, int64(1), expectedChunks).(int64)
+	return append(rangeSlice, bounds.MaxPadded)
+}
 
-		stringChunkStepSize := new(big.Int).Sub(stringChunkBounds.maxEncodedBigIntValue, stringChunkBounds.minEncodedBigIntValue)
-		stringChunkStepSize.Add(stringChunkStepSize, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
-		stringChunkStepSize.Div(stringChunkStepSize, big.NewInt(expectedChunks))
-
-		var (
-			chunkBoundaries  = []string{}   // final chunk boundary values from DB
-			rangeSlice       = []string{}   // reusable slice for boundary values per iteration
-			adjustedStepSize = new(big.Int) // step size adjusted each iteration for balanced chunking
-			currentBoundary  = new(big.Int) // current position in keyspace while generating boundaries
-		)
-
-		// Try to generate balanced chunks by adaptively adjusting the step size across exponentially increasing attempts.
-		for stepShrinkFactor := int64(1); stepShrinkFactor <= int64(1000000); stepShrinkFactor = stepShrinkFactor * 2 {
-			rangeSlice = rangeSlice[:0]
-			adjustedStepSize.Set(stringChunkStepSize)
-			adjustedStepSize.Add(adjustedStepSize, big.NewInt(stepShrinkFactor))
-			adjustedStepSize.Div(adjustedStepSize, big.NewInt(stepShrinkFactor+1))
-			currentBoundary.Set(stringChunkBounds.minEncodedBigIntValue)
-
-			for chunkIdx := int64(0); chunkIdx < expectedChunks*(stepShrinkFactor+1) && currentBoundary.Cmp(stringChunkBounds.maxEncodedBigIntValue) < 0; chunkIdx++ {
-				rangeSlice = append(rangeSlice, decodeBigIntToCharsetString(currentBoundary))
-				currentBoundary.Add(currentBoundary, adjustedStepSize)
-			}
-
-			rangeSlice = append(rangeSlice, stringChunkBounds.MaxPadded)
-
-			// Align boundaries with actual DB values using MySQL collation ordering
-			query, args := jdbc.MySQLDistinctAlignedPKValuesWithCollationQuery(stream, pkColumns[0], rangeSlice, columnCollationType, stringChunkBounds.MinPadded, stringChunkBounds.MaxPadded)
-			rows, err := m.client.QueryContext(ctx, query, args...)
-			if err != nil {
-				logger.Debugf("distinct boundary query failed for stream %s: %s", stream.ID(), err)
-				break
-			}
-			rangeSlice = rangeSlice[:0]
-			for rows.Next() {
-				var val string
-				if err := rows.Scan(&val); err != nil {
-					rows.Close()
-					return fmt.Errorf("failed to scan row: %s", err)
-				}
-				rangeSlice = append(rangeSlice, val)
-			}
-
-			if err := rows.Err(); err != nil {
-				return fmt.Errorf("row iteration error during distinct boundaries iteration: %s", err)
-			}
-			if len(rangeSlice) > len(chunkBoundaries) {
-				chunkBoundaries = slices.Clone(rangeSlice)
-			}
-			if len(rangeSlice) >= int(expectedChunks) {
-				break
-			}
-		}
-
-		if len(chunkBoundaries) >= int(math.Ceil(float64(constants.MysqlChunkAcceptanceRatio*float64(expectedChunks)))) {
-			chunkBoundaries = condenseStrings(chunkBoundaries, expectedChunks)
-		} else {
-			logger.Warnf("failed to generate chunks for stream %s, falling back to splitViaPrimaryKey method", stream.ID())
-			return splitViaPrimaryKey(stream, chunks)
-		}
+func chunksFromBoundaries(boundaries []string) *types.Set[types.Chunk] {
+	chunks := types.NewSet[types.Chunk]()
+	if len(boundaries) == 0 {
+		return chunks
+	}
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: boundaries[0],
+	})
+	for idx := 1; idx < len(boundaries); idx++ {
 		chunks.Insert(types.Chunk{
-			Min: nil,
-			Max: chunkBoundaries[0],
+			Min: boundaries[idx-1],
+			Max: boundaries[idx],
 		})
-
-		for idx := 1; idx < len(chunkBoundaries); idx++ {
-			chunks.Insert(types.Chunk{
-				Min: chunkBoundaries[idx-1],
-				Max: chunkBoundaries[idx],
-			})
-		}
-
-		chunks.Insert(types.Chunk{
-			Min: chunkBoundaries[len(chunkBoundaries)-1],
-			Max: nil,
-		})
-
-		logger.Infof("Chunking completed using splitEvenlyForString Method for stream %s", stream.ID())
-		return nil
 	}
-
-	switch {
-	case numericChunkBounds != nil:
-		logger.Infof("Using splitEvenlyForInt Method for stream %s", stream.ID())
-		err = splitEvenlyForInt(chunks)
-	case stringChunkBounds != nil:
-		logger.Infof("Using splitEvenlyForString Method for stream %s", stream.ID())
-		err = splitEvenlyForString(chunks)
-	case len(pkColumns) > 0:
-		logger.Infof("Using splitViaPrimaryKey Method for stream %s", stream.ID())
-		err = splitViaPrimaryKey(stream, chunks)
-	default:
-		logger.Infof("Falling back to limit offset method for stream %s", stream.ID())
-		err = limitOffsetChunking(chunks)
-	}
-
-	return chunks, err
+	chunks.Insert(types.Chunk{
+		Min: boundaries[len(boundaries)-1],
+		Max: nil,
+	})
+	return chunks
 }
 
 func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {
@@ -562,19 +542,19 @@ func padRightWithZeroes(s string, maxLength int) string {
 }
 
 /*
-	condenseStrings picks expectedChunks elements evenly from candidateBoundaries.
+condenseStrings picks expectedChunks elements evenly from candidateBoundaries.
 
-	Each output index i (0..expectedChunks-1) is mapped to an input index (0..numCandidateBoundaries-1) using the formula:
+Each output index i (0..expectedChunks-1) is mapped to an input index (0..numCandidateBoundaries-1) using the formula:
 
-		idx ≈ round(i*(numCandidateBoundaries-1)/(expectedChunks-1))
+	idx ≈ round(i*(numCandidateBoundaries-1)/(expectedChunks-1))
 
-	- Always includes first (0) and last (numCandidateBoundaries-1)
-	- Rounding keeps spacing balanced (no left/right bias)
+- Always includes first (0) and last (numCandidateBoundaries-1)
+- Rounding keeps spacing balanced (no left/right bias)
 
-	Example:
-	numCandidateBoundaries = 15 (indices 0..14), expectedChunks = 8
-	Range is split into 7 equal gaps (~2 apart), so we pick:
-	[0,2,4,6,8,10,12,14]
+Example:
+numCandidateBoundaries = 15 (indices 0..14), expectedChunks = 8
+Range is split into 7 equal gaps (~2 apart), so we pick:
+[0,2,4,6,8,10,12,14]
 */
 func condenseStrings(candidateBoundaries []string, expectedChunks int64) []string {
 	numCandidateBoundaries := int64(len(candidateBoundaries))
