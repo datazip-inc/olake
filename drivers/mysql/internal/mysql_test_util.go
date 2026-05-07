@@ -75,16 +75,18 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				created_timestamp TIMESTAMP NULL,
 				is_active TINYINT(1),
 				long_varchar MEDIUMTEXT,
-				name_bool TINYINT(1) DEFAULT '1',
-			status ENUM('active','inactive','pending') DEFAULT NULL,
-			priority ENUM('low','medium','high') DEFAULT 'low',
-			name_latin1 VARCHAR(100) CHARACTER SET latin1,
-			name_ucs2 VARCHAR(100) CHARACTER SET ucs2,
-			name_utf16le VARCHAR(100) CHARACTER SET utf16le,
-			grade ENUM('naïve','café','résumé') CHARACTER SET latin1,
-			PRIMARY KEY (id),
-			excludedColumn INT
-		)`, integrationTestTable)
+		name_bool TINYINT(1) DEFAULT '1',
+		status ENUM('active','inactive','pending') DEFAULT NULL,
+		priority ENUM('low','medium','high') DEFAULT 'low',
+		name_latin1 VARCHAR(100) CHARACTER SET latin1,
+		name_ucs2 VARCHAR(100) CHARACTER SET ucs2,
+		name_utf16le VARCHAR(100) CHARACTER SET utf16le,
+		grade ENUM('naïve','café','résumé') CHARACTER SET latin1,
+		tags SET('sports','music','gaming','reading') DEFAULT NULL,
+		permissions SET('read','write','execute') CHARACTER SET latin1 DEFAULT NULL,
+		PRIMARY KEY (id),
+		excludedColumn INT
+	)`, integrationTestTable)
 
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
@@ -109,6 +111,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
 			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions,
 			excludedColumn
 		) VALUES (
 			6, 6, 123456789012345,
@@ -122,6 +125,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1, 'active', 'high',
 			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'sports,reading', 'read,write',
 			101
 		)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, query)
@@ -139,6 +143,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
 			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions,
 			excludedColumn
 		) VALUES (
 			-1, 999, 111111111111111,
@@ -152,6 +157,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'2021-06-15 10:00:00', 0,
 			'filtered long varchar', 0, 'inactive', 'low',
 			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
+			'music', 'execute',
 			200
 		)`, integrationTestTable)
 		_, err = db.ExecContext(ctx, filteredQuery)
@@ -180,6 +186,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			status = 'pending', priority = 'low',
 			name_latin1 = 'updated latin1', name_ucs2 = 'updated ucs2',
 			name_utf16le = 'updated utf16le', grade = 'café',
+			tags = 'gaming,reading', permissions = 'read,write,execute',
 			excludedColumn = 102,
 			includedColumn = 202
 		WHERE id = 6`, integrationTestTable)
@@ -251,6 +258,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool, status, priority,
 			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions,
 			excludedColumn
 		) VALUES (
 			%d, %d, 123456789012345,
@@ -263,6 +271,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high',
 			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'sports,reading', 'read,write',
 			100
 		)`, tableName, i, i)
 
@@ -281,6 +290,7 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool, status, priority,
 			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions,
 			excludedColumn
 		) VALUES (
 			-1, 998, 111111111111111,
@@ -291,8 +301,9 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 			500234.123, 500234.0, 500234.123, 500234.123,
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
 			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
-			'2021-06-15 10:00:00', 0, 			'filtered long varchar', 0, 'inactive', 'low',
+			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low',
 			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
+			'music', 'execute',
 			200
 		)`, tableName)
 	_, err := db.ExecContext(ctx, filteredQuery)
@@ -335,6 +346,8 @@ var ExpectedMySQLData = map[string]interface{}{
 	"name_ucs2":    "ucs2_val",
 	"name_utf16le": "utf16le_val",
 	"grade":        "naïve",
+	"tags":         "sports,reading",
+	"permissions":  "read,write",
 }
 
 var ExpectedUpdatedData = map[string]interface{}{
@@ -373,6 +386,8 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"name_ucs2":    "updated ucs2",
 	"name_utf16le": "updated utf16le",
 	"grade":        "café",
+	"tags":         "gaming,reading",
+	"permissions":  "read,write,execute",
 	"includedcolumn": int32(202),
 }
 
@@ -412,6 +427,8 @@ var MySQLToDestinationSchema = map[string]string{
 	"name_ucs2":    "varchar",
 	"name_utf16le": "varchar",
 	"grade":        "enum",
+	"tags":         "set",
+	"permissions":  "set",
 }
 
 var EvolvedMySQLToDestinationSchema = map[string]string{
@@ -451,6 +468,8 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"name_ucs2":    "varchar",
 	"name_utf16le": "varchar",
 	"grade":        "enum",
+	"tags":         "set",
+	"permissions":  "set",
 	"includedcolumn": "int",
 }
 var ExpectedMySQLDefaultCDCColumnsSchema = map[string]string{

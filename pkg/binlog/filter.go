@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -123,9 +124,11 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 	}
 
 	enumRaw := tableMap.EnumStrValue                   // [][][]byte: one entry per ENUM column
+	setRaw := tableMap.SetStrValue                     // [][][]byte: one entry per SET column
 	enumCollationMap := tableMap.EnumSetCollationMap() // col idx -> collation ID for ENUM/SET
 	collationMap := tableMap.CollationMap()
 	enumP := 0 // index into enumRaw; advances only for ENUM columns
+	setP := 0  // index into setRaw; advances only for SET columns
 
 	// NOTE: For MySQL CDC (binlog-based), FLOAT values are read directly from the binlog and may
 	// differ from SELECT output due to SQL-layer formatting/rounding.
@@ -149,6 +152,28 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 				}
 			}
 			enumP++ // always advance, even for NULL values, to keep p in sync with EnumStrValue
+		} else if tableMap.IsSetColumn(i) {
+			if val != nil && setP < len(setRaw) {
+				// MySQL SET columns are stored in the binlog as an int64 bitmask:
+				// bit 0 = first member, bit 1 = second member, etc.
+				// e.g. SET('sports','music','gaming','reading') with value 'sports,reading' -> bitmask = 0b1001 = 9
+				if bitmask, isInt64 := val.(int64); isInt64 {
+					members := setRaw[setP]
+					selected := make([]string, 0, len(members))
+					for bit := 0; bit < len(members); bit++ {
+						if bitmask&(1<<bit) != 0 {
+							raw := members[bit]
+							if s, decErr := decodeBytesToString(raw, enumCollationMap[i]); decErr == nil {
+								selected = append(selected, s)
+							} else {
+								selected = append(selected, string(raw)) // fallback
+							}
+						}
+					}
+					val = strings.Join(selected, ",")
+				}
+			}
+			setP++ // always advance, even for NULL values, to keep p in sync with SetStrValue
 		} else if collID, exists := collationMap[i]; exists {
 			// go-mysql blindly casts VARCHAR/CHAR bytes to string via ByteSliceToString;
 			// BLOBs arrive as []byte. In both cases, cast back to bytes to recover the
