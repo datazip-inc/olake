@@ -123,9 +123,9 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(columns), len(row))
 	}
 
-	enumRaw := tableMap.EnumStrValue                   // [][][]byte: one entry per ENUM column
-	setRaw := tableMap.SetStrValue                     // [][][]byte: one entry per SET column
-	enumCollationMap := tableMap.EnumSetCollationMap() // col idx -> collation ID for ENUM/SET
+	enumRaw := tableMap.EnumStrValue                      // [][][]byte: one entry per ENUM column
+	setRaw := tableMap.SetStrValue                        // [][][]byte: one entry per SET column
+	enumSetCollationMap := tableMap.EnumSetCollationMap() // col idx -> collation ID for ENUM/SET
 	collationMap := tableMap.CollationMap()
 	enumP := 0 // index into enumRaw; advances only for ENUM columns
 	setP := 0  // index into setRaw; advances only for SET columns
@@ -143,7 +143,7 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 					val = ""
 					if idx > 0 {
 						raw := enumRaw[enumP][idx-1]
-						if s, decErr := decodeBytesToString(raw, enumCollationMap[i]); decErr == nil {
+						if s, decErr := decodeBytesToString(raw, enumSetCollationMap[i]); decErr == nil {
 							val = s
 						} else {
 							val = string(raw) // fallback
@@ -163,7 +163,7 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 					for bit := 0; bit < len(members); bit++ {
 						if bitmask&(1<<bit) != 0 {
 							raw := members[bit]
-							if s, decErr := decodeBytesToString(raw, enumCollationMap[i]); decErr == nil {
+							if s, decErr := decodeBytesToString(raw, enumSetCollationMap[i]); decErr == nil {
 								selected = append(selected, s)
 							} else {
 								selected = append(selected, string(raw)) // fallback
