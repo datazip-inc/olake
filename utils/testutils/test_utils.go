@@ -1055,7 +1055,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image:         "golang:1.25.9-bookworm",
+			Image:         "golang:1.25.10-bookworm",
 			ImagePlatform: "linux/amd64",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
@@ -1112,7 +1112,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 
 	t.Run("Sync", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image:         "golang:1.25.9-bookworm",
+			Image:         "golang:1.25.10-bookworm",
 			ImagePlatform: "linux/amd64",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
