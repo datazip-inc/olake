@@ -111,8 +111,12 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	}()
 
 	var finalMetadataState any
+	clearDedup := false
 	writers := make(map[string]*destination.WriterThread)
 	metadataStates := make(map[string]any)
+	// true (default) → overlap window open, inserts emit "i" (equality delete + write).
+	// false          → steady-state, inserts emit "c" (write only).
+	dedupInserts := make(map[string]bool, len(streams))
 
 	for _, stream := range streams {
 		threadID := generateThreadID(stream.ID(), "")
@@ -122,19 +126,24 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		}
 		writers[stream.ID()] = w
 		var writerMetaState any
+
+		dedupInserts[stream.ID()] = true
 		if writerMeta != nil {
 			writerMetaState = writerMeta.State
+			if writerMeta.DedupInserts != nil {
+				dedupInserts[stream.ID()] = *writerMeta.DedupInserts
+			}
 		}
 		metadataStates[stream.ID()] = writerMetaState
 	}
 
-	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", &finalMetadataState)
+	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", &finalMetadataState, &clearDedup)
 
 	finalMetadataState, err = a.driver.StreamChanges(cdcCtx, streamIndex, metadataStates, func(ctx context.Context, change CDCChange) error {
 		writer := writers[change.Stream.ID()]
 		olakeColumns := map[string]any{
 			constants.OlakeID:        utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
-			constants.OpType:         mapChangeKindToOperationType(change.Kind),
+			constants.OpType:         mapChangeKindToOperationType(change.Kind, dedupInserts[change.Stream.ID()]),
 			constants.CdcTimestamp:   change.Timestamp,
 			constants.OlakeTimestamp: time.Now().UTC(),
 		}
@@ -149,18 +158,22 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
 	})
+
 	return err
 }
 
-// mapChangeKindToOperationType converts CDC change kind to operation type code.
-// "delete" -> "d", "update" -> "u", "insert"/"create" -> "c"
-func mapChangeKindToOperationType(kind string) string {
+// mapInsertOpType returns the _op_type string for a CDC change.
+// Inserts emit "i" during the backfill overlap window (dedupInserts=true) and "c" otherwise.
+func mapChangeKindToOperationType(kind string, dedupInserts bool) string {
 	switch kind {
 	case "delete":
 		return "d"
 	case "update":
 		return "u"
-	default: // "insert", "create", etc.
+	default:
+		if dedupInserts {
+			return "i"
+		}
 		return "c"
 	}
 }

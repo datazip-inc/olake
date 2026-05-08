@@ -19,7 +19,8 @@
 package io.debezium.server.iceberg.tableoperator;
 
 public enum Operation {
-  INSERT,
+  INSERT,  // "i" — first-CDC overlap insert; equality-delete before write
+  CREATE,  // "c" — steady-state CDC insert; no prior committed row, skip equality delete
   UPDATE,
   DELETE,
   READ

@@ -74,7 +74,8 @@ public class IcebergTableOperator {
     cdcSourceTsMsField = "_cdc_timestamp";
   }
 
-  static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(Operation.INSERT, 1,
+  static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(
+      Operation.INSERT, 1, Operation.CREATE, 1,
       Operation.READ, 2, Operation.UPDATE, 3, Operation.DELETE, 4);
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableOperator.class);
   private static final ObjectMapper mapper = new ObjectMapper();
@@ -82,6 +83,7 @@ public class IcebergTableOperator {
   private static final String STATE_KEY_2PC = "olake_2pc";
   private static final String STATE_FIELD_LATEST_THREAD_ID = "id";
   private static final String STATE_FIELD_FULL_REFRESH_COMMITTED_IDS = "full_refresh_committed_ids";
+  private static final String STATE_FIELD_DEDUP_INSERTS = "dedup_inserts";
 
 
   @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
@@ -270,6 +272,15 @@ public class IcebergTableOperator {
     try {
       for (RecordWrapper record : events) {
         try{
+          // Normalise _op_type "i" → "c" before routing to any writer.
+          //   - Delta writers (upsert=true):  op() == INSERT, field == "i" → both would work
+          //   - Append writers (upsert=false, AppendMode/backfill): op() == READ, field == "i"
+          //     → op()-based check misses these entirely
+          // op() on RecordWrapper is immutable, so delta writers still see Operation.INSERT
+          // and correctly fire the equality-delete path in BaseDeltaTaskWriter.
+          if ("i".equals(record.getField("_op_type"))) {
+            record.setField("_op_type", "c");
+          }
            writer.write(record);
         }catch (Exception ex) {
           LOGGER.error("Failed to write data: {}, exception: {}", record,ex);
@@ -457,6 +468,7 @@ public class IcebergTableOperator {
               }
           } else {
               // No payload => backfill/snapshot style: append threadId to full_refresh_committed_ids
+              // and mark that the first CDC sync must use equality deletes (overlap window open).
               com.fasterxml.jackson.databind.node.ArrayNode committedIds;
               if (rootNode.has(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS) && rootNode.get(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS).isArray()) {
                   committedIds = (com.fasterxml.jackson.databind.node.ArrayNode) rootNode.get(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS);
@@ -464,6 +476,7 @@ public class IcebergTableOperator {
                   committedIds = rootNode.putArray(STATE_FIELD_FULL_REFRESH_COMMITTED_IDS);
               }
               committedIds.add(threadId);
+              rootNode.put(STATE_FIELD_DEDUP_INSERTS, true);
           }
 
           updateProperties.set(STATE_KEY_2PC, mapper.writeValueAsString(rootNode));
