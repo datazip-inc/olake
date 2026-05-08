@@ -1,9 +1,12 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -80,11 +83,36 @@ var RootCmd = &cobra.Command{
 	},
 }
 
+// CreateRootCommand wires the cobra root for the given driver. It mutates
+// package-level state (RootCmd, connector) and installs a process-wide signal
+// handler, so it must be called at most once per process — the existing
+// connector.RegisterDriver entry point already enforces this.
 func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	RootCmd.AddCommand(commands...)
-	connector = abstract.NewAbstractDriver(RootCmd.Context(), driver.(abstract.DriverInterface))
+
+	// Wire SIGINT/SIGTERM into the root context so CDC, backfill and
+	// destination-writer paths reach their existing ctx.Done() branches on
+	// pod eviction, docker stop, or Ctrl-C, instead of being killed mid-read.
+	ctx := signalAwareRootContext(RootCmd.Context())
+	RootCmd.SetContext(ctx)
+
+	connector = abstract.NewAbstractDriver(ctx, driver.(abstract.DriverInterface))
 
 	return RootCmd
+}
+
+func signalAwareRootContext(parent context.Context) context.Context {
+	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
+	// signal.NotifyContext keeps the signal handler installed until stop() is
+	// called. Releasing it after the first cancellation lets a subsequent
+	// SIGINT/SIGTERM fall through to the Go runtime default (terminate), which
+	// is the behavior an operator hitting Ctrl-C twice expects.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+
+	return ctx
 }
 
 func init() {
