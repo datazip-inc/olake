@@ -1049,7 +1049,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
-	currentTestTable := utils.Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_2pc_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
+	currentTestTable := utils.Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
 
 	// 2PC tests don't need schema discovery — the schema is already validated by the regular integration test.
 	testStreamsData, err := os.ReadFile(cfg.TestConfig.HostTestCatalogPath)
