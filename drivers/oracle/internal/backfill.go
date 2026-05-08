@@ -16,6 +16,20 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+// Oracle SAMPLE BLOCK clamp bounds for boundary estimation. Oracle allows
+// (0.000001, 100) but 0.01 is the practical floor; staging tests on a ~500 GB
+// table showed it improves chunk boundary quality at negligible runtime cost
+// (a couple of seconds). 50 caps worst-case block scanning so a misconfigured
+// stats row count cannot escalate to a full table scan equivalent.
+const (
+	sampleBlockPercentMin = 0.01
+	sampleBlockPercentMax = 50.0
+	// sampleRowsPerChunkMultiplier gives each chunk boundary ~10x sampled ROWIDs
+	// to pick from, which produces evenly spaced boundaries even when block
+	// sampling is clustered (e.g. freshly inserted rows land in adjacent blocks).
+	sampleRowsPerChunkMultiplier int64 = 10
+)
+
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
@@ -82,13 +96,38 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 	if err != nil {
 		logger.Debugf("DBMS Parallel Execute strategy failed (%v). Automatically falling back to Table Iteration strategy for stream [%s.%s]", err, stream.Namespace(), stream.Name())
 
-		return o.splitViaTableIteration(ctx, stream, avgRowSize)
+		return o.splitViaTableIteration(ctx, stream, approxRowCount, avgRowSize)
 	}
 	return chunks, nil
 }
 
-// TODO: Make this function more efficient by using a single query to get all the rowids in the table using one query
-func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.StreamInterface, avgRowSize float64) (*types.Set[types.Chunk], error) {
+func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.StreamInterface, approxRowCount int64, avgRowSize float64) (*types.Set[types.Chunk], error) {
+	rowsPerChunk := utils.Ternary(
+		int64(math.Ceil(float64(constants.EffectiveParquetSize)/avgRowSize)) > 0,
+		int64(math.Ceil(float64(constants.EffectiveParquetSize)/avgRowSize)),
+		int64(1),
+	).(int64)
+
+	if approxRowCount <= 0 {
+		logger.Debugf("Oracle table stats unavailable for [%s.%s], falling back to row-by-row chunk iteration", stream.Namespace(), stream.Name())
+		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
+	}
+
+	numberOfChunks := utils.Ternary(
+		int64(math.Ceil(float64(approxRowCount)/float64(rowsPerChunk))) > 0,
+		int64(math.Ceil(float64(approxRowCount)/float64(rowsPerChunk))),
+		int64(1),
+	).(int64)
+
+	chunks, err := o.splitViaTableIterationSample(ctx, stream, approxRowCount, numberOfChunks)
+	if err != nil {
+		logger.Debugf("SAMPLE BLOCK estimation failed for [%s.%s]: %v, falling back to iterative loop", stream.Namespace(), stream.Name(), err)
+		return o.splitViaTableIterationLoop(ctx, stream, rowsPerChunk)
+	}
+	return chunks, nil
+}
+
+func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.StreamInterface, rowsPerChunk int64) (*types.Set[types.Chunk], error) {
 	chunks := types.NewSet[types.Chunk]()
 
 	var minRowId, maxRowId string
@@ -97,7 +136,6 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 	if err != nil {
 		return nil, fmt.Errorf("failed to get min-max row id: %s", err)
 	}
-	rowsPerChunk := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSize))
 
 	currRowId := minRowId
 	chunks.Insert(types.Chunk{
@@ -134,6 +172,53 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 	return chunks, nil
 }
 
+// splitViaTableIterationSample uses Oracle's SAMPLE BLOCK clause to estimate chunk
+// boundaries without a full table scan. Reads a small percentage of data blocks,
+// sorts the sampled ROWIDs, and picks evenly-spaced boundaries. This avoids the
+// full-table sort that NTILE requires, making it safe on tables with billions of
+// rows where NTILE would spill to temp tablespace and risk ORA-1652.
+func (o *Oracle) splitViaTableIterationSample(ctx context.Context, stream types.StreamInterface, approxRowCount int64, numberOfChunks int64) (*types.Set[types.Chunk], error) {
+	minSampleRows := numberOfChunks * sampleRowsPerChunkMultiplier
+	samplePercent := float64(minSampleRows) / float64(approxRowCount) * 100.0
+	samplePercent = math.Max(sampleBlockPercentMin, math.Min(sampleBlockPercentMax, samplePercent))
+
+	logger.Debugf("Sampling %.4f%% of blocks from [%s.%s] for chunk boundaries (approxRows=%d, chunks=%d)",
+		samplePercent, stream.Namespace(), stream.Name(), approxRowCount, numberOfChunks)
+
+	rows, err := o.client.QueryContext(ctx, jdbc.SampleBlockBoundaryQuery(stream, samplePercent))
+	if err != nil {
+		return nil, fmt.Errorf("sample block query failed: %s", err)
+	}
+	defer rows.Close()
+
+	var sampledRowIDs []string
+	for rows.Next() {
+		var rowID string
+		if err := rows.Scan(&rowID); err != nil {
+			return nil, fmt.Errorf("failed to scan sampled rowid: %s", err)
+		}
+		sampledRowIDs = append(sampledRowIDs, rowID)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate sampled rowids: %s", err)
+	}
+
+	if int64(len(sampledRowIDs)) < numberOfChunks {
+		return nil, fmt.Errorf("sample returned %d rows, need at least %d for %d chunks",
+			len(sampledRowIDs), numberOfChunks, numberOfChunks)
+	}
+
+	// Pick evenly-spaced boundaries from the sorted sample
+	step := float64(len(sampledRowIDs)) / float64(numberOfChunks)
+	var startRowIDs []string
+	for i := int64(0); i < numberOfChunks; i++ {
+		idx := int(float64(i) * step)
+		startRowIDs = append(startRowIDs, sampledRowIDs[idx])
+	}
+
+	return buildChunksFromStartRowIDs(startRowIDs), nil
+}
+
 // splitViaRowId chunks a table by using DBMS_PARALLEL_EXECUTE.CREATE_CHUNKS_BY_ROWID strategy
 func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	logger.Debugf("Chunking via DBMS_PARALLEL_EXECUTE for %s.%s", stream.Namespace(), stream.Name())
@@ -166,7 +251,6 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 		return nil, fmt.Errorf("failed to create chunks: %s", err)
 	}
 
-	chunks := types.NewSet[types.Chunk]()
 	chunkQuery := jdbc.OracleChunkRetrievalQuery(taskName)
 	rows, err := o.client.QueryContext(ctx, chunkQuery)
 	if err != nil {
@@ -186,6 +270,15 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 		startRowIDs = append(startRowIDs, startRowID)
 	}
 
+	return buildChunksFromStartRowIDs(startRowIDs), rows.Err()
+}
+
+func buildChunksFromStartRowIDs(startRowIDs []string) *types.Set[types.Chunk] {
+	chunks := types.NewSet[types.Chunk]()
+	if len(startRowIDs) == 0 {
+		return chunks
+	}
+
 	chunks.Insert(types.Chunk{
 		Min: nil,
 		Max: startRowIDs[0],
@@ -193,11 +286,8 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 
 	for idx, startRowID := range startRowIDs {
 		var maxRowID interface{}
-
 		if idx < len(startRowIDs)-1 {
 			maxRowID = startRowIDs[idx+1]
-		} else {
-			maxRowID = nil
 		}
 
 		chunks.Insert(types.Chunk{
@@ -206,7 +296,7 @@ func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface
 		})
 	}
 
-	return chunks, rows.Err()
+	return chunks
 }
 
 // TODO: Add support for oracle extents based chunking strategy

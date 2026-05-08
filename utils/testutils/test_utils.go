@@ -398,7 +398,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	isCDC bool,
 	latestRowOnly bool,
 ) error {
-	destDBPrefix := fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)
+	destDBPrefix := utils.Ternary(cfg.TestConfig.DataFormat != "", fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat), fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 
 	// Execute operation before sync if needed
