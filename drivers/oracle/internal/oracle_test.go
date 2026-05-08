@@ -40,7 +40,7 @@ func TestOracleIntegration(t *testing.T) {
 	testConfig.TestIntegration(t)
 }
 
-func TestOracle2PCIntegration(t *testing.T) {
+func TestOracle2PC(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		TestConfig:               testutils.GetTestConfig(string(constants.Oracle)),

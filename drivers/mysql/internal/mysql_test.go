@@ -41,7 +41,7 @@ func TestMySQLIntegration(t *testing.T) {
 	testConfig.TestIntegration(t)
 }
 
-func TestMySQL2PCIntegration(t *testing.T) {
+func TestMySQL2PC(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		TestConfig:               testutils.GetTestConfig(string(constants.MySQL)),

@@ -42,7 +42,7 @@ func TestPostgresIntegration(t *testing.T) {
 	testConfig.TestIntegration(t)
 }
 
-func TestPostgres2PCIntegration(t *testing.T) {
+func TestPostgres2PC(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		TestConfig:               testutils.GetTestConfig(string(constants.Postgres)),

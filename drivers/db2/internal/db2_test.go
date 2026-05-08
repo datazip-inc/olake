@@ -40,7 +40,7 @@ func TestDB2Integration(t *testing.T) {
 	testConfig.TestIntegration(t)
 }
 
-func TestDB22PCIntegration(t *testing.T) {
+func TestDB22PC(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		TestConfig:               testutils.GetTestConfig(string(constants.DB2)),

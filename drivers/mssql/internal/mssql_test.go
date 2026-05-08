@@ -41,7 +41,7 @@ func TestMSSQLIntegration(t *testing.T) {
 	testConfig.TestIntegration(t)
 }
 
-func TestMSSQL2PCIntegration(t *testing.T) {
+func TestMSSQL2PC(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		TestConfig:               testutils.GetTestConfig(string(constants.MSSQL)),

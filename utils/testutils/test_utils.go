@@ -1049,66 +1049,12 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
-	// Use a _2pc suffix so this test table is isolated from the regular integration
-	// test table, allowing both to run in parallel without source DB or Iceberg conflicts.
-	currentTestTable := utils.Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_2pc_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_2pc_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
+	currentTestTable := utils.Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_2pc_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
 
-	t.Run("Discover", func(t *testing.T) {
-		req := testcontainers.ContainerRequest{
-			Image:         "golang:1.25.10-bookworm",
-			ImagePlatform: "linux/amd64",
-			HostConfigModifier: func(hc *container.HostConfig) {
-				hc.Binds = []string{
-					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
-					fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
-				}
-				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
-			},
-			ConfigModifier: func(config *container.Config) {
-				config.WorkingDir = "/test-olake"
-			},
-			Env: map[string]string{
-				"TELEMETRY_DISABLED": "true",
-			},
-			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
-				{
-					PostReadies: []testcontainers.ContainerHook{
-						func(ctx context.Context, c testcontainers.Container) error {
-							if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
-							}
-
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
-
-							discoverCmd := discoverCommand(*cfg.TestConfig)
-							if code, out, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
-								return fmt.Errorf("discover failed (%d): %s\n%s", code, err, string(out))
-							}
-							t.Logf("Discover completed, streams.json generated for 2PC sync tests")
-
-							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-							t.Logf("%s 2PC discover test-container clean up", cfg.TestConfig.Driver)
-							return nil
-						},
-					},
-				},
-			},
-			Cmd: []string{"tail", "-f", "/dev/null"},
-		}
-
-		container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-			ContainerRequest: req,
-			Started:          true,
-		})
-		require.NoError(t, err, "Container startup failed")
-		defer func() {
-			if err := container.Terminate(ctx); err != nil {
-				t.Logf("warning: failed to terminate container: %v", err)
-			}
-		}()
-	})
+	// 2PC tests don't need schema discovery — the schema is already validated by the regular integration test.
+	testStreamsData, err := os.ReadFile(cfg.TestConfig.HostTestCatalogPath)
+	require.NoError(t, err, "failed to read test_streams.json")
+	require.NoError(t, os.WriteFile(cfg.TestConfig.HostCatalogPath, testStreamsData, 0600), "failed to write streams.json")
 
 	t.Run("Sync", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
@@ -1135,6 +1081,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 								return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
 							}
 
+							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 							cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)

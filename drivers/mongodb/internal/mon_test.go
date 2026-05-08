@@ -41,7 +41,7 @@ func TestMongodbIntegration(t *testing.T) {
 	testConfig.TestIntegration(t)
 }
 
-func TestMongodb2PCIntegration(t *testing.T) {
+func TestMongodb2PC(t *testing.T) {
 	t.Parallel()
 	testConfig := &testutils.IntegrationTest{
 		TestConfig:               testutils.GetTestConfig(string(constants.MongoDB)),
