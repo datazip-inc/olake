@@ -175,7 +175,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
-			long_varchar, name_bool, status, priority
+			long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions
 		) VALUES (
 			7, 7, 123456789012345,
 			100, 101, 102, 103,
@@ -186,7 +188,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
-			'long_varchar_val', 1, 'active', 'high'
+			'long_varchar_val', 1, 'active', 'high',
+			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'sports,reading', 'read,write'
 		)`, integrationTestTable)
 
 	case "update":
