@@ -41,6 +41,38 @@ func TestMongodbIntegration(t *testing.T) {
 	testConfig.TestIntegration(t)
 }
 
+func TestMongodb2PCIntegration(t *testing.T) {
+	t.Parallel()
+	testConfig := &testutils.IntegrationTest{
+		TestConfig:               testutils.GetTestConfig(string(constants.MongoDB)),
+		Namespace:                "olake_mongodb_test",
+		ExpectedData:             ExpectedMongoData,
+		DestinationDataTypeSchema: MongoToDestinationSchema,
+		DefaultCDCColumnsSchema:   ExpectedMongoDbDefaultCDCColumnsSchema,
+		ExecuteQuery:              ExecuteQuery,
+		DestinationDB:             "mongodb_olake_mongodb_test",
+		CursorField:               "id_cursor:id_int",
+		PartitionRegex:            "/{_id,identity}",
+		ColumnToExclude:           "excludedColumn",
+		FilterConfig: `{
+			"logical_operator": "And",
+			"conditions": [
+				{
+					"column": "id_double",
+					"operator": "<",
+					"value": 239834.89
+				},
+				{
+					"column": "id_timestamp",
+					"operator": ">=",
+					"value": "2022-07-01T15:30:00.000+00:00"
+				}
+			]
+		}`,
+	}
+	testConfig.Test2PCIntegration(t)
+}
+
 func TestMongodbPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(string(constants.MongoDB)),

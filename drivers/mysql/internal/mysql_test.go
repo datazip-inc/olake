@@ -41,6 +41,38 @@ func TestMySQLIntegration(t *testing.T) {
 	testConfig.TestIntegration(t)
 }
 
+func TestMySQL2PCIntegration(t *testing.T) {
+	t.Parallel()
+	testConfig := &testutils.IntegrationTest{
+		TestConfig:               testutils.GetTestConfig(string(constants.MySQL)),
+		Namespace:                "olake_mysql_test",
+		ExpectedData:             ExpectedMySQLData,
+		DestinationDataTypeSchema: MySQLToDestinationSchema,
+		DefaultCDCColumnsSchema:   ExpectedMySQLDefaultCDCColumnsSchema,
+		ExecuteQuery:              ExecuteQuery,
+		DestinationDB:             "mysql_olake_mysql_test",
+		CursorField:               "id_cursor:id_smallint",
+		PartitionRegex:            "/{id,identity}",
+		ColumnToExclude:           "excludedColumn",
+		FilterConfig: `{
+                    "logical_operator": "And",
+                    "conditions": [
+                        {
+                            "column": "price_double",
+                            "operator": "<",
+                            "value": 239834.89
+                        },
+                        {
+                            "column": "created_timestamp",
+                            "operator": ">=",
+                            "value": "2022-07-01T15:30:00.000+00:00"
+                        }
+                    ]
+                }`,
+	}
+	testConfig.Test2PCIntegration(t)
+}
+
 func TestMySQLPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(string(constants.MySQL)),

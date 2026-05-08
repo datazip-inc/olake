@@ -39,3 +39,34 @@ func TestOracleIntegration(t *testing.T) {
 	}
 	testConfig.TestIntegration(t)
 }
+
+func TestOracle2PCIntegration(t *testing.T) {
+	t.Parallel()
+	testConfig := &testutils.IntegrationTest{
+		TestConfig:               testutils.GetTestConfig(string(constants.Oracle)),
+		Namespace:                "MYUSER",
+		ExpectedData:             ExpectedOracleData,
+		DestinationDataTypeSchema: OracleToDestinationSchema,
+		ExecuteQuery:              ExecuteQuery,
+		DestinationDB:             "oracle_myuser",
+		CursorField:               "COL_CURSOR:COL_SMALLINT",
+		PartitionRegex:            "/{id, identity}",
+		ColumnToExclude:           "EXCLUDEDCOLUMN",
+		FilterConfig: `{
+                    "logical_operator": "And",
+                    "conditions": [
+                        {
+                            "column": "COL_DOUBLE_PRECISION",
+                            "operator": "<",
+                            "value": 239834.89
+                        },
+                        {
+                            "column": "COL_TIMESTAMP",
+                            "operator": ">=",
+                            "value": "2022-07-01T15:30:00.000+00:00"
+                        }
+                    ]
+                }`,
+	}
+	testConfig.Test2PCIntegration(t)
+}
