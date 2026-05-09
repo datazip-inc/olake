@@ -827,7 +827,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Run("Discover", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image:         "golang:1.25.9-bookworm",
+			Image:         "golang:1.25.10-bookworm",
 			ImagePlatform: "linux/amd64",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
@@ -901,7 +901,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Run("Sync", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image:         "golang:1.25.9-bookworm",
+			Image:         "golang:1.25.10-bookworm",
 			ImagePlatform: "linux/amd64",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
@@ -1457,7 +1457,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 	t.Run("performance", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image: "golang:1.25.9-bookworm",
+			Image: "golang:1.25.10-bookworm",
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
