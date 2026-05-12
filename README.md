@@ -40,7 +40,7 @@
 
 <h1 align="center" style="border-bottom: none">
     <a href="https://datazip.io/olake" target="_blank">
-        <img width="3840" height="1920" alt="image" src="https://github.com/user-attachments/assets/e59edc8c-38b6-4d59-ac79-63bf4e0b3a1e" />
+        <img width="1440" height="720" alt="pic" src="https://github.com/user-attachments/assets/4b17c1f7-9a24-46d4-894e-bf8c5e71b64c" />
     </a>
 </h1>
 
