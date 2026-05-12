@@ -119,7 +119,12 @@ var syncCmd = &cobra.Command{
 			}
 		}
 
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize)
+		var arrowOverride *bool
+		if cmd.Flags().Changed("arrow-writer") {
+			v := arrowWriterFlag
+			arrowOverride = &v
+		}
+		pool, err := destination.NewPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize, arrowOverride)
 		if err != nil {
 			return err
 		}

@@ -62,7 +62,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 }
 
 // TODO: Separate chunking-related logic from this function so the individual components can be unit tested independently.
-func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool destination.Pool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var (
 		approxRowCount      int64
 		avgRowSize          any

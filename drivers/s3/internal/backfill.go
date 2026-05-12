@@ -22,7 +22,7 @@ import (
 // GetOrSplitChunks returns chunks for parallel processing of files
 // Groups multiple small files into ~2GB chunks to reduce state size
 // Large files (>2GB) are kept as individual chunks
-func (s *S3) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (s *S3) GetOrSplitChunks(ctx context.Context, pool destination.Pool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	streamName := stream.Name()
 	files, exists := s.discoveredFiles[streamName]
 
