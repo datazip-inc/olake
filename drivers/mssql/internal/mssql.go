@@ -150,6 +150,7 @@ func (m *MSSQL) buildConnectionString() string {
 		}
 	}
 
+	// Set encrypt parameter based on SSL configuration.
 	if m.config.SSLConfiguration == nil {
 		query.Add("encrypt", "disable")
 	} else {
