@@ -7,7 +7,7 @@
 
 <p align="center">
   <strong>OLake</strong> is a high-performance, open-source data ingestion engine for replicating databases, S3, and Kafka into
-  <strong>Apache Iceberg</strong> (or plain Parquet).
+  <strong>Apache Iceberg</strong> (or plain Parquet) with built in <strong>Iceberg</strong> table maintenance.
   <br/>
   Built for scalable, real-time pipelines, OLake provides a simple web UI and CLI - used to ingest into vendor-lock-in free Iceberg tables supporting all the query-engines/warehouses.
   <br/><br/>
@@ -34,7 +34,7 @@
     </a>
 </p>
 
-## OLake — Super-fast Sync to Apache Iceberg
+## OLake — Super-fast Sync to Apache Iceberg + Iceberg Table Maintenance
 
 **OLake** supports replication from **transactional databases** such as **PostgreSQL, MySQL, MongoDB, Oracle, DB2, and MSSQL**, **event-streaming systems like Apache Kafka** and **Object-store like S3**, into open data lakehouse formats such as **Apache Iceberg** or **Plain Parquet** — delivering blazing-fast performance with minimal infrastructure cost.
 
@@ -55,11 +55,11 @@
 - 💾 **Iceberg-native**: Supports Glue, Hive, JDBC, REST catalogs  
 - 🖥️ **Self-serve UI**: Deploy via Docker Compose and sync in minutes  
 - 💸 **Infra-light**: No Spark, no Flink, no Kafka, no Debezium
-- 🗜️ **Iceberg Table Optimization (Coming soon)**: Compaction tailored for CDC ingestion
+- 🗜️ **Iceberg Table Optimization**: Compaction tailored for CDC ingestion
 
 ---
 
-### 📊 Benchmarks & possible connections
+### 📊 Benchmarks for Ingestion
 
 #### Full Load
 
@@ -80,9 +80,11 @@
 | MongoDB → Iceberg    | 10,692 RPS      | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
 
+### 📊 Benchmarks for Compaction
 
-
-**These are preliminary results. Fully reproducible benchmark scores will be published soon.*
+| Engine | Total Compaction Time | Relative Performance | Full Report |
+|--------|-----------------------|----------------------|-------------|
+| OLake Fusion | 27 mins 2 secs | 2.06 x faster than Spark | [Full Report](https://olake.io/docs/benchmarks/compaction/) |
 
 ---
 
@@ -144,11 +146,11 @@
 
 ### 🧪 Quickstart (UI + Docker)
 
-OLake UI is a web-based interface for managing OLake jobs, sources, destinations, and configurations. You can run the entire OLake stack (UI, Backend, and all dependencies) using Docker Compose. This is the recommended way to get started.
+OLake UI is a web-based interface for managing OLake jobs, sources, destinations, configurations and table maintenance. You can run the entire OLake stack (UI, Backend, and all dependencies) using Docker Compose. This is the recommended way to get started.
 Run the UI, connect your source DB, and start syncing in minutes. 
 
 ```sh
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
+curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose-v1.yml | ENABLE_OPTIMIZATION="true" docker compose --profile fusion -f - up -d
 ```
 
 **Access the UI:**
@@ -215,8 +217,9 @@ Below are other different ways you can run OLake:
 - ✅ Enable BI over fresh CDC data using Athena, StarRocks, Trino, Presto, Dremio, Databricks, Snowflake and more!
 - ✅ Build near real-time data lake-house on cost-efficient cloud object stores
 - ✅ Move away from vendor-lock-in warehouse or tools with open data lake-house
-- ✅ Single copy for both analytics & machine learning.
-
+- ✅ Single copy for both analytics & machine learning
+- ✅ Maintain healthy Iceberg tables
+  
 ---
 
 ### 🧭 Roadmap Highlights
@@ -224,7 +227,8 @@ Below are other different ways you can run OLake:
 - [x] Oracle Full Load Support
 - [x] Oracle Incremental
 - [x] Filters for Full Load and Incremental
-- [ ] Compaction & other table optimisations (In-progress)
+- [x] Compaction
+- [ ] Other table optimisations
 - [ ] Iceberg V3 Support
 
 📌 Check out our [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and the [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track what's next. If you have ideas or feedback, please share them in our [GitHub Discussions](https://github.com/datazip-inc/olake/discussions) or by opening an issue.
