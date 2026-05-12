@@ -31,6 +31,7 @@ type MSSQL struct {
 	lsnMap       sync.Map
 	streams      []types.StreamInterface
 	cdcSupported bool
+	readReplica  bool
 	sshClient    *ssh.Client
 }
 
@@ -113,7 +114,25 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		logger.Warnf("CDC is not supported")
 	}
 	m.cdcSupported = cdcSupported
+
+	m.readReplica = m.detectReadReplica(ctx)
+	if m.readReplica {
+		logger.Warnf("Connected to a read-only MSSQL replica; CDC capture instance management is disabled and agent catch-up wait will be skipped")
+	}
 	return nil
+}
+
+// detectReadReplica reports whether this connection targets a read-only
+// secondary replica. If detection fails, it logs a warning and returns false
+// so the driver still behaves as on a primary.
+func (m *MSSQL) detectReadReplica(ctx context.Context) bool {
+	var isReplica bool
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLIsReadReplicaQuery()).Scan(&isReplica)
+	if err != nil {
+		logger.Warnf("could not determine read replica status - assuming primary: %s", err)
+		return false
+	}
+	return isReplica
 }
 
 func (m *MSSQL) buildConnectionString() string {
@@ -125,7 +144,12 @@ func (m *MSSQL) buildConnectionString() string {
 	query := url.Values{}
 	query.Add("database", m.config.Database)
 
-	// Set encrypt parameter based on SSL configuration.
+	if len(m.config.JDBCURLParams) > 0 {
+		for k, v := range m.config.JDBCURLParams {
+			query.Add(k, v)
+		}
+	}
+
 	if m.config.SSLConfiguration == nil {
 		query.Add("encrypt", "disable")
 	} else {

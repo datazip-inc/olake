@@ -235,6 +235,14 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 		return nil
 	}
 
+	// Read replicas are read-only; sp_cdc_enable_table / sp_cdc_disable_table both require
+	// write access to the primary. Skip the management step and emit a clear warning so the
+	// operator is not surprised that schema-evolution handling is inactive.
+	if m.readReplica {
+		logger.Warnf("manage_capture_instances is enabled but the connection targets a read-only replica; capture instance management is skipped")
+		return nil
+	}
+
 	// Fetch DDL history for all streams in bulk
 	ddlHistoryQuery := jdbc.MSSQLCDCGetDDLHistoryBulkQuery(streamIDs)
 	rows, err := m.client.QueryContext(ctx, ddlHistoryQuery)
@@ -462,7 +470,16 @@ func operationTypeFromCDCCode(code int32) string {
 // has finished a non-throttled scan session (tran_count < maxtrans). A non-throttled session
 // means the agent fully drained the transaction log. We then read the max LSN, knowing it
 // reflects all committed transactions at that point.
+//
+// On read replicas the CDC agent does not run locally — change tables are replicated from the
+// primary. The agent catch-up race condition therefore cannot occur, so we skip the wait and
+// return the current max LSN directly.
 func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
+	if m.readReplica {
+		logger.Infof("Skipping CDC agent catch-up wait on read replica; reading current max LSN directly")
+		return m.currentMaxLSN(ctx)
+	}
+
 	var hasPermission bool
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLViewDatabaseStatePermissionQuery()).Scan(&hasPermission)
 	if err != nil {
