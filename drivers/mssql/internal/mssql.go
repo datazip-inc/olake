@@ -32,6 +32,7 @@ type MSSQL struct {
 	streams      []types.StreamInterface
 	cdcSupported bool
 	sshClient    *ssh.Client
+	iamWalkCache // backfill-related capability cache for iam walk strategy
 }
 
 // GetConfigRef implements abstract.DriverInterface.

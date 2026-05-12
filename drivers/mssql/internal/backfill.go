@@ -10,6 +10,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -30,20 +31,10 @@ const physLocChunkValueLen = 18
 // (IN_ROW_DATA max row size). Using the ceiling yields smaller chunks.
 const usableBytesPerPage = 8060
 
-// isPhysLocChunk reports whether the chunk's boundaries are %%physloc%%
-// hex literals (the shape produced by IAM walk and the iterative physloc
-// planner). Either Min or Max is sufficient to identify the format because
-// both planners always set at least one boundary.
-func isPhysLocChunk(chunk types.Chunk) bool {
-	check := func(v any) bool {
-		s, ok := v.(string)
-		if !ok || len(s) != physLocChunkValueLen || !strings.HasPrefix(s, "0x") {
-			return false
-		}
-		_, err := hex.DecodeString(s[2:])
-		return err == nil
-	}
-	return check(chunk.Min) || check(chunk.Max)
+// iamWalkCache holds the one-time probe result for IAM walk capability.
+type iamWalkCache struct {
+	once    sync.Once
+	capable bool
 }
 
 // ChunkIterator implements snapshot iteration over MSSQL chunks.
@@ -476,34 +467,38 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 	return nil
 }
 
-// probeIAMWalkCapability checks if IAM walk
+// probeIAMWalkCapability checks whether the connected SQL Server instance
+// supports IAM walk chunking via sys.dm_db_database_page_allocations.
 func (m *MSSQL) probeIAMWalkCapability(ctx context.Context) bool {
-	var majorVersion, engineEdition int
-	err := m.client.QueryRowContext(ctx, jdbc.MSSQLIAMWalkServerPropertiesQuery()).Scan(&majorVersion, &engineEdition)
-	if err != nil {
-		logger.Debugf("IAM walk probe: failed to read server properties: %s", err)
-		return false
-	}
-	if majorVersion < 11 {
-		logger.Debugf("IAM walk probe: SQL Server major version %d < 11, IAM walk unsupported", majorVersion)
-		return false
-	}
-	// EngineEdition 5 = Azure SQL Database, 8 = Azure SQL Managed Instance.
-	// sys.dm_db_database_page_allocations is blocked on both.
-	if engineEdition == 5 || engineEdition == 8 {
-		logger.Debugf("IAM walk probe: EngineEdition %d (Azure SQL DB/MI) blocks the DMF", engineEdition)
-		return false
-	}
+	m.once.Do(func() {
+		var majorVersion, engineEdition int
+		err := m.client.QueryRowContext(ctx, jdbc.MSSQLIAMWalkServerPropertiesQuery()).Scan(&majorVersion, &engineEdition)
+		if err != nil {
+			logger.Debugf("IAM walk probe: failed to read server properties: %s", err)
+			return
+		}
+		if majorVersion < 11 {
+			logger.Debugf("IAM walk probe: SQL Server major version %d < 11, IAM walk unsupported", majorVersion)
+			return
+		}
+		// EngineEdition 5 = Azure SQL Database, 8 = Azure SQL Managed Instance.
+		// sys.dm_db_database_page_allocations is blocked on both.
+		if engineEdition == 5 || engineEdition == 8 {
+			logger.Debugf("IAM walk probe: EngineEdition %d (Azure SQL DB/MI) blocks the DMF", engineEdition)
+			return
+		}
 
-	// Permission probe: TOP 0 evaluates the DMF without returning any rows.
-	// Failure here means the current login lacks VIEW DATABASE STATE.
-	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLIAMWalkPermissionQuery())
-	if err != nil {
-		logger.Debugf("IAM walk probe: permission test failed (likely missing VIEW DATABASE STATE): %s", err)
-		return false
-	}
-	rows.Close()
-	return true
+		// Permission probe: TOP 0 evaluates the DMF without returning any rows.
+		// Failure here means the current login lacks VIEW DATABASE STATE.
+		rows, err := m.client.QueryContext(ctx, jdbc.MSSQLIAMWalkPermissionQuery())
+		if err != nil {
+			logger.Debugf("IAM walk probe: permission test failed (likely missing VIEW DATABASE STATE): %s", err)
+			return
+		}
+		rows.Close()
+		m.capable = true
+	})
+	return m.capable
 }
 
 // getColumnTypeMSSQL returns SQL data type for the requested column.
@@ -584,4 +579,20 @@ func formatUniqueIdentifierBytes(v []byte) (string, bool) {
 		v[8], v[9], // next 2 bytes (big-endian)
 		v[10], v[11], v[12], v[13], v[14], v[15], // last 6 bytes (big-endian)
 	), true
+}
+
+// isPhysLocChunk reports whether the chunk's boundaries are %%physloc%%
+// hex literals (the shape produced by IAM walk and the iterative physloc
+// planner). Either Min or Max is sufficient to identify the format because
+// both planners always set at least one boundary.
+func isPhysLocChunk(chunk types.Chunk) bool {
+	check := func(v any) bool {
+		s, ok := v.(string)
+		if !ok || len(s) != physLocChunkValueLen || !strings.HasPrefix(s, "0x") {
+			return false
+		}
+		_, err := hex.DecodeString(s[2:])
+		return err == nil
+	}
+	return check(chunk.Min) || check(chunk.Max)
 }
