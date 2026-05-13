@@ -21,8 +21,6 @@ type streamArtifact struct {
 	schema      OLakeSchema
 	shape       SchemaShape
 	arrowSchema *arrowlib.Schema
-	state       *types.MetadataState
-	preShape    []PartitionPreShape
 }
 
 // ---------------------------------------------------------------------------
@@ -122,8 +120,6 @@ func (p *Pool) NewWriter(ctx context.Context, stream types.StreamInterface,
 	if artifact.schema == nil {
 		artifact.schema = setup.Schema
 		artifact.shape = setup.Shape
-		artifact.state = setup.State
-		artifact.preShape = setup.PartitionFields
 		artifact.arrowSchema = ToArrowSchema(setup.Schema, setup.Shape.FieldIDs, setup.Shape.IdentifierField)
 	}
 
@@ -136,13 +132,13 @@ func (p *Pool) NewWriter(ctx context.Context, stream types.StreamInterface,
 		schema:         CloneSchema(artifact.schema),
 		shape:          artifact.shape,
 		arrowSchema:    artifact.arrowSchema,
-		preShape:       artifact.preShape,
+		preShape:       setup.PartitionFields,
 		buffer:         make([]types.RawRecord, 0),
 		batchSize:      p.batchSize,
 		group:          utils.NewCGroupWithLimit(ctx, 1),
 		stats:          p.stats,
 		threadID:       src.ThreadID,
-	}, artifact.state, nil
+	}, setup.State, nil
 }
 
 // Push buffers a record and triggers an async flush when the batch is full.
