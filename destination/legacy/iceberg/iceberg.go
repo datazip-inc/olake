@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/destination"
-	arrowwriter "github.com/datazip-inc/olake/destination/iceberg/arrow-writer"
-	"github.com/datazip-inc/olake/destination/iceberg/internal"
-	legacywriter "github.com/datazip-inc/olake/destination/iceberg/legacy-writer"
-	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	legacydst "github.com/datazip-inc/olake/destination/legacy"
+	arrowwriter "github.com/datazip-inc/olake/destination/legacy/iceberg/arrow-writer"
+	"github.com/datazip-inc/olake/destination/legacy/iceberg/internal"
+	legacywriter "github.com/datazip-inc/olake/destination/legacy/iceberg/legacy-writer"
+	"github.com/datazip-inc/olake/destination/legacy/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -25,7 +25,7 @@ import (
 )
 
 type Iceberg struct {
-	options       *destination.Options
+	options       *legacydst.Options
 	config        *Config
 	stream        types.StreamInterface
 	partitionInfo []internal.PartitionInfo // ordered slice to preserve partition column order
@@ -56,7 +56,7 @@ var promotionTransitions = map[string]map[string]bool{
 	"float": {"double": true},
 }
 
-func (i *Iceberg) GetConfigRef() destination.Config {
+func (i *Iceberg) GetConfigRef() legacydst.Config {
 	i.config = &Config{}
 	return i.config
 }
@@ -74,7 +74,7 @@ func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	return legacywriter.New(i.options, i.schema, i.stream, i.server), nil
 }
 
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, *types.MetadataState, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *legacydst.Options) (any, *types.MetadataState, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]internal.PartitionInfo, 0)
@@ -212,7 +212,7 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) error {
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
-	i.options = &destination.Options{
+	i.options = &legacydst.Options{
 		ThreadID: "test_iceberg_destination",
 	}
 
@@ -563,7 +563,7 @@ func isPromotionRequired(oldType, newType string) bool {
 
 // drop streams required for clear destination
 func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error {
-	i.options = &destination.Options{
+	i.options = &legacydst.Options{
 		ThreadID: "iceberg_destination_drop",
 	}
 	if len(dropStreams) == 0 {
@@ -667,7 +667,7 @@ func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 }
 
 func init() {
-	destination.RegisteredWriters[types.Iceberg] = func() destination.Writer {
+	legacydst.RegisteredWriters[types.Iceberg] = func() legacydst.Writer {
 		return new(Iceberg)
 	}
 }

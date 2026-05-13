@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/destination/legacy/iceberg/proto"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/twmb/murmur3"
 )

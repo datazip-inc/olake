@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/destination/legacy/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/goccy/go-json"
 	"github.com/parquet-go/parquet-go"

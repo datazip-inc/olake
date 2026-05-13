@@ -1,96 +1,56 @@
+// Package destination is the facade drivers and protocol code import. It
+// hides whether the active write path is legacy (row-based) or arrow-native,
+// so a driver can be written once and routed at runtime.
+//
+// Layering:
+//
+//	drivers, protocol         ──►  destination          (this package)
+//	destination               ──►  destination/core     (Pool, Thread, Stats, Options, With*)
+//	                          ──►  destination/legacy   (Writer contract + LegacyPool)
+//	                          ──►  destination/arrow    (DestinationAdapter contract + Pool + library)
+//	destination/legacy        ──►  destination/core
+//	destination/arrow         ──►  destination/core
+//
+// No upward edges, no cycles.
 package destination
 
 import (
 	"context"
 	"fmt"
-	"sync"
-	"sync/atomic"
 
+	arrowdst "github.com/datazip-inc/olake/destination/arrow"
+	dstcore "github.com/datazip-inc/olake/destination/core"
+	legacydst "github.com/datazip-inc/olake/destination/legacy"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 )
 
 // ---------------------------------------------------------------------------
-// Interfaces drivers consume.
-// ---------------------------------------------------------------------------
-
-// Pool is the minimum contract drivers use. Both LegacyWriterPool and
-// ArrowWriterPool implement it.
-type Pool interface {
-	NewWriter(ctx context.Context, stream types.StreamInterface, options ...ThreadOptions) (Thread, *types.MetadataState, error)
-	AddRecordsToSyncStats(count int64)
-	GetStats() *Stats
-}
-
-// Thread is the minimum contract for a per-thread writer. Both
-// LegacyWriterThread and ArrowWriterThread implement it.
-type Thread interface {
-	Push(ctx context.Context, record types.RawRecord) error
-	Close(ctx context.Context, finalMetadataState any) error
-}
-
-// ---------------------------------------------------------------------------
-// Shared option / stats / artifact types.
+// Re-exports — drivers and protocol code only reference these.
+// Switching package depths below has zero impact on external callers.
 // ---------------------------------------------------------------------------
 
 type (
-	NewFunc        func() Writer
-	InsertFunction func(record types.RawRecord) (err error)
-	CloseFunction  func()
-	WriterOption   func(Writer) error
-
-	Options struct {
-		Identifier  string
-		Number      int64
-		Backfill    bool
-		ThreadID    string
-		ApplyFilter bool
-	}
-
-	ThreadOptions func(opt *Options)
-
-	// writerSchema is the per-stream artifact shared across all threads of a
-	// given pool. Both pools mutate it under writerSchema.mu.
-	writerSchema struct {
-		mu            sync.RWMutex
-		schema        any
-		metadataState *types.MetadataState
-	}
-
-	Stats struct {
-		TotalRecordsToSync atomic.Int64 // total record that are required to sync
-		ReadCount          atomic.Int64 // records that got read
-		RecordsFiltered    atomic.Int64 // records that got filtered
-		ThreadCount        atomic.Int64 // total number of writer threads
-	}
+	// Pool is the orchestration interface a driver consumes.
+	Pool = dstcore.Pool
+	// Thread is the per-stream writer handle a driver consumes.
+	Thread = dstcore.Thread
+	// Stats tracks records across all threads of a Pool.
+	Stats = dstcore.Stats
+	// Options is the per-thread option bag passed through NewWriter.
+	Options = dstcore.Options
+	// ThreadOptions is a functional setter for Options.
+	ThreadOptions = dstcore.ThreadOptions
 )
 
-// RegisteredWriters keeps the legacy Writer implementations.
-var RegisteredWriters = map[types.DestinationType]NewFunc{}
-
-// ---------------------------------------------------------------------------
-// ThreadOption builders.
-// ---------------------------------------------------------------------------
-
-func WithIdentifier(identifier string) ThreadOptions {
-	return func(opt *Options) { opt.Identifier = identifier }
-}
-
-func WithNumber(number int64) ThreadOptions {
-	return func(opt *Options) { opt.Number = number }
-}
-
-func WithBackfill(backfill bool) ThreadOptions {
-	return func(opt *Options) { opt.Backfill = backfill }
-}
-
-func WithThreadID(threadID string) ThreadOptions {
-	return func(opt *Options) { opt.ThreadID = threadID }
-}
-
-func WithApplyFilter(applyFilter bool) ThreadOptions {
-	return func(opt *Options) { opt.ApplyFilter = applyFilter }
-}
+// Functional thread-option helpers, re-exported so callers do not need to
+// import destination/core directly.
+var (
+	WithIdentifier  = dstcore.WithIdentifier
+	WithNumber      = dstcore.WithNumber
+	WithBackfill    = dstcore.WithBackfill
+	WithThreadID    = dstcore.WithThreadID
+	WithApplyFilter = dstcore.WithApplyFilter
+)
 
 // ---------------------------------------------------------------------------
 // Entry point used by protocol/sync.go.
@@ -101,16 +61,15 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 //   - arrowOverride != nil  -> CLI value wins
 func NewPool(ctx context.Context, cfg *types.WriterConfig, syncStreams []string, batchSize int64, arrowOverride *bool) (Pool, error) {
 	if resolveArrowMode(cfg, arrowOverride) {
-		return newArrowWriterPool(ctx, cfg, syncStreams, batchSize)
+		return arrowdst.NewPool(ctx, cfg, syncStreams, batchSize)
 	}
-	return newLegacyWriterPool(ctx, cfg, syncStreams, batchSize)
+	return legacydst.NewPool(ctx, cfg, syncStreams, batchSize)
 }
 
 func resolveArrowMode(cfg *types.WriterConfig, arrowOverride *bool) bool {
 	if arrowOverride != nil {
 		return *arrowOverride
 	}
-	// Best-effort peek at the raw config map for arrow_writes.
 	if raw, ok := cfg.WriterConfig.(map[string]any); ok {
 		if v, ok := raw["arrow_writes"].(bool); ok {
 			return v
@@ -119,83 +78,11 @@ func resolveArrowMode(cfg *types.WriterConfig, arrowOverride *bool) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers shared by both pool implementations.
-// ---------------------------------------------------------------------------
-
-func newStats() *Stats {
-	return &Stats{
-		TotalRecordsToSync: atomic.Int64{},
-		ThreadCount:        atomic.Int64{},
-		ReadCount:          atomic.Int64{},
-		RecordsFiltered:    atomic.Int64{},
+// ClearDestination delegates to the legacy registry. The arrow path piggybacks
+// on legacy adapters' DropStreams implementation for now.
+func ClearDestination(ctx context.Context, cfg *types.WriterConfig, dropStreams []types.StreamInterface) error {
+	if cfg == nil {
+		return fmt.Errorf("nil writer config")
 	}
-}
-
-func registerStreamArtifacts(m *sync.Map, streams []string) {
-	for _, s := range streams {
-		m.Store(s, &writerSchema{
-			mu:     sync.RWMutex{},
-			schema: nil,
-		})
-	}
-}
-
-func loadStreamArtifact(m *sync.Map, streamID string) (*writerSchema, error) {
-	raw, ok := m.Load(streamID)
-	if !ok {
-		return nil, fmt.Errorf("failed to get stream artifacts for stream[%s]", streamID)
-	}
-	a, ok := raw.(*writerSchema)
-	if !ok {
-		return nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *writerSchema", raw)
-	}
-	return a, nil
-}
-
-func applyThreadOpts(options []ThreadOptions) *Options {
-	return ApplyThreadOpts(options)
-}
-
-// ApplyThreadOpts is the exported form used by sub-packages (e.g. arrowpipe).
-func ApplyThreadOpts(options []ThreadOptions) *Options {
-	opts := &Options{}
-	for _, one := range options {
-		one(opts)
-	}
-	return opts
-}
-
-// runRecoveredFlush is the standard panic-recovered wrapper used by both
-// thread implementations.
-func runRecoveredFlush(fn func() error) (err error) {
-	defer func() {
-		if err == nil {
-			if rec := recover(); rec != nil {
-				err = fmt.Errorf("panic recovered in flush: %v", rec)
-			}
-		}
-	}()
-	return fn()
-}
-
-// ---------------------------------------------------------------------------
-// ClearDestination — behaviour unchanged; lives here now.
-// ---------------------------------------------------------------------------
-
-func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
-	newfunc, found := RegisteredWriters[config.Type]
-	if !found {
-		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
-	}
-	adapter := newfunc()
-	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
-		return err
-	}
-	if dropStreams != nil {
-		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
-			return fmt.Errorf("failed to drop the streams: %s", err)
-		}
-	}
-	return nil
+	return legacydst.ClearDestination(ctx, cfg, dropStreams)
 }

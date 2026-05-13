@@ -54,7 +54,7 @@ jobs:
           docker compose -f ./drivers/db2/docker-compose.yml up -d
           docker compose -f ./drivers/mssql/docker-compose.yml up -d
           docker compose -f ./drivers/kafka/docker-compose.yml up -d
-          docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
+          docker compose -f ./destination/legacy/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       - name: Wait for MySQL
         uses: nick-fields/retry@v2
@@ -128,11 +128,11 @@ jobs:
 
       - name: Set up Data Directories
         run: |
-            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
-            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/minio-data
-            sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/ivy-cache
-            sudo chown -R 999:999 /home/runner/work/olake/olake/destination/iceberg/local-test/data
-            sudo chmod -R 777 /home/runner/work/olake/olake/destination/iceberg/local-test/data
+            sudo mkdir -p /home/runner/work/olake/olake/destination/legacy/iceberg/local-test/data/postgres-data
+            sudo mkdir -p /home/runner/work/olake/olake/destination/legacy/iceberg/local-test/data/minio-data
+            sudo mkdir -p /home/runner/work/olake/olake/destination/legacy/iceberg/local-test/data/ivy-cache
+            sudo chown -R 999:999 /home/runner/work/olake/olake/destination/legacy/iceberg/local-test/data
+            sudo chmod -R 777 /home/runner/work/olake/olake/destination/legacy/iceberg/local-test/data
 
       - name: Install Go Dependencies
         run: go mod download
@@ -150,7 +150,7 @@ jobs:
             ${{ runner.os }}-maven-
 
       - name: Build Iceberg Sink
-        working-directory: ./destination/iceberg/olake-iceberg-java-writer
+        working-directory: ./destination/legacy/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
 
       - name: Run Integration Tests
@@ -160,7 +160,7 @@ jobs:
       - name: Cleanup
         if: always()
         run: |
-          docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
+          docker compose -f ./destination/legacy/iceberg/local-test/docker-compose.yml down
           docker compose -f ./drivers/mysql/docker-compose.yml down
           docker compose -f ./drivers/postgres/docker-compose.yml down
           docker compose -f ./drivers/oracle/docker-compose.yml down

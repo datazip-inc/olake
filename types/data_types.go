@@ -2,7 +2,7 @@ package types
 
 import (
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/destination/legacy/iceberg/proto"
 	"github.com/parquet-go/parquet-go"
 )
 

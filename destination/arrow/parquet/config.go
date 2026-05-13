@@ -1,4 +1,4 @@
-package parquet
+package parquetarrow
 
 import (
 	"github.com/datazip-inc/olake/utils"

@@ -1,4 +1,4 @@
-package parquet
+package parquetlegacy
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/destination"
+	legacydst "github.com/datazip-inc/olake/destination/legacy"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -39,7 +39,7 @@ type FileMetadata struct {
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
 type Parquet struct {
-	options          *destination.Options
+	options          *legacydst.Options
 	config           *Config
 	stream           types.StreamInterface
 	basePath         string                     // construct with streamNamespace/streamName
@@ -50,7 +50,7 @@ type Parquet struct {
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
-func (p *Parquet) GetConfigRef() destination.Config {
+func (p *Parquet) GetConfigRef() legacydst.Config {
 	p.config = &Config{}
 	return p.config
 }
@@ -122,7 +122,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, *types.MetadataState, error) {
+func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *legacydst.Options) (any, *types.MetadataState, error) {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string][]*FileMetadata)
@@ -214,7 +214,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	threadID := fmt.Sprintf("test_parquet_destination_%s", uniqueSuffix)
 
-	p.options = &destination.Options{
+	p.options = &legacydst.Options{
 		ThreadID: threadID,
 	}
 
@@ -694,7 +694,7 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 }
 
 func init() {
-	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
+	legacydst.RegisteredWriters[types.Parquet] = func() legacydst.Writer {
 		return new(Parquet)
 	}
 }
