@@ -2,9 +2,11 @@ package driver
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -143,6 +145,94 @@ func TestConfig_Validate(t *testing.T) {
 			}
 			if !tt.expectErr && err != nil {
 				t.Errorf("Expected no error but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestConfig_ConnectionString(t *testing.T) {
+	tests := []struct {
+		name             string
+		config           *Config
+		expectError      bool
+		expectedContains []string
+		notExpected      []string
+	}{
+		{
+			name: "with jdbc url params",
+			config: func() *Config {
+				certs := testutils.GenerateTestCerts()
+				return &Config{
+					Host:     "mssql-host",
+					Port:     1433,
+					Database: "testdb",
+					Username: "sa",
+					Password: "Password!123",
+					JDBCURLParams: map[string]string{
+						"ApplicationIntent":   "ReadOnly",
+						"MultiSubnetFailover": "true",
+					},
+					SSLConfiguration: &utils.SSLConfig{
+						Mode:       utils.SSLModeVerifyFull,
+						ServerCA:   certs.CACert,
+						ClientCert: certs.ClientCert,
+						ClientKey:  certs.ClientKey,
+					},
+				}
+			}(),
+			expectedContains: []string{
+				"ApplicationIntent=ReadOnly",
+				"MultiSubnetFailover=true",
+			},
+			notExpected: []string{
+				"invalid-ssl-config:0",
+				"tls=skip-verify",
+			},
+		},
+		{
+			name: "ssl mode overrides jdbc_url_params encrypt",
+			config: &Config{
+				Host:     "mssql-host",
+				Port:     1433,
+				Database: "testdb",
+				Username: "sa",
+				Password: "Password!123",
+				JDBCURLParams: map[string]string{
+					"encrypt": "true",
+				},
+				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeDisable},
+			},
+			expectedContains: []string{
+				"encrypt=disable",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("failed to validate config: %v", err)
+				return
+			}
+
+			connStr := (&MSSQL{config: tt.config}).buildConnectionString()
+
+			for _, expected := range tt.expectedContains {
+				if !strings.Contains(connStr, expected) {
+					t.Errorf("expected connection string to contain %q, got %s", expected, connStr)
+				}
+			}
+			for _, notExpected := range tt.notExpected {
+				if strings.Contains(connStr, notExpected) {
+					t.Errorf("expected connection string to NOT contain %q, got %s", notExpected, connStr)
+				}
 			}
 		})
 	}
