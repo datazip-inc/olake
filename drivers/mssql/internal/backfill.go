@@ -10,7 +10,6 @@ import (
 	"math"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -30,12 +29,6 @@ const physLocChunkValueLen = 18
 // usableBytesPerPage is an upper bound for in-row payload per 8KB page
 // (IN_ROW_DATA max row size). Using the ceiling yields smaller chunks.
 const usableBytesPerPage = 8060
-
-// iamWalkCache holds the one-time probe result for IAM walk capability.
-type iamWalkCache struct {
-	once    sync.Once
-	capable bool
-}
 
 // ChunkIterator implements snapshot iteration over MSSQL chunks.
 func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, onMessage abstract.BackfillMsgFn) error {
@@ -138,159 +131,6 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		logger.Debugf("Stream %s: No PK or chunkColumn, will use %%physloc%% chunking", stream.ID())
 	}
 
-	// Split via primary key when available
-	splitViaPrimaryKey := func(stream types.StreamInterface, chunks *types.Set[types.Chunk], pkCols []string) error {
-		return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
-			sort.Strings(pkCols)
-
-			if len(pkCols) == 0 {
-				return nil
-			}
-			// Get the minimum and maximum values for the primary key columns
-			minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkCols, tx)
-			if err != nil {
-				return fmt.Errorf("failed to get table extremes: %s", err)
-			}
-			// Skip if table is empty
-			if minVal == nil {
-				return nil
-			}
-
-			columnType := ""
-			if len(pkCols) == 1 {
-				columnType, err = m.getColumnTypeMSSQL(ctx, stream, pkCols[0], tx)
-				if err != nil {
-					return fmt.Errorf("failed to get table column type: %s", err)
-				}
-			}
-
-			// Create the first chunk from the beginning up to the minimum value
-			chunks.Insert(types.Chunk{
-				Min: nil,
-				Max: normalizeBoundaryValue(minVal, pkCols, columnType),
-			})
-
-			logger.Infof(
-				"Stream %s extremes - min: %v, max: %v", stream.ID(),
-				normalizeBoundaryValue(minVal, pkCols, columnType),
-				normalizeBoundaryValue(maxVal, pkCols, columnType),
-			)
-
-			// Build query to find the next chunk boundary
-			query := jdbc.MSSQLNextChunkEndQuery(stream, pkCols, chunkSize)
-			currentVal := minVal
-
-			for {
-				// Split the current composite key value into individual column parts
-				columns := strings.Split(normalizeBoundaryValue(currentVal, pkCols, columnType), ",")
-
-				// Build query arguments for composite key comparison
-				args := make([]interface{}, 0)
-				for colIdx := 0; colIdx < len(pkCols); colIdx++ {
-					for partIdx := 0; partIdx <= colIdx && partIdx < len(columns); partIdx++ {
-						args = append(args, strings.TrimSpace(columns[partIdx]))
-					}
-				}
-
-				// Query for the next chunk boundary value
-				var nextValRaw interface{}
-				err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
-				// Stop if we've reached the end of the table
-				if err == sql.ErrNoRows || nextValRaw == nil {
-					break
-				}
-				if err != nil {
-					return fmt.Errorf("failed to get next chunk end: %s", err)
-				}
-
-				// Create a chunk between current and next boundary
-				if currentVal != nil {
-					chunks.Insert(types.Chunk{
-						Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
-						Max: normalizeBoundaryValue(nextValRaw, pkCols, columnType),
-					})
-				}
-
-				currentVal = nextValRaw
-			}
-
-			// Create the final chunk from the last value to the end
-			if currentVal != nil {
-				chunks.Insert(types.Chunk{
-					Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
-					Max: nil,
-				})
-			}
-
-			return nil
-		})
-	}
-
-	// Split using physical location when no primary key is available.
-	// %%physloc%% returns the physical location (file_id, page_id, slot_id) of a row as binary.
-	// We iteratively find chunk boundaries by querying for the N-th row (N = chunkSize) where
-	// physloc > current, creating evenly-sized chunks: [nil, min], [min, next1], ..., [last, nil]
-	//
-	// All physloc values are hex-encoded before storing in chunks to ensure valid UTF-8 chunk values.
-	splitViaPhysLoc := func(stream types.StreamInterface, chunks *types.Set[types.Chunk]) error {
-		// SQL Server doesn't support read-only transactions
-		// Use repeatable read isolation without read-only flag
-		return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
-			// Get the minimum and maximum physical location values
-			// These define the boundaries of our table for chunking
-			minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream, tx)
-			if err != nil {
-				return fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
-			}
-			// Skip if table is empty (no rows to chunk)
-			if minVal == nil || maxVal == nil {
-				return nil
-			}
-
-			// Start from the minimum physloc value
-			current := minVal
-			chunks.Insert(types.Chunk{
-				Min: nil,
-				Max: utils.HexEncode(minVal),
-			})
-
-			// Iteratively find chunk boundaries until we reach the end of the table
-			for {
-				var next []byte
-				// This gives us the next chunk boundary, ensuring each chunk has ~chunkSize rows
-				query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
-
-				err := tx.QueryRowContext(ctx, query, current).Scan(&next)
-				// End of table reached: no more rows with physloc > current
-				if err == sql.ErrNoRows || next == nil {
-					chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
-					break
-				}
-				if err != nil {
-					return fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
-				}
-
-				if bytes.Equal(current, next) {
-					chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
-					break
-				}
-
-				// Create a chunk between current and next boundary
-				// This chunk will contain approximately chunkSize rows
-				// Example: If current = A and next = D, chunk [A, D) contains rows A, B, C
-				chunks.Insert(types.Chunk{
-					Min: utils.HexEncode(current),
-					Max: utils.HexEncode(next),
-				})
-
-				// Move to the next boundary for the next iteration
-				current = next
-			}
-
-			return nil
-		})
-	}
-
 	// physLocSampleThenFallback tries TABLESAMPLE physloc sampling and, if that
 	// produces no usable chunks, falls back to PK or iterative physloc scan.
 	physLocSampleThenFallback := func() error {
@@ -301,23 +141,21 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return nil
 		}
 		logger.Debugf("Stream %s: TABLESAMPLE physloc sampling failed %s", stream.ID(), sampleErr)
-		chunks = types.NewSet[types.Chunk]()
 		if len(pkColumns) > 0 {
-			return splitViaPrimaryKey(stream, chunks, pkColumns)
+			return m.splitViaPrimaryKey(ctx, stream, chunks, pkColumns, chunkSize)
 		}
-		return splitViaPhysLoc(stream, chunks)
+		return m.splitViaPhysLoc(ctx, stream, chunks, chunkSize)
 	}
 
 	switch {
 	case chunkColumn != "":
 		logger.Debugf("Stream %s: chunkColumn=%s set, using PK-based chunking", stream.ID(), chunkColumn)
-		err = splitViaPrimaryKey(stream, chunks, pkColumns)
+		err = m.splitViaPrimaryKey(ctx, stream, chunks, pkColumns, chunkSize)
 	case m.probeIAMWalkCapability(ctx):
 		logger.Debugf("Stream %s: Attempting IAM walk chunking", stream.ID())
 		err = m.splitViaIAMWalk(ctx, stream, chunks)
 		if err != nil || chunks.Len() == 0 {
 			logger.Warnf("Stream %s: IAM walk failed %s", stream.ID(), err)
-			chunks = types.NewSet[types.Chunk]()
 			err = physLocSampleThenFallback()
 		} else {
 			logger.Infof("Stream %s: IAM walk produced %d chunks", stream.ID(), chunks.Len())
@@ -368,6 +206,148 @@ func physLocBytes(packed uint64) []byte {
 	return b
 }
 
+// splitViaPrimaryKey divides the table into chunks by walking PK boundaries
+// under REPEATABLE READ (see jdbc.WithIsolation).
+func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInterface, chunks *types.Set[types.Chunk], pkCols []string, chunkSize int64) error {
+	return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
+		sort.Strings(pkCols)
+
+		if len(pkCols) == 0 {
+			return nil
+		}
+		minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkCols, tx)
+		if err != nil {
+			return fmt.Errorf("failed to get table extremes: %s", err)
+		}
+		if minVal == nil {
+			return nil
+		}
+
+		columnType := ""
+		if len(pkCols) == 1 {
+			columnType, err = m.getColumnTypeMSSQL(ctx, stream, pkCols[0], tx)
+			if err != nil {
+				return fmt.Errorf("failed to get table column type: %s", err)
+			}
+		}
+
+		chunks.Insert(types.Chunk{
+			Min: nil,
+			Max: normalizeBoundaryValue(minVal, pkCols, columnType),
+		})
+
+		logger.Infof(
+			"Stream %s extremes - min: %v, max: %v", stream.ID(),
+			normalizeBoundaryValue(minVal, pkCols, columnType),
+			normalizeBoundaryValue(maxVal, pkCols, columnType),
+		)
+
+		query := jdbc.MSSQLNextChunkEndQuery(stream, pkCols, chunkSize)
+		currentVal := minVal
+
+		for {
+			// Split the current composite key value into individual column parts
+			columns := strings.Split(normalizeBoundaryValue(currentVal, pkCols, columnType), ",")
+
+			// Build query arguments for composite key comparison
+			args := make([]interface{}, 0)
+			for colIdx := 0; colIdx < len(pkCols); colIdx++ {
+				for partIdx := 0; partIdx <= colIdx && partIdx < len(columns); partIdx++ {
+					args = append(args, strings.TrimSpace(columns[partIdx]))
+				}
+			}
+
+			// Query for the next chunk boundary value
+			var nextValRaw interface{}
+			err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
+			// Stop if we've reached the end of the table
+			if err == sql.ErrNoRows || nextValRaw == nil {
+				break
+			}
+			if err != nil {
+				return fmt.Errorf("failed to get next chunk end: %s", err)
+			}
+
+			// Create a chunk between current and next boundary
+			if currentVal != nil {
+				chunks.Insert(types.Chunk{
+					Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
+					Max: normalizeBoundaryValue(nextValRaw, pkCols, columnType),
+				})
+			}
+
+			currentVal = nextValRaw
+		}
+
+		// Create the final chunk from the last value to the end
+		if currentVal != nil {
+			chunks.Insert(types.Chunk{
+				Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
+				Max: nil,
+			})
+		}
+
+		return nil
+	})
+}
+
+// Split using physical location when no primary key is available.
+// %%physloc%% returns the physical location (file_id, page_id, slot_id) of a row as binary.
+// We iteratively find chunk boundaries by querying for the N-th row (N = chunkSize) where
+// physloc > current, creating evenly-sized chunks: [nil, min], [min, next1], ..., [last, nil]
+//
+// All physloc values are hex-encoded before storing in chunks to ensure valid UTF-8 chunk values.
+func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterface, chunks *types.Set[types.Chunk], chunkSize int64) error {
+	// SQL Server doesn't support read-only transactions
+	// Use repeatable read isolation without read-only flag
+	return jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
+		// Get the minimum and maximum physical location values
+		// These define the boundaries of our table for chunking
+		minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream, tx)
+		if err != nil {
+			return fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
+		}
+		// Skip if table is empty (no rows to chunk)
+		if minVal == nil || maxVal == nil {
+			return nil
+		}
+
+		current := minVal
+		chunks.Insert(types.Chunk{
+			Min: nil,
+			Max: utils.HexEncode(minVal),
+		})
+
+		for {
+			var next []byte
+			query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
+
+			err := tx.QueryRowContext(ctx, query, current).Scan(&next)
+			if err == sql.ErrNoRows || next == nil {
+				chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
+				break
+			}
+			if err != nil {
+				return fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
+			}
+
+			if bytes.Equal(current, next) {
+				chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
+				break
+			}
+
+			chunks.Insert(types.Chunk{
+				Min: utils.HexEncode(current),
+				Max: utils.HexEncode(next),
+			})
+
+			current = next
+		}
+
+		return nil
+	})
+}
+
 // splitViaPhysLocSample estimates chunk boundaries using TABLESAMPLE SYSTEM.
 // It reads a small percentage of data pages (no full table scan), sorts the
 // sampled %%physloc%% values, and picks evenly-spaced boundaries in Go.
@@ -383,28 +363,28 @@ func (m *MSSQL) splitViaPhysLocSample(ctx context.Context, stream types.StreamIn
 	}
 	defer rows.Close()
 
-	var sampledLocs [][]byte
+	var physLocSamples [][]byte
 	for rows.Next() {
 		var loc []byte
 		if err := rows.Scan(&loc); err != nil {
 			return nil, fmt.Errorf("failed to scan sampled %%%%physloc%%%%: %s", err)
 		}
-		sampledLocs = append(sampledLocs, loc)
+		physLocSamples = append(physLocSamples, loc)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to iterate sampled %%%%physloc%%%% rows: %s", err)
 	}
 
-	if int64(len(sampledLocs)) < numberOfChunks {
-		return nil, fmt.Errorf("TABLESAMPLE returned %d rows, need at least %d for %d chunks",
-			len(sampledLocs), numberOfChunks, numberOfChunks)
+	if int64(len(physLocSamples)) < numberOfChunks {
+		return nil, fmt.Errorf("TABLESAMPLE returned %d rows, need at least %d",
+			len(physLocSamples), numberOfChunks)
 	}
 
 	chunks := types.NewSet[types.Chunk]()
-	step := float64(len(sampledLocs)) / float64(numberOfChunks)
+	step := float64(len(physLocSamples)) / float64(numberOfChunks)
 	var prev any = nil
-	for i := int64(0); i < numberOfChunks; i++ {
-		curr := utils.HexEncode(sampledLocs[int(float64(i)*step)])
+	for i := int64(0);  i < numberOfChunks; i++ {
+		curr := utils.HexEncode(physLocSamples[int(float64(i)*step)])
 		chunks.Insert(types.Chunk{Min: prev, Max: curr})
 		prev = curr
 	}
@@ -467,38 +447,35 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 	return nil
 }
 
-// probeIAMWalkCapability checks whether the connected SQL Server instance
-// supports IAM walk chunking via sys.dm_db_database_page_allocations.
+// probeIAMWalkCapability checks whether IAM walk can run on this server/login.
+// It is cheap (two round-trips) so we call it per stream instead of caching.
 func (m *MSSQL) probeIAMWalkCapability(ctx context.Context) bool {
-	m.once.Do(func() {
-		var majorVersion, engineEdition int
-		err := m.client.QueryRowContext(ctx, jdbc.MSSQLIAMWalkServerPropertiesQuery()).Scan(&majorVersion, &engineEdition)
-		if err != nil {
-			logger.Debugf("IAM walk probe: failed to read server properties: %s", err)
-			return
-		}
-		if majorVersion < 11 {
-			logger.Debugf("IAM walk probe: SQL Server major version %d < 11, IAM walk unsupported", majorVersion)
-			return
-		}
-		// EngineEdition 5 = Azure SQL Database, 8 = Azure SQL Managed Instance.
-		// sys.dm_db_database_page_allocations is blocked on both.
-		if engineEdition == 5 || engineEdition == 8 {
-			logger.Debugf("IAM walk probe: EngineEdition %d (Azure SQL DB/MI) blocks the DMF", engineEdition)
-			return
-		}
+	var majorVersion, engineEdition int
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLIAMWalkServerPropertiesQuery()).Scan(&majorVersion, &engineEdition)
+	if err != nil {
+		logger.Debugf("IAM walk probe: failed to read server properties: %s", err)
+		return false
+	}
+	if majorVersion < 11 {
+		logger.Debugf("IAM walk probe: SQL Server major version %d < 11, IAM walk unsupported", majorVersion)
+		return false
+	}
+	// EngineEdition 5 = Azure SQL Database, 8 = Azure SQL Managed Instance.
+	// sys.dm_db_database_page_allocations is blocked on both.
+	if engineEdition == 5 || engineEdition == 8 {
+		logger.Debugf("IAM walk probe: EngineEdition %d (Azure SQL DB/MI) blocks the DMF", engineEdition)
+		return false
+	}
 
-		// Permission probe: TOP 0 evaluates the DMF without returning any rows.
-		// Failure here means the current login lacks VIEW DATABASE STATE.
-		rows, err := m.client.QueryContext(ctx, jdbc.MSSQLIAMWalkPermissionQuery())
-		if err != nil {
-			logger.Debugf("IAM walk probe: permission test failed (likely missing VIEW DATABASE STATE): %s", err)
-			return
-		}
-		rows.Close()
-		m.capable = true
-	})
-	return m.capable
+	// Permission probe: TOP 0 evaluates the DMF without returning any rows.
+	// Failure here means the current login lacks VIEW DATABASE STATE.
+	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLIAMWalkPermissionQuery())
+	if err != nil {
+		logger.Debugf("IAM walk probe: permission test failed (likely missing VIEW DATABASE STATE): %s", err)
+		return false
+	}
+	rows.Close()
+	return true
 }
 
 // getColumnTypeMSSQL returns SQL data type for the requested column.
