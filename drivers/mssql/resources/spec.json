@@ -62,10 +62,9 @@
         "jdbc_url_params": {
             "type": "object",
             "title": "JDBC URL Parameters",
-            "description": "Additional connection parameters passed to the go-mssqldb driver (e.g. {\"ApplicationIntent\": \"ReadOnly\"} to route to a readable Always On secondary replica)",
-            "additionalProperties": {
-                "type": "string"
-            }
+            "description": "Additional connection parameters for the Go MSSQL driver",
+            "additionalProperties": true,
+            "default": {}
         },
         "manage_capture_instances": {
             "type": "boolean",
