@@ -150,7 +150,7 @@ func TestConfig_Validate(t *testing.T) {
 	}
 }
 
-func TestConfig_ConnectionString(t *testing.T) {
+func TestConfig_URI(t *testing.T) {
 	tests := []struct {
 		name             string
 		config           *Config
@@ -184,9 +184,24 @@ func TestConfig_ConnectionString(t *testing.T) {
 				"ApplicationIntent=ReadOnly",
 				"MultiSubnetFailover=true",
 			},
+		},
+		{
+			name: "config database overrides jdbc_url_params database",
+			config: &Config{
+				Host:     "mssql-host",
+				Port:     1433,
+				Database: "realdb",
+				Username: "sa",
+				Password: "Password!123",
+				JDBCURLParams: map[string]string{
+					"database": "wrongdb",
+				},
+			},
+			expectedContains: []string{
+				"database=realdb",
+			},
 			notExpected: []string{
-				"invalid-ssl-config:0",
-				"tls=skip-verify",
+				"database=wrongdb",
 			},
 		},
 		{
@@ -206,6 +221,21 @@ func TestConfig_ConnectionString(t *testing.T) {
 				"encrypt=disable",
 			},
 		},
+		{
+			name: "ssl require sets encrypt and trust server certificate",
+			config: &Config{
+				Host:             "mssql-host",
+				Port:             1433,
+				Database:         "testdb",
+				Username:         "sa",
+				Password:         "Password!123",
+				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeRequire},
+			},
+			expectedContains: []string{
+				"encrypt=true",
+				"TrustServerCertificate=true",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -222,7 +252,7 @@ func TestConfig_ConnectionString(t *testing.T) {
 				return
 			}
 
-			connStr := (&MSSQL{config: tt.config}).buildConnectionString()
+			connStr := tt.config.URI()
 
 			for _, expected := range tt.expectedContains {
 				if !strings.Contains(connStr, expected) {

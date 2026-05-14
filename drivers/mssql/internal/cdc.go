@@ -235,12 +235,9 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 		return nil
 	}
 
-	// Read replicas are read-only; sp_cdc_enable_table / sp_cdc_disable_table both require
-	// write access to the primary. Skip the management step and emit a clear warning so the
-	// operator is not surprised that schema-evolution handling is inactive.
-
-	// QUESTION (REMOVE BEFORE MERGE) - Should we fail or warn here if we are on a read replica?
-	if m.readReplica {
+	// Read replicas are read-only; sp_cdc_enable_table / sp_cdc_disable_table require
+	// write access to the primary.
+	if m.isReadReplica {
 		logger.Warnf("manage_capture_instances is enabled but the connection targets a read-only replica; capture instance management is skipped")
 		return nil
 	}
@@ -480,7 +477,7 @@ func operationTypeFromCDCCode(code int32) string {
 // current max LSN directly, accepting that the initial CDC window may overlap with the backfill
 // snapshot. Any resulting duplicates are handled by OLake's deduplication logic (in upsert mode).
 func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
-	if m.readReplica {
+	if m.isReadReplica {
 		logger.Infof("Skipping CDC agent catch-up wait on read replica; reading current max LSN directly")
 		return m.currentMaxLSN(ctx)
 	}
