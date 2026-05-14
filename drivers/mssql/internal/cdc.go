@@ -238,6 +238,8 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 	// Read replicas are read-only; sp_cdc_enable_table / sp_cdc_disable_table both require
 	// write access to the primary. Skip the management step and emit a clear warning so the
 	// operator is not surprised that schema-evolution handling is inactive.
+
+	// QUESTION (REMOVE BEFORE MERGE) - Should we fail or warn here if we are on a read replica?
 	if m.readReplica {
 		logger.Warnf("manage_capture_instances is enabled but the connection targets a read-only replica; capture instance management is skipped")
 		return nil
@@ -471,9 +473,12 @@ func operationTypeFromCDCCode(code int32) string {
 // means the agent fully drained the transaction log. We then read the max LSN, knowing it
 // reflects all committed transactions at that point.
 //
-// On read replicas the CDC agent does not run locally — change tables are replicated from the
-// primary. The agent catch-up race condition therefore cannot occur, so we skip the wait and
-// return the current max LSN directly.
+// On read replicas, the CDC agent does not run locally; change tables are replicated from the
+// primary, including any lag between the primary's base tables and its CDC change tables. The
+// detection mechanism used above (msdb.dbo.cdc_jobs, sys.dm_cdc_log_scan_sessions) is not
+// available on replicas, so we cannot wait for catch-up. We skip the wait and return the
+// current max LSN directly, accepting that the initial CDC window may overlap with the backfill
+// snapshot. Any resulting duplicates are handled by OLake's deduplication logic (in upsert mode).
 func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
 	if m.readReplica {
 		logger.Infof("Skipping CDC agent catch-up wait on read replica; reading current max LSN directly")
