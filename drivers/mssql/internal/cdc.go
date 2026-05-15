@@ -238,7 +238,7 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 	// Read replicas are read-only; sp_cdc_enable_table / sp_cdc_disable_table require
 	// write access to the primary.
 	if m.isReadReplica {
-		logger.Warnf("manage_capture_instances is enabled but the connection targets a read-only replica; capture instance management is skipped")
+		logger.Debug("manage_capture_instances is enabled but the connection targets a read-only replica; capture instance management is skipped")
 		return nil
 	}
 
@@ -478,7 +478,7 @@ func operationTypeFromCDCCode(code int32) string {
 // snapshot. Any resulting duplicates are handled by OLake's deduplication logic (in upsert mode).
 func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
 	if m.isReadReplica {
-		logger.Infof("Skipping CDC agent catch-up wait on read replica; reading current max LSN directly")
+		logger.Debug("Skipping CDC agent catch-up wait on read replica; reading current max LSN directly")
 		return m.currentMaxLSN(ctx)
 	}
 

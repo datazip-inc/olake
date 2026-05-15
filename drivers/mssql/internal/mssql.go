@@ -116,7 +116,7 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 
 	m.isReadReplica = m.detectReadReplica(ctx)
 	if m.isReadReplica {
-		logger.Warnf("Connected to a read-only MSSQL replica; CDC capture instance management is disabled and agent catch-up wait will be skipped")
+		logger.Info("Connected to a read-only MSSQL replica; CDC capture instance management is disabled and agent catch-up wait will be skipped")
 	}
 	return nil
 }
