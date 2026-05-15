@@ -20,7 +20,6 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// Test Run
 type DB2 struct {
 	client      *sqlx.DB
 	config      *Config
