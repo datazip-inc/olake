@@ -181,6 +181,7 @@ func TestConfig_URI(t *testing.T) {
 				}
 			}(),
 			expectedContains: []string{
+				"mssql-host:1433",
 				"ApplicationIntent=ReadOnly",
 				"MultiSubnetFailover=true",
 			},
@@ -198,6 +199,7 @@ func TestConfig_URI(t *testing.T) {
 				},
 			},
 			expectedContains: []string{
+				"mssql-host:1433",
 				"database=realdb",
 			},
 			notExpected: []string{
@@ -218,6 +220,7 @@ func TestConfig_URI(t *testing.T) {
 				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeDisable},
 			},
 			expectedContains: []string{
+				"mssql-host:1433",
 				"encrypt=disable",
 			},
 		},
@@ -232,6 +235,7 @@ func TestConfig_URI(t *testing.T) {
 				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeRequire},
 			},
 			expectedContains: []string{
+				"mssql-host:1433",
 				"encrypt=true",
 				"TrustServerCertificate=true",
 			},
