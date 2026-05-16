@@ -669,6 +669,18 @@ func MSSQLCDCSupportQuery() string {
 	`
 }
 
+// MSSQLIsReadReplicaQuery returns SQL that yields whether the current
+// database is a read-only secondary replica in an Always On AG.
+func MSSQLIsReadReplicaQuery() string {
+	return `SELECT CAST(CASE
+		WHEN EXISTS (
+			SELECT 1 FROM sys.dm_hadr_database_replica_states
+			WHERE is_local = 1 AND is_primary_replica = 0 AND database_id = DB_ID()
+		) THEN 1
+		ELSE 0
+	END AS BIT)`
+}
+
 // TODO: check about `sys.fn_cdc_get_min_lsn`
 // MSSQLCDCMaxLSNQuery returns the query to fetch the current maximum LSN for CDC
 func MSSQLCDCMaxLSNQuery() string {
