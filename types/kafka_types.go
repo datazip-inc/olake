@@ -2,7 +2,7 @@ package types
 
 import (
 	"github.com/linkedin/goavro/v2"
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 type SchemaType string
@@ -30,7 +30,7 @@ type PartitionKey struct {
 // KafkaRecord represents a record (data + message) from a Kafka partition
 type KafkaRecord struct {
 	Data    map[string]interface{}
-	Message kafka.Message
+	Message *kgo.Record
 }
 
 // RegisteredSchema holds the schema information

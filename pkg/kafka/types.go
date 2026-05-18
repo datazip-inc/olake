@@ -5,7 +5,7 @@ import (
 	"sync"
 
 	"github.com/datazip-inc/olake/types"
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // ReaderConfig holds configuration for creating Kafka readers
@@ -14,14 +14,14 @@ type ReaderConfig struct {
 	ThreadsEqualTotalPartitions bool
 	BootstrapServers            string
 	ConsumerGroupID             string
-	Dialer                      *kafka.Dialer
-	AdminClient                 *kafka.Client
+	Dialer                      []kgo.Opt
+	Client                      *kgo.Client
 }
 
 type kafkaReader struct {
 	id       string
 	clientID string
-	reader   *kafka.Reader
+	reader   *kgo.Client
 }
 
 // ReaderManager manages Kafka readers and their metadata
@@ -29,13 +29,8 @@ type ReaderManager struct {
 	config         ReaderConfig
 	readers        []*kafkaReader
 	partitionIndex map[string]types.PartitionMetaData // get per-partition boundaries
-}
-
-// CustomGroupBalancer ensures proper consumer ID distribution according to requirements
-type CustomGroupBalancer struct {
-	requiredConsumerIDs int
-	readerIndex         int
-	partitionIndex      map[string]types.PartitionMetaData
+	// Shared across all reader clients in this manager so custom balance state (e.g. topic stickiness) stays consistent.
+	olakeGroupBalancer *CustomGroupBalancer
 }
 
 // SchemaRegistryClient holds the schema registry client information

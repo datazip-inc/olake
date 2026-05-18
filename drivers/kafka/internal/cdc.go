@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+
+	// "slices"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -15,9 +17,20 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/linkedin/goavro/v2"
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
+/*
+// streamChangesFailAfterRestart forces StreamChanges to return right after RestartReader for
+// reader indices in streamChangesFailReaderIndices only (ReaderManager slot: 0, 1, …).
+// Set to true locally to test retries, then false before committing.
+var streamChangesFailAfterRestart = true
+
+// streamChangesFailReaderIndices is used only when streamChangesFailAfterRestart is true.
+var streamChangesFailReaderIndices = []int{0, 1}
+*/
 // TODO: Add 2PC support for Kafka (difficulty: hard)
 
 func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
@@ -46,7 +59,14 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	// generate a new consumer group id if not present in state or config
 	groupID = utils.Ternary(groupID == "", utils.Ternary(k.config.ConsumerGroupID != "", k.config.ConsumerGroupID, fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix())), groupID).(string)
 	k.consumerGroupID = groupID
+	k.streams = streams
 	logger.Infof("configured consumer group id: %s", k.consumerGroupID)
+
+	// remove existing consumers before creating new readers
+	err := k.RemoveExistingConsumers(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to remove existing consumers: %w", err)
+	}
 
 	// create a reader manager for kafka
 	k.readerManager = kafkapkg.NewReaderManager(kafkapkg.ReaderConfig{
@@ -54,21 +74,47 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		MaxThreads:                  k.config.MaxThreads,
 		ConsumerGroupID:             k.consumerGroupID,
 		Dialer:                      k.dialer,
-		AdminClient:                 k.adminClient,
+		Client:                      k.client,
 		ThreadsEqualTotalPartitions: k.config.ThreadsEqualTotalPartitions,
 	})
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
-	// get reader
-	reader := k.readerManager.GetReader(readerID)
-	if reader == nil {
-		return nil, fmt.Errorf("reader not found for readerID %d", readerID)
+	// Fresh client per StreamChanges attempt (including abstract-layer retries) so recovery does not poll a closed kgo.Client.
+	reader, err := k.readerManager.RestartReader(ctx, readerID, k.streams, k.consumerGroupID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to restart reader %d: %w", readerID, err)
 	}
+	// Warmup poll: triggers consumer-group join and surfaces partition assignment on the broker.
+	// We MUST keep the fetched records and replay them — PollFetches advances the internal
+	// cursor permanently, so discarding the return value skips those messages forever.
+	warmupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	warmupFetches := reader.PollFetches(warmupCtx)
+	cancel()
 
+	assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
+	if err != nil {
+		return nil, err
+	}
+	pending := 0
+	for _, pk := range assigned {
+		if _, ok := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", pk.Topic, pk.Partition)); ok {
+			pending++
+		}
+	}
+	if pending == 0 {
+		logger.Infof("reader %d has no partitions with pending data assigned; completing StreamChanges", readerID)
+		return nil, nil
+	}
+	/*
+		if streamChangesFailAfterRestart && slices.Contains(streamChangesFailReaderIndices, readerID) {
+			_ = reader
+			return nil, fmt.Errorf("temporary StreamChanges error after reader restart (readerID=%d)", readerID)
+		}
+	*/
 	// track processing state
-	lastMessages := make(map[types.PartitionKey]kafka.Message)
+	lastMessages := make(map[types.PartitionKey]*kgo.Record)
 	// maintain completed partitions and observed partitions to track loop termination (for the current reader)
 	completedPartitions := make(map[types.PartitionKey]struct{}) // completed partitions by the current reader
 	observedPartitions := make(map[types.PartitionKey]struct{})  // cached partitions which are observed by the current reader
@@ -79,9 +125,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 	}()
 
-	err := k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
+	err = k.processKafkaMessages(ctx, reader, warmupFetches, func(record types.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
-		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
+		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: int(record.Message.Partition)}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
 		if !exists {
 			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
@@ -91,7 +137,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		if record.Data != nil {
 			err := processFn(ctx, abstract.CDCChange{
 				Stream:    currentPartitionMeta.Stream,
-				Timestamp: record.Message.Time,
+				Timestamp: record.Message.Timestamp,
 				Kind:      "create",
 				Data:      record.Data,
 			})
@@ -108,7 +154,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			completedPartitions[currentPartitionKey] = struct{}{}
 
 			// check for all other assigned partitions to see if they are also completed
-			shouldExit, err := k.checkPartitionCompletion(ctx, readerID, completedPartitions, observedPartitions)
+			shouldExit, err := k.checkPartitionCompletion(ctx, readerID, reader, completedPartitions, observedPartitions)
 			if err != nil || shouldExit {
 				return shouldExit, err
 			}
@@ -133,14 +179,14 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 		}
 
 		// Type assert and validate messages
-		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]kafka.Message)
+		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]*kgo.Record)
 		if !isValid || len(lastMessages) == 0 {
 			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
 			return nil
 		}
 
 		// Prepare messages for commit and track affected streams
-		messages := make([]kafka.Message, 0, len(lastMessages))
+		messages := make([]*kgo.Record, 0, len(lastMessages))
 		syncedStreams := make(map[string]types.StreamInterface)
 
 		for partitionKey, message := range lastMessages {
@@ -160,7 +206,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 				return fmt.Errorf("reader %s not found for commit", readerID)
 			}
 
-			if err := reader.CommitMessages(ctx, messages...); err != nil {
+			if err := reader.CommitRecords(ctx, messages...); err != nil {
 				return fmt.Errorf("commit failed for reader %s: %s", readerID, err)
 			}
 
@@ -182,45 +228,62 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 }
 
 // for processing messages from a Kafka reader.
-func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
+// warmupFetches contains records already fetched by the pre-poll warmup; they are drained
+// first so no messages are skipped before the main poll loop begins.
+func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, warmupFetches kgo.Fetches, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
+	first := true
 	for {
-		message, err := reader.FetchMessage(ctx)
-		if err != nil {
-			return fmt.Errorf("error reading message in Kafka CDC sync: %s", err)
+		var messages kgo.Fetches
+		if first && len(warmupFetches) > 0 {
+			messages = warmupFetches
+			first = false
+		} else {
+			first = false
+			logger.Infof("polling messages from reader")
+			messages = reader.PollFetches(ctx)
+		}
+		if errs := messages.Errors(); len(errs) > 0 {
+			return fmt.Errorf("error reading message in Kafka CDC sync: %w", errs[0].Err)
 		}
 
-		var (
-			key  string
-			data map[string]interface{}
-		)
+		records := messages.RecordIter()
 
-		// parse message value and key
-		data, key, err = k.parseKafkaData(message)
-		if err != nil {
-			logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
-		} else if data != nil {
-			// data map will be nil (in cases like null and unparseable message values) so nil check is required
-			data[Partition] = message.Partition
-			data[Offset] = message.Offset
-			data[Key] = key
-			data[KafkaTimestamp], err = typeutils.ReformatDate(message.Time, true)
+		for !records.Done() {
+			message := records.Next()
+
+			var (
+				key  string
+				data map[string]interface{}
+				err  error
+			)
+			// parse message value and key
+			data, key, err = k.parseKafkaData(message)
 			if err != nil {
-				return fmt.Errorf("failed to reformat date: %s", err)
+				logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
+			} else if data != nil {
+				// data map will be nil (in cases like null and unparseable message values) so nil check is required
+				data[Partition] = message.Partition
+				data[Offset] = message.Offset
+				data[Key] = key
+				data[KafkaTimestamp], err = typeutils.ReformatDate(message.Timestamp, true)
+				if err != nil {
+					return fmt.Errorf("failed to reformat date: %s", err)
+				}
+			}
+			logger.Infof("processed message: %+v", data)
+
+			stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
+			if err != nil {
+				return err
+			}
+			if stopProcessing {
+				return nil
 			}
 		}
-
-		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
-		if err != nil {
-			return err
-		}
-		if stopProcessing {
-			break
-		}
 	}
-	return nil
 }
 
-func (k *Kafka) parseKafkaData(message kafka.Message) (map[string]interface{}, string, error) {
+func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, string, error) {
 	// helper to parse data bytes (value or key)
 	parseData := func(data []byte) (interface{}, error) {
 		// if data is not in confluent wire format, it is assumed to be standard json currently
@@ -320,4 +383,50 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 		return typeutils.ExtractAvroRecord(record), nil
 	}
 	return nativeDatum, nil
+}
+
+// RemoveExistingConsumers force removes all existing consumers from the consumer group.
+func (k *Kafka) RemoveExistingConsumers(ctx context.Context) error {
+	admin := kadm.NewClient(k.client)
+
+	groups, err := admin.DescribeGroups(ctx, k.consumerGroupID)
+	if err != nil {
+		return fmt.Errorf("describe groups failed: %w", err)
+	}
+
+	group, ok := groups[k.consumerGroupID]
+	if !ok || len(group.Members) == 0 {
+		return nil
+	}
+
+	if group.Err != nil {
+		return fmt.Errorf("describe groups error: %w", group.Err)
+	}
+
+	req := kmsg.NewPtrLeaveGroupRequest()
+	req.Group = k.consumerGroupID
+
+	for _, member := range group.Members {
+		req.Members = append(req.Members, kmsg.LeaveGroupRequestMember{
+			MemberID: member.MemberID,
+			InstanceID: func() *string {
+				if member.InstanceID == nil {
+					return nil
+				}
+				v := *member.InstanceID
+				return &v
+			}(),
+		})
+	}
+
+	resp, err := req.RequestWith(ctx, k.client)
+	if err != nil {
+		return fmt.Errorf("leave group request failed: %w", err)
+	}
+
+	if resp.ErrorCode != 0 {
+		return fmt.Errorf("leave group error code: %d", resp.ErrorCode)
+	}
+
+	return nil
 }

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
+	kplain "github.com/twmb/franz-go/pkg/sasl/plain"
+	kscram "github.com/twmb/franz-go/pkg/sasl/scram"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -19,9 +21,8 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	"github.com/segmentio/kafka-go"
-	"github.com/segmentio/kafka-go/sasl/plain"
-	"github.com/segmentio/kafka-go/sasl/scram"
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 const (
@@ -39,10 +40,11 @@ var InternalKafkaTopics = []string{"__amazon_msk_canary", "_schemas"}
 
 type Kafka struct {
 	config               *Config
-	dialer               *kafka.Dialer
-	adminClient          *kafka.Client
+	dialer               []kgo.Opt
+	client               *kgo.Client
 	state                *types.State
 	consumerGroupID      string
+	streams              []types.StreamInterface // set in PreCDC; used when restarting readers from StreamChanges
 	readerManager        *kafkapkg.ReaderManager
 	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
 	schemaRegistryClient *kafkapkg.SchemaRegistryClient
@@ -70,8 +72,7 @@ func (k *Kafka) MaxConnections() int {
 }
 
 func (k *Kafka) MaxRetries() int {
-	// TODO: kafka retries are not supported yet (due to rebalancing while creating new reader)
-	return 1
+	return k.config.RetryCount
 }
 
 func (k *Kafka) CDCSupported() bool {
@@ -93,18 +94,16 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	}
 
 	// create admin client for metadata and offset operations
-	k.adminClient = &kafka.Client{
-		Addr: kafka.TCP(utils.SplitAndTrim(k.config.BootstrapServers)...),
-		Transport: &kafka.Transport{
-			SASL: dialer.SASLMechanism,
-			TLS:  dialer.TLS,
-		},
+	client, err := kgo.NewClient(dialer...)
+	if err != nil {
+		return fmt.Errorf("failed to create kafka client: %s", err)
 	}
 
+	k.client = client
+
 	// Test connectivity by fetching metadata
-	_, err = k.adminClient.Metadata(ctx, &kafka.MetadataRequest{})
-	if err != nil {
-		return fmt.Errorf("failed to ping Kafka brokers: %s", err)
+	if err := client.Ping(ctx); err != nil {
+		return fmt.Errorf("failed to ping kafka brokers: %s", err)
 	}
 
 	k.dialer = dialer
@@ -119,30 +118,35 @@ func (k *Kafka) Setup(ctx context.Context) error {
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
 	}
 
+	// Total attempts for abstract-layer RetryOnBackoff (discover chunks, sync, etc.): user retry count + 1 initial try.
+	k.config.RetryCount = utils.Ternary(k.config.RetryCount <= 0, 1, k.config.RetryCount+1).(int)
+
 	return nil
 }
 
 func (k *Kafka) Close() error {
-	k.adminClient = nil
-	k.dialer = nil
+	if k.client != nil {
+		k.client.Close()
+	}
 	k.readerManager.Close()
 	return nil
 }
 
 func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Kafka")
-	resp, err := k.adminClient.Metadata(ctx, &kafka.MetadataRequest{})
+	metadata, err := kadm.NewClient(k.client).ListTopics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list topics: %s", err)
 	}
 
 	var topicNames []string
-	for _, topic := range resp.Topics {
+	for topicName, topic := range metadata {
+
 		// skip internal topics
-		if topic.Internal || slices.Contains(InternalKafkaTopics, topic.Name) {
+		if topic.IsInternal || slices.Contains(InternalKafkaTopics, topicName) {
 			continue
 		}
-		topicNames = append(topicNames, topic.Name)
+		topicNames = append(topicNames, topicName)
 	}
 	return topicNames, nil
 }
@@ -158,7 +162,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	readerManager := kafkapkg.NewReaderManager(kafkapkg.ReaderConfig{
 		BootstrapServers: k.config.BootstrapServers,
 		Dialer:           k.dialer,
-		AdminClient:      k.adminClient,
+		Client:           k.client,
 	})
 
 	// get the topic metadata
@@ -167,48 +171,68 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", streamName, err)
 	}
 
+	admin := kadm.NewClient(k.client)
+
 	// get offsets for all partitions
-	offsetRequests := make([]kafka.OffsetRequest, 0, len(topicDetail.Partitions)*2)
-	for _, p := range topicDetail.Partitions {
-		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.FirstOffset})
-		offsetRequests = append(offsetRequests, kafka.OffsetRequest{Partition: p.ID, Timestamp: kafka.LastOffset})
+	startOffsets, err := admin.ListStartOffsets(ctx, streamName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list start offsets for topic %s: %s", streamName, err)
 	}
 
-	offsetsResp, err := k.adminClient.ListOffsets(ctx, &kafka.ListOffsetsRequest{
-		Topics: map[string][]kafka.OffsetRequest{streamName: offsetRequests},
-	})
+	endOffsets, err := admin.ListEndOffsets(ctx, streamName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list offsets for topic %s: %s", streamName, err)
+		return nil, fmt.Errorf("failed to list end offsets for topic %s: %s", streamName, err)
 	}
+
+	if topicDetail.Err != nil {
+		return nil, fmt.Errorf("topic metadata for %s: %w", streamName, topicDetail.Err)
+	}
+
+	partitionList := topicDetail.Partitions.Sorted()
 
 	var mu sync.Mutex
 	// get messages from partitions for schema discovery
-	err = utils.Concurrent(ctx, offsetsResp.Topics[streamName], len(offsetsResp.Topics[streamName]), func(ctx context.Context, partitionDetails kafka.PartitionOffsets, _ int) error {
+	err = utils.Concurrent(ctx, partitionList, len(partitionList), func(ctx context.Context, partitionDetail kadm.PartitionDetail, _ int) error {
+		if partitionDetail.Err != nil {
+			return fmt.Errorf("partition %d: %w", partitionDetail.Partition, partitionDetail.Err)
+		}
+
+		startOffset, exists := startOffsets.Lookup(streamName, partitionDetail.Partition)
+		if !exists {
+			return nil
+		}
+		endOffset, exists := endOffsets.Lookup(streamName, partitionDetail.Partition)
+		if !exists {
+			return nil
+		}
+
 		// skip empty partitions
-		if partitionDetails.FirstOffset >= partitionDetails.LastOffset {
+		if startOffset.Offset >= endOffset.Offset {
 			return nil
 		}
 
-		reader := kafka.NewReader(kafka.ReaderConfig{
-			Brokers:   utils.SplitAndTrim(k.config.BootstrapServers),
-			Topic:     streamName,
-			Partition: partitionDetails.Partition,
-			Dialer:    k.dialer,
-			MaxBytes:  10e6,
-		})
+		consumerOpts := append(
+			k.dialer,
+			kgo.FetchMaxBytes(10e6),
+			kgo.ConsumePartitions(map[string]map[int32]kgo.Offset{
+				streamName: {
+					partitionDetail.Partition: kgo.NewOffset().At(startOffset.Offset),
+				},
+			}),
+		)
+
+		reader, err := kgo.NewClient(consumerOpts...)
+		if err != nil {
+			return err
+		}
 		defer reader.Close()
-
-		// set offset to first offset
-		if err := reader.SetOffset(partitionDetails.FirstOffset); err != nil {
-			logger.Warnf("failed to set offset for partition %d: %s, continuing to next partition", partitionDetails.Partition, err)
-			return nil
-		}
 
 		messageCount := 0
 
 		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
+
+		return k.processKafkaMessages(fetchCtx, reader, nil, func(record types.KafkaRecord) (bool, error) {
 			messageCount++
 			if record.Data != nil {
 				mu.Lock()
@@ -221,10 +245,9 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			}
 
 			// stop if hit 10000 messages or reach the last known offset
-			shouldExit := messageCount >= 10000 || record.Message.Offset >= partitionDetails.LastOffset
+			shouldExit := messageCount >= 10000 || record.Message.Offset >= endOffset.Offset-1
 			return shouldExit, nil
 		})
-		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
@@ -235,10 +258,9 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 }
 
 // createDialer creates a Kafka dialer with the appropriate security settings.
-func (k *Kafka) createDialer() (*kafka.Dialer, error) {
-	dialer := &kafka.Dialer{
-		Timeout:   10 * time.Second,
-		DualStack: true,
+func (k *Kafka) createDialer() ([]kgo.Opt, error) {
+	opts := []kgo.Opt{
+		kgo.SeedBrokers(utils.SplitAndTrim(k.config.BootstrapServers)...),
 	}
 
 	// Parse SASL credentials
@@ -258,20 +280,14 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 		if err != nil {
 			return nil, err
 		}
-		dialer.TLS = tlsConfig
+		opts = append(opts, kgo.DialTLSConfig(tlsConfig))
 
 	case "SASL_PLAINTEXT":
 		switch k.config.Protocol.SASLMechanism {
 		case "PLAIN":
-			dialer.SASLMechanism = plain.Mechanism{
-				Username: username,
-				Password: password,
-			}
+			opts = append(opts, kgo.SASL(kplain.Auth{User: username, Pass: password}.AsMechanism()))
 		case "SCRAM-SHA-512":
-			dialer.SASLMechanism, err = scram.Mechanism(scram.SHA512, username, password)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create SCRAM-SHA-512 mechanism: %s", err)
-			}
+			opts = append(opts, kgo.SASL(kscram.Auth{User: username, Pass: password}.AsSha512Mechanism()))
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)
 		}
@@ -282,19 +298,13 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 		if err != nil {
 			return nil, err
 		}
-		dialer.TLS = tlsConfig
+		opts = append(opts, kgo.DialTLSConfig(tlsConfig))
 
 		switch k.config.Protocol.SASLMechanism {
 		case "PLAIN":
-			dialer.SASLMechanism = plain.Mechanism{
-				Username: username,
-				Password: password,
-			}
+			opts = append(opts, kgo.SASL(kplain.Auth{User: username, Pass: password}.AsMechanism()))
 		case "SCRAM-SHA-512":
-			dialer.SASLMechanism, err = scram.Mechanism(scram.SHA512, username, password)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create SCRAM-SHA-512 mechanism: %s", err)
-			}
+			opts = append(opts, kgo.SASL(kscram.Auth{User: username, Pass: password}.AsSha512Mechanism()))
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)
 		}
@@ -303,7 +313,7 @@ func (k *Kafka) createDialer() (*kafka.Dialer, error) {
 		return nil, fmt.Errorf("unsupported security protocol: %s", k.config.Protocol.SecurityProtocol)
 	}
 
-	return dialer, nil
+	return opts, nil
 }
 
 // parseSASLPlain parses the SASL JAAS configuration to extract username and password.
@@ -353,7 +363,7 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 }
 
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
-func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
+func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, reader *kgo.Client, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
 	// cache observed partitions
 	if len(observedPartitions) == 0 {
 		// Ensure we have all assigned partitions tracked
@@ -367,41 +377,48 @@ func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, comp
 				observedPartitions[assignedPk] = struct{}{}
 			}
 		}
+		// DescribeGroups member matching can miss the live consumer; fall back to what this client is actually consuming.
+		if len(observedPartitions) == 0 && reader != nil {
+			for topic, parts := range reader.UncommittedOffsets() {
+				for part := range parts {
+					pk := types.PartitionKey{Topic: topic, Partition: int(part)}
+					if _, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", pk.Topic, pk.Partition)); exists {
+						observedPartitions[pk] = struct{}{}
+					}
+				}
+			}
+		}
 	}
 
-	// exit when all partitions are done
+	// Require a non-empty observed set so 0==0 is not treated as "done" before we know assignments.
+	if len(observedPartitions) == 0 {
+		return false, nil
+	}
 	return len(completedPartitions) == len(observedPartitions), nil
 }
 
 // getReaderAssignedPartitions queries the consumer group and returns topic/partition pairs
-// assigned to the reader identified by readerID. We match on the per-reader ClientID.
+// assigned to the reader identified by readerIndex. We match on the per-reader ClientID.
 func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int) ([]types.PartitionKey, error) {
 	readerID, clientID := k.readerManager.GetReaderIDAndClientID(readerIndex)
 	if clientID == "" {
 		return nil, fmt.Errorf("clientID not found for reader %s", readerID)
 	}
 
-	// use the first broker address set on the client; fall back to bootstrap servers
-	addr := k.adminClient.Addr
-	if addr == nil {
-		brokers := utils.SplitAndTrim(k.config.BootstrapServers)
-		if len(brokers) == 0 {
-			return nil, fmt.Errorf("no brokers configured")
-		}
-		addr = kafka.TCP(brokers...)
+	admin := kadm.NewClient(k.client)
+
+	resp, err := admin.DescribeGroups(ctx, k.consumerGroupID)
+	if err != nil {
+		return nil, fmt.Errorf("DescribeGroups failed: %w", err)
 	}
 
-	resp, err := k.adminClient.DescribeGroups(ctx, &kafka.DescribeGroupsRequest{
-		Addr:     addr,
-		GroupIDs: []string{k.consumerGroupID},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("DescribeGroups failed: %s", err)
+	if err := resp.Error(); err != nil {
+		return nil, fmt.Errorf("DescribeGroups response error: %w", err)
 	}
 
 	var assigned []types.PartitionKey
-	for _, group := range resp.Groups {
-		if group.GroupID != k.consumerGroupID || group.Error != nil {
+	for _, group := range resp {
+		if group.Group != k.consumerGroupID || group.Err != nil {
 			continue
 		}
 		for _, member := range group.Members {
@@ -409,9 +426,18 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 			if member.ClientID != clientID && member.MemberID != clientID && !strings.Contains(member.ClientID, readerID) && !strings.Contains(member.MemberID, readerID) {
 				continue
 			}
-			for _, topic := range member.MemberAssignments.Topics {
+
+			assignment, ok := member.Assigned.AsConsumer()
+			if !ok {
+				continue
+			}
+
+			for _, topic := range assignment.Topics {
 				for _, partition := range topic.Partitions {
-					assigned = append(assigned, types.PartitionKey{Topic: topic.Topic, Partition: partition})
+					assigned = append(assigned, types.PartitionKey{
+						Topic:     topic.Topic,
+						Partition: int(partition),
+					})
 				}
 			}
 		}
