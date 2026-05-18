@@ -230,6 +230,7 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 	return streamNames, collections.Err()
 }
 
+// TODO: Add support for time series mongodb collections
 func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
 	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
@@ -237,22 +238,8 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		// initialize stream
 		collection := db.Collection(streamName)
 		stream := types.NewStream(streamName, db.Name(), nil)
-		// find primary keys
-		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
-		if err != nil {
-			return nil, err
-		}
-		defer indexesCursor.Close(ctx)
-
-		for indexesCursor.Next(ctx) {
-			var indexes bson.M
-			if err := indexesCursor.Decode(&indexes); err != nil {
-				return nil, err
-			}
-			for key := range indexes["key"].(bson.M) {
-				stream.WithPrimaryKey(key)
-			}
-		}
+		// _id is the guaranteed unique, mandatory field in every MongoDB collection.
+		stream.WithPrimaryKey(constants.MongoPrimaryID)
 
 		// Define find options for fetching documents in ascending and descending order.
 		findOpts := []*options.FindOptions{

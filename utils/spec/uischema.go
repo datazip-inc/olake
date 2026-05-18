@@ -196,9 +196,9 @@ const MSSQLUISchema = `{
     { "host": 12, "database": 12 },
     { "username": 12, "password": 12 },
     { "port": 12, "max_threads": 12 },
-    { "retry_count": 12, "ssl": 12 },
-    { "update_method": 12, "manage_capture_instances": 12 },
-    { "ssh_config": 12 }
+    { "retry_count": 12, "jdbc_url_params": 12 },
+    { "ssl": 12, "manage_capture_instances": 12 },
+    { "update_method": 12, "ssh_config": 12 }
   ],
   "ssl": {
     "ui:options": {
