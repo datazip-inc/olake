@@ -5,9 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -22,9 +22,8 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-// physLocChunkValueLen is the hex-encoded BINARY(8) %%physloc%% shape:
-// "0x" + 16 hex chars. Used to route chunks to physloc scans.
-const physLocChunkValueLen = 18
+// physLocBoundary is a sentinel type for %%physloc%% hex-literal chunk boundaries.
+type physLocBoundary string
 
 // usableBytesPerPage is an upper bound for in-row payload per 8KB page
 // (IN_ROW_DATA max row size). Using the ceiling yields smaller chunks.
@@ -168,41 +167,23 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	return chunks, err
 }
 
-// packPhysLoc encodes a (file_id, page_id) pair as a uint64 whose
-// unsigned-integer comparison matches SQL Server's binary comparison of
-// the equivalent BINARY(8) %%physloc%% value.
-//
-// %%physloc%% wire layout: bytes 0..7 = [page_id LE 4B][file_id LE 2B][slot_id LE 2B].
-// SQL Server compares BINARY(N) byte-by-byte starting from byte 0, so we
-// pack physloc byte 0 into the highest 8 bits of the uint64 and physloc
-// byte 7 into the lowest. slot_id is fixed at 0xFFFF so each boundary
-// represents "after the last possible row on the page": chunk filter
-// `%%physloc%% <= b` includes every row on b's page, and `> b` starts
-// cleanly on the next page.
-//
-// This lets us sort []uint64 with native uint64 comparison (instead of
-// allocating an 8-byte slice per page and sorting with bytes.Compare),
-// halving memory on large tables and skipping the per-page encode step
-// entirely; we encode only the few sampled boundaries.
-func packPhysLoc(fileID, pageID int32) uint64 {
-	p := uint32(pageID)
-	f := uint32(uint16(fileID))
-	return uint64(p&0xFF)<<56 |
-		uint64((p>>8)&0xFF)<<48 |
-		uint64((p>>16)&0xFF)<<40 |
-		uint64((p>>24)&0xFF)<<32 |
-		uint64(f&0xFF)<<24 |
-		uint64((f>>8)&0xFF)<<16 |
-		0xFFFF
+// physlocSortKey encodes (file_id, page_id) as a uint64 that sorts identically
+// to SQL Server's byte-by-byte BINARY(8) comparison of the equivalent %%physloc%%.
+// slot_id is fixed at 0xFFFF ("end of page") so chunk predicates split cleanly between pages.
+// Sorting []uint64 with < is cheaper than sorting [][]byte with bytes.Compare.
+func physlocSortKey(fileID, pageID int32) uint64 {
+	var b [8]byte
+	binary.LittleEndian.PutUint32(b[0:4], uint32(pageID))
+	binary.LittleEndian.PutUint16(b[4:6], uint16(fileID))
+	binary.LittleEndian.PutUint16(b[6:8], 0xFFFF)
+	return binary.BigEndian.Uint64(b[:])
 }
 
-// physLocBytes converts a packed uint64 boundary back to its 8-byte
-// %%physloc%% wire representation. Because packPhysLoc places physloc
-// byte 0 at the uint64's most significant 8 bits, writing the uint64 in
-// big-endian order reproduces the wire layout exactly.
-func physLocBytes(packed uint64) []byte {
+// physLocBytes converts a sort key back to the 8-byte %%physloc%% wire format
+// that SQL Server understands in chunk boundary predicates.
+func physLocBytes(key uint64) []byte {
 	b := make([]byte, 8)
-	binary.BigEndian.PutUint64(b, packed)
+	binary.BigEndian.PutUint64(b, key)
 	return b
 }
 
@@ -315,7 +296,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 		current := minVal
 		chunks.Insert(types.Chunk{
 			Min: nil,
-			Max: utils.HexEncode(minVal),
+			Max: physLocBoundary(utils.HexEncode(minVal)),
 		})
 
 		for {
@@ -324,7 +305,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 
 			err := tx.QueryRowContext(ctx, query, current).Scan(&next)
 			if err == sql.ErrNoRows || next == nil {
-				chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
+				chunks.Insert(types.Chunk{Min: physLocBoundary(utils.HexEncode(current)), Max: nil})
 				break
 			}
 			if err != nil {
@@ -332,13 +313,13 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 			}
 
 			if bytes.Equal(current, next) {
-				chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
+				chunks.Insert(types.Chunk{Min: physLocBoundary(utils.HexEncode(current)), Max: nil})
 				break
 			}
 
 			chunks.Insert(types.Chunk{
-				Min: utils.HexEncode(current),
-				Max: utils.HexEncode(next),
+				Min: physLocBoundary(utils.HexEncode(current)),
+				Max: physLocBoundary(utils.HexEncode(next)),
 			})
 
 			current = next
@@ -383,8 +364,8 @@ func (m *MSSQL) splitViaPhysLocSample(ctx context.Context, stream types.StreamIn
 	chunks := types.NewSet[types.Chunk]()
 	step := float64(len(physLocSamples)) / float64(numberOfChunks)
 	var prev any = nil
-	for i := int64(0);  i < numberOfChunks; i++ {
-		curr := utils.HexEncode(physLocSamples[int(float64(i)*step)])
+	for i := int64(0); i < numberOfChunks; i++ {
+		curr := physLocBoundary(utils.HexEncode(physLocSamples[int(float64(i)*step)]))
 		chunks.Insert(types.Chunk{Min: prev, Max: curr})
 		prev = curr
 	}
@@ -415,7 +396,7 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 		if err := rows.Scan(&fileID, &pageID); err != nil {
 			return fmt.Errorf("failed to scan IAM walk page: %s", err)
 		}
-		pages = append(pages, packPhysLoc(fileID, pageID))
+		pages = append(pages, physlocSortKey(fileID, pageID))
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("failed to iterate IAM walk rows: %s", err)
@@ -427,7 +408,7 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 	}
 
 	// Sort defensively — the DMF does not guarantee any output order.
-	sort.Slice(pages, func(i, j int) bool { return pages[i] < pages[j] })
+	slices.Sort(pages)
 
 	pagesPerChunk := constants.EffectiveParquetSize / usableBytesPerPage
 	pagesPerChunk = max(pagesPerChunk, 1)
@@ -438,9 +419,9 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 	// this naturally produces just {nil, nil}.
 	var prev any = nil
 	for i := pagesPerChunk; i < total; i += pagesPerChunk {
-		max := utils.HexEncode(physLocBytes(pages[i]))
-		chunks.Insert(types.Chunk{Min: prev, Max: max})
-		prev = max
+		boundary := physLocBoundary(utils.HexEncode(physLocBytes(pages[i])))
+		chunks.Insert(types.Chunk{Min: prev, Max: boundary})
+		prev = boundary
 	}
 	chunks.Insert(types.Chunk{Min: prev, Max: nil})
 
@@ -456,6 +437,7 @@ func (m *MSSQL) probeIAMWalkCapability(ctx context.Context) bool {
 		logger.Debugf("IAM walk probe: failed to read server properties: %s", err)
 		return false
 	}
+	// SQL Server 2012 (version 11) is the first version to support IAM walk.
 	if majorVersion < 11 {
 		logger.Debugf("IAM walk probe: SQL Server major version %d < 11, IAM walk unsupported", majorVersion)
 		return false
@@ -558,18 +540,11 @@ func formatUniqueIdentifierBytes(v []byte) (string, bool) {
 	), true
 }
 
-// isPhysLocChunk reports whether the chunk's boundaries are %%physloc%%
-// hex literals (the shape produced by IAM walk and the iterative physloc
-// planner). Either Min or Max is sufficient to identify the format because
-// both planners always set at least one boundary.
+// isPhysLocChunk reports whether the chunk was produced by a physloc-based
+// planner (IAM walk, iterative, or TABLESAMPLE). It uses a sentinel type
+// instead of a string-length heuristic to avoid false positives.
 func isPhysLocChunk(chunk types.Chunk) bool {
-	check := func(v any) bool {
-		s, ok := v.(string)
-		if !ok || len(s) != physLocChunkValueLen || !strings.HasPrefix(s, "0x") {
-			return false
-		}
-		_, err := hex.DecodeString(s[2:])
-		return err == nil
-	}
-	return check(chunk.Min) || check(chunk.Max)
+	_, minOK := chunk.Min.(physLocBoundary)
+	_, maxOK := chunk.Max.(physLocBoundary)
+	return minOK || maxOK
 }
