@@ -7,46 +7,13 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-func TestMongodbIntegration(t *testing.T) {
-	t.Parallel()
-	testConfig := &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.MongoDB)),
-		Namespace:                        "olake_mongodb_test",
-		ExpectedData:                     ExpectedMongoData,
-		ExpectedUpdatedData:              ExpectedUpdatedData,
-		DestinationDataTypeSchema:        MongoToDestinationSchema,
-		UpdatedDestinationDataTypeSchema: UpdatedMongoToDestinationSchema,
-		DefaultCDCColumnsSchema:          ExpectedMongoDbDefaultCDCColumnsSchema,
-		ExecuteQuery:                     ExecuteQuery,
-		DestinationDB:                    "mongodb_olake_mongodb_test",
-		CursorField:                      "id_cursor:id_int",
-		PartitionRegex:                   "/{_id,identity}",
-		ColumnToExclude:                  "excludedColumn",
-		FilterConfig: `{
-			"logical_operator": "And",
-			"conditions": [
-				{
-					"column": "id_double",
-					"operator": "<",
-					"value": 239834.89
-				},
-				{
-					"column": "id_timestamp",
-					"operator": ">=",
-					"value": "2022-07-01T15:30:00.000+00:00"
-				}
-			]
-		}`,
-	}
-	testConfig.TestIntegration(t)
-}
-
-func TestMongodb2PC(t *testing.T) {
-	t.Parallel()
-	testConfig := &testutils.IntegrationTest{
-		TestConfig:               testutils.GetTestConfig(string(constants.MongoDB)),
-		Namespace:                "olake_mongodb_test",
-		ExpectedData:             ExpectedMongoData,
+// newMongodbBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// between TestMongodbIntegration and TestMongodb2PC.
+func newMongodbBaseConfig() *testutils.IntegrationTest {
+	return &testutils.IntegrationTest{
+		TestConfig:                testutils.GetTestConfig(string(constants.MongoDB)),
+		Namespace:                 "olake_mongodb_test",
+		ExpectedData:              ExpectedMongoData,
 		DestinationDataTypeSchema: MongoToDestinationSchema,
 		DefaultCDCColumnsSchema:   ExpectedMongoDbDefaultCDCColumnsSchema,
 		ExecuteQuery:              ExecuteQuery,
@@ -70,7 +37,19 @@ func TestMongodb2PC(t *testing.T) {
 			]
 		}`,
 	}
-	testConfig.Test2PCIntegration(t)
+}
+
+func TestMongodbIntegration(t *testing.T) {
+	t.Parallel()
+	cfg := newMongodbBaseConfig()
+	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedMongoToDestinationSchema
+	cfg.TestIntegration(t)
+}
+
+func TestMongodb2PC(t *testing.T) {
+	t.Parallel()
+	newMongodbBaseConfig().Test2PCIntegration(t)
 }
 
 func TestMongodbPerformance(t *testing.T) {
