@@ -67,7 +67,7 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 }
 
 // GetOrSplitChunks splits a table into chunks using PK seek or %%physloc%% fallback.
-func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool destination.Pool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var (
 		approxRowCount int64
 		avgRowSize     any

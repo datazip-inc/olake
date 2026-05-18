@@ -55,12 +55,12 @@ ENV DRIVER_VERSION=${DRIVER_VERSION}
 
 # Copy the pre-built JAR file from Maven
 # First try to copy from the source location (works after Maven build)
-COPY destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar /home/olake-iceberg-java-writer.jar
+COPY destination/legacy/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar /home/olake-iceberg-java-writer.jar
 
 # Copy driver and destination spec files
 COPY --from=builder /home/app/drivers/${DRIVER_NAME}/resources/spec.json /drivers/${DRIVER_NAME}/resources/spec.json
-COPY --from=builder /home/app/destination/iceberg/resources/spec.json /destination/iceberg/resources/spec.json
-COPY --from=builder /home/app/destination/parquet/resources/spec.json /destination/parquet/resources/spec.json
+COPY --from=builder /home/app/destination/legacy/iceberg/resources/spec.json /destination/legacy/iceberg/resources/spec.json
+COPY --from=builder /home/app/destination/legacy/parquet/resources/spec.json /destination/legacy/parquet/resources/spec.json
 
 # Metadata labels
 LABEL io.eggwhite.version=${DRIVER_VERSION}

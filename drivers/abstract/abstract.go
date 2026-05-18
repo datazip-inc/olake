@@ -164,7 +164,7 @@ func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.Sta
 	return a.state, nil
 }
 
-func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
+func (a *AbstractDriver) Read(ctx context.Context, pool destination.Pool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
 	// set max read connections
 	if a.driver.MaxConnections() > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
@@ -240,13 +240,13 @@ func generateThreadID(streamID, hash string) string {
 	return fmt.Sprintf("%s_%s", streamID, suffix)
 }
 
-// handleWriterCleanup is a helper that creates a defer function for common writer cleanup operations
-// It handles writer close (single or multiple), panic recovery, and calls the provided postProcess function
-// The err parameter should be a pointer to the error variable that will be returned from the function
-// The cancel parameter is used to cancel the context when an error occurs, so other threads can detect the failure
+// handleWriterCleanup is a helper that creates a defer function for common writer cleanup operations.
+// It handles writer close (single or multiple), panic recovery, and metadata state wiring.
+// The err parameter should be a pointer to the error variable that will be returned from the function.
+// The cancel parameter is used to cancel the context when an error occurs.
 // The writer parameter can be either:
-//   - *destination.WriterThread for a single writer
-//   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
+//   - destination.Thread for a single writer
+//   - map[string]destination.Thread for multiple writers keyed by stream ID
 func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any, dedupInserts *bool) {
 	if r := recover(); r != nil {
 		*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: panic recovered: %v", *err, r)).(error)
@@ -269,12 +269,11 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	}
 
 	switch w := writer.(type) {
-	case *destination.WriterThread:
+	case destination.Thread:
 		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
 			closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
 		}
-	case map[string]*destination.WriterThread:
-		// Multiple writers keyed by stream ID
+	case map[string]destination.Thread:
 		for streamID, inserter := range w {
 			if inserter != nil {
 				if threadErr := inserter.Close(ctx, metadataState); threadErr != nil {
@@ -283,7 +282,7 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 			}
 		}
 	default:
-		closeErr = fmt.Errorf("unsupported writer type")
+		closeErr = fmt.Errorf("unsupported writer type: %T", writer)
 	}
 
 	if closeErr != nil {

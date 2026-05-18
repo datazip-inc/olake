@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/datazip-inc/olake/destination/iceberg/internal"
-	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/destination/legacy/iceberg/internal"
+	"github.com/datazip-inc/olake/destination/legacy/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"

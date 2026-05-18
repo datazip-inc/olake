@@ -3,8 +3,10 @@ package olake
 import (
 	"os"
 
-	_ "github.com/datazip-inc/olake/destination/iceberg" // registering iceberg destination
-	_ "github.com/datazip-inc/olake/destination/parquet" // registering parquet destination
+	_ "github.com/datazip-inc/olake/destination/arrow/iceberg"  // arrow adapter registration (arrowdst.RegisteredAdapters[Iceberg])
+	_ "github.com/datazip-inc/olake/destination/arrow/parquet"  // arrow adapter registration (arrowdst.RegisteredAdapters[Parquet])
+	_ "github.com/datazip-inc/olake/destination/legacy/iceberg" // legacy Writer registration (legacydst.RegisteredWriters[Iceberg])
+	_ "github.com/datazip-inc/olake/destination/legacy/parquet" // legacy Writer registration (legacydst.RegisteredWriters[Parquet])
 	"github.com/datazip-inc/olake/drivers/abstract"
 	protocol "github.com/datazip-inc/olake/protocol"
 	"github.com/datazip-inc/olake/utils/logger"

@@ -1,4 +1,4 @@
-package iceberg
+package arrowwriter
 
 import (
 	"fmt"
@@ -156,12 +156,12 @@ func (c *Config) Validate() error {
 			c.JarPath = baseJarPath
 		} else {
 			// Otherwise, look in the target directory
-			targetJarPath := fmt.Sprintf("%s/destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar", execDir)
+			targetJarPath := fmt.Sprintf("%s/destination/legacy/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar", execDir)
 			if err := utils.CheckIfFilesExists(targetJarPath); err == nil {
 				logger.Infof("Iceberg JAR file found in target directory: %s", targetJarPath)
 				c.JarPath = targetJarPath
 			} else {
-				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to destination/iceberg/olake-iceberg-java-writer/target/ directory and run mvn clean package -DskipTests",
+				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to destination/legacy/iceberg/olake-iceberg-java-writer/target/ directory and run mvn clean package -DskipTests",
 					baseJarPath, targetJarPath)
 			}
 		}

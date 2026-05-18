@@ -27,6 +27,7 @@ var (
 	noSave                    bool
 	encryptionKey             string
 	destinationType           string
+	arrowWriterFlag           bool
 	catalog                   *types.Catalog
 	state                     *types.State
 	timeout                   int64 // timeout in seconds
@@ -103,6 +104,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
 	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
+	RootCmd.PersistentFlags().BoolVarP(&arrowWriterFlag, "arrow-writer", "", false, "(Optional) Force the arrow writer pipeline. Overrides the destination JSON arrow_writes field.")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

@@ -7,22 +7,22 @@ import (
 	"maps"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/destination"
-	"github.com/datazip-inc/olake/destination/iceberg/internal"
-	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	legacydst "github.com/datazip-inc/olake/destination/legacy"
+	"github.com/datazip-inc/olake/destination/legacy/iceberg/internal"
+	"github.com/datazip-inc/olake/destination/legacy/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
 type LegacyWriter struct {
-	options *destination.Options
+	options *legacydst.Options
 	schema  map[string]string
 	stream  types.StreamInterface
 	server  internal.ServerClient
 }
 
-func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient) *LegacyWriter {
+func New(options *legacydst.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient) *LegacyWriter {
 	return &LegacyWriter{
 		options: options,
 		schema:  schema,
