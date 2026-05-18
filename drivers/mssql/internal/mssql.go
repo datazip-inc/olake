@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net"
-	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -24,14 +23,15 @@ import (
 )
 
 type MSSQL struct {
-	client       *sqlx.DB
-	config       *Config
-	state        *types.State
-	capturesMap  map[string][]captureInstance
-	lsnMap       sync.Map
-	streams      []types.StreamInterface
-	cdcSupported bool
-	sshClient    *ssh.Client
+	client        *sqlx.DB
+	config        *Config
+	state         *types.State
+	capturesMap   map[string][]captureInstance
+	lsnMap        sync.Map
+	streams       []types.StreamInterface
+	cdcSupported  bool
+	isReadReplica bool
+	sshClient     *ssh.Client
 }
 
 // GetConfigRef implements abstract.DriverInterface.
@@ -70,7 +70,7 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	}
 
 	var client *sqlx.DB
-	connStr := m.buildConnectionString()
+	connStr := m.config.URI()
 
 	if m.sshClient != nil {
 		logger.Info("Connecting to MSSQL via SSH tunnel")
@@ -113,44 +113,25 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		logger.Warnf("CDC is not supported")
 	}
 	m.cdcSupported = cdcSupported
+
+	m.isReadReplica = m.detectReadReplica(ctx)
+	if m.isReadReplica {
+		logger.Info("Connected to a read-only MSSQL replica; CDC capture instance management is disabled and agent catch-up wait will be skipped")
+	}
 	return nil
 }
 
-func (m *MSSQL) buildConnectionString() string {
-	host := m.config.Host
-	if !strings.Contains(host, ":") {
-		host = fmt.Sprintf("%s:%d", host, m.config.Port)
+// detectReadReplica reports whether this connection targets a read-only
+// secondary replica. If detection fails, it logs a warning and returns false
+// so the driver still behaves as on a primary.
+func (m *MSSQL) detectReadReplica(ctx context.Context) bool {
+	var isReadReplica bool
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLIsReadReplicaQuery()).Scan(&isReadReplica)
+	if err != nil {
+		logger.Warnf("could not determine read replica status - assuming primary: %s", err)
+		return false
 	}
-
-	query := url.Values{}
-	query.Add("database", m.config.Database)
-
-	// Set encrypt parameter based on SSL configuration.
-	if m.config.SSLConfiguration == nil {
-		query.Add("encrypt", "disable")
-	} else {
-		sslmode := string(m.config.SSLConfiguration.Mode)
-		switch sslmode {
-		case utils.SSLModeDisable:
-			query.Add("encrypt", "disable")
-		case utils.SSLModeRequire:
-			query.Add("encrypt", "true")
-			// For "require" we trust the server certificate by default.
-			query.Add("TrustServerCertificate", "true")
-		default:
-			// Fallback to disable for unsupported modes (e.g., verify-ca, verify-full).
-			query.Add("encrypt", "disable")
-		}
-	}
-
-	u := &url.URL{
-		Scheme:   "sqlserver",
-		User:     url.UserPassword(m.config.Username, m.config.Password),
-		Host:     host,
-		RawQuery: query.Encode(),
-	}
-
-	return u.String()
+	return isReadReplica
 }
 
 // Close ensures proper cleanup
