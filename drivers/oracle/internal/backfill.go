@@ -165,7 +165,7 @@ func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.St
 // full-table sort that NTILE requires, making it safe on tables with billions of
 // rows where NTILE would spill to temp tablespace and risk ORA-1652.
 func (o *Oracle) splitViaTableIterationSample(ctx context.Context, stream types.StreamInterface, approxRowCount int64, numberOfChunks int64) (*types.Set[types.Chunk], error) {
-	samplePercent := abstract.ComputeSamplePercent(approxRowCount, numberOfChunks)
+	samplePercent := utils.ComputeSamplePercent(approxRowCount, numberOfChunks)
 
 	logger.Debugf("Sampling %.4f%% of blocks from [%s.%s] for chunk boundaries (approxRows=%d, chunks=%d)",
 		samplePercent, stream.Namespace(), stream.Name(), approxRowCount, numberOfChunks)

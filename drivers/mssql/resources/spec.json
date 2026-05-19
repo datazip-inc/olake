@@ -72,6 +72,16 @@
             "description": "Automatically manage MSSQL CDC capture instances for schema evolution",
             "default": false
         },
+        "chunking_strategy": {
+            "type": "string",
+            "title": "Chunking Strategy",
+            "description": "Strategy used to split tables into parallel read chunks. Use iam_walk for faster, evenly distributed chunks (requires SQL Server 2012+, VIEW DATABASE STATE; takes a brief DDL lock). Use sampling if DDL runs during sync , might be slower than iam walk strategy.",
+            "default": "iam_walk",
+            "enum": [
+                "iam_walk",
+                "sampling"
+            ]
+        },
         "ssh_config": {
             "title": "SSH Config",
             "description": "OLake uses SSH to connect to the database.",

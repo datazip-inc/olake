@@ -146,21 +146,26 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return m.splitViaPhysLoc(ctx, stream, chunks, chunkSize)
 	}
 
+	// useIAMWalk returns true when the config allows IAM walk and the server
+	// supports it. Setting chunking_strategy=sampling bypasses IAM walk
+	// entirely, which avoids the schema-stability lock it takes on the table.
+	useIAMWalk := m.config.ChunkingStrategy == IAMWalkStrategy && m.probeIAMWalkCapability(ctx)
+
 	switch {
 	case chunkColumn != "":
 		logger.Debugf("Stream %s: chunkColumn=%s set, using PK-based chunking", stream.ID(), chunkColumn)
 		err = m.splitViaPrimaryKey(ctx, stream, chunks, pkColumns, chunkSize)
-	case m.probeIAMWalkCapability(ctx):
+	case useIAMWalk:
 		logger.Debugf("Stream %s: Attempting IAM walk chunking", stream.ID())
 		err = m.splitViaIAMWalk(ctx, stream, chunks)
 		if err != nil || chunks.Len() == 0 {
-			logger.Warnf("Stream %s: IAM walk failed %s", stream.ID(), err)
+			logger.Warnf("Stream %s: IAM walk failed (%s), falling back to sampling", stream.ID(), err)
 			err = physLocSampleThenFallback()
 		} else {
 			logger.Infof("Stream %s: IAM walk produced %d chunks", stream.ID(), chunks.Len())
 		}
 	default:
-		logger.Debugf("Stream %s: IAM walk unavailable, trying TABLESAMPLE physloc sampling", stream.ID())
+		logger.Debugf("Stream %s: using TABLESAMPLE physloc sampling (strategy=%s)", stream.ID(), m.config.ChunkingStrategy)
 		err = physLocSampleThenFallback()
 	}
 
@@ -196,10 +201,12 @@ func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 		if len(pkCols) == 0 {
 			return nil
 		}
+		// Get the minimum and maximum values for the primary key columns
 		minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkCols, tx)
 		if err != nil {
 			return fmt.Errorf("failed to get table extremes: %s", err)
 		}
+		// Skip if table is empty
 		if minVal == nil {
 			return nil
 		}
@@ -212,6 +219,7 @@ func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 			}
 		}
 
+		// Create the first chunk from the beginning up to the minimum value
 		chunks.Insert(types.Chunk{
 			Min: nil,
 			Max: normalizeBoundaryValue(minVal, pkCols, columnType),
@@ -223,6 +231,7 @@ func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 			normalizeBoundaryValue(maxVal, pkCols, columnType),
 		)
 
+		// Build query to find the next chunk boundary
 		query := jdbc.MSSQLNextChunkEndQuery(stream, pkCols, chunkSize)
 		currentVal := minVal
 
@@ -293,17 +302,21 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 			return nil
 		}
 
+		// Start from the minimum physloc value
 		current := minVal
 		chunks.Insert(types.Chunk{
 			Min: nil,
 			Max: physLocBoundary(utils.HexEncode(minVal)),
 		})
 
+		// Iteratively find chunk boundaries until we reach the end of the table
 		for {
 			var next []byte
+			// This gives us the next chunk boundary, ensuring each chunk has ~chunkSize rows
 			query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
 
 			err := tx.QueryRowContext(ctx, query, current).Scan(&next)
+			// End of table reached: no more rows with physloc > current
 			if err == sql.ErrNoRows || next == nil {
 				chunks.Insert(types.Chunk{Min: physLocBoundary(utils.HexEncode(current)), Max: nil})
 				break
@@ -317,11 +330,15 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 				break
 			}
 
+			// Create a chunk between current and next boundary
+			// This chunk will contain approximately chunkSize rows
+			// Example: If current = A and next = D, chunk [A, D) contains rows A, B, C
 			chunks.Insert(types.Chunk{
 				Min: physLocBoundary(utils.HexEncode(current)),
 				Max: physLocBoundary(utils.HexEncode(next)),
 			})
 
+			// Move to the next boundary for the next iteration
 			current = next
 		}
 
@@ -333,7 +350,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 // It reads a small percentage of data pages (no full table scan), sorts the
 // sampled %%physloc%% values, and picks evenly-spaced boundaries in Go.
 func (m *MSSQL) splitViaPhysLocSample(ctx context.Context, stream types.StreamInterface, approxRowCount int64, numberOfChunks int64) (*types.Set[types.Chunk], error) {
-	samplePercent := abstract.ComputeSamplePercent(approxRowCount, numberOfChunks)
+	samplePercent := utils.ComputeSamplePercent(approxRowCount, numberOfChunks)
 
 	logger.Debugf("TABLESAMPLE sampling %.4f%% of pages from [%s.%s] for chunk boundaries (approxRows=%d, chunks=%d)",
 		samplePercent, stream.Namespace(), stream.Name(), approxRowCount, numberOfChunks)
