@@ -148,6 +148,30 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
 
+	case "insert_2pc":
+		query = fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_bool, col_char, col_character,
+				col_character_varying, col_date, col_decimal,
+				col_double_precision, col_float4, col_int, col_int2,
+				col_integer, col_interval, col_json, col_jsonb,
+				col_name, col_numeric, col_real, col_text,
+				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
+				col_point, col_polygon, col_circle
+			) VALUES (
+				7, 123456789012345, TRUE, 'c', 'charac_val',
+				'varchar_val', '2023-01-01', 123.45,
+				123.456789, 123.45, 123, 123, 12345,
+				'1 hour', '{"key": "value"}', '{"key": "value"}',
+				'test_name', 123.45, 123.45, 'sample text',
+				'2023-01-01 12:00:00', '2023-01-01 12:00:00+00',
+				'123e4567-e89b-12d3-a456-426614174000', B'101010',
+				'<tag>value</tag>',
+				'(10.5,20.5)'::point,
+				'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
+				'<(5,5),3.5>'::circle
+			)`, integrationTestTable)
+
 	case "update":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
