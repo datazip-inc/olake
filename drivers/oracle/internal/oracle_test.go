@@ -7,9 +7,9 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-// newOracleBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// oracleBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // between TestOracleIntegration and TestOracle2PC.
-func newOracleBaseConfig() *testutils.IntegrationTest {
+func oracleBaseConfig() *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(string(constants.Oracle)),
 		Namespace:                 "MYUSER",
@@ -40,7 +40,7 @@ func newOracleBaseConfig() *testutils.IntegrationTest {
 
 func TestOracleIntegration(t *testing.T) {
 	t.Parallel()
-	cfg := newOracleBaseConfig()
+	cfg := oracleBaseConfig()
 	cfg.ExpectedUpdatedData = ExpectedUpdatedOracleData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedOracleToDestinationSchema
 	cfg.TestIntegration(t)
@@ -48,5 +48,5 @@ func TestOracleIntegration(t *testing.T) {
 
 func TestOracle2PC(t *testing.T) {
 	t.Parallel()
-	newOracleBaseConfig().Test2PCIntegration(t)
+	oracleBaseConfig().Test2PCIntegration(t)
 }

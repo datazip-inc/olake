@@ -150,6 +150,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
 			return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
 		}
+	} else {
+		logger.Infof("all streams already committed in destination, skipping state LSN validation")
 	}
 
 	// choose replicator via factory based on OutputPlugin config (default wal2json)

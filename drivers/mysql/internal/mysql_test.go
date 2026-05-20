@@ -7,9 +7,9 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-// newMySQLBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// mysqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // between TestMySQLIntegration and TestMySQL2PC.
-func newMySQLBaseConfig() *testutils.IntegrationTest {
+func mysqlBaseConfig() *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(string(constants.MySQL)),
 		Namespace:                 "olake_mysql_test",
@@ -41,7 +41,7 @@ func newMySQLBaseConfig() *testutils.IntegrationTest {
 
 func TestMySQLIntegration(t *testing.T) {
 	t.Parallel()
-	cfg := newMySQLBaseConfig()
+	cfg := mysqlBaseConfig()
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
 	cfg.TestIntegration(t)
@@ -49,7 +49,7 @@ func TestMySQLIntegration(t *testing.T) {
 
 func TestMySQL2PC(t *testing.T) {
 	t.Parallel()
-	newMySQLBaseConfig().Test2PCIntegration(t)
+	mysqlBaseConfig().Test2PCIntegration(t)
 }
 
 func TestMySQLPerformance(t *testing.T) {

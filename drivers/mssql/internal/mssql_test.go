@@ -7,9 +7,9 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-// newMSSQLBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// mssqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // between TestMSSQLIntegration and TestMSSQL2PC.
-func newMSSQLBaseConfig() *testutils.IntegrationTest {
+func mssqlBaseConfig() *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(string(constants.MSSQL)),
 		Namespace:                 "dbo",
@@ -41,7 +41,7 @@ func newMSSQLBaseConfig() *testutils.IntegrationTest {
 
 func TestMSSQLIntegration(t *testing.T) {
 	t.Parallel()
-	cfg := newMSSQLBaseConfig()
+	cfg := mssqlBaseConfig()
 	cfg.ExpectedUpdatedData = ExpectedUpdatedMSSQLData
 	cfg.UpdatedDestinationDataTypeSchema = MSSQLToDestinationSchema
 	cfg.TestIntegration(t)
@@ -49,5 +49,5 @@ func TestMSSQLIntegration(t *testing.T) {
 
 func TestMSSQL2PC(t *testing.T) {
 	t.Parallel()
-	newMSSQLBaseConfig().Test2PCIntegration(t)
+	mssqlBaseConfig().Test2PCIntegration(t)
 }

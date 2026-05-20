@@ -8,9 +8,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// newPostgresBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// postgresBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // between TestPostgresIntegration and TestPostgres2PC.
-func newPostgresBaseConfig() *testutils.IntegrationTest {
+func postgresBaseConfig() *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(string(constants.Postgres)),
 		Namespace:                 "public",
@@ -42,7 +42,7 @@ func newPostgresBaseConfig() *testutils.IntegrationTest {
 
 func TestPostgresIntegration(t *testing.T) {
 	t.Parallel()
-	cfg := newPostgresBaseConfig()
+	cfg := postgresBaseConfig()
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
 	cfg.TestIntegration(t)
@@ -50,7 +50,7 @@ func TestPostgresIntegration(t *testing.T) {
 
 func TestPostgres2PC(t *testing.T) {
 	t.Parallel()
-	newPostgresBaseConfig().Test2PCIntegration(t)
+	postgresBaseConfig().Test2PCIntegration(t)
 }
 
 func TestPostgresPerformance(t *testing.T) {

@@ -7,9 +7,9 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-// newMongodbBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// mongodbBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // between TestMongodbIntegration and TestMongodb2PC.
-func newMongodbBaseConfig() *testutils.IntegrationTest {
+func mongodbBaseConfig() *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(string(constants.MongoDB)),
 		Namespace:                 "olake_mongodb_test",
@@ -41,7 +41,7 @@ func newMongodbBaseConfig() *testutils.IntegrationTest {
 
 func TestMongodbIntegration(t *testing.T) {
 	t.Parallel()
-	cfg := newMongodbBaseConfig()
+	cfg := mongodbBaseConfig()
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedMongoToDestinationSchema
 	cfg.TestIntegration(t)
@@ -49,7 +49,7 @@ func TestMongodbIntegration(t *testing.T) {
 
 func TestMongodb2PC(t *testing.T) {
 	t.Parallel()
-	newMongodbBaseConfig().Test2PCIntegration(t)
+	mongodbBaseConfig().Test2PCIntegration(t)
 }
 
 func TestMongodbPerformance(t *testing.T) {

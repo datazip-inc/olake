@@ -7,9 +7,9 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-// newDB2BaseConfig returns an IntegrationTest pre-populated with all fields shared
+// db2BaseConfig returns an IntegrationTest pre-populated with all fields shared
 // between TestDB2Integration and TestDB22PC.
-func newDB2BaseConfig() *testutils.IntegrationTest {
+func db2BaseConfig() *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(string(constants.DB2)),
 		Namespace:                 "DB2INST1",
@@ -40,7 +40,7 @@ func newDB2BaseConfig() *testutils.IntegrationTest {
 
 func TestDB2Integration(t *testing.T) {
 	t.Parallel()
-	cfg := newDB2BaseConfig()
+	cfg := db2BaseConfig()
 	cfg.ExpectedUpdatedData = ExpectedUpdatedDB2Data
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedDB2ToDestinationSchema
 	cfg.TestIntegration(t)
@@ -48,5 +48,5 @@ func TestDB2Integration(t *testing.T) {
 
 func TestDB22PC(t *testing.T) {
 	t.Parallel()
-	newDB2BaseConfig().Test2PCIntegration(t)
+	db2BaseConfig().Test2PCIntegration(t)
 }
