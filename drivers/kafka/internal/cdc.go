@@ -92,6 +92,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	warmupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	warmupFetches := reader.PollFetches(warmupCtx)
 	cancel()
+	k.readerManager.SetNormalProcessing()
 
 	assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
 	if err != nil {
@@ -233,6 +234,10 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, warmupFetches kgo.Fetches, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
 	first := true
 	for {
+		if err := k.readerManager.ErrForExitMode(); err != nil {
+			return err
+		}
+
 		var messages kgo.Fetches
 		if first && len(warmupFetches) > 0 {
 			messages = warmupFetches
@@ -249,12 +254,15 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, wa
 		records := messages.RecordIter()
 
 		for !records.Done() {
+			err := k.readerManager.ErrForExitMode()
+			if err != nil {
+				return err
+			}
 			message := records.Next()
 
 			var (
 				key  string
 				data map[string]interface{}
-				err  error
 			)
 			// parse message value and key
 			data, key, err = k.parseKafkaData(message)

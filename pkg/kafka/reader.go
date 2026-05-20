@@ -45,7 +45,6 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 	for k := range r.partitionIndex {
 		partitionKeySet[k] = struct{}{}
 	}
-	r.olakeGroupBalancer = NewCustomGroupBalancer(readersToCreate, partitionKeySet)
 
 	for readerIndex := range readersToCreate {
 		readerID := fmt.Sprintf("group_%s", utils.ULID())
@@ -64,7 +63,7 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 			kgo.ConsumerGroup(consumerGroupID),
 			kgo.ClientID(clientID),
 			kgo.ConsumeTopics(topics...),
-			kgo.Balancers(r.olakeGroupBalancer),
+			kgo.Balancers(kgo.RoundRobinBalancer()),
 			kgo.FetchMinBytes(1),
 			kgo.FetchMaxBytes(10e6),
 			kgo.SessionTimeout(459*time.Second),
@@ -250,6 +249,8 @@ func (r *ReaderManager) Close() error {
 
 // RestartReader closes and recreates the reader using the same readerID and clientID.
 func (r *ReaderManager) RestartReader(ctx context.Context, readerIndex int, streams []types.StreamInterface, consumerGroupID string) (*kgo.Client, error) {
+	r.exitMode.Store(normalProcessing)
+
 	currentReader := r.GetReader(readerIndex)
 	if currentReader == nil {
 		return nil, fmt.Errorf("reader not found for readerIndex %d", readerIndex)
@@ -292,7 +293,7 @@ func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGr
 		kgo.ClientID(clientID),
 		kgo.InstanceID(readerID),
 		kgo.ConsumeTopics(topics...),
-		kgo.Balancers(r.olakeGroupBalancer),
+		kgo.Balancers(kgo.RoundRobinBalancer()),
 		kgo.FetchMinBytes(1),
 		kgo.FetchMaxBytes(10e6),
 		kgo.SessionTimeout(459*time.Second),
@@ -302,12 +303,15 @@ func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGr
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 		kgo.OnPartitionsAssigned(func(ctx context.Context, cl *kgo.Client, assigned map[string][]int32) {
 			logger.Infof("reader %s assigned partitions: %+v", clientID, assigned)
+			r.exitMode.Store(retryableExit)
 		}),
 		kgo.OnPartitionsRevoked(func(ctx context.Context, cl *kgo.Client, revoked map[string][]int32) {
 			logger.Infof("reader %s revoked partitions: %+v", clientID, revoked)
+			r.exitMode.Store(retryableExit)
 		}),
 		kgo.OnPartitionsLost(func(ctx context.Context, cl *kgo.Client, lost map[string][]int32) {
 			logger.Warnf("reader %s lost partitions: %+v", clientID, lost)
+			r.exitMode.Store(nonRetryableExit)
 		}),
 	)
 
@@ -317,4 +321,23 @@ func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGr
 	}
 
 	return reader, nil
+}
+
+// SetNormalProcessing resets exit mode after warmup assignment (initial assign sets retryableExit).
+func (r *ReaderManager) SetNormalProcessing() {
+	r.exitMode.Store(normalProcessing)
+}
+
+// ErrForExitMode returns nil in normalProcessing, or the error for retryableExit / nonRetryableExit.
+func (r *ReaderManager) ErrForExitMode() error {
+	switch r.exitMode.Load() {
+	case normalProcessing:
+		return nil
+	case retryableExit:
+		return fmt.Errorf("consumer group rebalance detected")
+	case nonRetryableExit:
+		return fmt.Errorf("%w: kafka sync aborted", constants.ErrNonRetryable)
+	default:
+		return fmt.Errorf("%w: kafka sync aborted", constants.ErrNonRetryable)
+	}
 }

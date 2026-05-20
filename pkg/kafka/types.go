@@ -3,9 +3,17 @@ package kafka
 import (
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/twmb/franz-go/pkg/kgo"
+)
+
+// ReaderManager.exitMode values (atomic int32).
+const (
+	normalProcessing int32 = iota
+	retryableExit
+	nonRetryableExit
 )
 
 // ReaderConfig holds configuration for creating Kafka readers
@@ -29,8 +37,7 @@ type ReaderManager struct {
 	config         ReaderConfig
 	readers        []*kafkaReader
 	partitionIndex map[string]types.PartitionMetaData // get per-partition boundaries
-	// Shared across all reader clients in this manager so custom balance state (e.g. topic stickiness) stays consistent.
-	olakeGroupBalancer *CustomGroupBalancer
+	exitMode       atomic.Int32                       // normalProcessing | retryableExit | nonRetryableExit
 }
 
 // SchemaRegistryClient holds the schema registry client information
