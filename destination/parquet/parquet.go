@@ -388,8 +388,8 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 		return err
 	}
 	p.partitionedFiles = make(map[string][]*FileMetadata)
-	if ctx.Err() != nil {
-		return nil
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 
 	if err := p.uploadPqFiles(ctx, dataFiles); err != nil {

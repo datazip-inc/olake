@@ -75,7 +75,7 @@ func (p *Parquet) load2PCState(ctx context.Context) (*types.MetadataState, error
 		if err := p.cleanupPrepareMarkers(ctx, committedIDs, nil); err != nil {
 			return nil, err
 		}
-		return nil, nil
+		return state, nil
 	}
 	if state == nil {
 		state = &types.MetadataState{}
@@ -106,15 +106,15 @@ func markerTime(marker parquet2PCMarkerFile) time.Time {
 }
 
 func (p *Parquet) metadataState(finalMetadataState any) (*types.MetadataState, error) {
+	var metadataState *types.MetadataState
 	if finalMetadataState == nil {
-		return nil, nil
+		return metadataState, nil
 	}
 
-	var metadataState *types.MetadataState
 	switch state := finalMetadataState.(type) {
 	case *types.MetadataState:
 		if state == nil {
-			return nil, nil
+			return metadataState, nil
 		}
 		stateCopy := *state
 		metadataState = &stateCopy
@@ -178,15 +178,16 @@ func (p *Parquet) readStateFile(ctx context.Context) (*types.MetadataState, erro
 	if err != nil {
 		return nil, err
 	}
+	var state *types.MetadataState
 	if len(data) == 0 {
-		return nil, nil
+		return state, nil
 	}
 
-	var state types.MetadataState
-	if err := json.Unmarshal(data, &state); err != nil {
+	state = &types.MetadataState{}
+	if err := json.Unmarshal(data, state); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal parquet 2pc state: %s", err)
 	}
-	return &state, nil
+	return state, nil
 }
 
 func (p *Parquet) list2PCMarkers(ctx context.Context, markerDir string) ([]parquet2PCMarkerFile, error) {
