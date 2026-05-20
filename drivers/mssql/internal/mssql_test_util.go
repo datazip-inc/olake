@@ -233,10 +233,43 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err = db.ExecContext(ctx, filteredQuery)
 		require.NoError(t, err, "failed to insert filtered CDC row")
 
+	case "insert_2pc":
+		insertTwo := fmt.Sprintf(`
+			INSERT INTO dbo.%s (
+				id_cursor,
+				col_tinyint, col_smallint, col_int, col_bigint,
+				col_decimal, col_numeric, col_smallmoney, col_money,
+				col_float, col_real, col_bit,
+				col_char, col_varchar, col_text, col_nchar, col_nvarchar, col_ntext,
+				col_date, col_time, col_smalldatetime, col_datetime, col_datetime2, col_datetimeoffset,
+				col_uniqueidentifier,
+				col_xml, col_sysname,
+				col_image, col_hierarchyid, col_sql_variant,
+				col_int_nullable, col_varchar_nullable, col_datetime2_nullable,
+				created_at
+			) VALUES (
+				7,
+				3, 5, 10, 19,
+				123.50, 10.12500, 1.2500, 2.5000,
+				123.50, 12.50, 1,
+				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
+				'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
+				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+				'123e4567-e89b-12d3-a456-426614174000',
+				'<xml>test</xml>', 'sysname_val',
+				0x43434343,
+				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
+				NULL, NULL, NULL,
+				'2023-01-01 12:00:00'
+			);
+		`, integrationTestTable)
+		_, err2 := db.ExecContext(ctx, insertTwo)
+		require.NoError(t, err2, "failed to insert CDC row (insert_2pc)")
+
 	case "update":
 		updateRow := fmt.Sprintf(`
 			UPDATE dbo.%s SET
-				id_cursor = 7,
+				id_cursor = 100,
 				col_bigint = 20,
 				col_decimal = 543.25,
 				col_money = 9.7500,
@@ -253,7 +286,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_datetime2_nullable = '2024-07-01 15:30:00',
 				created_at = '2024-07-01 15:30:00',
 				excludedColumn = 102
-			WHERE id = 6;
+			WHERE id = 1;
 		`, integrationTestTable)
 		_, err := db.ExecContext(ctx, updateRow)
 		require.NoError(t, err, "failed to update CDC row")
