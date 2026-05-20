@@ -9,21 +9,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-// ChunkingStrategy controls how MSSQL tables are divided into parallel read chunks.
-//   - "iam_walk"  (default): uses sys.dm_db_database_page_allocations to plan
-//     page-aligned chunks in O(1) without scanning table data. Requires SQL Server
-//     2012+, VIEW DATABASE STATE permission, and is unavailable on Azure SQL DB/MI.
-//     Takes a schema-stability lock during planning, which blocks DDL on
-//     the target table. Use when DDL is not running concurrently during sync.
-//   - "sampling": uses TABLESAMPLE SYSTEM for boundary estimation; no DDL lock,
-//     no special permissions, works on Azure SQL DB/MI.
-type ChunkingStrategy string
-
-const (
-	IAMWalkStrategy  ChunkingStrategy = "iam_walk"
-	SamplingStrategy ChunkingStrategy = "sampling"
-)
-
 // Config represents the configuration for connecting to a MSSQL database.
 type Config struct {
 	Host                   string            `json:"host"`
@@ -37,7 +22,6 @@ type Config struct {
 	SSLConfiguration       *utils.SSLConfig  `json:"ssl"`
 	ManageCaptureInstances bool              `json:"manage_capture_instances"`
 	SSHConfig              *utils.SSHConfig  `json:"ssh_config"`
-	ChunkingStrategy       ChunkingStrategy  `json:"chunking_strategy,omitempty"`
 }
 
 // Validate checks and normalises MSSQL configuration.

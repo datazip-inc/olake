@@ -198,8 +198,7 @@ const MSSQLUISchema = `{
     { "port": 12, "max_threads": 12 },
     { "retry_count": 12, "jdbc_url_params": 12 },
     { "ssl": 12, "manage_capture_instances": 12 },
-    { "update_method": 12, "ssh_config": 12 },
-    { "chunking_strategy": 12 }
+    { "update_method": 12, "ssh_config": 12 }
   ],
   "ssl": {
     "ui:options": {
@@ -216,13 +215,6 @@ const MSSQLUISchema = `{
   },
   "manage_capture_instances": {
     "ui:widget": "boolean"
-  },
-  "chunking_strategy": {
-    "ui:widget": "select",
-    "ui:enumNames": [
-      "IAM Walk",
-      "Sampling"
-    ]
   },
   "ssh_config": {
     "ui:options": {

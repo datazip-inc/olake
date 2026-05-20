@@ -146,26 +146,21 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return m.splitViaPhysLoc(ctx, stream, chunks, chunkSize)
 	}
 
-	// useIAMWalk returns true when the config allows IAM walk and the server
-	// supports it. Setting chunking_strategy=sampling bypasses IAM walk
-	// entirely, which avoids the schema-stability lock it takes on the table.
-	useIAMWalk := m.config.ChunkingStrategy == IAMWalkStrategy && m.probeIAMWalkCapability(ctx)
-
 	switch {
 	case chunkColumn != "":
 		logger.Debugf("Stream %s: chunkColumn=%s set, using PK-based chunking", stream.ID(), chunkColumn)
 		err = m.splitViaPrimaryKey(ctx, stream, chunks, pkColumns, chunkSize)
-	case useIAMWalk:
+	case m.probeIAMWalkCapability(ctx):
 		logger.Debugf("Stream %s: Attempting IAM walk chunking", stream.ID())
 		err = m.splitViaIAMWalk(ctx, stream, chunks)
 		if err != nil || chunks.Len() == 0 {
-			logger.Warnf("Stream %s: IAM walk failed (%s), falling back to sampling", stream.ID(), err)
+			logger.Warnf("Stream %s: IAM walk failed (%s)", stream.ID(), err)
 			err = physLocSampleThenFallback()
 		} else {
 			logger.Infof("Stream %s: IAM walk produced %d chunks", stream.ID(), chunks.Len())
 		}
 	default:
-		logger.Debugf("Stream %s: using TABLESAMPLE physloc sampling (strategy=%s)", stream.ID(), m.config.ChunkingStrategy)
+		logger.Debugf("Stream %s: IAM walk unavailable, trying TABLESAMPLE physloc sampling", stream.ID())
 		err = physLocSampleThenFallback()
 	}
 
