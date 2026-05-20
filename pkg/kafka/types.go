@@ -12,7 +12,7 @@ import (
 // ReaderManager.exitMode values (atomic int32).
 const (
 	normalProcessing int32 = iota
-	retryableExit
+	gracefulExit           // consumer-group rebalance: stop fetch loop without error (no abstract retry)
 	nonRetryableExit
 )
 
@@ -37,7 +37,8 @@ type ReaderManager struct {
 	config         ReaderConfig
 	readers        []*kafkaReader
 	partitionIndex map[string]types.PartitionMetaData // get per-partition boundaries
-	exitMode       atomic.Int32                       // normalProcessing | retryableExit | nonRetryableExit
+	exitMode       atomic.Int32                       // normalProcessing | gracefulExit | nonRetryableExit
+	generationID   atomic.Int32                       // consumer group generation after PreCDC warmup
 }
 
 // SchemaRegistryClient holds the schema registry client information

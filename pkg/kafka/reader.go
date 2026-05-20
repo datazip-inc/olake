@@ -103,6 +103,14 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 		r.reader.PollFetches(warmupCtx)
 		cancel()
 	}
+
+	if len(r.readers) > 0 {
+		_, generationID := r.readers[0].reader.GroupMetadata()
+		r.generationID.Store(generationID)
+		logger.Infof("stored consumer group %s generation id: %d", consumerGroupID, generationID)
+	}
+
+	r.exitMode.Store(normalProcessing)
 	return nil
 }
 
@@ -249,8 +257,6 @@ func (r *ReaderManager) Close() error {
 
 // RestartReader closes and recreates the reader using the same readerID and clientID.
 func (r *ReaderManager) RestartReader(ctx context.Context, readerIndex int, streams []types.StreamInterface, consumerGroupID string) (*kgo.Client, error) {
-	r.exitMode.Store(normalProcessing)
-
 	currentReader := r.GetReader(readerIndex)
 	if currentReader == nil {
 		return nil, fmt.Errorf("reader not found for readerIndex %d", readerIndex)
@@ -303,15 +309,21 @@ func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGr
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 		kgo.OnPartitionsAssigned(func(ctx context.Context, cl *kgo.Client, assigned map[string][]int32) {
 			logger.Infof("reader %s assigned partitions: %+v", clientID, assigned)
-			r.exitMode.Store(retryableExit)
+			if r.RebalanceDetected(cl) {
+				r.exitMode.Store(gracefulExit)
+			}
 		}),
 		kgo.OnPartitionsRevoked(func(ctx context.Context, cl *kgo.Client, revoked map[string][]int32) {
 			logger.Infof("reader %s revoked partitions: %+v", clientID, revoked)
-			r.exitMode.Store(retryableExit)
+			if r.RebalanceDetected(cl) {
+				r.exitMode.Store(gracefulExit)
+			}
 		}),
 		kgo.OnPartitionsLost(func(ctx context.Context, cl *kgo.Client, lost map[string][]int32) {
 			logger.Warnf("reader %s lost partitions: %+v", clientID, lost)
-			r.exitMode.Store(nonRetryableExit)
+			if r.RebalanceDetected(cl) {
+				r.exitMode.Store(nonRetryableExit)
+			}
 		}),
 	)
 
@@ -323,18 +335,29 @@ func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGr
 	return reader, nil
 }
 
-// SetNormalProcessing resets exit mode after warmup assignment (initial assign sets retryableExit).
-func (r *ReaderManager) SetNormalProcessing() {
-	r.exitMode.Store(normalProcessing)
+// GenerationID returns the consumer-group generation stored after CreateReaders warmup.
+func (r *ReaderManager) GenerationID() int32 {
+	return r.generationID.Load()
 }
 
-// ErrForExitMode returns nil in normalProcessing, or the error for retryableExit / nonRetryableExit.
+// RebalanceDetected is true when the client's group generation differs from the stored baseline.
+func (r *ReaderManager) RebalanceDetected(client *kgo.Client) bool {
+	_, generationID := client.GroupMetadata()
+	return generationID >= 0 && generationID != r.generationID.Load()
+}
+
+// ShouldStopProcessing reports a consumer-group rebalance (assign/revoke during CDC).
+// The fetch loop must exit with nil — not an error — so abstract layer does not retry.
+func (r *ReaderManager) ShouldStopProcessing() bool {
+	return r.exitMode.Load() == gracefulExit
+}
+
+// ErrForExitMode returns an error only for nonRetryableExit (e.g. partitions lost).
 func (r *ReaderManager) ErrForExitMode() error {
+
 	switch r.exitMode.Load() {
-	case normalProcessing:
+	case normalProcessing, gracefulExit:
 		return nil
-	case retryableExit:
-		return fmt.Errorf("consumer group rebalance detected")
 	case nonRetryableExit:
 		return fmt.Errorf("%w: kafka sync aborted", constants.ErrNonRetryable)
 	default:

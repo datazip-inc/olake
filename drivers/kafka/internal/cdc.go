@@ -6,10 +6,9 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
-
-	// "slices"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/types"
@@ -22,15 +21,6 @@ import (
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-/*
-// streamChangesFailAfterRestart forces StreamChanges to return right after RestartReader for
-// reader indices in streamChangesFailReaderIndices only (ReaderManager slot: 0, 1, …).
-// Set to true locally to test retries, then false before committing.
-var streamChangesFailAfterRestart = true
-
-// streamChangesFailReaderIndices is used only when streamChangesFailAfterRestart is true.
-var streamChangesFailReaderIndices = []int{0, 1}
-*/
 // TODO: Add 2PC support for Kafka (difficulty: hard)
 
 func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
@@ -81,23 +71,18 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
-	// Fresh client per StreamChanges attempt (including abstract-layer retries) so recovery does not poll a closed kgo.Client.
+	// Restart reader to get a fresh client per StreamChanges attempt
 	reader, err := k.readerManager.RestartReader(ctx, readerID, k.streams, k.consumerGroupID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to restart reader %d: %w", readerID, err)
+		return nil, fmt.Errorf("failed to restart reader %d: %v", readerID, err)
 	}
-	// Warmup poll: triggers consumer-group join and surfaces partition assignment on the broker.
-	// We MUST keep the fetched records and replay them — PollFetches advances the internal
-	// cursor permanently, so discarding the return value skips those messages forever.
-	warmupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	warmupFetches := reader.PollFetches(warmupCtx)
-	cancel()
-	k.readerManager.SetNormalProcessing()
 
+	//Check if current reader has some non-empty partitions or not
 	assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
 	if err != nil {
 		return nil, err
 	}
+	// Return early if no non-empty partitions are assigned to the reader
 	pending := 0
 	for _, pk := range assigned {
 		if _, ok := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", pk.Topic, pk.Partition)); ok {
@@ -108,12 +93,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		logger.Infof("reader %d has no partitions with pending data assigned; completing StreamChanges", readerID)
 		return nil, nil
 	}
-	/*
-		if streamChangesFailAfterRestart && slices.Contains(streamChangesFailReaderIndices, readerID) {
-			_ = reader
-			return nil, fmt.Errorf("temporary StreamChanges error after reader restart (readerID=%d)", readerID)
-		}
-	*/
+
 	// track processing state
 	lastMessages := make(map[types.PartitionKey]*kgo.Record)
 	// maintain completed partitions and observed partitions to track loop termination (for the current reader)
@@ -126,7 +106,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 	}()
 
-	err = k.processKafkaMessages(ctx, reader, warmupFetches, func(record types.KafkaRecord) (bool, error) {
+	err = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: int(record.Message.Partition)}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
@@ -147,6 +127,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			}
 		}
 
+		// track processing state
 		lastMessages[currentPartitionKey] = record.Message
 
 		// check if partition is complete
@@ -229,33 +210,29 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 }
 
 // for processing messages from a Kafka reader.
-// warmupFetches contains records already fetched by the pre-poll warmup; they are drained
-// first so no messages are skipped before the main poll loop begins.
-func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, warmupFetches kgo.Fetches, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
-	first := true
+func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
 	for {
-		if err := k.readerManager.ErrForExitMode(); err != nil {
+		err := k.readerManager.ErrForExitMode()
+		if err != nil {
 			return err
 		}
 
-		var messages kgo.Fetches
-		if first && len(warmupFetches) > 0 {
-			messages = warmupFetches
-			first = false
-		} else {
-			first = false
-			logger.Infof("polling messages from reader")
-			messages = reader.PollFetches(ctx)
-		}
-		if errs := messages.Errors(); len(errs) > 0 {
-			return fmt.Errorf("error reading message in Kafka CDC sync: %w", errs[0].Err)
+		messages := reader.PollFetches(ctx)
+		errs := messages.Errors()
+		if len(errs) > 0 {
+			return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrNonRetryable, errs[0].Err)
 		}
 
 		records := messages.RecordIter()
 
 		for !records.Done() {
-			err := k.readerManager.ErrForExitMode()
+			if k.readerManager.ShouldStopProcessing() {
+				logger.Infof("stopping kafka CDC processing due to consumer group rebalance")
+				return nil
+			}
+			err = k.readerManager.ErrForExitMode()
 			if err != nil {
+				logger.Errorf("kafka consumer lost partition ownership and CDC processing can no longer continue safely: %s	", err)
 				return err
 			}
 			message := records.Next()
@@ -278,7 +255,6 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, wa
 					return fmt.Errorf("failed to reformat date: %s", err)
 				}
 			}
-			logger.Infof("processed message: %+v", data)
 
 			stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
 			if err != nil {

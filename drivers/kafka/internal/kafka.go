@@ -44,7 +44,7 @@ type Kafka struct {
 	client               *kgo.Client
 	state                *types.State
 	consumerGroupID      string
-	streams              []types.StreamInterface // set in PreCDC; used when restarting readers from StreamChanges
+	streams              []types.StreamInterface // set in PreCDC and used when restarting readers from StreamChanges
 	readerManager        *kafkapkg.ReaderManager
 	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
 	schemaRegistryClient *kafkapkg.SchemaRegistryClient
@@ -232,7 +232,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		return k.processKafkaMessages(fetchCtx, reader, nil, func(record types.KafkaRecord) (bool, error) {
+		return k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
 			messageCount++
 			if record.Data != nil {
 				mu.Lock()
