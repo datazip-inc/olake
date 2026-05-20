@@ -51,6 +51,9 @@ const (
 	// ~10 sample points to pick a boundary from, producing even spacing even when
 	// blocks/pages are clustered (e.g. freshly inserted rows land on adjacent pages).
 	SampleRowsPerChunkMultiplier = int64(10)
+	// PhysLocBoundaryPrefix is prepended to every %%physloc%% hex boundary stored
+	// in a types.Chunk in MSSQL. It is used to identify physloc reading chunks.
+	PhysLocBoundaryPrefix = "olake_physloc_"
 )
 
 type DriverType string

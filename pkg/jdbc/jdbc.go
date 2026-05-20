@@ -971,18 +971,14 @@ func MSSQLNextChunkEndQuery(stream types.StreamInterface, orderingColumns []stri
 func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	tableName := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 
-	// Format %%physloc%% value as a hex literal
+	// formatPhysLocValue strips the physloc prefix and returns the raw hex
+	// literal that SQL Server expects in %%physloc%% predicates.
 	formatPhysLocValue := func(val any) string {
 		if val == nil {
 			return "NULL"
 		}
-
-		// chunk stores boundary (min and max) values in hex format
-		if value, ok := val.(string); ok {
-			return value
-		}
-
-		return fmt.Sprintf("%v", val)
+		s := fmt.Sprintf("%v", val)
+		return strings.TrimPrefix(s, constants.PhysLocBoundaryPrefix)
 	}
 
 	var chunkCond string

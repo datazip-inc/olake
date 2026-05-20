@@ -22,9 +22,6 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-// physLocBoundary is a sentinel type for %%physloc%% hex-literal chunk boundaries.
-type physLocBoundary string
-
 // usableBytesPerPage is an upper bound for in-row payload per 8KB page
 // (IN_ROW_DATA max row size). Using the ceiling yields smaller chunks.
 const usableBytesPerPage = 8060
@@ -301,7 +298,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 		current := minVal
 		chunks.Insert(types.Chunk{
 			Min: nil,
-			Max: physLocBoundary(utils.HexEncode(minVal)),
+			Max: physLocBoundary(minVal),
 		})
 
 		// Iteratively find chunk boundaries until we reach the end of the table
@@ -313,7 +310,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 			err := tx.QueryRowContext(ctx, query, current).Scan(&next)
 			// End of table reached: no more rows with physloc > current
 			if err == sql.ErrNoRows || next == nil {
-				chunks.Insert(types.Chunk{Min: physLocBoundary(utils.HexEncode(current)), Max: nil})
+				chunks.Insert(types.Chunk{Min: physLocBoundary(current), Max: nil})
 				break
 			}
 			if err != nil {
@@ -321,7 +318,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 			}
 
 			if bytes.Equal(current, next) {
-				chunks.Insert(types.Chunk{Min: physLocBoundary(utils.HexEncode(current)), Max: nil})
+				chunks.Insert(types.Chunk{Min: physLocBoundary(current), Max: nil})
 				break
 			}
 
@@ -329,8 +326,8 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 			// This chunk will contain approximately chunkSize rows
 			// Example: If current = A and next = D, chunk [A, D) contains rows A, B, C
 			chunks.Insert(types.Chunk{
-				Min: physLocBoundary(utils.HexEncode(current)),
-				Max: physLocBoundary(utils.HexEncode(next)),
+				Min: physLocBoundary(current),
+				Max: physLocBoundary(next),
 			})
 
 			// Move to the next boundary for the next iteration
@@ -377,7 +374,8 @@ func (m *MSSQL) splitViaPhysLocSample(ctx context.Context, stream types.StreamIn
 	step := float64(len(physLocSamples)) / float64(numberOfChunks)
 	var prev any = nil
 	for i := int64(0); i < numberOfChunks; i++ {
-		curr := physLocBoundary(utils.HexEncode(physLocSamples[int(float64(i)*step)]))
+		idx := min(int(float64(i)*step), len(physLocSamples)-1)
+		curr := physLocBoundary(physLocSamples[idx])
 		chunks.Insert(types.Chunk{Min: prev, Max: curr})
 		prev = curr
 	}
@@ -431,7 +429,7 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 	// this naturally produces just {nil, nil}.
 	var prev any = nil
 	for i := pagesPerChunk; i < total; i += pagesPerChunk {
-		boundary := physLocBoundary(utils.HexEncode(physLocBytes(pages[i])))
+		boundary := physLocBoundary(physLocBytes(pages[i]))
 		chunks.Insert(types.Chunk{Min: prev, Max: boundary})
 		prev = boundary
 	}
@@ -553,10 +551,19 @@ func formatUniqueIdentifierBytes(v []byte) (string, bool) {
 }
 
 // isPhysLocChunk reports whether the chunk was produced by a physloc-based
-// planner (IAM walk, iterative, or TABLESAMPLE). It uses a sentinel type
-// instead of a string-length heuristic to avoid false positives.
+// planner (IAM walk, iterative, or TABLESAMPLE). Detection uses the
+// PhysLocBoundaryPrefix embedded in the boundary value.
 func isPhysLocChunk(chunk types.Chunk) bool {
-	_, minOK := chunk.Min.(physLocBoundary)
-	_, maxOK := chunk.Max.(physLocBoundary)
-	return minOK || maxOK
+	hasPrefix := func(v any) bool {
+		s, ok := v.(string)
+		return ok && strings.HasPrefix(s, constants.PhysLocBoundaryPrefix)
+	}
+	return hasPrefix(chunk.Min) || hasPrefix(chunk.Max)
+}
+
+// physLocBoundary encodes raw %%physloc%% bytes as a prefixed hex string for
+// storage in a types.Chunk. And concats with the prefix to the hex encoded value.
+// This helps to uniquely identify the chunk for physloc reading.
+func physLocBoundary(b []byte) string {
+	return constants.PhysLocBoundaryPrefix + utils.HexEncode(b)
 }
