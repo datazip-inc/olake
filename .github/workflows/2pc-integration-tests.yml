@@ -1,4 +1,4 @@
-name: Integration Tests
+name: 2PC Integration Tests
 
 on:
   push:
@@ -15,7 +15,7 @@ on:
       - '**/*.java'
 
 jobs:
-  integration-tests:
+  twopc-integration-tests:
     uses: ./.github/workflows/integration-tests-runner.yml
     with:
-      test_type: integration
+      test_type: 2pc
