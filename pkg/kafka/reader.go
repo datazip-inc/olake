@@ -306,7 +306,7 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 }
 
 // RestartReader closes and recreates the reader using the same instanceID.
-func (r *ReaderManager) RestartReader(ctx context.Context, readerIndex int, streams []types.StreamInterface, consumerGroupID string) (*kgo.Client, error) {
+func (r *ReaderManager) RestartReader(_ context.Context, readerIndex int, streams []types.StreamInterface, consumerGroupID string) (*kgo.Client, error) {
 	currentReader := r.GetReader(readerIndex)
 	if currentReader == nil {
 		return nil, fmt.Errorf("reader not found for readerIndex %d", readerIndex)
@@ -350,12 +350,12 @@ func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGr
 		kgo.FetchMaxBytes(10e6),
 		kgo.DisableAutoCommit(),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
-		kgo.OnPartitionsAssigned(func(_ context.Context, cl *kgo.Client, assigned map[string][]int32) {
+		kgo.OnPartitionsAssigned(func(_ context.Context, cl *kgo.Client, _ map[string][]int32) {
 			if r.RebalanceDetected(cl) {
 				r.exitMode.Store(gracefulExit)
 			}
 		}),
-		kgo.OnPartitionsRevoked(func(_ context.Context, cl *kgo.Client, revoked map[string][]int32) {
+		kgo.OnPartitionsRevoked(func(_ context.Context, cl *kgo.Client, _ map[string][]int32) {
 			if r.RebalanceDetected(cl) {
 				r.exitMode.Store(gracefulExit)
 			}
@@ -393,7 +393,6 @@ func (r *ReaderManager) ShouldStopProcessing() bool {
 
 // ErrForExitMode returns an error only for nonRetryableExit (e.g. partitions lost).
 func (r *ReaderManager) ErrForExitMode() error {
-
 	switch r.exitMode.Load() {
 	case normalProcessing, gracefulExit:
 		return nil
