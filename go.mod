@@ -33,7 +33,6 @@ require (
 	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.10
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	github.com/twmb/franz-go/pkg/kmsg v1.13.1
 )
 
 require (
@@ -51,6 +50,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/rs/xid v1.6.0 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
 	go.opentelemetry.io/otel/sdk v1.43.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.43.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260311193753-579e4da9a98c // indirect

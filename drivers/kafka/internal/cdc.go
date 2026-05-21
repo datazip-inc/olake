@@ -16,9 +16,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/linkedin/goavro/v2"
-	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 // TODO: Add 2PC support for Kafka (difficulty: hard)
@@ -52,21 +50,19 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	k.streams = streams
 	logger.Infof("configured consumer group id: %s", k.consumerGroupID)
 
-	// remove existing consumers before creating new readers
-	err := k.RemoveExistingConsumers(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to remove existing consumers: %w", err)
-	}
-
 	// create a reader manager for kafka
 	k.readerManager = kafkapkg.NewReaderManager(kafkapkg.ReaderConfig{
-		BootstrapServers:            k.config.BootstrapServers,
 		MaxThreads:                  k.config.MaxThreads,
 		ConsumerGroupID:             k.consumerGroupID,
 		Dialer:                      k.dialer,
-		Client:                      k.client,
+		Admin:                       k.admin,
 		ThreadsEqualTotalPartitions: k.config.ThreadsEqualTotalPartitions,
 	})
+	// remove stale consumers before creating new readers
+	if err := k.readerManager.RemoveExistingConsumers(ctx, k.client); err != nil {
+		return fmt.Errorf("failed to remove existing consumers: %v", err)
+	}
+	// create new readers
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
@@ -136,7 +132,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			completedPartitions[currentPartitionKey] = struct{}{}
 
 			// check for all other assigned partitions to see if they are also completed
-			shouldExit, err := k.checkPartitionCompletion(ctx, readerID, reader, completedPartitions, observedPartitions)
+			shouldExit, err := k.checkPartitionCompletion(ctx, readerID, completedPartitions, observedPartitions)
 			if err != nil || shouldExit {
 				return shouldExit, err
 			}
@@ -220,7 +216,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 		messages := reader.PollFetches(ctx)
 		errs := messages.Errors()
 		if len(errs) > 0 {
-			return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrNonRetryable, errs[0].Err)
+			return fmt.Errorf("%v: error reading message in Kafka CDC sync: %v", constants.ErrNonRetryable, errs[0].Err)
 		}
 
 		records := messages.RecordIter()
@@ -241,6 +237,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 				key  string
 				data map[string]interface{}
 			)
+
 			// parse message value and key
 			data, key, err = k.parseKafkaData(message)
 			if err != nil {
@@ -319,7 +316,7 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 		parsedKey, err := parseData(message.Key)
 		if err != nil {
 			// standard fallback: raw key as string
-			logger.Warnf("failed to parse key at offset %d: %s, using raw string", message.Offset, err)
+			logger.Warnf("failed to parse key for topic=%s partition=%d offset=%d: %s, using raw string", message.Topic, message.Partition, message.Offset, err)
 			keyValue = string(message.Key)
 		} else {
 			switch v := parsedKey.(type) {
@@ -367,50 +364,4 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 		return typeutils.ExtractAvroRecord(record), nil
 	}
 	return nativeDatum, nil
-}
-
-// RemoveExistingConsumers force removes all existing consumers from the consumer group.
-func (k *Kafka) RemoveExistingConsumers(ctx context.Context) error {
-	admin := kadm.NewClient(k.client)
-
-	groups, err := admin.DescribeGroups(ctx, k.consumerGroupID)
-	if err != nil {
-		return fmt.Errorf("describe groups failed: %w", err)
-	}
-
-	group, ok := groups[k.consumerGroupID]
-	if !ok || len(group.Members) == 0 {
-		return nil
-	}
-
-	if group.Err != nil {
-		return fmt.Errorf("describe groups error: %w", group.Err)
-	}
-
-	req := kmsg.NewPtrLeaveGroupRequest()
-	req.Group = k.consumerGroupID
-
-	for _, member := range group.Members {
-		req.Members = append(req.Members, kmsg.LeaveGroupRequestMember{
-			MemberID: member.MemberID,
-			InstanceID: func() *string {
-				if member.InstanceID == nil {
-					return nil
-				}
-				v := *member.InstanceID
-				return &v
-			}(),
-		})
-	}
-
-	resp, err := req.RequestWith(ctx, k.client)
-	if err != nil {
-		return fmt.Errorf("leave group request failed: %w", err)
-	}
-
-	if resp.ErrorCode != 0 {
-		return fmt.Errorf("leave group error code: %d", resp.ErrorCode)
-	}
-
-	return nil
 }

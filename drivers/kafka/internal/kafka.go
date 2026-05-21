@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +47,7 @@ type Kafka struct {
 	readerManager        *kafkapkg.ReaderManager
 	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
 	schemaRegistryClient *kafkapkg.SchemaRegistryClient
+	admin                *kadm.Client
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -100,9 +100,11 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	}
 
 	k.client = client
+	k.admin = kadm.NewClient(client)
 
 	// Test connectivity by fetching metadata
-	if err := client.Ping(ctx); err != nil {
+	err = client.Ping(ctx)
+	if err != nil {
 		return fmt.Errorf("failed to ping kafka brokers: %s", err)
 	}
 
@@ -125,16 +127,22 @@ func (k *Kafka) Setup(ctx context.Context) error {
 }
 
 func (k *Kafka) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if k.readerManager != nil {
+		k.readerManager.RemoveExistingConsumers(ctx, k.client)
+	}
+
 	if k.client != nil {
 		k.client.Close()
 	}
-	k.readerManager.Close()
 	return nil
 }
 
 func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Kafka")
-	metadata, err := kadm.NewClient(k.client).ListTopics(ctx)
+	metadata, err := k.admin.ListTopics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list topics: %s", err)
 	}
@@ -160,9 +168,8 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 	// create reader manager for schema discovery
 	readerManager := kafkapkg.NewReaderManager(kafkapkg.ReaderConfig{
-		BootstrapServers: k.config.BootstrapServers,
-		Dialer:           k.dialer,
-		Client:           k.client,
+		Dialer: k.dialer,
+		Admin:  k.admin,
 	})
 
 	// get the topic metadata
@@ -171,21 +178,19 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", streamName, err)
 	}
 
-	admin := kadm.NewClient(k.client)
-
 	// get offsets for all partitions
-	startOffsets, err := admin.ListStartOffsets(ctx, streamName)
+	startOffsets, err := k.admin.ListStartOffsets(ctx, streamName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list start offsets for topic %s: %s", streamName, err)
 	}
 
-	endOffsets, err := admin.ListEndOffsets(ctx, streamName)
+	endOffsets, err := k.admin.ListEndOffsets(ctx, streamName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list end offsets for topic %s: %s", streamName, err)
 	}
 
 	if topicDetail.Err != nil {
-		return nil, fmt.Errorf("topic metadata for %s: %w", streamName, topicDetail.Err)
+		return nil, fmt.Errorf("topic metadata for %s: %v", streamName, topicDetail.Err)
 	}
 
 	partitionList := topicDetail.Partitions.Sorted()
@@ -194,7 +199,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	// get messages from partitions for schema discovery
 	err = utils.Concurrent(ctx, partitionList, len(partitionList), func(ctx context.Context, partitionDetail kadm.PartitionDetail, _ int) error {
 		if partitionDetail.Err != nil {
-			return fmt.Errorf("partition %d: %w", partitionDetail.Partition, partitionDetail.Err)
+			return fmt.Errorf("partition %d: %v", partitionDetail.Partition, partitionDetail.Err)
 		}
 
 		startOffset, exists := startOffsets.Lookup(streamName, partitionDetail.Partition)
@@ -232,7 +237,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		return k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
+		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
 			messageCount++
 			if record.Data != nil {
 				mu.Lock()
@@ -248,6 +253,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			shouldExit := messageCount >= 10000 || record.Message.Offset >= endOffset.Offset-1
 			return shouldExit, nil
 		})
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
@@ -363,7 +369,7 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 }
 
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
-func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, reader *kgo.Client, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
+func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
 	// cache observed partitions
 	if len(observedPartitions) == 0 {
 		// Ensure we have all assigned partitions tracked
@@ -377,53 +383,37 @@ func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, read
 				observedPartitions[assignedPk] = struct{}{}
 			}
 		}
-		// DescribeGroups member matching can miss the live consumer; fall back to what this client is actually consuming.
-		if len(observedPartitions) == 0 && reader != nil {
-			for topic, parts := range reader.UncommittedOffsets() {
-				for part := range parts {
-					pk := types.PartitionKey{Topic: topic, Partition: int(part)}
-					if _, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", pk.Topic, pk.Partition)); exists {
-						observedPartitions[pk] = struct{}{}
-					}
-				}
-			}
-		}
 	}
 
-	// Require a non-empty observed set so 0==0 is not treated as "done" before we know assignments.
-	if len(observedPartitions) == 0 {
-		return false, nil
-	}
+	// exit when all partitions are done
 	return len(completedPartitions) == len(observedPartitions), nil
 }
 
 // getReaderAssignedPartitions queries the consumer group and returns topic/partition pairs
-// assigned to the reader identified by readerIndex. We match on the per-reader ClientID.
+// assigned to the reader identified by readerIndex. We match on the per-reader readerID.
 func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int) ([]types.PartitionKey, error) {
-	readerID, clientID := k.readerManager.GetReaderIDAndClientID(readerIndex)
-	if clientID == "" {
-		return nil, fmt.Errorf("clientID not found for reader %s", readerID)
+	readerID, _ := k.readerManager.GetReaderIDAndClientID(readerIndex)
+	if readerID == "" {
+		return nil, fmt.Errorf("readerID not found for reader index %d", readerIndex)
 	}
 
-	admin := kadm.NewClient(k.client)
-
-	resp, err := admin.DescribeGroups(ctx, k.consumerGroupID)
+	response, err := k.admin.DescribeGroups(ctx, k.consumerGroupID)
 	if err != nil {
-		return nil, fmt.Errorf("DescribeGroups failed: %w", err)
+		return nil, fmt.Errorf("DescribeGroups failed: %s", err)
 	}
 
-	if err := resp.Error(); err != nil {
-		return nil, fmt.Errorf("DescribeGroups response error: %w", err)
+	if err := response.Error(); err != nil {
+		return nil, fmt.Errorf("DescribeGroups response error: %s", err)
 	}
 
 	var assigned []types.PartitionKey
-	for _, group := range resp {
+	for _, group := range response {
 		if group.Group != k.consumerGroupID || group.Err != nil {
 			continue
 		}
 		for _, member := range group.Members {
-			// try to match the client we created: primary on ClientID, fallback to MemberID or suffix match
-			if member.ClientID != clientID && member.MemberID != clientID && !strings.Contains(member.ClientID, readerID) && !strings.Contains(member.MemberID, readerID) {
+			// try to match the reader we created: primary on readerID
+			if member.InstanceID == nil || *member.InstanceID != readerID {
 				continue
 			}
 
@@ -434,10 +424,7 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 
 			for _, topic := range assignment.Topics {
 				for _, partition := range topic.Partitions {
-					assigned = append(assigned, types.PartitionKey{
-						Topic:     topic.Topic,
-						Partition: int(partition),
-					})
+					assigned = append(assigned, types.PartitionKey{Topic: topic.Topic, Partition: int(partition)})
 				}
 			}
 		}

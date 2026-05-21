@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
 // NewReaderManager creates a new Kafka reader manager
@@ -41,11 +42,6 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 	// reader tasks = max threads if set to total partitions
 	readersToCreate := utils.Ternary(r.ShouldMatchPartitionCount(), totalPartitions, utils.Ternary(r.config.MaxThreads > totalPartitions, totalPartitions, r.config.MaxThreads).(int)).(int)
 
-	partitionKeySet := make(map[string]struct{}, len(r.partitionIndex))
-	for k := range r.partitionIndex {
-		partitionKeySet[k] = struct{}{}
-	}
-
 	for readerIndex := range readersToCreate {
 		readerID := fmt.Sprintf("group_%s", utils.ULID())
 		clientID := fmt.Sprintf("olake-%s-%s", consumerGroupID, readerID)
@@ -63,54 +59,70 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 			kgo.ConsumerGroup(consumerGroupID),
 			kgo.ClientID(clientID),
 			kgo.ConsumeTopics(topics...),
+			// Use eager rebalancing so all consumers receive rebalance callbacks during
+			// rebalances, allowing CDC processing to stop gracefully and consistently.
 			kgo.Balancers(kgo.RoundRobinBalancer()),
 			kgo.FetchMinBytes(1),
 			kgo.FetchMaxBytes(10e6),
-			kgo.SessionTimeout(459*time.Second),
-			kgo.RebalanceTimeout(60*time.Second),
-			kgo.HeartbeatInterval(3*time.Second),
 			kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 			kgo.DisableAutoCommit(),
 			kgo.InstanceID(readerID),
-			kgo.OnPartitionsAssigned(func(ctx context.Context, cl *kgo.Client, assigned map[string][]int32) {
-				logger.Infof("reader %s assigned partitions: %+v", clientID, assigned)
-			}),
-
-			kgo.OnPartitionsRevoked(func(ctx context.Context, cl *kgo.Client, revoked map[string][]int32) {
-				logger.Infof("reader %s revoked partitions: %+v", clientID, revoked)
-			}),
-
-			kgo.OnPartitionsLost(func(ctx context.Context, cl *kgo.Client, lost map[string][]int32) {
-				logger.Warnf("reader %s lost partitions: %+v", clientID, lost)
+			// Partition ownership was lost unexpectedly, so further CDC processing
+			// cannot continue safely and must exit as non-retryable.
+			kgo.OnPartitionsLost(func(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
+				logger.Errorf("reader %s lost partitions: %+v", clientID, lost)
+				r.exitMode.Store(nonRetryableExit)
 			}),
 		)
 		reader, err := kgo.NewClient(readerOpts...)
 		if err != nil {
-			return fmt.Errorf("failed to create reader %d: %w", readerIndex, err)
+			return fmt.Errorf("failed to create reader %d: %v", readerIndex, err)
 		}
 		r.readers = append(r.readers, &kafkaReader{
 			id:       readerID,
 			clientID: clientID,
 			reader:   reader,
 		})
-		logger.Infof("created reader %d with clientID %s", readerIndex, clientID)
 	}
 	logger.Infof("created %d readers for %d total partitions, with consumer grou	p %s", len(r.readers), totalPartitions, consumerGroupID)
 
 	// warmup poll to trigger group join + partition assignment
-	for _, r := range r.readers {
-		warmupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		r.reader.PollFetches(warmupCtx)
-		cancel()
-	}
+	warmupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 
-	if len(r.readers) > 0 {
+	for warmupCtx.Err() == nil {
+		err := r.ErrForExitMode()
+		if err != nil {
+			return fmt.Errorf("failed to create readers for consumer group %s: %v", consumerGroupID, err)
+		}
+
+		for _, kafkaReader := range r.readers {
+			fetches := kafkaReader.reader.PollFetches(warmupCtx)
+			err := fetches.Errors()
+			if len(err) > 0 {
+				return fmt.Errorf("warmup poll failed for consumer group %s: %v", consumerGroupID, err[0].Err)
+			}
+		}
+
 		_, generationID := r.readers[0].reader.GroupMetadata()
-		r.generationID.Store(generationID)
-		logger.Infof("stored consumer group %s generation id: %d", consumerGroupID, generationID)
+		if generationID >= 0 {
+			// store the generation id to detect future rebalances
+			r.generationID.Store(generationID)
+			logger.Infof("stored consumer group %s generation id: %d", consumerGroupID, generationID)
+			break
+		}
 	}
 
-	r.exitMode.Store(normalProcessing)
+	// if the warmup poll timed out, return an error
+	if warmupCtx.Err() != nil {
+		return fmt.Errorf("timed out waiting for consumer group %s join: %v", consumerGroupID, warmupCtx.Err())
+	}
+
+	// check if the consumer group is in a valid state
+	err := r.ErrForExitMode()
+	if err != nil {
+		return fmt.Errorf("failed to create readers for consumer group %s: %v", consumerGroupID, err)
+	}
 	return nil
 }
 
@@ -148,24 +160,26 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 		return err
 	}
 
-	admin := kadm.NewClient(r.config.Client)
-
-	// fetch first and last offset of the all partition
-	startOffsets, err := admin.ListStartOffsets(ctx, topic)
+	// fetch first offset of the all partition
+	startOffsets, err := r.config.Admin.ListStartOffsets(ctx, topic)
 	if err != nil {
 		return fmt.Errorf("failed to list start offsets for topic %s: %s", topic, err)
 	}
-	endOffsets, err := admin.ListEndOffsets(ctx, topic)
+
+	// fetch last offset of the all partition
+	endOffsets, err := r.config.Admin.ListEndOffsets(ctx, topic)
 	if err != nil {
 		return fmt.Errorf("failed to list end offsets for topic %s: %s", topic, err)
 	}
 
 	// fetch already committed offset of partition
-	committedTopicOffsets := r.FetchCommittedOffsets(ctx, topic, topicDetail.Partitions)
+	committedTopicOffsets, err := r.FetchCommittedOffsets(ctx, topic, topicDetail.Partitions)
+	if err != nil {
+		return fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, err)
+	}
 
 	// build partition metadata
 	for _, partition := range topicDetail.Partitions {
-
 		startOffset, exists := startOffsets.Lookup(topic, partition.Partition)
 		if !exists {
 			continue
@@ -196,15 +210,12 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 			EndOffset:   endOffset.Offset,
 		}
 	}
-
 	return nil
 }
 
 // GetTopicMetadata fetches metadata for a topic
 func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*kadm.TopicDetail, error) {
-	admin := kadm.NewClient(r.config.Client)
-	metadata, err := admin.ListTopics(ctx, topic)
-
+	metadata, err := r.config.Admin.ListTopics(ctx, topic)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", topic, err)
 	}
@@ -217,22 +228,19 @@ func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*ka
 }
 
 // FetchCommittedOffsets fetches committed offsets for a topic
-func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string, partitions map[int32]kadm.PartitionDetail) map[int]int64 {
+func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string, partitions map[int32]kadm.PartitionDetail) (map[int]int64, error) {
 	partitionsToFetch := make([]int32, 0, len(partitions))
-	for _, p := range partitions {
-		partitionsToFetch = append(partitionsToFetch, int32(p.Partition))
+	for _, partitionDetail := range partitions {
+		partitionsToFetch = append(partitionsToFetch, int32(partitionDetail.Partition))
 	}
 
-	admin := kadm.NewClient(r.config.Client)
-	offsets, err := admin.FetchOffsets(ctx, r.config.ConsumerGroupID)
+	offsets, err := r.config.Admin.FetchOffsets(ctx, r.config.ConsumerGroupID)
 	if err != nil {
-		logger.Warnf("could not fetch committed offsets for group %s", r.config.ConsumerGroupID)
-		return map[int]int64{}
+		return nil, fmt.Errorf("could not fetch committed offsets for group %s", r.config.ConsumerGroupID)
 	}
 
 	committedTopicOffsets := make(map[int]int64)
 	for _, partition := range partitionsToFetch {
-
 		offset, exists := offsets.Lookup(topic, partition)
 		if !exists {
 			continue
@@ -240,12 +248,54 @@ func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string,
 
 		committedTopicOffsets[int(partition)] = offset.At
 	}
-	return committedTopicOffsets
+	return committedTopicOffsets, nil
 }
 
-func (r *ReaderManager) Close() error {
+// RemoveExistingConsumers force removes all existing consumers from the consumer group and closes reader clients.
+func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo.Client) error {
+	if r.config.ConsumerGroupID != "" {
+		groups, err := r.config.Admin.DescribeGroups(ctx, r.config.ConsumerGroupID)
+		if err != nil {
+			return fmt.Errorf("describe groups failed: %v", err)
+		}
+
+		group, ok := groups[r.config.ConsumerGroupID]
+		if ok && group.Err != nil {
+			return fmt.Errorf("describe groups error: %v", group.Err)
+		}
+
+		if ok && len(group.Members) > 0 {
+			req := kmsg.NewPtrLeaveGroupRequest()
+			req.Group = r.config.ConsumerGroupID
+
+			for _, member := range group.Members {
+				req.Members = append(req.Members, kmsg.LeaveGroupRequestMember{
+					MemberID: member.MemberID,
+					InstanceID: func() *string {
+						if member.InstanceID == nil {
+							return nil
+						}
+						v := *member.InstanceID
+						return &v
+					}(),
+				})
+			}
+
+			response, err := req.RequestWith(ctx, client)
+			if err != nil {
+				return fmt.Errorf("leave group request failed: %v", err)
+			}
+
+			if response.ErrorCode != 0 {
+				return fmt.Errorf("leave group error code: %d", response.ErrorCode)
+			}
+		}
+	}
+
 	for _, kafkaReader := range r.readers {
-		kafkaReader.reader.Close()
+		if kafkaReader.reader != nil {
+			kafkaReader.reader.Close()
+		}
 	}
 
 	for kStr := range r.partitionIndex {
@@ -255,7 +305,7 @@ func (r *ReaderManager) Close() error {
 	return nil
 }
 
-// RestartReader closes and recreates the reader using the same readerID and clientID.
+// RestartReader closes and recreates the reader using the same instanceID.
 func (r *ReaderManager) RestartReader(ctx context.Context, readerIndex int, streams []types.StreamInterface, consumerGroupID string) (*kgo.Client, error) {
 	currentReader := r.GetReader(readerIndex)
 	if currentReader == nil {
@@ -264,27 +314,22 @@ func (r *ReaderManager) RestartReader(ctx context.Context, readerIndex int, stre
 
 	readerID, clientID := r.GetReaderIDAndClientID(readerIndex)
 
-	logger.Infof("restarting reader %d with clientID %s", readerIndex, clientID)
-
 	currentReader.Close()
 
 	reader, err := r.CreateReader(streams, consumerGroupID, readerID, clientID)
 	if err != nil {
 		// Slot must not keep a closed *kgo.Client; next Poll/Commit would be undefined.
 		r.readers[readerIndex].reader = nil
-		return nil, fmt.Errorf("%w: failed to recreate kafka reader %d after close: %v", constants.ErrNonRetryable, readerIndex, err)
+		return nil, fmt.Errorf("%v: failed to recreate kafka reader %d after close: %v", constants.ErrNonRetryable, readerIndex, err)
 	}
 
 	r.readers[readerIndex].reader = reader
-
-	logger.Infof("successfully restarted reader %d with clientID %s", readerIndex, clientID)
 
 	return reader, nil
 }
 
 // CreateReader creates a single kafka reader client.
 func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGroupID string, readerID string, clientID string) (*kgo.Client, error) {
-
 	topics := make([]string, 0, len(streams))
 
 	for _, stream := range streams {
@@ -299,31 +344,25 @@ func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGr
 		kgo.ClientID(clientID),
 		kgo.InstanceID(readerID),
 		kgo.ConsumeTopics(topics...),
+		// Use eager rebalancing so all consumers receive rebalance callbacks during
+		// rebalances, allowing CDC processing to stop gracefully and consistently.
 		kgo.Balancers(kgo.RoundRobinBalancer()),
-		kgo.FetchMinBytes(1),
 		kgo.FetchMaxBytes(10e6),
-		kgo.SessionTimeout(459*time.Second),
-		kgo.RebalanceTimeout(60*time.Second),
-		kgo.HeartbeatInterval(3*time.Second),
 		kgo.DisableAutoCommit(),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
-		kgo.OnPartitionsAssigned(func(ctx context.Context, cl *kgo.Client, assigned map[string][]int32) {
-			logger.Infof("reader %s assigned partitions: %+v", clientID, assigned)
+		kgo.OnPartitionsAssigned(func(_ context.Context, cl *kgo.Client, assigned map[string][]int32) {
 			if r.RebalanceDetected(cl) {
 				r.exitMode.Store(gracefulExit)
 			}
 		}),
-		kgo.OnPartitionsRevoked(func(ctx context.Context, cl *kgo.Client, revoked map[string][]int32) {
-			logger.Infof("reader %s revoked partitions: %+v", clientID, revoked)
+		kgo.OnPartitionsRevoked(func(_ context.Context, cl *kgo.Client, revoked map[string][]int32) {
 			if r.RebalanceDetected(cl) {
 				r.exitMode.Store(gracefulExit)
 			}
 		}),
-		kgo.OnPartitionsLost(func(ctx context.Context, cl *kgo.Client, lost map[string][]int32) {
+		kgo.OnPartitionsLost(func(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
 			logger.Warnf("reader %s lost partitions: %+v", clientID, lost)
-			if r.RebalanceDetected(cl) {
-				r.exitMode.Store(nonRetryableExit)
-			}
+			r.exitMode.Store(nonRetryableExit)
 		}),
 	)
 
@@ -359,8 +398,8 @@ func (r *ReaderManager) ErrForExitMode() error {
 	case normalProcessing, gracefulExit:
 		return nil
 	case nonRetryableExit:
-		return fmt.Errorf("%w: kafka sync aborted", constants.ErrNonRetryable)
+		return fmt.Errorf("%v: kafka sync aborted", constants.ErrNonRetryable)
 	default:
-		return fmt.Errorf("%w: kafka sync aborted", constants.ErrNonRetryable)
+		return fmt.Errorf("%v: kafka sync aborted", constants.ErrNonRetryable)
 	}
 }

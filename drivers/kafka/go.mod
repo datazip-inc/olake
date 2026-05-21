@@ -10,7 +10,6 @@ require (
 	github.com/apache/arrow-go/v18 v18.2.0
 	github.com/datazip-inc/olake v0.0.0-00010101000000-000000000000
 	github.com/linkedin/goavro/v2 v2.15.0
-	github.com/segmentio/kafka-go v0.4.49
 	github.com/stretchr/testify v1.11.1
 	github.com/twmb/franz-go v1.21.1
 	github.com/twmb/franz-go/pkg/kadm v1.18.0

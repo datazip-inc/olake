@@ -6,24 +6,24 @@ import (
 	"sync/atomic"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// ReaderManager.exitMode values (atomic int32).
+// ReaderManager exit modes used to control CDC processing flow.
 const (
-	normalProcessing int32 = iota
-	gracefulExit           // consumer-group rebalance: stop fetch loop without error (no abstract retry)
-	nonRetryableExit
+	normalProcessing int32 = iota // normal CDC processing state
+	gracefulExit                  // stop processing during rebalance without triggering abstract-layer retries
+	nonRetryableExit              // stop processing due to unrecoverable consumer state
 )
 
 // ReaderConfig holds configuration for creating Kafka readers
 type ReaderConfig struct {
 	MaxThreads                  int
 	ThreadsEqualTotalPartitions bool
-	BootstrapServers            string
 	ConsumerGroupID             string
 	Dialer                      []kgo.Opt
-	Client                      *kgo.Client
+	Admin                       *kadm.Client
 }
 
 type kafkaReader struct {
@@ -38,7 +38,7 @@ type ReaderManager struct {
 	readers        []*kafkaReader
 	partitionIndex map[string]types.PartitionMetaData // get per-partition boundaries
 	exitMode       atomic.Int32                       // normalProcessing | gracefulExit | nonRetryableExit
-	generationID   atomic.Int32                       // consumer group generation after PreCDC warmup
+	generationID   atomic.Int32                       // Group generationId is used to detect rebalances
 }
 
 // SchemaRegistryClient holds the schema registry client information
