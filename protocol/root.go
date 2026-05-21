@@ -101,6 +101,23 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	return RootCmd
 }
 
+// signalAwareRootContext wraps parent so that the returned context cancels on
+// SIGINT / SIGTERM as well as on any parent cancellation. Used to wire pod
+// eviction, docker stop, and Ctrl-C through to the existing ctx.Done()
+// branches in CDC, backfill, and destination-writer paths.
+//
+// Source / destination consistency on cancel is still owned by each
+// driver.PostCDC and destination writer.Close implementation. This wrapper only
+// makes process signals visible through ctx.Done(); it does not make source
+// checkpoints and destination commits atomic. Any implementation that performs
+// a final commit after work has been written must continue to check ctx.Done()
+// before that commit and must treat a canceled context as a reason to avoid
+// advancing only one side of the source/destination boundary.
+//
+// The Kafka driver has a separate `TODO: Add 2PC support for Kafka` for a
+// future stricter contract. Other drivers may have similar source-specific
+// checkpointing constraints, so this helper should not be used as a substitute
+// for driver-level cancellation safety.
 func signalAwareRootContext(parent context.Context) context.Context {
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	// signal.NotifyContext keeps the signal handler installed until stop() is
