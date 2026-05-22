@@ -236,7 +236,6 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-
 		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
 			messageCount++
 			if record.Data != nil {

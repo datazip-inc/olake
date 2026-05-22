@@ -23,7 +23,7 @@ func NewReaderManager(config ReaderConfig) *ReaderManager {
 	}
 }
 
-// CreateReaders creates Kafka readers based on the provided streams and configuration
+// CreateReaders creates Kafka readers based on the provided streams and configuration and warmup the consumer group
 func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.StreamInterface, consumerGroupID string) error {
 	r.partitionIndex = make(map[string]types.PartitionMetaData)
 	for _, stream := range streams {
@@ -67,12 +67,8 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 			kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 			kgo.DisableAutoCommit(),
 			kgo.InstanceID(readerID),
-			// Partition ownership was lost unexpectedly, so further CDC processing
-			// cannot continue safely and must exit as non-retryable.
-			kgo.OnPartitionsLost(func(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
-				logger.Errorf("reader %s lost partitions: %+v", clientID, lost)
-				r.exitMode.Store(nonRetryableExit)
-			}),
+			// No assign/revoke/lost hooks here — warmup only joins the group. Rebalance
+			// and partition-loss handling are enabled on CreateReader during CDC.
 		)
 		reader, err := kgo.NewClient(readerOpts...)
 		if err != nil {
@@ -84,46 +80,9 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 			reader:   reader,
 		})
 	}
-	logger.Infof("created %d readers for %d total partitions, with consumer grou	p %s", len(r.readers), totalPartitions, consumerGroupID)
-
-	// warmup poll to trigger group join + partition assignment
-	warmupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	for warmupCtx.Err() == nil {
-		err := r.ErrForExitMode()
-		if err != nil {
-			return fmt.Errorf("failed to create readers for consumer group %s: %v", consumerGroupID, err)
-		}
-
-		for _, kafkaReader := range r.readers {
-			fetches := kafkaReader.reader.PollFetches(warmupCtx)
-			err := fetches.Errors()
-			if len(err) > 0 {
-				return fmt.Errorf("warmup poll failed for consumer group %s: %v", consumerGroupID, err[0].Err)
-			}
-		}
-
-		_, generationID := r.readers[0].reader.GroupMetadata()
-		if generationID >= 0 {
-			// store the generation id to detect future rebalances
-			r.generationID.Store(generationID)
-			logger.Infof("stored consumer group %s generation id: %d", consumerGroupID, generationID)
-			break
-		}
-	}
-
-	// if the warmup poll timed out, return an error
-	if warmupCtx.Err() != nil {
-		return fmt.Errorf("timed out waiting for consumer group %s join: %v", consumerGroupID, warmupCtx.Err())
-	}
-
-	// check if the consumer group is in a valid state
-	err := r.ErrForExitMode()
-	if err != nil {
-		return fmt.Errorf("failed to create readers for consumer group %s: %v", consumerGroupID, err)
-	}
-	return nil
+	logger.Infof("created %d readers for %d total partitions, with consumer group %s", len(r.readers), totalPartitions, consumerGroupID)
+	// warmup the consumer group
+	return r.warmupConsumerGroup(ctx, consumerGroupID)
 }
 
 // GetReaders returns the created readers
@@ -401,4 +360,52 @@ func (r *ReaderManager) ErrForExitMode() error {
 	default:
 		return fmt.Errorf("%v: kafka sync aborted", constants.ErrNonRetryable)
 	}
+}
+
+// warmupConsumerGroup concurrently polls all readers until the Kafka consumer group completes JoinGroup/SyncGroup and partition assignment.
+// Readiness is detected via GroupMetadata() instead of waiting for fetches to return records.
+func (r *ReaderManager) warmupConsumerGroup(ctx context.Context, consumerGroupID string) (err error) {
+	warmupCtx, warmupCancel := context.WithTimeout(ctx, 120*time.Second)
+
+	pollGroup := utils.NewCGroup(warmupCtx)
+	utils.ConcurrentInGroup(pollGroup, r.readers, func(ctx context.Context, _ int, kafkaReader *kafkaReader) error {
+		for ctx.Err() == nil {
+			if errs := kafkaReader.reader.PollFetches(ctx).Errors(); len(errs) > 0 && ctx.Err() == nil {
+				return fmt.Errorf("warmup poll failed for consumer group %s: %v", consumerGroupID, errs[0].Err)
+			}
+		}
+		return nil
+	})
+
+	allJoined := false
+	defer func() {
+		warmupCancel()
+		err = pollGroup.Block()
+		if err != nil {
+			return
+		}
+		if !allJoined {
+			err = fmt.Errorf("timed out waiting for consumer group %s join: %v", consumerGroupID, context.DeadlineExceeded)
+		}
+	}()
+
+	for warmupCtx.Err() == nil {
+		allJoined = true
+		var generationID int32
+		for _, kafkaReader := range r.readers {
+			_, genID := kafkaReader.reader.GroupMetadata()
+			if genID < 0 {
+				allJoined = false
+				break
+			}
+			generationID = genID
+		}
+		if allJoined {
+			r.generationID.Store(generationID)
+			logger.Infof("stored consumer group %s generation id: %d", consumerGroupID, generationID)
+			return nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return nil
 }

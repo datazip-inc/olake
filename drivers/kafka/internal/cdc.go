@@ -208,11 +208,6 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 // for processing messages from a Kafka reader.
 func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
 	for {
-		err := k.readerManager.ErrForExitMode()
-		if err != nil {
-			return err
-		}
-
 		messages := reader.PollFetches(ctx)
 		errs := messages.Errors()
 		if len(errs) > 0 {
@@ -222,20 +217,23 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 		records := messages.RecordIter()
 
 		for !records.Done() {
-			if k.readerManager.ShouldStopProcessing() {
-				logger.Infof("stopping kafka CDC processing due to consumer group rebalance")
-				return nil
-			}
-			err = k.readerManager.ErrForExitMode()
-			if err != nil {
-				logger.Errorf("kafka consumer lost partition ownership and CDC processing can no longer continue safely: %s	", err)
-				return err
+			// Discover/schema sampling uses standalone partition consumers without ReaderManager.
+			if k.readerManager != nil {
+				if k.readerManager.ShouldStopProcessing() {
+					logger.Infof("stopping kafka CDC processing due to consumer group rebalance")
+					return nil
+				}
+				if err := k.readerManager.ErrForExitMode(); err != nil {
+					logger.Errorf("kafka consumer lost partition ownership and CDC processing can no longer continue safely: %s	", err)
+					return err
+				}
 			}
 			message := records.Next()
 
 			var (
 				key  string
 				data map[string]interface{}
+				err  error
 			)
 
 			// parse message value and key
