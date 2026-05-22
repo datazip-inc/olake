@@ -67,8 +67,6 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 			kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 			kgo.DisableAutoCommit(),
 			kgo.InstanceID(readerID),
-			// No assign/revoke/lost hooks here — warmup only joins the group. Rebalance
-			// and partition-loss handling are enabled on CreateReader during CDC.
 		)
 		reader, err := kgo.NewClient(readerOpts...)
 		if err != nil {
