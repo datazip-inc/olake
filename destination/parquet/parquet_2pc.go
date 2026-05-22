@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -21,7 +19,6 @@ import (
 
 const (
 	parquet2PCDir        = "_olake_2pc"
-	parquet2PCStateFile  = "state.json"
 	parquet2PCCommitsDir = "commits"
 	parquet2PCPrepareDir = "preparing"
 )
@@ -39,11 +36,6 @@ type parquet2PCMarkerFile struct {
 }
 
 func (p *Parquet) load2PCState(ctx context.Context) (*types.MetadataState, error) {
-	state, err := p.readStateFile(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	commits, err := p.list2PCMarkers(ctx, parquet2PCCommitsDir)
 	if err != nil {
 		return nil, err
@@ -68,11 +60,13 @@ func (p *Parquet) load2PCState(ctx context.Context) (*types.MetadataState, error
 		}
 	}
 
-	if state == nil && latestStateMarker != nil {
-		state = latestStateMarker.MetadataState
+	var state *types.MetadataState
+	if latestStateMarker != nil {
+		stateCopy := *latestStateMarker.MetadataState
+		state = &stateCopy
 	}
 	if state == nil && len(fullRefreshCommittedIDs) == 0 {
-		if err := p.cleanupPrepareMarkers(ctx, committedIDs, nil); err != nil {
+		if err := p.cleanupPrepareMarkers(ctx, committedIDs); err != nil {
 			return nil, err
 		}
 		return state, nil
@@ -92,7 +86,7 @@ func (p *Parquet) load2PCState(ctx context.Context) (*types.MetadataState, error
 		}
 	}
 
-	if err := p.cleanupPrepareMarkers(ctx, committedIDs, state); err != nil {
+	if err := p.cleanupPrepareMarkers(ctx, committedIDs); err != nil {
 		return nil, err
 	}
 	return state, nil
@@ -163,31 +157,6 @@ func dataFilePaths(files []parquetDataFile) []string {
 		paths = append(paths, file.Path)
 	}
 	return paths
-}
-
-func (p *Parquet) writeStateFile(ctx context.Context, metadataState *types.MetadataState) error {
-	data, err := json.Marshal(metadataState)
-	if err != nil {
-		return fmt.Errorf("failed to marshal parquet 2pc state: %s", err)
-	}
-	return p.write2PCObject(ctx, parquet2PCStateFile, data)
-}
-
-func (p *Parquet) readStateFile(ctx context.Context) (*types.MetadataState, error) {
-	data, err := p.read2PCObject(ctx, parquet2PCStateFile)
-	if err != nil {
-		return nil, err
-	}
-	var state *types.MetadataState
-	if len(data) == 0 {
-		return state, nil
-	}
-
-	state = &types.MetadataState{}
-	if err := json.Unmarshal(data, state); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal parquet 2pc state: %s", err)
-	}
-	return state, nil
 }
 
 func (p *Parquet) list2PCMarkers(ctx context.Context, markerDir string) ([]parquet2PCMarkerFile, error) {
@@ -273,14 +242,14 @@ func (p *Parquet) listS3Markers(ctx context.Context, markerDir string) ([]parque
 	return markers, pageErr
 }
 
-func (p *Parquet) cleanupPrepareMarkers(ctx context.Context, committedIDs map[string]bool, metadataState *types.MetadataState) error {
+func (p *Parquet) cleanupPrepareMarkers(ctx context.Context, committedIDs map[string]bool) error {
 	prepares, err := p.list2PCMarkers(ctx, parquet2PCPrepareDir)
 	if err != nil {
 		return err
 	}
 
 	for _, prepare := range prepares {
-		if committedIDs[prepare.ThreadID] || metadataStateCommitted(metadataState, prepare.ThreadID) {
+		if committedIDs[prepare.ThreadID] {
 			if err := p.deletePrepareMarker(ctx, prepare.ThreadID); err != nil {
 				logger.Warnf("Thread[%s]: failed to delete stale parquet 2pc prepare marker: %s", prepare.ThreadID, err)
 			}
@@ -297,21 +266,6 @@ func (p *Parquet) cleanupPrepareMarkers(ctx context.Context, committedIDs map[st
 		}
 	}
 	return nil
-}
-
-func metadataStateCommitted(metadataState *types.MetadataState, threadID string) bool {
-	if metadataState == nil || threadID == "" {
-		return false
-	}
-	if fmt.Sprint(metadataState.ID) == threadID {
-		return true
-	}
-	for _, id := range metadataState.FullRefreshCommittedIDs {
-		if id == threadID {
-			return true
-		}
-	}
-	return false
 }
 
 func (p *Parquet) deleteDataFile(ctx context.Context, filePath string) error {
@@ -347,23 +301,6 @@ func (p *Parquet) write2PCObject(ctx context.Context, name string, data []byte) 
 		return err
 	}
 	return writeLocalFile(filepath.Join(p.local2PCPath(), name), data)
-}
-
-func (p *Parquet) read2PCObject(ctx context.Context, name string) ([]byte, error) {
-	if p.s3Client != nil {
-		key := p.s3ObjectPath(filepath.Join(p.basePath, parquet2PCDir, name))
-		data, err := p.readS3Object(ctx, key)
-		if isS3NotFound(err) {
-			return nil, nil
-		}
-		return data, err
-	}
-
-	data, err := os.ReadFile(filepath.Join(p.local2PCPath(), name))
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	return data, err
 }
 
 func (p *Parquet) delete2PCObject(ctx context.Context, name string) error {
@@ -430,15 +367,4 @@ func writeLocalFile(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
-}
-
-func isS3NotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	var awsErr awserr.Error
-	if !errors.As(err, &awsErr) {
-		return false
-	}
-	return awsErr.Code() == s3.ErrCodeNoSuchKey || awsErr.Code() == "NotFound"
 }

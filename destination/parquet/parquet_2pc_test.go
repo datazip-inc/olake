@@ -90,25 +90,22 @@ func TestLoad2PCState(t *testing.T) {
 			},
 		},
 		{
-			name: "keeps prepared files when state is committed",
+			name: "cleans prepared files with metadata without commit marker",
 			run: func(t *testing.T) {
 				p := testParquet2PC(t, "incremental-thread")
-				committedFile := testWriteFile(t, p, "committed.parquet")
+				failedFile := testWriteFile(t, p, "failed.parquet")
 				metadataState := &types.MetadataState{
 					ID:    "incremental-thread",
 					State: `{"cursor":1}`,
 				}
-				files := testDataFiles(p, "committed.parquet")
+				files := testDataFiles(p, "failed.parquet")
 				require.NoError(t, p.writePrepareMarker(ctx, files, metadataState))
-				require.NoError(t, p.writeStateFile(ctx, metadataState))
 
 				state, err := p.load2PCState(ctx)
 				require.NoError(t, err)
-				require.NotNil(t, state)
-				require.Equal(t, "incremental-thread", state.ID)
-				require.Equal(t, `{"cursor":1}`, state.State)
+				require.Nil(t, state)
 
-				requireFileExists(t, committedFile)
+				requireFileNotExists(t, failedFile)
 				requireFileNotExists(t, testPrepareMarkerPath(p, "incremental-thread"))
 			},
 		},
@@ -128,7 +125,7 @@ func TestMetadataStateWrapsIncrementalPayload(t *testing.T) {
 	require.Equal(t, `{"id":10}`, state.State)
 }
 
-func TestCloseWritesCommitMarkerAndState(t *testing.T) {
+func TestCloseWritesCommitMarkerWithMetadataState(t *testing.T) {
 	ctx := context.Background()
 	stream := testConfiguredStream()
 	p := &Parquet{config: &Config{Path: t.TempDir()}}
@@ -167,14 +164,42 @@ func TestCloseWritesCommitMarkerAndState(t *testing.T) {
 	require.NotNil(t, marker.MetadataState)
 	require.Equal(t, `{"cursor":1}`, marker.MetadataState.State)
 
-	state, err = p.readStateFile(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, state)
-	require.Equal(t, "incremental-thread", state.ID)
-	require.Equal(t, `{"cursor":1}`, state.State)
-
 	_, err = os.Stat(filepath.Join(p.local2PCPath(), parquet2PCPrepareDir, p.markerFileName("incremental-thread")))
 	require.True(t, os.IsNotExist(err))
+}
+
+func TestCloseWritesMetadataOnlyCommitMarker(t *testing.T) {
+	ctx := context.Background()
+	stream := testConfiguredStream()
+	p := &Parquet{config: &Config{Path: t.TempDir()}}
+	options := &destination.Options{ThreadID: "cdc-thread"}
+
+	_, state, err := p.Setup(ctx, stream, nil, options)
+	require.NoError(t, err)
+	require.Nil(t, state)
+
+	metadataState := &types.MetadataState{
+		ID:    "cdc-thread",
+		State: `{"lsn":"1/1"}`,
+	}
+	require.NoError(t, p.Close(ctx, metadataState))
+
+	state, err = p.load2PCState(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	require.Equal(t, "cdc-thread", state.ID)
+	require.Equal(t, `{"lsn":"1/1"}`, state.State)
+
+	commitPath := filepath.Join(p.local2PCPath(), parquet2PCCommitsDir, p.markerFileName("cdc-thread"))
+	commitData, err := os.ReadFile(commitPath)
+	require.NoError(t, err)
+
+	var marker parquet2PCMarker
+	require.NoError(t, json.Unmarshal(commitData, &marker))
+	require.Equal(t, "cdc-thread", marker.ThreadID)
+	require.Empty(t, marker.Files)
+	require.NotNil(t, marker.MetadataState)
+	require.Equal(t, `{"lsn":"1/1"}`, marker.MetadataState.State)
 }
 
 func testParquet2PC(t *testing.T, threadID string) *Parquet {

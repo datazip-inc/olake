@@ -395,11 +395,6 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	if err := p.uploadPqFiles(ctx, dataFiles); err != nil {
 		return err
 	}
-	if metadataState != nil {
-		if err := p.writeStateFile(ctx, metadataState); err != nil {
-			return err
-		}
-	}
 	if err := p.writeCommitMarker(ctx, dataFiles, metadataState); err != nil {
 		return err
 	}
