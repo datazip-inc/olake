@@ -93,7 +93,7 @@ func TestSignalAwareRootContextCancelsOnSignal(t *testing.T) {
 }
 
 // TestSignalAwareRootContextPreservesParentCancellation verifies that
-// cancelling the parent context still propagates through the signal-aware
+// canceling the parent context still propagates through the signal-aware
 // wrapper. Without this, callers that cancel via context.WithCancel /
 // context.WithTimeout would be silently ignored after the wrap.
 func TestSignalAwareRootContextPreservesParentCancellation(t *testing.T) {
