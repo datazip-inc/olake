@@ -131,7 +131,9 @@ func (k *Kafka) Close() error {
 	defer cancel()
 
 	if k.readerManager != nil {
-		k.readerManager.RemoveExistingConsumers(ctx, k.client)
+		if err := k.readerManager.RemoveExistingConsumers(ctx, k.client); err != nil {
+			logger.Warnf("failed to remove existing consumers during close: %v", err)
+		}
 	}
 
 	if k.client != nil {

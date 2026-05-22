@@ -2,6 +2,7 @@ package kafka
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -186,24 +187,18 @@ func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*ka
 
 // FetchCommittedOffsets fetches committed offsets for a topic
 func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string, partitions map[int32]kadm.PartitionDetail) (map[int]int64, error) {
-	partitionsToFetch := make([]int32, 0, len(partitions))
-	for _, partitionDetail := range partitions {
-		partitionsToFetch = append(partitionsToFetch, int32(partitionDetail.Partition))
-	}
-
 	offsets, err := r.config.Admin.FetchOffsets(ctx, r.config.ConsumerGroupID)
 	if err != nil {
 		return nil, fmt.Errorf("could not fetch committed offsets for group %s", r.config.ConsumerGroupID)
 	}
 
 	committedTopicOffsets := make(map[int]int64)
-	for _, partition := range partitionsToFetch {
-		offset, exists := offsets.Lookup(topic, partition)
+	for _, partitionDetail := range partitions {
+		offset, exists := offsets.Lookup(topic, partitionDetail.Partition)
 		if !exists {
 			continue
 		}
-
-		committedTopicOffsets[int(partition)] = offset.At
+		committedTopicOffsets[int(partitionDetail.Partition)] = offset.At
 	}
 	return committedTopicOffsets, nil
 }
@@ -304,6 +299,7 @@ func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGr
 		// Use eager rebalancing so all consumers receive rebalance callbacks during
 		// rebalances, allowing CDC processing to stop gracefully and consistently.
 		kgo.Balancers(kgo.RoundRobinBalancer()),
+		kgo.FetchMinBytes(1),
 		kgo.FetchMaxBytes(10e6),
 		kgo.DisableAutoCommit(),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
@@ -379,6 +375,11 @@ func (r *ReaderManager) warmupConsumerGroup(ctx context.Context, consumerGroupID
 	defer func() {
 		warmupCancel()
 		err = pollGroup.Block()
+		// warmupCancel() causes the poll goroutines to exit with context.Canceled;
+		// that is expected and must not mask a successful warmup return.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			err = nil
+		}
 		if err != nil {
 			return
 		}
@@ -389,16 +390,23 @@ func (r *ReaderManager) warmupConsumerGroup(ctx context.Context, consumerGroupID
 
 	for warmupCtx.Err() == nil {
 		allJoined = true
-		var generationID int32
+		var generationID int32 = -1
 		for _, kafkaReader := range r.readers {
 			_, genID := kafkaReader.reader.GroupMetadata()
 			if genID < 0 {
 				allJoined = false
 				break
 			}
-			generationID = genID
+			if generationID < 0 {
+				// capture the first reader's generation as the baseline
+				generationID = genID
+			} else if genID != generationID {
+				// readers disagree on generation — group is mid-rebalance, keep waiting
+				allJoined = false
+				break
+			}
 		}
-		if allJoined {
+		if allJoined && generationID >= 0 {
 			r.generationID.Store(generationID)
 			logger.Infof("stored consumer group %s generation id: %d", consumerGroupID, generationID)
 			return nil

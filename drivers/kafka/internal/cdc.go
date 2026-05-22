@@ -62,7 +62,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	if err := k.readerManager.RemoveExistingConsumers(ctx, k.client); err != nil {
 		return fmt.Errorf("failed to remove existing consumers: %v", err)
 	}
-	// create new readers
+	// create new readers and warmup the consumer group
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
