@@ -205,42 +205,65 @@ func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string,
 
 // RemoveExistingConsumers force removes all existing consumers from the consumer group and closes reader clients.
 func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo.Client) error {
-	if r.config.ConsumerGroupID != "" {
-		groups, err := r.config.Admin.DescribeGroups(ctx, r.config.ConsumerGroupID)
+	var groups kadm.DescribedGroups
+	// The coordinator may not yet be active after broker startup or coordinator election,
+	// thus adding retry logic since DescribeGroups is the first query sent to the consumer group coordinator.
+	const (
+		retryBackoff = 2 * time.Second
+		retryTimeout = 90 * time.Second
+	)
+
+	retryCtx, cancel := context.WithTimeout(ctx, retryTimeout)
+	defer cancel()
+
+	backoff := retryBackoff
+	for attempt := 1; ; attempt++ {
+		var describeErr error
+		groups, describeErr = r.config.Admin.DescribeGroups(retryCtx, r.config.ConsumerGroupID)
+		if describeErr == nil {
+			break
+		}
+		if retryCtx.Err() != nil {
+			return fmt.Errorf("describe groups failed: %v", describeErr)
+		}
+		logger.Infof("describe groups attempt[%d], retrying after %.2f seconds due to err: %s", attempt, backoff.Seconds(), describeErr)
+		select {
+		case <-retryCtx.Done():
+			return fmt.Errorf("describe groups failed: %v", describeErr)
+		case <-time.After(backoff):
+			backoff *= 2
+		}
+	}
+
+	group, ok := groups[r.config.ConsumerGroupID]
+	if ok && group.Err != nil {
+		return fmt.Errorf("describe groups error: %v", group.Err)
+	}
+
+	if ok && len(group.Members) > 0 {
+		req := kmsg.NewPtrLeaveGroupRequest()
+		req.Group = r.config.ConsumerGroupID
+
+		for _, member := range group.Members {
+			req.Members = append(req.Members, kmsg.LeaveGroupRequestMember{
+				MemberID: member.MemberID,
+				InstanceID: func() *string {
+					if member.InstanceID == nil {
+						return nil
+					}
+					v := *member.InstanceID
+					return &v
+				}(),
+			})
+		}
+
+		response, err := req.RequestWith(ctx, client)
 		if err != nil {
-			return fmt.Errorf("describe groups failed: %v", err)
+			return fmt.Errorf("leave group request failed: %v", err)
 		}
 
-		group, ok := groups[r.config.ConsumerGroupID]
-		if ok && group.Err != nil {
-			return fmt.Errorf("describe groups error: %v", group.Err)
-		}
-
-		if ok && len(group.Members) > 0 {
-			req := kmsg.NewPtrLeaveGroupRequest()
-			req.Group = r.config.ConsumerGroupID
-
-			for _, member := range group.Members {
-				req.Members = append(req.Members, kmsg.LeaveGroupRequestMember{
-					MemberID: member.MemberID,
-					InstanceID: func() *string {
-						if member.InstanceID == nil {
-							return nil
-						}
-						v := *member.InstanceID
-						return &v
-					}(),
-				})
-			}
-
-			response, err := req.RequestWith(ctx, client)
-			if err != nil {
-				return fmt.Errorf("leave group request failed: %v", err)
-			}
-
-			if response.ErrorCode != 0 {
-				return fmt.Errorf("leave group error code: %d", response.ErrorCode)
-			}
+		if response.ErrorCode != 0 {
+			return fmt.Errorf("leave group error code: %d", response.ErrorCode)
 		}
 	}
 
