@@ -361,21 +361,24 @@ func (r *ReaderManager) RebalanceDetected(client *kgo.Client) bool {
 	return generationID >= 0 && generationID != r.generationID.Load()
 }
 
-// ShouldStopProcessing reports a consumer-group rebalance (assign/revoke during CDC).
-// The fetch loop must exit with nil — not an error — so abstract layer does not retry.
-func (r *ReaderManager) ShouldStopProcessing() bool {
-	return r.exitMode.Load() == gracefulExit
-}
+// FetchExitState reports whether CDC processing should stop after PollFetches.
+// exitMode is updated by consumer group rebalance callbacks before PollFetches returns.
+func (r *ReaderManager) FetchExitState() (stop bool, err error) {
+	// ReaderManager will be nil during discover mode.
+	if r == nil {
+		return false, nil
+	}
 
-// ErrForExitMode returns an error only for nonRetryableExit (e.g. partitions lost).
-func (r *ReaderManager) ErrForExitMode() error {
 	switch r.exitMode.Load() {
-	case normalProcessing, gracefulExit:
-		return nil
+	case normalProcessing:
+		return false, nil
+	case gracefulExit:
+		logger.Infof("stopping kafka CDC processing gracefully due to consumer group rebalance")
+		return true, nil
 	case nonRetryableExit:
-		return fmt.Errorf("%v: kafka sync aborted", constants.ErrNonRetryable)
+		return true, fmt.Errorf("%v: kafka sync aborted due to partition loss during consumer group rebalance", constants.ErrNonRetryable)
 	default:
-		return fmt.Errorf("%v: kafka sync aborted", constants.ErrNonRetryable)
+		return true, fmt.Errorf("%v: kafka sync aborted: unexpected exit mode", constants.ErrNonRetryable)
 	}
 }
 

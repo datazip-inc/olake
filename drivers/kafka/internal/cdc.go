@@ -183,6 +183,8 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 			if reader == nil {
 				return fmt.Errorf("reader %s not found for commit", readerID)
 			}
+			_, generationID := reader.GroupMetadata()
+			logger.Debugf("reader %s post cdc: generation id: %d", readerID, generationID)
 
 			if err := reader.CommitRecords(ctx, messages...); err != nil {
 				return fmt.Errorf("commit failed for reader %s: %s", readerID, err)
@@ -208,25 +210,28 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 // for processing messages from a Kafka reader.
 func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
 	for {
-		messages := reader.PollFetches(ctx)
+		pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		messages := reader.PollFetches(pollCtx)
+		pollCtxErr := pollCtx.Err()
+		cancel()
 		errs := messages.Errors()
-		if len(errs) > 0 {
+
+		// Rebalance/exit checks must run even when PollFetches returns an empty batch;
+		// otherwise a reader reassigned to empty partitions never enters the record loop.
+		if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
+			return err
+		}
+
+		if len(errs) > 0 && pollCtxErr == nil {
 			return fmt.Errorf("%v: error reading message in Kafka CDC sync: %v", constants.ErrNonRetryable, errs[0].Err)
 		}
 
 		records := messages.RecordIter()
 
 		for !records.Done() {
-			// Discover/schema sampling uses standalone partition consumers without ReaderManager.
-			if k.readerManager != nil {
-				if k.readerManager.ShouldStopProcessing() {
-					logger.Infof("stopping kafka CDC processing due to consumer group rebalance")
-					return nil
-				}
-				if err := k.readerManager.ErrForExitMode(); err != nil {
-					logger.Errorf("kafka consumer lost partition ownership and CDC processing can no longer continue safely: %s	", err)
-					return err
-				}
+			// Re-check rebalance state before processing each record to stop immediately after partition revocation.
+			if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
+				return err
 			}
 			message := records.Next()
 
