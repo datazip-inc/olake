@@ -2,8 +2,10 @@ package driver
 
 import (
 	"context"
+	"strings"
 	"testing"
 
+	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,6 +63,160 @@ func TestExtractStreamName(t *testing.T) {
 			assert.Equal(t, tt.expectedStreamName, streamName)
 		})
 	}
+}
+
+func TestSchemaSampleFiles(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    []FileObject
+		expected []FileObject
+	}{
+		{
+			name:     "empty",
+			files:    nil,
+			expected: nil,
+		},
+		{
+			name: "single file",
+			files: []FileObject{
+				{FileKey: "users/part-001.json"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/part-001.json"},
+			},
+		},
+		{
+			name: "two files",
+			files: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-002.json"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-002.json"},
+			},
+		},
+		{
+			name: "more than two files",
+			files: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-002.json"},
+				{FileKey: "users/part-003.json"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-003.json"},
+			},
+		},
+		{
+			name: "sorts files before selecting edges",
+			files: []FileObject{
+				{FileKey: "users/part-003.json"},
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-002.json"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-003.json"},
+			},
+		},
+		{
+			name: "deduplicates same first and last key",
+			files: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-001.json"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/part-001.json"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, schemaSampleFiles(tt.files))
+		})
+	}
+}
+
+func TestInferSchemaFromSampleFilesMergesSamples(t *testing.T) {
+	stream := types.NewStream("users", "s3", nil)
+	sampleFiles := []FileObject{
+		{FileKey: "users/first.json"},
+		{FileKey: "users/last.json"},
+	}
+
+	seen := []string{}
+	got, err := inferSchemaFromSampleFiles(context.Background(), sampleFiles, stream, func(_ context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
+		seen = append(seen, file.FileKey)
+		switch file.FileKey {
+		case "users/first.json":
+			stream.UpsertField("first_only", types.String, false, false)
+		case "users/last.json":
+			stream.UpsertField("last_only", types.Float64, false, false)
+		}
+		return stream, nil
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"users/first.json", "users/last.json"}, seen)
+
+	firstType, err := got.Schema.GetType("first_only")
+	require.NoError(t, err)
+	assert.Equal(t, types.String, firstType)
+
+	lastType, err := got.Schema.GetType("last_only")
+	require.NoError(t, err)
+	assert.Equal(t, types.Float64, lastType)
+}
+
+func TestInferSchemaFromSampleFilesMarksMissingJSONFieldsNullable(t *testing.T) {
+	stream := types.NewStream("users", "s3", nil)
+	sampleFiles := []FileObject{
+		{FileKey: "users/first.json"},
+		{FileKey: "users/last.json"},
+	}
+	payloads := map[string]string{
+		"users/first.json": `{"common":"present","first_only":"value"}`,
+		"users/last.json":  `{"common":"present","last_only":42}`,
+	}
+
+	got, err := inferSchemaFromSampleFiles(context.Background(), sampleFiles, stream, func(ctx context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
+		jsonParser := parser.NewJSONParser(parser.JSONConfig{}, stream)
+		return jsonParser.InferSchema(ctx, strings.NewReader(payloads[file.FileKey]))
+	})
+
+	require.NoError(t, err)
+
+	found, firstOnly := got.Schema.GetProperty("first_only")
+	require.True(t, found)
+	assert.True(t, firstOnly.Nullable())
+
+	found, lastOnly := got.Schema.GetProperty("last_only")
+	require.True(t, found)
+	assert.True(t, lastOnly.Nullable())
+
+	found, common := got.Schema.GetProperty("common")
+	require.True(t, found)
+	assert.False(t, common.Nullable())
+}
+
+func TestInferSchemaFromSampleFilesReturnsSampleError(t *testing.T) {
+	stream := types.NewStream("users", "s3", nil)
+	sampleFiles := []FileObject{
+		{FileKey: "users/first.json"},
+		{FileKey: "users/last.json"},
+	}
+
+	_, err := inferSchemaFromSampleFiles(context.Background(), sampleFiles, stream, func(_ context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
+		if file.FileKey == "users/last.json" {
+			return nil, assert.AnError
+		}
+		return stream, nil
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to infer schema from sample file users/last.json")
 }
 
 // TestConfigValidation tests configuration validation

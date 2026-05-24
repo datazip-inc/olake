@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -23,6 +24,8 @@ const (
 	// lastModifiedField is the S3 metadata field name used for tracking file modification timestamps for incremental sync
 	lastModifiedField = "_last_modified_time"
 )
+
+type schemaInferFunc func(context.Context, FileObject, *types.Stream) (*types.Stream, error)
 
 // S3 represents the S3 source driver
 type S3 struct {
@@ -291,27 +294,12 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	// Create stream
 	stream := types.NewStream(streamName, "s3", &s.config.BucketName)
 
-	// Infer schema from the first file in the stream
-	firstFile := files[0]
-	logger.Infof("Inferring schema from file: %s (%d files in stream)", firstFile.FileKey, len(files))
+	sampleFiles := schemaSampleFiles(files)
+	logger.Infof("Inferring schema from %d sample file(s) out of %d files in stream", len(sampleFiles), len(files))
 
-	var inferredStream *types.Stream
-	var err error
-
-	// Create appropriate parser and infer schema (format-specific logic from parser package)
-	switch s.config.FileFormat {
-	case FormatCSV:
-		inferredStream, err = s.inferSchemaForCSV(ctx, firstFile, stream)
-	case FormatJSON:
-		inferredStream, err = s.inferSchemaForJSON(ctx, firstFile, stream)
-	case FormatParquet:
-		inferredStream, err = s.inferSchemaForParquet(ctx, firstFile, stream)
-	default:
-		return nil, fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
-	}
-
+	inferredStream, err := inferSchemaFromSampleFiles(ctx, sampleFiles, stream, s.inferSchemaForFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to infer schema: %s", err)
+		return nil, err
 	}
 
 	// Add _last_modified_time as a cursor field for incremental sync
@@ -320,6 +308,97 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 
 	inferredStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	return inferredStream, nil
+}
+
+func (s *S3) inferSchemaForFile(ctx context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
+	// Create appropriate parser and infer schema (format-specific logic from parser package)
+	switch s.config.FileFormat {
+	case FormatCSV:
+		return s.inferSchemaForCSV(ctx, file, stream)
+	case FormatJSON:
+		return s.inferSchemaForJSON(ctx, file, stream)
+	case FormatParquet:
+		return s.inferSchemaForParquet(ctx, file, stream)
+	default:
+		return nil, fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
+	}
+}
+
+func inferSchemaFromSampleFiles(ctx context.Context, sampleFiles []FileObject, stream *types.Stream, infer schemaInferFunc) (*types.Stream, error) {
+	inferredStream := stream
+	sampleColumns := make([]map[string]struct{}, 0, len(sampleFiles))
+	for _, sampleFile := range sampleFiles {
+		logger.Infof("Inferring schema from sample file: %s", sampleFile.FileKey)
+
+		sampleStream := types.NewStream(stream.Name, stream.Namespace, nil)
+		sampleStream, err := infer(ctx, sampleFile, sampleStream)
+		if err != nil {
+			return nil, fmt.Errorf("failed to infer schema from sample file %s: %s", sampleFile.FileKey, err)
+		}
+
+		sampleColumns = append(sampleColumns, mergeSampleSchema(inferredStream, sampleStream))
+	}
+
+	markFieldsMissingFromSamplesNullable(inferredStream, sampleColumns)
+	return inferredStream, nil
+}
+
+func mergeSampleSchema(inferredStream, sampleStream *types.Stream) map[string]struct{} {
+	sampleColumns := make(map[string]struct{})
+	sampleStream.Schema.Properties.Range(func(column, property any) bool {
+		columnName, ok := column.(string)
+		if !ok {
+			return true
+		}
+
+		sampleProperty, ok := property.(*types.Property)
+		if !ok {
+			return true
+		}
+
+		sampleColumns[columnName] = struct{}{}
+		inferredStream.Schema.AddTypes(columnName, sampleProperty.OlakeColumn, sampleProperty.Type.Array()...)
+		return true
+	})
+
+	return sampleColumns
+}
+
+func markFieldsMissingFromSamplesNullable(inferredStream *types.Stream, sampleColumns []map[string]struct{}) {
+	if len(sampleColumns) < 2 {
+		return
+	}
+
+	for _, columnName := range inferredStream.Schema.ColumnNames() {
+		for _, columns := range sampleColumns {
+			if _, found := columns[columnName]; !found {
+				inferredStream.Schema.AddTypes(columnName, false, types.Null)
+				break
+			}
+		}
+	}
+}
+
+func schemaSampleFiles(files []FileObject) []FileObject {
+	switch len(files) {
+	case 0:
+		return nil
+	case 1:
+		return files[:1]
+	}
+
+	sortedFiles := append([]FileObject(nil), files...)
+	sort.Slice(sortedFiles, func(i, j int) bool {
+		return sortedFiles[i].FileKey < sortedFiles[j].FileKey
+	})
+
+	firstFile := sortedFiles[0]
+	lastFile := sortedFiles[len(sortedFiles)-1]
+	if firstFile.FileKey == lastFile.FileKey {
+		return []FileObject{firstFile}
+	}
+
+	return []FileObject{firstFile, lastFile}
 }
 
 // withFileReader is a helper that manages file reader lifecycle for CSV/JSON formats

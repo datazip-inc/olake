@@ -30,7 +30,6 @@ func NewJSONParser(config JSONConfig, stream *types.Stream) *JSONParser {
 // Supports JSONL (line-delimited), JSON Array, and single JSON object formats
 func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
 	logger.Debug("Inferring JSON schema from sample data")
-	//TODO : implement sampling of records from first and last files to get a more accurate schema
 	// Collect sample records using smart JSON format detection
 	maxSamples := 100
 
