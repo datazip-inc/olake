@@ -548,6 +548,7 @@ func ExtractColumnName(groups ...string) string {
 // for chunk boundary estimation. The result is clamped to
 // [constants.SamplePercentMin, constants.SamplePercentMax] so callers never
 // request a near-zero or near-full scan regardless of row-count estimates.
+// TODO: Improve the sampling percentage formula for huge tables and near to consistent chunks.
 func ComputeSamplePercent(approxRowCount, numberOfChunks int64) float64 {
 	minSampleRows := numberOfChunks * constants.SampleRowsPerChunkMultiplier
 	samplingPercentage := float64(minSampleRows) / float64(approxRowCount) * 100.0

@@ -971,14 +971,18 @@ func MSSQLNextChunkEndQuery(stream types.StreamInterface, orderingColumns []stri
 func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk, filter string) string {
 	tableName := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
 
-	// formatPhysLocValue strips the physloc prefix and returns the raw hex
-	// literal that SQL Server expects in %%physloc%% predicates.
+	// Format %%physloc%% value as a hex literal
 	formatPhysLocValue := func(val any) string {
 		if val == nil {
 			return "NULL"
 		}
-		s := fmt.Sprintf("%v", val)
-		return strings.TrimPrefix(s, constants.PhysLocBoundaryPrefix)
+
+		// chunk stores boundary (min and max) values in hex format
+		if value, ok := val.(string); ok {
+			return value
+		}
+
+		return fmt.Sprintf("%v", val)
 	}
 
 	var chunkCond string
@@ -998,7 +1002,7 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 		chunkCond = fmt.Sprintf("(%s) AND (%s)", chunkCond, filter)
 	}
 
-	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %%%%physloc%%%%", tableName, chunkCond)
+	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s", tableName, chunkCond)
 }
 
 // buildChunkConditionMSSQL builds a WHERE condition for scanning a chunk in MSSQL.
@@ -1037,15 +1041,18 @@ func MSSQLTableRowStatsQuery() string {
 	`
 }
 
-// MSSQLPhysLocSampleBoundaryQuery returns a query that uses TABLESAMPLE SYSTEM to
-// sample a percentage of data pages and return sorted %%physloc%% binary values.
-func MSSQLPhysLocSampleBoundaryQuery(stream types.StreamInterface, samplePercent float64) string {
+// MSSQLPKSampleBoundaryQuery returns a query that uses TABLESAMPLE SYSTEM to
+// sample a percentage of rows and return sorted primary-key boundary values.
+func MSSQLPKSampleBoundaryQuery(stream types.StreamInterface, pkCols []string, samplePercent float64) string {
+	quotedCols := QuoteColumns(pkCols, constants.MSSQL)
 	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
+	selectExpr := buildMSSQLConcat(quotedCols)
+	orderBy := strings.Join(quotedCols, ", ")
 	return fmt.Sprintf(`
-		SELECT %%%%physloc%%%%
+		SELECT %s
 		FROM %s TABLESAMPLE SYSTEM (%.6f PERCENT) WITH (NOLOCK)
-		ORDER BY %%%%physloc%%%%
-	`, quotedTable, samplePercent)
+		ORDER BY %s
+	`, selectExpr, quotedTable, samplePercent, orderBy)
 }
 
 // OracleDB Specific Queries
