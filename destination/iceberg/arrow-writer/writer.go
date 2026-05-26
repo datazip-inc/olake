@@ -30,6 +30,7 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
+	meta           *internal.StreamMetaCtx
 }
 
 type Writer struct {
@@ -64,7 +65,7 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
+func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, meta *internal.StreamMetaCtx) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
 		partitionInfo: partitionInfo,
 		schema:        schema,
@@ -74,6 +75,7 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
+		meta:          meta,
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -81,6 +83,19 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 	}
 
 	return writer, nil
+}
+
+// newMetadata stamps every gRPC payload with the per-stream context so the
+// shared JVM can route to the right table without JVM-globals.
+func (w *ArrowWriter) newMetadata() *proto.ArrowPayload_Metadata {
+	return &proto.ArrowPayload_Metadata{
+		DestTableName:          w.meta.DestTableName,
+		ThreadId:               w.meta.ThreadID,
+		Namespace:              w.meta.Namespace,
+		Upsert:                 w.meta.Upsert,
+		CreateIdentifierFields: w.meta.CreateIdentifierFields,
+		PartitionFields:        w.meta.ArrowPartitionFields,
+	}
 }
 
 // computes both partition key and typed values
@@ -343,13 +358,11 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 		orderedFiles = append(orderedFiles, pf.PosDeleteFiles...)
 	}
 
+	md := w.newMetadata()
+	md.FileMetadata = orderedFiles
 	commitRequest := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_REGISTER_AND_COMMIT,
-		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId:      w.server.ServerID(),
-			DestTableName: w.stream.GetDestinationTable(),
-			FileMetadata:  orderedFiles,
-		},
+		Type:     proto.ArrowPayload_REGISTER_AND_COMMIT,
+		Metadata: md,
 	}
 
 	// Commit payload from CDC/driver only: e.g. {"captured_cdc_pos":"0/123ABC"}
@@ -521,11 +534,8 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Sc
 
 func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string) (string, error) {
 	request := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_FILEPATH,
-		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
-		},
+		Type:     proto.ArrowPayload_FILEPATH,
+		Metadata: w.newMetadata(),
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -548,16 +558,14 @@ func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string)
 }
 
 func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partitionKey string) error {
+	md := w.newMetadata()
+	md.FileUpload = &proto.ArrowPayload_FileUploadRequest{
+		FileData: rw.currentBuffer.Bytes(),
+		FilePath: rw.filePath,
+	}
 	request := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_UPLOAD_FILE,
-		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
-			FileUpload: &proto.ArrowPayload_FileUploadRequest{
-				FileData: rw.currentBuffer.Bytes(),
-				FilePath: rw.filePath,
-			},
-		},
+		Type:     proto.ArrowPayload_UPLOAD_FILE,
+		Metadata: md,
 	}
 
 	uploadCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -599,11 +607,8 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 
 func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	request := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_JSONSCHEMA,
-		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
-		},
+		Type:     proto.ArrowPayload_JSONSCHEMA,
+		Metadata: w.newMetadata(),
 	}
 
 	schemaCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)

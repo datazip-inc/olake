@@ -123,6 +123,9 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// Tear down destination-owned process resources (Iceberg shared JVM) on
+		// normal completion. Signal-based teardown lives inside the destination.
+		defer destination.Shutdown(cmd.Context(), destinationConfig)
 
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {

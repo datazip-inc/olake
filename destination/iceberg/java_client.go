@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
-	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -38,32 +39,190 @@ type serverInstance struct {
 	serverID    string
 }
 
-// getServerConfigJSON generates the JSON configuration for the Iceberg server
-func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo, port int, upsert bool, destinationDatabase string, arrowWriterEnabled bool) ([]byte, error) {
-	// Create the server configuration map
-	serverConfig := map[string]interface{}{
-		"port":                     fmt.Sprintf("%d", port),
-		"warehouse":                config.IcebergS3Path,
-		"table-namespace":          destinationDatabase,
-		"catalog-name":             config.CatalogName,
-		"table-prefix":             "",
-		"create-identifier-fields": !config.NoIdentifierFields,
-		"upsert":                   strconv.FormatBool(upsert),
-		"upsert-keep-deletes":      "true",
-		"write.format.default":     "parquet",
-		"arrow-writer-enabled":     strconv.FormatBool(arrowWriterEnabled),
+// Shared single-JVM state for the lifetime of the process.
+//
+// All Iceberg writers in this OLake process (every stream, every backfill
+// chunk, plus the connection Check and DropStreams paths) connect to this one
+// JVM instead of forking their own. Per-stream context (namespace, upsert,
+// partition spec, identifier-field flag) is carried in each gRPC payload, so
+// the JVM stays free of stream-level globals and can serve any combination.
+var (
+	sharedServerMu    sync.Mutex
+	sharedServer      *serverInstance
+	shutdownHooksOnce sync.Once
+)
+
+// acquireServer returns the shared JVM, lazily starting it on first call.
+// The catalog/storage portion of `config` is what drives the JVM CLI; later
+// callers that pass a different config still receive the already-running JVM.
+// This is intentional: in a single OLake sync the destination config is fixed.
+func acquireServer(config *Config) (*serverInstance, error) {
+	sharedServerMu.Lock()
+	defer sharedServerMu.Unlock()
+
+	if sharedServer != nil {
+		return sharedServer, nil
 	}
 
-	// Add partition fields as an array to preserve order
-	if len(partitionInfo) > 0 {
-		partitionFields := make([]map[string]string, 0, len(partitionInfo))
-		for _, info := range partitionInfo {
-			partitionFields = append(partitionFields, map[string]string{
-				"field":     info.SchemaField, // reformatted to match the Iceberg schema field name
-				"transform": info.Transform,
-			})
+	inst, err := startSharedServer(config)
+	if err != nil {
+		return nil, err
+	}
+	sharedServer = inst
+	shutdownHooksOnce.Do(installShutdownHooks)
+	return sharedServer, nil
+}
+
+// shutdownSharedServer kills the JVM and releases its port. Idempotent;
+// callers (sync.go defer, Iceberg.Shutdown, signal handler) may race.
+func shutdownSharedServer() {
+	sharedServerMu.Lock()
+	defer sharedServerMu.Unlock()
+	if sharedServer == nil {
+		return
+	}
+	inst := sharedServer
+	sharedServer = nil
+
+	logger.Infof("Shutting down shared Iceberg JVM on port %d", inst.port)
+	if inst.conn != nil {
+		_ = inst.conn.Close()
+	}
+	if inst.cmd != nil && inst.cmd.Process != nil {
+		// Ask politely first; the JVM's own shutdown hook releases the gRPC port
+		// in an orderly way. Hard-kill only if it doesn't exit in a few seconds.
+		_ = inst.cmd.Process.Signal(syscall.SIGTERM)
+		done := make(chan struct{}, 1)
+		go func() {
+			_, _ = inst.cmd.Process.Wait()
+			done <- struct{}{}
+		}()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			logger.Warnf("Iceberg JVM did not exit within 10s after SIGTERM, killing")
+			_ = inst.cmd.Process.Kill()
 		}
-		serverConfig["partition-fields"] = partitionFields
+	}
+	portStatus.Store(inst.port, &portState{
+		inUse:      false,
+		releasedAt: time.Now(),
+	})
+}
+
+// installShutdownHooks ensures the JVM is killed when the Go process is
+// signalled (Ctrl-C, kubectl/docker stop, etc). Without this, an orphaned JVM
+// can outlive the parent on abrupt termination.
+func installShutdownHooks() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-ch
+		logger.Warnf("Received signal %s, shutting down shared Iceberg JVM", sig)
+		shutdownSharedServer()
+		// Re-raise the signal so the rest of the process exits normally.
+		signal.Reset(syscall.SIGINT, syscall.SIGTERM)
+		_ = syscall.Kill(syscall.Getpid(), sig.(syscall.Signal))
+	}()
+}
+
+func startSharedServer(config *Config) (*serverInstance, error) {
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("failed to validate config: %s", err)
+	}
+
+	const maxAttempts = 10
+	const serverID = "shared"
+	nextStartPort := 50051
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		port, err := FindAvailablePort(serverID, nextStartPort)
+		if err != nil {
+			return nil, fmt.Errorf("failed to find available ports: %s", err)
+		}
+
+		configJSON, err := getServerConfigJSON(config, port, config.UseArrowWrites)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create server config: %s", err)
+		}
+
+		var serverCmd *exec.Cmd
+		if os.Getenv("OLAKE_DEBUG_MODE") != "" {
+			serverCmd = exec.Command("java", "-XX:+UseG1GC",
+				"-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
+				"-jar", config.JarPath, string(configJSON))
+		} else {
+			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
+		}
+
+		serverCmd.Env = os.Environ()
+		appendEnv := func(key, value string) {
+			if value == "" {
+				return
+			}
+			prefix := key + "="
+			for i := range serverCmd.Env {
+				if strings.HasPrefix(serverCmd.Env[i], prefix) {
+					serverCmd.Env[i] = prefix + value
+					return
+				}
+			}
+			serverCmd.Env = append(serverCmd.Env, prefix+value)
+		}
+		appendEnv("AWS_ACCESS_KEY_ID", config.AccessKey)
+		appendEnv("AWS_SECRET_ACCESS_KEY", config.SecretKey)
+		appendEnv("AWS_REGION", config.Region)
+		appendEnv("AWS_SESSION_TOKEN", config.SessionToken)
+		appendEnv("AWS_PROFILE", config.ProfileName)
+
+		if err := logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd); err != nil {
+			portStatus.Store(port, &portState{inUse: false, releasedAt: time.Now()})
+			errLower := strings.ToLower(err.Error())
+			if strings.Contains(errLower, "address in use") || strings.Contains(errLower, "failed to bind") || strings.Contains(errLower, "bindexception") || strings.Contains(errLower, "eaddrinuse") {
+				logger.Warnf("Iceberg JVM: port %d bind failed, retrying with next available port", port)
+				nextStartPort = port + 1
+				continue
+			}
+			return nil, fmt.Errorf("failed to start iceberg java writer and setup logger: %s", err)
+		}
+
+		conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", config.ServerHost, strconv.Itoa(port)),
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
+		if err != nil {
+			if serverCmd != nil && serverCmd.Process != nil {
+				_ = serverCmd.Process.Kill()
+			}
+			portStatus.Store(port, &portState{inUse: false, releasedAt: time.Now()})
+			return nil, fmt.Errorf("failed to create new grpc client: %s", err)
+		}
+
+		logger.Infof("Started shared Iceberg JVM on port %d", port)
+		return &serverInstance{
+			port:        port,
+			cmd:         serverCmd,
+			client:      proto.NewRecordIngestServiceClient(conn),
+			arrowClient: proto.NewArrowIngestServiceClient(conn),
+			conn:        conn,
+			serverID:    serverID,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("failed to start iceberg writer after %d attempts due to port binding conflicts", maxAttempts)
+}
+
+// getServerConfigJSON builds the catalog/storage-level config the JVM consumes
+// at startup. Per-stream concepts (namespace, upsert, identifier-fields,
+// partition spec) are deliberately *not* included here — they ride on every
+// per-request payload instead. See StreamMetaCtx.
+func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]byte, error) {
+	serverConfig := map[string]interface{}{
+		"port":                 fmt.Sprintf("%d", port),
+		"warehouse":            config.IcebergS3Path,
+		"catalog-name":         config.CatalogName,
+		"table-prefix":         "",
+		"write.format.default": "parquet",
+		"arrow-writer-enabled": strconv.FormatBool(arrowWriterEnabled),
 	}
 
 	addMapKeyIfNotEmpty := func(key, value string) {
@@ -71,12 +230,10 @@ func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo,
 			serverConfig[key] = value
 		}
 	}
-	// Configure catalog implementation based on the selected type
+
 	switch config.CatalogType {
 	case GlueCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.aws.glue.GlueCatalog"
-
-		// if custom glue endpoint creds are passed
 		if config.UseGlueAdditionalConfig {
 			addMapKeyIfNotEmpty("client.factory", "io.debezium.server.iceberg.OlakeAwsClientFactory")
 			addMapKeyIfNotEmpty("glue.access-key-id", config.GlueAccessKey)
@@ -111,19 +268,15 @@ func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo,
 		return nil, fmt.Errorf("unsupported catalog type: %s", config.CatalogType)
 	}
 
-	// Only set access keys if explicitly provided, otherwise they'll be picked up from
-	// environment variables or AWS credential files
 	serverConfig["s3.path-style-access"] = utils.Ternary(config.S3PathStyle, "true", "false").(string)
 	addMapKeyIfNotEmpty("s3.access-key-id", config.AccessKey)
 	addMapKeyIfNotEmpty("s3.secret-access-key", config.SecretKey)
 	addMapKeyIfNotEmpty("aws.profile", config.ProfileName)
 	addMapKeyIfNotEmpty("aws.session-token", config.SessionToken)
 
-	// Configure region for AWS S3
 	if config.Region != "" {
 		serverConfig["s3.region"] = config.Region
 	} else if config.S3Endpoint == "" && config.CatalogType == GlueCatalog {
-		// If no region is explicitly provided for Glue catalog, add a note that it will be picked from environment
 		logger.Warnf("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
 	}
 
@@ -133,125 +286,7 @@ func getServerConfigJSON(config *Config, partitionInfo []internal.PartitionInfo,
 	serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
 	serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 
-	// Marshal the config to JSON
 	return json.Marshal(serverConfig)
-}
-
-// setup java client
-
-func newIcebergClient(config *Config, partitionInfo []internal.PartitionInfo, threadID string, check, upsert bool, destinationDatabase string) (*serverInstance, error) {
-	// validate configuration
-	err := config.Validate()
-	if err != nil {
-		return nil, fmt.Errorf("failed to validate config: %s", err)
-	}
-
-	const maxAttempts = 10
-	var (
-		port      int
-		serverCmd *exec.Cmd
-	)
-
-	// Using legacy writer java server for Check()
-	arrowWriterEnabled := utils.Ternary(check, false, config.UseArrowWrites).(bool)
-
-	// nextStartPort controls from where the port scan should begin on each attempt
-	nextStartPort := 50051
-
-	addEnvIfSet := func(key, value string) {
-		if value != "" {
-			keyPrefix := fmt.Sprintf("%s=", key)
-			for idx := range serverCmd.Env {
-				// if prefix exist through env, override it with config
-				if strings.HasPrefix(serverCmd.Env[idx], keyPrefix) {
-					serverCmd.Env[idx] = fmt.Sprintf("%s=%s", key, value)
-					return
-				}
-			}
-			// if prefix does not exist add it
-			serverCmd.Env = append(serverCmd.Env, fmt.Sprintf("%s=%s", key, value))
-		}
-	}
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		// get available port
-		port, err = FindAvailablePort(threadID, nextStartPort)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find available ports: %s", err)
-		}
-
-		// Build server configuration with selected port
-		configJSON, err := getServerConfigJSON(config, partitionInfo, port, upsert, destinationDatabase, arrowWriterEnabled)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create server config: %s", err)
-		}
-
-		// setup command
-		// If debug mode is enabled and it is not check command
-		if os.Getenv("OLAKE_DEBUG_MODE") != "" && !check {
-			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005", "-jar", config.JarPath, string(configJSON))
-		} else {
-			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
-		}
-
-		// Get current environment
-		serverCmd.Env = os.Environ()
-		addEnvIfSet("AWS_ACCESS_KEY_ID", config.AccessKey)
-		addEnvIfSet("AWS_SECRET_ACCESS_KEY", config.SecretKey)
-		addEnvIfSet("AWS_REGION", config.Region)
-		addEnvIfSet("AWS_SESSION_TOKEN", config.SessionToken)
-		addEnvIfSet("AWS_PROFILE", config.ProfileName)
-
-		// Set up and start the process with logging
-		if err := logger.SetupAndStartProcess(fmt.Sprintf("Thread[%s:%d]", threadID, port), serverCmd); err != nil {
-			// Mark port for cooldown since it failed to start
-			portStatus.Store(port, &portState{
-				inUse:      false,
-				releasedAt: time.Now(),
-			})
-			// If this was a bind error (EADDRINUSE), retry with the next available port
-			// This is necessary because port can collide with system ephemeral ports, which we can not detect/kill, so we skip
-			errLower := strings.ToLower(err.Error())
-			if strings.Contains(errLower, "address in use") || strings.Contains(errLower, "failed to bind") || strings.Contains(errLower, "bindexception") || strings.Contains(errLower, "eaddrinuse") {
-				logger.Warnf("Thread[%s]: Port %d bind failed, retrying with next available port", threadID, port)
-				// advance the start port to the next one for the subsequent scan
-				nextStartPort = port + 1
-				continue
-			}
-			return nil, fmt.Errorf("failed to start iceberg java writer and setup logger: %s", err)
-		}
-
-		// Connect to gRPC server
-		conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", config.ServerHost, strconv.Itoa(port)),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
-
-		if err != nil {
-			// If connection fails, clean up the process
-			if serverCmd != nil && serverCmd.Process != nil {
-				if killErr := serverCmd.Process.Kill(); killErr != nil {
-					logger.Errorf("Thread[%s]: Failed to kill process: %s", threadID, killErr)
-				}
-			}
-			// Mark port for cooldown since connection failed
-			portStatus.Store(port, &portState{
-				inUse:      false,
-				releasedAt: time.Now(),
-			})
-			return nil, fmt.Errorf("failed to create new grpc client: %s", err)
-		}
-
-		logger.Infof("Thread[%s]: Connected to new iceberg writer on port %d", threadID, port)
-		return &serverInstance{
-			port:        port,
-			cmd:         serverCmd,
-			client:      proto.NewRecordIngestServiceClient(conn),
-			arrowClient: proto.NewArrowIngestServiceClient(conn),
-			conn:        conn,
-			serverID:    threadID,
-		}, nil
-	}
-
-	return nil, fmt.Errorf("failed to start iceberg writer after %d attempts due to port binding conflicts", maxAttempts)
 }
 
 func (s *serverInstance) SendClientRequest(ctx context.Context, payload interface{}) (interface{}, error) {
@@ -269,26 +304,7 @@ func (s *serverInstance) ServerID() string {
 	return s.serverID
 }
 
-// closeIcebergClient closes the connection to the Iceberg server
-func (s *serverInstance) closeIcebergClient() error {
-	// If this was the last reference, shut down the server
-	logger.Infof("Thread[%s]: shutting down Iceberg server on port %d", s.serverID, s.port)
-	s.conn.Close()
-	if s.cmd != nil && s.cmd.Process != nil {
-		err := s.cmd.Process.Kill()
-		if err != nil {
-			logger.Errorf("Thread[%s]: Failed to kill Iceberg server: %s", s.serverID, err)
-		}
-	}
-	// Mark port as released (cooldown period to allow OS to clean up TIME_WAIT state)
-	portStatus.Store(s.port, &portState{
-		inUse:      false,
-		releasedAt: time.Now(),
-	})
-	return nil
-}
-
-// findAvailablePort finds an available port for the RPC server starting from startPort
+// FindAvailablePort finds an available port for the RPC server starting from startPort.
 func FindAvailablePort(threadID string, startPort int) (int, error) {
 	if startPort < 50051 {
 		startPort = 50051
@@ -297,68 +313,50 @@ func FindAvailablePort(threadID string, startPort int) (int, error) {
 		return 0, fmt.Errorf("startPort out of range")
 	}
 	for p := startPort; p <= 59051; p++ {
-		// Check port state
 		if state, exists := portStatus.Load(p); exists {
 			ps := state.(*portState)
 			if ps.inUse {
-				// Port is currently in use by our process
 				continue
 			}
-			// Port was released, check if cooldown period has elapsed
 			if time.Since(ps.releasedAt) < cooldownPeriod {
-				// Still in cooldown, skip this port
 				continue
 			}
-			// Cooldown period expired, remove from map and allow reuse
 			portStatus.Delete(p)
 		}
 
-		// Port not tracked or cooldown expired - try to acquire it
-		// Use LoadOrStore to atomically claim the port
 		if _, loaded := portStatus.LoadOrStore(p, &portState{inUse: true}); !loaded {
-			// Successfully claimed the port, try to kill any process using it
 			pid := findProcessUsingPort(threadID, p)
 			if pid != "" {
-				// Kill the process
 				killCmd := exec.Command("kill", "-9", pid)
 				killErr := killCmd.Run()
 				if killErr == nil {
 					logger.Infof("Thread[%s]: Killed process %s that was using port %d", threadID, pid, p)
-					// Wait for the port to be released
 					time.Sleep(time.Second * 5)
 					return p, nil
 				}
 				logger.Warnf("Thread[%s]: Failed to kill process %s using port %d: %s", threadID, pid, p, killErr)
-				// Release the claim and mark cooldown, then continue scanning
 				portStatus.Store(p, &portState{
 					inUse:      false,
 					releasedAt: time.Now(),
 				})
 				continue
 			}
-			// Return the port (either it was free, or we attempted to free it)
 			return p, nil
 		}
 	}
 	return 0, fmt.Errorf("no available ports found between 50051 and 59051")
 }
 
-// findProcessUsingPort finds the PID of a process using the specified port
-// Tries ss first (preferred for Alpine), falls back to lsof
+// findProcessUsingPort finds the PID of a process using the specified port.
+// Tries ss first (preferred for Alpine), falls back to lsof.
 func findProcessUsingPort(threadID string, port int) string {
-	// Prefer ss if available. If ss exists, do NOT fall back to lsof.
 	if _, lookErr := exec.LookPath("ss"); lookErr == nil {
-		// Use a valid filter expression: sport = :<port>
 		cmd := exec.Command("ss", "-H", "-ltnp", fmt.Sprintf("sport = :%d", port))
 		output, err := cmd.Output()
 		if err == nil {
-			// Parse ss output to extract PID
 			lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 			for _, line := range lines {
-				// ss output format: State Recv-Q Send-Q Local Address:Port Peer Address:Port Process
-				// Look for the process part at the end (e.g., "users:((\"java\",pid=123,fd=123))")
 				if strings.Contains(line, "users:") {
-					// Extract PID from the process info
 					parts := strings.Split(line, "pid=")
 					if len(parts) > 1 {
 						pidPart := strings.Split(parts[1], ",")[0]
@@ -369,15 +367,12 @@ func findProcessUsingPort(threadID string, port int) string {
 					}
 				}
 			}
-			// No users: match found; return empty without falling back
 			return ""
 		}
-		// ss failed to run (syntax/permissions/etc.). Log and return empty.
 		logger.Warnf("Thread[%s]: Failed to find process using port %d using ss: %s", threadID, port, err)
 		return ""
 	}
 
-	// ss not available: fall back to lsof if present
 	if _, lookErr := exec.LookPath("lsof"); lookErr == nil {
 		cmd := exec.Command("lsof", "-nP", fmt.Sprintf("-iTCP:%d", port), "-sTCP:LISTEN", "-t")
 		output, err := cmd.Output()
