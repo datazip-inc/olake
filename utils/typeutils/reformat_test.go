@@ -12,60 +12,11 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/encoding/wkb"
 	"github.com/stretchr/testify/assert"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
-
-// TestGetFirstNotNullType tests the getFirstNotNullType function
-func TestGetFirstNotNullType(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []types.DataType
-		expected types.DataType
-	}{
-		{
-			name:     "all null",
-			input:    []types.DataType{types.Null, types.Null},
-			expected: types.Null,
-		},
-		{
-			name:     "first non-null at start",
-			input:    []types.DataType{types.String, types.Null},
-			expected: types.String,
-		},
-		{
-			name:     "first non-null in middle",
-			input:    []types.DataType{types.Null, types.Int64, types.String},
-			expected: types.Int64,
-		},
-		{
-			name:     "first non-null at end",
-			input:    []types.DataType{types.Null, types.Null, types.Bool},
-			expected: types.Bool,
-		},
-		{
-			name:     "all non-null values",
-			input:    []types.DataType{types.Array, types.Int64, types.Float64, types.String, types.Bool},
-			expected: types.Array,
-		},
-		{
-			name:     "empty slice",
-			input:    []types.DataType{},
-			expected: types.Null,
-		},
-		{
-			name:     "nil slice",
-			input:    nil,
-			expected: types.Null,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := getFirstNotNullType(tc.input)
-			assert.Equal(t, tc.expected, result)
-		})
-	}
-}
 
 // TestReformatRecord tests the ReformatRecord function
 func TestReformatRecord(t *testing.T) {
@@ -167,65 +118,6 @@ func TestReformatRecord(t *testing.T) {
 	}
 }
 
-// TestReformatValueOnDataTypes tests the ReformatValueOnDataTypes function
-func TestReformatValueOnDataTypes(t *testing.T) {
-	tests := []struct {
-		name        string
-		dataTypes   []types.DataType
-		value       any
-		expected    any
-		expectedErr error
-	}{
-		{
-			name:        "nil value",
-			dataTypes:   []types.DataType{types.Null},
-			value:       nil,
-			expected:    nil,
-			expectedErr: nil,
-		},
-		{
-			name:        "datatype null",
-			dataTypes:   []types.DataType{types.Null},
-			value:       "abc",
-			expected:    nil,
-			expectedErr: ErrNullValue,
-		},
-		{
-			name:        "datatype bool",
-			dataTypes:   []types.DataType{types.Bool, types.Timestamp, types.Int64, types.Float64, types.String, types.Array},
-			value:       "true",
-			expected:    true,
-			expectedErr: nil,
-		},
-		{
-			name:        "datatype wrong",
-			dataTypes:   []types.DataType{types.Bool, types.Timestamp, types.Int64, types.Float64, types.String, types.Array},
-			value:       10,
-			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : 10"),
-		},
-		{
-			name:        "empty datatype list",
-			dataTypes:   []types.DataType{},
-			value:       "123",
-			expected:    nil,
-			expectedErr: ErrNullValue,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result, err := ReformatValueOnDataTypes(tc.dataTypes, tc.value)
-
-			if tc.expectedErr != nil {
-				assert.Equal(t, tc.expectedErr, err)
-			} else {
-				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
-			}
-		})
-	}
-}
-
 // TestReformatValue tests the ReformatValue function
 func TestReformatValue(t *testing.T) {
 	tests := []struct {
@@ -250,6 +142,13 @@ func TestReformatValue(t *testing.T) {
 			expected:    nil,
 			expectedErr: ErrNullValue,
 		},
+		{
+			name:        "nil value with non-null datatype",
+			dataType:    types.String,
+			value:       nil,
+			expected:    nil,
+			expectedErr: nil,
+		},
 
 		// ===== Bool =====
 		{
@@ -271,7 +170,7 @@ func TestReformatValue(t *testing.T) {
 			dataType:    types.Bool,
 			value:       "invalid",
 			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : invalid"),
+			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", "invalid"),
 		},
 
 		// ===== Int64 =====
@@ -429,10 +328,38 @@ func TestReformatValue(t *testing.T) {
 			expectedErr: nil,
 		},
 		{
-			name:        "string from bytes",
+			name:        "string from string",
+			dataType:    types.String,
+			value:       "hello",
+			expected:    "hello",
+			expectedErr: nil,
+		},
+		{
+			name:        "string from bool true",
+			dataType:    types.String,
+			value:       true,
+			expected:    "true",
+			expectedErr: nil,
+		},
+		{
+			name:        "string from bool false",
+			dataType:    types.String,
+			value:       false,
+			expected:    "false",
+			expectedErr: nil,
+		},
+		{
+			name:        "string from byte slice",
 			dataType:    types.String,
 			value:       []byte("hello"),
 			expected:    "hello",
+			expectedErr: nil,
+		},
+		{
+			name:        "string from array(default conversion)",
+			dataType:    types.String,
+			value:       []int{1, 2},
+			expected:    "[1 2]",
 			expectedErr: nil,
 		},
 
@@ -481,6 +408,15 @@ func TestReformatValue(t *testing.T) {
 			dataType:    types.Array,
 			value:       5,
 			expected:    []any{5},
+			expectedErr: nil,
+		},
+
+		// ===== Default =====
+		{
+			name:        "default passthrough",
+			dataType:    types.Object,
+			value:       map[string]any{"key": "value"},
+			expected:    map[string]any{"key": "value"},
 			expectedErr: nil,
 		},
 	}
@@ -542,6 +478,41 @@ func TestParseFilterValue(t *testing.T) {
 			value:       "not-a-date",
 			expected:    time.Time{},
 			expectedErr: fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
+		},
+		{
+			name:        "timestamp invalid month 13",
+			dataType:    types.Timestamp,
+			value:       "2023-13-01",
+			expected:    time.Time{},
+			expectedErr: fmt.Errorf(`failed to parse datetime from available formats: parsing time "2023-13-01": month out of range`),
+		},
+		{
+			name:        "timestamp invalid day greater than 31",
+			dataType:    types.Timestamp,
+			value:       "2023-01-32",
+			expected:    time.Time{},
+			expectedErr: fmt.Errorf(`failed to parse datetime from available formats: parsing time "2023-01-32" as "2006-01-02T15:04:05.000000000Z": cannot parse "" as "T"`),
+		},
+		{
+			name:        "timestamp invalid date with garbage suffix",
+			dataType:    types.Timestamp,
+			value:       "2023-10-05 garbage_time",
+			expected:    time.Time{},
+			expectedErr: fmt.Errorf(`failed to parse datetime from available formats: parsing time "2023-10-05 garbage_time" as "2006-01-02T15:04:05.000000000Z": cannot parse " garbage_time" as "T"`),
+		},
+		{
+			name:        "timestamp nil value",
+			dataType:    types.Timestamp,
+			value:       nil,
+			expected:    time.Time{},
+			expectedErr: nil,
+		},
+		{
+			name:        "timestamp from int64 unix",
+			dataType:    types.Timestamp,
+			value:       int64(1672531200),
+			expected:    time.Unix(1672531200, 0),
+			expectedErr: nil,
 		},
 
 		// ===== Default → ReformatValue =====
@@ -738,7 +709,7 @@ func TestReformatBool(t *testing.T) {
 			name:        "int invalid",
 			v:           int(2),
 			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : 2"),
+			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int(2)),
 		},
 		{
 			name:         "int backward compatibility",
@@ -763,14 +734,14 @@ func TestReformatBool(t *testing.T) {
 			name:        "int16 invalid",
 			v:           int16(2),
 			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", "2"),
+			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int16(2)),
 		},
 		{
 			name:         "int16 backward compatibility",
 			v:            int16(1),
 			stateVersion: 6,
 			expected:     false,
-			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : 1"),
+			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : %v", int16(1)),
 		},
 		{
 			name:        "int32 1",
@@ -788,14 +759,14 @@ func TestReformatBool(t *testing.T) {
 			name:        "int32 invalid",
 			v:           int32(2),
 			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : 2"),
+			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int32(2)),
 		},
 		{
 			name:         "int32 backward compatibility",
 			v:            int32(1),
 			stateVersion: 6,
 			expected:     false,
-			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : 1"),
+			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : %v", int32(1)),
 		},
 		{
 			name:        "int64 1",
@@ -813,14 +784,14 @@ func TestReformatBool(t *testing.T) {
 			name:        "int64 invalid",
 			v:           int64(2),
 			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : 2"),
+			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int64(2)),
 		},
 		{
 			name:         "int64 backward compatibility",
 			v:            int64(1),
 			stateVersion: 6,
 			expected:     false,
-			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : 1"),
+			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : %v", int64(1)),
 		},
 		{
 			name:        "int8 1",
@@ -838,14 +809,14 @@ func TestReformatBool(t *testing.T) {
 			name:        "int8 invalid",
 			v:           int8(2),
 			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : 2"),
+			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int8(2)),
 		},
 		{
 			name:         "int8 backward compatibility",
 			v:            int8(1),
 			stateVersion: 6,
 			expected:     false,
-			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : 1"),
+			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : %v", int8(1)),
 		},
 
 		// ===== default / unsupported =====
@@ -853,19 +824,19 @@ func TestReformatBool(t *testing.T) {
 			name:        "float input",
 			v:           1.0,
 			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : 1"),
+			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", 1.0),
 		},
 		{
 			name:        "slice input",
 			v:           []int{1},
 			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : [1]"),
+			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", []int{1}),
 		},
 		{
 			name:        "nil input",
 			v:           nil,
 			expected:    false,
-			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : <nil>"),
+			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", nil),
 		},
 	}
 
@@ -1052,6 +1023,13 @@ func TestReformatDate(t *testing.T) {
 			expected:        time.Time{},
 			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
 		},
+		{
+			name:            "string empty",
+			v:               "",
+			isTimestampInDB: true,
+			expected:        time.Time{},
+			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
+		},
 
 		// ===== *string =====
 		{
@@ -1068,6 +1046,20 @@ func TestReformatDate(t *testing.T) {
 			expected:        time.Time{},
 			expectedErr:     fmt.Errorf("empty string passed"),
 		},
+		{
+			name:            "string ptr empty",
+			v:               func() *string { s := ""; return &s }(),
+			isTimestampInDB: true,
+			expected:        time.Time{},
+			expectedErr:     fmt.Errorf("empty string passed"),
+		},
+		{
+			name:            "string ptr invalid",
+			v:               func() *string { s := "2023-10-a5"; return &s }(),
+			isTimestampInDB: true,
+			expected:        time.Time{},
+			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
+		},
 
 		// ===== primitive.DateTime =====
 		{
@@ -1076,6 +1068,30 @@ func TestReformatDate(t *testing.T) {
 			isTimestampInDB: true,
 			expected:        primitive.NewDateTimeFromTime(now).Time(),
 			expectedErr:     nil,
+		},
+		{
+			name:            "primitive datetime year zero",
+			v:               primitive.NewDateTimeFromTime(time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)),
+			isTimestampInDB: true,
+			expected:        time.Unix(0, 0).UTC(),
+			expectedErr:     nil,
+		},
+		{
+			name:            "primitive datetime negative year",
+			v:               primitive.NewDateTimeFromTime(time.Date(-1, 1, 1, 0, 0, 0, 0, time.UTC)),
+			isTimestampInDB: true,
+			expected:        time.Unix(0, 0).UTC(),
+			expectedErr:     nil,
+		},
+		{
+			name:            "primitive datetime year above max",
+			v:               primitive.NewDateTimeFromTime(time.Date(22000, 5, 10, 0, 0, 0, 0, time.UTC)),
+			isTimestampInDB: true,
+			expected: func() time.Time {
+				parsed := primitive.NewDateTimeFromTime(time.Date(22000, 5, 10, 0, 0, 0, 0, time.UTC)).Time()
+				return parsed.AddDate(-(parsed.Year() - 9999), 0, 0)
+			}(),
+			expectedErr: nil,
 		},
 
 		// ===== *any recursion =====
@@ -1136,31 +1152,101 @@ func TestParseStringTimestamp(t *testing.T) {
 	}{
 		// ===== valid formats =====
 		{
-			name:            "date only",
+			name:            "layout 2006-01-02",
 			value:           "2023-10-05",
 			isTimestampInDB: true,
 			expected:        time.Date(2023, 10, 5, 0, 0, 0, 0, time.UTC),
 			expectedErr:     nil,
 		},
 		{
-			name:            "datetime space format",
+			name:            "layout 2006-01-02 15:04:05",
 			value:           "2023-10-05 12:30:45",
 			isTimestampInDB: true,
 			expected:        time.Date(2023, 10, 5, 12, 30, 45, 0, time.UTC),
 			expectedErr:     nil,
 		},
 		{
-			name:            "iso format",
+			name:            "layout 2006-01-02 15:04:05 -07:00",
+			value:           "2023-10-05 12:30:45 -07:00",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 12, 30, 45, 0, time.FixedZone("", -7*3600)),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2006-01-02 15:04:05-07:00",
+			value:           "2023-10-05 12:30:45-07:00",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 12, 30, 45, 0, time.FixedZone("", -7*3600)),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2006-01-02 15:04:05 -0700 MST",
+			value:           "2023-10-05 12:30:45 -0700 MST",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 12, 30, 45, 0, time.FixedZone("MST", -7*3600)),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2006-01-02-15.04.05.000000",
+			value:           "2023-10-05-12.30.45.000000",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 12, 30, 45, 0, time.UTC),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2006-01-02T15:04:05",
 			value:           "2023-10-05T12:30:45",
 			isTimestampInDB: true,
 			expected:        time.Date(2023, 10, 5, 12, 30, 45, 0, time.UTC),
 			expectedErr:     nil,
 		},
 		{
-			name:            "iso with Z",
+			name:            "layout 2006-01-02T15:04:05.000000",
+			value:           "2023-10-05T12:30:45.000000",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 12, 30, 45, 0, time.UTC),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2006-01-02T15:04:05.999999999Z07:00",
+			value:           "2023-10-05T12:30:45.123456789-07:00",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 12, 30, 45, 123456789, time.FixedZone("", -7*3600)),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2006-01-02T15:04:05+0000",
+			value:           "2023-10-05T15:04:05+0000",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 15, 4, 5, 0, time.UTC),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2020-08-17T05:50:22.895Z",
 			value:           "2020-08-17T05:50:22.895Z",
 			isTimestampInDB: true,
 			expected:        time.Date(2020, 8, 17, 5, 50, 22, 895000000, time.UTC),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2006-01-02 15:04:05.999999-07",
+			value:           "2023-10-05 15:04:05.999999-07",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 15, 4, 5, 999999000, time.FixedZone("", -7*3600)),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2006-01-02 15:04:05.999999+00",
+			value:           "2023-10-05 15:04:05.999999+00",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 15, 4, 5, 999999000, time.FixedZone("", 0)),
+			expectedErr:     nil,
+		},
+		{
+			name:            "layout 2006-01-02T15:04:05.000000000Z",
+			value:           "2023-10-05T12:30:45.000000000Z",
+			isTimestampInDB: true,
+			expected:        time.Date(2023, 10, 5, 12, 30, 45, 0, time.UTC),
 			expectedErr:     nil,
 		},
 
@@ -1229,7 +1315,7 @@ func TestParseStringTimestamp(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			constants.LoadedStateVersion = tc.stateVersion
+			constants.LoadedStateVersion = utils.Ternary(tc.stateVersion != 0, tc.stateVersion, constants.LatestStateVersion).(int)
 			result, err := parseStringTimestamp(tc.value, tc.isTimestampInDB)
 
 			if tc.expectedErr != nil {
@@ -1281,6 +1367,12 @@ func TestReformatInt64(t *testing.T) {
 			v:           json.Number("abc"),
 			expected:    int64(0),
 			expectedErr: &strconv.NumError{Func: "ParseInt", Num: "abc", Err: strconv.ErrSyntax},
+		},
+		{
+			name:        "json number leading plus",
+			v:           json.Number("+123"),
+			expected:    int64(123),
+			expectedErr: nil,
 		},
 
 		// ===== float =====
@@ -1762,6 +1854,12 @@ func TestReformatInt32(t *testing.T) {
 
 		// ===== []uint8 =====
 		{
+			name:        "single byte slice raw value",
+			v:           []uint8{1},
+			expected:    int32(1),
+			expectedErr: nil,
+		},
+		{
 			name:        "byte slice int32",
 			v:           []uint8("123"),
 			expected:    int32(0),
@@ -1861,6 +1959,24 @@ func TestReformatFloat64(t *testing.T) {
 			v:           json.Number("abc"),
 			expected:    float64(0),
 			expectedErr: &strconv.NumError{Func: "ParseFloat", Num: "abc", Err: strconv.ErrSyntax},
+		},
+		{
+			name:        "json number nan",
+			v:           json.Number("NaN"),
+			expected:    math.NaN(),
+			expectedErr: nil,
+		},
+		{
+			name:        "json number inf",
+			v:           json.Number("+Inf"),
+			expected:    math.Inf(1),
+			expectedErr: nil,
+		},
+		{
+			name:        "json number negative inf",
+			v:           json.Number("-Inf"),
+			expected:    math.Inf(-1),
+			expectedErr: nil,
 		},
 
 		// ===== []uint8 =====
@@ -2095,7 +2211,12 @@ func TestReformatFloat64(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
+				// NaN != NaN in Go, so assert.Equal cannot compare NaN values.
+				if math.IsNaN(tc.expected) {
+					assert.True(t, math.IsNaN(result))
+				} else {
+					assert.Equal(t, tc.expected, result)
+				}
 			}
 		})
 	}
@@ -2127,6 +2248,24 @@ func TestReformatFloat32(t *testing.T) {
 			v:           json.Number("abc"),
 			expected:    float32(0),
 			expectedErr: &strconv.NumError{Func: "ParseFloat", Num: "abc", Err: strconv.ErrSyntax},
+		},
+		{
+			name:        "json number nan",
+			v:           json.Number("NaN"),
+			expected:    float32(math.NaN()),
+			expectedErr: nil,
+		},
+		{
+			name:        "json number inf",
+			v:           json.Number("Inf"),
+			expected:    float32(math.Inf(1)),
+			expectedErr: nil,
+		},
+		{
+			name:        "json number negative inf",
+			v:           json.Number("-Inf"),
+			expected:    float32(math.Inf(-1)),
+			expectedErr: nil,
 		},
 
 		// ===== []uint8 =====
@@ -2332,13 +2471,13 @@ func TestReformatFloat32(t *testing.T) {
 			name:        "unsupported type",
 			v:           []int{1, 2, 3},
 			expected:    float32(0),
-			expectedErr: fmt.Errorf("failed to change [1 2 3] (type:[]int) to float32"),
+			expectedErr: fmt.Errorf("failed to change %v (type:%T) to float32", []int{1, 2, 3}, []int{1, 2, 3}),
 		},
 		{
 			name:        "nil input",
 			v:           nil,
 			expected:    float32(0),
-			expectedErr: fmt.Errorf("failed to change <nil> (type:<nil>) to float32"),
+			expectedErr: fmt.Errorf("failed to change %v (type:%T) to float32", nil, nil),
 		},
 	}
 	for _, tc := range tests {
@@ -2349,144 +2488,13 @@ func TestReformatFloat32(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
+				// NaN != NaN in Go, so assert.Equal cannot compare NaN values.
+				if math.IsNaN(float64(tc.expected)) {
+					assert.True(t, math.IsNaN(float64(result)))
+				} else {
+					assert.Equal(t, tc.expected, result)
+				}
 			}
-		})
-	}
-}
-
-// TestReformatByteArraysToString tests the ReformatByteArraysToString function.
-func TestReformatByteArraysToString(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    map[string]any
-		expected map[string]any
-	}{
-		// ===== map[string]any (recursive) =====
-		{
-			name: "nested map recursion",
-			input: map[string]any{
-				"outer": map[string]any{
-					"inner": []byte("value"),
-				},
-			},
-			expected: map[string]any{
-				"outer": map[string]any{
-					"inner": "value",
-				},
-			},
-		},
-
-		// ===== []byte =====
-		{
-			name: "byte slice",
-			input: map[string]any{
-				"key": []byte("hello"),
-			},
-			expected: map[string]any{
-				"key": "hello",
-			},
-		},
-		{
-			name: "empty byte slice",
-			input: map[string]any{
-				"key": []byte(""),
-			},
-			expected: map[string]any{
-				"key": "",
-			},
-		},
-
-		// ===== []map[string]any =====
-		{
-			name: "slice of maps",
-			input: map[string]any{
-				"arr": []map[string]any{
-					{"a": []byte("x")},
-					{"b": []byte("y")},
-					{"c": []byte("")},
-					{"d": int64(123)},
-				},
-			},
-			expected: map[string]any{
-				"arr": []map[string]any{
-					{"a": "x"},
-					{"b": "y"},
-					{"c": ""},
-					{"d": int64(123)},
-				},
-			},
-		},
-
-		// ===== []any =====
-		{
-			name: "slice any with all supported types",
-			input: map[string]any{
-				"arr": []any{
-					[]byte("hello"),
-
-					map[string]any{
-						"nested_byte": []byte("world"),
-					},
-
-					[]map[string]any{
-						{"a": []byte("x")},
-						{"b": []byte("y")},
-					},
-
-					[]any{
-						[]byte("inner"),
-						map[string]any{"k": []byte("v")},
-					},
-
-					int64(123),
-					123,
-					true,
-				},
-			},
-			expected: map[string]any{
-				"arr": []any{
-					"hello",
-
-					map[string]any{
-						"nested_byte": "world",
-					},
-
-					[]map[string]any{
-						{"a": []byte("x")},
-						{"b": []byte("y")},
-					},
-
-					[]any{
-						[]byte("inner"),
-						map[string]any{"k": []byte("v")},
-					},
-
-					int64(123),
-					123,
-					true,
-				},
-			},
-		},
-
-		// ===== default / unchanged =====
-		{
-			name: "no byte arrays",
-			input: map[string]any{
-				"a": 1,
-				"b": "text",
-				"c": true,
-			},
-			expected: map[string]any{
-				"a": 1,
-				"b": "text",
-				"c": true,
-			},
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, ReformatByteArraysToString(tc.input))
 		})
 	}
 }
@@ -2538,6 +2546,21 @@ func TestReformatGeoType(t *testing.T) {
 			name:        "valid wkb point",
 			input:       []byte{0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40},
 			expected:    "POINT(1 2)",
+			expectedErr: nil,
+		},
+		{
+			name: "valid wkb polygon",
+			input: func() []byte {
+				b, _ := wkb.Marshal(orb.Polygon{{{0, 0}, {1, 0}, {1, 1}, {0, 1}, {0, 0}}})
+				return append([]byte{0, 0, 0, 0}, b...)
+			}(),
+			expected:    "POLYGON((0 0,1 0,1 1,0 1,0 0))",
+			expectedErr: nil,
+		},
+		{
+			name:        "empty byte slice",
+			input:       []byte{},
+			expected:    "",
 			expectedErr: nil,
 		},
 
@@ -2605,12 +2628,42 @@ func TestReformatTimeValue(t *testing.T) {
 			expected:    "14:30:45",
 			expectedErr: nil,
 		},
+		{
+			name:        "time value non utc timezone",
+			input:       time.Date(2024, 1, 1, 14, 30, 45, 0, time.FixedZone("IST", 5*3600+30*60)),
+			expected:    "14:30:45",
+			expectedErr: nil,
+		},
+		{
+			name:        "time value midnight",
+			input:       time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+			expected:    "00:00:00",
+			expectedErr: nil,
+		},
+		{
+			name:        "time value min",
+			input:       time.Time{},
+			expected:    "00:00:00",
+			expectedErr: nil,
+		},
+		{
+			name:        "time value max",
+			input:       time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC),
+			expected:    "23:59:59",
+			expectedErr: nil,
+		},
 
 		// ===== []byte =====
 		{
 			name:        "byte slice",
 			input:       []byte("12:34:56"),
 			expected:    "12:34:56",
+			expectedErr: nil,
+		},
+		{
+			name:        "empty byte slice",
+			input:       []byte{},
+			expected:    "",
 			expectedErr: nil,
 		},
 

@@ -38,7 +38,7 @@ package constants
 //     * Now these byte slices are parsed and converted into int64
 //
 //   - Version 7: (Current Version) Fixed issues in Reformat.go: ReformatBool and ReformatValue
-//     * Fixed boolean conversion for numeric inputs (int, int8, int16, int32, int64) in ReformatBool
+//     * Fixed boolean conversion for numeric inputs (int8, int16, int32, int64) in ReformatBool
 //     * Fixed float32 and float64 string conversion ("%d" → "%v") in ReformatValue
 
 const (
