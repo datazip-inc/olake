@@ -1,9 +1,12 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -80,11 +83,53 @@ var RootCmd = &cobra.Command{
 	},
 }
 
+// CreateRootCommand wires the cobra root for the given driver. It mutates
+// package-level state (RootCmd, connector) and installs a process-wide signal
+// handler, so it must be called at most once per process — the existing
+// connector.RegisterDriver entry point already enforces this.
 func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	RootCmd.AddCommand(commands...)
-	connector = abstract.NewAbstractDriver(RootCmd.Context(), driver.(abstract.DriverInterface))
+
+	// Wire SIGINT/SIGTERM into the root context so CDC, backfill and
+	// destination-writer paths reach their existing ctx.Done() branches on
+	// pod eviction, docker stop, or Ctrl-C, instead of being killed mid-read.
+	ctx := signalAwareRootContext(RootCmd.Context())
+	RootCmd.SetContext(ctx)
+
+	connector = abstract.NewAbstractDriver(ctx, driver.(abstract.DriverInterface))
 
 	return RootCmd
+}
+
+// signalAwareRootContext wraps parent so that the returned context cancels on
+// SIGINT / SIGTERM as well as on any parent cancellation. Used to wire pod
+// eviction, docker stop, and Ctrl-C through to the existing ctx.Done()
+// branches in CDC, backfill, and destination-writer paths.
+//
+// Source / destination consistency on cancel is still owned by each
+// driver.PostCDC and destination writer.Close implementation. This wrapper only
+// makes process signals visible through ctx.Done(); it does not make source
+// checkpoints and destination commits atomic. Any implementation that performs
+// a final commit after work has been written must continue to check ctx.Done()
+// before that commit and must treat a canceled context as a reason to avoid
+// advancing only one side of the source/destination boundary.
+//
+// The Kafka driver has a separate `TODO: Add 2PC support for Kafka` for a
+// future stricter contract. Other drivers may have similar source-specific
+// checkpointing constraints, so this helper should not be used as a substitute
+// for driver-level cancellation safety.
+func signalAwareRootContext(parent context.Context) context.Context {
+	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
+	// signal.NotifyContext keeps the signal handler installed until stop() is
+	// called. Releasing it after the first cancellation lets a subsequent
+	// SIGINT/SIGTERM fall through to the Go runtime default (terminate), which
+	// is the behavior an operator hitting Ctrl-C twice expects.
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
+
+	return ctx
 }
 
 func init() {
