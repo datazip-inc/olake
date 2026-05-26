@@ -60,7 +60,7 @@ var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
-var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
+var ErrNonRetryable = fmt.Errorf("failed with non retryable error dummy")
 var ErrGlobalContextGroup = fmt.Errorf("global context group error")
 var SkipCDCDrivers = []DriverType{Oracle, DB2}
 
