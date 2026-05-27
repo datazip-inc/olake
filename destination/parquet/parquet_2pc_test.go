@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,13 +23,13 @@ func TestLoad2PCState(t *testing.T) {
 		run  func(t *testing.T)
 	}{
 		{
-			name: "returns committed ids",
+			name: "returns full refresh commit marker ids",
 			run: func(t *testing.T) {
 				p := testParquet2PC(t, "thread-1")
-				require.NoError(t, p.writeCommitMarker(ctx, testDataFiles(p, "part/a.parquet"), nil))
+				require.NoError(t, p.writeCommitMarker(ctx, nil))
 
 				p.options.ThreadID = "thread-2"
-				require.NoError(t, p.writeCommitMarker(ctx, testDataFiles(p, "part/b.parquet"), nil))
+				require.NoError(t, p.writeCommitMarker(ctx, nil))
 
 				state, err := p.load2PCState(ctx)
 				require.NoError(t, err)
@@ -38,75 +39,60 @@ func TestLoad2PCState(t *testing.T) {
 			},
 		},
 		{
-			name: "falls back to commit marker state",
+			name: "returns latest metadata state",
 			run: func(t *testing.T) {
-				p := testParquet2PC(t, "cdc-thread")
-				metadataState := &types.MetadataState{
-					ID:    "cdc-thread",
+				p := testParquet2PC(t, "cdc-thread-old")
+				require.NoError(t, p.writeCommitMarker(ctx, &types.MetadataState{
+					ID:    "cdc-thread-old",
 					State: `{"lsn":"1/1"}`,
-				}
-				require.NoError(t, p.writeCommitMarker(ctx, testDataFiles(p, "cdc.parquet"), metadataState))
+				}))
+
+				p.options.ThreadID = "cdc-thread-new"
+				require.NoError(t, p.writeCommitMarker(ctx, &types.MetadataState{
+					ID:    "cdc-thread-new",
+					State: `{"lsn":"1/2"}`,
+				}))
 
 				state, err := p.load2PCState(ctx)
 				require.NoError(t, err)
 				require.NotNil(t, state)
-				require.Equal(t, "cdc-thread", state.ID)
-				require.Equal(t, `{"lsn":"1/1"}`, state.State)
+				require.Equal(t, "cdc-thread-new", state.ID)
+				require.Equal(t, `{"lsn":"1/2"}`, state.State)
 				require.Empty(t, state.FullRefreshCommittedIDs)
 			},
 		},
 		{
-			name: "cleans only prepared uncommitted files",
-			run: func(t *testing.T) {
-				p := testParquet2PC(t, "failed-thread")
-				legacyFile := testWriteFile(t, p, "legacy.parquet")
-				failedFile := testWriteFile(t, p, "failed.parquet")
-				require.NoError(t, p.writePrepareMarker(ctx, testDataFiles(p, "failed.parquet"), nil))
-
-				state, err := p.load2PCState(ctx)
-				require.NoError(t, err)
-				require.Nil(t, state)
-
-				requireFileExists(t, legacyFile)
-				requireFileNotExists(t, failedFile)
-			},
-		},
-		{
-			name: "keeps prepared files when commit marker exists",
+			name: "promotes committed staging before returning state",
 			run: func(t *testing.T) {
 				p := testParquet2PC(t, "committed-thread")
-				committedFile := testWriteFile(t, p, "committed.parquet")
-				files := testDataFiles(p, "committed.parquet")
-				require.NoError(t, p.writePrepareMarker(ctx, files, nil))
-				require.NoError(t, p.writeCommitMarker(ctx, files, nil))
+				stagedFile := testWriteStagedFile(t, p, "bucket_1/data.parquet")
+				requireFileExists(t, stagedFile)
+				require.NoError(t, p.writeCommitMarker(ctx, nil))
 
 				state, err := p.load2PCState(ctx)
 				require.NoError(t, err)
 				require.NotNil(t, state)
 				require.True(t, slices.Contains(state.FullRefreshCommittedIDs, "committed-thread"))
 
-				requireFileExists(t, committedFile)
-				requireFileNotExists(t, testPrepareMarkerPath(p, "committed-thread"))
+				requireFileExists(t, filepath.Join(p.config.Path, p.basePath, "bucket_1", "data.parquet"))
+				requireFileNotExists(t, stagedFile)
+				requireDirNotExists(t, p.localStagingPath("committed-thread"))
 			},
 		},
 		{
-			name: "cleans prepared files with metadata without commit marker",
+			name: "deletes uncommitted staging without touching final files",
 			run: func(t *testing.T) {
-				p := testParquet2PC(t, "incremental-thread")
-				failedFile := testWriteFile(t, p, "failed.parquet")
-				metadataState := &types.MetadataState{
-					ID:    "incremental-thread",
-					State: `{"cursor":1}`,
-				}
-				files := testDataFiles(p, "failed.parquet")
-				require.NoError(t, p.writePrepareMarker(ctx, files, metadataState))
+				p := testParquet2PC(t, "failed-thread")
+				finalFile := testWriteFinalFile(t, p, "existing.parquet")
+				stagedFile := testWriteStagedFile(t, p, "failed.parquet")
 
 				state, err := p.load2PCState(ctx)
 				require.NoError(t, err)
 				require.Nil(t, state)
 
-				requireFileNotExists(t, failedFile)
-				requireFileNotExists(t, testPrepareMarkerPath(p, "incremental-thread"))
+				requireFileExists(t, finalFile)
+				requireFileNotExists(t, stagedFile)
+				requireDirNotExists(t, p.localStagingPath("failed-thread"))
 			},
 		},
 	}
@@ -153,19 +139,47 @@ func TestCloseWritesCommitMarkerWithMetadataState(t *testing.T) {
 	}
 	require.NoError(t, p.Close(ctx, metadataState))
 
-	commitPath := filepath.Join(p.local2PCPath(), parquet2PCCommitsDir, p.markerFileName("incremental-thread"))
+	commitPath := filepath.Join(p.local2PCPath(), p.commitMarkerName("incremental-thread"))
 	commitData, err := os.ReadFile(commitPath)
 	require.NoError(t, err)
 
-	var marker parquet2PCMarker
-	require.NoError(t, json.Unmarshal(commitData, &marker))
-	require.Equal(t, "incremental-thread", marker.ThreadID)
-	require.Len(t, marker.Files, 1)
-	require.NotNil(t, marker.MetadataState)
-	require.Equal(t, `{"cursor":1}`, marker.MetadataState.State)
+	var markerState types.MetadataState
+	require.NoError(t, json.Unmarshal(commitData, &markerState))
+	require.Equal(t, "incremental-thread", markerState.ID)
+	require.Equal(t, `{"cursor":1}`, markerState.State)
+	requireFileNotExists(t, p.localStagingPath("incremental-thread"))
+	require.Equal(t, 1, testFinalParquetFiles(t, p))
+}
 
-	_, err = os.Stat(filepath.Join(p.local2PCPath(), parquet2PCPrepareDir, p.markerFileName("incremental-thread")))
-	require.True(t, os.IsNotExist(err))
+func TestCloseWritesFullRefreshCommitMarker(t *testing.T) {
+	ctx := context.Background()
+	stream := testConfiguredStream()
+	p := &Parquet{config: &Config{Path: t.TempDir()}}
+	options := &destination.Options{ThreadID: "full-refresh-thread"}
+
+	_, state, err := p.Setup(ctx, stream, nil, options)
+	require.NoError(t, err)
+	require.Nil(t, state)
+
+	err = p.Write(ctx, []types.RawRecord{
+		types.CreateRawRecord(
+			map[string]any{"id": 1},
+			map[string]any{
+				constants.OlakeID:        "row-1",
+				constants.OlakeTimestamp: time.Now().UTC(),
+				constants.OpType:         "r",
+			},
+		),
+	})
+	require.NoError(t, err)
+	require.NoError(t, p.Close(ctx, nil))
+
+	commitPath := filepath.Join(p.local2PCPath(), p.commitMarkerName("full-refresh-thread"))
+	commitData, err := os.ReadFile(commitPath)
+	require.NoError(t, err)
+	require.Empty(t, commitData)
+	requireFileNotExists(t, p.localStagingPath("full-refresh-thread"))
+	require.Equal(t, 1, testFinalParquetFiles(t, p))
 }
 
 func TestCloseWritesMetadataOnlyCommitMarker(t *testing.T) {
@@ -190,16 +204,15 @@ func TestCloseWritesMetadataOnlyCommitMarker(t *testing.T) {
 	require.Equal(t, "cdc-thread", state.ID)
 	require.Equal(t, `{"lsn":"1/1"}`, state.State)
 
-	commitPath := filepath.Join(p.local2PCPath(), parquet2PCCommitsDir, p.markerFileName("cdc-thread"))
+	commitPath := filepath.Join(p.local2PCPath(), p.commitMarkerName("cdc-thread"))
 	commitData, err := os.ReadFile(commitPath)
 	require.NoError(t, err)
 
-	var marker parquet2PCMarker
-	require.NoError(t, json.Unmarshal(commitData, &marker))
-	require.Equal(t, "cdc-thread", marker.ThreadID)
-	require.Empty(t, marker.Files)
-	require.NotNil(t, marker.MetadataState)
-	require.Equal(t, `{"lsn":"1/1"}`, marker.MetadataState.State)
+	var markerState types.MetadataState
+	require.NoError(t, json.Unmarshal(commitData, &markerState))
+	require.Equal(t, "cdc-thread", markerState.ID)
+	require.Equal(t, `{"lsn":"1/1"}`, markerState.State)
+	require.Equal(t, 0, testFinalParquetFiles(t, p))
 }
 
 func testParquet2PC(t *testing.T, threadID string) *Parquet {
@@ -213,15 +226,7 @@ func testParquet2PC(t *testing.T, threadID string) *Parquet {
 	}
 }
 
-func testDataFiles(p *Parquet, paths ...string) []parquetDataFile {
-	files := make([]parquetDataFile, 0, len(paths))
-	for _, path := range paths {
-		files = append(files, parquetDataFile{Path: filepath.Join(p.basePath, path)})
-	}
-	return files
-}
-
-func testWriteFile(t *testing.T, p *Parquet, path string) string {
+func testWriteFinalFile(t *testing.T, p *Parquet, path string) string {
 	t.Helper()
 	filePath := filepath.Join(p.config.Path, p.basePath, path)
 	require.NoError(t, os.MkdirAll(filepath.Dir(filePath), os.ModePerm))
@@ -229,8 +234,31 @@ func testWriteFile(t *testing.T, p *Parquet, path string) string {
 	return filePath
 }
 
-func testPrepareMarkerPath(p *Parquet, threadID string) string {
-	return filepath.Join(p.local2PCPath(), parquet2PCPrepareDir, p.markerFileName(threadID))
+func testWriteStagedFile(t *testing.T, p *Parquet, path string) string {
+	t.Helper()
+	filePath := filepath.Join(p.localStagingPath(p.options.ThreadID), path)
+	require.NoError(t, os.MkdirAll(filepath.Dir(filePath), os.ModePerm))
+	require.NoError(t, os.WriteFile(filePath, []byte(path), 0o600))
+	return filePath
+}
+
+func testFinalParquetFiles(t *testing.T, p *Parquet) int {
+	t.Helper()
+	var count int
+	require.NoError(t, filepath.WalkDir(filepath.Join(p.config.Path, p.basePath), func(path string, d os.DirEntry, err error) error {
+		require.NoError(t, err)
+		if d.IsDir() {
+			return nil
+		}
+		if strings.Contains(path, parquet2PCDir) {
+			return nil
+		}
+		if filepath.Ext(path) == "."+constants.ParquetFileExt {
+			count++
+		}
+		return nil
+	}))
+	return count
 }
 
 func requireFileExists(t *testing.T, path string) {
@@ -240,6 +268,12 @@ func requireFileExists(t *testing.T, path string) {
 }
 
 func requireFileNotExists(t *testing.T, path string) {
+	t.Helper()
+	_, err := os.Stat(path)
+	require.True(t, os.IsNotExist(err))
+}
+
+func requireDirNotExists(t *testing.T, path string) {
 	t.Helper()
 	_, err := os.Stat(path)
 	require.True(t, os.IsNotExist(err))

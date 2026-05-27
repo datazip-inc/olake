@@ -32,9 +32,8 @@ import (
 )
 
 type parquetDataFile struct {
-	Path      string
-	LocalPath string
-	S3KeyPath string
+	LocalPath        string
+	S3StagingKeyPath string
 }
 
 type FileMetadata struct {
@@ -96,7 +95,7 @@ func (p *Parquet) initS3Writer() error {
 
 func (p *Parquet) createNewPartitionFile(basePath string) error {
 	// construct directory path
-	directoryPath := filepath.Join(p.config.Path, basePath)
+	directoryPath := filepath.Join(p.config.Path, p.stagingDataDir(basePath))
 
 	if err := os.MkdirAll(directoryPath, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create directories[%s]: %s", directoryPath, err)
@@ -276,12 +275,12 @@ func (p *Parquet) dataFiles() []parquetDataFile {
 	for basePath, parquetFiles := range p.partitionedFiles {
 		for _, parquetFile := range parquetFiles {
 			relativePath := filepath.Join(basePath, parquetFile.fileName)
+			stagingPath := p.stagingDataPath(relativePath)
 			dataFile := parquetDataFile{
-				Path:      relativePath,
-				LocalPath: filepath.Join(p.config.Path, relativePath),
+				LocalPath: filepath.Join(p.config.Path, stagingPath),
 			}
 			if p.s3Client != nil {
-				dataFile.S3KeyPath = p.s3ObjectPath(relativePath)
+				dataFile.S3StagingKeyPath = p.s3ObjectPath(stagingPath)
 			}
 			dataFiles = append(dataFiles, dataFile)
 		}
@@ -303,7 +302,7 @@ func (p *Parquet) closePqFiles(_ context.Context, closeOnError bool) error {
 		for _, parquetFile := range parquetFiles {
 			// construct full file path
 			relativePath := filepath.Join(basePath, parquetFile.fileName)
-			filePath := filepath.Join(p.config.Path, relativePath)
+			filePath := filepath.Join(p.config.Path, p.stagingDataPath(relativePath))
 
 			// Close writers
 			err := parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
@@ -342,20 +341,20 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []parquetDataFile
 			defer file.Close()
 
 			// Upload to S3 using multipart upload (automatically handles files > 5GB)
-			_, err = p.s3Uploader.Upload(&s3manager.UploadInput{
+			_, err = p.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 				Bucket: aws.String(p.config.Bucket),
-				Key:    aws.String(info.S3KeyPath),
+				Key:    aws.String(info.S3StagingKeyPath),
 				Body:   file,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to put object into s3 (%s): %s", info.S3KeyPath, err)
+				return fmt.Errorf("failed to put object into s3 (%s): %s", info.S3StagingKeyPath, err)
 			}
 
 			// Remove local file after successful upload
 			if err := os.Remove(info.LocalPath); err != nil {
 				logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to S3): %s", p.options.ThreadID, info.LocalPath, err)
 			}
-			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, info.S3KeyPath)
+			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, info.S3StagingKeyPath)
 			return nil
 		})
 		if err != nil {
@@ -375,15 +374,6 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 		return err
 	}
 
-	if ctx.Err() == nil {
-		if err := p.writePrepareMarker(ctx, dataFiles, metadataState); err != nil {
-			if closeErr := p.closePqFiles(ctx, true); closeErr != nil {
-				return closeErr
-			}
-			return err
-		}
-	}
-
 	if err := p.closePqFiles(ctx, ctx.Err() != nil); err != nil {
 		return err
 	}
@@ -395,11 +385,14 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	if err := p.uploadPqFiles(ctx, dataFiles); err != nil {
 		return err
 	}
-	if err := p.writeCommitMarker(ctx, dataFiles, metadataState); err != nil {
+	if err := p.writeCommitMarker(ctx, metadataState); err != nil {
 		return err
 	}
-	if err := p.deletePrepareMarker(ctx, p.options.ThreadID); err != nil {
-		logger.Warnf("Thread[%s]: failed to delete parquet 2pc prepare marker: %s", p.options.ThreadID, err)
+	if err := p.promoteStaging(ctx, p.options.ThreadID); err != nil {
+		return err
+	}
+	if err := p.deleteStaging(ctx, p.options.ThreadID); err != nil {
+		logger.Warnf("Thread[%s]: failed to delete committed parquet 2pc staging dir: %s", p.options.ThreadID, err)
 	}
 	return nil
 }
