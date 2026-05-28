@@ -32,12 +32,6 @@ type kafkaReader struct {
 	reader   *kgo.Client
 }
 
-// CustomGroupBalancer ensures proper consumer ID distribution according to requirements
-type CustomGroupBalancer struct {
-	requiredConsumerIDs int
-	partitionIndex      map[string]types.PartitionMetaData
-}
-
 // ReaderManager manages Kafka readers and their metadata
 type ReaderManager struct {
 	config         ReaderConfig
@@ -45,6 +39,12 @@ type ReaderManager struct {
 	partitionIndex map[string]types.PartitionMetaData // get per-partition boundaries
 	exitMode       atomic.Int32                       // normalProcessing | gracefulExit | nonRetryableExit
 	generationID   atomic.Int32                       // Group generationId is used to detect rebalances
+}
+
+// CustomGroupBalancer ensures proper consumer ID distribution according to requirements
+type CustomGroupBalancer struct {
+	requiredConsumerIDs int
+	partitionIndex      map[string]types.PartitionMetaData
 }
 
 // SchemaRegistryClient holds the schema registry client information

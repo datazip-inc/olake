@@ -120,7 +120,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
 	}
 
-	// Total attempts for abstract-layer RetryOnBackoff (discover chunks, sync, etc.): user retry count + 1 initial try.
+	// check for default backoff count
 	k.config.RetryCount = utils.Ternary(k.config.RetryCount <= 0, 1, k.config.RetryCount+1).(int)
 
 	return nil
@@ -218,8 +218,10 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return nil
 		}
 
-		consumerOpts := append(
-			k.dialer,
+		consumerOpts := append([]kgo.Opt{}, k.dialer...)
+
+		consumerOpts = append(
+			consumerOpts,
 			kgo.FetchMaxBytes(10e6),
 			kgo.ConsumePartitions(map[string]map[int32]kgo.Offset{
 				streamName: {

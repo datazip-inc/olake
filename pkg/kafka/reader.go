@@ -108,7 +108,7 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 	}
 
 	// fetch already committed offset of partition
-	committedTopicOffsets, err := r.FetchCommittedOffsets(ctx, topic, topicDetail.Partitions)
+	committedTopicOffsets, err := r.FetchCommittedOffsets(ctx, topic)
 	if err != nil {
 		return fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, err)
 	}
@@ -162,21 +162,24 @@ func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*ka
 	return &topicDetail, nil
 }
 
-// FetchCommittedOffsets fetches committed offsets for a topic
-func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string, partitions map[int32]kadm.PartitionDetail) (map[int32]int64, error) {
+// FetchCommittedOffsets fetches committed offsets for a topic.
+func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string) (map[int32]int64, error) {
 	offsets, err := r.config.AdminClient.FetchOffsets(ctx, r.config.ConsumerGroupID)
 	if err != nil {
-		return nil, fmt.Errorf("could not fetch committed offsets for group %s", r.config.ConsumerGroupID)
+		return nil, fmt.Errorf("failed to fetch committed offsets for group %s: %v", r.config.ConsumerGroupID, err)
 	}
 
 	committedTopicOffsets := make(map[int32]int64)
-	for _, partitionDetail := range partitions {
-		offset, exists := offsets.Lookup(topic, partitionDetail.Partition)
-		if !exists {
-			continue
-		}
-		committedTopicOffsets[partitionDetail.Partition] = offset.At
+
+	topicOffsets, exists := offsets[topic]
+	if !exists {
+		return committedTopicOffsets, nil
 	}
+
+	for partition, offset := range topicOffsets {
+		committedTopicOffsets[partition] = offset.At
+	}
+
 	return committedTopicOffsets, nil
 }
 
@@ -382,6 +385,7 @@ func (r *ReaderManager) waitForConsumerGroupJoin(consumerGroupID string) error {
 
 		if allReadersReady && expectedGenerationID >= 0 {
 			r.generationID.Store(expectedGenerationID)
+			// wait for 2 seconds to ensure the consumer group is stable
 			time.Sleep(2 * time.Second)
 			logger.Infof("consumer group %s stable: all readers assigned, generation id: %d", consumerGroupID, expectedGenerationID)
 			return nil

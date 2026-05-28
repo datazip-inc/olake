@@ -78,6 +78,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		return nil, fmt.Errorf("failed to restart reader %d: %v", readerID, err)
 	}
 
+	// track processing state
 	lastMessages := make(map[types.PartitionKey]*kgo.Record)
 	// maintain completed partitions and observed partitions to track loop termination (for the current reader)
 	completedPartitions := make(map[types.PartitionKey]struct{}) // completed partitions by the current reader
