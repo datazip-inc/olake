@@ -29,11 +29,12 @@ const (
 var ErrIdleTermination = errors.New("change stream terminated due to idle timeout")
 
 type CDCDocument struct {
-	OperationType string              `json:"operationType"`
-	FullDocument  map[string]any      `json:"fullDocument"`
-	ClusterTime   primitive.Timestamp `json:"clusterTime"`
-	WallTime      primitive.DateTime  `json:"wallTime"`
-	DocumentKey   map[string]any      `json:"documentKey"`
+	OperationType            string              `json:"operationType"`
+	FullDocument             map[string]any      `json:"fullDocument"`
+	FullDocumentBeforeChange map[string]any      `json:"fullDocumentBeforeChange"`
+	ClusterTime              primitive.Timestamp `json:"clusterTime"`
+	WallTime                 primitive.DateTime  `json:"wallTime"`
+	DocumentKey              map[string]any      `json:"documentKey"`
 }
 
 func (m *Mongo) ChangeStreamConfig() (bool, bool, bool) {
@@ -98,7 +99,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 			{Key: "operationType", Value: bson.D{{Key: "$in", Value: bson.A{"insert", "update", "delete"}}}},
 		}}},
 	}
-	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetMaxAwaitTime(maxAwait)
+	changeStreamOpts := options.ChangeStream().SetFullDocument(options.UpdateLookup).SetFullDocumentBeforeChange(options.WhenAvailable).SetMaxAwaitTime(maxAwait)
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
 	changeStreamOpts = changeStreamOpts.SetResumeAfter(map[string]any{cdcCursorField: prevResumeToken})
@@ -168,9 +169,17 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		return fmt.Errorf("error while decoding: %s", err)
 	}
 
-	if record.OperationType == "delete" {
-		// replace full document(null) with documentKey
-		record.FullDocument = record.DocumentKey
+	switch record.OperationType {
+	case "delete":
+		if record.FullDocumentBeforeChange != nil {
+			record.FullDocument = record.FullDocumentBeforeChange
+		} else {
+			record.FullDocument = record.DocumentKey
+		}
+	case "update", "replace":
+		if record.FullDocument == nil && record.FullDocumentBeforeChange != nil {
+			record.FullDocument = record.FullDocumentBeforeChange
+		}
 	}
 
 	filterMongoObject(record.FullDocument)
