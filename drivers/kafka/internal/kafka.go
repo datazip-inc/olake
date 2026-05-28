@@ -47,7 +47,7 @@ type Kafka struct {
 	readerManager        *kafkapkg.ReaderManager
 	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
 	schemaRegistryClient *kafkapkg.SchemaRegistryClient
-	admin                *kadm.Client
+	adminClient          *kadm.Client
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -100,7 +100,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	}
 
 	k.client = client
-	k.admin = kadm.NewClient(client)
+	k.adminClient = kadm.NewClient(client)
 
 	// Test connectivity by fetching metadata
 	err = client.Ping(ctx)
@@ -144,7 +144,7 @@ func (k *Kafka) Close() error {
 
 func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for Kafka")
-	metadata, err := k.admin.ListTopics(ctx)
+	metadata, err := k.adminClient.ListTopics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list topics: %s", err)
 	}
@@ -170,8 +170,8 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 	// create reader manager for schema discovery
 	readerManager := kafkapkg.NewReaderManager(kafkapkg.ReaderConfig{
-		Dialer: k.dialer,
-		Admin:  k.admin,
+		Dialer:      k.dialer,
+		AdminClient: k.adminClient,
 	})
 
 	// get the topic metadata
@@ -181,12 +181,12 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	}
 
 	// get offsets for all partitions
-	startOffsets, err := k.admin.ListStartOffsets(ctx, streamName)
+	startOffsets, err := k.adminClient.ListStartOffsets(ctx, streamName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list start offsets for topic %s: %s", streamName, err)
 	}
 
-	endOffsets, err := k.admin.ListEndOffsets(ctx, streamName)
+	endOffsets, err := k.adminClient.ListEndOffsets(ctx, streamName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list end offsets for topic %s: %s", streamName, err)
 	}
@@ -398,7 +398,7 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 		return nil, fmt.Errorf("readerID not found for reader index %d", readerIndex)
 	}
 
-	response, err := k.admin.DescribeGroups(ctx, k.consumerGroupID)
+	response, err := k.adminClient.DescribeGroups(ctx, k.consumerGroupID)
 	if err != nil {
 		return nil, fmt.Errorf("DescribeGroups failed: %s", err)
 	}

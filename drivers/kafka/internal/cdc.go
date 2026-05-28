@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -55,42 +56,28 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		MaxThreads:                  k.config.MaxThreads,
 		ConsumerGroupID:             k.consumerGroupID,
 		Dialer:                      k.dialer,
-		Admin:                       k.admin,
+		AdminClient:                 k.adminClient,
 		ThreadsEqualTotalPartitions: k.config.ThreadsEqualTotalPartitions,
 	})
+
 	// remove stale consumers before creating new readers
 	if err := k.readerManager.RemoveExistingConsumers(ctx, k.client); err != nil {
 		return fmt.Errorf("failed to remove existing consumers: %v", err)
 	}
-	// create new readers and warmup the consumer group
+	// create new readers and wait for consumer group to join
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
-	// Restart reader to get a fresh client per StreamChanges attempt
+	// Restart the reader to create a fresh franz-go client for each StreamChanges attempt.
+	// franz-go keeps uncommitted offsets in memory, so restarting clears that state and
+	// ensures retries resume from the last committed offset. Since a static instance ID
+	// is used, this restart does not trigger a consumer group rebalance.
 	reader, err := k.readerManager.RestartReader(ctx, readerID, k.streams, k.consumerGroupID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart reader %d: %v", readerID, err)
 	}
 
-	//Check if current reader has some non-empty partitions or not
-	assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
-	if err != nil {
-		return nil, err
-	}
-	// Return early if no non-empty partitions are assigned to the reader
-	pending := 0
-	for _, pk := range assigned {
-		if _, ok := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", pk.Topic, pk.Partition)); ok {
-			pending++
-		}
-	}
-	if pending == 0 {
-		logger.Infof("reader %d has no partitions with pending data assigned; completing StreamChanges", readerID)
-		return nil, nil
-	}
-
-	// track processing state
 	lastMessages := make(map[types.PartitionKey]*kgo.Record)
 	// maintain completed partitions and observed partitions to track loop termination (for the current reader)
 	completedPartitions := make(map[types.PartitionKey]struct{}) // completed partitions by the current reader
@@ -123,7 +110,6 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			}
 		}
 
-		// track processing state
 		lastMessages[currentPartitionKey] = record.Message
 
 		// check if partition is complete
@@ -183,6 +169,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 			if reader == nil {
 				return fmt.Errorf("reader %s not found for commit", readerID)
 			}
+
 			_, generationID := reader.GroupMetadata()
 			logger.Debugf("reader %s post cdc: generation id: %d", readerID, generationID)
 
@@ -210,11 +197,12 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 // for processing messages from a Kafka reader.
 func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
 	for {
-		pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		messages := reader.PollFetches(pollCtx)
 		pollCtxErr := pollCtx.Err()
 		cancel()
-		errs := messages.Errors()
+
+		pollFetchErrors := messages.Errors()
 
 		// Rebalance/exit checks must run even when PollFetches returns an empty batch;
 		// otherwise a reader reassigned to empty partitions never enters the record loop.
@@ -222,14 +210,20 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 			return err
 		}
 
-		if len(errs) > 0 && pollCtxErr == nil {
-			return fmt.Errorf("%v: error reading message in Kafka CDC sync: %v", constants.ErrNonRetryable, errs[0].Err)
+		// return early if poll context is deadline exceeded
+		if errors.Is(pollCtxErr, context.DeadlineExceeded) {
+			logger.Warnf("poll context deadline exceeded: %v", pollCtxErr)
+			return nil
+		}
+
+		if len(pollFetchErrors) > 0 && pollCtxErr == nil {
+			return fmt.Errorf("%v: error reading message in Kafka CDC sync: %v", constants.ErrNonRetryable, pollFetchErrors[0].Err)
 		}
 
 		records := messages.RecordIter()
 
 		for !records.Done() {
-			// Re-check rebalance state before processing each record to stop immediately after partition revocation.
+			// Re-check rebalance state before processing each record to stop immediately after rebalance.
 			if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
 				return err
 			}

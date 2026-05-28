@@ -23,13 +23,19 @@ type ReaderConfig struct {
 	ThreadsEqualTotalPartitions bool
 	ConsumerGroupID             string
 	Dialer                      []kgo.Opt
-	Admin                       *kadm.Client
+	AdminClient                 *kadm.Client
 }
 
 type kafkaReader struct {
 	id       string
 	clientID string
 	reader   *kgo.Client
+}
+
+// CustomGroupBalancer ensures proper consumer ID distribution according to requirements
+type CustomGroupBalancer struct {
+	requiredConsumerIDs int
+	partitionIndex      map[string]types.PartitionMetaData
 }
 
 // ReaderManager manages Kafka readers and their metadata
