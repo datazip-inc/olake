@@ -425,7 +425,7 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 
 			for _, topic := range assignment.Topics {
 				for _, partition := range topic.Partitions {
-					assigned = append(assigned, types.PartitionKey{Topic: topic.Topic, Partition: int(partition)})
+					assigned = append(assigned, types.PartitionKey{Topic: topic.Topic, Partition: partition})
 				}
 			}
 		}

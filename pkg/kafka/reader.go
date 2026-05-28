@@ -61,12 +61,12 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 	return r.waitForConsumerGroupJoin(consumerGroupID)
 }
 
-// GetReaders returns the created readers
+// GetReader returns the created readers
 func (r *ReaderManager) GetReader(readerID int) *kgo.Client {
 	return r.readers[readerID].reader
 }
 
-// GetReaders returns the created readers
+// GetReaderCount returns the created readers count
 func (r *ReaderManager) GetReaderCount() int {
 	return len(r.readers)
 }
@@ -125,7 +125,7 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 			continue
 		}
 
-		committedOffset, hasCommittedOffset := committedTopicOffsets[int(partition.Partition)]
+		committedOffset, hasCommittedOffset := committedTopicOffsets[partition.Partition]
 
 		// check if the partition has any messages at all, if not then skip
 		if startOffset.Offset >= endOffset.Offset {
@@ -141,7 +141,7 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 
 		r.partitionIndex[fmt.Sprintf("%s:%d", topic, partition.Partition)] = types.PartitionMetaData{
 			Stream:      stream,
-			PartitionID: int(partition.Partition),
+			PartitionID: partition.Partition,
 			EndOffset:   endOffset.Offset,
 		}
 	}
@@ -163,19 +163,19 @@ func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*ka
 }
 
 // FetchCommittedOffsets fetches committed offsets for a topic
-func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string, partitions map[int32]kadm.PartitionDetail) (map[int]int64, error) {
+func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string, partitions map[int32]kadm.PartitionDetail) (map[int32]int64, error) {
 	offsets, err := r.config.AdminClient.FetchOffsets(ctx, r.config.ConsumerGroupID)
 	if err != nil {
 		return nil, fmt.Errorf("could not fetch committed offsets for group %s", r.config.ConsumerGroupID)
 	}
 
-	committedTopicOffsets := make(map[int]int64)
+	committedTopicOffsets := make(map[int32]int64)
 	for _, partitionDetail := range partitions {
 		offset, exists := offsets.Lookup(topic, partitionDetail.Partition)
 		if !exists {
 			continue
 		}
-		committedTopicOffsets[int(partitionDetail.Partition)] = offset.At
+		committedTopicOffsets[partitionDetail.Partition] = offset.At
 	}
 	return committedTopicOffsets, nil
 }
@@ -334,11 +334,6 @@ func (r *ReaderManager) CreateReader(streams []types.StreamInterface, consumerGr
 	return reader, nil
 }
 
-// GenerationID returns the consumer-group generation stored after CreateReaders join wait.
-func (r *ReaderManager) GenerationID() int32 {
-	return r.generationID.Load()
-}
-
 // RebalanceDetected is true when the client's group generation differs from the stored baseline.
 func (r *ReaderManager) RebalanceDetected(client *kgo.Client) bool {
 	_, generationID := client.GroupMetadata()
@@ -383,7 +378,6 @@ func (r *ReaderManager) waitForConsumerGroupJoin(consumerGroupID string) error {
 			} else if expectedGenerationID < 0 {
 				expectedGenerationID = generationID
 			}
-
 		}
 
 		if allReadersReady && expectedGenerationID >= 0 {

@@ -59,7 +59,7 @@ func (b *CustomGroupBalancer) Balance(consumerBalancer *kgo.ConsumerBalancer, pa
 	for topic, partitionCount := range partitionsPerTopic {
 		for partition := int32(0); partition < partitionCount; partition++ {
 			if _, ok := b.partitionIndex[fmt.Sprintf("%s:%d", topic, partition)]; ok {
-				activePartitions = append(activePartitions, types.PartitionKey{Topic: topic, Partition: int(partition)})
+				activePartitions = append(activePartitions, types.PartitionKey{Topic: topic, Partition: partition})
 			}
 		}
 	}
@@ -70,7 +70,7 @@ func (b *CustomGroupBalancer) Balance(consumerBalancer *kgo.ConsumerBalancer, pa
 	})
 
 	for currentIndex, activePartition := range activePartitions {
-		plan.AddPartition(&members[currentIndex%consumerCount], activePartition.Topic, int32(activePartition.Partition))
+		plan.AddPartition(&members[currentIndex%consumerCount], activePartition.Topic, activePartition.Partition)
 	}
 	return plan
 }

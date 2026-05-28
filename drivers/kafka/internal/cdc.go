@@ -91,7 +91,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 
 	err = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
-		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: int(record.Message.Partition)}
+		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
 		if !exists {
 			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
@@ -197,18 +197,18 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 // for processing messages from a Kafka reader.
 func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
 	for {
+		// Rebalance/exit checks must run even when PollFetches returns an empty batch;
+		// otherwise a reader reassigned to empty partitions never enters the record loop.
+		if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
+			return err
+		}
+
 		pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		messages := reader.PollFetches(pollCtx)
 		pollCtxErr := pollCtx.Err()
 		cancel()
 
 		pollFetchErrors := messages.Errors()
-
-		// Rebalance/exit checks must run even when PollFetches returns an empty batch;
-		// otherwise a reader reassigned to empty partitions never enters the record loop.
-		if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
-			return err
-		}
 
 		// return early if poll context is deadline exceeded
 		if errors.Is(pollCtxErr, context.DeadlineExceeded) {

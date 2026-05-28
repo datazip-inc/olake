@@ -17,14 +17,14 @@ const (
 type PartitionMetaData struct {
 	ReaderID    string
 	Stream      StreamInterface
-	PartitionID int
+	PartitionID int32
 	EndOffset   int64
 }
 
 // PartitionKey represents a unique key for a Kafka partition and topic
 type PartitionKey struct {
 	Topic     string
-	Partition int
+	Partition int32
 }
 
 // KafkaRecord represents a record (data + message) from a Kafka partition
