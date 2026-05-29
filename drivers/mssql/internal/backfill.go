@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/binary"
@@ -160,125 +161,118 @@ func physLocBytes(key uint64) []byte {
 	return b
 }
 
-// splitViaPrimaryKey divides the table into chunks by walking PK boundaries
-// under REPEATABLE READ (see jdbc.WithIsolation).
+// splitViaPrimaryKey divides the table into chunks by walking PK boundaries.
 func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInterface, pkCols []string, chunkSize int64) (*types.Set[types.Chunk], error) {
-	chunks := types.NewSet[types.Chunk]()
-	err := jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
-		sort.Strings(pkCols)
-		if len(pkCols) == 0 {
-			return nil
-		}
-		// Get the minimum and maximum values for the primary key columns
-		minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkCols, tx)
+	sort.Strings(pkCols)
+	if len(pkCols) == 0 {
+		return types.NewSet[types.Chunk](), nil
+	}
+	// Get the minimum and maximum values for the primary key columns
+	minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkCols)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get table extremes: %s", err)
+	}
+	// Skip if table is empty
+	if minVal == nil {
+		return types.NewSet[types.Chunk](), nil
+	}
+
+	columnType := ""
+	if len(pkCols) == 1 {
+		columnType, err = m.getColumnTypeMSSQL(ctx, stream, pkCols[0])
 		if err != nil {
-			return fmt.Errorf("failed to get table extremes: %s", err)
+			return nil, fmt.Errorf("failed to get table column type: %s", err)
 		}
-		// Skip if table is empty
-		if minVal == nil {
-			return nil
-		}
+	}
 
-		columnType := ""
-		if len(pkCols) == 1 {
-			columnType, err = m.getColumnTypeMSSQL(ctx, stream, pkCols[0], tx)
-			if err != nil {
-				return fmt.Errorf("failed to get table column type: %s", err)
+	logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(),
+		normalizeBoundaryValue(minVal, pkCols, columnType),
+		normalizeBoundaryValue(maxVal, pkCols, columnType),
+	)
+
+	chunks := types.NewSet[types.Chunk]()
+	// Create the first chunk from the beginning up to the minimum value
+	chunks.Insert(types.Chunk{Min: nil, Max: normalizeBoundaryValue(minVal, pkCols, columnType)})
+
+	// For composite PKs, the boundary is a comma-separated CONCAT string.
+	// The nested loop reconstructs the partial-key args that MSSQLNextChunkEndQuery expects.
+	query := jdbc.MSSQLNextChunkEndQuery(stream, pkCols, chunkSize)
+	currentVal := minVal
+	for {
+		// Split the current composite key value into individual column parts
+		columns := strings.Split(normalizeBoundaryValue(currentVal, pkCols, columnType), ",")
+
+		// Build query arguments for composite key comparison
+		args := make([]interface{}, 0)
+		for colIdx := 0; colIdx < len(pkCols); colIdx++ {
+			for partIdx := 0; partIdx <= colIdx && partIdx < len(columns); partIdx++ {
+				args = append(args, strings.TrimSpace(columns[partIdx]))
 			}
-		}
-
-		logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(),
-			normalizeBoundaryValue(minVal, pkCols, columnType),
-			normalizeBoundaryValue(maxVal, pkCols, columnType),
-		)
-		chunks.Insert(types.Chunk{Min: nil, Max: normalizeBoundaryValue(minVal, pkCols, columnType)})
-
-		query := jdbc.MSSQLNextChunkEndQuery(stream, pkCols, chunkSize)
-		currentVal := minVal
-		for {
-			// Split the current composite key value into individual column parts
-			columns := strings.Split(normalizeBoundaryValue(currentVal, pkCols, columnType), ",")
-
-			// Build query arguments for composite key comparison
-			args := make([]interface{}, 0)
-			for colIdx := 0; colIdx < len(pkCols); colIdx++ {
-				for partIdx := 0; partIdx <= colIdx && partIdx < len(columns); partIdx++ {
-					args = append(args, strings.TrimSpace(columns[partIdx]))
-				}
-			}
-
-			// Query for the next chunk boundary value
-			var nextValRaw interface{}
-			err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
-			// Stop if we've reached the end of the table
-			if err == sql.ErrNoRows || nextValRaw == nil {
-				break
-			}
-			if err != nil {
-				return fmt.Errorf("failed to get next chunk end: %s", err)
-			}
-
-			// Create a chunk between current and next boundary
-			if currentVal != nil {
-				chunks.Insert(types.Chunk{
-					Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
-					Max: normalizeBoundaryValue(nextValRaw, pkCols, columnType),
-				})
-			}
-			currentVal = nextValRaw
 		}
 
-		// Create the final chunk from the last value to the end
+		// Query for the next chunk boundary value
+		var nextValRaw interface{}
+		err := m.client.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
+		// Stop if we've reached the end of the table
+		if err == sql.ErrNoRows || nextValRaw == nil {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to get next chunk end: %s", err)
+		}
+		// Create a chunk between current and next boundary
 		if currentVal != nil {
 			chunks.Insert(types.Chunk{
 				Min: normalizeBoundaryValue(currentVal, pkCols, columnType),
-				Max: nil,
+				Max: normalizeBoundaryValue(nextValRaw, pkCols, columnType),
 			})
 		}
-		return nil
-	})
-	return chunks, err
+		currentVal = nextValRaw
+	}
+
+	// Create the final chunk from the last value to the end
+	if currentVal != nil {
+		chunks.Insert(types.Chunk{Min: normalizeBoundaryValue(currentVal, pkCols, columnType), Max: nil})
+	}
+	return chunks, nil
 }
 
-// splitViaPhysLoc iteratively walks %%physloc%% boundaries under REPEATABLE READ.
+// splitViaPhysLoc iteratively walks %%physloc%% boundaries.
 // Used as a last-resort fallback for heap tables with no PK and no IAM walk access.
 func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterface, chunkSize int64) (*types.Set[types.Chunk], error) {
+	// Get the minimum and maximum physical location values
+	// These define the boundaries of our table for chunking
+	minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
+	}
+	// Skip if table is empty (no rows to chunk)
+	if minVal == nil || maxVal == nil {
+		return types.NewSet[types.Chunk](), nil
+	}
+
+	// Start from the minimum physloc value
 	chunks := types.NewSet[types.Chunk]()
-	err := jdbc.WithIsolation(ctx, m.client, false, func(tx *sql.Tx) error {
-		minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream, tx)
+	current := minVal
+	chunks.Insert(types.Chunk{Min: nil, Max: utils.HexEncode(minVal)})
+
+	query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
+	// Iteratively find chunk boundaries until we reach the end of the table
+	for {
+		var next []byte
+		err := m.client.QueryRowContext(ctx, query, current).Scan(&next)
+		// End of table reached: no more rows with physloc > current
+		if err == sql.ErrNoRows || next == nil || bytes.Equal(current, next) {
+			chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
+			break
+		}
 		if err != nil {
-			return fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
+			return nil, fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
 		}
-		// Skip if table is empty (no rows to chunk)
-		if minVal == nil || maxVal == nil {
-			return nil
-		}
-
-		// Start from the minimum physloc value
-		current := minVal
-		chunks.Insert(types.Chunk{Min: nil, Max: utils.HexEncode(minVal)})
-
-		// Iteratively find chunk boundaries until we reach the end of the table
-		for {
-			var next []byte
-			// This gives us the next chunk boundary, ensuring each chunk has ~chunkSize rows
-			query := jdbc.MSSQLPhysLocNextChunkEndQuery(stream, chunkSize)
-
-			err := tx.QueryRowContext(ctx, query, current).Scan(&next)
-			// End of table reached: no more rows with physloc > current
-			if err == sql.ErrNoRows || next == nil {
-				chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: nil})
-				break
-			}
-			if err != nil {
-				return fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
-			}
-			chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: utils.HexEncode(next)})
-			current = next
-		}
-		return nil
-	})
-	return chunks, err
+		chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: utils.HexEncode(next)})
+		current = next
+	}
+	return chunks, nil
 }
 
 // splitViaPKSample estimates chunk boundaries by TABLESAMPLE-ing PK column values.
@@ -424,9 +418,9 @@ func (m *MSSQL) probeIAMWalkCapability(ctx context.Context) bool {
 }
 
 // getColumnTypeMSSQL returns SQL data type for the requested column.
-func (m *MSSQL) getColumnTypeMSSQL(ctx context.Context, stream types.StreamInterface, column string, tx *sql.Tx) (string, error) {
+func (m *MSSQL) getColumnTypeMSSQL(ctx context.Context, stream types.StreamInterface, column string) (string, error) {
 	var dataType string
-	err := tx.QueryRowContext(ctx, jdbc.MSSQLColumnTypeQuery(), stream.Namespace(), stream.Name(), column).Scan(&dataType)
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLColumnTypeQuery(), stream.Namespace(), stream.Name(), column).Scan(&dataType)
 	if err != nil {
 		return "", err
 	}
@@ -473,17 +467,17 @@ func normalizeBoundaryValue(value any, pkCols []string, columnType string) strin
 	return utils.ConvertToString(value)
 }
 
-// getTableExtremes returns MIN and MAX key values for the given PK columns
-func (m *MSSQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string, tx *sql.Tx) (min, max any, err error) {
+// getTableExtremes returns MIN and MAX key values for the given PK columns.
+func (m *MSSQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {
 	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
-	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
+	err = m.client.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
 }
 
 // getPhysLocExtremes returns MIN and MAX %%physloc%% values for the table.
-func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInterface, tx *sql.Tx) (min, max []byte, err error) {
+func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInterface) (min, max []byte, err error) {
 	query := jdbc.MSSQLPhysLocExtremesQuery(stream)
-	err = tx.QueryRowContext(ctx, query).Scan(&min, &max)
+	err = m.client.QueryRowContext(ctx, query).Scan(&min, &max)
 	return min, max, err
 }
 
