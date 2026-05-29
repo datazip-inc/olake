@@ -43,7 +43,6 @@ type Kafka struct {
 	client               *kgo.Client
 	state                *types.State
 	consumerGroupID      string
-	streams              []types.StreamInterface // set in PreCDC and used when restarting readers from StreamChanges
 	readerManager        *kafkapkg.ReaderManager
 	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
 	schemaRegistryClient *kafkapkg.SchemaRegistryClient
@@ -151,7 +150,6 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
 
 	var topicNames []string
 	for topicName, topic := range metadata {
-
 		// skip internal topics
 		if topic.IsInternal || slices.Contains(InternalKafkaTopics, topicName) {
 			continue
@@ -410,25 +408,19 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 	}
 
 	var assigned []types.PartitionKey
-	for _, group := range response {
-		if group.Group != k.consumerGroupID || group.Err != nil {
+	for _, member := range response[k.consumerGroupID].Members {
+		if member.InstanceID == nil || *member.InstanceID != readerID {
 			continue
 		}
-		for _, member := range group.Members {
-			// try to match the reader we created: primary on readerID
-			if member.InstanceID == nil || *member.InstanceID != readerID {
-				continue
-			}
 
-			assignment, ok := member.Assigned.AsConsumer()
-			if !ok {
-				continue
-			}
+		assignment, ok := member.Assigned.AsConsumer()
+		if !ok {
+			continue
+		}
 
-			for _, topic := range assignment.Topics {
-				for _, partition := range topic.Partitions {
-					assigned = append(assigned, types.PartitionKey{Topic: topic.Topic, Partition: partition})
-				}
+		for _, topic := range assignment.Topics {
+			for _, partition := range topic.Partitions {
+				assigned = append(assigned, types.PartitionKey{Topic: topic.Topic, Partition: partition})
 			}
 		}
 	}

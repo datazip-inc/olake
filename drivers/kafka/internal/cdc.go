@@ -48,7 +48,6 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	// generate a new consumer group id if not present in state or config
 	groupID = utils.Ternary(groupID == "", utils.Ternary(k.config.ConsumerGroupID != "", k.config.ConsumerGroupID, fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix())), groupID).(string)
 	k.consumerGroupID = groupID
-	k.streams = streams
 	logger.Infof("configured consumer group id: %s", k.consumerGroupID)
 
 	// create a reader manager for kafka
@@ -64,8 +63,9 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	if err := k.readerManager.RemoveExistingConsumers(ctx, k.client); err != nil {
 		return fmt.Errorf("failed to remove existing consumers: %v", err)
 	}
+
 	// create new readers and wait for consumer group to join
-	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
+	return k.readerManager.CreateReaders(ctx, streams)
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
@@ -73,7 +73,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	// franz-go keeps uncommitted offsets in memory, so restarting clears that state and
 	// ensures retries resume from the last committed offset. Since a static instance ID
 	// is used, this restart does not trigger a consumer group rebalance.
-	reader, err := k.readerManager.RestartReader(ctx, readerID, k.streams, k.consumerGroupID)
+	reader, err := k.readerManager.RestartReader(readerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to restart reader %d: %v", readerID, err)
 	}

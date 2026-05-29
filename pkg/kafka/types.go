@@ -36,6 +36,7 @@ type kafkaReader struct {
 type ReaderManager struct {
 	config         ReaderConfig
 	readers        []*kafkaReader
+	topics         []string                           // consume topics, set in CreateReaders and used by CreateReader
 	partitionIndex map[string]types.PartitionMetaData // get per-partition boundaries
 	exitMode       atomic.Int32                       // normalProcessing | gracefulExit | nonRetryableExit
 	generationID   atomic.Int32                       // Group generationId is used to detect rebalances

@@ -72,6 +72,7 @@ func (b *CustomGroupBalancer) Balance(consumerBalancer *kgo.ConsumerBalancer, pa
 	for currentIndex, activePartition := range activePartitions {
 		plan.AddPartition(&members[currentIndex%consumerCount], activePartition.Topic, activePartition.Partition)
 	}
+
 	return plan
 }
 
