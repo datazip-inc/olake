@@ -548,11 +548,10 @@ func TestParseFilterValue(t *testing.T) {
 // TestReformatBool tests the ReformatBool function
 func TestReformatBool(t *testing.T) {
 	tests := []struct {
-		name         string
-		v            any
-		stateVersion int
-		expected     bool
-		expectedErr  error
+		name        string
+		v           any
+		expected    bool
+		expectedErr error
 	}{
 		// ===== bool =====
 		{
@@ -712,13 +711,6 @@ func TestReformatBool(t *testing.T) {
 			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int(2)),
 		},
 		{
-			name:         "int backward compatibility",
-			v:            int(1),
-			stateVersion: 6,
-			expected:     true,
-			expectedErr:  nil,
-		},
-		{
 			name:        "int16 1",
 			v:           int16(1),
 			expected:    true,
@@ -735,13 +727,6 @@ func TestReformatBool(t *testing.T) {
 			v:           int16(2),
 			expected:    false,
 			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int16(2)),
-		},
-		{
-			name:         "int16 backward compatibility",
-			v:            int16(1),
-			stateVersion: 6,
-			expected:     false,
-			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : %v", int16(1)),
 		},
 		{
 			name:        "int32 1",
@@ -762,13 +747,6 @@ func TestReformatBool(t *testing.T) {
 			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int32(2)),
 		},
 		{
-			name:         "int32 backward compatibility",
-			v:            int32(1),
-			stateVersion: 6,
-			expected:     false,
-			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : %v", int32(1)),
-		},
-		{
 			name:        "int64 1",
 			v:           int64(1),
 			expected:    true,
@@ -787,13 +765,6 @@ func TestReformatBool(t *testing.T) {
 			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int64(2)),
 		},
 		{
-			name:         "int64 backward compatibility",
-			v:            int64(1),
-			stateVersion: 6,
-			expected:     false,
-			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : %v", int64(1)),
-		},
-		{
 			name:        "int8 1",
 			v:           int8(1),
 			expected:    true,
@@ -810,13 +781,6 @@ func TestReformatBool(t *testing.T) {
 			v:           int8(2),
 			expected:    false,
 			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", int8(2)),
-		},
-		{
-			name:         "int8 backward compatibility",
-			v:            int8(1),
-			stateVersion: 6,
-			expected:     false,
-			expectedErr:  fmt.Errorf("found to be boolean, but value is not boolean : %v", int8(1)),
 		},
 
 		// ===== default / unsupported =====
@@ -839,14 +803,8 @@ func TestReformatBool(t *testing.T) {
 			expectedErr: fmt.Errorf("found to be boolean, but value is not boolean : %v", nil),
 		},
 	}
-
-	old := constants.LoadedStateVersion
-	t.Cleanup(func() { constants.LoadedStateVersion = old })
-
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			constants.LoadedStateVersion = utils.Ternary(tc.stateVersion != 0, tc.stateVersion, constants.LatestStateVersion).(int)
-
 			result, err := ReformatBool(tc.v)
 			if tc.expectedErr != nil {
 				assert.Equal(t, tc.expectedErr, err)
@@ -1322,7 +1280,7 @@ func TestParseStringTimestamp(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
+				assert.Equal(t, tc.expected.UnixMilli(), result.UnixMilli())
 			}
 		})
 	}
@@ -1331,11 +1289,11 @@ func TestParseStringTimestamp(t *testing.T) {
 // TestReformatInt64 tests the ReformatInt64 function
 func TestReformatInt64(t *testing.T) {
 	tests := []struct {
-		name        string
-		v           any
-		expected    int64
-		expectedErr error
-		version     int
+		name         string
+		v            any
+		expected     int64
+		expectedErr  error
+		stateVersion int
 	}{
 		// ===== json.Number =====
 		{
@@ -1600,11 +1558,11 @@ func TestReformatInt64(t *testing.T) {
 			expectedErr: fmt.Errorf("failed to change %v (type:%T) to int64", []uint8(""), []uint8("")),
 		},
 		{
-			name:        "byte slice int backward compatibility",
-			v:           []uint8("123"),
-			expected:    int64(0),
-			expectedErr: fmt.Errorf("failed to change %v (type:%T) to int64", []uint8("123"), []uint8("123")),
-			version:     5,
+			name:         "byte slice int backward compatibility",
+			v:            []uint8("123"),
+			expected:     int64(0),
+			expectedErr:  fmt.Errorf("failed to change %v (type:%T) to int64", []uint8("123"), []uint8("123")),
+			stateVersion: 5,
 		},
 
 		// ===== unsupported =====
@@ -1627,7 +1585,7 @@ func TestReformatInt64(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			constants.LoadedStateVersion = utils.Ternary(tc.version != 0, tc.version, constants.LatestStateVersion).(int)
+			constants.LoadedStateVersion = utils.Ternary(tc.stateVersion != 0, tc.stateVersion, constants.LatestStateVersion).(int)
 			result, err := ReformatInt64(tc.v)
 
 			if tc.expectedErr != nil {

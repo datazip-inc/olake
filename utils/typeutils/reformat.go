@@ -78,11 +78,8 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		case uint, uint8, uint16, uint32, uint64:
 			return fmt.Sprintf("%d", v), nil
 		case float32, float64:
-			// Fixed float string conversion (%v) for version > 6; older versions retain %d for backward compatibility
-			if constants.LoadedStateVersion > 6 {
-				return fmt.Sprintf("%v", v), nil
-			}
-			return fmt.Sprintf("%d", v), nil
+			// Fixed float string conversion
+			return fmt.Sprintf("%v", v), nil
 		case string:
 			return v, nil
 		case bool:
@@ -131,18 +128,7 @@ func ReformatBool(v interface{}) (bool, error) {
 			return false, nil
 		}
 	case int, int16, int32, int64, int8:
-		// Fixed int8/int16/int32/int64 bool handling for version>6; older versions keep strict comparison
-		if constants.LoadedStateVersion > 6 {
-			switch reflect.ValueOf(booleanValue).Int() {
-			case 1:
-				return true, nil
-			case 0:
-				return false, nil
-			default:
-				return false, fmt.Errorf("found to be boolean, but value is not boolean : %v", v)
-			}
-		}
-		switch booleanValue {
+		switch reflect.ValueOf(booleanValue).Int() {
 		case 1:
 			return true, nil
 		case 0:
