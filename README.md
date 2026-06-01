@@ -5,10 +5,20 @@
     <br>OLake
 </h1>
 
-<p align="center">
-  <strong>OLake Go</strong> is a high-performance, open-source data ingestion engine for replicating databases, S3, and Kafka into
-  <strong>Apache Iceberg</strong> (or plain Parquet).
-  <br/>
+<p align="left">
+  <strong>OLake</strong> provides two products:
+</p>
+<ul>
+  <li>
+    <strong>OLake Go</strong> — a high-performance, open-source data ingestion engine for replicating databases, S3, and Kafka into
+    <strong>Apache Iceberg</strong> (or plain Parquet).
+  </li>
+  <li>
+    <strong>OLake Fusion</strong> — an open-source tool for Apache Iceberg table maintenance. Check out the project on
+    <a href="https://github.com/datazip-inc/olake-fusion" target="_blank">GitHub</a>.
+  </li>
+</ul>
+<p align="left">
   Built for scalable, real-time pipelines, OLake Go provides a simple web UI and CLI - used to ingest into vendor-lock-in free Iceberg tables supporting all the query-engines/warehouses.
   <br/><br/>
   Read the docs and benchmarks at
@@ -33,8 +43,6 @@
         <img alt="Contribute to OLake" src="https://img.shields.io/badge/Contribute-OLake-2563eb"/>
     </a>
 </p>
-
-> OLake Fusion is now live! Automate your Iceberg Table Maintenance. [Check it out here!](https://github.com/datazip-inc/olake-fusion)
 
 ## OLake Go — Super-fast Sync to Apache Iceberg
 
@@ -120,22 +128,26 @@
 
 ##### Writer Docs
 
-1. [Apache Iceberg Docs](https://olake.io/docs/writers/iceberg/overview)
+1. Apache Iceberg Docs
     1. Catalogs
        1. [AWS Glue Catalog](https://olake.io/docs/writers/iceberg/catalog/glue)
        2. [REST Catalog](https://olake.io/docs/writers/iceberg/catalog/rest)
+          - Generic
+          - Lakekeeper
+          - Nessie
+          - S3 Tables
+          - Unity
+          - Apache Polaris
        3. [JDBC Catalog](https://olake.io/docs/writers/iceberg/catalog/jdbc)
        4. [Hive Catalog](https://olake.io/docs/writers/iceberg/catalog/hive)
     2. [Azure ADLS Gen2](https://olake.io/docs/writers/iceberg/azure)
-    3. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/iceberg/gcs)
-    4. [MinIO (local)](https://olake.io/docs/writers/iceberg/docker-compose#local-catalog-test-setup)
-    5. Iceberg Table Management
-       1. [S3 Tables Supported](https://olake.io/docs/writers/iceberg/s3-tables)
+    3. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/iceberg/gcp/)
+    4. [MinIO (local)](https://olake.io/docs/writers/iceberg/troubleshooting-local/?view=local#local-testing)
 
 2. Parquet Writer
    1. [AWS S3 Docs](https://olake.io/docs/writers/parquet/s3)
-   2. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/parquet/gcs)
-   3. [Local FileSystem Docs](https://olake.io/docs/writers/parquet/local)
+   2. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/parquet/config/#using-gcs-compatible-s3-credentials)
+   3. Local FileSystem Docs
 
 ---
 
@@ -152,7 +164,7 @@ curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-c
       * **OLake UI:** [http://localhost:8000](http://localhost:8000)
       * Log in with default credentials: `admin` / `password`.
 
-Detailed getting started using OLake UI can be found [here](https://olake.io/docs/getting-started/olake-ui).
+Detailed getting started using OLake UI can be found [here](https://olake.io/docs/getting-started/quickstart/).
 
 ![olake-ui](https://github.com/user-attachments/assets/6081e9ad-7aef-465f-bde1-5b41b19ec6cd)
 
@@ -160,13 +172,14 @@ Detailed getting started using OLake UI can be found [here](https://olake.io/doc
 
 With the UI running, you can create a data pipeline in a few steps:
 
-1. **Create a Job:** Navigate to the **Jobs** tab and click **Create Job**.
-2. **Configure Source:** Set up your source connection (e.g., PostgreSQL, MySQL, MongoDB).
-3. **Configure Destination:** Set up your destination (e.g., Apache Iceberg with a Glue, REST, Hive, or JDBC catalog).
-4. **Select Streams:** Choose which tables to sync and configure their sync mode (`CDC` or `Full Refresh`).
-5. **Configure & Run:** Give your job a name, set a schedule, and click **Create Job** to finish.
+1. **Configure Source:** Navigate to **Source** tab and click **Create Source**. Set up your source connection (e.g., PostgreSQL, MySQL, MongoDB).
+2. **Configure Destination:** Navigate to **Destination** tab and click **Create Destination**. Set up your destination (e.g., Apache Iceberg with a Glue, REST, Hive, or JDBC catalog).
+3. **Create a Job:** Navigate to the **Jobs** tab and click **Create Job**. 
+4. **Configure & Run:** Give your job a name, set a schedule, select your source and destination and click **Next** to finish.
+5. **Select Streams:** Choose which tables to sync and configure their sync mode (`CDC` or `Full Refresh`).
 
-For a detailed walkthrough, refer to the [Jobs documentation](https://olake.io/docs/jobs/create-jobs).
+
+For a detailed walkthrough, refer to the [Jobs documentation](https://olake.io/docs/getting-started/creating-first-pipeline/).
 
 ---
 
@@ -179,7 +192,7 @@ For advanced users and automation, OLake's core logic is exposed via a powerful 
 * `discover`: Returns all available streams (e.g., tables) and their schemas from a source.
 * `sync`: Executes the data replication job, extracting from the source and writing to the destination.
 
-**Find out more about CLI [here](https://olake.io/docs/core/cli).**
+**Find out more about CLI [here](https://olake.io/docs/install/docker-cli/).**
 
 ---
 
@@ -187,7 +200,7 @@ For advanced users and automation, OLake's core logic is exposed via a powerful 
 
 Below are other different ways you can run OLake Go:
 
-1. [OLake Go UI (Recommended)](https://olake.io/docs/getting-started/olake-ui)
+1. [OLake Go UI (Recommended)](https://olake.io/docs/getting-started/quickstart/)
 2. [Kubernetes using Helm](https://olake.io/docs/install/kubernetes)
 3. [Standalone Docker container](https://olake.io/docs/install/docker-cli)
 4. [Airflow on EC2](https://olake.io/blog/olake-airflow-on-ec2?utm_source=chatgpt.com)
@@ -213,7 +226,6 @@ Below are other different ways you can run OLake Go:
 - ✅ Build near real-time data lake-house on cost-efficient cloud object stores
 - ✅ Move away from vendor-lock-in warehouse or tools with open data lake-house
 - ✅ Single copy for both analytics & machine learning
-- ✅ Maintain healthy Iceberg tables
   
 ---
 
@@ -224,7 +236,7 @@ Below are other different ways you can run OLake Go:
 - [x] Filters for Full Load and Incremental
 - [ ] Iceberg V3 Support
 
-📌 Check out our [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and the [Upcoming OLake Roadmap](https://olake.io/docs/roadmap) to track what's next. If you have ideas or feedback, please share them in our [GitHub Discussions](https://github.com/datazip-inc/olake/discussions) or by opening an issue.
+📌 Check out our [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and the [Upcoming OLake Roadmap](https://github.com/datazip-inc/olake#-roadmap-highlights) to track what's next. If you have ideas or feedback, please share them in our [GitHub Discussions](https://github.com/datazip-inc/olake/discussions) or by opening an issue.
 
 ---
 
