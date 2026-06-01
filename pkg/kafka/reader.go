@@ -26,7 +26,6 @@ func NewReaderManager(config ReaderConfig) *ReaderManager {
 // CreateReaders creates Kafka readers based on the provided streams and configuration
 func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.StreamInterface) error {
 	// populate topics from streams
-	r.topics = make([]string, 0, len(streams))
 	for _, stream := range streams {
 		r.topics = append(r.topics, stream.Name())
 	}
@@ -52,19 +51,26 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 		readerID := fmt.Sprintf("group_%s", utils.ULID())
 		clientID := fmt.Sprintf("olake-%s-%s", r.config.ConsumerGroupID, readerID)
 
+		// create reader (rebalance callbacks disabled during initial reader creation and partition assignment)
 		reader, err := r.CreateReader(readerID, clientID, readersToCreate, false)
 		if err != nil {
-			return fmt.Errorf("failed to create reader %d: %v", readerIndex, err)
+			return fmt.Errorf("failed to create reader %d: %s", readerIndex, err)
 		}
+
+		// add reader to manager
 		r.readers = append(r.readers, &kafkaReader{
 			id:       readerID,
 			clientID: clientID,
 			reader:   reader,
 		})
 	}
+
 	logger.Infof("created %d readers for %d total partitions, with consumer group %s", len(r.readers), totalPartitions, r.config.ConsumerGroupID)
-	// wait for consumer group members to join and partitions to be assigned
-	return r.waitForConsumerGroupJoin()
+
+	// wait for consumer group members to join and partitions to be assigned, with a 2-minute deadline.
+	joinCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	return r.waitForPartitionAssignment(joinCtx)
 }
 
 // GetReader returns the created readers
@@ -101,54 +107,50 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 		return err
 	}
 
-	// fetch first offset of the all partition
-	startOffsets, err := r.config.AdminClient.ListStartOffsets(ctx, topic)
-	if err != nil {
-		return fmt.Errorf("failed to list start offsets for topic %s: %s", topic, err)
+	// fetch start offset of all partitions in topic
+	startOffsets, startOffsetErr := r.config.AdminClient.ListStartOffsets(ctx, topic)
+	if startOffsetErr != nil {
+		return fmt.Errorf("failed to list start offsets for topic %s: %s", topic, startOffsetErr)
 	}
 
-	// fetch last offset of the all partition
-	endOffsets, err := r.config.AdminClient.ListEndOffsets(ctx, topic)
-	if err != nil {
-		return fmt.Errorf("failed to list end offsets for topic %s: %s", topic, err)
+	// fetch last offset of all partitions in topic
+	endOffsets, endOffsetErr := r.config.AdminClient.ListEndOffsets(ctx, topic)
+	if endOffsetErr != nil {
+		return fmt.Errorf("failed to list end offsets for topic %s: %s", topic, endOffsetErr)
 	}
 
 	// fetch already committed offset of partition
-	committedTopicOffsets, err := r.FetchCommittedOffsets(ctx, topic)
+	committedTopicOffsets, committedOffsetsErr := r.FetchCommittedOffsets(ctx, topic)
 	if err != nil {
-		return fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, err)
+		return fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, committedOffsetsErr)
 	}
 
 	// build partition metadata
-	for _, partition := range topicDetail.Partitions {
-		startOffset, exists := startOffsets.Lookup(topic, partition.Partition)
-		if !exists {
+	for _, partitionDetail := range topicDetail.Partitions {
+		startOffsetDetail, startOffsetExists := startOffsets.Lookup(topic, partitionDetail.Partition)
+		endOffsetDetail, endOffsetExists := endOffsets.Lookup(topic, partitionDetail.Partition)
+		if !startOffsetExists || !endOffsetExists {
 			continue
 		}
-
-		endOffset, exists := endOffsets.Lookup(topic, partition.Partition)
-		if !exists {
-			continue
-		}
-
-		committedOffset, hasCommittedOffset := committedTopicOffsets[partition.Partition]
 
 		// check if the partition has any messages at all, if not then skip
-		if startOffset.Offset >= endOffset.Offset {
-			logger.Infof("skipping empty partition %d for topic %s (first: %d, last: %d)", partition.Partition, topic, startOffset.Offset, endOffset.Offset)
+		if startOffsetDetail.Offset >= endOffsetDetail.Offset {
+			logger.Infof("skipping empty partition %d for topic %s (first: %d, last: %d)", partitionDetail.Partition, topic, startOffsetDetail.Offset, endOffsetDetail.Offset)
 			continue
 		}
+
+		committedOffset, hasCommittedOffset := committedTopicOffsets[partitionDetail.Partition]
 
 		// if a committed offset is available and there are no new messages, skip
-		if hasCommittedOffset && committedOffset >= endOffset.Offset {
-			logger.Infof("skipping partition %d for topic %s, no new messages (committed: %d, last: %d)", partition.Partition, topic, committedOffset, endOffset.Offset)
+		if hasCommittedOffset && committedOffset >= endOffsetDetail.Offset {
+			logger.Infof("skipping partition %d for topic %s, no new messages (committed: %d, last: %d)", partitionDetail.Partition, topic, committedOffset, endOffsetDetail.Offset)
 			continue
 		}
 
-		r.partitionIndex[fmt.Sprintf("%s:%d", topic, partition.Partition)] = types.PartitionMetaData{
+		r.partitionIndex[fmt.Sprintf("%s:%d", topic, partitionDetail.Partition)] = types.PartitionMetaData{
 			Stream:      stream,
-			PartitionID: partition.Partition,
-			EndOffset:   endOffset.Offset,
+			PartitionID: partitionDetail.Partition,
+			EndOffset:   endOffsetDetail.Offset,
 		}
 	}
 	return nil
@@ -172,7 +174,7 @@ func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*ka
 func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string) (map[int32]int64, error) {
 	offsets, err := r.config.AdminClient.FetchOffsets(ctx, r.config.ConsumerGroupID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch committed offsets for group %s: %v", r.config.ConsumerGroupID, err)
+		return nil, fmt.Errorf("failed to fetch committed offsets for group %s: %s", r.config.ConsumerGroupID, err)
 	}
 
 	committedTopicOffsets := make(map[int32]int64)
@@ -183,7 +185,10 @@ func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string)
 	}
 
 	for partition, offset := range topicOffsets {
-		committedTopicOffsets[partition] = offset.At
+		// offset.At can be -ve if no committed offset in partition.
+		if offset.At >= 0 {
+			committedTopicOffsets[partition] = offset.At
+		}
 	}
 
 	return committedTopicOffsets, nil
@@ -191,49 +196,45 @@ func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string)
 
 // RemoveExistingConsumers force removes all existing consumers from the consumer group and closes reader clients.
 func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo.Client) error {
-	var describedGroups kadm.DescribedGroups
-	// The coordinator may not yet be active after broker startup or coordinator election,
-	// thus adding retry logic since DescribeGroups is the first query sent to the consumer group coordinator.
-	retryCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	// coordinator may not be active immediately (due to broker startup or coordinator election); retry describe until ready.
+	describeGroupCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 
+	var describedGroups kadm.DescribedGroups
 	for {
-		var describeErr error
-		describedGroups, describeErr = r.config.AdminClient.DescribeGroups(retryCtx, r.config.ConsumerGroupID)
-		if describeErr == nil {
+		var err error
+		describedGroups, err = r.config.AdminClient.DescribeGroups(describeGroupCtx, r.config.ConsumerGroupID)
+		if err == nil {
 			break
 		}
 		select {
-		case <-retryCtx.Done():
-			return fmt.Errorf("describe groups failed: %v", describeErr)
+		case <-describeGroupCtx.Done():
+			return fmt.Errorf("describe groups failed: %s", err)
 		case <-time.After(2 * time.Second):
 		}
 	}
 
-	if describedGroup, ok := describedGroups[r.config.ConsumerGroupID]; ok {
-		if describedGroup.Err != nil {
-			return fmt.Errorf("describe groups error: %v", describedGroup.Err)
+	describedGroup := describedGroups[r.config.ConsumerGroupID]
+	if describedGroup.Err != nil {
+		return fmt.Errorf("describe groups error: %s", describedGroup.Err)
+	}
+
+	if len(describedGroup.Members) > 0 {
+		leaveGroupRequest := kmsg.NewPtrLeaveGroupRequest()
+		leaveGroupRequest.Group = r.config.ConsumerGroupID
+		for _, member := range describedGroup.Members {
+			leaveGroupRequest.Members = append(leaveGroupRequest.Members, kmsg.LeaveGroupRequestMember{
+				MemberID:   member.MemberID,
+				InstanceID: member.InstanceID,
+			})
 		}
 
-		if len(describedGroup.Members) > 0 {
-			leaveRequest := kmsg.NewPtrLeaveGroupRequest()
-			leaveRequest.Group = r.config.ConsumerGroupID
-
-			for _, member := range describedGroup.Members {
-				leaveRequest.Members = append(leaveRequest.Members, kmsg.LeaveGroupRequestMember{
-					MemberID:   member.MemberID,
-					InstanceID: member.InstanceID,
-				})
-			}
-
-			leaveResponse, err := leaveRequest.RequestWith(ctx, client)
-			if err != nil {
-				return fmt.Errorf("leave group request failed: %v", err)
-			}
-
-			if leaveResponse.ErrorCode != 0 {
-				return fmt.Errorf("leave group error code: %d", leaveResponse.ErrorCode)
-			}
+		leaveGroupResponse, err := leaveGroupRequest.RequestWith(describeGroupCtx, client)
+		if err != nil {
+			return fmt.Errorf("leave group request failed: %s", err)
+		}
+		if leaveGroupResponse.ErrorCode != 0 {
+			return fmt.Errorf("leave group error code: %d", leaveGroupResponse.ErrorCode)
 		}
 	}
 
@@ -255,18 +256,16 @@ func (r *ReaderManager) RestartReader(readerIndex int) (*kgo.Client, error) {
 
 	currentReader.Close()
 
-	reader, err := r.CreateReader(readerID, clientID, len(r.readers), true)
+	newReader, err := r.CreateReader(readerID, clientID, len(r.readers), true)
 	if err != nil {
-		return nil, fmt.Errorf("%v: failed to recreate kafka reader %d after close: %v", constants.ErrNonRetryable, readerIndex, err)
+		return nil, fmt.Errorf("%w: failed to recreate kafka reader %d after close: %s", constants.ErrNonRetryable, readerIndex, err)
 	}
 
-	r.readers[readerIndex].reader = reader
-
-	return reader, nil
+	r.readers[readerIndex].reader = newReader
+	return newReader, nil
 }
 
 // CreateReader creates a single kafka reader client.
-// When enableRebalanceCallbacks is true, rebalance callbacks are registered on the reader.
 func (r *ReaderManager) CreateReader(readerID, clientID string, requiredConsumers int, enableRebalanceCallbacks bool) (*kgo.Client, error) {
 	readerOpts := append([]kgo.Opt{}, r.config.Dialer...)
 
@@ -286,18 +285,17 @@ func (r *ReaderManager) CreateReader(readerID, clientID string, requiredConsumer
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 	)
 
+	// detect consumer group rebalances during message processing.
 	if enableRebalanceCallbacks {
+		onRebalance := func(_ context.Context, client *kgo.Client, _ map[string][]int32) {
+			if r.RebalanceDetected(client) {
+				r.exitMode.Store(gracefulExit)
+			}
+		}
 		readerOpts = append(readerOpts,
-			kgo.OnPartitionsAssigned(func(_ context.Context, client *kgo.Client, _ map[string][]int32) {
-				if r.RebalanceDetected(client) {
-					r.exitMode.Store(gracefulExit)
-				}
-			}),
-			kgo.OnPartitionsRevoked(func(_ context.Context, client *kgo.Client, _ map[string][]int32) {
-				if r.RebalanceDetected(client) {
-					r.exitMode.Store(gracefulExit)
-				}
-			}),
+			kgo.OnPartitionsAssigned(onRebalance),
+			kgo.OnPartitionsRevoked(onRebalance),
+			// partition loss is unrecoverable; broker forcibly revoked assignment, treated as non-retryable error.
 			kgo.OnPartitionsLost(func(_ context.Context, _ *kgo.Client, lost map[string][]int32) {
 				logger.Warnf("reader %s lost partitions: %+v", clientID, lost)
 				r.exitMode.Store(nonRetryableExit)
@@ -305,6 +303,7 @@ func (r *ReaderManager) CreateReader(readerID, clientID string, requiredConsumer
 		)
 	}
 
+	// initial partition assignment happens here.
 	reader, err := kgo.NewClient(readerOpts...)
 	if err != nil {
 		return nil, err
@@ -334,34 +333,42 @@ func (r *ReaderManager) FetchExitState() (stop bool, err error) {
 		logger.Infof("stopping kafka CDC processing gracefully due to consumer group rebalance")
 		return true, nil
 	case nonRetryableExit:
-		return true, fmt.Errorf("%v: kafka sync aborted due to partition loss during consumer group rebalance", constants.ErrNonRetryable)
+		return true, fmt.Errorf("%w: kafka sync aborted due to partition loss during consumer group rebalance", constants.ErrNonRetryable)
 	default:
-		return true, fmt.Errorf("%v: kafka sync aborted: unexpected exit mode", constants.ErrNonRetryable)
+		return true, fmt.Errorf("%w: kafka sync aborted: unexpected exit mode", constants.ErrNonRetryable)
 	}
 }
 
 // waitForConsumerGroupJoin blocks until Kafka completes partition assignment
 // for all readers in the consumer group.
-func (r *ReaderManager) waitForConsumerGroupJoin() error {
+func (r *ReaderManager) waitForPartitionAssignment(ctx context.Context) error {
 	for {
+		if ctx.Err() != nil {
+			return fmt.Errorf("timed out waiting for consumer group to join: %s", ctx.Err())
+		}
+
+		// reset state for each check
 		var (
 			allReadersJoined           = true
 			expectedGenerationID int32 = -1
 		)
-		for _, kafkaReader := range r.readers {
-			_, generationID := kafkaReader.reader.GroupMetadata()
 
-			if generationID < 0 || (expectedGenerationID >= 0 && expectedGenerationID != generationID) {
+		for _, kafkaReader := range r.readers {
+			_, currentReaderGenerationID := kafkaReader.reader.GroupMetadata()
+			// generation id -1 means not yet joined
+			// mismatch means readers are on different generations, partition assignment not yet completed.
+			if currentReaderGenerationID < 0 || (expectedGenerationID >= 0 && expectedGenerationID != currentReaderGenerationID) {
 				allReadersJoined = false
 				break
-			} else if expectedGenerationID < 0 {
-				expectedGenerationID = generationID
+			}
+			if expectedGenerationID < 0 {
+				expectedGenerationID = currentReaderGenerationID
 			}
 		}
 
 		if allReadersJoined {
 			r.generationID.Store(expectedGenerationID)
-			// wait for 2 seconds to ensure the consumer group is stable
+			// brief wait to let partition assignment fully propagate before fetching starts.
 			time.Sleep(2 * time.Second)
 			logger.Infof("consumer group %s stable: all readers assigned, generation id: %d", r.config.ConsumerGroupID, expectedGenerationID)
 			return nil

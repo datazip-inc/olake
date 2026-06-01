@@ -11,8 +11,8 @@ import (
 	"time"
 
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
-	kplain "github.com/twmb/franz-go/pkg/sasl/plain"
-	kscram "github.com/twmb/franz-go/pkg/sasl/scram"
+	kafkaplain "github.com/twmb/franz-go/pkg/sasl/plain"
+	kafkascram "github.com/twmb/franz-go/pkg/sasl/scram"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -35,7 +35,7 @@ const (
 )
 
 // InternalKafkaTopics are internal kafka topics (created due to external services) to be skipped
-var InternalKafkaTopics = []string{"__amazon_msk_canary", "_schemas"}
+var InternalKafkaTopics = []string{"__amazon_msk_canary", "_schemas", "__consumer_offsets"}
 
 type Kafka struct {
 	config               *Config
@@ -119,14 +119,11 @@ func (k *Kafka) Setup(ctx context.Context) error {
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
 	}
 
-	// check for default backoff count
-	k.config.RetryCount = utils.Ternary(k.config.RetryCount <= 0, 1, k.config.RetryCount+1).(int)
-
 	return nil
 }
 
 func (k *Kafka) Close() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
 	if k.readerManager != nil {
@@ -202,12 +199,9 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return fmt.Errorf("partition %d: %v", partitionDetail.Partition, partitionDetail.Err)
 		}
 
-		startOffset, exists := startOffsets.Lookup(streamName, partitionDetail.Partition)
-		if !exists {
-			return nil
-		}
-		endOffset, exists := endOffsets.Lookup(streamName, partitionDetail.Partition)
-		if !exists {
+		startOffset, startOffsetExists := startOffsets.Lookup(streamName, partitionDetail.Partition)
+		endOffset, endOffsetExists := endOffsets.Lookup(streamName, partitionDetail.Partition)
+		if !startOffsetExists || !endOffsetExists {
 			return nil
 		}
 
@@ -217,14 +211,10 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		}
 
 		consumerOpts := append([]kgo.Opt{}, k.dialer...)
-
-		consumerOpts = append(
-			consumerOpts,
+		consumerOpts = append(consumerOpts,
 			kgo.FetchMaxBytes(10e6),
 			kgo.ConsumePartitions(map[string]map[int32]kgo.Offset{
-				streamName: {
-					partitionDetail.Partition: kgo.NewOffset().At(startOffset.Offset),
-				},
+				streamName: {partitionDetail.Partition: kgo.NewOffset().At(startOffset.Offset)},
 			}),
 		)
 
@@ -235,10 +225,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		defer reader.Close()
 
 		messageCount := 0
-
-		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		_ = k.processKafkaMessages(fetchCtx, reader, func(record types.KafkaRecord) (bool, error) {
+		_ = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 			messageCount++
 			if record.Data != nil {
 				mu.Lock()
@@ -292,9 +279,9 @@ func (k *Kafka) createDialer() ([]kgo.Opt, error) {
 	case "SASL_PLAINTEXT":
 		switch k.config.Protocol.SASLMechanism {
 		case "PLAIN":
-			opts = append(opts, kgo.SASL(kplain.Auth{User: username, Pass: password}.AsMechanism()))
+			opts = append(opts, kgo.SASL(kafkaplain.Auth{User: username, Pass: password}.AsMechanism()))
 		case "SCRAM-SHA-512":
-			opts = append(opts, kgo.SASL(kscram.Auth{User: username, Pass: password}.AsSha512Mechanism()))
+			opts = append(opts, kgo.SASL(kafkascram.Auth{User: username, Pass: password}.AsSha512Mechanism()))
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)
 		}
@@ -309,9 +296,9 @@ func (k *Kafka) createDialer() ([]kgo.Opt, error) {
 
 		switch k.config.Protocol.SASLMechanism {
 		case "PLAIN":
-			opts = append(opts, kgo.SASL(kplain.Auth{User: username, Pass: password}.AsMechanism()))
+			opts = append(opts, kgo.SASL(kafkaplain.Auth{User: username, Pass: password}.AsMechanism()))
 		case "SCRAM-SHA-512":
-			opts = append(opts, kgo.SASL(kscram.Auth{User: username, Pass: password}.AsSha512Mechanism()))
+			opts = append(opts, kgo.SASL(kafkascram.Auth{User: username, Pass: password}.AsSha512Mechanism()))
 		default:
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", k.config.Protocol.SASLMechanism)
 		}
@@ -398,17 +385,17 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 		return nil, fmt.Errorf("readerID not found for reader index %d", readerIndex)
 	}
 
-	response, err := k.adminClient.DescribeGroups(ctx, k.consumerGroupID)
+	describeGroupResp, err := k.adminClient.DescribeGroups(ctx, k.consumerGroupID)
 	if err != nil {
 		return nil, fmt.Errorf("DescribeGroups failed: %s", err)
 	}
 
-	if err := response.Error(); err != nil {
+	if err := describeGroupResp.Error(); err != nil {
 		return nil, fmt.Errorf("DescribeGroups response error: %s", err)
 	}
 
 	var assigned []types.PartitionKey
-	for _, member := range response[k.consumerGroupID].Members {
+	for _, member := range describeGroupResp[k.consumerGroupID].Members {
 		if member.InstanceID == nil || *member.InstanceID != readerID {
 			continue
 		}
