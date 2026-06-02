@@ -241,10 +241,11 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 			serverConfig[key] = value
 		}
 	}
-
+	// Configure catalog implementation based on the selected type
 	switch config.CatalogType {
 	case GlueCatalog:
 		serverConfig["catalog-impl"] = "org.apache.iceberg.aws.glue.GlueCatalog"
+		// if custom glue endpoint creds are passed
 		if config.UseGlueAdditionalConfig {
 			addMapKeyIfNotEmpty("client.factory", "io.debezium.server.iceberg.OlakeAwsClientFactory")
 			addMapKeyIfNotEmpty("glue.access-key-id", config.GlueAccessKey)
@@ -278,13 +279,14 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 	default:
 		return nil, fmt.Errorf("unsupported catalog type: %s", config.CatalogType)
 	}
-
+	// Only set access keys if explicitly provided, otherwise they'll be picked up from
+	// environment variables or AWS credential files
 	serverConfig["s3.path-style-access"] = utils.Ternary(config.S3PathStyle, "true", "false").(string)
 	addMapKeyIfNotEmpty("s3.access-key-id", config.AccessKey)
 	addMapKeyIfNotEmpty("s3.secret-access-key", config.SecretKey)
 	addMapKeyIfNotEmpty("aws.profile", config.ProfileName)
 	addMapKeyIfNotEmpty("aws.session-token", config.SessionToken)
-
+	// Configure region for AWS S3
 	if config.Region != "" {
 		serverConfig["s3.region"] = config.Region
 	} else if config.S3Endpoint == "" && config.CatalogType == GlueCatalog {
@@ -296,7 +298,7 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 	}
 	serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
 	serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
-
+	// Marshal the config to JSON
 	return json.Marshal(serverConfig)
 }
 

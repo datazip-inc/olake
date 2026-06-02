@@ -80,12 +80,11 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                 throw new Exception("Thread id not present in metadata");
             }
 
-            // CLOSE_SESSION: release the session's resources.
+            // CLOSE_SESSION: just drop the session. No closeQuietly() — it would
+            // clear op.filesToCommit while an in-flight REGISTER_AND_COMMIT may be
+            // using that list. Nothing to close here; the session is GC'd.
             if (request.getType() == ArrowPayload.PayloadType.CLOSE_SESSION) {
-                ArrowSession closed = sessions.remove(threadId);
-                if (closed != null) {
-                    closed.op.closeQuietly();
-                }
+                sessions.remove(threadId);
                 sendResponse(responseObserver, requestId + " closed arrow session " + threadId);
                 return;
             }

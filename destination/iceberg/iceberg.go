@@ -259,10 +259,6 @@ func (i *Iceberg) Shutdown(_ context.Context) error {
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
-	i.options = &destination.Options{
-		ThreadID: "test_iceberg_destination",
-	}
-
 	destinationDB := "test_olake"
 	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
 		destinationDB = fmt.Sprintf("%s_%s", utils.Reformat(prefix), destinationDB)
@@ -278,7 +274,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Stash for releaseSession to find on defer.
 	i.server = server
 	i.meta = &internal.StreamMetaCtx{
-		ThreadID:               i.options.ThreadID,
+		ThreadID:               server.serverID,
 		Namespace:              destinationDB,
 		DestTableName:          destinationDB,
 		Upsert:                 false,
