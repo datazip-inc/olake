@@ -19,7 +19,7 @@ func (b *CustomGroupBalancer) IsCooperative() bool {
 }
 
 // JoinGroupMetadata encodes consumer subscription metadata for group joining.
-func (b *CustomGroupBalancer) JoinGroupMetadata(topicInterests []string, _ map[string][]int32, generation int32) []byte {
+func (b *CustomGroupBalancer) JoinGroupMetadata(topicInterests []string, _ map[string][]int32, _ int32) []byte {
 	memberMetadata := kmsg.NewConsumerMemberMetadata()
 	memberMetadata.Topics = topicInterests
 	return memberMetadata.AppendTo(nil)
