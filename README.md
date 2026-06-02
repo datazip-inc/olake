@@ -19,7 +19,7 @@
   </li>
 </ul>
 <p align="left">
-  Built for scalable, real-time pipelines, OLake Go provides a simple web UI and CLI - used to ingest into vendor-lock-in free Iceberg tables supporting all the query-engines/warehouses.
+  Built for scalable, real-time pipelines, OLake provides a simple web UI and CLI - used to ingest into vendor-lock-in free Iceberg tables supporting all the query-engines/warehouses.
   <br/><br/>
   Read the docs and benchmarks at
   <a href="https://olake.io/docs" target="_blank">olake.io/docs</a>.
@@ -203,7 +203,7 @@ Below are other different ways you can run OLake Go:
 1. [OLake Go UI (Recommended)](https://olake.io/docs/getting-started/quickstart/)
 2. [Kubernetes using Helm](https://olake.io/docs/install/kubernetes)
 3. [Standalone Docker container](https://olake.io/docs/install/docker-cli)
-4. [Airflow on EC2](https://olake.io/blog/olake-airflow-on-ec2?utm_source=chatgpt.com)
+4. [Airflow on EC2](https://olake.io/blog/olake-airflow-on-ec2/)
 5. [Airflow on Kubernetes](https://olake.io/blog/olake-airflow) 
 
 ---
