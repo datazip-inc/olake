@@ -61,21 +61,21 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 
 	// remove stale consumers before creating new readers
 	if err := k.readerManager.RemoveExistingConsumers(ctx, k.client); err != nil {
-		return fmt.Errorf("failed to remove existing consumers: %v", err)
+		return fmt.Errorf("failed to remove existing consumers: %s", err)
 	}
 
-	// create new readers and wait for consumer group to join
+	// create new readers and wait for partition assignment
 	return k.readerManager.CreateReaders(ctx, streams)
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	// Restart the reader to create a fresh franz-go client for each StreamChanges attempt.
 	// franz-go keeps uncommitted offsets in memory, so restarting clears that state and
-	// ensures retries resume from the last committed offset. Since a static instance ID
-	// is used, this restart does not trigger a consumer group rebalance.
+	// ensures retries resume from the last committed offset.
+	// Note: Since a static instance ID is used, this restart does not trigger a consumer group rebalance.
 	reader, err := k.readerManager.RestartReader(readerID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to restart reader %d: %v", readerID, err)
+		return nil, fmt.Errorf("failed to restart reader %d: %s", readerID, err)
 	}
 
 	// track processing state
@@ -195,69 +195,65 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 	}
 }
 
-// for processing messages from a Kafka reader.
+// processKafkaMessages processes messages from a Kafka reader
+// until stopProcessFn signals stop, a rebalance is detected, or the poll times out (reader caught up).
 func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
+	var iter *kgo.FetchesRecordIter
+
 	for {
-		// Rebalance/exit checks must run even when PollFetches returns an empty batch;
-		// otherwise a reader reassigned to empty partitions never enters the record loop.
+		// checked before every poll and every record so a rebalance signal is never delayed by full batch processing.
 		if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
 			return err
 		}
 
-		pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		messages := reader.PollFetches(pollCtx)
-		pollCtxErr := pollCtx.Err()
-		cancel()
+		// iter being nil triggers first poll.
+		// iter.Done() being true triggers next polls when the current batch is fully consumed.
+		if iter == nil || iter.Done() {
+			pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			// poll for new messages
+			fetches := reader.PollFetches(pollCtx)
+			pollCtxErr := pollCtx.Err()
+			cancel()
 
-		pollFetchErrors := messages.Errors()
-
-		// return early if poll context is deadline exceeded
-		if errors.Is(pollCtxErr, context.DeadlineExceeded) {
-			logger.Warnf("poll context deadline exceeded: %v", pollCtxErr)
-			return nil
-		}
-
-		if len(pollFetchErrors) > 0 && pollCtxErr == nil {
-			return fmt.Errorf("%v: error reading message in Kafka CDC sync: %v", constants.ErrNonRetryable, pollFetchErrors[0].Err)
-		}
-
-		records := messages.RecordIter()
-
-		for !records.Done() {
-			// Re-check rebalance state before processing each record to stop immediately after rebalance.
-			if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
-				return err
-			}
-			message := records.Next()
-
-			var (
-				key  string
-				data map[string]interface{}
-				err  error
-			)
-
-			// parse message value and key
-			data, key, err = k.parseKafkaData(message)
-			if err != nil {
-				logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
-			} else if data != nil {
-				// data map will be nil (in cases like null and unparseable message values) so nil check is required
-				data[Partition] = message.Partition
-				data[Offset] = message.Offset
-				data[Key] = key
-				data[KafkaTimestamp], err = typeutils.ReformatDate(message.Timestamp, true)
-				if err != nil {
-					return fmt.Errorf("failed to reformat date: %s", err)
-				}
-			}
-
-			stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
-			if err != nil {
-				return err
-			}
-			if stopProcessing {
+			// no new messages for 10s means reader has caught up; exit cleanly without error.
+			if errors.Is(pollCtxErr, context.DeadlineExceeded) {
+				logger.Warnf("poll context deadline exceeded: %s", pollCtxErr)
 				return nil
 			}
+
+			// any fetch error (including parent ctx cancellation) is non-retryable.
+			// For more info, go through the documentation: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#Fetches.Errors
+			if errs := fetches.Errors(); len(errs) > 0 {
+				return fmt.Errorf("%w: error reading message in Kafka CDC sync: %s", constants.ErrNonRetryable, errs[0].Err)
+			}
+
+			// wrap batch into iterator
+			iter = fetches.RecordIter()
+			// check exit state again before processing the batch
+			continue
+		}
+
+		message := iter.Next()
+		data, key, err := k.parseKafkaData(message)
+		if err != nil {
+			logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
+		} else if data != nil {
+			// data map will be nil (in cases like null and unparseable message values) so nil check is required
+			data[Partition] = message.Partition
+			data[Offset] = message.Offset
+			data[Key] = key
+			data[KafkaTimestamp], err = typeutils.ReformatDate(message.Timestamp, true)
+			if err != nil {
+				return fmt.Errorf("failed to reformat date: %s", err)
+			}
+		}
+
+		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
+		if err != nil {
+			return err
+		}
+		if stopProcessing {
+			return nil
 		}
 	}
 }

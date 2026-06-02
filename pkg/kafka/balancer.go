@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -22,9 +21,7 @@ func (b *CustomGroupBalancer) IsCooperative() bool {
 // JoinGroupMetadata encodes consumer subscription metadata for group joining.
 func (b *CustomGroupBalancer) JoinGroupMetadata(topicInterests []string, _ map[string][]int32, generation int32) []byte {
 	memberMetadata := kmsg.NewConsumerMemberMetadata()
-	memberMetadata.Version = 3
 	memberMetadata.Topics = topicInterests
-	memberMetadata.Generation = generation
 	return memberMetadata.AppendTo(nil)
 }
 
@@ -36,41 +33,37 @@ func (b *CustomGroupBalancer) ParseSyncAssignment(assignment []byte) (map[string
 // MemberBalancer returns a GroupMemberBalancer for the given group members.
 func (b *CustomGroupBalancer) MemberBalancer(members []kmsg.JoinGroupResponseMember) (kgo.GroupMemberBalancer, map[string]struct{}, error) {
 	consumerBalancer, err := kgo.NewConsumerBalancer(b, members)
-	if err != nil {
-		return nil, nil, err
-	}
-	return consumerBalancer, consumerBalancer.MemberTopics(), nil
+	return consumerBalancer, consumerBalancer.MemberTopics(), err
 }
 
 // Balance assigns active partitions to consumers using round-robin distribution.
 func (b *CustomGroupBalancer) Balance(consumerBalancer *kgo.ConsumerBalancer, partitionsPerTopic map[string]int32) kgo.IntoSyncAssignment {
+	// a new plan for partition assignment
 	plan := consumerBalancer.NewPlan()
+
+	// list of group members (consumers)
 	members := consumerBalancer.Members()
 	if len(members) == 0 {
 		return plan
 	}
 
+	// number of consumers to use
 	consumerCount := min(b.requiredConsumerIDs, len(members))
-	if consumerCount == 0 {
-		return plan
-	}
 
+	// active partitions with data in partition index
 	activePartitions := make([]types.PartitionKey, 0)
-	for topic, partitionCount := range partitionsPerTopic {
-		for partition := int32(0); partition < partitionCount; partition++ {
+	for topic, partitions := range partitionsPerTopic {
+		for partition := range partitions {
 			if _, ok := b.partitionIndex[fmt.Sprintf("%s:%d", topic, partition)]; ok {
 				activePartitions = append(activePartitions, types.PartitionKey{Topic: topic, Partition: partition})
 			}
 		}
 	}
 
-	sort.Slice(activePartitions, func(currentIndex, nextIndex int) bool {
-		currentPartition, nextPartition := activePartitions[currentIndex], activePartitions[nextIndex]
-		return currentPartition.Topic < nextPartition.Topic || (currentPartition.Topic == nextPartition.Topic && currentPartition.Partition < nextPartition.Partition)
-	})
-
-	for currentIndex, activePartition := range activePartitions {
-		plan.AddPartition(&members[currentIndex%consumerCount], activePartition.Topic, activePartition.Partition)
+	// partition assignment in round-robin manner across consumers
+	for index, activePartition := range activePartitions {
+		consumerIndex := index % consumerCount
+		plan.AddPartition(&members[consumerIndex], activePartition.Topic, activePartition.Partition)
 	}
 
 	return plan

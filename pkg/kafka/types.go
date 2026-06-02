@@ -12,9 +12,9 @@ import (
 
 // ReaderManager exit modes used to control CDC processing flow.
 const (
-	normalProcessing int32 = iota // normal CDC processing state
-	gracefulExit                  // stop processing during rebalance without triggering abstract-layer retries
-	nonRetryableExit              // stop processing due to unrecoverable consumer state
+	normalProcessing int32 = iota // normal processing state
+	gracefulExit                  // stop processing on rebalance (without triggering retries)
+	nonRetryableExit              // stop processing due to unrecoverable kafka errors
 )
 
 // ReaderConfig holds configuration for creating Kafka readers
@@ -36,10 +36,10 @@ type kafkaReader struct {
 type ReaderManager struct {
 	config         ReaderConfig
 	readers        []*kafkaReader
-	topics         []string                           // consume topics, set in CreateReaders and used by CreateReader
+	topics         []string                           // topics to be consumed
 	partitionIndex map[string]types.PartitionMetaData // get per-partition boundaries
 	exitMode       atomic.Int32                       // normalProcessing | gracefulExit | nonRetryableExit
-	generationID   atomic.Int32                       // Group generationId is used to detect rebalances
+	generationID   atomic.Int32                       // consumer group generationId: used to detect rebalances
 }
 
 // CustomGroupBalancer ensures proper consumer ID distribution according to requirements
