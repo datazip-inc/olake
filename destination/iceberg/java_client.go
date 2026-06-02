@@ -148,11 +148,22 @@ func startSharedServer(config *Config) (*serverInstance, error) {
 
 		var serverCmd *exec.Cmd
 		if os.Getenv("OLAKE_DEBUG_MODE") != "" {
-			serverCmd = exec.Command("java", "-XX:+UseG1GC",
+			serverCmd = exec.Command("java",
+				"-XX:+UseG1GC",
+				"-XX:InitialRAMPercentage=40.0",
+				"-XX:MaxRAMPercentage=60.0",
+				"-XX:MaxDirectMemorySize=8g",
+				"-XX:+ExitOnOutOfMemoryError",
 				"-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
 				"-jar", config.JarPath, string(configJSON))
 		} else {
-			serverCmd = exec.Command("java", "-XX:+UseG1GC", "-jar", config.JarPath, string(configJSON))
+			serverCmd = exec.Command("java",
+				"-XX:+UseG1GC",
+				"-XX:InitialRAMPercentage=40.0",
+				"-XX:MaxRAMPercentage=60.0",
+				"-XX:MaxDirectMemorySize=8g",
+				"-XX:+ExitOnOutOfMemoryError",
+				"-jar", config.JarPath, string(configJSON))
 		}
 
 		serverCmd.Env = os.Environ()

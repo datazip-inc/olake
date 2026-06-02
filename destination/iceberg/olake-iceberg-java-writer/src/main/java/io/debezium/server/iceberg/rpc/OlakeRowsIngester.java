@@ -1,28 +1,27 @@
 package io.debezium.server.iceberg.rpc;
 
-import io.debezium.DebeziumException;
-import io.debezium.server.iceberg.IcebergUtil;
-import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
-import io.debezium.server.iceberg.SchemaConvertor;
-import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
-import io.debezium.server.iceberg.tableoperator.RecordWrapper;
-import io.grpc.stub.StreamObserver;
-import jakarta.enterprise.context.Dependent;
-
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import io.debezium.DebeziumException;
+import io.debezium.server.iceberg.IcebergUtil;
+import io.debezium.server.iceberg.SchemaConvertor;
+import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
+import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
+import io.debezium.server.iceberg.tableoperator.RecordWrapper;
+import io.grpc.stub.StreamObserver;
+import jakarta.enterprise.context.Dependent;
 
 /**
  * Multi-tenant gRPC service for the legacy (rows-based) Iceberg write path.
@@ -57,6 +56,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private final class ThreadSession {
         final Table icebergTable;
         final IcebergTableOperator op;
+
+        // Set by CLOSE_SESSION for THIS thread only. Polled by the in-flight write
+        // loop, which stops between records and closes its own writer on its own
+        // thread. CLOSE_SESSION never touches the writer itself, so the writer is
+        // only ever touched by the single (Go-serialized) op running for this
+        // session — there is no concurrent writer access and no lock needed.
+        volatile boolean cancelled = false;
 
         ThreadSession(TableIdentifier tid,
                       String identifierField,
@@ -94,7 +100,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             if (request.getType() == IcebergPayload.PayloadType.CLOSE_SESSION) {
                 ThreadSession closed = sessions.remove(threadId);
                 if (closed != null) {
-                    closed.op.closeQuietly();
+                    // Only raise the flag — never touch the writer here. This runs on
+                    // a different gRPC thread than the in-flight write, and closing it
+                    // concurrently with writer.write() is what corrupts Parquet. The
+                    // write loop sees `cancelled` and closes its own writer; we don't wait.
+                    closed.cancelled = true;
                 }
                 sendResponse(responseObserver, requestId + " closed session " + threadId);
                 LOGGER.debug("{} closed session {}", requestId, threadId);
@@ -119,10 +129,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     k -> new ThreadSession(tid, identifierField, schemaMetadata, partitionTransforms, upsert));
 
             switch (request.getType()) {
-                case DROP_TABLE:
-                    handleDropTable(requestId, destTableName, responseObserver);
-                    break;
-
                 case COMMIT:
                     session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable);
                     sendResponse(responseObserver, requestId + " Successfully committed data for thread " + threadId);
@@ -133,6 +139,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     SchemaConvertor convertor = new SchemaConvertor(identifierField, schemaMetadata);
                     session.op.applyFieldAddition(session.icebergTable, convertor.convertToIcebergSchema(), createIdentifierFields);
                     session.icebergTable.refresh();
+                    // complete current writer
                     session.op.completeWriter();
                     sendResponse(responseObserver, session.icebergTable.schema().toString());
                     LOGGER.info("{} Successfully applied schema evolution for table: {}", requestId, destTableName);
@@ -141,6 +148,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
                 case REFRESH_TABLE_SCHEMA:
                     session.icebergTable.refresh();
+                    // complete current writer
                     session.op.completeWriter();
                     sendResponse(responseObserver, session.icebergTable.schema().toString());
                     break;
@@ -157,9 +165,28 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     LOGGER.debug("{} Received {} records for table {}", requestId, request.getRecordsCount(), destTableName);
                     SchemaConvertor recordsConvertor = new SchemaConvertor(identifierField, schemaMetadata);
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(upsert, session.icebergTable.schema(), request.getRecordsList());
-                    session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords);
+                    session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords, () -> session.cancelled);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.debug("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
+                    break;
+                }
+
+                case DROP_TABLE: {
+                    String[] parts = destTableName.split("\\.", 2);
+                    if (parts.length != 2) {
+                        throw new IllegalArgumentException("Invalid destination table name: " + destTableName);
+                    }
+                    String dropNamespace = parts[0];
+                    String dropTableName = parts[1];
+                    LOGGER.warn("{} Dropping table {}.{}", requestId, dropNamespace, dropTableName);
+                    boolean dropped = IcebergUtil.dropIcebergTable(dropNamespace, dropTableName, icebergCatalog);
+                    if (dropped) {
+                        sendResponse(responseObserver, "Successfully dropped table " + dropTableName);
+                        LOGGER.info("{} Table {} dropped", requestId, dropTableName);
+                    } else {
+                        sendResponse(responseObserver, "Table " + dropTableName + " does not exist");
+                        LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, dropTableName);
+                    }
                     break;
                 }
 
@@ -175,6 +202,19 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         }
     }
 
+    private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message) {
+        sendResponse(responseObserver, message, null);
+    }
+
+    private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message, String olake2pcState) {
+        RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder().setResult(message);
+        if (olake2pcState != null) {
+            builder.setOlake2PcState(olake2pcState);
+        }
+        responseObserver.onNext(builder.build());
+        responseObserver.onCompleted();
+    }
+
     private Table loadOrCreateTable(TableIdentifier tableId, Schema schema, List<Map<String, String>> partitionTransforms) {
         return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
             try {
@@ -188,24 +228,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         });
     }
 
-    private void handleDropTable(String requestId, String dropTable, StreamObserver<RecordIngest.RecordIngestResponse> responseObserver) {
-        String[] parts = dropTable.split("\\.", 2);
-        if (parts.length != 2) {
-            throw new IllegalArgumentException("Invalid destination table name: " + dropTable);
-        }
-        String namespace = parts[0];
-        String tableName = parts[1];
-        LOGGER.warn("{} Dropping table {}.{}", requestId, namespace, tableName);
-        boolean dropped = IcebergUtil.dropIcebergTable(namespace, tableName, icebergCatalog);
-        if (dropped) {
-            sendResponse(responseObserver, "Successfully dropped table " + tableName);
-            LOGGER.info("{} Table {} dropped", requestId, tableName);
-        } else {
-            sendResponse(responseObserver, "Table " + tableName + " does not exist");
-            LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, tableName);
-        }
-    }
-
     private static List<Map<String, String>> toPartitionList(List<IcebergPayload.PartitionField> protos) {
         if (protos == null || protos.isEmpty()) return new ArrayList<>();
         List<Map<String, String>> out = new ArrayList<>(protos.size());
@@ -216,18 +238,5 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             out.add(m);
         }
         return out;
-    }
-
-    private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message) {
-        sendResponse(responseObserver, message, null);
-    }
-
-    private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message, String olake2pcState) {
-        RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder().setResult(message);
-        if (olake2pcState != null) {
-            builder.setOlake2PcState(olake2pcState);
-        }
-        responseObserver.onNext(builder.build());
-        responseObserver.onCompleted();
     }
 }

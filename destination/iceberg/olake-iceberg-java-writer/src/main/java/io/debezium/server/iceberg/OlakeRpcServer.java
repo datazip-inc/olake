@@ -1,14 +1,9 @@
 package io.debezium.server.iceberg;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.core.type.TypeReference;
-import io.debezium.serde.DebeziumSerdes;
-import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
-import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
-import io.grpc.Server;
-import io.grpc.ServerBuilder;
-import jakarta.enterprise.context.Dependent;
+import java.util.Collections;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
@@ -17,9 +12,16 @@ import org.apache.kafka.common.serialization.Serde;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Collections;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import io.debezium.serde.DebeziumSerdes;
+import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
+import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
+import io.grpc.Server;
+import io.grpc.ServerBuilder;
+import jakarta.enterprise.context.Dependent;
 
 /**
  * Shared-JVM entry point. Catalog config is parsed once at startup; per-stream
@@ -34,8 +36,8 @@ public class OlakeRpcServer {
 
     protected static final Serde<JsonNode> valSerde = DebeziumSerdes.payloadJson(JsonNode.class);
     protected static final Serde<JsonNode> keySerde = DebeziumSerdes.payloadJson(JsonNode.class);
-    static final Configuration hadoopConf = new Configuration();
-    static final Map<String, String> icebergProperties = new ConcurrentHashMap<>();
+    final static Configuration hadoopConf = new Configuration();
+    final static Map<String, String> icebergProperties = new ConcurrentHashMap<>();
     static Catalog icebergCatalog;
     static Deserializer<JsonNode> valDeserializer;
     static Deserializer<JsonNode> keyDeserializer;
@@ -101,7 +103,7 @@ public class OlakeRpcServer {
         // Graceful shutdown so the OS sees the gRPC port released cleanly.
         Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown, "olake-grpc-shutdown"));
 
-        LOGGER.info("Shared JVM started on port {} with max message size: {}MB",
+        LOGGER.info("Server started on port {} with max message size: {}MB",
                     port, (maxMessageSize / (1024 * 1024)));
         server.awaitTermination();
     }

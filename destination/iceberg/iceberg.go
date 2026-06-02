@@ -115,36 +115,12 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	// Build the per-stream context once and reuse it on every payload from here on.
 	// In the shared-JVM model the JVM has no knowledge of which namespace / upsert
 	// mode / partition spec / identifier-field flag applies — this struct carries it.
-	upsert := isUpsertMode(stream, options.Backfill)
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
-	namespace := i.stream.GetDestinationDatabase(&i.config.IcebergDatabase)
-	icebergPartFields := make([]*proto.IcebergPayload_PartitionField, 0, len(i.partitionInfo))
-	arrowPartFields := make([]*proto.ArrowPayload_PartitionField, 0, len(i.partitionInfo))
-	for _, p := range i.partitionInfo {
-		icebergPartFields = append(icebergPartFields, &proto.IcebergPayload_PartitionField{
-			Field:     p.SchemaField,
-			Transform: p.Transform,
-		})
-		arrowPartFields = append(arrowPartFields, &proto.ArrowPayload_PartitionField{
-			Field:     p.SchemaField,
-			Transform: p.Transform,
-		})
-	}
-	i.meta = &internal.StreamMetaCtx{
-		ThreadID:               options.ThreadID,
-		Namespace:              namespace,
-		Upsert:                 upsert,
-		CreateIdentifierFields: !i.config.NoIdentifierFields,
-		IdentifierField:        identifierField,
-		IcebergPartitionFields: icebergPartFields,
-		ArrowPartitionFields:   arrowPartFields,
-		DestTableName:          i.stream.GetDestinationTable(),
-	}
+	i.buildStreamMeta(stream, options)
 
 	var schema map[string]string
 
 	if globalSchema == nil {
-		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), namespace, i.stream.Name())
+		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.meta.Namespace, i.stream.Name())
 
 		// when normalization=false, include partition columns in the Iceberg schema so
 		// the Java server can build the partition spec (spec references columns by field ID)
@@ -162,7 +138,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 				Schema:                 iceSchema,
 				DestTableName:          i.meta.DestTableName,
 				ThreadId:               i.meta.ThreadID,
-				IdentifierField:        &identifierField,
+				IdentifierField:        &i.meta.IdentifierField,
 				Namespace:              i.meta.Namespace,
 				Upsert:                 i.meta.Upsert,
 				CreateIdentifierFields: i.meta.CreateIdentifierFields,
@@ -225,7 +201,7 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) error {
 	defer i.releaseSession(ctx)
 
 	if i.stream == nil {
-		// connection check path: no commit, no writer.Close.
+		// for check connection no commit will happen
 		return nil
 	}
 
@@ -750,6 +726,39 @@ func getCommonAncestorType(d1, d2 string) string {
 	oldDT := types.IcebergTypeToDatatype(d1)
 	newDT := types.IcebergTypeToDatatype(d2)
 	return types.GetCommonAncestorType(oldDT, newDT).ToIceberg()
+}
+
+// buildStreamMeta constructs the per-stream StreamMetaCtx from the current
+// Iceberg state and stores it in i.meta. It must be called once after
+// i.stream and i.partitionInfo have been populated.
+func (i *Iceberg) buildStreamMeta(stream types.StreamInterface, options *destination.Options) {
+	upsert := isUpsertMode(stream, options.Backfill)
+	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	namespace := i.stream.GetDestinationDatabase(&i.config.IcebergDatabase)
+
+	icebergPartFields := make([]*proto.IcebergPayload_PartitionField, 0, len(i.partitionInfo))
+	arrowPartFields := make([]*proto.ArrowPayload_PartitionField, 0, len(i.partitionInfo))
+	for _, p := range i.partitionInfo {
+		icebergPartFields = append(icebergPartFields, &proto.IcebergPayload_PartitionField{
+			Field:     p.SchemaField,
+			Transform: p.Transform,
+		})
+		arrowPartFields = append(arrowPartFields, &proto.ArrowPayload_PartitionField{
+			Field:     p.SchemaField,
+			Transform: p.Transform,
+		})
+	}
+
+	i.meta = &internal.StreamMetaCtx{
+		ThreadID:               options.ThreadID,
+		Namespace:              namespace,
+		Upsert:                 upsert,
+		CreateIdentifierFields: !i.config.NoIdentifierFields,
+		IdentifierField:        identifierField,
+		IcebergPartitionFields: icebergPartFields,
+		ArrowPartitionFields:   arrowPartFields,
+		DestTableName:          i.stream.GetDestinationTable(),
+	}
 }
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {

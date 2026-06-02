@@ -35,3 +35,12 @@ type Writer interface {
 	DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error
 	Close(ctx context.Context, finalMetadataState any) error
 }
+
+// Shutdownable is implemented by destinations that own long-lived process
+// resources (currently: the Iceberg shared JVM). The protocol layer calls
+// Shutdown once per CLI invocation, via the Shutdown dispatcher below, so the
+// JVM is torn down on normal sync/check/clear completion. Signal-based
+// teardown is handled inside the destination itself.
+type Shutdownable interface {
+	Shutdown(ctx context.Context) error
+}

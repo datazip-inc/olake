@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
@@ -274,12 +275,27 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
+  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events,
+                                  BooleanSupplier cancelled) {
+    // Session already torn down before we started — don't create a writer that
+    // nothing will commit/close.
+    if (cancelled.getAsBoolean()) {
+      LOGGER.warn("Thread {}: session cancelled before write, skipping {} events", threadID, events.size());
+      return;
+    }
     if (writer == null) {
       writer = writerFactory2.create(icebergTable);
     }
     try {
       for (RecordWrapper record : events) {
+        // Cooperative cancel: checked before each record. When CLOSE_SESSION sets
+        // the flag we stop mid-batch, discard the partial writer, and return — on
+        // THIS thread, so no other thread ever touches the writer.
+        if (cancelled.getAsBoolean()) {
+          LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
+          closeQuietly();
+          return;
+        }
         try{
           // Normalise _op_type "i" → "c" before routing to any writer.
           //   - Delta writers (upsert=true):  op() == INSERT, field == "i" → both would work
@@ -304,14 +320,16 @@ public class IcebergTableOperator {
       // Clean up the writer
       try {
         writer.abort();
-      } catch (IOException abortEx) {
+      } catch (Exception abortEx) {
         LOGGER.warn("Failed to abort writer", abortEx);
       }
       try {
         writer.close();
-      } catch (IOException e) {
+      } catch (Exception e) {
         LOGGER.warn("Failed to close writer", e);
       }
+      // Never reuse an aborted/corrupted writer for the next batch.
+      writer = null;
       throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
     }
   }
