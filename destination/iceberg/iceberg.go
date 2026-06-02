@@ -216,12 +216,12 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) error {
 
 // releaseSession drops the per-thread Java-side session. Best-effort: failures
 // are logged but never surfaced — by the time we get here the chunk has
-// committed (or the user has cancelled) and the next sync will be unaffected.
+// committed (or the user has canceled) and the next sync will be unaffected.
 func (i *Iceberg) releaseSession(ctx context.Context) {
 	if i.server == nil || i.meta == nil {
 		return
 	}
-	// Use a short, independent timeout so a cancelled parent ctx doesn't
+	// Use a short, independent timeout so a canceled parent ctx doesn't
 	// prevent best-effort cleanup.
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

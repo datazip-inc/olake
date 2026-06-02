@@ -111,7 +111,7 @@ func shutdownSharedServer() {
 }
 
 // installShutdownHooks ensures the JVM is killed when the Go process is
-// signalled (Ctrl-C, kubectl/docker stop, etc). Without this, an orphaned JVM
+// signaled (Ctrl-C, kubectl/docker stop, etc). Without this, an orphaned JVM
 // can outlive the parent on abrupt termination.
 func installShutdownHooks() {
 	ch := make(chan os.Signal, 1)
