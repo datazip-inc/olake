@@ -183,11 +183,9 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 }
 
 func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) error {
-	// In the shared-JVM model Close does NOT kill the JVM. It (a) lets the
-	// writer commit/flush whatever it owns, then (b) tells the JVM to drop
-	// this thread's per-session state via CLOSE_SESSION, freeing the
-	// BaseTaskWriter and pending-file list. JVM lifecycle is owned by
-	// Shutdown() (signal handler / sync.go defer).
+	// Shared-JVM model: Close commits via COMMIT RPC, then CLOSE_SESSION
+	// drops this thread's session entry (Table + IcebergTableOperator).
+	// JVM teardown is handled by shutdownSharedServer(), not here.
 	defer i.releaseSession(ctx)
 
 	if i.stream == nil {
