@@ -129,6 +129,8 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return m.splitViaPrimaryKey(ctx, stream, keyCols, chunkSize)
 	}
 
+	// TODO: Addition of a non physloc based strategy when no primary key is present
+	logger.Warnf("Stream %s has no primary key, physloc based strategy will be used. It's advised to use default thread count to avoid overwhelming the database", stream.ID())
 	if m.probeIAMWalkCapability(ctx) {
 		logger.Debugf("Stream %s: no key columns, attempting IAM walk", stream.ID())
 		iamChunks, iamErr := m.splitViaIAMWalk(ctx, stream)
