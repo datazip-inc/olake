@@ -643,6 +643,15 @@ func (b *Backend) ensureNamespaceAndTable(
 		catalog.WithProperties(iceberg.Properties{
 			"format-version":       "2",
 			"write.format.default": "parquet",
+			// Concurrent OLake threads each load the table at the same
+			// base metadata and race to commit; iceberg-go's
+			// commit-retry loop (refresh + replay) is what makes those
+			// commits converge. The defaults are 0 retries which is
+			// not viable for our multi-thread ingestion model.
+			icetable.CommitNumRetriesKey:          "8",
+			icetable.CommitMinRetryWaitMsKey:      "100",
+			icetable.CommitMaxRetryWaitMsKey:      "5000",
+			icetable.CommitTotalRetryTimeoutMsKey: "300000",
 		}),
 	)
 	if err != nil {
