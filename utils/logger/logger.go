@@ -233,7 +233,7 @@ func Init() {
 	multiWriter := zerolog.MultiLevelWriter(rotatingFile, newConsoleWriter())
 
 	// Create global logger (immutable after init)
-	logger = zerolog.New(multiWriter).With().Timestamp().Logger()
+	logger = zerolog.New(multiWriter).With().Timestamp().Str("version", constants.GetVersion()).Str("commit", constants.GetCommitSHA()).Str("channel", constants.GetReleaseChannel()).Logger()
 }
 
 // ProcessOutputReader is a struct that manages reading output from a process
