@@ -154,7 +154,7 @@ require (
 
 replace (
 	cloud.google.com/go/compute => cloud.google.com/go/compute v1.23.3
-	cloud.google.com/go/compute/metadata => cloud.google.com/go/compute/metadata v0.6.0
+	cloud.google.com/go/compute/metadata => cloud.google.com/go/compute/metadata v0.9.0
 	github.com/datazip-inc/olake => ../../
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 )

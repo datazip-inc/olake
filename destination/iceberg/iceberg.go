@@ -29,10 +29,18 @@ type Iceberg struct {
 	config        *Config
 	stream        types.StreamInterface
 	partitionInfo []internal.PartitionInfo // ordered slice to preserve partition column order
-	server        *serverInstance          // Java server instance
-	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
+	server        *serverInstance          // Java server instance (nil when UseArrowWrites=true)
+	schema        map[string]string        // schema for current thread (col -> iceberg type)
 	writer        Writer                   // writer instance
 	olake2PCState *types.MetadataState     // olake_2pc_state for current stream
+
+	// arrowBackend is the per-thread iceberg-go integration used when
+	// config.UseArrowWrites is true. Replaces the Java server's table
+	// create / schema evolve / file commit responsibilities entirely.
+	arrowBackend *arrowwriter.Backend
+
+	// iceberg-go level params
+	table string
 
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
@@ -67,11 +75,26 @@ func (i *Iceberg) Spec() any {
 
 func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	if i.config.UseArrowWrites {
-		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
+		identifierFieldID := identifierFieldIDFromBackend(i.arrowBackend, i.config.NoIdentifierFields)
+		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.arrowBackend, isUpsertMode(i.stream, i.options.Backfill), identifierFieldID)
 	}
 
 	// default: legacy writer
 	return legacywriter.New(i.options, i.schema, i.stream, i.server), nil
+}
+
+// identifierFieldIDFromBackend returns the iceberg-go schema field ID
+// that matches the configured identifier field name (_olake_id), or 0
+// when identifier fields are disabled or absent from the schema.
+func identifierFieldIDFromBackend(b *arrowwriter.Backend, noIdentifierFields bool) int {
+	if b == nil || noIdentifierFields {
+		return 0
+	}
+	sc := b.IcebergSchema()
+	if f, ok := sc.FindFieldByName(constants.OlakeID); ok {
+		return f.ID
+	}
+	return 0
 }
 
 func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, *types.MetadataState, error) {
@@ -103,69 +126,23 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		}
 	}
 
-	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start iceberg server: %s", err)
-	}
-
-	// persist server details
-	i.server = server
-
-	// check for identifier fields setting
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	var schema map[string]string
 
-	if globalSchema == nil {
-		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
-
-		// when normalization=false, include partition columns in the Iceberg schema so
-		// the Java server can build the partition spec (spec references columns by field ID)
-		partitionFields := make([]string, 0, len(i.partitionInfo))
-		if !stream.NormalizationEnabled() {
-			for _, p := range i.partitionInfo {
-				partitionFields = append(partitionFields, p.Field)
-			}
-		}
-
-		var requestPayload proto.IcebergPayload
-		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
-		requestPayload = proto.IcebergPayload{
-			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
-			Metadata: &proto.IcebergPayload_Metadata{
-				Schema:          iceSchema,
-				DestTableName:   i.stream.GetDestinationTable(),
-				ThreadId:        i.server.serverID,
-				IdentifierField: &identifierField,
-			},
-		}
-
-		response, err := i.server.SendClientRequest(ctx, &requestPayload)
+	if i.config.UseArrowWrites {
+		// Pure iceberg-go path: bootstrap a per-thread Backend, no Java
+		// sink is launched.
+		s, err := i.setupArrowBackend(ctx, options, identifierField)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
+			return nil, nil, err
 		}
-
-		ingestResponse := response.(*proto.RecordIngestResponse)
-		schema, err = parseSchema(ingestResponse.GetResult())
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
-		}
-
-		// Capture optional olake_2pc state from table metadata without returning early,
-		// so we fall through to create the writer for this thread.
-		if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
-			var metadataState types.MetadataState
-			if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
-				return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
-			}
-			i.olake2PCState = &metadataState
-		}
+		schema = s
 	} else {
-		// set global schema for current thread
-		var ok bool
-		schema, ok = globalSchema.(map[string]string)
-		if !ok {
-			return nil, nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+		s, err := i.setupJavaServer(ctx, options, globalSchema, identifierField)
+		if err != nil {
+			return nil, nil, err
 		}
+		schema = s
 	}
 
 	// set schema for current thread
@@ -178,6 +155,145 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	i.writer = writer
 
 	return schema, i.olake2PCState, nil
+}
+
+// setupArrowBackend constructs the iceberg-go Backend for the current
+// thread. Each thread loads its own catalog handle / table reference;
+// the first thread creates the table and subsequent threads load it.
+func (i *Iceberg) setupArrowBackend(ctx context.Context, options *destination.Options, identifierField string) (map[string]string, error) {
+	logger.Infof("Thread[%s]: bootstrapping iceberg-go arrow-writer backend (table=%s, db=%s)",
+		options.ThreadID,
+		i.stream.GetDestinationTable(),
+		i.stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+	)
+
+	// Build the proto-shaped schema for table create. Backend ignores
+	// it on subsequent loads. partitionFields ensures partition columns
+	// are part of the iceberg schema even with normalization=false.
+	partitionFields := make([]string, 0, len(i.partitionInfo))
+	if !i.stream.NormalizationEnabled() {
+		for _, p := range i.partitionInfo {
+			partitionFields = append(partitionFields, p.Field)
+		}
+	}
+	iceSchema := i.stream.Schema().ToIceberg(!i.stream.NormalizationEnabled(), i.stream, partitionFields...)
+
+	bcfg := i.toBackendConfig()
+	backend, err := arrowwriter.NewBackend(
+		ctx,
+		bcfg,
+		i.partitionInfo,
+		i.stream,
+		options.ThreadID,
+		isUpsertMode(i.stream, options.Backfill),
+		identifierField,
+		iceSchema,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bootstrap iceberg-go backend: %s", err)
+	}
+	i.arrowBackend = backend
+	return backend.ColumnTypeMap(), nil
+}
+
+// setupJavaServer is the legacy path: spawn the JVM iceberg sink and
+// drive table creation through gRPC.
+func (i *Iceberg) setupJavaServer(ctx context.Context, options *destination.Options, globalSchema any, identifierField string) (map[string]string, error) {
+	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(i.stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
+	if err != nil {
+		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
+	}
+	i.server = server
+
+	if globalSchema == nil {
+		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
+
+		partitionFields := make([]string, 0, len(i.partitionInfo))
+		if !i.stream.NormalizationEnabled() {
+			for _, p := range i.partitionInfo {
+				partitionFields = append(partitionFields, p.Field)
+			}
+		}
+
+		iceSchema := i.stream.Schema().ToIceberg(!i.stream.NormalizationEnabled(), i.stream, partitionFields...)
+		requestPayload := proto.IcebergPayload{
+			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+			Metadata: &proto.IcebergPayload_Metadata{
+				Schema:          iceSchema,
+				DestTableName:   i.stream.GetDestinationTable(),
+				ThreadId:        i.server.serverID,
+				IdentifierField: &identifierField,
+			},
+		}
+
+		response, err := i.server.SendClientRequest(ctx, &requestPayload)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load or create table: %s", err)
+		}
+
+		ingestResponse := response.(*proto.RecordIngestResponse)
+		schema, err := parseSchema(ingestResponse.GetResult())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
+		}
+
+		// Capture optional olake_2pc state from table metadata without
+		// returning early, so we fall through to create the writer.
+		if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
+			var metadataState types.MetadataState
+			if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
+				return schema, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
+			}
+			i.olake2PCState = &metadataState
+		}
+		return schema, nil
+	}
+
+	schema, ok := globalSchema.(map[string]string)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+	}
+	return schema, nil
+}
+
+// toBackendConfig projects the rich iceberg.Config struct into the
+// minimal subset the arrow-writer backend cares about.
+func (i *Iceberg) toBackendConfig() *arrowwriter.BackendConfig {
+	return &arrowwriter.BackendConfig{
+		CatalogType:             string(i.config.CatalogType),
+		CatalogName:             i.config.CatalogName,
+		IcebergS3Path:           i.config.IcebergS3Path,
+		IcebergDatabase:         i.config.IcebergDatabase,
+		Region:                  i.config.Region,
+		AccessKey:               i.config.AccessKey,
+		SecretKey:               i.config.SecretKey,
+		SessionToken:            i.config.SessionToken,
+		ProfileName:             i.config.ProfileName,
+		S3Endpoint:              i.config.S3Endpoint,
+		S3UseSSL:                i.config.S3UseSSL,
+		S3PathStyle:             i.config.S3PathStyle,
+		UseGlueAdditionalConfig: i.config.UseGlueAdditionalConfig,
+		GlueAccessKey:           i.config.GlueAccessKey,
+		GlueSecretKey:           i.config.GlueSecretKey,
+		GlueRegion:              i.config.GlueRegion,
+		GlueEndpoint:            i.config.GlueEndpoint,
+		GlueCatalogID:           i.config.GlueCatalogID,
+		RestCatalogURL:          i.config.RestCatalogURL,
+		RestSigningName:         i.config.RestSigningName,
+		RestSigningRegion:       i.config.RestSigningRegion,
+		RestSigningV4:           i.config.RestSigningV4,
+		RestToken:               i.config.RestToken,
+		RestOAuthURI:            i.config.RestOAuthURI,
+		RestAuthType:            i.config.RestAuthType,
+		RestScope:               i.config.RestScope,
+		RestCredential:          i.config.RestCredential,
+		JDBCUrl:                 i.config.JDBCUrl,
+		JDBCUsername:            i.config.JDBCUsername,
+		JDBCPassword:            i.config.JDBCPassword,
+		HiveURI:                 i.config.HiveURI,
+		HiveClients:             i.config.HiveClients,
+		HiveSaslEnabled:         i.config.HiveSaslEnabled,
+	}
 }
 
 // note: java server parses time from long value which will in milliseconds
@@ -464,6 +580,23 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 			}
 		}
 		return false
+	}
+
+	// arrow-writer / iceberg-go path: drive schema evolution through
+	// the per-thread Backend. The writer.EvolveSchema flush itself is
+	// handled inside arrowwriter.ArrowWriter.EvolveSchema.
+	if i.config.UseArrowWrites {
+		if differentSchema(globalSchemaMap, recordsSchema) {
+			logger.Infof("Thread[%s]: evolving schema in iceberg-go table", i.options.ThreadID)
+			if err := i.writer.EvolveSchema(ctx, recordsSchema); err != nil {
+				return nil, fmt.Errorf("failed to evolve schema via iceberg-go: %s", err)
+			}
+		} else {
+			logger.Debugf("Thread[%s]: skipping schema refresh (no diff vs global)", i.options.ThreadID)
+		}
+		// Arrow path: writer schema is the source of truth after evolve.
+		i.schema = copySchema(i.arrowBackend.ColumnTypeMap())
+		return i.schema, nil
 	}
 
 	// check for identifier fields setting

@@ -155,6 +155,13 @@ func (fw *parquetWriter) RowGroupTotalBytesWritten() int64 {
 	return 0
 }
 
+// FileMetadata returns the parquet file metadata snapshot. Only valid after Close().
+// Used by the iceberg-go backend to build iceberg.DataFile descriptors with full
+// column statistics via table.DataFileFromParquetMetadata.
+func (fw *parquetWriter) FileMetadata() (*metadata.FileMetaData, error) {
+	return fw.wr.FileMetadata()
+}
+
 func toArrowType(icebergType string) arrow.DataType {
 	switch icebergType {
 	case "boolean":

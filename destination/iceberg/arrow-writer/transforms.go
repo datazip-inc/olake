@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/twmb/murmur3"
 )
@@ -285,37 +284,3 @@ func TransformValue(val any, transform string, colType string) (pathStr string, 
 	}
 }
 
-func toProtoPartitionValues(values []any) ([]*proto.ArrowPayload_FileMetadata_PartitionValue, error) {
-	result := make([]*proto.ArrowPayload_FileMetadata_PartitionValue, len(values))
-
-	for i, val := range values {
-		pv := &proto.ArrowPayload_FileMetadata_PartitionValue{}
-
-		if val == nil {
-			// nil values remain as empty proto message (all oneof fields unset)
-			result[i] = pv
-			continue
-		}
-
-		switch v := val.(type) {
-		case int32:
-			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_IntValue{IntValue: v}
-		case int64:
-			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_LongValue{LongValue: v}
-		case float32:
-			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_FloatValue{FloatValue: v}
-		case float64:
-			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_DoubleValue{DoubleValue: v}
-		case string:
-			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_StringValue{StringValue: v}
-		case bool:
-			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_BoolValue{BoolValue: v}
-		default:
-			return nil, fmt.Errorf("unsupported partition value type: %T", v)
-		}
-
-		result[i] = pv
-	}
-
-	return result, nil
-}

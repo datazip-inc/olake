@@ -3,7 +3,6 @@ package arrowwriter
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -13,37 +12,50 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/metadata"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
-	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
+// ArrowWriter is the per-thread writer for the iceberg destination's
+// arrow-writer code path. It produces parquet files locally via Arrow's
+// Parquet writer (unchanged from the legacy Java-backed flow) and then
+// uses an iceberg-go Backend (see iceberg_backend.go) to upload the
+// bytes and commit the resulting iceberg.DataFile descriptors. No Java
+// sink is involved on this path.
 type ArrowWriter struct {
-	fileschemajson map[string]string // file type -> iceberg schema JSON
-	schema         map[string]string
-	arrowSchema    map[string]*arrow.Schema // file type -> arrow schema
-	allocator      memory.Allocator
-	stream         types.StreamInterface
-	server         internal.ServerClient
-	partitionInfo  []internal.PartitionInfo
-	writers        map[string]*Writer
-	createdFiles   map[string]*PartitionFiles
-	upsertMode     bool
+	backend       *Backend
+	schema        map[string]string        // OLake column->iceberg type map
+	arrowSchema   map[string]*arrow.Schema // file type -> arrow schema
+	allocator     memory.Allocator
+	stream        types.StreamInterface
+	partitionInfo []internal.PartitionInfo
+	writers       map[string]*partitionWriters
+	upsertMode    bool
+
+	// Identifier (typically _olake_id) field ID, used by the equality-
+	// delete data-file builder.
+	identifierFieldID int
 }
 
-type Writer struct {
+// partitionWriters holds the rolling writers and pending records for a
+// single partition key.
+type partitionWriters struct {
 	dataWriter             *RollingWriter
 	equalityDeleteWriter   *RollingWriter
 	positionalDeleteWriter *RollingWriter
-	// stores the latest position of olake_id (thread level property)
-	// a data writer might flush multiple data files during cdc, to properly handle duplicate _olake_id values across multiple data files, we only empty it when the thread closes
-	olakeIDPosition   map[string]PositionalDelete // should only be emptied while closing the thread
+	// olakeIDPosition tracks the latest position recorded for an
+	// _olake_id across all flushed data files of this partition. Kept
+	// across flushes so duplicates emitted later still produce the
+	// correct positional delete tuples.
+	olakeIDPosition   map[string]PositionalDelete
 	data              []types.RawRecord
 	equalityDeletes   []string
 	positionalDeletes []PositionalDelete
 }
 
+// RollingWriter wraps a single in-flight parquet writer and the buffer
+// it streams its bytes into.
 type RollingWriter struct {
 	fileType        string
 	filePath        string
@@ -53,37 +65,52 @@ type RollingWriter struct {
 	partitionValues []any
 }
 
-type PartitionFiles struct {
-	DataFiles      []*proto.ArrowPayload_FileMetadata
-	EqDeleteFiles  []*proto.ArrowPayload_FileMetadata
-	PosDeleteFiles []*proto.ArrowPayload_FileMetadata
-}
-
+// PositionalDelete is the (data-file path, row-position) tuple emitted
+// for an upsert deletion of an _olake_id that was previously written to
+// the same partition.
 type PositionalDelete struct {
 	FilePath string
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
-	writer := &ArrowWriter{
-		partitionInfo: partitionInfo,
-		schema:        schema,
-		stream:        stream,
-		server:        server,
-		arrowSchema:   make(map[string]*arrow.Schema),
-		writers:       make(map[string]*Writer),
-		createdFiles:  make(map[string]*PartitionFiles),
-		upsertMode:    upsertMode,
+// New constructs an ArrowWriter wired to the supplied iceberg-go Backend.
+//
+// schema is the column->iceberg-type map for this thread (typically the
+// one Backend.ColumnTypeMap() returned at setup time). The writer takes
+// a defensive copy so subsequent EvolveSchema calls do not mutate the
+// caller's view.
+func New(
+	ctx context.Context,
+	partitionInfo []internal.PartitionInfo,
+	schema map[string]string,
+	stream types.StreamInterface,
+	backend *Backend,
+	upsertMode bool,
+	identifierFieldID int,
+) (*ArrowWriter, error) {
+	w := &ArrowWriter{
+		backend:           backend,
+		partitionInfo:     partitionInfo,
+		schema:            copySchemaMap(schema),
+		stream:            stream,
+		upsertMode:        upsertMode,
+		identifierFieldID: identifierFieldID,
+		arrowSchema:       make(map[string]*arrow.Schema),
+		writers:           make(map[string]*partitionWriters),
 	}
-
-	if err := writer.initialize(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize: %s", err)
+	if err := w.initialize(ctx); err != nil {
+		return nil, fmt.Errorf("failed to initialize arrow writer: %s", err)
 	}
-
-	return writer, nil
+	return w, nil
 }
 
-// computes both partition key and typed values
+// Backend exposes the underlying iceberg-go backend so the parent
+// iceberg package can drive lifecycle operations (commit, evolve)
+// without poking at private fields.
+func (w *ArrowWriter) Backend() *Backend { return w.backend }
+
+// getRecordPartition computes both the partition path string and the
+// typed partition value tuple for a single record.
 func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp time.Time) (string, []any, error) {
 	if len(w.partitionInfo) == 0 {
 		return "", nil, nil
@@ -93,8 +120,6 @@ func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp 
 	values := make([]any, 0, len(w.partitionInfo))
 
 	for _, pInfo := range w.partitionInfo {
-		// SchemaField is the reformatted destination column name — matches w.schema keys
-		// and record.Data keys after FlattenAndCleanData pre-shaping.
 		colType, ok := w.schema[pInfo.SchemaField]
 		if !ok {
 			return "", nil, fmt.Errorf("partition field %q not in schema", pInfo.SchemaField)
@@ -119,40 +144,38 @@ func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp 
 	return strings.Join(paths, "/"), values, nil
 }
 
-// getOrCreateWriter retrieves an existing writer for the partition key or creates a new one with all necessary rolling writers.
-func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values []any) (*Writer, error) {
-	writer, exists := w.writers[pKey]
+func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values []any) (*partitionWriters, error) {
+	pw, exists := w.writers[pKey]
 	if !exists {
-		writer = &Writer{
-			olakeIDPosition: make(map[string]PositionalDelete),
-		}
+		pw = &partitionWriters{olakeIDPosition: make(map[string]PositionalDelete)}
 	}
 
 	var err error
-	if writer.dataWriter == nil {
-		if writer.dataWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeData], fileTypeData); err != nil {
+	if pw.dataWriter == nil {
+		if pw.dataWriter, err = w.createWriter(ctx, pKey, values, w.arrowSchema[fileTypeData], fileTypeData); err != nil {
 			return nil, err
 		}
 	}
 
 	if w.upsertMode {
-		if writer.equalityDeleteWriter == nil {
-			if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
+		if pw.equalityDeleteWriter == nil {
+			if pw.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
 				return nil, err
 			}
 		}
-		if writer.positionalDeleteWriter == nil {
-			if writer.positionalDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypePositionalDelete], fileTypePositionalDelete); err != nil {
+		if pw.positionalDeleteWriter == nil {
+			if pw.positionalDeleteWriter, err = w.createWriter(ctx, pKey, values, w.arrowSchema[fileTypePositionalDelete], fileTypePositionalDelete); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	w.writers[pKey] = writer
-	return writer, nil
+	w.writers[pKey] = pw
+	return pw, nil
 }
 
-// extract partitions records and tracks deletes for upsert mode ("d"/"u"/"i" only; "c"/"r" skip dedup).
+// extract partitions records and tracks deletes for upsert mode
+// ("d"/"u"/"i" only; "c"/"r" skip dedup).
 func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) error {
 	for _, rec := range records {
 		pKey, values, err := w.getRecordPartition(rec, rec.OlakeColumns[constants.OlakeTimestamp].(time.Time))
@@ -160,45 +183,41 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 			return err
 		}
 
-		writer, err := w.getOrCreateWriter(ctx, pKey, values)
+		pw, err := w.getOrCreateWriter(ctx, pKey, values)
 		if err != nil {
 			return err
 		}
 
-		writer.data = append(writer.data, rec)
+		pw.data = append(pw.data, rec)
 		recordOpType := rec.OlakeColumns[constants.OpType].(string)
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
 		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i") {
-			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
+			filePosition := pw.dataWriter.currentRowCount + int64(len(pw.data)-1)
 
-			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
-				// first time, add to equality deletes and track position
-				writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
-				writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
-					FilePath: writer.dataWriter.filePath,
+			if _, exists := pw.olakeIDPosition[recordOlakeID]; !exists {
+				pw.equalityDeletes = append(pw.equalityDeletes, recordOlakeID)
+				pw.olakeIDPosition[recordOlakeID] = PositionalDelete{
+					FilePath: pw.dataWriter.filePath,
 					Position: filePosition,
 				}
 			} else {
-				// duplicates, add prev position to positional deletes (n-1 logic)
-				// the latest (nth) occurrence is kept in the map but not added to deletes
-				prev := writer.olakeIDPosition[recordOlakeID]
-				writer.positionalDeletes = append(writer.positionalDeletes, PositionalDelete{
+				prev := pw.olakeIDPosition[recordOlakeID]
+				pw.positionalDeletes = append(pw.positionalDeletes, PositionalDelete{
 					FilePath: prev.FilePath,
 					Position: prev.Position,
 				})
-				writer.olakeIDPosition[recordOlakeID] = PositionalDelete{
-					FilePath: writer.dataWriter.filePath,
+				pw.olakeIDPosition[recordOlakeID] = PositionalDelete{
+					FilePath: pw.dataWriter.filePath,
 					Position: filePosition,
 				}
 			}
 		}
 
-		// Normalise "i" → "c" in the data file so downstream consumers see a consistent op type.
+		// Normalise "i" → "c" so downstream consumers see a consistent op type.
 		if recordOpType == "i" {
 			rec.OlakeColumns[constants.OpType] = "c"
 		}
 	}
-
 	return nil
 }
 
@@ -209,71 +228,61 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		return fmt.Errorf("failed to partition data: %s", err)
 	}
 
-	for pKey, writer := range w.writers {
-		if len(writer.data) == 0 {
+	for pKey, pw := range w.writers {
+		if len(pw.data) == 0 {
 			continue
 		}
 
 		if w.upsertMode {
-			posRecord := createPositionalDeleteArrowRecord(writer.positionalDeletes, w.allocator, w.arrowSchema[fileTypePositionalDelete])
-			if err := writer.positionalDeleteWriter.currentWriter.WriteBuffered(posRecord); err != nil {
+			posRecord := createPositionalDeleteArrowRecord(pw.positionalDeletes, w.allocator, w.arrowSchema[fileTypePositionalDelete])
+			if err := pw.positionalDeleteWriter.currentWriter.WriteBuffered(posRecord); err != nil {
 				posRecord.Release()
-
 				return fmt.Errorf("failed to write positional delete record: %s", err)
 			}
-
-			writer.positionalDeleteWriter.currentRowCount += posRecord.NumRows()
+			pw.positionalDeleteWriter.currentRowCount += posRecord.NumRows()
 			posRecord.Release()
-
-			if writer.positionalDeleteWriter, err = w.checkAndFlush(ctx, writer.positionalDeleteWriter, pKey); err != nil {
+			if pw.positionalDeleteWriter, err = w.checkAndFlush(ctx, pw.positionalDeleteWriter, pKey); err != nil {
 				return err
 			}
 
-			record := createDeleteArrowRecord(writer.equalityDeletes, w.allocator, w.arrowSchema[fileTypeEqualityDelete])
-			if err := writer.equalityDeleteWriter.currentWriter.WriteBuffered(record); err != nil {
-				record.Release()
-
+			eqRecord := createDeleteArrowRecord(pw.equalityDeletes, w.allocator, w.arrowSchema[fileTypeEqualityDelete])
+			if err := pw.equalityDeleteWriter.currentWriter.WriteBuffered(eqRecord); err != nil {
+				eqRecord.Release()
 				return fmt.Errorf("failed to write equality delete record: %s", err)
 			}
-
-			writer.equalityDeleteWriter.currentRowCount += record.NumRows()
-			record.Release()
-
-			if writer.equalityDeleteWriter, err = w.checkAndFlush(ctx, writer.equalityDeleteWriter, pKey); err != nil {
+			pw.equalityDeleteWriter.currentRowCount += eqRecord.NumRows()
+			eqRecord.Release()
+			if pw.equalityDeleteWriter, err = w.checkAndFlush(ctx, pw.equalityDeleteWriter, pKey); err != nil {
 				return err
 			}
 		}
 
-		record, err := createArrowRecord(writer.data, w.allocator, w.arrowSchema[fileTypeData])
+		dataRecord, err := createArrowRecord(pw.data, w.allocator, w.arrowSchema[fileTypeData])
 		if err != nil {
 			return fmt.Errorf("failed to create arrow record: %s", err)
 		}
-
-		if err := writer.dataWriter.currentWriter.WriteBuffered(record); err != nil {
-			record.Release()
-
+		if err := pw.dataWriter.currentWriter.WriteBuffered(dataRecord); err != nil {
+			dataRecord.Release()
 			return fmt.Errorf("failed to write data record: %s", err)
 		}
+		pw.dataWriter.currentRowCount += dataRecord.NumRows()
+		dataRecord.Release()
 
-		writer.dataWriter.currentRowCount += record.NumRows()
-		record.Release()
-
-		if writer.dataWriter, err = w.checkAndFlush(ctx, writer.dataWriter, pKey); err != nil {
+		if pw.dataWriter, err = w.checkAndFlush(ctx, pw.dataWriter, pKey); err != nil {
 			return err
 		}
 
-		writer.data = writer.data[:0]
-		writer.equalityDeletes = writer.equalityDeletes[:0]
-		writer.positionalDeletes = writer.positionalDeletes[:0]
+		pw.data = pw.data[:0]
+		pw.equalityDeletes = pw.equalityDeletes[:0]
+		pw.positionalDeletes = pw.positionalDeletes[:0]
 	}
 
 	return nil
 }
 
-// checkAndFlush checks if file size threshold is reached and flushes if needed.
+// checkAndFlush flushes the rolling writer when its accumulated bytes
+// hit the configured target size and rotates in a fresh writer.
 func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, partitionKey string) (*RollingWriter, error) {
-	// logic, sizeSoFar := actual File Size + current compressed data (RowGroupTotalBytesWritten())
-	// we can find out current row group's compressed size even before completing the entire row group
 	sizeSoFar := int64(rw.currentBuffer.Len()) + rw.currentWriter.RowGroupTotalBytesWritten()
 	targetSize := utils.Ternary(rw.fileType == fileTypeData, targetDataFileSize, targetDeleteFileSize).(int64)
 	if sizeSoFar < targetSize {
@@ -284,21 +293,19 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, part
 		return nil, err
 	}
 
-	newWriter, err := w.newRollingWriter(ctx, *w.arrowSchema[rw.fileType], rw.fileType, rw.partitionValues, rw.filePath)
+	newWriter, err := w.newRollingWriter(ctx, w.arrowSchema[rw.fileType], rw.fileType, rw.partitionValues, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new rolling writer after flush: %s", err)
 	}
-
-	newFilePath, err := w.allocateFilePath(ctx, partitionKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to allocate new file path after flush: %s", err)
-	}
-	newWriter.filePath = newFilePath
-
 	return newWriter, nil
 }
 
+// flush closes the in-flight parquet writer, uploads the parquet bytes
+// to object storage via the backend, and registers a iceberg.DataFile
+// descriptor for later commit.
 func (w *ArrowWriter) flush(ctx context.Context, rw *RollingWriter, partitionKey string) error {
+	_ = partitionKey // path is already encoded into rw.filePath; key kept for symmetry / future logging.
+
 	if rw.currentRowCount == 0 {
 		_ = rw.currentWriter.Close()
 		return nil
@@ -308,114 +315,115 @@ func (w *ArrowWriter) flush(ctx context.Context, rw *RollingWriter, partitionKey
 		return fmt.Errorf("failed to close writer during flush: %s", err)
 	}
 
-	if err := w.uploadFile(ctx, rw, partitionKey); err != nil {
+	pqMeta, err := rw.currentWriter.FileMetadata()
+	if err != nil {
+		return fmt.Errorf("failed to read parquet file metadata: %s", err)
+	}
+
+	parquetBytes := rw.currentBuffer.Bytes()
+	if err := w.backend.UploadFile(rw.filePath, parquetBytes); err != nil {
 		return fmt.Errorf("failed to upload parquet during flush: %s", err)
 	}
 
+	switch rw.fileType {
+	case fileTypeData:
+		if err := w.backend.AddDataFile(rw.filePath, int64(len(parquetBytes)), pqMeta, rw.partitionValues); err != nil {
+			return fmt.Errorf("failed to register data file: %s", err)
+		}
+	case fileTypeEqualityDelete:
+		eqIDs := []int{w.identifierFieldID}
+		if err := w.backend.AddEqualityDeleteFile(rw.filePath, int64(len(parquetBytes)), pqMeta, rw.partitionValues, eqIDs); err != nil {
+			return fmt.Errorf("failed to register equality delete file: %s", err)
+		}
+	case fileTypePositionalDelete:
+		if err := w.backend.AddPositionalDeleteFile(rw.filePath, int64(len(parquetBytes)), pqMeta, rw.partitionValues); err != nil {
+			return fmt.Errorf("failed to register positional delete file: %s", err)
+		}
+	default:
+		return fmt.Errorf("unknown rolling writer file type %q", rw.fileType)
+	}
 	return nil
 }
 
+// EvolveSchema flushes the in-flight writers, asks the backend to
+// evolve the table schema, then re-initializes Arrow schemas from the
+// updated table.
 func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]string) error {
 	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to flush writers during schema evolution: %s", err)
 	}
 
-	w.schema = newSchema
+	if err := w.backend.EvolveSchema(ctx, newSchema); err != nil {
+		return fmt.Errorf("failed to evolve iceberg-go schema: %s", err)
+	}
 
+	w.schema = w.backend.ColumnTypeMap()
 	if err := w.initialize(ctx); err != nil {
 		return fmt.Errorf("failed to reinitialize with evolved schema: %s", err)
 	}
-
 	return nil
 }
 
-// Close flushes all writers and commits files to Iceberg.
+// Close flushes any open writers and commits accumulated data/delete
+// files via the backend (single iceberg-go transaction).
 func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
+	_ = finalMetadataState // captured-cdc-pos is not yet persisted on the iceberg-go path.
+
 	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}
-
-	// Build ordered file list: equality deletes → data → positional deletes
-	var orderedFiles []*proto.ArrowPayload_FileMetadata
-	for _, pf := range w.createdFiles {
-		orderedFiles = append(orderedFiles, pf.EqDeleteFiles...)
-		orderedFiles = append(orderedFiles, pf.DataFiles...)
-		orderedFiles = append(orderedFiles, pf.PosDeleteFiles...)
-	}
-
-	commitRequest := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_REGISTER_AND_COMMIT,
-		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId:      w.server.ServerID(),
-			DestTableName: w.stream.GetDestinationTable(),
-			FileMetadata:  orderedFiles,
-		},
-	}
-
-	// Commit payload from CDC/driver only: e.g. {"captured_cdc_pos":"0/123ABC"}
-	if finalMetadataState != nil {
-		payloadBytes, _ := json.Marshal(finalMetadataState)
-		commitRequest.Metadata.Payload = string(payloadBytes)
-	}
-
-	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
-	defer cancel()
-
-	if _, err := w.server.SendClientRequest(commitCtx, commitRequest); err != nil {
+	if err := w.backend.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit arrow files: %s", err)
 	}
-
 	return nil
 }
 
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {
-	for partitionKey, writer := range w.writers {
-		if writer == nil {
+	for partitionKey, pw := range w.writers {
+		if pw == nil {
 			continue
 		}
 
 		if w.upsertMode {
-			if writer.equalityDeleteWriter != nil {
-				if err := w.flush(ctx, writer.equalityDeleteWriter, partitionKey); err != nil {
+			if pw.equalityDeleteWriter != nil {
+				if err := w.flush(ctx, pw.equalityDeleteWriter, partitionKey); err != nil {
 					return err
 				}
-				writer.equalityDeleteWriter = nil
+				pw.equalityDeleteWriter = nil
 			}
-			if writer.positionalDeleteWriter != nil {
-				if err := w.flush(ctx, writer.positionalDeleteWriter, partitionKey); err != nil {
+			if pw.positionalDeleteWriter != nil {
+				if err := w.flush(ctx, pw.positionalDeleteWriter, partitionKey); err != nil {
 					return err
 				}
-				writer.positionalDeleteWriter = nil
+				pw.positionalDeleteWriter = nil
 			}
 		}
 
-		if writer.dataWriter != nil {
-			if err := w.flush(ctx, writer.dataWriter, partitionKey); err != nil {
+		if pw.dataWriter != nil {
+			if err := w.flush(ctx, pw.dataWriter, partitionKey); err != nil {
 				return err
 			}
-			writer.dataWriter = nil
+			pw.dataWriter = nil
 		}
 
-		// Clear the writer state but keep the partition entry
-		writer.data = nil
-		writer.equalityDeletes = nil
-		writer.positionalDeletes = nil
+		// Reset state but keep the partition entry so olakeIDPosition
+		// continues to track positions across schema-evolution boundaries.
+		pw.data = nil
+		pw.equalityDeletes = nil
+		pw.positionalDeletes = nil
 	}
-
 	return nil
 }
 
+// initialize builds the arrow schemas (data + delete) from the
+// iceberg-go table schema. The data schema's PARQUET:field_id metadata
+// is sourced directly from the table's NestedFields.
 func (w *ArrowWriter) initialize(ctx context.Context) error {
-	if err := w.fetchFileSchemaJSON(ctx); err != nil {
-		return err
-	}
-
-	dataFieldIDs, err := parseFieldIDsFromIcebergSchema(w.fileschemajson[fileTypeData])
-	if err != nil {
-		return fmt.Errorf("failed to parse data schema field IDs: %s", err)
-	}
+	_ = ctx
 
 	w.allocator = memory.NewGoAllocator()
+
+	dataFieldIDs := w.dataFieldIDs()
 	w.arrowSchema[fileTypeData] = arrow.NewSchema(createFields(w.schema, dataFieldIDs), nil)
 
 	if w.upsertMode {
@@ -423,38 +431,40 @@ func (w *ArrowWriter) initialize(ctx context.Context) error {
 			return err
 		}
 	}
-
 	return nil
 }
 
+func (w *ArrowWriter) dataFieldIDs() map[string]int32 {
+	out := make(map[string]int32)
+	for _, f := range w.backend.IcebergSchema().Fields() {
+		out[f.Name] = int32(f.ID)
+	}
+	return out
+}
+
 func (w *ArrowWriter) initializeDeleteSchemas() error {
-	deleteFieldIDs, err := parseFieldIDsFromIcebergSchema(w.fileschemajson[fileTypeEqualityDelete])
-	if err != nil {
-		return fmt.Errorf("failed to parse delete schema field IDs: %s", err)
+	if w.identifierFieldID == 0 {
+		return fmt.Errorf("upsert mode requires an identifier field id")
 	}
 
-	olakeIDFieldID, ok := deleteFieldIDs[constants.OlakeID]
-	if !ok {
-		return fmt.Errorf("_olake_id field not found in delete schema")
-	}
-
-	// Equality delete schema: just _olake_id
+	// Equality delete schema: just _olake_id, with the actual table
+	// field ID stamped into the parquet metadata.
 	w.arrowSchema[fileTypeEqualityDelete] = arrow.NewSchema([]arrow.Field{
 		{
 			Name:     constants.OlakeID,
 			Type:     arrow.BinaryTypes.String,
 			Nullable: false,
 			Metadata: arrow.MetadataFrom(map[string]string{
-				"PARQUET:field_id": fmt.Sprintf("%d", olakeIDFieldID),
+				"PARQUET:field_id": fmt.Sprintf("%d", w.identifierFieldID),
 			}),
 		},
 	}, nil)
 
-	// Positional delete schema with Iceberg reserved field IDs
+	// Positional delete schema with Iceberg reserved field IDs:
 	// https://github.com/apache/iceberg/blob/38cc88136684a57b61be4ae0d2c1886eff742a28/core/src/main/java/org/apache/iceberg/MetadataColumns.java#L63-L75
 	const (
-		posDeleteFilePathFieldID = 2147483546 // Integer.MAX_VALUE - 101
-		posDeletePosFieldID      = 2147483545 // Integer.MAX_VALUE - 102
+		posDeleteFilePathFieldID = 2147483546
+		posDeletePosFieldID      = 2147483545
 	)
 	w.arrowSchema[fileTypePositionalDelete] = arrow.NewSchema([]arrow.Field{
 		{
@@ -478,25 +488,27 @@ func (w *ArrowWriter) initializeDeleteSchemas() error {
 	return nil
 }
 
-func (w *ArrowWriter) createWriter(ctx context.Context, pKey string, values []any, schema arrow.Schema, fileType string) (*RollingWriter, error) {
-	filePath, err := w.allocateFilePath(ctx, pKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to allocate file path: %s", err)
-	}
-
-	rw, err := w.newRollingWriter(ctx, schema, fileType, values, filePath)
+func (w *ArrowWriter) createWriter(ctx context.Context, pKey string, values []any, schema *arrow.Schema, fileType string) (*RollingWriter, error) {
+	rw, err := w.newRollingWriter(ctx, schema, fileType, values, pKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rolling writer: %s", err)
 	}
-
 	return rw, nil
 }
 
-func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Schema, fileType string, values []any, filePath string) (*RollingWriter, error) {
+// newRollingWriter creates a fresh in-memory parquet writer destined for
+// a freshly-allocated <table>/data/<partition>/<uuid>.parquet path.
+//
+// pKeyHint is only used when allocating a brand-new path; pass empty
+// string to derive the partition path from values.
+func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema *arrow.Schema, fileType string, values []any, pKeyHint string) (*RollingWriter, error) {
+	_ = pKeyHint
 	buf := &bytes.Buffer{}
 
 	kvMeta := make(metadata.KeyValueMetadata, 0)
-	_ = kvMeta.Append("iceberg.schema", w.fileschemajson[fileType])
+	if js := w.backend.SchemaJSON(fileType); js != "" {
+		_ = kvMeta.Append("iceberg.schema", js)
+	}
 
 	if fileType == fileTypeEqualityDelete {
 		_ = kvMeta.Append("delete-type", "equality")
@@ -504,10 +516,13 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Sc
 		_ = kvMeta.Append("delete-field-ids", fieldIDStr)
 	}
 
-	pqWriter, err := newParquetWriter(ctx, &arrowSchema, buf, getDefaultWriterProps(), kvMeta)
+	pqWriter, err := newParquetWriter(ctx, arrowSchema, buf, getDefaultWriterProps(), kvMeta)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create parquet writer: %s", err)
 	}
+
+	partitionPath := w.backend.PartitionPath(values)
+	filePath := w.backend.AllocateFilePath(partitionPath, fileType)
 
 	return &RollingWriter{
 		fileType:        fileType,
@@ -519,101 +534,11 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Sc
 	}, nil
 }
 
-func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string) (string, error) {
-	request := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_FILEPATH,
-		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
-		},
+func copySchemaMap(src map[string]string) map[string]string {
+	out := make(map[string]string, len(src))
+	for k, v := range src {
+		out[k] = v
 	}
-
-	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
-	defer cancel()
-
-	resp, err := w.server.SendClientRequest(reqCtx, request)
-	if err != nil {
-		return "", fmt.Errorf("failed to allocate file path: %s", err)
-	}
-
-	basePath := resp.(*proto.ArrowIngestResponse).GetResult()
-
-	if partitionKey != "" {
-		// Insert partition key into path: dir/file.parquet → dir/partitionKey/file.parquet
-		idx := strings.LastIndex(basePath, "/")
-		return basePath[:idx] + "/" + partitionKey + "/" + basePath[idx+1:], nil
-	}
-
-	return basePath, nil
+	return out
 }
 
-func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partitionKey string) error {
-	request := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_UPLOAD_FILE,
-		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
-			FileUpload: &proto.ArrowPayload_FileUploadRequest{
-				FileData: rw.currentBuffer.Bytes(),
-				FilePath: rw.filePath,
-			},
-		},
-	}
-
-	uploadCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
-	defer cancel()
-
-	if _, err := w.server.SendClientRequest(uploadCtx, request); err != nil {
-		return fmt.Errorf("failed to upload %s file: %s", rw.fileType, err)
-	}
-
-	protoPartitionValues, err := toProtoPartitionValues(rw.partitionValues)
-	if err != nil {
-		return fmt.Errorf("failed to convert partition values: %s", err)
-	}
-
-	fileMeta := &proto.ArrowPayload_FileMetadata{
-		FileType:        rw.fileType,
-		FilePath:        rw.filePath,
-		RecordCount:     rw.currentRowCount,
-		PartitionValues: protoPartitionValues,
-	}
-
-	pf, exists := w.createdFiles[partitionKey]
-	if !exists {
-		pf = &PartitionFiles{}
-		w.createdFiles[partitionKey] = pf
-	}
-
-	switch rw.fileType {
-	case fileTypeData:
-		pf.DataFiles = append(pf.DataFiles, fileMeta)
-	case fileTypeEqualityDelete:
-		pf.EqDeleteFiles = append(pf.EqDeleteFiles, fileMeta)
-	case fileTypePositionalDelete:
-		pf.PosDeleteFiles = append(pf.PosDeleteFiles, fileMeta)
-	}
-
-	return nil
-}
-
-func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
-	request := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_JSONSCHEMA,
-		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
-		},
-	}
-
-	schemaCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
-	defer cancel()
-
-	resp, err := w.server.SendClientRequest(schemaCtx, request)
-	if err != nil {
-		return fmt.Errorf("failed to fetch schema JSON from server: %s", err)
-	}
-
-	w.fileschemajson = resp.(*proto.ArrowIngestResponse).GetIcebergSchemas()
-	return nil
-}
