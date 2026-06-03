@@ -2,6 +2,7 @@ package constants
 
 import (
 	"fmt"
+	"os"
 	"time"
 )
 
@@ -66,3 +67,29 @@ var SkipCDCDrivers = []DriverType{Oracle, DB2}
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
+
+
+// Build time Injected vars
+var (
+	version        = "dev"
+	commitSHA      = "unknown"
+	releaseChannel = "dev"
+)
+
+func GetVersion() string {
+	if version != "" && version != "dev" {
+		return version
+	}
+	if v := os.Getenv("DRIVER_VERSION"); v != "" {
+		return v
+	}
+	return "dev"
+}
+
+func GetCommitSHA() string {
+	return commitSHA
+}
+
+func GetReleaseChannel() string {
+	return releaseChannel
+}
