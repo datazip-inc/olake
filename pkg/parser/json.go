@@ -12,6 +12,11 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
+const (
+	jsonSchemaMaxSamples           = 100
+	jsonSchemaMaxBytesForInference = 10 * 1024 * 1024
+)
+
 // JSONParser implements the Parser interface for JSON files
 type JSONParser struct {
 	config JSONConfig
@@ -28,28 +33,72 @@ func NewJSONParser(config JSONConfig, stream *types.Stream) *JSONParser {
 
 // InferSchema reads the first few records of a JSON file to infer the schema
 // Supports JSONL (line-delimited), JSON Array, and single JSON object formats
-func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
-	logger.Debug("Inferring JSON schema from sample data")
-	// Collect sample records using smart JSON format detection
-	maxSamples := 100
+func (p *JSONParser) InferSchema(ctx context.Context, reader io.Reader) (*types.Stream, error) {
+	return p.InferSchemaFromReaders(ctx, reader)
+}
 
-	// Limit data read for schema inference to prevent OOM on large files
-	// 10MB should be enough to get 100 sample records for most JSON files
-	const maxBytesForInference = 10 * 1024 * 1024 // 10MB
-	limitedReader := io.LimitReader(reader, maxBytesForInference)
+// InferSchemaFromReaders infers a JSON schema from one or more independent JSON readers.
+// Each reader may be JSONL, a JSON array, or a single JSON object.
+func (p *JSONParser) InferSchemaFromReaders(ctx context.Context, readers ...io.Reader) (*types.Stream, error) {
+	logger.Debug("Inferring JSON schema from sample data")
+
+	if len(readers) == 0 {
+		return nil, fmt.Errorf("no JSON readers provided")
+	}
+
+	allRecords := []map[string]interface{}{}
+	for i, reader := range readers {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		sampleRecords, err := p.sampleRecords(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse JSON sample %d: %s", i+1, err)
+		}
+
+		allRecords = append(allRecords, sampleRecords...)
+	}
+
+	if len(allRecords) == 0 {
+		return nil, fmt.Errorf("no records found in JSON file")
+	}
+
+	recordsForResolve := allRecords
+	if len(allRecords) > 1 {
+		// Resolve marks fields nullable when a field seen earlier is missing later.
+		// Replaying the first record makes that comparison circular, so fields first
+		// seen in a later sample are still checked against earlier records.
+		recordsForResolve = append(recordsForResolve, allRecords[0])
+	}
+
+	if err := typeutils.Resolve(p.stream, recordsForResolve...); err != nil {
+		return nil, fmt.Errorf("failed to resolve JSON schema: %s", err)
+	}
+
+	logger.Infof("Inferred schema from JSON file")
+	return p.stream, nil
+}
+
+func (p *JSONParser) sampleRecords(reader io.Reader) ([]map[string]interface{}, error) {
+	// Limit data read for schema inference to prevent OOM on large files.
+	// 10MB should be enough to get 100 sample records for most JSON files.
+	limitedReader := io.LimitReader(reader, jsonSchemaMaxBytesForInference)
 
 	data, err := io.ReadAll(limitedReader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read JSON file: %s", err)
+		return nil, fmt.Errorf("failed to read JSON sample: %s", err)
 	}
 
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 {
-		return nil, fmt.Errorf("empty JSON file")
+		return nil, fmt.Errorf("empty JSON sample")
 	}
 
-	// Parse JSON based on detected format
-	sampleRecords, err := p.parseJSONContent(trimmed, maxSamples)
+	// Parse JSON based on detected format.
+	sampleRecords, err := p.parseJSONContent(trimmed, jsonSchemaMaxSamples)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %s", err)
 	}
@@ -58,15 +107,7 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 		return nil, fmt.Errorf("no records found in JSON file")
 	}
 
-	// Resolve schema one record at a time similar to MongoDB driver
-	for i, record := range sampleRecords {
-		if err := typeutils.Resolve(p.stream, record); err != nil {
-			return nil, fmt.Errorf("failed to resolve schema for record %d: %s", i, err)
-		}
-	}
-
-	logger.Infof("Inferred schema from JSON file")
-	return p.stream, nil
+	return sampleRecords, nil
 }
 
 // StreamRecords reads and streams JSON records with context support

@@ -2,10 +2,8 @@ package driver
 
 import (
 	"context"
-	"strings"
 	"testing"
 
-	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -109,7 +107,7 @@ func TestSchemaSampleFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "sorts files before selecting edges",
+			name: "sorts files by key when modification times match",
 			files: []FileObject{
 				{FileKey: "users/part-003.json"},
 				{FileKey: "users/part-001.json"},
@@ -118,6 +116,18 @@ func TestSchemaSampleFiles(t *testing.T) {
 			expected: []FileObject{
 				{FileKey: "users/part-001.json"},
 				{FileKey: "users/part-003.json"},
+			},
+		},
+		{
+			name: "selects oldest and newest by last modified time",
+			files: []FileObject{
+				{FileKey: "users/z-file.json", LastModified: "2024-01-02T10:00:00Z"},
+				{FileKey: "users/a-file.json", LastModified: "2024-01-03T10:00:00Z"},
+				{FileKey: "users/m-file.json", LastModified: "2024-01-01T10:00:00Z"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/m-file.json", LastModified: "2024-01-01T10:00:00Z"},
+				{FileKey: "users/a-file.json", LastModified: "2024-01-03T10:00:00Z"},
 			},
 		},
 		{
@@ -137,86 +147,6 @@ func TestSchemaSampleFiles(t *testing.T) {
 			assert.Equal(t, tt.expected, schemaSampleFiles(tt.files))
 		})
 	}
-}
-
-func TestInferSchemaFromSampleFilesMergesSamples(t *testing.T) {
-	stream := types.NewStream("users", "s3", nil)
-	sampleFiles := []FileObject{
-		{FileKey: "users/first.json"},
-		{FileKey: "users/last.json"},
-	}
-
-	seen := []string{}
-	got, err := inferSchemaFromSampleFiles(context.Background(), sampleFiles, stream, func(_ context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
-		seen = append(seen, file.FileKey)
-		switch file.FileKey {
-		case "users/first.json":
-			stream.UpsertField("first_only", types.String, false, false)
-		case "users/last.json":
-			stream.UpsertField("last_only", types.Float64, false, false)
-		}
-		return stream, nil
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{"users/first.json", "users/last.json"}, seen)
-
-	firstType, err := got.Schema.GetType("first_only")
-	require.NoError(t, err)
-	assert.Equal(t, types.String, firstType)
-
-	lastType, err := got.Schema.GetType("last_only")
-	require.NoError(t, err)
-	assert.Equal(t, types.Float64, lastType)
-}
-
-func TestInferSchemaFromSampleFilesMarksMissingJSONFieldsNullable(t *testing.T) {
-	stream := types.NewStream("users", "s3", nil)
-	sampleFiles := []FileObject{
-		{FileKey: "users/first.json"},
-		{FileKey: "users/last.json"},
-	}
-	payloads := map[string]string{
-		"users/first.json": `{"common":"present","first_only":"value"}`,
-		"users/last.json":  `{"common":"present","last_only":42}`,
-	}
-
-	got, err := inferSchemaFromSampleFiles(context.Background(), sampleFiles, stream, func(ctx context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
-		jsonParser := parser.NewJSONParser(parser.JSONConfig{}, stream)
-		return jsonParser.InferSchema(ctx, strings.NewReader(payloads[file.FileKey]))
-	})
-
-	require.NoError(t, err)
-
-	found, firstOnly := got.Schema.GetProperty("first_only")
-	require.True(t, found)
-	assert.True(t, firstOnly.Nullable())
-
-	found, lastOnly := got.Schema.GetProperty("last_only")
-	require.True(t, found)
-	assert.True(t, lastOnly.Nullable())
-
-	found, common := got.Schema.GetProperty("common")
-	require.True(t, found)
-	assert.False(t, common.Nullable())
-}
-
-func TestInferSchemaFromSampleFilesReturnsSampleError(t *testing.T) {
-	stream := types.NewStream("users", "s3", nil)
-	sampleFiles := []FileObject{
-		{FileKey: "users/first.json"},
-		{FileKey: "users/last.json"},
-	}
-
-	_, err := inferSchemaFromSampleFiles(context.Background(), sampleFiles, stream, func(_ context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
-		if file.FileKey == "users/last.json" {
-			return nil, assert.AnError
-		}
-		return stream, nil
-	})
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to infer schema from sample file users/last.json")
 }
 
 // TestConfigValidation tests configuration validation

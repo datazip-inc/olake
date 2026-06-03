@@ -25,8 +25,6 @@ const (
 	lastModifiedField = "_last_modified_time"
 )
 
-type schemaInferFunc func(context.Context, FileObject, *types.Stream) (*types.Stream, error)
-
 // S3 represents the S3 source driver
 type S3 struct {
 	client          *s3.Client
@@ -294,12 +292,28 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	// Create stream
 	stream := types.NewStream(streamName, "s3", &s.config.BucketName)
 
-	sampleFiles := schemaSampleFiles(files)
-	logger.Infof("Inferring schema from %d sample file(s) out of %d files in stream", len(sampleFiles), len(files))
+	var inferredStream *types.Stream
+	var err error
 
-	inferredStream, err := inferSchemaFromSampleFiles(ctx, sampleFiles, stream, s.inferSchemaForFile)
+	switch s.config.FileFormat {
+	case FormatCSV:
+		firstFile := files[0]
+		logger.Infof("Inferring schema from file: %s (%d files in stream)", firstFile.FileKey, len(files))
+		inferredStream, err = s.inferSchemaForCSV(ctx, firstFile, stream)
+	case FormatJSON:
+		sampleFiles := schemaSampleFiles(files)
+		logger.Infof("Inferring JSON schema from %d sample file(s) out of %d files in stream", len(sampleFiles), len(files))
+		inferredStream, err = s.inferSchemaForJSON(ctx, sampleFiles, stream)
+	case FormatParquet:
+		firstFile := files[0]
+		logger.Infof("Inferring schema from file: %s (%d files in stream)", firstFile.FileKey, len(files))
+		inferredStream, err = s.inferSchemaForParquet(ctx, firstFile, stream)
+	default:
+		return nil, fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
+	}
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to infer schema: %s", err)
 	}
 
 	// Add _last_modified_time as a cursor field for incremental sync
@@ -308,75 +322,6 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 
 	inferredStream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	return inferredStream, nil
-}
-
-func (s *S3) inferSchemaForFile(ctx context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
-	// Create appropriate parser and infer schema (format-specific logic from parser package)
-	switch s.config.FileFormat {
-	case FormatCSV:
-		return s.inferSchemaForCSV(ctx, file, stream)
-	case FormatJSON:
-		return s.inferSchemaForJSON(ctx, file, stream)
-	case FormatParquet:
-		return s.inferSchemaForParquet(ctx, file, stream)
-	default:
-		return nil, fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
-	}
-}
-
-func inferSchemaFromSampleFiles(ctx context.Context, sampleFiles []FileObject, stream *types.Stream, infer schemaInferFunc) (*types.Stream, error) {
-	inferredStream := stream
-	sampleColumns := make([]map[string]struct{}, 0, len(sampleFiles))
-	for _, sampleFile := range sampleFiles {
-		logger.Infof("Inferring schema from sample file: %s", sampleFile.FileKey)
-
-		sampleStream := types.NewStream(stream.Name, stream.Namespace, nil)
-		sampleStream, err := infer(ctx, sampleFile, sampleStream)
-		if err != nil {
-			return nil, fmt.Errorf("failed to infer schema from sample file %s: %s", sampleFile.FileKey, err)
-		}
-
-		sampleColumns = append(sampleColumns, mergeSampleSchema(inferredStream, sampleStream))
-	}
-
-	markFieldsMissingFromSamplesNullable(inferredStream, sampleColumns)
-	return inferredStream, nil
-}
-
-func mergeSampleSchema(inferredStream, sampleStream *types.Stream) map[string]struct{} {
-	sampleColumns := make(map[string]struct{})
-	sampleStream.Schema.Properties.Range(func(column, property any) bool {
-		columnName, ok := column.(string)
-		if !ok {
-			return true
-		}
-
-		sampleProperty, ok := property.(*types.Property)
-		if !ok {
-			return true
-		}
-
-		sampleColumns[columnName] = struct{}{}
-		inferredStream.Schema.AddTypes(columnName, sampleProperty.OlakeColumn, sampleProperty.Type.Array()...)
-		return true
-	})
-
-	return sampleColumns
-}
-
-func markFieldsMissingFromSamplesNullable(inferredStream *types.Stream, sampleColumns []map[string]struct{}) {
-	if len(sampleColumns) < 2 {
-		return
-	}
-
-	for _, columnName := range inferredStream.Schema.ColumnNames() {
-		for _, columns := range sampleColumns {
-			if _, found := columns[columnName]; !found {
-				inferredStream.Schema.AddTypes(columnName, false, types.Null)
-				break
-			}
-		}
-	}
 }
 
 func schemaSampleFiles(files []FileObject) []FileObject {
@@ -389,7 +334,10 @@ func schemaSampleFiles(files []FileObject) []FileObject {
 
 	sortedFiles := append([]FileObject(nil), files...)
 	sort.Slice(sortedFiles, func(i, j int) bool {
-		return sortedFiles[i].FileKey < sortedFiles[j].FileKey
+		if sortedFiles[i].LastModified == sortedFiles[j].LastModified {
+			return sortedFiles[i].FileKey < sortedFiles[j].FileKey
+		}
+		return sortedFiles[i].LastModified < sortedFiles[j].LastModified
 	})
 
 	firstFile := sortedFiles[0]
@@ -443,12 +391,31 @@ func (s *S3) inferSchemaForCSV(ctx context.Context, file FileObject, stream *typ
 	})
 }
 
-// inferSchemaForJSON infers schema from a JSON file
-func (s *S3) inferSchemaForJSON(ctx context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
-	return s.withFileReader(ctx, file.FileKey, func(reader io.Reader) (*types.Stream, error) {
-		jsonParser := parser.NewJSONParser(*s.config.GetJSONConfig(), stream)
-		return jsonParser.InferSchema(ctx, reader)
-	})
+// inferSchemaForJSON infers schema from JSON sample files.
+func (s *S3) inferSchemaForJSON(ctx context.Context, files []FileObject, stream *types.Stream) (*types.Stream, error) {
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no JSON sample files provided")
+	}
+
+	readers := make([]io.Reader, 0, len(files))
+	for _, file := range files {
+		logger.Infof("Inferring JSON schema from sample file: %s", file.FileKey)
+
+		reader, _, err := s.getFileReader(ctx, file.FileKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get file reader for %s: %s", file.FileKey, err)
+		}
+		defer func(reader io.Reader) {
+			if closer, ok := reader.(io.Closer); ok {
+				closer.Close()
+			}
+		}(reader)
+
+		readers = append(readers, reader)
+	}
+
+	jsonParser := parser.NewJSONParser(*s.config.GetJSONConfig(), stream)
+	return jsonParser.InferSchemaFromReaders(ctx, readers...)
 }
 
 // inferSchemaForParquet infers schema from a Parquet file

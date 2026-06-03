@@ -231,4 +231,34 @@ func TestJSONParser_InferSchema_NullableFields(t *testing.T) {
 	nameType, err := result.Schema.GetType("name")
 	require.NoError(t, err)
 	assert.Equal(t, types.String, nameType, "name should be String")
+
+	found, nameProperty := result.Schema.GetProperty("name")
+	require.True(t, found)
+	assert.True(t, nameProperty.Nullable(), "name should be nullable when missing from one sampled record")
+}
+
+func TestJSONParser_InferSchemaFromReaders_MixedFormats(t *testing.T) {
+	stream := types.NewStream("test", "test", nil)
+	parser := NewJSONParser(JSONConfig{}, stream)
+
+	result, err := parser.InferSchemaFromReaders(
+		context.Background(),
+		strings.NewReader(`{"id": 1, "first_only": "value"}`),
+		strings.NewReader(`[{"id": 2, "array_only": true}]`),
+		strings.NewReader(`{"id": 3, "jsonl_only": 42}
+{"id": 4}`),
+		strings.NewReader(`{"id": 5, "last_only": "tail"}`),
+	)
+
+	require.NoError(t, err)
+
+	idType, err := result.Schema.GetType("id")
+	require.NoError(t, err)
+	assert.Equal(t, types.Float64, idType)
+
+	for _, column := range []string{"first_only", "array_only", "jsonl_only", "last_only"} {
+		found, property := result.Schema.GetProperty(column)
+		require.True(t, found, "%s should be discovered", column)
+		assert.True(t, property.Nullable(), "%s should be nullable when absent from other sampled records", column)
+	}
 }
