@@ -175,13 +175,8 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 			return nil, fmt.Errorf("failed to setup the writer thread: %s", err)
 		}
 
-		if streamArtifact.schema == nil {
-			// First thread for this stream: persist schema and the olake_2pc state
-			// so all subsequent threads (e.g. concurrent backfill chunks) can also
-			// check which chunks were already committed.
-			streamArtifact.schema = output
-			streamArtifact.metadataState = prevStreamState
-		}
+		streamArtifact.schema = output
+		streamArtifact.metadataState = prevStreamState
 
 		return streamArtifact.metadataState, nil
 	}()

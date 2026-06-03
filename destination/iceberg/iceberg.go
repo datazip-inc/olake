@@ -75,7 +75,7 @@ func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	return legacywriter.New(i.options, i.schema, i.stream, i.server, i.meta), nil
 }
 
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, *types.MetadataState, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any, options *destination.Options) (any, *types.MetadataState, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]internal.PartitionInfo, 0)
@@ -119,62 +119,52 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 	var schema map[string]string
 
-	if globalSchema == nil {
-		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.meta.Namespace, i.stream.Name())
+	logger.Debugf("Thread[%s]: setting up iceberg writer for table[%s.%s]", i.meta.ThreadID, i.meta.Namespace, i.stream.GetDestinationTable())
 
-		// when normalization=false, include partition columns in the Iceberg schema so
-		// the Java server can build the partition spec (spec references columns by field ID)
-		partitionFields := make([]string, 0, len(i.partitionInfo))
-		if !stream.NormalizationEnabled() {
-			for _, p := range i.partitionInfo {
-				partitionFields = append(partitionFields, p.Field)
-			}
-		}
-
-		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
-		requestPayload := proto.IcebergPayload{
-			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
-			Metadata: &proto.IcebergPayload_Metadata{
-				Schema:                 iceSchema,
-				DestTableName:          i.meta.DestTableName,
-				ThreadId:               i.meta.ThreadID,
-				IdentifierField:        &i.meta.IdentifierField,
-				Namespace:              i.meta.Namespace,
-				Upsert:                 i.meta.Upsert,
-				CreateIdentifierFields: i.meta.CreateIdentifierFields,
-				PartitionFields:        i.meta.IcebergPartitionFields,
-			},
-		}
-
-		response, err := i.server.SendClientRequest(ctx, &requestPayload)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
-		}
-
-		ingestResponse := response.(*proto.RecordIngestResponse)
-		schema, err = parseSchema(ingestResponse.GetResult())
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
-		}
-
-		// Capture optional olake_2pc state from table metadata without returning early,
-		// so we fall through to create the writer for this thread.
-		if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
-			var metadataState types.MetadataState
-			if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
-				return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
-			}
-			i.olake2PCState = &metadataState
-		}
-	} else {
-		// set global schema for current thread
-		var ok bool
-		schema, ok = globalSchema.(map[string]string)
-		if !ok {
-			return nil, nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+	// when normalization=false, include partition columns in the Iceberg schema so
+	// the Java server can build the partition spec (spec references columns by field ID)
+	partitionFields := make([]string, 0, len(i.partitionInfo))
+	if !stream.NormalizationEnabled() {
+		for _, p := range i.partitionInfo {
+			partitionFields = append(partitionFields, p.Field)
 		}
 	}
 
+	iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
+	requestPayload := proto.IcebergPayload{
+		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+		Metadata: &proto.IcebergPayload_Metadata{
+			Schema:                 iceSchema,
+			DestTableName:          i.meta.DestTableName,
+			ThreadId:               i.meta.ThreadID,
+			IdentifierField:        &i.meta.IdentifierField,
+			Namespace:              i.meta.Namespace,
+			Upsert:                 i.meta.Upsert,
+			CreateIdentifierFields: i.meta.CreateIdentifierFields,
+			PartitionFields:        i.meta.IcebergPartitionFields,
+		},
+	}
+
+	response, err := i.server.SendClientRequest(ctx, &requestPayload)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
+	}
+
+	ingestResponse := response.(*proto.RecordIngestResponse)
+	schema, err = parseSchema(ingestResponse.GetResult())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
+	}
+
+	// Capture optional olake_2pc state from table metadata without returning early,
+	// so we fall through to create the writer for this thread.
+	if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
+		var metadataState types.MetadataState
+		if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
+			return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
+		}
+		i.olake2PCState = &metadataState
+	}
 	// set schema for current thread
 	i.schema = copySchema(schema)
 
@@ -305,7 +295,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	}
 
 	ingestResponse := res.(*proto.RecordIngestResponse)
-	logger.Infof("Thread[%s]: table created or loaded test olake: %s", i.options.ThreadID, ingestResponse.GetResult())
+	logger.Infof("Thread[%s]: table created or loaded test olake: %s", server.serverID, ingestResponse.GetResult())
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
@@ -338,7 +328,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	}
 
 	ingestResponse = resInsert.(*proto.RecordIngestResponse)
-	logger.Debugf("Thread[%s]: record inserted successfully: %s", i.options.ThreadID, ingestResponse.GetResult())
+	logger.Debugf("Thread[%s]: record inserted successfully: %s", server.serverID, ingestResponse.GetResult())
 	return nil
 }
 

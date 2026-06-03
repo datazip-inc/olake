@@ -115,6 +115,29 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 throw new Exception("Destination table name not present in metadata");
             }
 
+            // DROP_TABLE carries "db.table" in destTableName and must NOT create
+            // a per-thread session (computeIfAbsent would load/create the very
+            // table we're about to drop). Handle it before session setup.
+            if (request.getType() == IcebergPayload.PayloadType.DROP_TABLE) {
+                String[] parts = destTableName.split("\\.", 2);
+                if (parts.length != 2) {
+                    throw new IllegalArgumentException("Invalid destination table name: " + destTableName);
+                }
+                String dropNamespace = parts[0];
+                String dropTableName = parts[1];
+                LOGGER.warn("{} Dropping table {}.{}", requestId, dropNamespace, dropTableName);
+                boolean dropped = IcebergUtil.dropIcebergTable(dropNamespace, dropTableName, icebergCatalog);
+                if (dropped) {
+                    sendResponse(responseObserver, "Successfully dropped table " + dropTableName);
+                    LOGGER.info("{} Table {} dropped", requestId, dropTableName);
+                } else {
+                    sendResponse(responseObserver, "Table " + dropTableName + " does not exist");
+                    LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, dropTableName);
+                }
+                LOGGER.info("{} Total time taken: {} ms", requestId, (System.currentTimeMillis() - startTime));
+                return;
+            }
+
             if (namespace == null || namespace.isEmpty()) {
                 throw new Exception("Namespace not present in metadata");
             }
@@ -168,25 +191,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords, () -> session.cancelled);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.debug("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
-                    break;
-                }
-
-                case DROP_TABLE: {
-                    String[] parts = destTableName.split("\\.", 2);
-                    if (parts.length != 2) {
-                        throw new IllegalArgumentException("Invalid destination table name: " + destTableName);
-                    }
-                    String dropNamespace = parts[0];
-                    String dropTableName = parts[1];
-                    LOGGER.warn("{} Dropping table {}.{}", requestId, dropNamespace, dropTableName);
-                    boolean dropped = IcebergUtil.dropIcebergTable(dropNamespace, dropTableName, icebergCatalog);
-                    if (dropped) {
-                        sendResponse(responseObserver, "Successfully dropped table " + dropTableName);
-                        LOGGER.info("{} Table {} dropped", requestId, dropTableName);
-                    } else {
-                        sendResponse(responseObserver, "Table " + dropTableName + " does not exist");
-                        LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, dropTableName);
-                    }
                     break;
                 }
 
