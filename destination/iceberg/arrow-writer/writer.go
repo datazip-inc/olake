@@ -516,7 +516,7 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema *arrow.S
 		_ = kvMeta.Append("delete-field-ids", fieldIDStr)
 	}
 
-	pqWriter, err := newParquetWriter(ctx, arrowSchema, buf, getDefaultWriterProps(), kvMeta)
+	pqWriter, err := newParquetWriter(ctx, arrowSchema, buf, getDefaultWriterProps(w.backend.BloomFilterColumns()), kvMeta)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create parquet writer: %s", err)
 	}

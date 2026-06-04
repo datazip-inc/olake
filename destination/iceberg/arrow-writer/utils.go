@@ -30,8 +30,18 @@ const (
 	targetDeleteFileSize     = int64(64 * 1024 * 1024)  // 64 MB
 )
 
-func getDefaultWriterProps() []parquet.WriterProperty {
-	return []parquet.WriterProperty{
+// getDefaultWriterProps returns the parquet writer properties applied to every
+// data / equality-delete / positional-delete file the arrow-writer emits.
+//
+// bloomFilterCols controls per-column bloom-filter writing. Each map entry
+// translates to a parquet.WithBloomFilterEnabledFor(col, enabled) call. Pass
+// nil/empty for no bloom filters. The caller (Backend.BloomFilterColumns)
+// is responsible for honouring iceberg-Java/iceberg-go's
+// `write.parquet.bloom-filter-enabled.column.<col>` table property and for
+// seeding sensible defaults (typically the identifier column for fast
+// point-lookup pruning on _olake_id).
+func getDefaultWriterProps(bloomFilterCols map[string]bool) []parquet.WriterProperty {
+	props := []parquet.WriterProperty{
 		// Apache Iceberg sets its default compression to 'zstd'
 		// https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L147
 		parquet.WithCompression(compress.Codecs.Zstd),
@@ -52,15 +62,60 @@ func getDefaultWriterProps() []parquet.WriterProperty {
 		// Apache Iceberg page row count limit: https://github.com/apache/iceberg/blob/68e555b94f4706a2af41dcb561c84007230c0bc1/core/src/main/java/org/apache/iceberg/TableProperties.java#L137
 		parquet.WithBatchSize(int64(20000)),
 
+		// Cap rows per row group. Mirrors iceberg-go's `write.parquet.row-group-limit`
+		// default (1,048,576 rows) — iceberg-go/table/internal/parquet_files.go:51-52.
+		// iceberg-Java caps via row-group bytes (`write.parquet.row-group-size-bytes` =
+		// 128 MB) instead of row count; arrow-go's parquet writer expects a row count,
+		// so we use the iceberg-go default.
+		parquet.WithMaxRowGroupLength(int64(1048576)),
+
+		// Maximum total bloom-filter bytes per row group. Matches both iceberg-go
+		// (`write.parquet.bloom-filter-max-bytes` = 1 MB,
+		// iceberg-go/table/internal/parquet_files.go:65-66) and iceberg-Java
+		// (`PARQUET_BLOOM_FILTER_MAX_BYTES_DEFAULT = 1024*1024`,
+		// iceberg/core/src/main/java/org/apache/iceberg/TableProperties.java:166-168).
+		// Per-column bloom filters still need to be turned on explicitly via
+		// parquet.WithBloomFilterEnabledFor(<col>, true); none are enabled by default,
+		// matching iceberg-Java's behavior.
+		parquet.WithMaxBloomFilterBytes(int64(1 * 1024 * 1024)),
+
 		// Apache Iceberg relies on Parquet-Java: https://github.com/apache/parquet-java/blob/dfc025e17e21a326addaf0e43c493e085cbac8f4/parquet-column/src/main/java/org/apache/parquet/column/ParquetProperties.java#L67
 		parquet.WithStats(true),
 
 		// Apache Iceberg: https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/parquet/src/main/java/org/apache/iceberg/parquet/Parquet.java#L171
+		// iceberg-Java pins the file-format version to PARQUET_1_0, which also forces
+		// data pages to V1. iceberg-go diverges by leaving the file version at the
+		// arrow-go default (V2_6) and explicitly setting DataPageV2
+		// (`write.parquet.page-version` = "2", iceberg-go/table/internal/parquet_files.go:59-60).
+		// We keep V1_0 here for parity with iceberg-Java, and consequently leave
+		// data pages at V1 (arrow-go default) so the two versions stay consistent.
 		parquet.WithVersion(parquet.V1_0),
 
 		// iceberg writes root name as "table" in parquet's meta
 		parquet.WithRootName("table"),
+
+		// Page index = column index + offset index written at file footer.
+		// Lets readers (Spark vectorized reader, Trino, DuckDB ≥ 1.x,
+		// parquet-mr ≥ 1.11) skip individual pages within a row group based
+		// on per-page min/max bounds. Arrow-go default is OFF
+		// (testing/arrow-go/parquet/writer_properties.go:51-52); parquet-mr
+		// (which iceberg-Java uses) writes them by default since 1.11. Cost
+		// is a few KB of footer per file; payoff is 10–100x page-level
+		// pruning on selective queries.
+		parquet.WithPageIndexEnabled(true),
 	}
+
+	// Per-column bloom-filter toggles. Mirrors iceberg-go's
+	// iceberg-go/table/internal/parquet_files.go:270-283: every map entry
+	// becomes one WithBloomFilterEnabledFor call. Repeated entries for the
+	// same column overwrite (arrow-go writer_properties.go:384-388), so a
+	// caller that seeds a default and then layers user overrides on top
+	// gets the user's choice.
+	for col, enabled := range bloomFilterCols {
+		props = append(props, parquet.WithBloomFilterEnabledFor(col, enabled))
+	}
+
+	return props
 }
 
 // parquet writer for arrow
@@ -97,6 +152,10 @@ func (fw *parquetWriter) newBufferedRowGroup() {
 	fw.rgw = fw.wr.AppendBufferedRowGroup()
 }
 
+// Mirrors iceberg-Java's `write.parquet.row-group-size-bytes` default.
+// iceberg/core/src/main/java/org/apache/iceberg/TableProperties.java:125-128.
+const parquetRowGroupSizeBytes = int64(128 * 1024 * 1024)
+
 func (fw *parquetWriter) WriteBuffered(rec arrow.Record) error {
 	if fw.rgw == nil {
 		fw.newBufferedRowGroup()
@@ -130,6 +189,10 @@ func (fw *parquetWriter) WriteBuffered(rec arrow.Record) error {
 		if err := pqarrow.WriteArrowToColumn(fw.ctx, cw, col, defLevels, nil, field.Nullable); err != nil {
 			return fmt.Errorf("failed to write column %d (%s): %w", colIdx, field.Name, err)
 		}
+	}
+
+	if fw.rgw.TotalBytesWritten() >= parquetRowGroupSizeBytes {
+		fw.newBufferedRowGroup()
 	}
 
 	return nil

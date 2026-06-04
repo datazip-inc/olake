@@ -434,6 +434,45 @@ func (b *Backend) IcebergSchema() *iceberg.Schema { return b.tbl.Schema() }
 // Spec returns the current partition spec.
 func (b *Backend) Spec() iceberg.PartitionSpec { return b.tbl.Spec() }
 
+// BloomFilterColumns returns the per-column bloom-filter toggle map that
+// getDefaultWriterProps consumes. The map's value is the enabled flag
+// passed to parquet.WithBloomFilterEnabledFor.
+//
+// Defaults:
+//
+//   - The identifier column (typically _olake_id) is enabled when the
+//     table has one. Equality-delete, upsert and dedupe queries all
+//     filter on _olake_id; without a bloom filter those scans fall back
+//     to row-group min/max stats which, on an unsorted high-cardinality
+//     column, almost never let the reader skip a row group.
+//
+// Overrides:
+//
+//   - Every table property matching iceberg's
+//     `write.parquet.bloom-filter-enabled.column.<col>` key
+//     (icetable.ParquetBloomFilterColumnEnabledKeyPrefix) is layered on
+//     top. The value is parsed exactly the way iceberg-go does
+//     (table/internal/parquet_files.go:281): only the case-insensitive
+//     literal "true" enables the filter; any other value (including "1"
+//     or "yes") disables it. Explicit user settings — including disabling
+//     _olake_id — therefore win over the default.
+func (b *Backend) BloomFilterColumns() map[string]bool {
+	out := make(map[string]bool)
+	if b.identifierID > 0 {
+		out[constants.OlakeID] = true
+	}
+
+	prefix := icetable.ParquetBloomFilterColumnEnabledKeyPrefix + "."
+	for key, val := range b.tbl.Properties() {
+		col, ok := strings.CutPrefix(key, prefix)
+		if !ok || col == "" {
+			continue
+		}
+		out[col] = strings.EqualFold(strings.TrimSpace(val), "true")
+	}
+	return out
+}
+
 // ────────────────────────────────────────────────────────────────────
 // Internals
 // ────────────────────────────────────────────────────────────────────
