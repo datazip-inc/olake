@@ -28,6 +28,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -45,6 +46,11 @@ import (
 	_ "github.com/apache/iceberg-go/io/gocloud"
 	icetable "github.com/apache/iceberg-go/table"
 	iceutils "github.com/apache/iceberg-go/utils"
+
+	// Register Go database/sql drivers used by the iceberg-go SQL catalog
+	// when catalog_type=jdbc. iceberg-go's SQL catalog calls sql.Open(driver, dsn)
+	// so the driver must be registered with database/sql at init time.
+	_ "github.com/lib/pq" // registers "postgres" driver
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
@@ -525,16 +531,28 @@ func (b *Backend) loadCatalog(ctx context.Context) (catalog.Catalog, error) {
 		return catalog.Load(ctx, b.cfg.CatalogName, props)
 
 	case CatalogJDBC:
+		// iceberg-go's SQL catalog is built on Go's database/sql, not JDBC.
+		// It calls sql.Open(driver, uri) at registration time, so we must:
+		//   1. translate the JDBC URL (jdbc:postgresql://host:port/db?...)
+		//      into a Go-style DSN (postgres://user:pass@host:port/db?...)
+		//   2. set sql.driver / sql.dialect properties so the SQL catalog
+		//      knows which driver/dialect to use
+		// Username/password are merged into the DSN since iceberg-go does
+		// not consume jdbc.user/jdbc.password (those are JDBC-only keys).
+		driverName, dialect, dsn, err := buildSQLCatalogDSN(b.cfg.JDBCUrl, b.cfg.JDBCUsername, b.cfg.JDBCPassword)
+		if err != nil {
+			return nil, fmt.Errorf("jdbc catalog: %w", err)
+		}
 		props["type"] = "sql"
-		props["uri"] = b.cfg.JDBCUrl
-		if b.cfg.JDBCUsername != "" {
-			props["jdbc.user"] = b.cfg.JDBCUsername
-		}
-		if b.cfg.JDBCPassword != "" {
-			props["jdbc.password"] = b.cfg.JDBCPassword
-		}
+		props["uri"] = dsn
+		props["sql.driver"] = driverName
+		props["sql.dialect"] = dialect
 		b.applyS3IOProps(props)
-		return catalog.Load(ctx, b.cfg.CatalogName, props)
+		name := b.cfg.CatalogName
+		if name == "" {
+			name = "sql"
+		}
+		return catalog.Load(ctx, name, props)
 
 	case CatalogHive:
 		return nil, fmt.Errorf("hive catalog is not supported by the iceberg-go arrow-writer backend yet")
@@ -1027,4 +1045,80 @@ func snapshotIDFor(tbl *icetable.Table) string {
 		return "<none>"
 	}
 	return fmt.Sprintf("%d", snap.SnapshotID)
+}
+
+// buildSQLCatalogDSN converts a JDBC-style connection URL plus optional
+// username/password into the (driverName, dialect, goDSN) triple that
+// iceberg-go's SQL catalog expects.
+//
+// OLake's writer config exposes a JDBC URL because the legacy Java
+// iceberg sink consumed it directly. iceberg-go's SQL catalog instead
+// goes through database/sql.Open(driver, uri), so we strip the "jdbc:"
+// prefix, embed credentials into the userinfo, and pick the matching
+// Go driver name + bun dialect.
+//
+// Currently supported sub-protocol: postgresql (driver "postgres",
+// dialect "postgres"). The function returns a descriptive error for
+// MySQL/SQLite/etc. so users get a clear message instead of an obscure
+// sql.Open failure; we can extend this list as more drivers are wired
+// in.
+func buildSQLCatalogDSN(jdbcURL, user, password string) (driver, dialect, dsn string, err error) {
+	if jdbcURL == "" {
+		return "", "", "", fmt.Errorf("jdbc_url is empty")
+	}
+
+	raw := strings.TrimSpace(jdbcURL)
+	// JDBC URLs look like "jdbc:<sub-protocol>://...". Strip the leading
+	// "jdbc:" so the remainder is a real URL we can url.Parse.
+	if !strings.HasPrefix(strings.ToLower(raw), "jdbc:") {
+		return "", "", "", fmt.Errorf("jdbc_url must start with \"jdbc:\", got %q", jdbcURL)
+	}
+	stripped := raw[len("jdbc:"):]
+
+	// Detect sub-protocol from the part before "://" (or ":" for
+	// driver-specific compact forms like jdbc:sqlite:/path).
+	subEnd := strings.Index(stripped, "://")
+	if subEnd < 0 {
+		// Not a host-based URL — only postgres/mysql with "://" are
+		// supported today.
+		return "", "", "", fmt.Errorf("unsupported jdbc_url format %q (expected jdbc:<driver>://...)", jdbcURL)
+	}
+	subProto := strings.ToLower(stripped[:subEnd])
+
+	switch subProto {
+	case "postgres", "postgresql":
+		// Re-parse with scheme normalised to "postgres" so url.Parse
+		// extracts host/port/path/query reliably.
+		normalised := "postgres://" + stripped[subEnd+3:]
+		u, perr := url.Parse(normalised)
+		if perr != nil {
+			return "", "", "", fmt.Errorf("parse jdbc_url: %w", perr)
+		}
+		// Merge user/password if not already embedded in the URL. JDBC
+		// URLs typically carry creds via separate jdbc_username /
+		// jdbc_password fields, which take precedence here only when
+		// the URL has no userinfo.
+		if u.User == nil {
+			if user != "" || password != "" {
+				if password != "" {
+					u.User = url.UserPassword(user, password)
+				} else {
+					u.User = url.User(user)
+				}
+			}
+		}
+		// Default sslmode=disable for local/dev clusters (e.g. the
+		// docker-compose iceberg-rest stack OLake docs ship with). If
+		// the user already specified sslmode in the JDBC URL we leave
+		// it alone.
+		q := u.Query()
+		if q.Get("sslmode") == "" {
+			q.Set("sslmode", "disable")
+			u.RawQuery = q.Encode()
+		}
+		return "postgres", "postgres", u.String(), nil
+
+	default:
+		return "", "", "", fmt.Errorf("unsupported jdbc sub-protocol %q (only postgresql is wired up for the iceberg-go SQL catalog)", subProto)
+	}
 }
