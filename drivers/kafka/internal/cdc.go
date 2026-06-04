@@ -18,8 +18,6 @@ import (
 	"github.com/segmentio/kafka-go"
 )
 
-// TODO: Add 2PC support for Kafka (difficulty: hard)
-
 func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
 	return false, true, false // parallel change streams supported
 }
@@ -65,6 +63,17 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	reader := k.readerManager.GetReader(readerID)
 	if reader == nil {
 		return nil, fmt.Errorf("reader not found for readerID %d", readerID)
+	}
+
+	// Recovery check: compare destination (olake_2pc) partition offsets vs state.json offsets.
+	// If metadata offset > state offset for any stream/partition this reader serves,
+	// the previous run committed to Iceberg but failed to update state.json (crash-recovery path).
+	// Commit recovery offsets to align the broker, then fall through to consume new messages.
+	if recoveryOffsets := k.checkRecovery(metadataStates); recoveryOffsets != nil {
+		logger.Infof("reader[%d]: crash-recovery detected, committing metadata offsets to broker then continuing sync", readerID)
+		if err := k.readerManager.CommitOffsetsToGroup(ctx, recoveryOffsets); err != nil {
+			return nil, fmt.Errorf("reader[%d]: recovery offset commit failed, cannot continue (would cause duplicates): %s", readerID, err)
+		}
 	}
 
 	// track processing state
@@ -116,7 +125,10 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		return false, nil
 	})
 
-	return nil, err
+	if err != nil {
+		return nil, err
+	}
+	return k.readerManager.PartitionOffsetsByStream(lastMessages), nil
 }
 
 func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
@@ -167,18 +179,70 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 			logger.Infof("committed %d partitions for reader %s", len(messages), readerID)
 		}
 
-		// Update global state with consumer group ID and affected streams
+		// Update global state with consumer group ID and partition offsets (for 2PC recovery).
 		streamIDs := make([]string, 0, len(syncedStreams))
 		for streamID := range syncedStreams {
 			streamIDs = append(streamIDs, streamID)
 		}
 
-		k.state.SetGlobal(map[string]any{"consumer_group_id": k.consumerGroupID}, streamIDs...)
+		k.state.SetGlobal(map[string]any{
+			"consumer_group_id": k.consumerGroupID,
+			"partitions":        k.readerManager.PartitionOffsetsByStream(lastMessages),
+		}, streamIDs...)
 		logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
 
 		k.checkpointMessage.Delete(readerIdx)
 		return nil
 	}
+}
+
+// checkRecovery compares destination partition offsets (from olake_2pc via metadataStates)
+// against state.json partition offsets. If the destination is strictly ahead for any
+// stream, it returns the metadata offsets so the caller can skip consuming and realign state.
+// Returns nil when no recovery is needed (normal path).
+func (k *Kafka) checkRecovery(metadataStates map[string]any) map[string]any {
+	// read state.json partition offsets: state["partitions"][streamID][partition] = offset
+	// utils.Unmarshal handles float64/json.Number/int64 normalisation (same as other drivers)
+	var kafkaState struct {
+		Partitions map[string]map[int]int64 `json:"partitions"`
+	}
+	if globalState := k.state.GetGlobal(); globalState != nil {
+		_ = utils.Unmarshal(globalState.State, &kafkaState)
+	}
+
+	recoveryOffsets := make(map[string]any)
+	for streamID, rawMtState := range metadataStates {
+		if rawMtState == nil {
+			continue
+		}
+		// metadataStates value is a JSON string produced by SetMetadataState in abstract
+		mtStateStr, ok := rawMtState.(string)
+		if !ok {
+			continue
+		}
+		// unmarshal destination partition offsets: {"0": 1234, "1": 5678}
+		var metaPartitions map[int]int64
+		if err := utils.Unmarshal(mtStateStr, &metaPartitions); err != nil {
+			continue
+		}
+		stateForStream := kafkaState.Partitions[streamID] // nil on first run
+
+		for partNum, metaOffset := range metaPartitions {
+			stateOffset, hasState := stateForStream[partNum]
+			// metadata ahead of state → crash-recovery path
+			if !hasState || metaOffset > stateOffset {
+				logger.Infof("stream[%s] partition[%d]: metadata offset(%d) ahead of state offset(%d), recovery needed",
+					streamID, partNum, metaOffset, stateOffset)
+				recoveryOffsets[streamID] = metaPartitions
+				break
+			}
+		}
+	}
+
+	if len(recoveryOffsets) == 0 {
+		return nil
+	}
+	return recoveryOffsets
 }
 
 // for processing messages from a Kafka reader.

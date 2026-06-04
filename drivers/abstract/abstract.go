@@ -258,7 +258,8 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 
 	var metadataState any
 	var closeErr error
-	if mtState != nil {
+	_, multiWriter := writer.(map[string]*destination.WriterThread)
+	if mtState != nil && !multiWriter {
 		ms, setErr := types.SetMetadataState(*mtState, threadID)
 		if setErr != nil {
 			closeErr = fmt.Errorf("failed to set metadata state: %s", setErr)
@@ -274,12 +275,32 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 			closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
 		}
 	case map[string]*destination.WriterThread:
-		// Multiple writers keyed by stream ID
+		var perStream map[string]any
+		if mtState != nil {
+			perStream, _ = (*mtState).(map[string]any)
+		}
 		for streamID, inserter := range w {
-			if inserter != nil {
-				if threadErr := inserter.Close(ctx, metadataState); threadErr != nil {
-					closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
+			if inserter == nil {
+				continue
+			}
+			var streamMetadataState any
+			if mtState != nil {
+				checkpoint := *mtState
+				if perStream != nil {
+					checkpoint = perStream[streamID]
 				}
+				if checkpoint != nil {
+					ms, setErr := types.SetMetadataState(checkpoint, "")
+					if setErr != nil {
+						closeErr = fmt.Errorf("%s; failed to set metadata state for stream[%s]: %s", closeErr, streamID, setErr)
+						continue
+					}
+					types.SetDedupInserts(ms, dedupInserts)
+					streamMetadataState = ms
+				}
+			}
+			if threadErr := inserter.Close(ctx, streamMetadataState); threadErr != nil {
+				closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
 			}
 		}
 	default:
