@@ -74,6 +74,21 @@ func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	return legacywriter.New(i.options, i.schema, i.stream, i.server), nil
 }
 
+// parseTwoPCState unmarshals the olake_2pc JSON string returned by a
+// GET_OR_CREATE_TABLE response and stores it in i.olake2PCState.
+// An empty string is a no-op (table has no prior 2PC state yet).
+func (i *Iceberg) parseTwoPCState(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	var ms types.MetadataState
+	if err := json.Unmarshal([]byte(raw), &ms); err != nil {
+		return fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
+	}
+	i.olake2PCState = &ms
+	return nil
+}
+
 func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, *types.MetadataState, error) {
 	i.options = options
 	i.stream = stream
@@ -152,12 +167,8 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 
 		// Capture optional olake_2pc state from table metadata without returning early,
 		// so we fall through to create the writer for this thread.
-		if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
-			var metadataState types.MetadataState
-			if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
-				return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
-			}
-			i.olake2PCState = &metadataState
+		if err := i.parseTwoPCState(ingestResponse.GetOlake_2PcState()); err != nil {
+			return schema, nil, err
 		}
 	} else {
 		// set global schema for current thread
@@ -165,6 +176,33 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		schema, ok = globalSchema.(map[string]string)
 		if !ok {
 			return nil, nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+		}
+
+		// Schema is already cached from the first thread's GET_OR_CREATE_TABLE call.
+		// We still need to call GET_OR_CREATE_TABLE here because:
+		//   1. Every Java process starts fresh (icebergTable=nil); it must load the table
+		//      before it can read olake_2pc from table properties.
+		//   2. The schema we send is only used by Java as a fallback if the table does
+		//      not exist (orElseGet path in loadIcebergTable).
+		protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(schema))
+		for field, dType := range schema {
+			protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{Key: field, IceType: dType})
+		}
+		metaRequest := &proto.IcebergPayload{
+			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+			Metadata: &proto.IcebergPayload_Metadata{
+				Schema:          protoSchema,
+				DestTableName:   i.stream.GetDestinationTable(),
+				ThreadId:        i.server.serverID,
+				IdentifierField: &identifierField,
+			},
+		}
+		metaResp, err := i.server.SendClientRequest(ctx, metaRequest)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to fetch 2pc metadata: %s", err)
+		}
+		if err := i.parseTwoPCState(metaResp.(*proto.RecordIngestResponse).GetOlake_2PcState()); err != nil {
+			return nil, nil, err
 		}
 	}
 
