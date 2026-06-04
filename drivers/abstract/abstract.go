@@ -12,7 +12,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 )
 
-// check commit
 type CDCChange struct {
 	Stream       types.StreamInterface
 	Timestamp    time.Time
