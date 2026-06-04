@@ -1,24 +1,15 @@
+
 <h1 align="center" style="border-bottom: none">
     <a href="https://datazip.io/olake" target="_blank">
         <img alt="olake" src="https://github.com/user-attachments/assets/d204f25f-5289-423c-b3f2-44b2194bdeaf" width="100" height="100"/>
     </a>
-    <br>OLake
+    <br>OLake Go
 </h1>
 
-<p align="left">
-  <strong>OLake</strong> provides two products:
-</p>
-<ul>
-  <li>
-    <strong>OLake Go</strong> — a high-performance, open-source data ingestion engine for replicating databases, S3, and Kafka into
-    <strong>Apache Iceberg</strong> (or plain Parquet).
-  </li>
-  <li>
-    <strong>OLake Fusion</strong> — an open-source tool for Apache Iceberg table maintenance. Check out the project on
-    <a href="https://github.com/datazip-inc/olake-fusion" target="_blank">GitHub</a>.
-  </li>
-</ul>
-<p align="left">
+<p align="center">
+  <strong>OLake Go</strong> is a high-performance, open-source data ingestion engine for replicating databases, S3, and Kafka into
+  <strong>Apache Iceberg</strong> (or plain Parquet).
+  <br/>
   Built for scalable, real-time pipelines, OLake provides a simple web UI and CLI - used to ingest into vendor-lock-in free Iceberg tables supporting all the query-engines/warehouses.
   <br/><br/>
   Read the docs and benchmarks at
@@ -43,6 +34,8 @@
         <img alt="Contribute to OLake" src="https://img.shields.io/badge/Contribute-OLake-2563eb"/>
     </a>
 </p>
+
+ > 🎉 **OLake Fusion is now live!** — Automate your Apache Iceberg Table Maintenance. Check it out here → [github.com/datazip-inc/olake-fusion](https://github.com/datazip-inc/olake-fusion) 🎉
 
 ## OLake Go — Super-fast Sync to Apache Iceberg
 
