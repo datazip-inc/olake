@@ -6,17 +6,14 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strconv"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/arrow-go/v18/parquet"
 	"github.com/apache/arrow-go/v18/parquet/compress"
-	"github.com/apache/arrow-go/v18/parquet/file"
 	"github.com/apache/arrow-go/v18/parquet/metadata"
 	"github.com/apache/arrow-go/v18/parquet/pqarrow"
-	"github.com/apache/arrow-go/v18/parquet/schema"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -28,6 +25,22 @@ const (
 	fileTypePositionalDelete = "positionalDelete"
 	targetDataFileSize       = int64(512 * 1024 * 1024) // 512 MB
 	targetDeleteFileSize     = int64(64 * 1024 * 1024)  // 64 MB
+
+	// targetRowGroupBytes is the uncompressed in-memory size at which we
+	// roll the current Parquet row group inside the same file. Matches
+	// Apache Iceberg's PARQUET_ROW_GROUP_SIZE_BYTES_DEFAULT (128 MB) so
+	// query engines get effective row-group level stats / bloom-filter /
+	// page-index pruning and per-row-group parallelism.
+	// https://github.com/apache/iceberg/blob/2899b5a75106c698ea8e59fe0b93c4857acaadee/core/src/main/java/org/apache/iceberg/TableProperties.java#L128
+	targetRowGroupBytes = int64(128 * 1024 * 1024)
+
+	// maxRowGroupRows is a row-count safety cap that matches Iceberg's
+	// PARQUET_ROW_GROUP_LIMIT_DEFAULT. pqarrow.FileWriter.WriteBuffered
+	// will automatically split a row group when its accumulated row count
+	// would exceed this threshold; our byte-driven check above almost
+	// always trips first, but this guards against pathologically narrow
+	// rows where 128 MB would otherwise mean tens of millions of rows.
+	maxRowGroupRows = int64(1_048_576)
 )
 
 func getDefaultWriterProps() []parquet.WriterProperty {
@@ -60,99 +73,95 @@ func getDefaultWriterProps() []parquet.WriterProperty {
 
 		// iceberg writes root name as "table" in parquet's meta
 		parquet.WithRootName("table"),
+
+		// Row-count safety cap so pqarrow.FileWriter.WriteBuffered will
+		// split the in-flight row group if our byte-driven roll has not
+		// already triggered. Matches Apache Iceberg's
+		// PARQUET_ROW_GROUP_LIMIT_DEFAULT.
+		parquet.WithMaxRowGroupLength(maxRowGroupRows),
 	}
 }
 
-// parquet writer for arrow
+// parquetWriter is a thin wrapper around pqarrow.FileWriter that adds
+// byte-driven row-group rolling (Apache Iceberg semantics). One file
+// must contain multiple row groups: this is what lets query engines
+// prune row groups via min/max stats, bloom filters and page indexes,
+// and lets Spark/Trino/DuckDB parallelise reads inside a single file.
+//
+// The previous implementation drove file.Writer + BufferedRowGroupWriter
+// + pqarrow.WriteArrowToColumn by hand and never rolled a new row group
+// within a file, so every parquet file produced by OLake ended up with
+// exactly one ~512 MB row group. That destroyed every form of
+// row-group-level pruning and was the dominant cause of slow downstream
+// queries.
 type parquetWriter struct {
-	wr     *file.Writer
+	wr     *pqarrow.FileWriter
 	schema *arrow.Schema
-	rgw    file.BufferedRowGroupWriter
-	ctx    context.Context
 	closed bool
 }
 
 func newParquetWriter(ctx context.Context, arrSchema *arrow.Schema, w io.Writer, writerOpts []parquet.WriterProperty, kvMeta metadata.KeyValueMetadata) (*parquetWriter, error) {
+	_ = ctx // pqarrow.NewFileWriter manages its own write context internally.
+
 	props := parquet.NewWriterProperties(writerOpts...)
-	pqSchema, err := arrowToParquetSchema(arrSchema)
+	arrProps := pqarrow.NewArrowWriterProperties(
+		pqarrow.WithAllocator(memory.NewGoAllocator()),
+	)
+
+	fw, err := pqarrow.NewFileWriter(arrSchema, w, props, arrProps)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create pqarrow file writer: %s", err)
 	}
 
-	baseWriter := file.NewParquetWriter(w, pqSchema.Root(),
-		file.WithWriterProps(props),
-		file.WithWriteMetadata(kvMeta))
-
-	return &parquetWriter{
-		wr:     baseWriter,
-		schema: arrSchema,
-		ctx:    pqarrow.NewArrowWriteContext(ctx, nil),
-	}, nil
-}
-
-func (fw *parquetWriter) newBufferedRowGroup() {
-	if fw.rgw != nil {
-		fw.rgw.Close()
+	// Append the iceberg-specific KV metadata ("iceberg.schema",
+	// "delete-type", "delete-field-ids", ...) onto the parquet footer so
+	// query engines see the same metadata iceberg-java would have written.
+	for i := 0; i < kvMeta.Len(); i++ {
+		if err := fw.AppendKeyValueMetadata(kvMeta.Keys()[i], kvMeta.Values()[i]); err != nil {
+			_ = fw.Close()
+			return nil, fmt.Errorf("failed to append KV metadata %q: %s", kvMeta.Keys()[i], err)
+		}
 	}
-	fw.rgw = fw.wr.AppendBufferedRowGroup()
+
+	return &parquetWriter{wr: fw, schema: arrSchema}, nil
 }
 
+// WriteBuffered appends a record to the current in-memory row group and
+// rolls a new buffered row group once the accumulated uncompressed size
+// hits targetRowGroupBytes (128 MB), matching Apache Iceberg.
+//
+// The row-count safety cap (maxRowGroupRows) is enforced automatically
+// by pqarrow.FileWriter.WriteBuffered via parquet.WithMaxRowGroupLength.
 func (fw *parquetWriter) WriteBuffered(rec arrow.Record) error {
-	if fw.rgw == nil {
-		fw.newBufferedRowGroup()
+	if err := fw.wr.WriteBuffered(rec); err != nil {
+		return fmt.Errorf("failed to write record batch: %s", err)
 	}
 
-	numRows := int(rec.NumRows())
-	for colIdx := 0; colIdx < int(rec.NumCols()); colIdx++ {
-		col := rec.Column(colIdx)
-		field := fw.schema.Field(colIdx)
-
-		cw, err := fw.rgw.Column(colIdx)
-		if err != nil {
-			return fmt.Errorf("failed to get column writer %d: %s", colIdx, err)
-		}
-
-		// for flat schemas, generating definition levels for nullable columns
-		// 0 == value is NULL
-		// 1 == value is present
-		var defLevels []int16
-		if field.Nullable {
-			defLevels = make([]int16, numRows)
-			for i := 0; i < numRows; i++ {
-				if col.IsNull(i) {
-					defLevels[i] = 0
-				} else {
-					defLevels[i] = 1
-				}
-			}
-		}
-
-		if err := pqarrow.WriteArrowToColumn(fw.ctx, cw, col, defLevels, nil, field.Nullable); err != nil {
-			return fmt.Errorf("failed to write column %d (%s): %w", colIdx, field.Name, err)
-		}
+	// Byte-driven row-group rolling. fw.wr.RowGroupTotalBytesWritten()
+	// returns the uncompressed bytes accumulated in the current buffered
+	// row group (sum of per-column writer totals), which is the same
+	// quantity iceberg-java compares against PARQUET_ROW_GROUP_SIZE_BYTES
+	// in ParquetWriter.checkSize(). When we cross the threshold we close
+	// the buffered row group (it gets compressed and flushed to the sink)
+	// and start a fresh one in the same file.
+	if fw.wr.RowGroupTotalBytesWritten() >= targetRowGroupBytes {
+		fw.wr.NewBufferedRowGroup()
 	}
-
 	return nil
 }
 
 func (fw *parquetWriter) Close() error {
-	if !fw.closed {
-		fw.closed = true
-		if fw.rgw != nil {
-			if err := fw.rgw.Close(); err != nil {
-				return err
-			}
-		}
-		return fw.wr.Close()
+	if fw.closed {
+		return nil
 	}
-	return nil
+	fw.closed = true
+	return fw.wr.Close()
 }
 
+// RowGroupTotalBytesWritten returns the uncompressed bytes accumulated
+// in the current open buffered row group (0 if no row group is open).
 func (fw *parquetWriter) RowGroupTotalBytesWritten() int64 {
-	if fw.rgw != nil {
-		return fw.rgw.TotalBytesWritten()
-	}
-	return 0
+	return fw.wr.RowGroupTotalBytesWritten()
 }
 
 // FileMetadata returns the parquet file metadata snapshot. Only valid after Close().
@@ -340,82 +349,9 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 	return nil
 }
 
-func arrowToParquetSchema(arrowSchema *arrow.Schema) (*schema.Schema, error) {
-	nodes := make(schema.FieldList, 0, arrowSchema.NumFields())
-
-	for _, field := range arrowSchema.Fields() {
-		node, err := arrowFieldsToParquet(field)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert field %s: %s", field.Name, err)
-		}
-		nodes = append(nodes, node)
-	}
-
-	// creating root group node with name "table"
-	root, err := schema.NewGroupNode("table", parquet.Repetitions.Required, nodes, -1)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create root group node: %s", err)
-	}
-
-	return schema.NewSchema(root), nil
-}
-
-// this is important as it does not sets LogicalTypes for types like INT32/INT64
-// (eg, IntLogicalType for INT32/INT64)
-func arrowFieldsToParquet(field arrow.Field) (schema.Node, error) {
-	repetition := parquet.Repetitions.Required
-	if field.Nullable {
-		repetition = parquet.Repetitions.Optional
-	}
-
-	// extracting field ID from metadata
-	fieldID := int32(-1)
-	if field.Metadata.Len() > 0 {
-		if idStr, ok := field.Metadata.GetValue("PARQUET:field_id"); ok {
-			if id, err := strconv.ParseInt(idStr, 10, 32); err == nil {
-				fieldID = int32(id)
-			}
-		}
-	}
-
-	var pqType parquet.Type
-	var logicalType schema.LogicalType
-	var typeLength int32 = -1
-
-	switch field.Type.ID() {
-	case arrow.BOOL:
-		pqType = parquet.Types.Boolean
-
-	case arrow.INT32:
-		pqType = parquet.Types.Int32
-
-	case arrow.INT64:
-		pqType = parquet.Types.Int64
-
-	case arrow.FLOAT32:
-		pqType = parquet.Types.Float
-
-	case arrow.FLOAT64:
-		pqType = parquet.Types.Double
-
-	case arrow.STRING:
-		pqType = parquet.Types.ByteArray
-		logicalType = schema.StringLogicalType{}
-
-	case arrow.TIMESTAMP:
-		pqType = parquet.Types.Int64
-		tsType := field.Type.(*arrow.TimestampType)
-		adjustedToUTC := tsType.TimeZone != ""
-		logicalType = schema.NewTimestampLogicalType(adjustedToUTC, schema.TimeUnitMicros)
-
-	default:
-		// Default to string for any unsupported types
-		pqType = parquet.Types.ByteArray
-		logicalType = schema.StringLogicalType{}
-	}
-
-	if logicalType != nil {
-		return schema.NewPrimitiveNodeLogical(field.Name, repetition, logicalType, pqType, int(typeLength), fieldID)
-	}
-	return schema.NewPrimitiveNode(field.Name, repetition, pqType, fieldID, typeLength)
-}
+// NOTE: the previous hand-rolled arrowToParquetSchema / arrowFieldsToParquet
+// helpers have been removed. pqarrow.NewFileWriter now derives the Parquet
+// schema from the Arrow schema via pqarrow.ToParquet, which honours the
+// "PARQUET:field_id" metadata key (see fieldIDFromMeta in arrow-go) and
+// produces the same logical types (String/Timestamp/...) we used to set
+// by hand. The root group name comes from parquet.WithRootName("table").

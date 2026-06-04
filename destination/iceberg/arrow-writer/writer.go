@@ -541,4 +541,3 @@ func copySchemaMap(src map[string]string) map[string]string {
 	}
 	return out
 }
-
