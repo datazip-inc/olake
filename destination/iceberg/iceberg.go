@@ -130,6 +130,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	var schema map[string]string
 
+	var protoSchema []*proto.IcebergPayload_SchemaField
 	if globalSchema == nil {
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
@@ -141,35 +142,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 				partitionFields = append(partitionFields, p.Field)
 			}
 		}
-
-		var requestPayload proto.IcebergPayload
-		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
-		requestPayload = proto.IcebergPayload{
-			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
-			Metadata: &proto.IcebergPayload_Metadata{
-				Schema:          iceSchema,
-				DestTableName:   i.stream.GetDestinationTable(),
-				ThreadId:        i.server.serverID,
-				IdentifierField: &identifierField,
-			},
-		}
-
-		response, err := i.server.SendClientRequest(ctx, &requestPayload)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
-		}
-
-		ingestResponse := response.(*proto.RecordIngestResponse)
-		schema, err = parseSchema(ingestResponse.GetResult())
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
-		}
-
-		// Capture optional olake_2pc state from table metadata without returning early,
-		// so we fall through to create the writer for this thread.
-		if err := i.parseTwoPCState(ingestResponse.GetOlake_2PcState()); err != nil {
-			return schema, nil, err
-		}
+		protoSchema = stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
 	} else {
 		// set global schema for current thread
 		var ok bool
@@ -178,32 +151,35 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			return nil, nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
 		}
 
-		// Schema is already cached from the first thread's GET_OR_CREATE_TABLE call.
-		// We still need to call GET_OR_CREATE_TABLE here because:
-		//   1. Every Java process starts fresh (icebergTable=nil); it must load the table
-		//      before it can read olake_2pc from table properties.
-		//   2. The schema we send is only used by Java as a fallback if the table does
-		//      not exist (orElseGet path in loadIcebergTable).
-		protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(schema))
+		protoSchema = make([]*proto.IcebergPayload_SchemaField, 0, len(schema))
 		for field, dType := range schema {
 			protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{Key: field, IceType: dType})
 		}
-		metaRequest := &proto.IcebergPayload{
-			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
-			Metadata: &proto.IcebergPayload_Metadata{
-				Schema:          protoSchema,
-				DestTableName:   i.stream.GetDestinationTable(),
-				ThreadId:        i.server.serverID,
-				IdentifierField: &identifierField,
-			},
-		}
-		metaResp, err := i.server.SendClientRequest(ctx, metaRequest)
+	}
+
+	metaResp, err := i.server.SendClientRequest(ctx, &proto.IcebergPayload{
+		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+		Metadata: &proto.IcebergPayload_Metadata{
+			Schema:          protoSchema,
+			DestTableName:   i.stream.GetDestinationTable(),
+			ThreadId:        i.server.serverID,
+			IdentifierField: &identifierField,
+		},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get or create table: %s", err)
+	}
+
+	ingestResponse := metaResp.(*proto.RecordIngestResponse)
+	if globalSchema == nil {
+		schema, err = parseSchema(ingestResponse.GetResult())
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to fetch 2pc metadata: %s", err)
+			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
 		}
-		if err := i.parseTwoPCState(metaResp.(*proto.RecordIngestResponse).GetOlake_2PcState()); err != nil {
-			return nil, nil, err
-		}
+	}
+
+	if err := i.parseTwoPCState(ingestResponse.GetOlake_2PcState()); err != nil {
+		return schema, nil, err
 	}
 
 	// set schema for current thread
