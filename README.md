@@ -138,7 +138,7 @@
     4. [MinIO (local)](https://olake.io/docs/writers/iceberg/troubleshooting-local/?view=local#local-testing)
 
 2. Parquet Writer
-   1. [AWS S3 Docs](https://olake.io/docs/writers/parquet/s3)
+   1. [AWS S3 Docs](https://olake.io/docs/writers/parquet/config/)
    2. [Google Cloud Storage (GCS)](https://olake.io/docs/writers/parquet/config/#using-gcs-compatible-s3-credentials)
    3. Local FileSystem Docs
 
@@ -146,7 +146,7 @@
 
 ### 🧪 Quickstart (UI + Docker)
 
-OLake UI is a web-based interface for managing OLake Go jobs, sources, destinations and configurations. You can run the entire OLake stack (UI, Backend, and all dependencies) using Docker Compose. This is the recommended way to get started.
+OLake UI is a web-based interface for managing OLake Go jobs, sources, destinations and configurations. You can run the entire OLake Go stack (UI, Backend, and all dependencies) using Docker Compose. This is the recommended way to get started.
 Run the UI, connect your source DB, and start syncing in minutes. 
 
 ```sh
@@ -154,8 +154,8 @@ curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-c
 ```
 
 **Access the UI:**
-      * **OLake UI:** [http://localhost:8000](http://localhost:8000)
-      * Log in with default credentials: `admin` / `password`.
+- **OLake UI:** [http://localhost:8000](http://localhost:8000)
+- Log in with default credentials: `admin` / `password`
 
 Detailed getting started using OLake UI can be found [here](https://olake.io/docs/getting-started/quickstart/).
 
@@ -178,7 +178,7 @@ For a detailed walkthrough, refer to the [Jobs documentation](https://olake.io/d
 
 ### 🛠️ CLI Usage (Advanced)
 
-For advanced users and automation, OLake's core logic is exposed via a powerful CLI. The core framework handles state management, configuration validation, logging, and type detection. It interacts with drivers using four main commands:
+For advanced users and automation, OLake Go's core logic is exposed via a powerful CLI. The core framework handles state management, configuration validation, logging, and type detection. It interacts with drivers using four main commands:
 
 * `spec`: Returns a render-able JSON Schema for a connector's configuration.
 * `check`: Validates connection configurations for sources and destinations.
@@ -241,4 +241,5 @@ Check out our [Bounty Program](https://olake.io/docs/community/issues-and-prs#go
 
 * To contribute to the **OLake core**, see [CONTRIBUTING.md](https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md).
 * To contribute to the **UI**, visit the [OLake UI Repository](https://github.com/datazip-inc/olake-ui).
+* To contribute to the **OLake Helm**, visit the [OLake Helm Repository](https://github.com/datazip-inc/olake-helm).
 * To contribute to our **website and documentation**, visit the [Olake Docs Repository](https://github.com/datazip-inc/olake-docs/).
