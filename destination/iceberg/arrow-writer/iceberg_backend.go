@@ -478,9 +478,30 @@ func (b *Backend) BloomFilterColumns() map[string]bool {
 // ────────────────────────────────────────────────────────────────────
 
 func (b *Backend) injectAWSConfig(ctx context.Context) (context.Context, error) {
-	// Glue catalog and the gocloud S3 IO both look up the AWS config
-	// from context via iceberg-go/utils.WithAwsConfig. For non-AWS
-	// catalogs (REST, JDBC, Hive) this is a harmless no-op.
+	// Only the Glue catalog needs the AWS config carried on the context
+	// when olake later calls tbl.FS(ctx): glue.NewFromLocation captures
+	// fsF=io.LoadFSFunc(nil, loc) which has no props of its own and
+	// falls back to whatever AWS config is on the context at FS() time.
+	//
+	// For REST / JDBC / Hive catalogs we MUST NOT inject the user's
+	// HMAC keys here. iceberg-go's gocloud S3 IO checks the context
+	// first (io/gocloud/s3.go: createS3Bucket) and uses that aws.Config
+	// in preference to the merged props — silently overriding the
+	// vended credentials a REST catalog like Lakekeeper provides via
+	// its LoadTable response. That manifests as repeated 403
+	// SignatureDoesNotMatch on PutObject / CreateMultipartUpload even
+	// after my earlier fix routed loadIO through tbl.FS(ctx).
+	//
+	// REST/JDBC/Hive resolve credentials from props (S3AccessKeyID,
+	// S3SecretAccessKey, S3SessionToken, S3EndpointURL, S3Region),
+	// which are populated by applyS3IOProps at catalog-load time and
+	// then overlaid with vended creds from StorageCredentials inside
+	// vendedCredentialRefresher.loadFS. Skipping ctx injection for
+	// those catalogs is what lets the vended path actually take effect.
+	if b.cfg.CatalogType != CatalogGlue {
+		return ctx, nil
+	}
+
 	loadOpts := []func(*awscfgpkg.LoadOptions) error{}
 	if b.cfg.Region != "" {
 		loadOpts = append(loadOpts, awscfgpkg.WithRegion(b.cfg.Region))
