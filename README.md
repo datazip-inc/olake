@@ -115,8 +115,6 @@
 |----------------|-----------|---------------------------------------------------------------|
 | Iceberg        | ✅         | Glue, Hive, JDBC, REST (Nessie, Polaris, Unity, Lakekeeper, AWS S3 tables)  |
 | Parquet        | ✅         | Filesystem                                                   |
-| Other formats  | 🔜         | Planned: Delta Lake, Hudi                                    |
-
 
 
 ##### Writer Docs
@@ -239,7 +237,7 @@ We ❤️ contributions, big or small!
 
 Check out our [Bounty Program](https://olake.io/docs/community/issues-and-prs#goodies). A huge thanks to all our amazing [contributors!](https://github.com/datazip-inc/olake/graphs/contributors)
 
-* To contribute to the **OLake core**, see [CONTRIBUTING.md](https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md).
+* To contribute to the **OLake Go**, see [CONTRIBUTING.md](https://github.com/datazip-inc/olake/blob/master/CONTRIBUTING.md).
 * To contribute to the **UI**, visit the [OLake UI Repository](https://github.com/datazip-inc/olake-ui).
 * To contribute to the **OLake Helm**, visit the [OLake Helm Repository](https://github.com/datazip-inc/olake-helm).
 * To contribute to our **website and documentation**, visit the [Olake Docs Repository](https://github.com/datazip-inc/olake-docs/).
