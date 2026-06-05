@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -15,6 +16,83 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jmoiron/sqlx"
 )
+
+// publicationTablesTmpl queries pg_publication_tables to return all (schemaname, tablename)
+// pairs tracked by the given publication name.
+const publicationTablesTmpl = `
+	SELECT schemaname, tablename
+	FROM pg_publication_tables
+	WHERE pubname = $1`
+
+// pubTable is an internal scan target for rows returned by publicationTablesTmpl.
+type pubTable struct {
+	Schema string `db:"schemaname"`
+	Table  string `db:"tablename"`
+}
+
+// fetchPublicationTables fetches all tables registered under a publication.
+func fetchPublicationTables(ctx context.Context, conn *sqlx.DB, publication string) ([]pubTable, error) {
+	var rows []pubTable
+	if err := conn.SelectContext(ctx, &rows, publicationTablesTmpl, publication); err != nil {
+		return nil, fmt.Errorf("failed to query publication tables for publication %q: %w", publication, err)
+	}
+	return rows, nil
+}
+
+// checkStreamsInPublication is the pure validation logic (no DB dependency).
+// Given the list of publication tables and selected streams, returns an error
+// if any stream is not covered by the publication.
+func checkStreamsInPublication(publication string, pubTables []pubTable, streams []types.StreamInterface) error {
+	if len(pubTables) == 0 {
+		return fmt.Errorf(
+			"%w: publication %q exists but contains no tables; "+
+				"add the required tables with: ALTER PUBLICATION %s ADD TABLE <schema>.<table>",
+			constants.ErrNonRetryable, publication, publication,
+		)
+	}
+
+	// Build a normalised lookup set: "schema.table" → present
+	pubSet := make(map[string]struct{}, len(pubTables))
+	for _, r := range pubTables {
+		key := strings.ToLower(r.Schema) + "." + strings.ToLower(r.Table)
+		pubSet[key] = struct{}{}
+	}
+
+	var missing []string
+	for _, stream := range streams {
+		key := strings.ToLower(stream.Namespace()) + "." + strings.ToLower(stream.Name())
+		if _, ok := pubSet[key]; !ok {
+			missing = append(missing, stream.Namespace()+"."+stream.Name())
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf(
+			"%w: the following tables are selected in streams.json but are NOT tracked by "+
+				"publication %q — add them before starting the sync:\n  %s\n"+
+				"Run: ALTER PUBLICATION %s ADD TABLE %s",
+			constants.ErrNonRetryable,
+			publication,
+			strings.Join(missing, "\n  "),
+			publication,
+			strings.Join(missing, ", "),
+		)
+	}
+	return nil
+}
+
+// validatePublicationContainsStreams is called from PreCDC.
+// Fixes: https://github.com/datazip-inc/olake/issues/752
+func validatePublicationContainsStreams(ctx context.Context, conn *sqlx.DB, publication string, streams []types.StreamInterface) error {
+	if publication == "" || len(streams) == 0 {
+		return nil
+	}
+	pubTables, err := fetchPublicationTables(ctx, conn, publication)
+	if err != nil {
+		return err
+	}
+	return checkStreamsInPublication(publication, pubTables, streams)
+}
 
 func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
@@ -42,6 +120,12 @@ func (p *Postgres) ChangeStreamConfig() (bool, bool, bool) {
 }
 
 func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+
+	// Validate publication contains all streams
+	if err := validatePublicationContainsStreams(ctx, p.client, p.cdcConfig.Publication, streams); err != nil {
+		return fmt.Errorf("failed to validate publication %q: %s", p.cdcConfig.Publication, err)
+	}
+
 	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
 	if err != nil {
 		return fmt.Errorf("failed to get slot position: %s", err)
