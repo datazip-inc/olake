@@ -157,7 +157,11 @@ curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-c
 
 Detailed getting started using OLake UI can be found [here](https://olake.io/docs/getting-started/quickstart/).
 
-![olake-ui](./final_olake_video.mp4)
+
+
+![olake-ui](https://github.com/user-attachments/assets/77fc1abf-f386-4d7b-beda-21424f8052df)
+
+
 
 #### Creating Your First Job
 
