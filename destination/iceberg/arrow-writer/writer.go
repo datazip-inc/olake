@@ -423,8 +423,8 @@ func (w *ArrowWriter) initialize(ctx context.Context) error {
 
 	w.allocator = memory.NewGoAllocator()
 
-	dataFieldIDs := w.dataFieldIDs()
-	w.arrowSchema[fileTypeData] = arrow.NewSchema(createFields(w.schema, dataFieldIDs), nil)
+	orderedNames, dataFieldIDs := w.orderedFields()
+	w.arrowSchema[fileTypeData] = arrow.NewSchema(createFields(orderedNames, w.schema, dataFieldIDs), nil)
 
 	if w.upsertMode {
 		if err := w.initializeDeleteSchemas(); err != nil {
@@ -434,12 +434,26 @@ func (w *ArrowWriter) initialize(ctx context.Context) error {
 	return nil
 }
 
-func (w *ArrowWriter) dataFieldIDs() map[string]int32 {
-	out := make(map[string]int32)
-	for _, f := range w.backend.IcebergSchema().Fields() {
-		out[f.Name] = int32(f.ID)
+// orderedFields walks the iceberg table schema in declaration order
+// and returns the column names plus the matching name->field-id lookup
+// table. Walking in iceberg-schema order (instead of alphabetical, as
+// the previous implementation did) preserves the column layout that
+// iceberg-Java's writer produces, so parquet files written here have
+// the same column ordering as files written by the legacy Java sink.
+// The Arrow / Parquet readers locate columns by PARQUET:field_id so
+// query correctness was never affected, but matching column order also
+// means dictionary / RLE locality between semantically related columns
+// (e.g. l_orderkey / l_partkey / l_suppkey) is preserved, which the
+// alphabetical ordering broke.
+func (w *ArrowWriter) orderedFields() ([]string, map[string]int32) {
+	fields := w.backend.IcebergSchema().Fields()
+	names := make([]string, 0, len(fields))
+	ids := make(map[string]int32, len(fields))
+	for _, f := range fields {
+		names = append(names, f.Name)
+		ids[f.Name] = int32(f.ID)
 	}
-	return out
+	return names, ids
 }
 
 func (w *ArrowWriter) initializeDeleteSchemas() error {

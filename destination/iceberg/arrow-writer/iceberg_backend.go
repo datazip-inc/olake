@@ -320,6 +320,24 @@ func (b *Backend) AddPositionalDeleteFile(filePath string, fileSize int64, pqMet
 //  2. tx.NewRowDelta(...).Commit(...) — delete snapshot for eq+pos deletes
 //
 // Either step is skipped if no files of that kind were accumulated.
+//
+// TODO(perf, parity-with-iceberg-java-sink): each OLake ingestion
+// thread has its own *Backend and calls Commit independently when the
+// stream finishes, which produces one Iceberg snapshot per thread. The
+// legacy iceberg-Java sink centralises every thread's records and
+// emits a single COMMIT at stream-close time, producing one snapshot
+// for the whole stream. With manifest-merge now enabled, the snapshot
+// producer folds prior small manifests once per-spec count crosses
+// commit.manifest.min-count-to-merge (100, matching iceberg-Java), but
+// streams that finish below that threshold still leave one manifest
+// per thread. Closing the remaining gap requires a per-stream
+// coordinator in the parent iceberg package: every thread's
+// ArrowWriter.Close would deposit its []iceberg.DataFile (and the
+// equality / positional delete file slices) into a shared collector,
+// and the stream finaliser would run a single tx.AddDataFiles +
+// RowDelta.Commit for the entire stream. That is a layout change to
+// the destination.Writer lifecycle (no current stream-end hook) and is
+// intentionally left out of this commit.
 func (b *Backend) Commit(ctx context.Context) error {
 	if len(b.dataFiles) == 0 && len(b.eqDeleteFiles) == 0 && len(b.posDeleteFiles) == 0 {
 		return nil
@@ -440,11 +458,23 @@ func (b *Backend) Spec() iceberg.PartitionSpec { return b.tbl.Spec() }
 //
 // Defaults:
 //
-//   - The identifier column (typically _olake_id) is enabled when the
-//     table has one. Equality-delete, upsert and dedupe queries all
-//     filter on _olake_id; without a bloom filter those scans fall back
-//     to row-group min/max stats which, on an unsorted high-cardinality
-//     column, almost never let the reader skip a row group.
+//   - In upsert mode the identifier column (typically _olake_id) is
+//     enabled. Equality-delete, upsert and dedupe queries all filter on
+//     _olake_id; without a bloom filter those scans fall back to row-
+//     group min/max stats which, on an unsorted high-cardinality column,
+//     almost never let the reader skip a row group.
+//   - In append-only mode (backfill / AppendMode streams) no bloom
+//     filter is enabled by default. iceberg-Java's reference behaviour
+//     is to leave bloom filters off unless the user explicitly opts in
+//     via `write.parquet.bloom-filter-enabled.column.<col>`. Writing a
+//     bloom filter on a column that is never probed (analytical queries
+//     filter on business keys, not _olake_id) is pure overhead — the
+//     bloom-filter block is allocated up to
+//     `write.parquet.bloom-filter-max-bytes` (1 MiB, same default as
+//     iceberg-Java's PARQUET_BLOOM_FILTER_MAX_BYTES_DEFAULT) per row
+//     group, which is what made tiny TPCH tables (nation, region) ~250×
+//     larger on the arrow-writer path than on the legacy iceberg-Java
+//     path.
 //
 // Overrides:
 //
@@ -454,11 +484,13 @@ func (b *Backend) Spec() iceberg.PartitionSpec { return b.tbl.Spec() }
 //     top. The value is parsed exactly the way iceberg-go does
 //     (table/internal/parquet_files.go:281): only the case-insensitive
 //     literal "true" enables the filter; any other value (including "1"
-//     or "yes") disables it. Explicit user settings — including disabling
-//     _olake_id — therefore win over the default.
+//     or "yes") disables it. Explicit user settings — including
+//     disabling _olake_id in upsert mode, or enabling a bloom filter on
+//     a business key in append-only mode — therefore win over the
+//     default.
 func (b *Backend) BloomFilterColumns() map[string]bool {
 	out := make(map[string]bool)
-	if b.identifierID > 0 {
+	if b.upsertMode && b.identifierID > 0 {
 		out[constants.OlakeID] = true
 	}
 
@@ -749,6 +781,20 @@ func (b *Backend) ensureNamespaceAndTable(
 			icetable.CommitMinRetryWaitMsKey:      "100",
 			icetable.CommitMaxRetryWaitMsKey:      "5000",
 			icetable.CommitTotalRetryTimeoutMsKey: "300000",
+			// Enable manifest merging on append, matching iceberg-Java's
+			// default (TableProperties.MANIFEST_MERGE_ENABLED_DEFAULT =
+			// true). iceberg-go ships this OFF by default, which leaves
+			// every per-thread snapshot writing a fresh small manifest
+			// alongside all prior small manifests — observed as 129
+			// manifests for 258 lineitem files vs 30 manifests for 257
+			// files on the iceberg-Java path. With merge enabled, the
+			// snapshot producer bin-packs unmerged manifests up to
+			// commit.manifest.target-size-bytes (8 MB default, same as
+			// iceberg-Java) once the per-spec manifest count reaches
+			// commit.manifest.min-count-to-merge (100, same as
+			// iceberg-Java). See table/snapshot_producers.go's
+			// mergeAppendFiles producer and table/properties.go.
+			icetable.ManifestMergeEnabledKey: "true",
 		}),
 	}
 	// Only assert an explicit table location when the warehouse is a

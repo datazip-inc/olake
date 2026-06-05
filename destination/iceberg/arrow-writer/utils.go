@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"sort"
 	"strconv"
 
 	"github.com/apache/arrow-go/v18/arrow"
@@ -264,16 +263,16 @@ func parseFieldIDsFromIcebergSchema(schemaJSON string) (map[string]int32, error)
 	return fieldIDs, nil
 }
 
-func createFields(schema map[string]string, fieldIDs map[string]int32) []arrow.Field {
-	fieldNames := make([]string, 0, len(schema))
-	for fieldName := range schema {
-		fieldNames = append(fieldNames, fieldName)
-	}
-
-	sort.Strings(fieldNames)
-
-	fields := make([]arrow.Field, 0, len(fieldNames))
-	for _, fieldName := range fieldNames {
+// createFields builds the arrow.Field list for the data parquet file.
+//
+// orderedNames must contain every column in schema, in the order the
+// columns should appear in the resulting Arrow schema. Callers feed in
+// the iceberg table schema's field order (see ArrowWriter.orderedFields)
+// so the on-disk column layout matches what iceberg-Java's writer
+// produces.
+func createFields(orderedNames []string, schema map[string]string, fieldIDs map[string]int32) []arrow.Field {
+	fields := make([]arrow.Field, 0, len(orderedNames))
+	for _, fieldName := range orderedNames {
 		arrowType := toArrowType(schema[fieldName])
 		// OlakeID is used as identifier field, so cannot be nullable
 		nullable := fieldName != constants.OlakeID
