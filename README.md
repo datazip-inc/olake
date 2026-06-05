@@ -10,7 +10,7 @@
   <strong>OLake Go</strong> is a high-performance, open-source data ingestion engine for replicating databases, S3, and Kafka into
   <strong>Apache Iceberg</strong> (or plain Parquet).
   <br/>
-  Built for scalable, real-time pipelines, OLake provides a simple web UI and CLI - used to ingest into vendor-lock-in free Iceberg tables supporting all the query-engines/warehouses.
+  Built for scalable, real-time pipelines, OLake Go provides a simple web UI and CLI - used to ingest into vendor-lock-in free Iceberg tables supporting all the query-engines/warehouses.
   <br/><br/>
   Read the docs and benchmarks at
   <a href="https://olake.io/docs" target="_blank">olake.io/docs</a>.
