@@ -74,21 +74,6 @@ func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	return legacywriter.New(i.options, i.schema, i.stream, i.server), nil
 }
 
-// parseTwoPCState unmarshals the olake_2pc JSON string returned by a
-// GET_OR_CREATE_TABLE response and stores it in i.olake2PCState.
-// An empty string is a no-op (table has no prior 2PC state yet).
-func (i *Iceberg) parseTwoPCState(raw string) error {
-	if raw == "" {
-		return nil
-	}
-	var ms types.MetadataState
-	if err := json.Unmarshal([]byte(raw), &ms); err != nil {
-		return fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
-	}
-	i.olake2PCState = &ms
-	return nil
-}
-
 func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, *types.MetadataState, error) {
 	i.options = options
 	i.stream = stream
@@ -178,8 +163,12 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		}
 	}
 
-	if err := i.parseTwoPCState(ingestResponse.GetOlake_2PcState()); err != nil {
-		return schema, nil, err
+	if raw := ingestResponse.GetOlake_2PcState(); raw != "" {
+		var ms types.MetadataState
+		if err := json.Unmarshal([]byte(raw), &ms); err != nil {
+			return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
+		}
+		i.olake2PCState = &ms
 	}
 
 	// set schema for current thread
