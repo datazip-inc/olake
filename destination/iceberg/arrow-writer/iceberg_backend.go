@@ -629,14 +629,31 @@ func (b *Backend) ensureNamespaceAndTable(
 	tblIdent := catalog.ToIdentifier(dbName, tblName)
 	b.tableIdent = tblIdent
 
+	// warehouseIsURI distinguishes a real storage URI (e.g.
+	// "s3://bucket/prefix", "gs://bucket/prefix") from a logical
+	// warehouse *name* used by REST catalogs like Lakekeeper (e.g.
+	// "dz-s3-compatible"). When only a name is given, the REST catalog
+	// resolves the actual storage location server-side and we MUST NOT
+	// pass relative-path locations of our own — Lakekeeper rejects them
+	// with "Failed to parse '<name>/<db>/<tbl>' as Location: Not a
+	// valid URL — relative URL without a base". In that case let the
+	// catalog derive namespace and table locations from its warehouse
+	// config, mirroring testing/lakekeeper_vended/main.go.
+	warehouseIsURI := strings.Contains(b.cfg.IcebergS3Path, "://")
+
 	// Namespace
 	nsExists, err := b.cat.CheckNamespaceExists(ctx, nsIdent)
 	if err != nil {
 		return nil, fmt.Errorf("check namespace %s: %w", dbName, err)
 	}
 	if !nsExists {
-		nsLoc := strings.TrimRight(b.cfg.IcebergS3Path, "/") + "/" + dbName
-		if err := b.cat.CreateNamespace(ctx, nsIdent, iceberg.Properties{"location": nsLoc}); err != nil {
+		var nsProps iceberg.Properties
+		if warehouseIsURI {
+			nsProps = iceberg.Properties{
+				"location": strings.TrimRight(b.cfg.IcebergS3Path, "/") + "/" + dbName,
+			}
+		}
+		if err := b.cat.CreateNamespace(ctx, nsIdent, nsProps); err != nil {
 			// Tolerate races between concurrent threads racing for namespace creation.
 			if !isAlreadyExistsErr(err) {
 				return nil, fmt.Errorf("create namespace %s: %w", dbName, err)
@@ -675,9 +692,7 @@ func (b *Backend) ensureNamespaceAndTable(
 	}
 	b.partitionFieldIDs = collectPartitionFieldIDs(spec)
 
-	tableLoc := strings.TrimRight(b.cfg.IcebergS3Path, "/") + "/" + dbName + "/" + tblName
-	tbl, err := b.cat.CreateTable(ctx, tblIdent, sc,
-		catalog.WithLocation(tableLoc),
+	createOpts := []catalog.CreateTableOpt{
 		catalog.WithPartitionSpec(&spec),
 		catalog.WithProperties(iceberg.Properties{
 			"format-version":       "2",
@@ -692,7 +707,16 @@ func (b *Backend) ensureNamespaceAndTable(
 			icetable.CommitMaxRetryWaitMsKey:      "5000",
 			icetable.CommitTotalRetryTimeoutMsKey: "300000",
 		}),
-	)
+	}
+	// Only assert an explicit table location when the warehouse is a
+	// real storage URI. For warehouse-name configs (REST/Lakekeeper),
+	// omitting WithLocation lets the catalog place the table under the
+	// warehouse's server-managed root.
+	if warehouseIsURI {
+		tableLoc := strings.TrimRight(b.cfg.IcebergS3Path, "/") + "/" + dbName + "/" + tblName
+		createOpts = append(createOpts, catalog.WithLocation(tableLoc))
+	}
+	tbl, err := b.cat.CreateTable(ctx, tblIdent, sc, createOpts...)
 	if err != nil {
 		// Another concurrent thread may have just created the table —
 		// fall back to LoadTable instead of failing the whole sync.
