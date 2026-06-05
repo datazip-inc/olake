@@ -35,8 +35,7 @@
     </a>
 </p>
 
-> [!IMPORTANT]
-> [!WARNING]
+> [!NOTE]
 > 🎉 **OLake Fusion is now live!** — Automate your Apache Iceberg Table Maintenance. Check it out and start contributing → [github.com/datazip-inc/olake-fusion](https://github.com/datazip-inc/olake-fusion) 🎉
 
 ## OLake Go — Super-fast Sync to Apache Iceberg
