@@ -602,6 +602,28 @@ func (b *Backend) applyS3IOProps(props iceberg.Properties) {
 }
 
 func (b *Backend) loadIO(ctx context.Context) error {
+	// Prefer the table's own IO. For REST catalogs that vend storage
+	// credentials (e.g. Lakekeeper), tbl.FS(ctx) is backed by a
+	// refresher that uses the catalog-vended access key, secret, and
+	// session token — required for buckets that reject the user's HMAC
+	// keys with SignatureDoesNotMatch (e.g. GCS S3-compat where only
+	// short-lived vended HMAC pairs are authorised for the prefix).
+	//
+	// We fall back to constructing an IO from the user-supplied HMAC
+	// keys + endpoint only if the catalog did not vend an IO or the
+	// vended IO does not implement WriteFileIO. This preserves the
+	// previous behaviour for catalogs that don't vend credentials
+	// (Glue, JDBC, plain REST without credential vending).
+	if fs, err := b.tbl.FS(ctx); err == nil && fs != nil {
+		if wfs, ok := fs.(iceio.WriteFileIO); ok {
+			b.wfs = wfs
+			return nil
+		}
+		// Vended IO exists but is read-only — fall through to manual
+		// IO so writes still work, while logging the surprise.
+		logger.Warnf("Thread[%s]: catalog-vended IO does not support writes; falling back to user-supplied S3 credentials", b.threadID)
+	}
+
 	props := iceberg.Properties{}
 	b.applyS3IOProps(props)
 
