@@ -166,7 +166,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	if raw := ingestResponse.GetOlake_2PcState(); raw != "" {
 		var ms types.MetadataState
 		if err := json.Unmarshal([]byte(raw), &ms); err != nil {
-			return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
+			return nil, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
 		}
 		i.olake2PCState = &ms
 	}

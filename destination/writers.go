@@ -176,7 +176,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 		if streamArtifact.schema == nil {
 			// First thread for this stream: cache the schema so subsequent threads
-			// skip the expensive GET_OR_CREATE_TABLE schema negotiation.
+			// skip parsing the schema out of the GET_OR_CREATE_TABLE response.
 			// metadataState is intentionally NOT cached, every NewWriter call must
 			// receive a fresh olake_2pc snapshot from Java so that retries see the
 			// up-to-date committed chunk IDs / cursor positions.
