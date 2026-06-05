@@ -385,14 +385,14 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	if err := p.uploadPqFiles(ctx, dataFiles); err != nil {
 		return err
 	}
-	if err := p.writeCommitMarker(ctx, metadataState); err != nil {
+	if err := p.writeCompletedMarker(ctx, metadataState); err != nil {
 		return err
 	}
 	if err := p.promoteStaging(ctx, p.options.ThreadID); err != nil {
 		return err
 	}
-	if err := p.deleteStaging(ctx, p.options.ThreadID); err != nil {
-		logger.Warnf("Thread[%s]: failed to delete committed parquet 2pc staging dir: %s", p.options.ThreadID, err)
+	if err := p.cleanupCommittedStaging(p.options.ThreadID); err != nil {
+		logger.Warnf("Thread[%s]: failed to cleanup committed parquet 2pc staging dir: %s", p.options.ThreadID, err)
 	}
 	return nil
 }
