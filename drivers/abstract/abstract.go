@@ -247,7 +247,7 @@ func generateThreadID(streamID, hash string) string {
 // The writer parameter can be either:
 //   - *destination.WriterThread for a single writer
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any) {
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any, dedupInserts *bool) {
 	if r := recover(); r != nil {
 		*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: panic recovered: %v", *err, r)).(error)
 	}
@@ -259,10 +259,13 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	var metadataState any
 	var closeErr error
 	if mtState != nil {
-		metadataState, closeErr = types.SetMetadataState(*mtState, threadID)
-		if closeErr != nil {
-			closeErr = fmt.Errorf("failed to set metadata state: %s", closeErr)
+		ms, setErr := types.SetMetadataState(*mtState, threadID)
+		if setErr != nil {
+			closeErr = fmt.Errorf("failed to set metadata state: %s", setErr)
+			cancel()
 		}
+		types.SetDedupInserts(ms, dedupInserts)
+		metadataState = ms
 	}
 
 	switch w := writer.(type) {

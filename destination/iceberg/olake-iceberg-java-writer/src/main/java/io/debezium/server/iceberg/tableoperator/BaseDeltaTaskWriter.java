@@ -2,6 +2,7 @@ package io.debezium.server.iceberg.tableoperator;
 
 import com.google.common.collect.Sets;
 import org.apache.iceberg.*;
+import org.apache.iceberg.deletes.DeleteGranularity;
 import org.apache.iceberg.data.InternalRecordWrapper;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
@@ -53,8 +54,13 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
     if (rowOperation == Operation.DELETE && !keepDeletes) {
       // deletes. doing hard delete. when keepDeletes = FALSE we dont keep deleted record
       writer.deleteKey(keyProjection.wrap(row));
+    } else if (rowOperation == Operation.CREATE) {
+      // Steady-state CDC insert: no prior committed row exists for this key, skip equality delete.
+      writer.write(row);
     } else {
-      // We are deleting key even for insert operations to avoid duplicate records for handling inserts happening while full-load
+      // Phantom read possible: equality-delete before write to evict any prior committed version.
+      // _op_type normalisation ("i" -> "c") is done upstream in IcebergTableOperator
+      // for all writer types before reaching here.
       writer.deleteKey(keyProjection.wrap(row));
       writer.write(row);
     }
@@ -62,7 +68,8 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
 
   public class RowDataDeltaWriter extends BaseEqualityDeltaWriter {
     RowDataDeltaWriter(PartitionKey partition) {
-      super(partition, schema, deleteSchema);
+      // create one positional delete file per referenced data file,
+      super(partition, schema, deleteSchema, DeleteGranularity.FILE);
     }
 
     @Override

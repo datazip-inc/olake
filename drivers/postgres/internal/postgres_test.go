@@ -8,21 +8,20 @@ import (
 	_ "github.com/lib/pq"
 )
 
-func TestPostgresIntegration(t *testing.T) {
-	t.Parallel()
-	testConfig := &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Postgres)),
-		Namespace:                        "public",
-		ExpectedData:                     ExpectedPostgresData,
-		ExpectedUpdatedData:              ExpectedUpdatedData,
-		DestinationDataTypeSchema:        PostgresToDestinationSchema,
-		UpdatedDestinationDataTypeSchema: UpdatedPostgresToDestinationSchema,
-		DefaultCDCColumnsSchema:          ExpectedPostgresDefaultCDCColumnsSchema,
-		ExecuteQuery:                     ExecuteQuery,
-		DestinationDB:                    "postgres_postgres_public",
-		CursorField:                      "col_cursor:col_int",
-		PartitionRegex:                   "/{col_bigserial,identity}",
-		ColumnToExclude:                  "excludedcolumn",
+// postgresBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// between TestPostgresIntegration and TestPostgres2PC.
+func postgresBaseConfig() *testutils.IntegrationTest {
+	return &testutils.IntegrationTest{
+		TestConfig:                testutils.GetTestConfig(string(constants.Postgres)),
+		Namespace:                 "public",
+		ExpectedData:              ExpectedPostgresData,
+		DestinationDataTypeSchema: PostgresToDestinationSchema,
+		DefaultCDCColumnsSchema:   ExpectedPostgresDefaultCDCColumnsSchema,
+		ExecuteQuery:              ExecuteQuery,
+		DestinationDB:             "postgres_postgres_public",
+		CursorField:               "col_cursor:col_int",
+		PartitionRegex:            "/{col_bigserial,identity}",
+		ColumnToExclude:           "excludedcolumn",
 		FilterConfig: `{
                     "logical_operator": "And",
                     "conditions": [
@@ -39,7 +38,19 @@ func TestPostgresIntegration(t *testing.T) {
                     ]
                 }`,
 	}
-	testConfig.TestIntegration(t)
+}
+
+func TestPostgresIntegration(t *testing.T) {
+	t.Parallel()
+	cfg := postgresBaseConfig()
+	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+	cfg.TestIntegration(t)
+}
+
+func TestPostgres2PC(t *testing.T) {
+	t.Parallel()
+	postgresBaseConfig().Test2PCIntegration(t)
 }
 
 func TestPostgresPerformance(t *testing.T) {

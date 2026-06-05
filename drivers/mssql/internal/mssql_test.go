@@ -7,21 +7,20 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-func TestMSSQLIntegration(t *testing.T) {
-	t.Parallel()
-	testConfig := &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.MSSQL)),
-		Namespace:                        "dbo",
-		ExpectedData:                     ExpectedMSSQLData,
-		ExpectedUpdatedData:              ExpectedUpdatedMSSQLData,
-		DestinationDataTypeSchema:        MSSQLToDestinationSchema,
-		UpdatedDestinationDataTypeSchema: MSSQLToDestinationSchema,
-		DefaultCDCColumnsSchema:          ExpectedMSSQLDefaultCDCColumnsSchema,
-		ExecuteQuery:                     ExecuteQuery,
-		ColumnToExclude:                  "excludedColumn",
-		DestinationDB:                    "mssql_olake_mssql_test_dbo",
-		CursorField:                      "id_cursor:col_int",
-		PartitionRegex:                   "/{id,identity}",
+// mssqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// between TestMSSQLIntegration and TestMSSQL2PC.
+func mssqlBaseConfig() *testutils.IntegrationTest {
+	return &testutils.IntegrationTest{
+		TestConfig:                testutils.GetTestConfig(string(constants.MSSQL)),
+		Namespace:                 "dbo",
+		ExpectedData:              ExpectedMSSQLData,
+		DestinationDataTypeSchema: MSSQLToDestinationSchema,
+		DefaultCDCColumnsSchema:   ExpectedMSSQLDefaultCDCColumnsSchema,
+		ExecuteQuery:              ExecuteQuery,
+		ColumnToExclude:           "excludedColumn",
+		DestinationDB:             "mssql_olake_mssql_test_dbo",
+		CursorField:               "id_cursor:col_int",
+		PartitionRegex:            "/{id,identity}",
 		FilterConfig: `{
                     "logical_operator": "And",
                     "conditions": [
@@ -38,5 +37,17 @@ func TestMSSQLIntegration(t *testing.T) {
                     ]
                 }`,
 	}
-	testConfig.TestIntegration(t)
+}
+
+func TestMSSQLIntegration(t *testing.T) {
+	t.Parallel()
+	cfg := mssqlBaseConfig()
+	cfg.ExpectedUpdatedData = ExpectedUpdatedMSSQLData
+	cfg.UpdatedDestinationDataTypeSchema = MSSQLToDestinationSchema
+	cfg.TestIntegration(t)
+}
+
+func TestMSSQL2PC(t *testing.T) {
+	t.Parallel()
+	mssqlBaseConfig().Test2PCIntegration(t)
 }
