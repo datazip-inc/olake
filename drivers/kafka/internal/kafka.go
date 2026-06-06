@@ -174,15 +174,9 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", streamName, err)
 	}
 
-	// get offsets for all partitions
-	startOffsets, err := k.adminClient.ListStartOffsets(ctx, streamName)
+	startOffsets, endOffsets, err := readerManager.ListTopicOffsets(ctx, streamName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list start offsets for topic %s: %s", streamName, err)
-	}
-
-	endOffsets, err := k.adminClient.ListEndOffsets(ctx, streamName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list end offsets for topic %s: %s", streamName, err)
+		return nil, fmt.Errorf("failed to list offsets for topic %s: %s", streamName, err)
 	}
 
 	if topicDetail.Err != nil {
@@ -198,12 +192,8 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			return fmt.Errorf("partition %d: %s", partitionDetail.Partition, partitionDetail.Err)
 		}
 
-		startOffset, startOffsetExists := startOffsets.Lookup(streamName, partitionDetail.Partition)
-		if !startOffsetExists {
-			return nil
-		}
-		endOffset, endOffsetExists := endOffsets.Lookup(streamName, partitionDetail.Partition)
-		if !endOffsetExists {
+		startOffset, endOffset, offsetsFound := readerManager.GetPartitionOffsets(startOffsets, endOffsets, streamName, partitionDetail.Partition)
+		if !offsetsFound {
 			return nil
 		}
 
@@ -372,7 +362,7 @@ func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, comp
 		}
 
 		for _, assignedPk := range assigned {
-			if _, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", assignedPk.Topic, assignedPk.Partition)); exists {
+			if _, exists := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(assignedPk.Topic, assignedPk.Partition)); exists {
 				observedPartitions[assignedPk] = struct{}{}
 			}
 		}

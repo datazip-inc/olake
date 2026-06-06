@@ -93,7 +93,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	err = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
-		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
+		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(record.Message.Topic, record.Message.Partition))
 		if !exists {
 			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
 		}
@@ -158,7 +158,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 			messages = append(messages, message)
 
 			// Resolve stream for this partition
-			partitionID := fmt.Sprintf("%s:%d", partitionKey.Topic, partitionKey.Partition)
+			partitionID := kafkapkg.PartitionIndexKey(partitionKey.Topic, partitionKey.Partition)
 			if partitionMeta, exists := k.readerManager.GetPartitionIndex(partitionID); exists && partitionMeta.Stream != nil {
 				syncedStreams[partitionMeta.Stream.ID()] = partitionMeta.Stream
 			}
@@ -223,8 +223,8 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 
 			// any fetch error (including parent ctx cancellation) is non-retryable.
 			// For more info, go through the documentation: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#Fetches.Errors
-			if errs := fetches.Errors(); len(errs) > 0 {
-				return fmt.Errorf("%w: error reading message in Kafka CDC sync: %s", constants.ErrNonRetryable, errs[0].Err)
+			if err := fetches.Err(); err != nil {
+				return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrNonRetryable, err)
 			}
 
 			// wrap batch into iterator

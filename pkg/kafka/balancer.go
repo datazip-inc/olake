@@ -1,8 +1,6 @@
 package kafka
 
 import (
-	"fmt"
-
 	"github.com/datazip-inc/olake/types"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
@@ -54,7 +52,7 @@ func (b *CustomGroupBalancer) Balance(consumerBalancer *kgo.ConsumerBalancer, pa
 	activePartitions := make([]types.PartitionKey, 0)
 	for topic, partitions := range partitionsPerTopic {
 		for partition := range partitions {
-			if _, ok := b.partitionIndex[fmt.Sprintf("%s:%d", topic, partition)]; ok {
+			if _, ok := b.partitionIndex[PartitionIndexKey(topic, partition)]; ok {
 				activePartitions = append(activePartitions, types.PartitionKey{Topic: topic, Partition: partition})
 			}
 		}

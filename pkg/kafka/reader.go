@@ -25,13 +25,12 @@ func NewReaderManager(config ReaderConfig) *ReaderManager {
 
 // CreateReaders creates Kafka readers based on the provided streams and configuration
 func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.StreamInterface) error {
-	// populate topics from streams
-	for _, stream := range streams {
-		r.topics = append(r.topics, stream.Name())
-	}
-
 	r.partitionIndex = make(map[string]types.PartitionMetaData)
 	for _, stream := range streams {
+		// populate topics from streams
+		r.topics = append(r.topics, stream.Name())
+
+		// set partitions for the stream
 		if err := r.SetPartitions(ctx, stream); err != nil {
 			return fmt.Errorf("failed to set partitions for stream %s: %s", stream.ID(), err)
 		}
@@ -103,16 +102,9 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 		return fmt.Errorf("failed to fetch topic metadata for topic %s: %s", topic, topicDetailErr)
 	}
 
-	// fetch first offset details of the all partition
-	startOffsets, startOffsetErr := r.config.AdminClient.ListStartOffsets(ctx, topic)
-	if startOffsetErr != nil {
-		return fmt.Errorf("failed to list start offsets for topic %s: %s", topic, startOffsetErr)
-	}
-
-	// fetch last offset details of the all partition
-	endOffsets, endOffsetErr := r.config.AdminClient.ListEndOffsets(ctx, topic)
-	if endOffsetErr != nil {
-		return fmt.Errorf("failed to list end offsets for topic %s: %s", topic, endOffsetErr)
+	startOffsets, endOffsets, listOffsetsErr := r.ListTopicOffsets(ctx, topic)
+	if listOffsetsErr != nil {
+		return fmt.Errorf("failed to list offsets for topic %s: %s", topic, listOffsetsErr)
 	}
 
 	// fetch already committed offset of partition
@@ -123,15 +115,8 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 
 	// build partition metadata
 	for _, partitionDetail := range topicDetail.Partitions {
-		startOffsetDetail, startOffsetExists := startOffsets.Lookup(topic, partitionDetail.Partition)
-		if !startOffsetExists {
-			logger.Infof("skipping partition %d for topic %s, start offset not found", partitionDetail.Partition, topic)
-			continue
-		}
-
-		endOffsetDetail, endOffsetExists := endOffsets.Lookup(topic, partitionDetail.Partition)
-		if !endOffsetExists {
-			logger.Infof("skipping partition %d for topic %s, end offset not found", partitionDetail.Partition, topic)
+		startOffsetDetail, endOffsetDetail, offsetsFound := r.GetPartitionOffsets(startOffsets, endOffsets, topic, partitionDetail.Partition)
+		if !offsetsFound {
 			continue
 		}
 
@@ -149,13 +134,50 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 			continue
 		}
 
-		r.partitionIndex[fmt.Sprintf("%s:%d", topic, partitionDetail.Partition)] = types.PartitionMetaData{
+		r.partitionIndex[PartitionIndexKey(topic, partitionDetail.Partition)] = types.PartitionMetaData{
 			Stream:      stream,
 			PartitionID: partitionDetail.Partition,
 			EndOffset:   endOffsetDetail.Offset,
 		}
 	}
 	return nil
+}
+
+// PartitionIndexKey returns the map key used for partition index lookups.
+func PartitionIndexKey(topic string, partition int32) string {
+	return fmt.Sprintf("%s:%d", topic, partition)
+}
+
+// ListTopicOffsets returns start and end offsets for all partitions in a topic.
+func (r *ReaderManager) ListTopicOffsets(ctx context.Context, topic string) (kadm.ListedOffsets, kadm.ListedOffsets, error) {
+	startOffsets, err := r.config.AdminClient.ListStartOffsets(ctx, topic)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list start offsets for topic %s: %s", topic, err)
+	}
+
+	endOffsets, err := r.config.AdminClient.ListEndOffsets(ctx, topic)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to list end offsets for topic %s: %s", topic, err)
+	}
+
+	return startOffsets, endOffsets, nil
+}
+
+// GetPartitionOffsets returns start and end offsets for a topic partition.
+func (r *ReaderManager) GetPartitionOffsets(startOffsets, endOffsets kadm.ListedOffsets, topic string, partition int32) (kadm.ListedOffset, kadm.ListedOffset, bool) {
+	startOffset, startOffsetExists := startOffsets.Lookup(topic, partition)
+	if !startOffsetExists {
+		logger.Infof("skipping partition %d for topic %s, start offset not found", partition, topic)
+		return kadm.ListedOffset{}, kadm.ListedOffset{}, false
+	}
+
+	endOffset, endOffsetExists := endOffsets.Lookup(topic, partition)
+	if !endOffsetExists {
+		logger.Infof("skipping partition %d for topic %s, end offset not found", partition, topic)
+		return kadm.ListedOffset{}, kadm.ListedOffset{}, false
+	}
+
+	return startOffset, endOffset, true
 }
 
 // GetTopicMetadata fetches metadata for a topic
@@ -174,19 +196,13 @@ func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*ka
 
 // FetchCommittedOffsets fetches committed offsets for a topic.
 func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string) (map[int32]int64, error) {
-	offsets, err := r.config.AdminClient.FetchOffsets(ctx, r.config.ConsumerGroupID)
+	offsets, err := r.config.AdminClient.FetchOffsetsForTopics(ctx, r.config.ConsumerGroupID, topic)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch committed offsets for group %s: %s", r.config.ConsumerGroupID, err)
+		return nil, fmt.Errorf("failed to fetch committed offsets for group %s topic %s: %s", r.config.ConsumerGroupID, topic, err)
 	}
 
-	committedTopicOffsets := make(map[int32]int64)
-
-	topicOffsets, exists := offsets[topic]
-	if !exists {
-		return committedTopicOffsets, nil
-	}
-
-	for partition, offset := range topicOffsets {
+	committedTopicOffsets := make(map[int32]int64, len(offsets[topic]))
+	for partition, offset := range offsets[topic] {
 		committedTopicOffsets[partition] = offset.At
 	}
 
@@ -379,6 +395,10 @@ func (r *ReaderManager) waitForPartitionAssignment(ctx context.Context) error {
 			return nil
 		}
 
-		time.Sleep(500 * time.Millisecond)
+		select {
+		case <-joinCtx.Done():
+			return fmt.Errorf("timed out waiting for partition assignment on consumer group %s: %s", r.config.ConsumerGroupID, joinCtx.Err())
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 }
