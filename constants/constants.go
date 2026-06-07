@@ -40,6 +40,17 @@ const (
 	// MysqlChunkAcceptanceRatio defines the minimum ratio of expected chunks that must be generated
 	// for the split to be considered valid.
 	MysqlChunkAcceptanceRatio = float64(0.8)
+	// SamplePercentMin / SamplePercentMax define the clamped range for TABLESAMPLE /
+	// SAMPLE BLOCK percentage used by physloc and ROWID chunk boundary estimation.
+	// 0.01 is the practical floor below which page-level sampling may return zero
+	// rows; 50 caps worst-case I/O so a bad row-count estimate cannot escalate to a
+	// near-full scan.
+	SamplePercentMin = float64(0.01)
+	SamplePercentMax = float64(50.0)
+	// SampleRowsPerChunkMultiplier controls sample density: each target chunk gets
+	// ~10 sample points to pick a boundary from, producing even spacing even when
+	// blocks/pages are clustered (e.g. freshly inserted rows land on adjacent pages).
+	SampleRowsPerChunkMultiplier = int64(10)
 )
 
 type DriverType string
