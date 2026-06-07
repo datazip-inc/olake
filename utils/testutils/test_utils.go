@@ -28,6 +28,8 @@ import (
 )
 
 const (
+	// golangTestImage must match the `go` version in go.mod / go.work (integration tests build via build.sh inside this container).
+	golangTestImage     = "golang:1.25.11-bookworm"
 	icebergCatalog      = "olake_iceberg"
 	sparkConnectAddress = "sc://localhost:15002"
 	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
@@ -1044,7 +1046,7 @@ func (cfg *IntegrationTest) runInTestContainer(
 ) {
 	t.Helper()
 	req := testcontainers.ContainerRequest{
-		Image:         "golang:1.25.10-bookworm",
+		Image:         golangTestImage,
 		ImagePlatform: "linux/amd64",
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.Binds = []string{
@@ -1782,7 +1784,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 	t.Run("performance", func(t *testing.T) {
 		req := testcontainers.ContainerRequest{
-			Image: "golang:1.25.10-bookworm",
+			Image: golangTestImage,
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
