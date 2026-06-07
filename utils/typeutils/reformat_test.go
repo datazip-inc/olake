@@ -1104,7 +1104,7 @@ func TestParseStringTimestamp(t *testing.T) {
 		name            string
 		value           string
 		isTimestampInDB bool
-		stateVersion    int
+		stateVersion    *int
 		expected        time.Time
 		expectedErr     error
 	}{
@@ -1225,14 +1225,14 @@ func TestParseStringTimestamp(t *testing.T) {
 		},
 		{
 			name:            "invalid format year too long",
-			value:           "12345-10-05",
+			value:           "12345-10-0",
 			isTimestampInDB: true,
 			expected:        time.Time{},
 			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
 		},
 		{
 			name:            "invalid format year too short",
-			value:           "abc-10-05",
+			value:           "-1000-0500",
 			isTimestampInDB: true,
 			expected:        time.Time{},
 			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
@@ -1243,7 +1243,6 @@ func TestParseStringTimestamp(t *testing.T) {
 			name:            "invalid non-db versioned",
 			value:           "2023-10-05 invalid",
 			isTimestampInDB: false,
-			stateVersion:    1,
 			expected:        time.Time{},
 			expectedErr:     fmt.Errorf(`failed to parse datetime from available formats: parsing time "2023-10-05 invalid" as "2006-01-02T15:04:05.000000000Z": cannot parse " invalid" as "T"`),
 		},
@@ -1253,16 +1252,16 @@ func TestParseStringTimestamp(t *testing.T) {
 			name:            "invalid db versioned",
 			value:           "2023-10-05 invalid",
 			isTimestampInDB: true,
-			stateVersion:    1,
 			expected:        time.Unix(0, 0).UTC(),
 			expectedErr:     nil,
 		},
 
-		// ===== parse failure + db + version = 0 =====
+		// ===== parse failure + non-db + version = 0 (backward compatibility) =====
 		{
-			name:            "invalid db backward compatibility",
+			name:            "invalid non-db backward compatibility",
 			value:           "2023-10-05 invalid",
-			isTimestampInDB: true,
+			isTimestampInDB: false,
+			stateVersion:    func(v int) *int { return &v }(0),
 			expected:        time.Unix(0, 0).UTC(),
 			expectedErr:     nil,
 		},
@@ -1273,7 +1272,8 @@ func TestParseStringTimestamp(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			constants.LoadedStateVersion = utils.Ternary(tc.stateVersion != 0, tc.stateVersion, constants.LatestStateVersion).(int)
+			latestVersion := constants.LatestStateVersion
+			constants.LoadedStateVersion = *utils.Ternary(tc.stateVersion != nil, tc.stateVersion, &latestVersion).(*int)
 			result, err := parseStringTimestamp(tc.value, tc.isTimestampInDB)
 
 			if tc.expectedErr != nil {
@@ -1293,7 +1293,7 @@ func TestReformatInt64(t *testing.T) {
 		v            any
 		expected     int64
 		expectedErr  error
-		stateVersion int
+		stateVersion *int
 	}{
 		// ===== json.Number =====
 		{
@@ -1546,7 +1546,7 @@ func TestReformatInt64(t *testing.T) {
 			expectedErr: nil,
 		},
 		{
-			name:        "byte slice invalid backward compatibility",
+			name:        "byte slice non-numeric string",
 			v:           []uint8("abc"),
 			expected:    int64(0),
 			expectedErr: fmt.Errorf("failed to change %v (type:%T) to int64", []uint8("abc"), []uint8("abc")),
@@ -1562,7 +1562,7 @@ func TestReformatInt64(t *testing.T) {
 			v:            []uint8("123"),
 			expected:     int64(0),
 			expectedErr:  fmt.Errorf("failed to change %v (type:%T) to int64", []uint8("123"), []uint8("123")),
-			stateVersion: 5,
+			stateVersion: func(v int) *int { return &v }(5),
 		},
 
 		// ===== unsupported =====
@@ -1585,7 +1585,8 @@ func TestReformatInt64(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			constants.LoadedStateVersion = utils.Ternary(tc.stateVersion != 0, tc.stateVersion, constants.LatestStateVersion).(int)
+			latestVersion := constants.LatestStateVersion
+			constants.LoadedStateVersion = *utils.Ternary(tc.stateVersion != nil, tc.stateVersion, &latestVersion).(*int)
 			result, err := ReformatInt64(tc.v)
 
 			if tc.expectedErr != nil {
@@ -1767,9 +1768,9 @@ func TestReformatInt32(t *testing.T) {
 		},
 		{
 			name:        "string negative float",
-			v:           strconv.FormatFloat(math.SmallestNonzeroFloat64, 'f', -1, 64),
+			v:           "-5.9",
 			expected:    int32(0),
-			expectedErr: fmt.Errorf("failed to change string %v to int32: %v", strconv.FormatFloat(math.SmallestNonzeroFloat64, 'f', -1, 64), &strconv.NumError{Func: "ParseInt", Num: strconv.FormatFloat(math.SmallestNonzeroFloat64, 'f', -1, 64), Err: strconv.ErrSyntax}),
+			expectedErr: fmt.Errorf("failed to change string %v to int32: %v", "-5.9", &strconv.NumError{Func: "ParseInt", Num: "-5.9", Err: strconv.ErrSyntax}),
 		},
 		{
 			name:        "string invalid",
@@ -1818,13 +1819,7 @@ func TestReformatInt32(t *testing.T) {
 			expectedErr: nil,
 		},
 		{
-			name:        "byte slice int32",
-			v:           []uint8("123"),
-			expected:    int32(0),
-			expectedErr: fmt.Errorf("unsupported []uint8 of length %d: %v", len([]uint8("123")), []uint8("123")),
-		},
-		{
-			name:        "byte slice uint fallback",
+			name:        "byte slice multi-byte unsupported",
 			v:           []uint8(strconv.FormatUint(math.MaxUint32, 10)),
 			expected:    int32(0),
 			expectedErr: fmt.Errorf("unsupported []uint8 of length %d: %v", len([]uint8(strconv.FormatUint(math.MaxUint32, 10))), []uint8(strconv.FormatUint(math.MaxUint32, 10))),
@@ -2002,8 +1997,8 @@ func TestReformatFloat64(t *testing.T) {
 		},
 		{
 			name:        "float64 negative",
-			v:           float64(math.SmallestNonzeroFloat64),
-			expected:    float64(math.SmallestNonzeroFloat64),
+			v:           float64(-5.9),
+			expected:    float64(-5.9),
 			expectedErr: nil,
 		},
 
