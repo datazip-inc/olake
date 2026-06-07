@@ -1225,7 +1225,7 @@ func TestParseStringTimestamp(t *testing.T) {
 		},
 		{
 			name:            "invalid format year too long",
-			value:           "1234-1-05",
+			value:           "12345-10-05",
 			isTimestampInDB: true,
 			expected:        time.Time{},
 			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),

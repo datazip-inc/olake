@@ -78,7 +78,6 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		case uint, uint8, uint16, uint32, uint64:
 			return fmt.Sprintf("%d", v), nil
 		case float32, float64:
-			// Fixed float string conversion
 			return fmt.Sprintf("%v", v), nil
 		case string:
 			return v, nil
