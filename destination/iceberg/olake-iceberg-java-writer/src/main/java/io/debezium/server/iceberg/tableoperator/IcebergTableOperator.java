@@ -463,6 +463,7 @@ public class IcebergTableOperator {
               JsonNode payloadNode = mapper.readTree(payload);
               rootNode.put(STATE_FIELD_LATEST_THREAD_ID, threadId);
               if (payloadNode.isObject()) {
+                  // Deep Merge payload directly into root node
                   mergePayloadIntoRoot(rootNode, payloadNode);
               }
           } else {
@@ -485,55 +486,31 @@ public class IcebergTableOperator {
       }
   }
 
-  /**
-   * Merges payload fields into rootNode one level deep.
-   * - If the incoming value is a JSON object → merge its keys into the existing object.
-   * - If the incoming value is a JSON string that parses as an object → merge inner keys,
-   *   write back as a string (handles the "state" field which is stored as a JSON string).
-   * - Everything else (scalar, array, non-parseable string) → overwrite.
-   */
+  /** One-level merge for string-encoded JSON objects (e.g. state); otherwise overwrite. */
   private void mergePayloadIntoRoot(ObjectNode rootNode, JsonNode payloadNode) {
-      payloadNode.fields().forEachRemaining(entry -> {
-          String key = entry.getKey();
-          JsonNode incoming = entry.getValue();
-          JsonNode existing = rootNode.get(key);
-
-          if (incoming.isObject()) {
-              // incoming is a JSON object: merge keys into existing object if possible
-              if (existing != null && existing.isObject()) {
-                  ((ObjectNode) existing).setAll((ObjectNode) incoming);
-              } else {
-                  rootNode.set(key, incoming);
-              }
-          } else if (incoming.isTextual()) {
-              // incoming is a string: try to parse it as a JSON object for one-level deep merge
-              try {
-                  JsonNode parsedIncoming = mapper.readTree(incoming.asText());
-                  if (parsedIncoming.isObject()) {
-                      // try to parse the existing value the same way
-                      ObjectNode mergedInner = mapper.createObjectNode();
-                      if (existing != null && existing.isTextual()) {
-                          try {
-                              JsonNode parsedExisting = mapper.readTree(existing.asText());
-                              if (parsedExisting.isObject()) {
-                                  mergedInner.setAll((ObjectNode) parsedExisting);
-                              }
-                          } catch (JsonProcessingException ignored) {}
-                      } else if (existing != null && existing.isObject()) {
-                          mergedInner.setAll((ObjectNode) existing);
-                      }
-                      mergedInner.setAll((ObjectNode) parsedIncoming);
-                      rootNode.put(key, mergedInner.toString());
-                      return;
-                  }
-              } catch (JsonProcessingException ignored) {}
-              // not a parseable object string → overwrite
-              rootNode.set(key, incoming);
-          } else {
-              // scalar (bool, number, null) or array → overwrite
-              rootNode.set(key, incoming);
+      payloadNode.fields().forEachRemaining(e -> {
+          String key = e.getKey();
+          JsonNode value = e.getValue();
+          ObjectNode in = parseJSONObject(value);
+          if (in == null) {
+              rootNode.set(key, value);
+              return;
           }
+          ObjectNode merged = parseJSONObject(rootNode.get(key));
+          if (merged == null) merged = mapper.createObjectNode();
+          merged.setAll(in);
+          rootNode.put(key, merged.toString());
       });
+  }
+
+  private ObjectNode parseJSONObject(JsonNode node) {
+      if (node == null || !node.isTextual()) return null;
+      try {
+          JsonNode p = mapper.readTree(node.asText());
+          return p.isObject() ? (ObjectNode) p : null;
+      } catch (JsonProcessingException ignored) {
+          return null;
+      }
   }
 
   public String getCommitState(Table table) {      
