@@ -59,6 +59,13 @@
                 "mode"
             ]
         },
+        "jdbc_url_params": {
+            "type": "object",
+            "title": "JDBC URL Parameters",
+            "description": "Additional connection parameters for the Go MSSQL driver",
+            "additionalProperties": true,
+            "default": {}
+        },
         "manage_capture_instances": {
             "type": "boolean",
             "title": "Manage Capture Instances",
