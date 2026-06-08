@@ -68,19 +68,19 @@
 
 | Source → Destination | Full Load       | Relative Performance (Full Load)    | Full Report                                                  |
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
-| Postgres → Iceberg   | 5,80,113 RPS    | 12.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
-| MySQL → Iceberg      | 1,39,773 RPS    | 1.91× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | 37,879 RPS              | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
-| Oracle → Iceberg     | 5,26,337 RPS  | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
-| Kafka → Iceberg      | 2,09,065 MPS (Bounded Incremental) | 1.23x slower than Flink                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
+| Postgres → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th Jan 2026)</span>   | 5,80,113 RPS    | 12.5× faster than Fivetran            | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| MySQL → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th May 2026)</span>     | 1,39,773 RPS    | 1.91× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
+| MongoDB → Iceberg <br/><span className='text-xs text-slate-500'>(as of 5th Feb 2026)</span>   | 37,879 RPS              | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| Oracle → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th Jan 2026)</span>     | 5,26,337 RPS  | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
+| Kafka → Iceberg <br/><span className='text-xs text-slate-500'>(as of 27th Feb 2026)</span>     | 2,09,065 MPS (Bounded Incremental) | 1.23x slower than Flink                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=kafka)   |
 
 #### CDC
 
 | Source → Destination | CDC             | Relative Performance (CDC)          | Full Report                                                  |
 |----------------------|-----------------|--------------------------------------|--------------------------------------------------------------|
-| Postgres → Iceberg   | 55,555 RPS      | 2× faster than Fivetran              | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
-| MySQL → Iceberg      | 59,951 RPS      | 1.52× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
-| MongoDB → Iceberg    | 10,692 RPS      | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
+| Postgres → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th Jan 2026)</span>   | 55,555 RPS      | 2× faster than Fivetran              | [Full Report](https://olake.io/docs/benchmarks?tab=postgres) |
+| MySQL → Iceberg <br/><span className='text-xs text-slate-500'>(as of 30th May 2026)</span>     | 59,951 RPS      | 1.52× faster than Fivetran           | [Full Report](https://olake.io/docs/benchmarks/?tab=mysql)   |
+| MongoDB → Iceberg <br/><span className='text-xs text-slate-500'>(as of 5th Feb 2026)</span>   | 10,692 RPS      | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=mongodb) |
 | Oracle → Iceberg     | -               | -                                    | [Full Report](https://olake.io/docs/benchmarks/?tab=oracle)  |
 
 ---
@@ -88,7 +88,7 @@
 ### 🔧 Supported Sources and Destinations
 
 
-#### Sources (Databases and S3)
+#### Sources (Databases)
 
 
 | Source        | Full Load    |  CDC          | Incremental       | Notes                       | Documentation               |
@@ -99,9 +99,15 @@
 | Oracle        | ✅           | WIP  | ✅                |  JDBC based Full Load & Incremental                |  [Oracle Docs](https://olake.io/docs/connectors/oracle/overview) |
 | DB2          | ✅           | -    | ✅                | JDBC based Full Load & Incremental                 | [DB2 Docs](https://olake.io/docs/connectors/db2/) |
 | MSSQL        | ✅           | ✅   | ✅                | Full Load, CDC & Incremental                        | [MSSQL Docs](https://olake.io/docs/connectors/mssql/) |
-| S3           | ✅           | -    | ✅                | Ingests from Amazon S3 or S3-compatible (MinIO, LocalStack) | [S3 Docs](https://olake.io/docs/connectors/s3/) |
 
-#### Sources (Kafka)
+
+#### Source (S3)
+
+| Source        | Full Load    |  CDC          | Incremental       | Notes                       | Documentation               |
+|---------------|--------------|---------------|-------------------|-----------------------------|-----------------------------|
+|S3             | ✅           | -             | ✅                | Ingests from Amazon S3 or S3-compatible (MinIO, LocalStack) | [S3 Docs](https://olake.io/docs/connectors/s3/) |
+
+#### Source (Kafka)
 
 
 | Source | Bounded Incremental | Notes                             | Documentation |
@@ -158,17 +164,17 @@ curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-c
 
 Detailed getting started using OLake UI can be found [here](https://olake.io/docs/getting-started/quickstart/).
 
-![olake-ui](https://github.com/user-attachments/assets/691eb8fb-3c81-4ae1-83ee-e4854a98c15a)
+![olake-ui](https://github.com/user-attachments/assets/2edfc526-3cc0-4f6f-992f-790fba3e84b8)
 
 #### Creating Your First Job
 
 With the UI running, you can create a data pipeline in a few steps:
 
-1. **Configure Source:** Navigate to **Source** tab and click **Create Source**. Set up your source connection (e.g., PostgreSQL, MySQL, MongoDB).
-2. **Configure Destination:** Navigate to **Destination** tab and click **Create Destination**. Set up your destination (e.g., Apache Iceberg with a Glue, REST, Hive, or JDBC catalog).
+1. **Configure Source:** Navigate to **Source** tab and click **Create Source**. Set up your source connection.
+2. **Configure Destination:** Navigate to **Destination** tab and click **Create Destination**. Set up your destination.
 3. **Create a Job:** Navigate to the **Jobs** tab and click **Create Job**. 
 4. **Configure & Run:** Give your job a name, set a schedule, select your source and destination and click **Next** to finish.
-5. **Select Streams:** Choose which tables to sync and configure their sync mode (`CDC` or `Full Refresh`).
+5. **Select Streams:** Choose which tables to sync and configure their sync mode (`CDC`, `Full Refresh` or `Incremental`).
 
 
 For a detailed walkthrough, refer to the [Jobs documentation](https://olake.io/docs/getting-started/creating-first-pipeline/).
@@ -226,9 +232,8 @@ Below are other different ways you can run OLake Go:
 - [x] Oracle Full Load Support
 - [x] Oracle Incremental
 - [x] Filters for Full Load and Incremental
+- [ ] Interoperability
 - [ ] Iceberg V3 Support
-
-📌 Check out our [GitHub Project Roadmap](https://github.com/orgs/datazip-inc/projects/5) and the [Upcoming OLake Roadmap](https://github.com/datazip-inc/olake#-roadmap-highlights) to track what's next. If you have ideas or feedback, please share them in our [GitHub Discussions](https://github.com/datazip-inc/olake/discussions) or by opening an issue.
 
 ---
 
