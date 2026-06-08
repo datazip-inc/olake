@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
@@ -230,7 +231,7 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 	}
 
 	describedGroup := describedGroups[r.config.ConsumerGroupID]
-	if describedGroup.Err != nil {
+	if describedGroup.Err != nil && describedGroup.Err != kerr.GroupIDNotFound {
 		return fmt.Errorf("describe groups error: %s", describedGroup.Err)
 	}
 
