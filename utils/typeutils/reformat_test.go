@@ -1225,7 +1225,7 @@ func TestParseStringTimestamp(t *testing.T) {
 		},
 		{
 			name:            "invalid format year too long",
-			value:           "12345-10-0",
+			value:           "12345-10-05",
 			isTimestampInDB: true,
 			expected:        time.Time{},
 			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
@@ -1534,13 +1534,13 @@ func TestReformatInt64(t *testing.T) {
 			expectedErr: nil,
 		},
 		{
-			name:        "byte slice uint fallback (version>5)",
-			v:           []uint8("18446744073709551615"),
+			name:        "byte slice uint64 max overflow",
+			v:           []uint8(strconv.FormatUint(uint64(math.MaxInt64)+1, 10)),
 			expected:    int64(-1),
 			expectedErr: nil,
 		},
 		{
-			name:        "byte slice negative (version>5)",
+			name:        "byte slice negative",
 			v:           []uint8("-123"),
 			expected:    int64(-123),
 			expectedErr: nil,
@@ -1991,8 +1991,20 @@ func TestReformatFloat64(t *testing.T) {
 		},
 		{
 			name:        "float64",
+			v:           float64(5.9),
+			expected:    float64(5.9),
+			expectedErr: nil,
+		},
+		{
+			name:        "float64 max",
 			v:           float64(math.MaxFloat64),
 			expected:    float64(math.MaxFloat64),
+			expectedErr: nil,
+		},
+		{
+			name:        "float64 smallest nonzero",
+			v:           float64(math.SmallestNonzeroFloat64),
+			expected:    float64(math.SmallestNonzeroFloat64),
 			expectedErr: nil,
 		},
 		{
