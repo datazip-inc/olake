@@ -1535,7 +1535,7 @@ func TestReformatInt64(t *testing.T) {
 		},
 		{
 			name:        "byte slice uint64 max overflow",
-			v:           []uint8(strconv.FormatUint(uint64(math.MaxInt64)+1, 10)),
+			v:           []uint8(strconv.FormatUint(math.MaxUint64, 10)),
 			expected:    int64(-1),
 			expectedErr: nil,
 		},
