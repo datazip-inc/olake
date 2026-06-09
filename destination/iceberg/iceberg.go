@@ -347,7 +347,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		// parallel flatten data and detect schema difference
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-			flattenRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+			flattenRecord, err := typeutils.NewFlattenerWith(i.stream.ResolveColumnName).Flatten(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}
@@ -529,11 +529,11 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
 		// Append to ordered slice to preserve partition order.
-		// SchemaField is reformatted once here so all consumers use the consistent
-		// destination column name without scattering utils.Reformat() calls.
+		// SchemaField is resolved once here via the stream's naming strategy so
+		// all consumers get a consistent output column name.
 		i.partitionInfo = append(i.partitionInfo, internal.PartitionInfo{
 			Field:       colName,
-			SchemaField: utils.Reformat(colName),
+			SchemaField: i.stream.ResolveColumnName(colName),
 			Transform:   transform,
 		})
 	}

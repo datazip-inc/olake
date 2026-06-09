@@ -153,7 +153,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	}
 
 	fields := make(typeutils.Fields)
-	fields.FromSchema(stream.Schema())
+	fields.FromSchema(stream.Schema(), stream.ResolveColumnName)
 	p.schema = fields.Clone() // update schema
 	return fields, nil, nil
 }
@@ -374,7 +374,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 		// Add common fields
 		maps.Copy(records[idx].Data, record.OlakeColumns)
-		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+		flattenedRecord, err := typeutils.NewFlattenerWith(p.stream.ResolveColumnName).Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
 		}

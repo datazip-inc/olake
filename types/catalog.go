@@ -52,6 +52,8 @@ type StreamMetadata struct {
 	StreamName     string `json:"stream_name"`
 	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization"`
+	// When enabled, source column names are preserved as-is; otherwise utils.Reformat() is applied to generate destination-safe lowercase column names.
+	UseSourceColumnNames bool `json:"use_source_column_names,omitempty"`
 	//legacy filter input
 	Filter string `json:"filter,omitempty"`
 	//new filter input
@@ -313,6 +315,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
+					(oldMetadata.UseSourceColumnNames != newMetadata.UseSourceColumnNames) ||
 					!reflect.DeepEqual(oldMetadata.FilterConfig, newMetadata.FilterConfig) ||
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||

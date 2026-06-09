@@ -4,7 +4,6 @@ import (
 	"sort"
 
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -111,17 +110,12 @@ func (f Fields) ToProperties() map[string]*types.Property {
 	return result
 }
 
-func (f Fields) FromSchema(schema *types.TypeSchema) {
+// FromSchema populates Fields from a TypeSchema.
+// resolve is called on each source column name to produce the output column name;
+// pass stream.ResolveColumnName to honour the stream's naming strategy.
+func (f Fields) FromSchema(schema *types.TypeSchema, resolve func(string) string) {
 	schema.Properties.Range(func(key, value any) bool {
-		fieldName := key.(string)
-		property := value.(*types.Property)
-		// Use the destination column name if set, otherwise use field name for backward compatibility
-		// This ensures consistency with flattened record keys which are also normalized to lowercase
-		// Without this, both uppercase (from schema) and lowercase (from records) entries exist,
-		// causing type conflicts when creating the parquet schema in TypeSchema.ToParquet()
-		normalizedName := property.DestinationColumnName
-		normalizedName = utils.Ternary(normalizedName != "", normalizedName, fieldName).(string)
-		f[normalizedName] = NewField(property.DataType())
+		f[resolve(key.(string))] = NewField(value.(*types.Property).DataType())
 		return true
 	})
 }
