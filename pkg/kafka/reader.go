@@ -66,7 +66,10 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 	}
 	logger.Infof("created %d readers for %d total partitions, with consumer group %s", len(r.readers), totalPartitions, r.config.ConsumerGroupID)
 	// wait for consumer group members to join and partitions to be assigned, with a 2-minute deadline.
-	return r.waitForPartitionAssignment(ctx)
+	if err := r.waitForPartitionAssignment(ctx); err != nil {
+		return err
+	}
+	return r.buildReaderPartitionMap(ctx)
 }
 
 // GetReader returns the created readers
@@ -402,4 +405,47 @@ func (r *ReaderManager) waitForPartitionAssignment(ctx context.Context) error {
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
+}
+
+// buildReaderPartitionMap populates ReaderPartitionMap using the consumer group's current
+// partition assignment, mapping each reader index to the topic-partition pairs assigned to its readerID.
+func (r *ReaderManager) buildReaderPartitionMap(ctx context.Context) error {
+	describeGroupResp, describeGroupRespErr := r.config.AdminClient.DescribeGroups(ctx, r.config.ConsumerGroupID)
+	if describeGroupRespErr != nil {
+		return fmt.Errorf("DescribeGroups failed: %s", describeGroupRespErr)
+	}
+
+	if describeGroupResp.Error() != nil {
+		return fmt.Errorf("describe group %s response error: %s", r.config.ConsumerGroupID, describeGroupResp.Error())
+	}
+
+	r.ReaderPartitionMap = make(map[int][]types.PartitionKey, len(r.readers))
+	for readerIndex := range r.readers {
+		readerID, _ := r.GetReaderIDAndClientID(readerIndex)
+		if readerID == "" {
+			return fmt.Errorf("readerID not found for reader index %d", readerIndex)
+		}
+
+		var assigned []types.PartitionKey
+		for _, member := range describeGroupResp[r.config.ConsumerGroupID].Members {
+			if member.InstanceID == nil || *member.InstanceID != readerID {
+				continue
+			}
+
+			assignment, ok := member.Assigned.AsConsumer()
+			if !ok {
+				continue
+			}
+
+			for _, topic := range assignment.Topics {
+				for _, partition := range topic.Partitions {
+					assigned = append(assigned, types.PartitionKey{Topic: topic.Topic, Partition: partition})
+				}
+			}
+		}
+
+		r.ReaderPartitionMap[readerIndex] = assigned
+	}
+
+	return nil
 }

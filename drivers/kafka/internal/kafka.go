@@ -352,15 +352,11 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 }
 
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
-func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
+func (k *Kafka) checkPartitionCompletion(readerID int, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
 	// cache observed partitions
 	if len(observedPartitions) == 0 {
 		// Ensure we have all assigned partitions tracked
-		assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
-		if err != nil {
-			return false, err
-		}
-
+		assigned := k.readerManager.ReaderPartitionMap[readerID]
 		for _, assignedPk := range assigned {
 			if _, exists := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(assignedPk.Topic, assignedPk.Partition)); exists {
 				observedPartitions[assignedPk] = struct{}{}
@@ -370,44 +366,6 @@ func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, comp
 
 	// exit when all partitions are done
 	return len(completedPartitions) == len(observedPartitions), nil
-}
-
-// getReaderAssignedPartitions queries the consumer group and returns topic/partition pairs
-// assigned to the reader identified by readerIndex. We match on the per-reader readerID.
-func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int) ([]types.PartitionKey, error) {
-	readerID, _ := k.readerManager.GetReaderIDAndClientID(readerIndex)
-	if readerID == "" {
-		return nil, fmt.Errorf("readerID not found for reader index %d", readerIndex)
-	}
-
-	describeGroupResp, describeGroupRespErr := k.adminClient.DescribeGroups(ctx, k.consumerGroupID)
-	if describeGroupRespErr != nil {
-		return nil, fmt.Errorf("DescribeGroups failed: %s", describeGroupRespErr)
-	}
-
-	if describeGroupResp.Error() != nil {
-		return nil, fmt.Errorf("describe group %s response error: %s", k.consumerGroupID, describeGroupResp.Error())
-	}
-
-	var assigned []types.PartitionKey
-	for _, member := range describeGroupResp[k.consumerGroupID].Members {
-		if member.InstanceID == nil || *member.InstanceID != readerID {
-			continue
-		}
-
-		assignment, ok := member.Assigned.AsConsumer()
-		if !ok {
-			continue
-		}
-
-		for _, topic := range assignment.Topics {
-			for _, partition := range topic.Partitions {
-				assigned = append(assigned, types.PartitionKey{Topic: topic.Topic, Partition: partition})
-			}
-		}
-	}
-
-	return assigned, nil
 }
 
 // isConfluentWireFormat checks if data starts with Confluent wire format magic byte
