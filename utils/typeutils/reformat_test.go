@@ -112,8 +112,8 @@ func TestReformatRecord(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, tc.record)
 			}
+			assert.Equal(t, tc.expected, tc.record)
 		})
 	}
 }
@@ -428,8 +428,8 @@ func TestReformatValue(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
 			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -539,8 +539,8 @@ func TestParseFilterValue(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
 			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -810,8 +810,8 @@ func TestReformatBool(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
 			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -1092,8 +1092,8 @@ func TestReformatDate(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
 			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -1280,8 +1280,8 @@ func TestParseStringTimestamp(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected.UnixMilli(), result.UnixMilli())
 			}
+			assert.Equal(t, tc.expected.UnixMilli(), result.UnixMilli())
 		})
 	}
 }
@@ -1311,7 +1311,7 @@ func TestReformatInt64(t *testing.T) {
 		{
 			name:        "json number overflow",
 			v:           json.Number(strconv.FormatUint(uint64(math.MaxInt64)+1, 10)),
-			expected:    int64(0),
+			expected:    int64(math.MaxInt64),
 			expectedErr: &strconv.NumError{Func: "ParseInt", Num: strconv.FormatUint(uint64(math.MaxInt64)+1, 10), Err: strconv.ErrRange},
 		},
 		{
@@ -1593,8 +1593,8 @@ func TestReformatInt64(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
 			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -1880,8 +1880,8 @@ func TestReformatInt32(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
 			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -2176,12 +2176,12 @@ func TestReformatFloat64(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				// NaN != NaN in Go, so assert.Equal cannot compare NaN values.
-				if math.IsNaN(tc.expected) {
-					assert.True(t, math.IsNaN(result))
-				} else {
-					assert.Equal(t, tc.expected, result)
-				}
+			}
+			// NaN != NaN in Go, so assert.Equal cannot compare NaN values.
+			if math.IsNaN(tc.expected) {
+				assert.True(t, math.IsNaN(result))
+			} else {
+				assert.Equal(t, tc.expected, result)
 			}
 		})
 	}
@@ -2453,12 +2453,12 @@ func TestReformatFloat32(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				// NaN != NaN in Go, so assert.Equal cannot compare NaN values.
-				if math.IsNaN(float64(tc.expected)) {
-					assert.True(t, math.IsNaN(float64(result)))
-				} else {
-					assert.Equal(t, tc.expected, result)
-				}
+			}
+			// NaN != NaN in Go, so assert.Equal cannot compare NaN values.
+			if math.IsNaN(float64(tc.expected)) {
+				assert.True(t, math.IsNaN(float64(result)))
+			} else {
+				assert.Equal(t, tc.expected, result)
 			}
 		})
 	}
@@ -2572,8 +2572,8 @@ func TestReformatGeoType(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
 			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
@@ -2668,8 +2668,8 @@ func TestReformatTimeValue(t *testing.T) {
 				assert.Equal(t, tc.expectedErr, err)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tc.expected, result)
 			}
+			assert.Equal(t, tc.expected, result)
 		})
 	}
 }
