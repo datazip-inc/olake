@@ -1,9 +1,13 @@
 package types
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils"
+	"github.com/goccy/go-json"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 )
@@ -137,6 +141,56 @@ func TestStream_NewStream(t *testing.T) {
 			asserts.NotNil(stream.Schema, "Schema should be initialized")
 			asserts.Equal(tt.expectedDatabase, stream.DestinationDatabase)
 			asserts.Equal(tt.expectedTable, stream.DestinationTable)
+		})
+	}
+}
+
+func TestStream_ID(t *testing.T) {
+	tests := []struct {
+		testName   string
+		name       string
+		namespace  string
+		expectedID string
+	}{
+		{
+			testName:   "name field empty but all other filled",
+			name:       "",
+			namespace:  "gradesDb",
+			expectedID: "gradesDb.",
+		},
+		{
+			testName:   "namespace field empty but all other filled",
+			name:       "students",
+			namespace:  "",
+			expectedID: "students",
+		},
+		{
+			testName:   "all fields filled",
+			name:       "students",
+			namespace:  "gradesDb",
+			expectedID: "gradesDb.students",
+		},
+		{
+			testName:   "all fields empty",
+			name:       "",
+			namespace:  "",
+			expectedID: "",
+		},
+		{
+			testName:   "special characters in fields",
+			name:       "Students %",
+			namespace:  "gradesDb-v2",
+			expectedID: "gradesDb-v2.Students %",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.testName, func(t *testing.T) {
+			stream := &Stream{
+				Name:      tt.name,
+				Namespace: tt.namespace,
+			}
+			assert.Equal(t, tt.expectedID, stream.ID())
 		})
 	}
 }
@@ -388,4 +442,352 @@ func TestStream_Wrap(t *testing.T) {
 			assert.Same(t, stream, configuredStream.Stream, "Should wrap the exact same stream instance")
 		})
 	}
+}
+
+func TestStream_WithUpsertField(t *testing.T) {
+	tests := []struct {
+		testName string
+
+		column        string
+		dataType      DataType
+		nullable      bool
+		isOLakeColumn bool
+
+		expectedTypes    []DataType
+		notExpectedTypes []DataType
+		expectedOlakeCol bool
+	}{
+		{
+			testName:         "null string datatype test",
+			column:           "Student-Name",
+			dataType:         String,
+			nullable:         true,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{String, Null},
+			notExpectedTypes: []DataType{Int64, Float64, Timestamp, Bool},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "non-null string datatype test",
+			column:           "Student-Name",
+			dataType:         String,
+			nullable:         false,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{String},
+			notExpectedTypes: []DataType{Int64, Float64, Timestamp, Bool, Null},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "null int datatype test",
+			column:           "Student-Roll",
+			dataType:         Int64,
+			nullable:         true,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{Int64, Null},
+			notExpectedTypes: []DataType{String, Float64, Timestamp, Bool},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "non-null int datatype test",
+			column:           "Student-Roll",
+			dataType:         Int64,
+			nullable:         false,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{Int64},
+			notExpectedTypes: []DataType{String, Float64, Timestamp, Bool, Null},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "null float datatype test",
+			column:           "Student-Percentage",
+			dataType:         Float64,
+			nullable:         true,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{Float64, Null},
+			notExpectedTypes: []DataType{String, Int64, Timestamp, Bool},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "non-null float datatype test",
+			column:           "Student-Percentage %",
+			dataType:         Float64,
+			nullable:         false,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{Float64},
+			notExpectedTypes: []DataType{String, Int64, Timestamp, Bool, Null},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "null bool datatype test",
+			column:           "Present",
+			dataType:         Bool,
+			nullable:         true,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{Bool, Null},
+			notExpectedTypes: []DataType{String, Float64, Timestamp, Int64},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "non-null bool datatype test",
+			column:           "Present",
+			dataType:         Bool,
+			nullable:         false,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{Bool},
+			notExpectedTypes: []DataType{String, Float64, Timestamp, Int64, Null},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "null timestamp datatype test",
+			column:           "Student-Admission",
+			dataType:         Timestamp,
+			nullable:         true,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{Timestamp, Null},
+			notExpectedTypes: []DataType{String, Float64, Bool},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "non-null timestamp datatype test",
+			column:           "Student-Admission",
+			dataType:         Timestamp,
+			nullable:         false,
+			isOLakeColumn:    false,
+			expectedTypes:    []DataType{Timestamp},
+			notExpectedTypes: []DataType{String, Float64, Bool, Null},
+			expectedOlakeCol: false,
+		},
+		{
+			testName:         "Olake Column test",
+			column:           "metadataOlake",
+			dataType:         String,
+			nullable:         false,
+			isOLakeColumn:    true,
+			expectedTypes:    []DataType{String},
+			notExpectedTypes: []DataType{Bool, Float64, Timestamp, Int64, Null},
+			expectedOlakeCol: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.testName, func(t *testing.T) {
+
+			asserts := assert.New(t)
+
+			stream := NewStream("grades", "students", nil)
+			stream.UpsertField(tt.column, tt.dataType, tt.nullable, tt.isOLakeColumn)
+
+			value, ok := stream.Schema.Properties.Load(tt.column)
+			asserts.True(ok, "Schema should have column '%s'", tt.column)
+			property := value.(*Property)
+			asserts.Equal(utils.Reformat(tt.column), property.DestinationColumnName)
+			asserts.Equal(tt.expectedOlakeCol, property.OlakeColumn)
+
+			for _, expectedType := range tt.expectedTypes {
+				asserts.True(property.Type.Exists(expectedType), "Type set should have '%v'", expectedType)
+			}
+			for _, notExpectedType := range tt.notExpectedTypes {
+				asserts.False(property.Type.Exists(notExpectedType), "Type set should not have '%v'", notExpectedType)
+			}
+		})
+	}
+
+	//merging two datatypes on subsequent upsert calls with same names test
+	t.Run("Multiple datatypes test", func(t *testing.T) {
+		asserts := assert.New(t)
+		stream := NewStream("phones", "seller", nil)
+
+		stream.UpsertField("codename", Int64, false, false)
+		stream.UpsertField("codename", String, true, true)
+
+		val, ok := stream.Schema.Properties.Load("codename")
+		asserts.True(ok, "Schema should have column 'codename")
+
+		property := val.(*Property)
+
+		asserts.True(property.Type.Exists(Int64), "1st assert should be present TYPE : 'INT64'")
+		asserts.True(property.Type.Exists(String), "2nd assert should be present TYPE : 'String'")
+		asserts.True(property.Type.Exists(Null), "2nd assert added Null as well should be present TYPE : 'Null'")
+
+		asserts.Equal(false, property.OlakeColumn)
+	})
+}
+
+func TestStream_UnmarshalJSON(t *testing.T) {
+	t.Run("Safe intilization on Missing Fields", func(t *testing.T) {
+		jsonData := []byte(`{
+			"name":      "users",
+			"namespace": "public"
+		}`)
+
+		var stream Stream
+
+		err := json.Unmarshal(jsonData, &stream)
+
+		// Assert
+		assert.NoError(t, err)
+		assert.Equal(t, "users", stream.Name)
+		assert.Equal(t, "public", stream.Namespace)
+
+		// to prevent nil pointer panics later
+		assert.NotNil(t, stream.AvailableCursorFields, "AvailableCursorFields should be initialized")
+		assert.NotNil(t, stream.SourceDefinedPrimaryKey, "SourceDefinedPrimaryKey should be initialized")
+		assert.NotNil(t, stream.SupportedSyncModes, "SupportedSyncModes should be initialized")
+	})
+
+	t.Run("Correct data loading", func(t *testing.T) {
+		jsonData := []byte(`{
+			"name":"orders",
+			"supported_sync_modes":["full_refresh","incremental"],
+			"source_defined_primary_key":["id"],
+			"available_cursor_fields":["updated_at"]
+		}`)
+
+		var stream Stream
+
+		err := json.Unmarshal(jsonData, &stream)
+
+		assert.NoError(t, err)
+		assert.Equal(t, "orders", stream.Name)
+
+		// Verify data was actually loaded into the sets
+		assert.True(t, stream.AvailableCursorFields.Exists("updated_at"), "Should contain cursor 'updated_at'")
+		assert.True(t, stream.SupportedSyncModes.Exists("full_refresh"), "Should contain full_refresh")
+		assert.True(t, stream.SourceDefinedPrimaryKey.Exists("id"), "Should contain primary key 'id'")
+	})
+
+	t.Run("Invalid json test", func(t *testing.T) {
+		jsonData := []byte(`illegaljson`)
+
+		var stream Stream
+		err := json.Unmarshal(jsonData, &stream)
+
+		assert.Error(t, err)
+	})
+
+	t.Run("Empty json test", func(t *testing.T) {
+
+		asserts := assert.New(t)
+
+		jsonData := []byte(`{}`)
+
+		var stream Stream
+		err := json.Unmarshal(jsonData, &stream)
+
+		asserts.NoError(err)
+		asserts.Equal("", stream.Name)
+		asserts.Equal("", stream.Namespace)
+
+		//sets will still be initialized
+		asserts.NotNil(stream.AvailableCursorFields, "AvailableCursorFields should be initialized")
+		asserts.NotNil(stream.SourceDefinedPrimaryKey, "SourceDefinedPrimaryKey should be initialized")
+		asserts.NotNil(stream.SupportedSyncModes, "SupportedSyncModes should be initialized")
+
+	})
+
+	t.Run("All fields populated test", func(t *testing.T) {
+		jsonData := []byte(`{
+		"name":"locations",
+		"namespace":"deliveries",
+		"sync_mode":"incremental",
+		"cursor_field": "updated_at",
+        "supported_sync_modes": ["full_refresh", "incremental"],
+        "source_defined_primary_key": ["location_id"],
+        "available_cursor_fields": ["created_at", "updated_at"]
+		}`)
+
+		asserts := assert.New(t)
+
+		var stream Stream
+
+		err := json.Unmarshal(jsonData, &stream)
+
+		asserts.NoError(err)
+		asserts.Equal("locations", stream.Name)
+		asserts.Equal("deliveries", stream.Namespace)
+		asserts.Equal(SyncMode("incremental"), stream.SyncMode)
+		asserts.Equal("updated_at", stream.CursorField)
+		asserts.True(stream.SupportedSyncModes.Exists(FULLREFRESH))
+		asserts.True(stream.SupportedSyncModes.Exists(INCREMENTAL))
+		asserts.True(stream.SourceDefinedPrimaryKey.Exists("location_id"))
+		asserts.True(stream.AvailableCursorFields.Exists("created_at"))
+		asserts.True(stream.AvailableCursorFields.Exists("updated_at"))
+	})
+}
+
+func TestStream_StreamsToMap(t *testing.T) {
+
+	t.Run("empty input test", func(t *testing.T) {
+		streamMap := StreamsToMap()
+		assert.Equal(t, 0, len(streamMap), "map should be empty")
+	})
+
+	t.Run("single stream test", func(t *testing.T) {
+		stream := NewStream("users", "public", nil)
+		streamMap := StreamsToMap(stream)
+		asserts := assert.New(t)
+
+		asserts.Equal(1, len(streamMap))
+		mapped, exists := streamMap[stream.ID()]
+		asserts.True(exists, "map should have key for stream")
+		asserts.Same(stream, mapped, "map value should point to original stream object")
+	})
+
+	t.Run("multiple streams test", func(t *testing.T) {
+		stream1 := NewStream("users", "public", nil)
+		stream2 := NewStream("orders", "public", nil)
+
+		streamMap := StreamsToMap(stream1, stream2)
+
+		asserts := assert.New(t)
+
+		asserts.Equal(2, len(streamMap), "Map should have 2 streams")
+
+		// verify keys and values are same pointers
+		mappedS1, existsS1 := streamMap[stream1.ID()]
+		asserts.True(existsS1, "Map should have key for stream1")
+		asserts.Same(stream1, mappedS1, "Map value should point to original stream1 object")
+
+		mappedS2, existsS2 := streamMap[stream2.ID()]
+		asserts.True(existsS2, "Map should have key for stream2")
+		asserts.Same(stream2, mappedS2, "Map value should point to original stream2 object")
+	})
+
+	t.Run("duplicate IDs test", func(t *testing.T) {
+		stream1 := NewStream("users", "public", nil)
+		stream2 := NewStream("users", "public", nil)
+
+		streamMap := StreamsToMap(stream1, stream2)
+
+		assert.Equal(t, 1, len(streamMap), "duplicate Ids should result in single entry only")
+		mapped := streamMap[stream1.ID()]
+		assert.Same(t, stream2, mapped, "latest stream should win")
+	})
+}
+
+func TestStream_LogCatalog(t *testing.T) {
+	tempDir := t.TempDir()
+	tmpFilePath := filepath.Join(tempDir, "catalog.json")
+	viper.Set(constants.StreamsPath, tmpFilePath)
+	t.Cleanup(func() { viper.Set(constants.StreamsPath, "") })
+
+	streams := []*Stream{
+		NewStream("users", "public", nil),
+		NewStream("orders", "public", nil),
+	}
+
+	LogCatalog(streams, nil, "postgres")
+
+	_, err := os.Stat(tmpFilePath)
+	assert.NoError(t, err, "Logcatalog should create the streams file")
+
+	content, err := os.ReadFile(tmpFilePath)
+	assert.NoError(t, err, "Should be able to read the generated file")
+
+	var savedCatalog Catalog
+
+	err = json.Unmarshal(content, &savedCatalog)
+	assert.NoError(t, err, "File content should be valid JSON")
+	assert.Equal(t, 2, len(savedCatalog.Streams), "Saved catalog should contain 2 streams")
+
 }
