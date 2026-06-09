@@ -438,6 +438,11 @@ func normalizeBoundaryValue(value any, pkCols []string, columnType string) strin
 		return utils.ConvertToString(value)
 	}
 
+	value = normalizeMSSQLValue(value, columnType)
+	return utils.ConvertToString(value)
+}
+
+func normalizeMSSQLValue(value any, columnType string) any {
 	columnType = strings.ToLower(columnType)
 
 	switch v := value.(type) {
@@ -466,7 +471,8 @@ func normalizeBoundaryValue(value any, pkCols []string, columnType string) strin
 			return utils.HexEncode(v)
 		}
 	}
-	return utils.ConvertToString(value)
+
+	return value
 }
 
 // getTableExtremes returns MIN and MAX key values for the given PK columns.
