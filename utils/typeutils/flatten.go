@@ -32,13 +32,13 @@ func getCachedReformattedKey(key string) string {
 }
 
 // NewFlattener returns a flattener that reformats record keys with utils.Reformat
-// (destination column name mode — the default behaviour).
+// (destination column name mode — the default behavior).
 func NewFlattener() Flattener {
 	return &FlattenerImpl{omitNilValues: true, keyFn: getCachedReformattedKey}
 }
 
 // NewFlattenerWith returns a flattener that resolves record keys using the
-// provided function. Pass stream.ResolveColumnName to honour the stream's
+// provided function. Pass stream.ResolveColumnName to honor the stream's
 // naming strategy; source-name mode returns keys unchanged, destination-name
 // mode applies utils.Reformat.
 func NewFlattenerWith(resolve func(string) string) Flattener {

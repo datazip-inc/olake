@@ -112,7 +112,7 @@ func (f Fields) ToProperties() map[string]*types.Property {
 
 // FromSchema populates Fields from a TypeSchema.
 // resolve is called on each source column name to produce the output column name;
-// pass stream.ResolveColumnName to honour the stream's naming strategy.
+// pass stream.ResolveColumnName to honor the stream's naming strategy.
 func (f Fields) FromSchema(schema *types.TypeSchema, resolve func(string) string) {
 	schema.Properties.Range(func(key, value any) bool {
 		f[resolve(key.(string))] = NewField(value.(*types.Property).DataType())

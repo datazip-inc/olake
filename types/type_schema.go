@@ -243,7 +243,6 @@ func (p *Property) Nullable() bool {
 	return found
 }
 
-
 // Tree that is being used for typecasting
 
 type typeNode struct {
