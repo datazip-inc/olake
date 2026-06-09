@@ -51,10 +51,14 @@ func (c *Config) URI() string {
 
 	if c.ReplicaSet != "" {
 		query.Set("replicaSet", c.ReplicaSet)
-		if c.ReadPreference == "" {
-			c.ReadPreference = constants.DefaultReadPreference
-		}
-		query.Set("readPreference", c.ReadPreference)
+	}
+
+	readPreference := c.ReadPreference
+	if readPreference == "" && (c.ReplicaSet != "" || c.Srv) {
+		readPreference = constants.DefaultReadPreference
+	}
+	if readPreference != "" {
+		query.Set("readPreference", readPreference)
 	}
 
 	host := strings.Join(c.Hosts, ",")

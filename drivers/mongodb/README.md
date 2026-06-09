@@ -36,16 +36,18 @@ Add MongoDB credentials in following format in `config.json` file. To check more
       "username": "test",
       "password": "test",
       "authdb": "admin",
-      "replica-set": "rs0",
-      "read-preference": "secondaryPreferred",
+      "replica_set": "rs0",
+      "read_preference": "secondaryPreferred",
       "srv": false,
-      "server-ram": 16,
+      "server_ram": 16,
       "database": "database",
       "max_threads": 50,
       "backoff_retry_count": 2,
       "chunking_strategy":""
    }
 ```
+
+`read_preference` applies to both SRV and replica set connections. For SRV-based connections, set `srv` to `true` and leave `replica_set` empty.
 
 ## Commands
 ### Discover Command
