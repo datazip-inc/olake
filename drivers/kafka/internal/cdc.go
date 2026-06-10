@@ -146,6 +146,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		return nil, err
 	}
 
+	// Build per-stream recovery metadata.
+	// Returns map[streamID]KafkaMetadataState containing the consumer group ID and partition->nextConsumableOffset mappings,
+	// where offsets are stored as the next consumable offset (message.Offset + 1) for broker offset recovery.
 	metadataByStream := make(map[string]any)
 	for partitionKey, message := range lastMessages {
 		partitionMeta, exists := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(partitionKey.Topic, partitionKey.Partition))
@@ -415,29 +418,35 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 
 		streamID := partitionMeta.Stream.ID()
 		if _, loaded := streamMetadata[streamID]; !loaded {
-			// get metadata state for this stream
+			// Load destination metadata for this stream once (unmarshal or empty default) and cache it.
 			rawMetadataStateValue := metadataStates[streamID]
 			if rawMetadataStateValue == nil {
+				// if metadata state is not present, create a new one with empty offsets map.
 				streamMetadata[streamID] = &types.KafkaMetadataState{
 					Offsets: make(map[int32]int64),
 				}
 			} else {
+				// if metadata state is present, unmarshal it and cache it.
 				mtStateStr, ok := rawMetadataStateValue.(string)
 				if !ok {
 					return false, fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMetadataStateValue)
 				}
+
 				var parsedMetadataStateValue types.KafkaMetadataState
 				if err := json.Unmarshal([]byte(mtStateStr), &parsedMetadataStateValue); err != nil {
 					return false, fmt.Errorf("stream[%s]: failed to unmarshal metadata state: %s", streamID, err)
 				}
+
 				if parsedMetadataStateValue.Offsets == nil {
 					parsedMetadataStateValue.Offsets = make(map[int32]int64)
 				}
+
 				// check if consumer group id mismatch
 				if parsedMetadataStateValue.ConsumerGroupID != "" && parsedMetadataStateValue.ConsumerGroupID != k.consumerGroupID {
 					return false, fmt.Errorf("%w: stream[%s]: consumer_group_id mismatch (destination metadata=%q, current=%q), run clear destination and restart", constants.ErrNonRetryable, streamID, parsedMetadataStateValue.ConsumerGroupID, k.consumerGroupID)
 				}
-				// cache metadata state for this stream
+
+				// cache the parsed metadata state for this stream
 				streamMetadata[streamID] = &parsedMetadataStateValue
 			}
 		}
