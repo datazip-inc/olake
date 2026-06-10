@@ -486,21 +486,41 @@ public class IcebergTableOperator {
       }
   }
 
-  // One-level merge for string-encoded JSON objects otherwise overwrite.
+  // deep merge payload into root node
   private void mergePayloadIntoRoot(ObjectNode rootNode, JsonNode payloadNode) {
-      payloadNode.fields().forEachRemaining(entry -> {
-          String key = entry.getKey();
-          JsonNode value = entry.getValue();
-          ObjectNode pardsedValue = parseJSONObject(value);
-          if (pardsedValue == null) {
-              rootNode.set(key, value);
-              return;
-          }
-          ObjectNode merged = parseJSONObject(rootNode.get(key));
-          if (merged == null) merged = mapper.createObjectNode();
-          merged.setAll(pardsedValue);
-          rootNode.put(key, merged.toString());
-      });
+    payloadNode.fields().forEachRemaining(entry -> {
+        String key = entry.getKey();
+        ObjectNode value = parseJSONObject(entry.getValue());
+
+        if (value == null) {
+            rootNode.set(key, entry.getValue());
+            return;
+        }
+
+        ObjectNode existingValue = parseJSONObject(rootNode.get(key));
+        if (existingValue == null) {
+            rootNode.put(key, value.toString());
+            return;
+        }
+
+        merge(existingValue, value);
+        rootNode.put(key, existingValue.toString());
+    });
+  }
+
+  private void merge(ObjectNode existingObject, ObjectNode incomingObject) {
+    incomingObject.fields().forEachRemaining(incomingFieldEntry -> {
+        String incomingFieldKey = incomingFieldEntry.getKey();
+
+        JsonNode existingFieldValue = existingObject.get(incomingFieldKey);
+        JsonNode incomingFieldValue = incomingFieldEntry.getValue();
+
+        if (existingFieldValue != null && existingFieldValue.isObject() && incomingFieldValue.isObject()) {
+            merge((ObjectNode) existingFieldValue, (ObjectNode) incomingFieldValue);
+        } else {
+            existingObject.set(incomingFieldKey, incomingFieldValue);
+        }
+    });
   }
 
   private ObjectNode parseJSONObject(JsonNode node) {

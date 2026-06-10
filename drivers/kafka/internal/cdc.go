@@ -17,7 +17,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/linkedin/goavro/v2"
-	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -68,16 +67,14 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
-	// Sync recovery offsets on the OLD reader before restarting it.
-	// The old reader has a valid consumer group session (member_id + generation_id) from PreCDC,
-	// so CommitRecords succeeds. If we restarted first, the new client would have no session yet
-	// and the broker would reject the commit with UNKNOWN_MEMBER_ID / FENCED_INSTANCE_ID.
-	recovered, err := k.syncCommittedOffsetsWithMetadata(ctx, readerID, k.readerManager.GetReader(readerID), metadataStates)
+	// Recover broker offsets from destination metadata if needed.
+	isRecoveryPerformed, err := k.syncCommittedOffsetsWithMetadata(ctx, readerID, k.readerManager.GetReader(readerID), metadataStates)
 	if err != nil {
 		return nil, fmt.Errorf("reader[%d]: sync committed offsets with metadata failed: %s", readerID, err)
 	}
-	if recovered {
-		logger.Infof("reader[%d]: crash-recovery detected", readerID)
+
+	// A successful recovery stops processing for this reader so the next run starts from the recovered offsets.
+	if isRecoveryPerformed {
 		return nil, nil
 	}
 
@@ -150,12 +147,16 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			return nil, fmt.Errorf("missing partition index for topic %s partition %d", partitionKey.Topic, partitionKey.Partition)
 		}
 		streamID := partitionMeta.Stream.ID()
-		offsets, _ := metadataByStream[streamID].(map[int32]int64)
-		if offsets == nil {
-			offsets = make(map[int32]int64)
-			metadataByStream[streamID] = offsets
+		state, _ := metadataByStream[streamID].(*types.KafkaMetadataState)
+		if state == nil {
+			state = &types.KafkaMetadataState{
+				ConsumerGroupID: k.consumerGroupID,
+				Offsets:         make(map[int32]int64),
+			}
+			metadataByStream[streamID] = state
 		}
-		offsets[partitionKey.Partition] = message.Offset + 1
+
+		state.Offsets[partitionKey.Partition] = message.Offset + 1
 	}
 	return metadataByStream, nil
 }
@@ -390,94 +391,90 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 	return nativeDatum, nil
 }
 
-// syncCommittedOffsetsWithMetadata forwards broker offsets to match destination metadata (next offset to consume).
-// reader must be the client from PreCDC (before RestartReader) so CommitRecords has a valid group session.
-// Returns true when a recovery commit was performed.
+// syncCommittedOffsetsWithMetadata ensures consumer group offsets match destination metadata.
+// Returns true if a recovery sync was performed for this reader.
 func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID int, reader *kgo.Client, metadataStates map[string]any) (bool, error) {
-	metaByStream := make(map[string]map[int32]int64)
-	committedByTopic := make(map[string]map[int32]int64)
-	topicStartOffsets := make(map[string]kadm.ListedOffsets)
-	topicEndOffsets := make(map[string]kadm.ListedOffsets)
+	streamMetadata := make(map[string]*types.KafkaMetadataState)
 	var recordsToCommit []*kgo.Record
 
-	for _, ap := range k.readerManager.ReaderPartitionMap[readerID] {
-		partitionMeta, ok := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(ap.Topic, ap.Partition))
+	// iterate over all assigned partitions for this reader
+	for _, assignedPartition := range k.readerManager.ReaderPartitionMap[readerID] {
+		currentPartitionID := assignedPartition.Partition
+		currentTopic := assignedPartition.Topic
+
+		partitionMeta, ok := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(currentTopic, currentPartitionID))
 		if !ok {
-			return false, fmt.Errorf("assigned partition %s:%d missing from partition index", ap.Topic, ap.Partition)
+			return false, fmt.Errorf("assigned partition %s:%d missing from partition index", currentTopic, currentPartitionID)
 		}
 
 		streamID := partitionMeta.Stream.ID()
-		if _, loaded := metaByStream[streamID]; !loaded {
-			raw := metadataStates[streamID]
-			if raw == nil {
-				metaByStream[streamID] = map[int32]int64{}
-			} else {
-				mtStateStr, ok := raw.(string)
-				if !ok {
-					return false, fmt.Errorf("failed to typecast metadata state of type[%T] to string", raw)
+		if _, loaded := streamMetadata[streamID]; !loaded {
+			// get metadata state for this stream
+			rawMetadataStateValue := metadataStates[streamID]
+			if rawMetadataStateValue == nil {
+				streamMetadata[streamID] = &types.KafkaMetadataState{
+					Offsets: make(map[int32]int64),
 				}
-				parsed := make(map[int32]int64)
-				if err := json.Unmarshal([]byte(mtStateStr), &parsed); err != nil {
+			} else {
+				mtStateStr, ok := rawMetadataStateValue.(string)
+				if !ok {
+					return false, fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMetadataStateValue)
+				}
+				var parsedMetadataStateValue types.KafkaMetadataState
+				if err := json.Unmarshal([]byte(mtStateStr), &parsedMetadataStateValue); err != nil {
 					return false, fmt.Errorf("stream[%s]: failed to unmarshal metadata state: %s", streamID, err)
 				}
-				metaByStream[streamID] = parsed
+				if parsedMetadataStateValue.Offsets == nil {
+					parsedMetadataStateValue.Offsets = make(map[int32]int64)
+				}
+				// check if consumer group id mismatch
+				if parsedMetadataStateValue.ConsumerGroupID != "" && parsedMetadataStateValue.ConsumerGroupID != k.consumerGroupID {
+					return false, fmt.Errorf("%w: stream[%s]: consumer_group_id mismatch (destination metadata=%q, current=%q)", constants.ErrNonRetryable, streamID, parsedMetadataStateValue.ConsumerGroupID, k.consumerGroupID)
+				}
+				// cache metadata state for this stream
+				streamMetadata[streamID] = &parsedMetadataStateValue
 			}
 		}
 
-		if _, loaded := committedByTopic[ap.Topic]; !loaded {
-			committed, err := k.readerManager.FetchCommittedOffsets(ctx, ap.Topic)
-			if err != nil {
-				return false, fmt.Errorf("failed to fetch committed offsets for topic %s: %s", ap.Topic, err)
-			}
-			committedByTopic[ap.Topic] = committed
-		}
-		lastCommitted := committedByTopic[ap.Topic][ap.Partition]
+		// get partition metadata
+		startOffset := partitionMeta.StartOffset
+		endOffset := partitionMeta.EndOffset
+		committedOffset := partitionMeta.CommittedOffset
 
-		if _, loaded := topicEndOffsets[ap.Topic]; !loaded {
-			start, end, err := k.readerManager.ListTopicOffsets(ctx, ap.Topic)
-			if err != nil {
-				return false, fmt.Errorf("failed to list offsets for topic %s: %s", ap.Topic, err)
-			}
-			topicStartOffsets[ap.Topic] = start
-			topicEndOffsets[ap.Topic] = end
-		}
+		// check if committed offset is outside the partition range
+		invalidCommittedOffset := committedOffset >= 0 && committedOffset < startOffset
 
-		startDetail, endDetail, boundsFound := k.readerManager.GetPartitionOffsets(
-			topicStartOffsets[ap.Topic], topicEndOffsets[ap.Topic], ap.Topic, ap.Partition,
-		)
-		if !boundsFound {
-			logger.Warnf("reader[%d]: stream[%s] topic %s partition %d missing offset bounds, skipping recovery commit", readerID, streamID, ap.Topic, ap.Partition)
-			continue
-		}
+		// get metadata offset for this partition
+		metaCommittedOffset, hasMeta := streamMetadata[streamID].Offsets[currentPartitionID]
 
-		logStart, logEnd := startDetail.Offset, endDetail.Offset
-		invalidBroker := lastCommitted >= 0 && (lastCommitted > logEnd || lastCommitted < logStart)
-
-		metaOffset, hasMeta := metaByStream[streamID][ap.Partition]
-		brokerNext := logEnd
+		targetOffset := endOffset
 		if hasMeta {
-			brokerNext = metaOffset
-			if brokerNext < logStart {
-				logger.Warnf("reader[%d]: stream[%s] topic %s partition %d metadata offset %d before log start %d, bumping to %d", readerID, streamID, ap.Topic, ap.Partition, brokerNext, logStart, logStart)
-				brokerNext = logStart
-			} else if brokerNext > logEnd {
-				logger.Warnf("reader[%d]: stream[%s] topic %s partition %d metadata offset %d past log end %d, capping to %d", readerID, streamID, ap.Topic, ap.Partition, brokerNext, logEnd, logEnd)
-				brokerNext = logEnd
+			targetOffset = metaCommittedOffset
+
+			// Ensure the metadata offset is within [startOffset, endOffset].
+			if targetOffset < startOffset {
+				// if target offset is before start offset, bump it to start offset (Retention policy can cause this)
+				logger.Warnf("reader[%d]: stream[%s] topic %s partition %d metadata offset %d is below current start offset %d, bumping to %d", readerID, streamID, currentTopic, currentPartitionID, targetOffset, startOffset, startOffset)
+				targetOffset = startOffset
+			} else if targetOffset > endOffset {
+				// Topic recreation can leave destination metadata offsets ahead of the current partition end offset.
+				return false, fmt.Errorf("%w: stream[%s] topic %s partition %d metadata offset %d exceeds partition end offset %d", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, targetOffset, endOffset)
 			}
+		} else if invalidCommittedOffset {
+			// No metadata exists and the committed offset is below the current start offset. Start from the earliest available offset.
+			targetOffset = startOffset
 		}
 
-		needsRecovery := invalidBroker || (hasMeta && (lastCommitted < 0 || brokerNext > lastCommitted))
+		if hasMeta && committedOffset >= 0 && committedOffset > targetOffset {
+			return false, fmt.Errorf("%w: stream[%s] topic %s partition %d broker committed offset %d is ahead of destination metadata offset %d", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, committedOffset, targetOffset)
+		}
+
+		needsRecovery := invalidCommittedOffset || (hasMeta && (committedOffset < 0 || targetOffset > committedOffset))
 		if !needsRecovery {
 			continue
 		}
-		if invalidBroker {
-			logger.Warnf("reader[%d]: stream[%s] topic %s partition %d broker offset %d outside log [start=%d end=%d), rewinding to %d", readerID, streamID, ap.Topic, ap.Partition, lastCommitted, logStart, logEnd, brokerNext)
-		}
 
-		recordsToCommit = append(recordsToCommit, &kgo.Record{
-			Topic: ap.Topic, Partition: ap.Partition, Offset: brokerNext - 1,
-			LeaderEpoch: -1,
-		})
+		recordsToCommit = append(recordsToCommit, &kgo.Record{Topic: currentTopic, Partition: currentPartitionID, Offset: targetOffset - 1, LeaderEpoch: -1})
 	}
 
 	if len(recordsToCommit) == 0 {
