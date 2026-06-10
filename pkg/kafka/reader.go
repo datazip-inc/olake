@@ -141,7 +141,6 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 		r.partitionIndex[PartitionIndexKey(topic, partitionDetail.Partition)] = types.PartitionMetaData{
 			Stream:          stream,
 			PartitionID:     partitionDetail.Partition,
-			StartOffset:     startOffsetDetail.Offset,
 			EndOffset:       endOffsetDetail.Offset,
 			CommittedOffset: committedOffset,
 		}

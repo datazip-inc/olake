@@ -442,47 +442,30 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 			}
 		}
 
-		// get partition metadata
-		startOffset := partitionMeta.StartOffset
-		endOffset := partitionMeta.EndOffset
-		committedOffset := partitionMeta.CommittedOffset
-
-		// check if committed offset is outside the partition range
-		invalidCommittedOffset := committedOffset >= 0 && committedOffset < startOffset
-
-		// get metadata offset for this partition
+		// kafkaCommittedOffset = broker next offset, metaCommittedOffset = destination next offset.
+		// SetPartitions already ensures kafkaCommittedOffset < EndOffset; franz-go resets to log start when kafkaCommittedOffset < startOffset.
+		kafkaCommittedOffset := partitionMeta.CommittedOffset
 		metaCommittedOffset, hasMeta := streamMetadata[streamID].Offsets[currentPartitionID]
-
-		var targetOffset int64
-		if hasMeta {
-			targetOffset = metaCommittedOffset
-
-			// Ensure the metadata offset is within [startOffset, endOffset].
-			if targetOffset < startOffset {
-				// if target offset is before start offset, bump it to start offset (Retention policy can cause this)
-				logger.Warnf("reader[%d]: stream[%s] topic %s partition %d metadata offset %d is below current start offset %d, bumping to %d", readerID, streamID, currentTopic, currentPartitionID, targetOffset, startOffset, startOffset)
-				targetOffset = startOffset
-			} else if targetOffset > endOffset {
-				// Topic recreation can leave destination metadata offsets ahead of the current partition end offset.
-				return false, fmt.Errorf("%w: stream[%s] topic %s partition %d metadata offset %d exceeds partition end offset %d", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, targetOffset, endOffset)
-			}
-		} else if invalidCommittedOffset {
-			// No metadata exists and the committed offset is below the current start offset. Start from the earliest available offset.
-			targetOffset = startOffset
-		}
-
-		// Broker committed offsets should never be ahead of destination metadata.
-		// This indicates the consumer group progressed beyond the last acknowledged destination state.
-		if hasMeta && committedOffset >= 0 && metaCommittedOffset < committedOffset {
-			return false, fmt.Errorf("%w: stream[%s] topic %s partition %d broker committed offset %d is ahead of destination metadata offset %d, run clear destination and restart", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, committedOffset, metaCommittedOffset)
-		}
-
-		needsRecovery := invalidCommittedOffset || (hasMeta && (committedOffset < 0 || targetOffset > committedOffset))
-		if !needsRecovery {
+		if !hasMeta {
+			// No destination cursor for this partition; skip recovery and let RestartReader consume from broker/default offset.
 			continue
 		}
 
-		recordsToCommit = append(recordsToCommit, &kgo.Record{Topic: currentTopic, Partition: currentPartitionID, Offset: targetOffset - 1, LeaderEpoch: -1})
+		// destination metadata offset must not exceed the current partition end offset.
+		// this can happen when a topic is deleted and recreated with fewer messages.
+		if metaCommittedOffset > partitionMeta.EndOffset {
+			return false, fmt.Errorf("%w: stream[%s] topic %s partition %d metadata offset: %d exceeds partition end offset: %d, run clear destination and restart", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, metaCommittedOffset, partitionMeta.EndOffset)
+		}
+
+		// kafkaCommittedOffset must not exceed metaCommittedOffset.
+		if kafkaCommittedOffset >= 0 && kafkaCommittedOffset > metaCommittedOffset {
+			return false, fmt.Errorf("%w: stream[%s] topic %s partition %d broker committed offset: %d is ahead of destination metadata offset: %d, run clear destination and restart", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, kafkaCommittedOffset, metaCommittedOffset)
+		}
+
+		// Broker is behind destination (or has no committed offset yet): align broker to destination before consuming.
+		if kafkaCommittedOffset < 0 || metaCommittedOffset > kafkaCommittedOffset {
+			recordsToCommit = append(recordsToCommit, &kgo.Record{Topic: currentTopic, Partition: currentPartitionID, Offset: metaCommittedOffset - 1, LeaderEpoch: -1})
+		}
 	}
 
 	if len(recordsToCommit) == 0 {
