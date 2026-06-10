@@ -67,8 +67,14 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
+	// Fetch partition assignment once per StreamChanges attempt than reused for recovery and completion checks.
+	assignedPartitions, err := k.getReaderAssignedPartitions(ctx, readerID)
+	if err != nil {
+		return nil, fmt.Errorf("reader[%d]: get assigned partitions failed: %s", readerID, err)
+	}
+
 	// Recover broker offsets from destination metadata if needed.
-	isRecoveryPerformed, err := k.syncCommittedOffsetsWithMetadata(ctx, readerID, k.readerManager.GetReader(readerID), metadataStates)
+	isRecoveryPerformed, err := k.syncCommittedOffsetsWithMetadata(ctx, readerID, k.readerManager.GetReader(readerID), metadataStates, assignedPartitions)
 	if err != nil {
 		return nil, fmt.Errorf("reader[%d]: sync committed offsets with metadata failed: %s", readerID, err)
 	}
@@ -128,7 +134,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			completedPartitions[currentPartitionKey] = struct{}{}
 
 			// check for all other assigned partitions to see if they are also completed
-			shouldExit, err := k.checkPartitionCompletion(readerID, completedPartitions, observedPartitions)
+			shouldExit, err := k.checkPartitionCompletion(assignedPartitions, completedPartitions, observedPartitions)
 			if err != nil || shouldExit {
 				return shouldExit, err
 			}
@@ -393,18 +399,18 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 
 // syncCommittedOffsetsWithMetadata ensures consumer group offsets match destination metadata.
 // Returns true if a recovery sync was performed for this reader.
-func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID int, reader *kgo.Client, metadataStates map[string]any) (bool, error) {
+func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID int, reader *kgo.Client, metadataStates map[string]any, assignedPartitions []types.PartitionKey) (bool, error) {
 	streamMetadata := make(map[string]*types.KafkaMetadataState)
 	var recordsToCommit []*kgo.Record
 
 	// iterate over all assigned partitions for this reader
-	for _, assignedPartition := range k.readerManager.ReaderPartitionMap[readerID] {
+	for _, assignedPartition := range assignedPartitions {
 		currentPartitionID := assignedPartition.Partition
 		currentTopic := assignedPartition.Topic
 
 		partitionMeta, ok := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(currentTopic, currentPartitionID))
 		if !ok {
-			return false, fmt.Errorf("assigned partition %s:%d missing from partition index", currentTopic, currentPartitionID)
+			return false, fmt.Errorf("%w: assigned partition %s:%d missing from partition index", constants.ErrNonRetryable, currentTopic, currentPartitionID)
 		}
 
 		streamID := partitionMeta.Stream.ID()
@@ -429,7 +435,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 				}
 				// check if consumer group id mismatch
 				if parsedMetadataStateValue.ConsumerGroupID != "" && parsedMetadataStateValue.ConsumerGroupID != k.consumerGroupID {
-					return false, fmt.Errorf("%w: stream[%s]: consumer_group_id mismatch (destination metadata=%q, current=%q)", constants.ErrNonRetryable, streamID, parsedMetadataStateValue.ConsumerGroupID, k.consumerGroupID)
+					return false, fmt.Errorf("%w: stream[%s]: consumer_group_id mismatch (destination metadata=%q, current=%q), run clear destination and restart", constants.ErrNonRetryable, streamID, parsedMetadataStateValue.ConsumerGroupID, k.consumerGroupID)
 				}
 				// cache metadata state for this stream
 				streamMetadata[streamID] = &parsedMetadataStateValue
@@ -447,7 +453,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		// get metadata offset for this partition
 		metaCommittedOffset, hasMeta := streamMetadata[streamID].Offsets[currentPartitionID]
 
-		targetOffset := endOffset
+		var targetOffset int64
 		if hasMeta {
 			targetOffset = metaCommittedOffset
 
@@ -465,8 +471,10 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 			targetOffset = startOffset
 		}
 
-		if hasMeta && committedOffset >= 0 && committedOffset > targetOffset {
-			return false, fmt.Errorf("%w: stream[%s] topic %s partition %d broker committed offset %d is ahead of destination metadata offset %d", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, committedOffset, targetOffset)
+		// Broker committed offsets should never be ahead of destination metadata.
+		// This indicates the consumer group progressed beyond the last acknowledged destination state.
+		if hasMeta && committedOffset >= 0 && metaCommittedOffset < committedOffset {
+			return false, fmt.Errorf("%w: stream[%s] topic %s partition %d broker committed offset %d is ahead of destination metadata offset %d, run clear destination and restart", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, committedOffset, metaCommittedOffset)
 		}
 
 		needsRecovery := invalidCommittedOffset || (hasMeta && (committedOffset < 0 || targetOffset > committedOffset))

@@ -290,7 +290,7 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 				if mtStateValue != nil {
 					ms, setErr := types.SetMetadataState(mtStateValue, "")
 					if setErr != nil {
-						closeErr = fmt.Errorf("%s; failed to set metadata state for stream[%s]: %s", closeErr, streamID, setErr)
+						closeErr = fmt.Errorf("failed to set metadata state for stream[%s]: %s", streamID, setErr)
 						continue
 					}
 					types.SetDedupInserts(ms, dedupInserts)

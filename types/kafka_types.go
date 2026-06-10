@@ -15,7 +15,6 @@ const (
 
 // PartitionMetaData holds metadata about a Kafka partition for a specific stream reader
 type PartitionMetaData struct {
-	ReaderID        string
 	Stream          StreamInterface
 	PartitionID     int32
 	StartOffset     int64
