@@ -425,7 +425,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		if filterErr != nil {
 			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
 		}
-		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, p.schema)
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, p.schema, p.stream.ResolveColumnName)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
 		}
@@ -479,7 +479,6 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 		colName := strings.TrimSpace(strings.Trim(regexVarBlock[0], `'`))
 		defaultValue := strings.TrimSpace(strings.Trim(regexVarBlock[1], `'`))
 		granularity := strings.TrimSpace(strings.Trim(regexVarBlock[2], `'`))
-
 		if defaultValue == "" {
 			defaultValue = fmt.Sprintf("default_%s", colName)
 		}
@@ -513,7 +512,16 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 		if colName == "now()" {
 			return granularityFunction(olakeTimestamp)
 		}
-		value, exists := values[colName]
+		// Resolve the regex column name using the stream's naming strategy so that the
+		// key matches record.Data keys after FlattenAndCleanData (resolved when
+		// normalization=true, raw source name when normalization=false).
+		// Try the resolved key first; fall back to the raw source name so that
+		// normalization=false + use_source_column_names=false still works.
+		resolvedColName := p.stream.ResolveColumnName(colName)
+		value, exists := values[resolvedColName]
+		if !exists {
+			value, exists = values[colName]
+		}
 		if exists && value != nil {
 			return granularityFunction(value)
 		}
