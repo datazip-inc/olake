@@ -31,6 +31,11 @@ import (
 	"github.com/xitongsys/parquet-go/source"
 )
 
+type parquetDataFile struct {
+	LocalPath        string
+	S3StagingKeyPath string
+}
+
 type FileMetadata struct {
 	fileName string
 	writer   any
@@ -90,7 +95,7 @@ func (p *Parquet) initS3Writer() error {
 
 func (p *Parquet) createNewPartitionFile(basePath string) error {
 	// construct directory path
-	directoryPath := filepath.Join(p.config.Path, basePath)
+	directoryPath := filepath.Join(p.config.Path, p.stagingDataDir(basePath))
 
 	if err := os.MkdirAll(directoryPath, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create directories[%s]: %s", directoryPath, err)
@@ -122,7 +127,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, *types.MetadataState, error) {
+func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, *types.MetadataState, error) {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string][]*FileMetadata)
@@ -139,8 +144,13 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 		return nil, nil, err
 	}
 
+	prevMetadataState, err := p.load2PCState(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if !p.stream.NormalizationEnabled() {
-		return p.schema, nil, nil
+		return p.schema, prevMetadataState, nil
 	}
 
 	if schema != nil {
@@ -149,13 +159,13 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 			return nil, nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
 		}
 		p.schema = fields.Clone()
-		return fields, nil, nil
+		return fields, prevMetadataState, nil
 	}
 
 	fields := make(typeutils.Fields)
 	fields.FromSchema(stream.Schema())
 	p.schema = fields.Clone() // update schema
-	return fields, nil, nil
+	return fields, prevMetadataState, nil
 }
 
 // Write writes a record to the Parquet file.
@@ -260,7 +270,25 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) closePqFiles(ctx context.Context, _ any, closeOnError bool) error {
+func (p *Parquet) dataFiles() []parquetDataFile {
+	var dataFiles []parquetDataFile
+	for basePath, parquetFiles := range p.partitionedFiles {
+		for _, parquetFile := range parquetFiles {
+			relativePath := filepath.Join(basePath, parquetFile.fileName)
+			stagingPath := p.stagingDataPath(relativePath)
+			dataFile := parquetDataFile{
+				LocalPath: filepath.Join(p.config.Path, stagingPath),
+			}
+			if p.s3Client != nil {
+				dataFile.S3StagingKeyPath = p.s3ObjectPath(stagingPath)
+			}
+			dataFiles = append(dataFiles, dataFile)
+		}
+	}
+	return dataFiles
+}
+
+func (p *Parquet) closePqFiles(_ context.Context, closeOnError bool) error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -270,18 +298,11 @@ func (p *Parquet) closePqFiles(ctx context.Context, _ any, closeOnError bool) er
 		logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
 	}
 
-	// Struct to hold file upload info
-	type uploadInfo struct {
-		filePath  string
-		s3KeyPath string
-	}
-
-	var filesToUpload []uploadInfo
-
 	for basePath, parquetFiles := range p.partitionedFiles {
 		for _, parquetFile := range parquetFiles {
 			// construct full file path
-			filePath := filepath.Join(p.config.Path, basePath, parquetFile.fileName)
+			relativePath := filepath.Join(basePath, parquetFile.fileName)
+			filePath := filepath.Join(p.config.Path, p.stagingDataPath(relativePath))
 
 			// Close writers
 			err := parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
@@ -301,62 +322,79 @@ func (p *Parquet) closePqFiles(ctx context.Context, _ any, closeOnError bool) er
 				removeLocalFile(filePath, "closing parquet files due to retry attempt")
 				continue
 			}
-
-			if p.s3Client != nil {
-				// Construct S3 key path
-				s3KeyPath := basePath
-				if p.config.Prefix != "" {
-					s3KeyPath = filepath.Join(p.config.Prefix, s3KeyPath)
-				}
-				s3KeyPath = filepath.Join(s3KeyPath, parquetFile.fileName)
-
-				filesToUpload = append(filesToUpload, uploadInfo{
-					filePath:  filePath,
-					s3KeyPath: s3KeyPath,
-				})
-			}
 		}
 	}
 
-	if len(filesToUpload) > 0 && p.s3Client != nil {
-		concurrency := min(runtime.GOMAXPROCS(0)*2, len(filesToUpload))
+	return nil
+}
 
-		err := utils.Concurrent(ctx, filesToUpload, concurrency, func(_ context.Context, info uploadInfo, _ int) error {
+func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []parquetDataFile) error {
+	if len(dataFiles) > 0 && p.s3Client != nil {
+		concurrency := min(runtime.GOMAXPROCS(0)*2, len(dataFiles))
+
+		err := utils.Concurrent(ctx, dataFiles, concurrency, func(_ context.Context, info parquetDataFile, _ int) error {
 			// Open file for S3 upload
-			file, err := os.Open(info.filePath)
+			file, err := os.Open(info.LocalPath)
 			if err != nil {
-				return fmt.Errorf("failed to open file %s: %s", info.filePath, err)
+				return fmt.Errorf("failed to open file %s: %s", info.LocalPath, err)
 			}
 			defer file.Close()
 
 			// Upload to S3 using multipart upload (automatically handles files > 5GB)
-			_, err = p.s3Uploader.Upload(&s3manager.UploadInput{
+			_, err = p.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 				Bucket: aws.String(p.config.Bucket),
-				Key:    aws.String(info.s3KeyPath),
+				Key:    aws.String(info.S3StagingKeyPath),
 				Body:   file,
 			})
 			if err != nil {
-				return fmt.Errorf("failed to put object into s3 (%s): %s", info.s3KeyPath, err)
+				return fmt.Errorf("failed to put object into s3 (%s): %s", info.S3StagingKeyPath, err)
 			}
 
 			// Remove local file after successful upload
-			removeLocalFile(info.filePath, "uploaded to S3")
-			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, info.s3KeyPath)
+			if err := os.Remove(info.LocalPath); err != nil {
+				logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to S3): %s", p.options.ThreadID, info.LocalPath, err)
+			}
+			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, info.S3StagingKeyPath)
 			return nil
 		})
 		if err != nil {
 			return err
 		}
 	}
-
-	// make map empty
-	p.partitionedFiles = make(map[string][]*FileMetadata)
 	return nil
 }
 
 func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
-	// TODO: implement 2pc in parquet writer (difficulty: hard)
-	return p.closePqFiles(ctx, finalMetadataState, ctx.Err() != nil)
+	dataFiles := p.dataFiles()
+	metadataState, err := p.metadataState(finalMetadataState)
+	if err != nil {
+		if closeErr := p.closePqFiles(ctx, true); closeErr != nil {
+			return closeErr
+		}
+		return err
+	}
+
+	if err := p.closePqFiles(ctx, ctx.Err() != nil); err != nil {
+		return err
+	}
+	p.partitionedFiles = make(map[string][]*FileMetadata)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if err := p.uploadPqFiles(ctx, dataFiles); err != nil {
+		return err
+	}
+	if err := p.writeCompletedMarker(ctx, metadataState); err != nil {
+		return err
+	}
+	if err := p.promoteStaging(ctx, p.options.ThreadID); err != nil {
+		return err
+	}
+	if err := p.cleanupCommittedStaging(p.options.ThreadID); err != nil {
+		logger.Warnf("Thread[%s]: failed to cleanup committed parquet 2pc staging dir: %s", p.options.ThreadID, err)
+	}
+	return nil
 }
 
 // validate schema change & evolution and removes null records

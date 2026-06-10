@@ -327,7 +327,7 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T, testTa
 	return nil
 }
 
-// DeleteParquetFiles deletes only .parquet files directly in the table folder in MinIO
+// DeleteParquetFiles deletes parquet data and table-local metadata in MinIO.
 func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 	t.Helper()
 	bucketName := "warehouse"
@@ -367,6 +367,23 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 			}
 			deletedCount++
 		}
+	}
+
+	metadataCh := minioClient.ListObjects(ctx, bucketName, minio.ListObjectsOptions{
+		Prefix:    parquetPath + "_olake_2pc/",
+		Recursive: true,
+	})
+
+	for object := range metadataCh {
+		if object.Err != nil {
+			return fmt.Errorf("error listing parquet metadata objects: %s", object.Err)
+		}
+
+		err := minioClient.RemoveObject(ctx, bucketName, object.Key, minio.RemoveObjectOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
+		}
+		deletedCount++
 	}
 
 	t.Logf("--- Cleanup Complete: Deleted %d files ---", deletedCount)
