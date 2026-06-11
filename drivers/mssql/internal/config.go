@@ -2,6 +2,7 @@ package driver
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
@@ -10,16 +11,17 @@ import (
 
 // Config represents the configuration for connecting to a MSSQL database.
 type Config struct {
-	Host                   string           `json:"host"`
-	Port                   int              `json:"port"`
-	Database               string           `json:"database"`
-	Username               string           `json:"username"`
-	Password               string           `json:"password"`
-	MaxThreads             int              `json:"max_threads"`
-	RetryCount             int              `json:"retry_count"`
-	SSLConfiguration       *utils.SSLConfig `json:"ssl"`
-	ManageCaptureInstances bool             `json:"manage_capture_instances"`
-	SSHConfig              *utils.SSHConfig `json:"ssh_config"`
+	Host                   string            `json:"host"`
+	Port                   int               `json:"port"`
+	Database               string            `json:"database"`
+	Username               string            `json:"username"`
+	Password               string            `json:"password"`
+	MaxThreads             int               `json:"max_threads"`
+	RetryCount             int               `json:"retry_count"`
+	JDBCURLParams          map[string]string `json:"jdbc_url_params"`
+	SSLConfiguration       *utils.SSLConfig  `json:"ssl"`
+	ManageCaptureInstances bool              `json:"manage_capture_instances"`
+	SSHConfig              *utils.SSHConfig  `json:"ssh_config"`
 }
 
 // Validate checks and normalises MSSQL configuration.
@@ -64,4 +66,43 @@ func (c *Config) Validate() error {
 	}
 
 	return utils.Validate(c)
+}
+
+// URI returns the sqlserver:// connection string for go-mssqldb.
+func (c *Config) URI() string {
+	host := c.Host
+	if !strings.Contains(host, ":") {
+		host = fmt.Sprintf("%s:%d", host, c.Port)
+	}
+
+	query := url.Values{}
+
+	for k, v := range c.JDBCURLParams {
+		query.Add(k, v)
+	}
+
+	query.Set("database", c.Database)
+
+	if c.SSLConfiguration == nil {
+		query.Set("encrypt", "disable")
+	} else {
+		switch string(c.SSLConfiguration.Mode) {
+		case utils.SSLModeDisable:
+			query.Set("encrypt", "disable")
+		case utils.SSLModeRequire:
+			query.Set("encrypt", "true")
+			query.Set("TrustServerCertificate", "true")
+		default:
+			query.Set("encrypt", "disable")
+		}
+	}
+
+	u := &url.URL{
+		Scheme:   "sqlserver",
+		User:     url.UserPassword(c.Username, c.Password),
+		Host:     host,
+		RawQuery: query.Encode(),
+	}
+
+	return u.String()
 }

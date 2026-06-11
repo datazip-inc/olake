@@ -2,9 +2,11 @@ package driver
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -143,6 +145,128 @@ func TestConfig_Validate(t *testing.T) {
 			}
 			if !tt.expectErr && err != nil {
 				t.Errorf("Expected no error but got: %v", err)
+			}
+		})
+	}
+}
+
+func TestConfig_URI(t *testing.T) {
+	tests := []struct {
+		name             string
+		config           *Config
+		expectError      bool
+		expectedContains []string
+		notExpected      []string
+	}{
+		{
+			name: "with jdbc url params",
+			config: func() *Config {
+				certs := testutils.GenerateTestCerts()
+				return &Config{
+					Host:     "mssql-host",
+					Port:     1433,
+					Database: "testdb",
+					Username: "sa",
+					Password: "Password!123",
+					JDBCURLParams: map[string]string{
+						"ApplicationIntent":   "ReadOnly",
+						"MultiSubnetFailover": "true",
+					},
+					SSLConfiguration: &utils.SSLConfig{
+						Mode:       utils.SSLModeVerifyFull,
+						ServerCA:   certs.CACert,
+						ClientCert: certs.ClientCert,
+						ClientKey:  certs.ClientKey,
+					},
+				}
+			}(),
+			expectedContains: []string{
+				"mssql-host:1433",
+				"ApplicationIntent=ReadOnly",
+				"MultiSubnetFailover=true",
+			},
+		},
+		{
+			name: "config database overrides jdbc_url_params database",
+			config: &Config{
+				Host:     "mssql-host",
+				Port:     1433,
+				Database: "realdb",
+				Username: "sa",
+				Password: "Password!123",
+				JDBCURLParams: map[string]string{
+					"database": "wrongdb",
+				},
+			},
+			expectedContains: []string{
+				"mssql-host:1433",
+				"database=realdb",
+			},
+			notExpected: []string{
+				"database=wrongdb",
+			},
+		},
+		{
+			name: "ssl mode overrides jdbc_url_params encrypt",
+			config: &Config{
+				Host:     "mssql-host",
+				Port:     1433,
+				Database: "testdb",
+				Username: "sa",
+				Password: "Password!123",
+				JDBCURLParams: map[string]string{
+					"encrypt": "true",
+				},
+				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeDisable},
+			},
+			expectedContains: []string{
+				"mssql-host:1433",
+				"encrypt=disable",
+			},
+		},
+		{
+			name: "ssl require sets encrypt and trust server certificate",
+			config: &Config{
+				Host:             "mssql-host",
+				Port:             1433,
+				Database:         "testdb",
+				Username:         "sa",
+				Password:         "Password!123",
+				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeRequire},
+			},
+			expectedContains: []string{
+				"mssql-host:1433",
+				"encrypt=true",
+				"TrustServerCertificate=true",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("failed to validate config: %v", err)
+				return
+			}
+
+			connStr := tt.config.URI()
+
+			for _, expected := range tt.expectedContains {
+				if !strings.Contains(connStr, expected) {
+					t.Errorf("expected connection string to contain %q, got %s", expected, connStr)
+				}
+			}
+			for _, notExpected := range tt.notExpected {
+				if strings.Contains(connStr, notExpected) {
+					t.Errorf("expected connection string to NOT contain %q, got %s", notExpected, connStr)
+				}
 			}
 		})
 	}

@@ -7,20 +7,19 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-func TestOracleIntegration(t *testing.T) {
-	t.Parallel()
-	testConfig := &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Oracle)),
-		Namespace:                        "MYUSER",
-		ExpectedData:                     ExpectedOracleData,
-		ExpectedUpdatedData:              ExpectedUpdatedOracleData,
-		DestinationDataTypeSchema:        OracleToDestinationSchema,
-		UpdatedDestinationDataTypeSchema: UpdatedOracleToDestinationSchema,
-		ExecuteQuery:                     ExecuteQuery,
-		DestinationDB:                    "oracle_myuser",
-		CursorField:                      "COL_CURSOR:COL_SMALLINT",
-		PartitionRegex:                   "/{id, identity}",
-		ColumnToExclude:                  "EXCLUDEDCOLUMN",
+// oracleBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// between TestOracleIntegration and TestOracle2PC.
+func oracleBaseConfig() *testutils.IntegrationTest {
+	return &testutils.IntegrationTest{
+		TestConfig:                testutils.GetTestConfig(string(constants.Oracle)),
+		Namespace:                 "MYUSER",
+		ExpectedData:              ExpectedOracleData,
+		DestinationDataTypeSchema: OracleToDestinationSchema,
+		ExecuteQuery:              ExecuteQuery,
+		DestinationDB:             "oracle_myuser",
+		CursorField:               "COL_CURSOR:COL_SMALLINT",
+		PartitionRegex:            "/{id, identity}",
+		ColumnToExclude:           "EXCLUDEDCOLUMN",
 		FilterConfig: `{
                     "logical_operator": "And",
                     "conditions": [
@@ -37,5 +36,17 @@ func TestOracleIntegration(t *testing.T) {
                     ]
                 }`,
 	}
-	testConfig.TestIntegration(t)
+}
+
+func TestOracleIntegration(t *testing.T) {
+	t.Parallel()
+	cfg := oracleBaseConfig()
+	cfg.ExpectedUpdatedData = ExpectedUpdatedOracleData
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedOracleToDestinationSchema
+	cfg.TestIntegration(t)
+}
+
+func TestOracle2PC(t *testing.T) {
+	t.Parallel()
+	oracleBaseConfig().Test2PCIntegration(t)
 }

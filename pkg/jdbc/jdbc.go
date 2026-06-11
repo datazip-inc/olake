@@ -660,6 +660,50 @@ func MSSQLPhysLocNextChunkEndQuery(stream types.StreamInterface, chunkSize int64
 	`, quotedTable, chunkSize)
 }
 
+// MSSQLIAMWalkQuery returns a streaming IAM-walk page list for a table:
+// (file_id, page_id) from sys.dm_db_database_page_allocations in LIMITED mode.
+// Params: @p1 = object_id. Requires VIEW DATABASE STATE; SQL Server 2012+;
+// blocked on Azure SQL DB/MI.
+func MSSQLIAMWalkQuery() string {
+	return `
+		SELECT
+			allocated_page_file_id AS file_id,
+			allocated_page_page_id AS page_id
+		FROM sys.dm_db_database_page_allocations(
+			DB_ID(),
+			@p1,
+			NULL,
+			NULL,
+			'LIMITED'
+		)
+		WHERE is_allocated         = 1
+		  AND is_iam_page          = 0
+		  AND index_id             IN (0, 1)
+		  AND allocation_unit_type = 1
+	`
+}
+
+// MSSQLObjectIDQuery returns the query to resolve a fully qualified
+// schema + table name to its object_id using QUOTENAME for safety.
+// Parameters: @p1 = schema name, @p2 = table name
+func MSSQLObjectIDQuery() string {
+	return "SELECT OBJECT_ID(QUOTENAME(@p1) + '.' + QUOTENAME(@p2))"
+}
+
+// MSSQLIAMWalkServerPropertiesQuery returns the query used by the IAM walk
+// capability probe to fetch server major version and engine edition.
+func MSSQLIAMWalkServerPropertiesQuery() string {
+	return "SELECT CAST(SERVERPROPERTY('ProductMajorVersion') AS INT), CAST(SERVERPROPERTY('EngineEdition') AS INT)"
+}
+
+// MSSQLIAMWalkPermissionQuery returns a query that evaluates
+// sys.dm_db_database_page_allocations without returning any rows.
+// Failure indicates the login likely lacks VIEW DATABASE STATE or the DMF
+// is blocked by the platform (Azure SQL DB/MI).
+func MSSQLIAMWalkPermissionQuery() string {
+	return "SELECT TOP 0 1 FROM sys.dm_db_database_page_allocations(DB_ID(), OBJECT_ID('sys.objects'), NULL, NULL, 'LIMITED')"
+}
+
 // MSSQLCDCSupportQuery returns the query to check if CDC is enabled for the current database
 func MSSQLCDCSupportQuery() string {
 	return `
@@ -667,6 +711,18 @@ func MSSQLCDCSupportQuery() string {
 		FROM sys.databases
 		WHERE name = DB_NAME()
 	`
+}
+
+// MSSQLIsReadReplicaQuery returns SQL that yields whether the current
+// database is a read-only secondary replica in an Always On AG.
+func MSSQLIsReadReplicaQuery() string {
+	return `SELECT CAST(CASE
+		WHEN EXISTS (
+			SELECT 1 FROM sys.dm_hadr_database_replica_states
+			WHERE is_local = 1 AND is_primary_replica = 0 AND database_id = DB_ID()
+		) THEN 1
+		ELSE 0
+	END AS BIT)`
 }
 
 // TODO: check about `sys.fn_cdc_get_min_lsn`
@@ -946,7 +1002,7 @@ func MSSQLPhysLocChunkScanQuery(stream types.StreamInterface, chunk types.Chunk,
 		chunkCond = fmt.Sprintf("(%s) AND (%s)", chunkCond, filter)
 	}
 
-	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s ORDER BY %%%%physloc%%%%", tableName, chunkCond)
+	return fmt.Sprintf("SELECT * FROM %s WITH (READPAST) WHERE %s", tableName, chunkCond)
 }
 
 // buildChunkConditionMSSQL builds a WHERE condition for scanning a chunk in MSSQL.
@@ -983,6 +1039,20 @@ func MSSQLTableRowStatsQuery() string {
 		AND s.name = @p1
 		AND t.name = @p2
 	`
+}
+
+// MSSQLPKSampleBoundaryQuery returns a query that uses TABLESAMPLE SYSTEM to
+// sample a percentage of rows and return sorted primary-key boundary values.
+func MSSQLPKSampleBoundaryQuery(stream types.StreamInterface, pkCols []string, samplePercent float64) string {
+	quotedCols := QuoteColumns(pkCols, constants.MSSQL)
+	quotedTable := QuoteTable(stream.Namespace(), stream.Name(), constants.MSSQL)
+	selectExpr := buildMSSQLConcat(quotedCols)
+	orderBy := strings.Join(quotedCols, ", ")
+	return fmt.Sprintf(`
+		SELECT %s
+		FROM %s TABLESAMPLE SYSTEM (%.6f PERCENT) WITH (NOLOCK)
+		ORDER BY %s
+	`, selectExpr, quotedTable, samplePercent, orderBy)
 }
 
 // OracleDB Specific Queries
