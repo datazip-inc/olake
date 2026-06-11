@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -20,15 +20,8 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-var (
-	portStatus     sync.Map // map[int]*portState - tracks port usage and cooldown state
-	cooldownPeriod = 180 * time.Second
-)
-
-type portState struct {
-	inUse      bool
-	releasedAt time.Time
-}
+// defaultServerPort is the port the single shared JVM listens on.
+const defaultServerPort = 50051
 
 type serverInstance struct {
 	port        int
@@ -39,17 +32,14 @@ type serverInstance struct {
 	serverID    string
 }
 
-// Shared single-JVM state for the lifetime of the process.
-//
-// All Iceberg writers in this OLake process (every stream, every backfill
-// chunk, plus the connection Check and DropStreams paths) connect to this one
-// JVM instead of forking their own. Per-stream context (namespace, upsert,
-// partition spec, identifier-field flag) is carried in each gRPC payload, so
-// the JVM stays free of stream-level globals and can serve any combination.
+// Shared single-JVM state for the lifetime of the process. Every Iceberg writer
+// connects to this one JVM; per-stream context rides on each gRPC payload.
+// initializeServer starts it once (guarded by startOnce), getServer loads the
+// pointer lock-free, and shutdownSharedServer swaps it out lock-free.
 var (
-	sharedServerMu    sync.Mutex
-	sharedServer      *serverInstance
-	shutdownHooksOnce sync.Once
+	sharedServer atomic.Pointer[serverInstance]
+	startOnce    sync.Once
+	startErr     error
 )
 
 // getServerConfigJSON builds the catalog/storage-level config the JVM consumes
@@ -132,37 +122,44 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 	return json.Marshal(serverConfig)
 }
 
-// acquireServer returns the shared JVM, lazily starting it on first call.
-// The catalog/storage portion of `config` is what drives the JVM CLI; later
-// callers that pass a different config still receive the already-running JVM.
-// This is intentional: in a single OLake sync the destination config is fixed.
-func acquireServer(config *Config) (*serverInstance, error) {
-	sharedServerMu.Lock()
-	defer sharedServerMu.Unlock()
-
-	if sharedServer != nil {
-		return sharedServer, nil
+// initializeServer launches the shared JVM exactly once and returns it. This is
+// the single place a JVM is started — invoked from the protocol layer via
+// Iceberg.Initialize before any sync/check/clear work begins. Concurrent/repeat
+// callers all observe the same instance. The catalog/storage portion of `config`
+// is what drives the JVM CLI; later callers that pass a different config still
+// receive the already-running JVM. This is intentional: in a single OLake sync
+// the destination config is fixed.
+func initializeServer(config *Config) (*serverInstance, error) {
+	startOnce.Do(func() {
+		inst, err := startSharedServer(config)
+		if err != nil {
+			startErr = err
+			return
+		}
+		sharedServer.Store(inst)
+	})
+	if startErr != nil {
+		return nil, startErr
 	}
-
-	inst, err := startSharedServer(config)
-	if err != nil {
-		return nil, err
-	}
-	sharedServer = inst
-	shutdownHooksOnce.Do(installShutdownHooks)
-	return sharedServer, nil
+	return sharedServer.Load(), nil
 }
 
-// shutdownSharedServer kills the JVM and releases its port. Idempotent;
-// callers (sync.go defer, Iceberg.Shutdown, signal handler).
+// getServer returns the running shared JVM lock-free (read path for Check,
+// Setup, DropStreams, gRPC sends). Returns nil only if initializeServer never
+// ran, which the protocol layer guarantees against by initializing up front.
+func getServer() *serverInstance {
+	return sharedServer.Load()
+}
+
+// shutdownSharedServer kills the JVM and releases its port. Idempotent and
+// lock-free via an atomic swap — only the first caller sees a non-nil instance.
+// Signal-driven teardown flows through here too: the root context cancels on
+// signal, the command returns, and its deferred Shutdown runs this.
 func shutdownSharedServer() {
-	sharedServerMu.Lock()
-	defer sharedServerMu.Unlock()
-	if sharedServer == nil {
+	inst := sharedServer.Swap(nil)
+	if inst == nil {
 		return
 	}
-	inst := sharedServer
-	sharedServer = nil
 
 	logger.Infof("Shutting down shared Iceberg JVM on port %d", inst.port)
 	if inst.conn != nil {
@@ -184,26 +181,6 @@ func shutdownSharedServer() {
 			_ = inst.cmd.Process.Kill()
 		}
 	}
-	portStatus.Store(inst.port, &portState{
-		inUse:      false,
-		releasedAt: time.Now(),
-	})
-}
-
-// installShutdownHooks ensures the JVM is killed when the Go process is
-// signaled (Ctrl-C, kubectl/docker stop, etc). Without this, an orphaned JVM
-// can outlive the parent on abrupt termination.
-func installShutdownHooks() {
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		sig := <-ch
-		logger.Warnf("Received signal %s, shutting down shared Iceberg JVM", sig)
-		shutdownSharedServer()
-		// Re-raise the signal so the rest of the process exits normally.
-		signal.Reset(syscall.SIGINT, syscall.SIGTERM)
-		_ = syscall.Kill(syscall.Getpid(), sig.(syscall.Signal))
-	}()
 }
 
 func startSharedServer(config *Config) (*serverInstance, error) {
@@ -213,13 +190,11 @@ func startSharedServer(config *Config) (*serverInstance, error) {
 
 	const maxAttempts = 10
 	const serverID = "shared"
-	nextStartPort := 50051
+	port := defaultServerPort
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		port, err := FindAvailablePort(serverID, nextStartPort)
-		if err != nil {
-			return nil, fmt.Errorf("failed to find available ports: %s", err)
-		}
+		// Single JVM: reclaim the port if a stale process is still holding it.
+		reclaimPort(port)
 
 		configJSON, err := getServerConfigJSON(config, port, config.UseArrowWrites)
 		if err != nil {
@@ -268,11 +243,10 @@ func startSharedServer(config *Config) (*serverInstance, error) {
 		appendEnv("AWS_PROFILE", config.ProfileName)
 
 		if err := logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd); err != nil {
-			portStatus.Store(port, &portState{inUse: false, releasedAt: time.Now()})
 			errLower := strings.ToLower(err.Error())
 			if strings.Contains(errLower, "address in use") || strings.Contains(errLower, "failed to bind") || strings.Contains(errLower, "bindexception") || strings.Contains(errLower, "eaddrinuse") {
-				logger.Warnf("Iceberg JVM: port %d bind failed, retrying with next available port", port)
-				nextStartPort = port + 1
+				logger.Warnf("Iceberg JVM: port %d bind failed, retrying with next port", port)
+				port++
 				continue
 			}
 			return nil, fmt.Errorf("failed to start iceberg java writer and setup logger: %s", err)
@@ -285,7 +259,6 @@ func startSharedServer(config *Config) (*serverInstance, error) {
 			if serverCmd != nil && serverCmd.Process != nil {
 				_ = serverCmd.Process.Kill()
 			}
-			portStatus.Store(port, &portState{inUse: false, releasedAt: time.Now()})
 			return nil, fmt.Errorf("failed to create new grpc client: %s", err)
 		}
 
@@ -318,64 +291,26 @@ func (s *serverInstance) ServerID() string {
 	return s.serverID
 }
 
-// findAvailablePort finds an available port for the RPC server starting from startPort
-func FindAvailablePort(threadID string, startPort int) (int, error) {
-	if startPort < 50051 {
-		startPort = 50051
+// reclaimPort frees the given port by killing whatever process is currently
+// bound to it. With a single shared JVM there is no port-pool bookkeeping to
+// do — we just make sure the one port we want is available before binding.
+func reclaimPort(port int) {
+	pid := findProcessUsingPort(port)
+	if pid == "" {
+		return
 	}
-	if startPort > 59051 {
-		return 0, fmt.Errorf("startPort out of range")
+	if err := exec.Command("kill", "-9", pid).Run(); err != nil {
+		logger.Warnf("Iceberg JVM: failed to kill process %s using port %d: %s", pid, port, err)
+		return
 	}
-	for p := startPort; p <= 59051; p++ {
-		// Check port state
-		if state, exists := portStatus.Load(p); exists {
-			ps := state.(*portState)
-			if ps.inUse {
-				// Port is currently in use by our process
-				continue
-			}
-			// Port was released, check if cooldown period has elapsed
-			if time.Since(ps.releasedAt) < cooldownPeriod {
-				// Still in cooldown, skip this port
-				continue
-			}
-			// Cooldown period expired, remove from map and allow reuse
-			portStatus.Delete(p)
-		}
-
-		// Port not tracked or cooldown expired - try to acquire it
-		// Use LoadOrStore to atomically claim the port
-		if _, loaded := portStatus.LoadOrStore(p, &portState{inUse: true}); !loaded {
-			// Successfully claimed the port, try to kill any process using it
-			pid := findProcessUsingPort(threadID, p)
-			if pid != "" {
-				// Kill the process
-				killCmd := exec.Command("kill", "-9", pid)
-				killErr := killCmd.Run()
-				if killErr == nil {
-					logger.Infof("Thread[%s]: Killed process %s that was using port %d", threadID, pid, p)
-					// Wait for the port to be released
-					time.Sleep(time.Second * 5)
-					return p, nil
-				}
-				logger.Warnf("Thread[%s]: Failed to kill process %s using port %d: %s", threadID, pid, p, killErr)
-				// Release the claim and mark cooldown, then continue scanning
-				portStatus.Store(p, &portState{
-					inUse:      false,
-					releasedAt: time.Now(),
-				})
-				continue
-			}
-			// Return the port (either it was free, or we attempted to free it)
-			return p, nil
-		}
-	}
-	return 0, fmt.Errorf("no available ports found between 50051 and 59051")
+	logger.Infof("Iceberg JVM: killed process %s that was using port %d", pid, port)
+	// Give the OS a moment to release the socket before we bind to it.
+	time.Sleep(2 * time.Second)
 }
 
 // findProcessUsingPort finds the PID of a process using the specified port
 // Tries ss first (preferred for Alpine), falls back to lsof
-func findProcessUsingPort(threadID string, port int) string {
+func findProcessUsingPort(port int) string {
 	// Prefer ss if available. If ss exists, do NOT fall back to lsof.
 	if _, lookErr := exec.LookPath("ss"); lookErr == nil {
 		// Use a valid filter expression: sport = :<port>
@@ -393,7 +328,7 @@ func findProcessUsingPort(threadID string, port int) string {
 					if len(parts) > 1 {
 						pidPart := strings.Split(parts[1], ",")[0]
 						if pid := strings.TrimSpace(pidPart); pid != "" {
-							logger.Infof("Thread[%s]: Found process %s using port %d using ss", threadID, pid, port)
+							logger.Infof("Iceberg JVM: found process %s using port %d via ss", pid, port)
 							return pid
 						}
 					}
@@ -403,7 +338,7 @@ func findProcessUsingPort(threadID string, port int) string {
 			return ""
 		}
 		// ss failed to run (syntax/permissions/etc.). Log and return empty.
-		logger.Warnf("Thread[%s]: Failed to find process using port %d using ss: %s", threadID, port, err)
+		logger.Warnf("Iceberg JVM: failed to find process using port %d via ss: %s", port, err)
 		return ""
 	}
 
@@ -414,7 +349,7 @@ func findProcessUsingPort(threadID string, port int) string {
 		if err == nil {
 			pid := strings.TrimSpace(string(output))
 			if pid != "" {
-				logger.Infof("Thread[%s]: Found process %s using port %d using lsof", threadID, pid, port)
+				logger.Infof("Iceberg JVM: found process %s using port %d via lsof", pid, port)
 				return pid
 			}
 		}

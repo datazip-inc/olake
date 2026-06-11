@@ -64,6 +64,9 @@ var clearCmd = &cobra.Command{
 
 		// drop/clear streams from destination
 		defer destination.Shutdown(cmd.Context(), destinationConfig)
+		if err := destination.Initialize(cmd.Context(), destinationConfig); err != nil {
+			return fmt.Errorf("failed to initialize destination: %s", err)
+		}
 		cerr := destination.ClearDestination(cmd.Context(), destinationConfig, dropStreams)
 		if cerr != nil {
 			return fmt.Errorf("failed to clear destination: %s", cerr)

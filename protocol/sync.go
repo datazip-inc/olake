@@ -99,6 +99,15 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
 		}
 
+		// Initialize destination-owned process resources (Iceberg shared JVM) once,
+		// up front. Every later destination path (clear, Check, Setup) only reads
+		// the running instance. Register the (idempotent, nil-safe) Shutdown first
+		// so teardown is guaranteed even if Initialize fails after partially starting.
+		defer destination.Shutdown(cmd.Context(), destinationConfig)
+		if err := destination.Initialize(cmd.Context(), destinationConfig); err != nil {
+			return fmt.Errorf("failed to initialize destination: %s", err)
+		}
+
 		if streams == nil {
 			state.Streams = selectedStreamsMetadata.NewStreamsState
 		}
@@ -123,9 +132,6 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// Tear down destination-owned process resources (Iceberg shared JVM) on
-		// normal completion. Signal-based teardown lives inside the destination.
-		defer destination.Shutdown(cmd.Context(), destinationConfig)
 
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {

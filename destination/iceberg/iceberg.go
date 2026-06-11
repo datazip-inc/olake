@@ -104,9 +104,11 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		}
 	}
 
-	server, err := acquireServer(i.config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to start iceberg server: %s", err)
+	// Get-only: the JVM is provisioned once by the protocol layer before any
+	// writer thread runs, so here we only read the running instance.
+	server := getServer()
+	if server == nil {
+		return nil, nil, fmt.Errorf("iceberg server not initialized; destination.Initialize must run before Setup")
 	}
 
 	// persist server details
@@ -240,6 +242,14 @@ func (i *Iceberg) releaseSession(ctx context.Context) {
 	}
 }
 
+// Initialize starts the shared JVM. This is the single start point; the protocol
+// layer calls it once before any Check/Setup/DropStreams work, so those paths
+// only ever read the running instance.
+func (i *Iceberg) Initialize(_ context.Context) error {
+	_, err := initializeServer(i.config)
+	return err
+}
+
 // Shutdown tears down the shared JVM. Safe to call from defer (idempotent).
 func (i *Iceberg) Shutdown(_ context.Context) error {
 	shutdownSharedServer()
@@ -254,9 +264,10 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Force the legacy ingester for Check — arrow writer requires an existing
 	// table which Check creates on the fly. The JVM still hosts arrow if the
 	// destination config enables it; we just exercise the always-on legacy gRPC.
-	server, err := acquireServer(i.config)
-	if err != nil {
-		return fmt.Errorf("failed to setup iceberg server: %s", err)
+	// Get-only: the JVM is provisioned once by the protocol layer before Check.
+	server := getServer()
+	if server == nil {
+		return fmt.Errorf("iceberg server not initialized; destination.Initialize must run before Check")
 	}
 
 	// Stash for releaseSession to find on defer.
@@ -621,9 +632,10 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 		return nil
 	}
 
-	server, err := acquireServer(i.config)
-	if err != nil {
-		return fmt.Errorf("failed to setup iceberg server for dropping streams: %s", err)
+	// Get-only: the JVM is provisioned once by the protocol layer before clear.
+	server := getServer()
+	if server == nil {
+		return fmt.Errorf("iceberg server not initialized; destination.Initialize must run before DropStreams")
 	}
 
 	// Stash so releaseSession can drop the drop-thread state on the JVM side.

@@ -310,6 +310,28 @@ func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStrea
 	return nil
 }
 
+// Initialize starts destination-level process resources once, up front, if the
+// registered writer implements Initializable. No-op for destinations without
+// long-lived resources (parquet). Pair it with a deferred Shutdown.
+func Initialize(ctx context.Context, config *types.WriterConfig) error {
+	if config == nil {
+		return nil
+	}
+	newfunc, found := RegisteredWriters[config.Type]
+	if !found {
+		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
+	}
+	adapter := newfunc()
+	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
+		return fmt.Errorf("failed to unmarshal destination config: %s", err)
+	}
+	in, ok := adapter.(Initializable)
+	if !ok {
+		return nil
+	}
+	return in.Initialize(ctx)
+}
+
 // Shutdown invokes destination-level cleanup if the registered writer
 // implements Shutdownable. No-op for destinations without long-lived
 // resources (parquet).
