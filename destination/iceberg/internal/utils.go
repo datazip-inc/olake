@@ -29,9 +29,7 @@ type StreamMetaCtx struct {
 	ThreadID               string
 	Namespace              string
 	Upsert                 bool
-	CreateIdentifierFields bool
 	IdentifierField        string
 	IcebergPartitionFields []*proto.IcebergPayload_PartitionField
-	ArrowPartitionFields   []*proto.ArrowPayload_PartitionField // TODO: remove this
 	DestTableName          string
 }

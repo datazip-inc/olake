@@ -136,14 +136,13 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	requestPayload := proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			Schema:                 iceSchema,
-			DestTableName:          i.meta.DestTableName,
-			ThreadId:               i.meta.ThreadID,
-			IdentifierField:        &i.meta.IdentifierField,
-			Namespace:              i.meta.Namespace,
-			Upsert:                 i.meta.Upsert,
-			CreateIdentifierFields: i.meta.CreateIdentifierFields,
-			PartitionFields:        i.meta.IcebergPartitionFields,
+			Schema:          iceSchema,
+			DestTableName:   i.meta.DestTableName,
+			ThreadId:        i.meta.ThreadID,
+			IdentifierField: &i.meta.IdentifierField,
+			Namespace:       i.meta.Namespace,
+			Upsert:          i.meta.Upsert,
+			PartitionFields: i.meta.IcebergPartitionFields,
 		},
 	}
 
@@ -219,9 +218,7 @@ func (i *Iceberg) releaseSession(ctx context.Context) {
 	req := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_CLOSE_SESSION,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      i.meta.ThreadID,
-			DestTableName: i.meta.DestTableName,
-			Namespace:     i.meta.Namespace,
+			ThreadId: i.meta.ThreadID,
 		},
 	}
 	if _, err := i.server.SendClientRequest(cleanupCtx, req); err != nil {
@@ -231,9 +228,7 @@ func (i *Iceberg) releaseSession(ctx context.Context) {
 		arrowReq := &proto.ArrowPayload{
 			Type: proto.ArrowPayload_CLOSE_SESSION,
 			Metadata: &proto.ArrowPayload_Metadata{
-				ThreadId:      i.meta.ThreadID,
-				DestTableName: i.meta.DestTableName,
-				Namespace:     i.meta.Namespace,
+				ThreadId: i.meta.ThreadID,
 			},
 		}
 		if _, err := i.server.SendClientRequest(cleanupCtx, arrowReq); err != nil {
@@ -273,11 +268,11 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Stash for releaseSession to find on defer.
 	i.server = server
 	i.meta = &internal.StreamMetaCtx{
-		ThreadID:               server.serverID,
-		Namespace:              destinationDB,
-		DestTableName:          destinationDB,
-		Upsert:                 false,
-		CreateIdentifierFields: !i.config.NoIdentifierFields,
+		ThreadID:        server.serverID,
+		Namespace:       destinationDB,
+		DestTableName:   destinationDB,
+		Upsert:          false,
+		IdentifierField: utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string),
 	}
 	defer i.releaseSession(ctx)
 
@@ -288,13 +283,12 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:               server.serverID,
-			DestTableName:          destinationDB,
-			Schema:                 types.GetIcebergRawSchema(),
-			Namespace:              destinationDB,
-			Upsert:                 false,
-			CreateIdentifierFields: !i.config.NoIdentifierFields,
-			IdentifierField:        &identifierField,
+			ThreadId:        server.serverID,
+			DestTableName:   destinationDB,
+			Schema:          types.GetIcebergRawSchema(),
+			Namespace:       destinationDB,
+			Upsert:          false,
+			IdentifierField: &identifierField,
 		},
 	}
 
@@ -317,13 +311,10 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	recrodInsertRequest := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:               server.serverID,
-			DestTableName:          destinationDB,
-			Schema:                 protoSchema,
-			Namespace:              destinationDB,
-			Upsert:                 false,
-			CreateIdentifierFields: !i.config.NoIdentifierFields,
-			IdentifierField:        &identifierField,
+			// Session already created by the GET_OR_CREATE_TABLE above; RECORDS
+			// carries only the routing thread_id plus the schema for this batch.
+			ThreadId: server.serverID,
+			Schema:   protoSchema,
 		},
 		Records: []*proto.IcebergPayload_IceRecord{{
 			Fields:     protoColumns,
@@ -523,18 +514,13 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		return false
 	}
 
-	// check for identifier fields setting
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	// Session-constant context (identifier-field, upsert, partition spec) was
+	// captured by the JVM at GET_OR_CREATE_TABLE; EVOLVE_SCHEMA / REFRESH carry
+	// only the routing thread_id (schema appended below when evolving).
 	request := proto.IcebergPayload{
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
-			IdentifierField:        &identifierField,
-			DestTableName:          i.meta.DestTableName,
-			ThreadId:               i.meta.ThreadID,
-			Namespace:              i.meta.Namespace,
-			Upsert:                 i.meta.Upsert,
-			CreateIdentifierFields: i.meta.CreateIdentifierFields,
-			PartitionFields:        i.meta.IcebergPartitionFields,
+			ThreadId: i.meta.ThreadID,
 		},
 	}
 
@@ -733,13 +719,8 @@ func (i *Iceberg) buildStreamMeta(stream types.StreamInterface, options *destina
 	namespace := i.stream.GetDestinationDatabase(&i.config.IcebergDatabase)
 
 	icebergPartFields := make([]*proto.IcebergPayload_PartitionField, 0, len(i.partitionInfo))
-	arrowPartFields := make([]*proto.ArrowPayload_PartitionField, 0, len(i.partitionInfo))
 	for _, p := range i.partitionInfo {
 		icebergPartFields = append(icebergPartFields, &proto.IcebergPayload_PartitionField{
-			Field:     p.SchemaField,
-			Transform: p.Transform,
-		})
-		arrowPartFields = append(arrowPartFields, &proto.ArrowPayload_PartitionField{
 			Field:     p.SchemaField,
 			Transform: p.Transform,
 		})
@@ -749,10 +730,8 @@ func (i *Iceberg) buildStreamMeta(stream types.StreamInterface, options *destina
 		ThreadID:               options.ThreadID,
 		Namespace:              namespace,
 		Upsert:                 upsert,
-		CreateIdentifierFields: !i.config.NoIdentifierFields,
 		IdentifierField:        identifierField,
 		IcebergPartitionFields: icebergPartFields,
-		ArrowPartitionFields:   arrowPartFields,
 		DestTableName:          i.stream.GetDestinationTable(),
 	}
 }

@@ -35,7 +35,9 @@ import jakarta.enterprise.context.Dependent;
  * fully isolated from every other session, just as separate JVM processes were.
  *
  * Per-stream context (namespace, upsert, partition spec, identifier-field flag)
- * arrives on every gRPC payload so the JVM needs no global config.
+ * arrives once on the GET_OR_CREATE_TABLE payload and is captured on the
+ * session; later payloads carry only thread_id (+ evolving schema), so the JVM
+ * still needs no global config.
  */
 @Dependent
 public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServiceImplBase {
@@ -57,6 +59,17 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         final Table icebergTable;
         final IcebergTableOperator op;
 
+        // Session-constant context captured once at GET_OR_CREATE_TABLE. The Go
+        // side stamps these only on the session-creating request; later RECORDS /
+        // COMMIT / EVOLVE_SCHEMA payloads omit them and we read from here instead.
+        //
+        // A non-empty identifierField is exactly the "create identifier fields"
+        // flag (both derive from the same NoIdentifierFields config on the Go
+        // side), so we keep only identifierField and read createIdentifierFields()
+        // off it. upsert is independent (append-mode / backfill phase) and stays.
+        final String identifierField;
+        final boolean upsert;
+
         // Set by CLOSE_SESSION for THIS thread only. Polled by the in-flight write
         // loop, which stops between records and closes its own writer on its own
         // thread. CLOSE_SESSION never touches the writer itself, so the writer is
@@ -72,6 +85,14 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
             this.icebergTable = loadOrCreateTable(tid, schema, partitionTransforms);
             this.op = new IcebergTableOperator(upsert);
+            this.identifierField = identifierField;
+            this.upsert = upsert;
+        }
+
+        // Identifier fields are created/maintained exactly when the stream has a
+        // non-empty identifier field (i.e. NoIdentifierFields was false on Go side).
+        boolean createIdentifierFields() {
+            return identifierField != null && !identifierField.isEmpty();
         }
     }
 
@@ -84,12 +105,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             IcebergPayload.Metadata metadata = request.getMetadata();
             String threadId = metadata.getThreadId();
             String destTableName = metadata.getDestTableName();
-            String identifierField = metadata.getIdentifierField();
-            List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
-            String namespace = metadata.getNamespace();
-            boolean upsert = metadata.getUpsert();
-            boolean createIdentifierFields = metadata.getCreateIdentifierFields();
-            List<Map<String, String>> partitionTransforms = toPartitionList(metadata.getPartitionFieldsList());
 
             if (threadId == null || threadId.isEmpty()) {
                 throw new Exception("Thread id not present in metadata");
@@ -111,14 +126,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 return;
             }
 
-            if (destTableName == null || destTableName.isEmpty()) {
-                throw new Exception("Destination table name not present in metadata");
-            }
-
             // DROP_TABLE carries "db.table" in destTableName and must NOT create
             // a per-thread session (computeIfAbsent would load/create the very
             // table we're about to drop). Handle it before session setup.
             if (request.getType() == IcebergPayload.PayloadType.DROP_TABLE) {
+                if (destTableName == null || destTableName.isEmpty()) {
+                    throw new Exception("Destination table name not present in metadata");
+                }
                 String[] parts = destTableName.split("\\.", 2);
                 if (parts.length != 2) {
                     throw new IllegalArgumentException("Invalid destination table name: " + destTableName);
@@ -138,18 +152,40 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 return;
             }
 
-            if (namespace == null || namespace.isEmpty()) {
-                throw new Exception("Namespace not present in metadata");
+            // Session-constant context (namespace, upsert, identifier-field,
+            // create-identifier-fields, partition spec) rides only on the
+            // GET_OR_CREATE_TABLE payload; the session captures it once. Every
+            // later request omits those fields and we read them from the session.
+            ThreadSession session;
+            if (request.getType() == IcebergPayload.PayloadType.GET_OR_CREATE_TABLE) {
+                if (destTableName == null || destTableName.isEmpty()) {
+                    throw new Exception("Destination table name not present in metadata");
+                }
+                String namespace = metadata.getNamespace();
+                if (namespace == null || namespace.isEmpty()) {
+                    throw new Exception("Namespace not present in metadata");
+                }
+                String identifierField = metadata.getIdentifierField();
+                boolean upsert = metadata.getUpsert();
+                List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
+                List<Map<String, String>> partitionTransforms = toPartitionList(metadata.getPartitionFieldsList());
+                TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
+
+                // computeIfAbsent is atomic so even if two gRPC server threads race
+                // on the same threadId (which Go's CxGroup limit-1 prevents, but
+                // defensive here), only one session is created.
+                session = sessions.computeIfAbsent(threadId,
+                        k -> new ThreadSession(tid, identifierField, schemaMetadata, partitionTransforms, upsert));
+            } else {
+                // RECORDS / COMMIT / EVOLVE_SCHEMA / REFRESH_TABLE_SCHEMA: the
+                // session must already exist (GET_OR_CREATE_TABLE runs first in
+                // every Go flow). Fail loudly rather than silently mis-configure.
+                session = sessions.get(threadId);
+                if (session == null) {
+                    throw new Exception("No active session for thread " + threadId
+                            + "; GET_OR_CREATE_TABLE must be called before " + request.getType());
+                }
             }
-
-            TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
-
-            // Lazily create the session on first request. computeIfAbsent is
-            // atomic so even if two gRPC server threads race on the same threadId
-            // (which Go's CxGroup limit-1 prevents, but defensive here), only one
-            // session is created.
-            ThreadSession session = sessions.computeIfAbsent(threadId,
-                    k -> new ThreadSession(tid, identifierField, schemaMetadata, partitionTransforms, upsert));
 
             switch (request.getType()) {
                 case COMMIT:
@@ -159,13 +195,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
 
                 case EVOLVE_SCHEMA: {
-                    SchemaConvertor convertor = new SchemaConvertor(identifierField, schemaMetadata);
-                    session.op.applyFieldAddition(session.icebergTable, convertor.convertToIcebergSchema(), createIdentifierFields);
+                    SchemaConvertor convertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
+                    session.op.applyFieldAddition(session.icebergTable, convertor.convertToIcebergSchema(), session.createIdentifierFields());
                     session.icebergTable.refresh();
                     // complete current writer
                     session.op.completeWriter();
                     sendResponse(responseObserver, session.icebergTable.schema().toString());
-                    LOGGER.info("{} Successfully applied schema evolution for table: {}", requestId, destTableName);
+                    LOGGER.info("{} Successfully applied schema evolution for thread: {}", requestId, threadId);
                     break;
                 }
 
@@ -185,12 +221,12 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 }
 
                 case RECORDS: {
-                    LOGGER.debug("{} Received {} records for table {}", requestId, request.getRecordsCount(), destTableName);
-                    SchemaConvertor recordsConvertor = new SchemaConvertor(identifierField, schemaMetadata);
-                    List<RecordWrapper> finalRecords = recordsConvertor.convert(upsert, session.icebergTable.schema(), request.getRecordsList());
+                    LOGGER.debug("{} Received {} records for thread {}", requestId, request.getRecordsCount(), threadId);
+                    SchemaConvertor recordsConvertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
+                    List<RecordWrapper> finalRecords = recordsConvertor.convert(session.upsert, session.icebergTable.schema(), request.getRecordsList());
                     session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords, () -> session.cancelled);
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
-                    LOGGER.debug("{} Successfully wrote {} records to table {}", requestId, request.getRecordsCount(), destTableName);
+                    LOGGER.debug("{} Successfully wrote {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     break;
                 }
 

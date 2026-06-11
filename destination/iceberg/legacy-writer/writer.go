@@ -33,19 +33,13 @@ func New(options *destination.Options, schema map[string]string, stream types.St
 	}
 }
 
-// newMetadata builds the per-request Metadata, stamping every payload with the
-// per-stream context (namespace, upsert, partition, identifier-field) so the
-// shared JVM can route it to the right table/session without needing JVM-globals.
+// newMetadata builds the per-request Metadata. The session-constant context
+// (namespace, upsert, partition spec, identifier-field) was already captured by
+// the JVM on the GET_OR_CREATE_TABLE payload during Setup, so RECORDS / COMMIT
+// payloads carry only the thread_id the JVM routes on (callers add schema/payload).
 func (w *LegacyWriter) newMetadata() *proto.IcebergPayload_Metadata {
-	identifier := w.meta.IdentifierField
 	return &proto.IcebergPayload_Metadata{
-		DestTableName:          w.meta.DestTableName,
-		ThreadId:               w.meta.ThreadID,
-		Namespace:              w.meta.Namespace,
-		Upsert:                 w.meta.Upsert,
-		CreateIdentifierFields: w.meta.CreateIdentifierFields,
-		PartitionFields:        w.meta.IcebergPartitionFields,
-		IdentifierField:        &identifier,
+		ThreadId: w.meta.ThreadID,
 	}
 }
 

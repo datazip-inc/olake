@@ -89,12 +89,10 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 // shared JVM can route to the right table without JVM-globals.
 func (w *ArrowWriter) newMetadata() *proto.ArrowPayload_Metadata {
 	return &proto.ArrowPayload_Metadata{
-		DestTableName:          w.meta.DestTableName,
-		ThreadId:               w.meta.ThreadID,
-		Namespace:              w.meta.Namespace,
-		Upsert:                 w.meta.Upsert,
-		CreateIdentifierFields: w.meta.CreateIdentifierFields,
-		PartitionFields:        w.meta.ArrowPartitionFields,
+		DestTableName: w.meta.DestTableName,
+		ThreadId:      w.meta.ThreadID,
+		Namespace:     w.meta.Namespace,
+		Upsert:        w.meta.Upsert,
 	}
 }
 
