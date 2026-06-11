@@ -34,6 +34,10 @@ import jakarta.enterprise.context.Dependent;
  * Same isolation model as {@link OlakeRowsIngester}: one session per Go thread,
  * each owning its own Table handle + OutputFileFactory + IcebergTableOperator.
  * No cross-session caches; this exactly mirrors the old per-JVM isolation.
+ *
+ * The session-constant context (namespace, dest table, upsert) is captured once
+ * from the JSONSCHEMA payload that creates the session; every later payload
+ * (FILEPATH / UPLOAD_FILE / REGISTER_AND_COMMIT) carries only the thread_id.
  */
 @Dependent
 public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServiceImplBase {
@@ -72,9 +76,6 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
         try {
             ArrowPayload.Metadata metadata = request.getMetadata();
             String threadId = metadata.getThreadId();
-            String destTableName = metadata.getDestTableName();
-            String namespace = metadata.getNamespace();
-            boolean upsert = metadata.getUpsert();
 
             if (threadId == null || threadId.isEmpty()) {
                 throw new Exception("Thread id not present in metadata");
@@ -89,25 +90,39 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                 return;
             }
 
-            if (destTableName == null || destTableName.isEmpty()) {
-                throw new Exception("Destination table name not present in metadata");
-            }
+            // JSONSCHEMA is the session-creating handshake: it is the first arrow
+            // payload Go sends for a thread and is the only one that carries the
+            // session-constant context (namespace, dest table, upsert). Build the
+            // session here once; every later payload reuses it by thread_id alone.
+            if (request.getType() == ArrowPayload.PayloadType.JSONSCHEMA) {
+                String destTableName = metadata.getDestTableName();
+                String namespace = metadata.getNamespace();
+                boolean upsert = metadata.getUpsert();
 
-            if (namespace == null || namespace.isEmpty()) {
-                throw new Exception("Namespace not present in metadata");
-            }
-
-            TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
-
-            // Lazily create the session on first request for this threadId.
-            // Table must already exist (created by the legacy ingester during Setup).
-            ArrowSession session = sessions.computeIfAbsent(threadId, k -> {
-                if (!icebergCatalog.tableExists(tid)) {
-                    throw new RuntimeException("Table does not exist: " + tid);
+                if (destTableName == null || destTableName.isEmpty()) {
+                    throw new Exception("Destination table name not present in metadata");
                 }
-                Table t = icebergCatalog.loadTable(tid);
-                return new ArrowSession(t, upsert);
-            });
+                if (namespace == null || namespace.isEmpty()) {
+                    throw new Exception("Namespace not present in metadata");
+                }
+
+                TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
+                // Table must already exist (created by the legacy ingester during Setup).
+                sessions.computeIfAbsent(threadId, k -> {
+                    if (!icebergCatalog.tableExists(tid)) {
+                        throw new RuntimeException("Table does not exist: " + tid);
+                    }
+                    return new ArrowSession(icebergCatalog.loadTable(tid), upsert);
+                });
+            }
+
+            // Every payload other than JSONSCHEMA must run against an existing
+            // session created by the JSONSCHEMA handshake above.
+            ArrowSession session = sessions.get(threadId);
+            if (session == null) {
+                throw new Exception("No active arrow session for thread " + threadId
+                        + "; JSONSCHEMA handshake must run before " + request.getType());
+            }
 
             switch (request.getType()) {
                 case JSONSCHEMA -> {

@@ -85,14 +85,14 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 	return writer, nil
 }
 
-// newMetadata stamps every gRPC payload with the per-stream context so the
-// shared JVM can route to the right table without JVM-globals.
+// newMetadata builds the per-request Metadata. The session-constant context
+// (namespace, dest table, upsert) was already captured by the JVM on the
+// JSONSCHEMA payload that creates the arrow session (see fetchFileSchemaJSON),
+// so every later FILEPATH / UPLOAD_FILE / REGISTER_AND_COMMIT payload carries
+// only the thread_id the JVM routes on.
 func (w *ArrowWriter) newMetadata() *proto.ArrowPayload_Metadata {
 	return &proto.ArrowPayload_Metadata{
-		DestTableName: w.meta.DestTableName,
-		ThreadId:      w.meta.ThreadID,
-		Namespace:     w.meta.Namespace,
-		Upsert:        w.meta.Upsert,
+		ThreadId: w.meta.ThreadID,
 	}
 }
 
@@ -603,10 +603,20 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	return nil
 }
 
+// fetchFileSchemaJSON sends the first arrow payload (JSONSCHEMA) for the thread.
+// It is the session-creating handshake (analogous to the rows path's
+// GET_OR_CREATE_TABLE): it carries the full session-constant context so the JVM
+// can build and cache the arrow session once. All later payloads send only the
+// thread_id (see newMetadata).
 func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	request := &proto.ArrowPayload{
-		Type:     proto.ArrowPayload_JSONSCHEMA,
-		Metadata: w.newMetadata(),
+		Type: proto.ArrowPayload_JSONSCHEMA,
+		Metadata: &proto.ArrowPayload_Metadata{
+			DestTableName: w.meta.DestTableName,
+			ThreadId:      w.meta.ThreadID,
+			Namespace:     w.meta.Namespace,
+			Upsert:        w.meta.Upsert,
+		},
 	}
 
 	schemaCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
