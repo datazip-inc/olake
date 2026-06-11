@@ -113,6 +113,9 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 			convStream.SyncMode = types.CDC
 		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
 			convStream.SyncMode = types.INCREMENTAL
+			if convStream.CursorField == "" && convStream.AvailableCursorFields.Len() > 0 {
+				convStream.CursorField = convStream.AvailableCursorFields.Array()[0]
+			}
 		} else if convStream.SupportedSyncModes.Exists(types.STRICTCDC) {
 			convStream.SyncMode = types.STRICTCDC
 		} else {
