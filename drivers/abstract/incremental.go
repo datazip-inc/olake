@@ -63,7 +63,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			index, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
 			stream := streams[index]
 			primaryCursor, secondaryCursor := stream.Cursor()
-			// TODO: make inremental state consistent save it as string and typecast while reading
+			// TODO: make incremental state consistent save it as string and typecast while reading
 			// get cursor column from state and typecast it to cursor column type for comparisons
 			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
 			if err != nil {
@@ -150,7 +150,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 	return err
 }
 
-// RefomratCursorValue to parse the cursor value to the correct type
+// ReformatCursorValue to parse the cursor value to the correct type
 func ReformatCursorValue(cursorField string, cursorValue any, stream types.StreamInterface) (any, error) {
 	if cursorField == "" {
 		return cursorValue, nil
