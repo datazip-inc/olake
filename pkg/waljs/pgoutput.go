@@ -116,6 +116,9 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
+		if _, relationVisited := p.relationIDToMsgMap[msg.RelationID]; !relationVisited && msg.ReplicaIdentity != 'f' {
+			logger.Warnf("table[%s.%s] replica identity is not FULL, unchanged TOAST column values may be lost during CDC UPDATE events; set REPLICA IDENTITY FULL to avoid data loss", msg.Namespace, msg.RelationName)
+		}
 		p.relationIDToMsgMap[msg.RelationID] = msg
 		return nil
 	case *pglogrepl.BeginMessage:
@@ -136,7 +139,7 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData, oldTuple *pglogrepl.TupleData) (map[string]any, error) {
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, error) {
 	data := make(map[string]any)
 	if tuple == nil {
 		return data, nil
