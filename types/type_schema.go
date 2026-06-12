@@ -116,7 +116,7 @@ func (t *TypeSchema) AddTypes(column string, isOlakeColumn bool, types ...DataTy
 	if !found {
 		t.Properties.Store(column, &Property{
 			Type:                  NewSet(types...),
-			DestinationColumnName: utils.Reformat(column),
+			DestinationColumnName: utils.Reformat(column), // Used to render UI column names when source column names are disabled.
 			OlakeColumn:           isOlakeColumn,
 		})
 		return
