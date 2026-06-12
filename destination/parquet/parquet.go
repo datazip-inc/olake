@@ -371,7 +371,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
-	// One flattener per batch: the internal cache amortises resolve calls
+	// One flattener per batch: the internal cache amortizes resolve calls
 	// across all records so each column name is resolved only once.
 	batchFlattener := typeutils.NewFlattener(p.stream.ResolveColumnName)
 	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {

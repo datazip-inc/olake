@@ -345,7 +345,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 
 		// parallel flatten data and detect schema difference
-		// One flattener per batch: the internal cache amortises resolve calls
+		// One flattener per batch: the internal cache amortizes resolve calls
 		// across all records so each column name is resolved only once.
 		batchFlattener := typeutils.NewFlattener(i.stream.ResolveColumnName)
 		diffThreadSchema := atomic.Bool{}

@@ -23,10 +23,10 @@ type FlattenerImpl struct {
 }
 
 // NewFlattener returns a flattener that resolves record keys using the provided
-// function. Pass stream.ResolveColumnName to honour the stream's naming strategy:
+// function. Pass stream.ResolveColumnName to honor the stream's naming strategy:
 // source-name mode returns keys unchanged, destination-name mode applies utils.Reformat.
 // Create one instance per batch and reuse it across all records — the internal
-// cache amortises repeated resolve calls for the same column names.
+// cache amortizes repeated resolve calls for the same column names.
 func NewFlattener(resolve func(string) string) Flattener {
 	return &FlattenerImpl{omitNilValues: true, keyFn: resolve}
 }
