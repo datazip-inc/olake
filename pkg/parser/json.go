@@ -54,9 +54,28 @@ func (p *JSONParser) InferSchemaFromReaders(ctx context.Context, readers ...io.R
 		default:
 		}
 
-		sampleRecords, err := p.sampleRecords(reader)
+		// Limit data read for schema inference to prevent OOM on large files.
+		// 10MB should be enough to get 100 sample records for most JSON files.
+		limitedReader := io.LimitReader(reader, jsonSchemaMaxBytesForInference)
+
+		data, err := io.ReadAll(limitedReader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read JSON sample %d: %s", i+1, err)
+		}
+
+		trimmed := bytes.TrimSpace(data)
+		if len(trimmed) == 0 {
+			return nil, fmt.Errorf("empty JSON sample %d", i+1)
+		}
+
+		// Parse JSON based on detected format.
+		sampleRecords, err := p.parseJSONContent(trimmed, jsonSchemaMaxSamples)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON sample %d: %s", i+1, err)
+		}
+
+		if len(sampleRecords) == 0 {
+			return nil, fmt.Errorf("no records found in JSON sample %d", i+1)
 		}
 
 		allRecords = append(allRecords, sampleRecords...)
@@ -80,34 +99,6 @@ func (p *JSONParser) InferSchemaFromReaders(ctx context.Context, readers ...io.R
 
 	logger.Infof("Inferred schema from JSON file")
 	return p.stream, nil
-}
-
-func (p *JSONParser) sampleRecords(reader io.Reader) ([]map[string]interface{}, error) {
-	// Limit data read for schema inference to prevent OOM on large files.
-	// 10MB should be enough to get 100 sample records for most JSON files.
-	limitedReader := io.LimitReader(reader, jsonSchemaMaxBytesForInference)
-
-	data, err := io.ReadAll(limitedReader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read JSON sample: %s", err)
-	}
-
-	trimmed := bytes.TrimSpace(data)
-	if len(trimmed) == 0 {
-		return nil, fmt.Errorf("empty JSON sample")
-	}
-
-	// Parse JSON based on detected format.
-	sampleRecords, err := p.parseJSONContent(trimmed, jsonSchemaMaxSamples)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %s", err)
-	}
-
-	if len(sampleRecords) == 0 {
-		return nil, fmt.Errorf("no records found in JSON file")
-	}
-
-	return sampleRecords, nil
 }
 
 // StreamRecords reads and streams JSON records with context support

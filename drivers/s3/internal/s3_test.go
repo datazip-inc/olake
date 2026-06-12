@@ -70,11 +70,6 @@ func TestSchemaSampleFiles(t *testing.T) {
 		expected []FileObject
 	}{
 		{
-			name:     "empty",
-			files:    nil,
-			expected: nil,
-		},
-		{
 			name: "single file",
 			files: []FileObject{
 				{FileKey: "users/part-001.json"},
@@ -128,16 +123,6 @@ func TestSchemaSampleFiles(t *testing.T) {
 			expected: []FileObject{
 				{FileKey: "users/m-file.json", LastModified: "2024-01-01T10:00:00Z"},
 				{FileKey: "users/a-file.json", LastModified: "2024-01-03T10:00:00Z"},
-			},
-		},
-		{
-			name: "deduplicates same first and last key",
-			files: []FileObject{
-				{FileKey: "users/part-001.json"},
-				{FileKey: "users/part-001.json"},
-			},
-			expected: []FileObject{
-				{FileKey: "users/part-001.json"},
 			},
 		},
 	}
