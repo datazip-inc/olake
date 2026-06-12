@@ -345,9 +345,12 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 
 		// parallel flatten data and detect schema difference
+		// One flattener per batch: the internal cache amortises resolve calls
+		// across all records so each column name is resolved only once.
+		batchFlattener := typeutils.NewFlattener(i.stream.ResolveColumnName)
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-			flattenRecord, err := typeutils.NewFlattenerWith(i.stream.ResolveColumnName).Flatten(record.Data)
+			flattenRecord, err := batchFlattener.Flatten(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}

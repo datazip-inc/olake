@@ -240,7 +240,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 
 // GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 // Only selected streams are compared.
-// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode
+// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, use_source_column_names
 // 2. Compares properties from streams: destination_database, destination_table, cursor_field, sync_mode
 // 3. For now, any new stream present in new catalog is added to the difference. Later collision detection will happen.
 //
