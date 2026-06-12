@@ -136,7 +136,7 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) (map[string]any, error) {
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData, oldTuple *pglogrepl.TupleData) (map[string]any, error) {
 	data := make(map[string]any)
 	if tuple == nil {
 		return data, nil
@@ -148,6 +148,9 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		}
 		colName := rel.Columns[idx].Name
 		colType := rel.Columns[idx].DataType
+		if col.DataType == pglogrepl.TupleDataTypeToast && oldTuple != nil && idx < len(oldTuple.Columns) {
+			col = oldTuple.Columns[idx]
+		}
 		if col.Data == nil {
 			data[colName] = nil
 			continue
@@ -175,7 +178,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.Tuple)
+	values, err := p.tupleValuesToMap(rel, m.Tuple, nil)
 	if err != nil {
 		return err
 	}
@@ -200,7 +203,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.NewTuple)
+	values, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
 	if err != nil {
 		return err
 	}
@@ -225,7 +228,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.OldTuple)
+	values, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 	if err != nil {
 		return err
 	}
