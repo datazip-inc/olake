@@ -151,6 +151,9 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		}
 		colName := rel.Columns[idx].Name
 		colType := rel.Columns[idx].DataType
+		// On UPDATE, unchanged TOAST columns in the new tuple are marked TupleDataTypeToast.
+		// REPLICA IDENTITY FULL includes the complete old row and allows recovery of these values.
+		// DEFAULT, INDEX, and NOTHING do not provide old TOAST values, so recovery is not possible.
 		if col.DataType == pglogrepl.TupleDataTypeToast && oldTuple != nil && idx < len(oldTuple.Columns) {
 			col = oldTuple.Columns[idx]
 		}
