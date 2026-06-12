@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -15,10 +16,6 @@ import (
 	"github.com/paulmach/orb/encoding/wkt"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
-
-type StringInterface interface {
-	String() string
-}
 
 var (
 	ErrNullValue = fmt.Errorf("null value")
@@ -43,16 +40,6 @@ var DateTimeFormats = []string{
 
 var GeospatialTypes = []string{"geometry", "point", "polygon", "linestring", "multi"}
 
-func getFirstNotNullType(datatypes []types.DataType) types.DataType {
-	for _, datatype := range datatypes {
-		if datatype != types.Null {
-			return datatype
-		}
-	}
-
-	return types.Null
-}
-
 func ReformatRecord(fields Fields, record types.Record) error {
 	for key, val := range record {
 		field, found := fields[key]
@@ -67,10 +54,6 @@ func ReformatRecord(fields Fields, record types.Record) error {
 	}
 
 	return nil
-}
-
-func ReformatValueOnDataTypes(datatypes []types.DataType, v any) (any, error) {
-	return ReformatValue(getFirstNotNullType(datatypes), v)
 }
 
 func ReformatValue(dataType types.DataType, v any) (any, error) {
@@ -95,7 +78,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		case uint, uint8, uint16, uint32, uint64:
 			return fmt.Sprintf("%d", v), nil
 		case float32, float64:
-			return fmt.Sprintf("%d", v), nil
+			return fmt.Sprintf("%v", v), nil
 		case string:
 			return v, nil
 		case bool:
@@ -144,7 +127,7 @@ func ReformatBool(v interface{}) (bool, error) {
 			return false, nil
 		}
 	case int, int16, int32, int64, int8:
-		switch booleanValue {
+		switch reflect.ValueOf(booleanValue).Int() {
 		case 1:
 			return true, nil
 		case 0:
@@ -199,6 +182,9 @@ func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 				return time.Time{}, fmt.Errorf("invalid null time")
 			}
 		case *sql.NullTime:
+			if v == nil {
+				return time.Time{}, fmt.Errorf("null time passed")
+			}
 			switch v.Valid {
 			case true:
 				return v.Time, nil
@@ -291,7 +277,7 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 	return time.Unix(0, 0).UTC(), nil
 }
 
-// TODO: Add unit test cases for ReformatInt64 and byte array handling for other datatypes as well.
+// TODO: Add byte array handling for other datatypes as well.
 func ReformatInt64(v any) (int64, error) {
 	switch v := v.(type) {
 	case json.Number:
@@ -521,39 +507,6 @@ func ReformatFloat32(v interface{}) (float32, error) {
 	}
 
 	return float32(0), fmt.Errorf("failed to change %v (type:%T) to float32", v, v)
-}
-
-func ReformatByteArraysToString(data map[string]any) map[string]any {
-	for key, value := range data {
-		switch value := value.(type) {
-		case map[string]any:
-			data[key] = ReformatByteArraysToString(value)
-		case []byte:
-			data[key] = string(value)
-		case []map[string]any:
-			decryptedArray := []map[string]any{}
-			for _, element := range value {
-				decryptedArray = append(decryptedArray, ReformatByteArraysToString(element))
-			}
-
-			data[key] = decryptedArray
-		case []any:
-			decryptedArray := []any{}
-			for _, element := range value {
-				switch element := element.(type) {
-				case map[string]any:
-					decryptedArray = append(decryptedArray, ReformatByteArraysToString(element))
-				case []byte:
-					decryptedArray = append(decryptedArray, string(element))
-				default:
-					decryptedArray = append(decryptedArray, element)
-				}
-			}
-
-			data[key] = decryptedArray
-		}
-	}
-	return data
 }
 
 func ReformatGeoType(v any) (any, error) {
