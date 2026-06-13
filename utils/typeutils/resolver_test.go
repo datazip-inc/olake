@@ -158,6 +158,26 @@ func TestResolve(t *testing.T) {
 				"field2": {dataType: types.Int32, nullable: true},
 			},
 		},
+		{
+			name: "mixed field types across records",
+			objects: []map[string]interface{}{
+				{
+					"field": int32(123),
+				},
+				{
+					"field": "text",
+				},
+				{
+					"field": true,
+				},
+			},
+			expected: map[string]struct {
+				dataType types.DataType
+				nullable bool
+			}{
+				"field": {dataType: types.String, nullable: false},
+			},
+		},
 		// arrays and slices should be mapped to Array type
 		{
 			name: "array and slice types",

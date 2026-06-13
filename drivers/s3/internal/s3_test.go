@@ -63,6 +63,77 @@ func TestExtractStreamName(t *testing.T) {
 	}
 }
 
+func TestSchemaSampleFiles(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    []FileObject
+		expected []FileObject
+	}{
+		{
+			name: "single file",
+			files: []FileObject{
+				{FileKey: "users/part-001.json"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/part-001.json"},
+			},
+		},
+		{
+			name: "two files",
+			files: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-002.json"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-002.json"},
+			},
+		},
+		{
+			name: "more than two files",
+			files: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-002.json"},
+				{FileKey: "users/part-003.json"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-003.json"},
+			},
+		},
+		{
+			name: "sorts files by key when modification times match",
+			files: []FileObject{
+				{FileKey: "users/part-003.json"},
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-002.json"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/part-001.json"},
+				{FileKey: "users/part-003.json"},
+			},
+		},
+		{
+			name: "selects oldest and newest by last modified time",
+			files: []FileObject{
+				{FileKey: "users/z-file.json", LastModified: "2024-01-02T10:00:00Z"},
+				{FileKey: "users/a-file.json", LastModified: "2024-01-03T10:00:00Z"},
+				{FileKey: "users/m-file.json", LastModified: "2024-01-01T10:00:00Z"},
+			},
+			expected: []FileObject{
+				{FileKey: "users/m-file.json", LastModified: "2024-01-01T10:00:00Z"},
+				{FileKey: "users/a-file.json", LastModified: "2024-01-03T10:00:00Z"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, schemaSampleFiles(tt.files))
+		})
+	}
+}
+
 // TestConfigValidation tests configuration validation
 func TestConfigValidation(t *testing.T) {
 	tests := []struct {
