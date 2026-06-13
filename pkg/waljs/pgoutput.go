@@ -116,6 +116,9 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.RelationMessage:
+		if _, relationVisited := p.relationIDToMsgMap[msg.RelationID]; !relationVisited && msg.ReplicaIdentity != 'f' {
+			logger.Warnf("table[%s.%s] replica identity is not FULL, unchanged TOAST column values may be lost during CDC UPDATE events; set REPLICA IDENTITY FULL to avoid data loss", msg.Namespace, msg.RelationName)
+		}
 		p.relationIDToMsgMap[msg.RelationID] = msg
 		return nil
 	case *pglogrepl.BeginMessage:
@@ -136,7 +139,7 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) (map[string]any, error) {
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, error) {
 	data := make(map[string]any)
 	if tuple == nil {
 		return data, nil
@@ -148,6 +151,12 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		}
 		colName := rel.Columns[idx].Name
 		colType := rel.Columns[idx].DataType
+		// On UPDATE, unchanged TOAST columns in the new tuple are marked TupleDataTypeToast.
+		// REPLICA IDENTITY FULL includes the complete old row and allows recovery of these values.
+		// DEFAULT, INDEX, and NOTHING do not provide old TOAST values, so recovery is not possible.
+		if col.DataType == pglogrepl.TupleDataTypeToast && oldTuple != nil && idx < len(oldTuple.Columns) {
+			col = oldTuple.Columns[idx]
+		}
 		if col.Data == nil {
 			data[colName] = nil
 			continue
@@ -175,7 +184,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.Tuple)
+	values, err := p.tupleValuesToMap(rel, m.Tuple, nil)
 	if err != nil {
 		return err
 	}
@@ -200,7 +209,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.NewTuple)
+	values, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
 	if err != nil {
 		return err
 	}
@@ -225,7 +234,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.OldTuple)
+	values, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 	if err != nil {
 		return err
 	}
