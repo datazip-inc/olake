@@ -2,6 +2,8 @@ package internal
 
 import (
 	"context"
+
+	"github.com/datazip-inc/olake/destination/iceberg/proto"
 )
 
 type ServerClient interface {
@@ -17,4 +19,17 @@ type PartitionInfo struct {
 	Field       string // original case — matches source record.Data keys
 	SchemaField string // reformatted — matches Iceberg schema field names
 	Transform   string
+}
+
+// StreamMetaCtx carries the per-stream context that is shipped on every gRPC
+// payload in the shared-JVM model. Previously these were JVM-global CLI args.
+// Constructed once per Iceberg.Setup call and reused by Write / EvolveSchema /
+// Close, so writers don't have to re-derive it per batch.
+type StreamMetaCtx struct {
+	ThreadID               string
+	Namespace              string
+	Upsert                 bool
+	IdentifierField        string
+	IcebergPartitionFields []*proto.IcebergPayload_PartitionField
+	DestTableName          string
 }

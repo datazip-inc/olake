@@ -20,14 +20,26 @@ type LegacyWriter struct {
 	schema  map[string]string
 	stream  types.StreamInterface
 	server  internal.ServerClient
+	meta    *internal.StreamMetaCtx
 }
 
-func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient) *LegacyWriter {
+func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, meta *internal.StreamMetaCtx) *LegacyWriter {
 	return &LegacyWriter{
 		options: options,
 		schema:  schema,
 		stream:  stream,
 		server:  server,
+		meta:    meta,
+	}
+}
+
+// newMetadata builds the per-request Metadata. The session-constant context
+// (namespace, upsert, partition spec, identifier-field) was already captured by
+// the JVM on the GET_OR_CREATE_TABLE payload during Setup, so RECORDS / COMMIT
+// payloads carry only the thread_id the JVM routes on (callers add schema/payload).
+func (w *LegacyWriter) newMetadata() *proto.IcebergPayload_Metadata {
+	return &proto.IcebergPayload_Metadata{
+		ThreadId: w.meta.ThreadID,
 	}
 }
 
@@ -77,14 +89,12 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		return nil
 	}
 
+	md := w.newMetadata()
+	md.Schema = protoSchema
 	request := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_RECORDS,
-		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
-			Schema:        protoSchema,
-		},
-		Records: protoRecords,
+		Type:     proto.IcebergPayload_RECORDS,
+		Metadata: md,
+		Records:  protoRecords,
 	}
 
 	// Send to gRPC server with timeout
@@ -117,13 +127,11 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 		payloadStr = string(payloadBytes)
 	}
 
+	md := w.newMetadata()
+	md.Payload = payloadStr
 	request := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_COMMIT,
-		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      w.server.ServerID(),
-			DestTableName: w.stream.GetDestinationTable(),
-			Payload:       payloadStr,
-		},
+		Type:     proto.IcebergPayload_COMMIT,
+		Metadata: md,
 	}
 
 	// Send commit request with timeout

@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
@@ -36,7 +37,6 @@ import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.parquet.ParquetUtil;
 import org.apache.iceberg.util.Pair;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +48,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
 import jakarta.enterprise.context.Dependent;
-import jakarta.inject.Inject;
 
 /**
  * Wrapper to perform operations on iceberg tables
@@ -68,10 +67,10 @@ public class IcebergTableOperator {
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
     writerFactory2.upsert = upsert_records;
-    allowFieldAddition = true;
-    upsert = upsert_records;
-    cdcOpField = "_op_type";
-    cdcSourceTsMsField = "_cdc_timestamp";
+    this.allowFieldAddition = true;
+    this.upsert = upsert_records;
+    this.cdcOpField = "_op_type";
+    this.cdcSourceTsMsField = "_cdc_timestamp";
   }
 
   static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(
@@ -86,18 +85,12 @@ public class IcebergTableOperator {
   private static final String STATE_FIELD_DEDUP_INSERTS = "dedup_inserts";
 
 
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
+  // Fields are plain (no @ConfigProperty) because each operator instance lives
+  // inside a shared JVM and may have different upsert/identifier flags. The
+  // OlakeRowsIngester/OlakeArrowIngester construct each operator explicitly.
   String cdcSourceTsMsField;
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-op-field", defaultValue = "_op_type")
   String cdcOpField;
-  @ConfigProperty(name = "debezium.sink.iceberg.allow-field-addition", defaultValue = "true")
   boolean allowFieldAddition;
-  @ConfigProperty(name = "debezium.sink.iceberg.create-identifier-fields", defaultValue = "true")
-  boolean createIdentifierFields;
-  @Inject
-  IcebergTableWriterFactory writerFactory;
-
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert", defaultValue = "true")
   boolean upsert;
   /**
    * If given schema contains new fields compared to target table schema then it
@@ -109,7 +102,7 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param newSchema
    */
-  public void applyFieldAddition(Table icebergTable, Schema newSchema) {
+  public void applyFieldAddition(Table icebergTable, Schema newSchema, boolean createIdentifierFields) {
     icebergTable.refresh(); // for safe case
     UpdateSchema us = icebergTable.updateSchema().unionByNameWith(newSchema);
     if (createIdentifierFields) {
@@ -121,6 +114,23 @@ public class IcebergTableOperator {
     if (!icebergTable.schema().sameSchema(newSchemaCombined)) {
       LOGGER.warn("Extending schema of {}", icebergTable.name());
       us.commit();
+    }
+  }
+
+  /**
+   * Best-effort cleanup. Aborts and closes the writer without committing; clears
+   * filesToCommit. Used on CLOSE_SESSION when the Go side is releasing this thread
+   * (e.g. after a chunk has already committed or on a panic teardown).
+   */
+  public void closeQuietly() {
+    try {
+      if (writer != null) {
+        try { writer.abort(); } catch (Exception ignore) {}
+        try { writer.close(); } catch (Exception ignore) {}
+      }
+    } finally {
+      writer = null;
+      filesToCommit.clear();
     }
   }
   /**
@@ -265,12 +275,27 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
+  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events,
+                                  BooleanSupplier cancelled) {
+    // Session already torn down before we started — don't create a writer that
+    // nothing will commit/close.
+    if (cancelled.getAsBoolean()) {
+      LOGGER.warn("Thread {}: session cancelled before write, skipping {} events", threadID, events.size());
+      return;
+    }
     if (writer == null) {
       writer = writerFactory2.create(icebergTable);
     }
     try {
       for (RecordWrapper record : events) {
+        // Cooperative cancel: checked before each record. When CLOSE_SESSION sets
+        // the flag we stop mid-batch, discard the partial writer, and return — on
+        // THIS thread, so no other thread ever touches the writer.
+        if (cancelled.getAsBoolean()) {
+          LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
+          closeQuietly();
+          return;
+        }
         try{
           // Normalise _op_type "i" → "c" before routing to any writer.
           //   - Delta writers (upsert=true):  op() == INSERT, field == "i" → both would work
@@ -295,14 +320,16 @@ public class IcebergTableOperator {
       // Clean up the writer
       try {
         writer.abort();
-      } catch (IOException abortEx) {
+      } catch (Exception abortEx) {
         LOGGER.warn("Failed to abort writer", abortEx);
       }
       try {
         writer.close();
-      } catch (IOException e) {
+      } catch (Exception e) {
         LOGGER.warn("Failed to close writer", e);
       }
+      // Never reuse an aborted/corrupted writer for the next batch.
+      writer = null;
       throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
     }
   }

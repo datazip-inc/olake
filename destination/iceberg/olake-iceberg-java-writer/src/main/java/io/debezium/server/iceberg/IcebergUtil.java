@@ -43,6 +43,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT;
 import static org.apache.iceberg.TableProperties.DEFAULT_FILE_FORMAT_DEFAULT;
@@ -111,19 +112,82 @@ public class IcebergUtil {
     return instance.get();
   }
 
-  public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier, Schema schema) {
+  // Catalogs backed by AWS Glue can throw a transient "Database/Table being modified
+  // concurrently" error when many streams create namespaces/tables at the same time.
+  // These are retryable, so bound the attempts with exponential backoff + jitter.
+  private static final int MAX_CATALOG_RETRY_ATTEMPTS = 6;
+  private static final long INITIAL_CATALOG_BACKOFF_MS = 200L;
+  private static final long MAX_CATALOG_BACKOFF_MS = 5000L;
 
-    if (!((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
-      // multiple threads can try to create the namespace concurrently
-      // if table was already created, this will avoid the error of already exists
+  @FunctionalInterface
+  private interface CatalogAction<T> {
+    T run();
+  }
+
+  /** Returns true if the throwable (or any of its causes) is a transient catalog concurrency error. */
+  private static boolean isTransientCatalogConflict(Throwable e) {
+    for (Throwable cur = e; cur != null; cur = cur.getCause()) {
+      if (cur.getClass().getName().contains("ConcurrentModificationException")) {
+        return true;
+      }
+      String msg = cur.getMessage();
+      if (msg != null) {
+        String lower = msg.toLowerCase(Locale.ROOT);
+        if (lower.contains("being modified concurrently")
+            || lower.contains("concurrent modification")) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** Runs a catalog mutation, retrying transient concurrency conflicts with exponential backoff. */
+  private static <T> T withCatalogRetry(String description, CatalogAction<T> action) {
+    long backoffMs = INITIAL_CATALOG_BACKOFF_MS;
+    for (int attempt = 1; ; attempt++) {
+      try {
+        return action.run();
+      } catch (RuntimeException e) {
+        if (!isTransientCatalogConflict(e) || attempt >= MAX_CATALOG_RETRY_ATTEMPTS) {
+          throw e;
+        }
+        long sleepMs = backoffMs + ThreadLocalRandom.current().nextLong(backoffMs / 2 + 1);
+        LOGGER.warn("Catalog concurrent-modification during {} (attempt {}/{}), retrying in {}ms: {}",
+            description, attempt, MAX_CATALOG_RETRY_ATTEMPTS, sleepMs, e.getMessage());
+        try {
+          Thread.sleep(sleepMs);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException("Interrupted while retrying " + description, ie);
+        }
+        backoffMs = Math.min(backoffMs * 2, MAX_CATALOG_BACKOFF_MS);
+      }
+    }
+  }
+
+  /** Creates the namespace if it does not already exist, retrying transient catalog conflicts. */
+  private static void ensureNamespace(Catalog icebergCatalog, TableIdentifier tableIdentifier) {
+    if (((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
+      return;
+    }
+    // multiple threads can try to create the namespace concurrently;
+    // AlreadyExists means another thread won the race, which is fine.
+    withCatalogRetry("create namespace " + tableIdentifier.namespace(), () -> {
       try {
         ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
         LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
       } catch (AlreadyExistsException e) {
         LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
       }
-    }
-    return icebergCatalog.createTable(tableIdentifier, schema);
+      return null;
+    });
+  }
+
+  public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier, Schema schema) {
+    ensureNamespace(icebergCatalog, tableIdentifier);
+    return withCatalogRetry("create table " + tableIdentifier,
+        () -> icebergCatalog.createTable(tableIdentifier, schema));
   }
 
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
@@ -137,23 +201,17 @@ public class IcebergUtil {
     LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}", tableIdentifier, schema,
         schema.identifierFieldNames());
 
-    if (!((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
-      try {
-        ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
-        LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
-      } catch (AlreadyExistsException e) {
-        LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
-      }
-    }
+    ensureNamespace(icebergCatalog, tableIdentifier);
 
     // If we have partition transforms, create a PartitionSpec
     if (partitionTransforms.isEmpty()) {
       // No partitioning - create a table as before
-      return icebergCatalog.buildTable(tableIdentifier, schema)
-          .withProperty(FORMAT_VERSION, "2")
-          .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
-          .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
-          .create();
+      return withCatalogRetry("create table " + tableIdentifier, () ->
+          icebergCatalog.buildTable(tableIdentifier, schema)
+              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
+              .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
+              .create());
     } else {
       // Create a table with partitioning
       LOGGER.info("Creating table with partitioning: {}", partitionTransforms);
@@ -209,12 +267,14 @@ public class IcebergUtil {
       }
       
       // Create the table with the partition spec
-      return icebergCatalog.buildTable(tableIdentifier, schema)
-          .withProperty(FORMAT_VERSION, "2")
-          .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
-          .withPartitionSpec(specBuilder.build())
-          .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
-          .create();
+      PartitionSpec spec = specBuilder.build();
+      return withCatalogRetry("create table " + tableIdentifier, () ->
+          icebergCatalog.buildTable(tableIdentifier, schema)
+              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
+              .withPartitionSpec(spec)
+              .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
+              .create());
     }
   }
 

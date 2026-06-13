@@ -37,6 +37,10 @@ var checkCmd = &cobra.Command{
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
+				defer destination.Shutdown(cmd.Context(), destinationConfig)
+				if err := destination.Initialize(cmd.Context(), destinationConfig); err != nil {
+					return fmt.Errorf("failed to initialize destination: %s", err)
+				}
 				_, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
 				return err
 			}

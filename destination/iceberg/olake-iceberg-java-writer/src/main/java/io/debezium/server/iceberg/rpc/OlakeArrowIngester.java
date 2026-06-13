@@ -2,9 +2,10 @@ package io.debezium.server.iceberg.rpc;
 
 import java.io.OutputStream;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Schema;
@@ -27,201 +28,198 @@ import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
 import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
 
+/**
+ * Multi-tenant gRPC service for the Arrow Iceberg write path.
+ *
+ * Same isolation model as {@link OlakeRowsIngester}: one session per Go thread,
+ * each owning its own Table handle + OutputFileFactory + IcebergTableOperator.
+ * No cross-session caches; this exactly mirrors the old per-JVM isolation.
+ *
+ * The session-constant context (namespace, dest table, upsert) is captured once
+ * from the JSONSCHEMA payload that creates the session; every later payload
+ * (FILEPATH / UPLOAD_FILE / REGISTER_AND_COMMIT) carries only the thread_id.
+ */
 @Dependent
 public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServiceImplBase {
-     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeArrowIngester.class);
-     private static final String FILE_TYPE_DATA = "data";
-     private static final String FILE_TYPE_EQUALITY_DELETE = "equalityDelete";
-     private static final String FILE_TYPE_POSITIONAL_DELETE = "positionalDelete";
+    private static final Logger LOGGER = LoggerFactory.getLogger(OlakeArrowIngester.class);
+    private static final String FILE_TYPE_DATA = "data";
+    private static final String FILE_TYPE_EQUALITY_DELETE = "equalityDelete";
+    private static final String FILE_TYPE_POSITIONAL_DELETE = "positionalDelete";
 
-     private final String icebergNamespace;
-     private final Catalog icebergCatalog;
-     private final IcebergTableOperator icebergTableOperator;
-     private Table icebergTable;
-     private OutputFileFactory outputFileFactory;
+    private final Catalog icebergCatalog;
 
-     public OlakeArrowIngester(boolean upsertRecords, String icebergNamespace, Catalog icebergCatalog) {
-          this.icebergNamespace = icebergNamespace;
-          this.icebergCatalog = icebergCatalog;
-          this.icebergTableOperator = new IcebergTableOperator(upsertRecords);
-          this.icebergTable = null;
-          this.outputFileFactory = null;
-     }
+    // Single map: one entry per active Go writer thread.
+    // Each session is fully self-contained — exact replica of what one JVM owned.
+    private final ConcurrentMap<String, ArrowSession> sessions = new ConcurrentHashMap<>();
 
-     @Override
-     public void icebergAPI(ArrowPayload request, StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver) {
-          String requestId = String.format("[Arrow-%d-%d]", Thread.currentThread().getId(), System.nanoTime());
+    public OlakeArrowIngester(Catalog icebergCatalog) {
+        this.icebergCatalog = icebergCatalog;
+    }
 
-          try {
-               ArrowPayload.Metadata metadata = request.getMetadata();
-               String threadId = metadata.getThreadId();
-               String destTableName = metadata.getDestTableName();
+    private static final class ArrowSession {
+        final Table icebergTable;
+        final OutputFileFactory fileFactory;
+        final IcebergTableOperator op;
 
-               if (threadId == null || threadId.isEmpty()) {
-                    throw new Exception("Thread id not present in metadata");
-               }
+        ArrowSession(Table icebergTable, boolean upsert) {
+            this.icebergTable = icebergTable;
+            FileFormat fileFormat = IcebergUtil.getTableFileFormat(icebergTable);
+            this.fileFactory = IcebergUtil.getTableOutputFileFactory(icebergTable, fileFormat);
+            this.op = new IcebergTableOperator(upsert);
+        }
+    }
 
-               if (destTableName == null || destTableName.isEmpty()) {
+    @Override
+    public void icebergAPI(ArrowPayload request, StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver) {
+        String requestId = String.format("[Arrow-%d-%d]", Thread.currentThread().getId(), System.nanoTime());
+
+        try {
+            ArrowPayload.Metadata metadata = request.getMetadata();
+            String threadId = metadata.getThreadId();
+
+            if (threadId == null || threadId.isEmpty()) {
+                throw new Exception("Thread id not present in metadata");
+            }
+
+            // CLOSE_SESSION: just drop the session. No closeQuietly() — it would
+            // clear op.filesToCommit while an in-flight REGISTER_AND_COMMIT may be
+            // using that list. Nothing to close here; the session is GC'd.
+            if (request.getType() == ArrowPayload.PayloadType.CLOSE_SESSION) {
+                sessions.remove(threadId);
+                sendResponse(responseObserver, requestId + " closed arrow session " + threadId);
+                return;
+            }
+
+            // JSONSCHEMA is the session-creating handshake: it is the first arrow
+            // payload Go sends for a thread and is the only one that carries the
+            // session-constant context (namespace, dest table, upsert). Build the
+            // session here once; every later payload reuses it by thread_id alone.
+            if (request.getType() == ArrowPayload.PayloadType.JSONSCHEMA) {
+                String destTableName = metadata.getDestTableName();
+                String namespace = metadata.getNamespace();
+                boolean upsert = metadata.getUpsert();
+
+                if (destTableName == null || destTableName.isEmpty()) {
                     throw new Exception("Destination table name not present in metadata");
-               }
+                }
+                if (namespace == null || namespace.isEmpty()) {
+                    throw new Exception("Namespace not present in metadata");
+                }
 
-               if (this.icebergTable == null) {
-                    this.icebergTable = loadIcebergTable(TableIdentifier.of(icebergNamespace, destTableName));
-               }
+                TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
+                // Table must already exist (created by the legacy ingester during Setup).
+                sessions.computeIfAbsent(threadId, k -> {
+                    if (!icebergCatalog.tableExists(tid)) {
+                        throw new RuntimeException("Table does not exist: " + tid);
+                    }
+                    return new ArrowSession(icebergCatalog.loadTable(tid), upsert);
+                });
+            }
 
-               switch (request.getType()) {
-                    case JSONSCHEMA -> {
-                         this.icebergTable.refresh(); // important for the case of schema evolution
+            // Every payload other than JSONSCHEMA must run against an existing
+            // session created by the JSONSCHEMA handshake above.
+            ArrowSession session = sessions.get(threadId);
+            if (session == null) {
+                throw new Exception("No active arrow session for thread " + threadId
+                        + "; JSONSCHEMA handshake must run before " + request.getType());
+            }
 
-                         Map<String, String> schemaMap = new HashMap<>();
+            switch (request.getType()) {
+                case JSONSCHEMA -> {
+                    session.icebergTable.refresh();
 
-                         Schema tableSchema = this.icebergTable.schema();
-                         String dataSchemaJson = SchemaParser.toJson(tableSchema);
-                         schemaMap.put(FILE_TYPE_DATA, dataSchemaJson);
+                    String dataSchemaJson = SchemaParser.toJson(session.icebergTable.schema());
 
-                         NestedField olakeIdField = tableSchema.findField("_olake_id");
-                         Schema deleteSchema = new Schema(
-                                   tableSchema.schemaId(),
-                                   Collections.singletonList(olakeIdField),
-                                   tableSchema.identifierFieldIds());
-                         String deleteSchemaJson = SchemaParser.toJson(deleteSchema);
-                         schemaMap.put(FILE_TYPE_EQUALITY_DELETE, deleteSchemaJson);
+                    NestedField olakeIdField = session.icebergTable.schema().findField("_olake_id");
+                    Schema deleteSchema = new Schema(
+                            session.icebergTable.schema().schemaId(),
+                            Collections.singletonList(olakeIdField),
+                            session.icebergTable.schema().identifierFieldIds());
+                    String deleteSchemaJson = SchemaParser.toJson(deleteSchema);
 
-                         Schema posDeleteSchema = DeleteSchemaUtil.pathPosSchema();
-                         String posDeleteSchemaJson = SchemaParser.toJson(posDeleteSchema);
-                         schemaMap.put(FILE_TYPE_POSITIONAL_DELETE, posDeleteSchemaJson);
+                    String posDeleteSchemaJson = SchemaParser.toJson(DeleteSchemaUtil.pathPosSchema());
 
-                         sendSchemaResponse(responseObserver, "Schema JSON retrieved successfully", schemaMap);
-                         break;
+                    sendSchemaResponse(responseObserver, "Schema JSON retrieved successfully",
+                            Map.of(FILE_TYPE_DATA, dataSchemaJson,
+                                   FILE_TYPE_EQUALITY_DELETE, deleteSchemaJson,
+                                   FILE_TYPE_POSITIONAL_DELETE, posDeleteSchemaJson));
+                }
+
+                case REGISTER_AND_COMMIT -> {
+                    List<ArrowPayload.FileMetadata> fileMetadataList = metadata.getFileMetadataList();
+                    int dataFileCount = 0;
+                    int eqDeleteFileCount = 0;
+                    int posDeleteFileCount = 0;
+
+                    for (ArrowPayload.FileMetadata fileMeta : fileMetadataList) {
+                        String fileType = fileMeta.getFileType();
+                        String filePath = fileMeta.getFilePath();
+                        long recordCount = fileMeta.getRecordCount();
+
+                        switch (fileType) {
+                            case FILE_TYPE_EQUALITY_DELETE -> {
+                                NestedField olakeIdField = session.icebergTable.schema().findField("_olake_id");
+                                session.op.registerEqDeleteFiles(threadId, session.icebergTable, filePath,
+                                        olakeIdField.fieldId(), recordCount, fileMeta.getPartitionValuesList());
+                                eqDeleteFileCount++;
+                            }
+                            case FILE_TYPE_POSITIONAL_DELETE -> {
+                                session.op.registerPosDeleteFiles(threadId, session.icebergTable, filePath,
+                                        recordCount, fileMeta.getPartitionValuesList());
+                                posDeleteFileCount++;
+                            }
+                            case FILE_TYPE_DATA -> {
+                                session.op.registerDataFiles(threadId, session.icebergTable, filePath,
+                                        fileMeta.getPartitionValuesList());
+                                dataFileCount++;
+                            }
+                            default -> LOGGER.warn("{} Unknown file type '{}' for path: {}", requestId, fileType, filePath);
+                        }
                     }
 
-                    case REGISTER_AND_COMMIT -> {
-                         List<ArrowPayload.FileMetadata> fileMetadataList = metadata.getFileMetadataList();
-                         int dataFileCount = 0;
-                         int eqDeleteFileCount = 0;
-                         int posDeleteFileCount = 0;
+                    session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable);
+                    sendResponse(responseObserver, String.format(
+                            "Successfully committed %d data files, %d equality delete files, and %d positional delete files for thread %s",
+                            dataFileCount, eqDeleteFileCount, posDeleteFileCount, threadId));
+                }
 
-                         for (ArrowPayload.FileMetadata fileMeta : fileMetadataList) {
-                              String fileType = fileMeta.getFileType();
-                              String filePath = fileMeta.getFilePath();
-                              long recordCount = fileMeta.getRecordCount();
-
-                              switch (fileType) {
-                                   case FILE_TYPE_EQUALITY_DELETE -> {
-                                        NestedField olakeIdFieldForDelete = icebergTable.schema().findField("_olake_id");
-                                        int fieldId = olakeIdFieldForDelete.fieldId();
-                                        icebergTableOperator.registerEqDeleteFiles(
-                                                  threadId,
-                                                  icebergTable,
-                                                  filePath,
-                                                  fieldId,
-                                                  recordCount,
-                                                  fileMeta.getPartitionValuesList());
-                                        eqDeleteFileCount++;
-                                        break;
-                                   }
-
-                                   case FILE_TYPE_POSITIONAL_DELETE -> {
-                                        icebergTableOperator.registerPosDeleteFiles(
-                                                  threadId,
-                                                  icebergTable,
-                                                  filePath,
-                                                  recordCount,
-                                                  fileMeta.getPartitionValuesList());
-                                        posDeleteFileCount++;
-                                        break;
-                                   }
-
-                                   case FILE_TYPE_DATA -> {
-                                        icebergTableOperator.registerDataFiles(
-                                                  threadId,
-                                                  icebergTable,
-                                                  filePath,
-                                                  fileMeta.getPartitionValuesList());
-                                        dataFileCount++;
-                                        break;
-                                   }
-
-                                   default -> {
-                                        LOGGER.warn("{} Unknown file type '{}' for path: {}", requestId, fileType, filePath);
-                                        break;
-                                   }
-                              }
-                         }
-
-                         icebergTableOperator.commitThread(threadId, request.getMetadata().getPayload(), icebergTable);
-                         sendResponse(responseObserver,
-                                   String.format(
-                                             "Successfully committed %d data files, %d equality delete files, and %d positional delete files for thread %s",
-                                             dataFileCount, eqDeleteFileCount, posDeleteFileCount, threadId));
-                         break;
+                case UPLOAD_FILE -> {
+                    ArrowPayload.FileUploadRequest uploadReq = metadata.getFileUpload();
+                    FileIO fileIO = session.icebergTable.io();
+                    OutputFile outputFile = fileIO.newOutputFile(uploadReq.getFilePath());
+                    try (OutputStream out = outputFile.create()) {
+                        out.write(uploadReq.getFileData().toByteArray());
+                        out.flush();
                     }
+                    LOGGER.info("{} Successfully uploaded file to: {}", requestId, uploadReq.getFilePath());
+                    sendResponse(responseObserver, uploadReq.getFilePath());
+                }
 
-                    case UPLOAD_FILE -> {
-                         ArrowPayload.FileUploadRequest uploadReq = metadata.getFileUpload();
+                case FILEPATH -> {
+                    EncryptedOutputFile encryptedFile = session.fileFactory.newOutputFile();
+                    String basePath = encryptedFile.encryptingOutputFile().location();
+                    LOGGER.debug("{} Allocated base file path: {}", requestId, basePath);
+                    sendResponse(responseObserver, basePath);
+                }
 
-                         byte[] fileData = uploadReq.getFileData().toByteArray();
-                         String filePath = uploadReq.getFilePath();
+                default -> throw new IllegalArgumentException("Unknown payload type: " + request.getType());
+            }
+        } catch (Exception e) {
+            String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
+            LOGGER.error(errorMessage, e);
+            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(errorMessage).asRuntimeException());
+        }
+    }
 
-                         FileIO fileIO = this.icebergTable.io();
-                         OutputFile outputFile = fileIO.newOutputFile(filePath);
-                         try (OutputStream out = outputFile.create()) {
-                              out.write(fileData);
-                              out.flush();
-                         }
+    private void sendResponse(StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver, String message) {
+        responseObserver.onNext(RecordIngest.ArrowIngestResponse.newBuilder().setResult(message).build());
+        responseObserver.onCompleted();
+    }
 
-                         LOGGER.info("{} Successfully uploaded file to: {}", requestId, filePath);
-                         sendResponse(responseObserver, filePath);
-                         break;
-                    }
-
-                    case FILEPATH -> {
-                         if (this.outputFileFactory == null) {
-                              FileFormat fileFormat = IcebergUtil.getTableFileFormat(this.icebergTable);
-                              this.outputFileFactory = IcebergUtil.getTableOutputFileFactory(this.icebergTable,
-                                        fileFormat);
-                         }
-
-                         EncryptedOutputFile encryptedFile = this.outputFileFactory.newOutputFile();
-                         String basePath = encryptedFile.encryptingOutputFile().location();
-
-                         LOGGER.debug("{} Allocated base file path: {}", requestId, basePath);
-                         sendResponse(responseObserver, basePath);
-                         break;
-                    }
-
-                    default -> throw new IllegalArgumentException("Unknown payload type: " + request.getType());
-               }
-          } catch (Exception e) {
-               String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
-               LOGGER.error(errorMessage, e);
-               responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(errorMessage).asRuntimeException());
-          }
-     }
-
-     private void sendResponse(StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver, String message) {
-          RecordIngest.ArrowIngestResponse response = RecordIngest.ArrowIngestResponse.newBuilder()
-                    .setResult(message)
-                    .build();
-          responseObserver.onNext(response);
-          responseObserver.onCompleted();
-     }
-
-     private void sendSchemaResponse(StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver, String message,
-               Map<String, String> schemaMap) {
-          RecordIngest.ArrowIngestResponse response = RecordIngest.ArrowIngestResponse.newBuilder()
-                    .setResult(message)
-                    .putAllIcebergSchemas(schemaMap)
-                    .build();
-          responseObserver.onNext(response);
-          responseObserver.onCompleted();
-     }
-
-     private Table loadIcebergTable(TableIdentifier tableIdentifier) throws Exception {
-          if (icebergCatalog.tableExists(tableIdentifier)) {
-               LOGGER.info("Loading existing Iceberg table: {}", tableIdentifier);
-               return icebergCatalog.loadTable(tableIdentifier);
-          }
-          throw new Exception("Table does not exist: " + tableIdentifier);
-     }
+    private void sendSchemaResponse(StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver,
+                                    String message, Map<String, String> schemaMap) {
+        responseObserver.onNext(RecordIngest.ArrowIngestResponse.newBuilder()
+                .setResult(message).putAllIcebergSchemas(schemaMap).build());
+        responseObserver.onCompleted();
+    }
 }

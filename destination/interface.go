@@ -35,3 +35,21 @@ type Writer interface {
 	DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error
 	Close(ctx context.Context, finalMetadataState any) error
 }
+
+// Initializable is implemented by destinations that own long-lived process
+// resources (currently: the Iceberg shared JVM). The protocol layer calls
+// Initialize once per CLI invocation, via the Initialize dispatcher below, before
+// any Check/Setup/DropStreams work — so the resource is started exactly once at
+// a known point and every later path can simply read it without locking.
+type Initializable interface {
+	Initialize(ctx context.Context) error
+}
+
+// Shutdownable is implemented by destinations that own long-lived process
+// resources (currently: the Iceberg shared JVM). The protocol layer calls
+// Shutdown once per CLI invocation, via the Shutdown dispatcher below, so the
+// JVM is torn down on normal sync/check/clear completion. Signal-based
+// teardown is handled inside the destination itself.
+type Shutdownable interface {
+	Shutdown(ctx context.Context) error
+}

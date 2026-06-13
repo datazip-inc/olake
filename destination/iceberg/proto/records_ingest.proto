@@ -3,6 +3,7 @@ syntax = "proto3";
 package io.debezium.server.iceberg.rpc;
 
 option go_package = "iceberg/proto";
+option java_outer_classname = "RecordIngest";
 
 service RecordIngestService {
   rpc SendRecords(IcebergPayload) returns (RecordIngestResponse);
@@ -16,6 +17,7 @@ message IcebergPayload {
     DROP_TABLE = 3;
     GET_OR_CREATE_TABLE = 4;
     REFRESH_TABLE_SCHEMA = 5;
+    CLOSE_SESSION = 6;
   }
   
   PayloadType type = 1;
@@ -26,11 +28,21 @@ message IcebergPayload {
     optional string identifier_field = 3;
     repeated SchemaField schema = 4;
     string payload = 6;
+    // Per-stream context (previously baked into JVM CLI args)
+    string namespace = 7;
+    bool upsert = 8;
+    bool create_identifier_fields = 9;
+    repeated PartitionField partition_fields = 10;
   }
 
   message SchemaField {
     string ice_type = 1;
     string key = 2;
+  }
+
+  message PartitionField {
+    string field = 1;
+    string transform = 2;
   }
 
   // OPTIMIZED: Replace google.protobuf.Value with typed fields
@@ -72,6 +84,7 @@ message ArrowPayload {
     REGISTER_AND_COMMIT = 1;
     JSONSCHEMA = 2;
     FILEPATH = 3;
+    CLOSE_SESSION = 4;
   }
 
   PayloadType type = 1;
@@ -99,12 +112,22 @@ message ArrowPayload {
     string file_path = 2;
   }
 
+  message PartitionField {
+    string field = 1;
+    string transform = 2;
+  }
+
   message Metadata {
     string dest_table_name = 1;
     string thread_id = 2;
     repeated FileMetadata file_metadata = 3;
     optional FileUploadRequest file_upload = 4;
     string payload = 6;
+    // Per-stream context (previously baked into JVM CLI args)
+    string namespace = 7;
+    bool upsert = 8;
+    bool create_identifier_fields = 9;
+    repeated PartitionField partition_fields = 10;
   }
 
   Metadata metadata = 2;
