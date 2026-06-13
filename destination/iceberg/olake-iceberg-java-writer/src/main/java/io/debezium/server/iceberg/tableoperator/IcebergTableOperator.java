@@ -463,8 +463,8 @@ public class IcebergTableOperator {
               JsonNode payloadNode = mapper.readTree(payload);
               rootNode.put(STATE_FIELD_LATEST_THREAD_ID, threadId);
               if (payloadNode.isObject()) {
-                  // Merge payload directly into root node
-                  payloadNode.fields().forEachRemaining(entry -> rootNode.set(entry.getKey(), entry.getValue()));
+                  // Deep Merge payload directly into root node
+                  mergePayloadIntoRoot(rootNode, payloadNode);
               }
           } else {
               // No payload => backfill/snapshot style: append threadId to full_refresh_committed_ids
@@ -483,6 +483,53 @@ public class IcebergTableOperator {
       } catch (JsonProcessingException e) {
           LOGGER.error("Failed to update JSON state for key: " + STATE_KEY_2PC, e);
           throw new RuntimeException("Failed to update JSON state", e);
+      }
+  }
+
+  // deep merge payload into root node
+  private void mergePayloadIntoRoot(ObjectNode rootNode, JsonNode payloadNode) {
+    payloadNode.fields().forEachRemaining(entry -> {
+        String key = entry.getKey();
+        ObjectNode value = parseJSONObject(entry.getValue());
+
+        if (value == null) {
+            rootNode.set(key, entry.getValue());
+            return;
+        }
+
+        ObjectNode existingValue = parseJSONObject(rootNode.get(key));
+        if (existingValue == null) {
+            rootNode.put(key, value.toString());
+            return;
+        }
+
+        merge(existingValue, value);
+        rootNode.put(key, existingValue.toString());
+    });
+  }
+
+  private void merge(ObjectNode existingObject, ObjectNode incomingObject) {
+    incomingObject.fields().forEachRemaining(incomingFieldEntry -> {
+        String incomingFieldKey = incomingFieldEntry.getKey();
+
+        JsonNode existingFieldValue = existingObject.get(incomingFieldKey);
+        JsonNode incomingFieldValue = incomingFieldEntry.getValue();
+
+        if (existingFieldValue != null && existingFieldValue.isObject() && incomingFieldValue.isObject()) {
+            merge((ObjectNode) existingFieldValue, (ObjectNode) incomingFieldValue);
+        } else {
+            existingObject.set(incomingFieldKey, incomingFieldValue);
+        }
+    });
+  }
+
+  private ObjectNode parseJSONObject(JsonNode node) {
+      if (node == null || !node.isTextual()) return null;
+      try {
+          JsonNode parsedNode = mapper.readTree(node.asText());
+          return parsedNode.isObject() ? (ObjectNode) parsedNode : null;
+      } catch (JsonProcessingException ignored) {
+          return null;
       }
   }
 

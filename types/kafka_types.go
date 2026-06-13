@@ -15,10 +15,17 @@ const (
 
 // PartitionMetaData holds metadata about a Kafka partition for a specific stream reader
 type PartitionMetaData struct {
-	ReaderID    string
-	Stream      StreamInterface
-	PartitionID int32
-	EndOffset   int64
+	ReaderID        string
+	Stream          StreamInterface
+	PartitionID     int32
+	EndOffset       int64
+	CommittedOffset int64
+}
+
+// KafkaMetadataState holds the metadata for a Kafka stream
+type KafkaMetadataState struct {
+	ConsumerGroupID string          `json:"consumer_group_id"`
+	Offsets         map[int32]int64 `json:"offsets"`
 }
 
 // PartitionKey represents a unique key for a Kafka partition and topic
