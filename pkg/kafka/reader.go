@@ -90,6 +90,62 @@ func (r *ReaderManager) GetPartitionIndex(partitionKey string) (types.PartitionM
 	return partitionMeta, exists
 }
 
+// CommitOffsetsToGroup advances the consumer group's committed offsets via the admin client.
+// Called before the consume loop on the recovery path to prevent re-reading data already in Iceberg.
+func (r *ReaderManager) CommitOffsetsToGroup(ctx context.Context, recoveryOffsets map[string]any) error {
+	topicOffsets := make(map[string][]kafka.OffsetCommit)
+	for _, meta := range r.partitionIndex {
+		if meta.Stream == nil {
+			continue
+		}
+		partitions, ok := recoveryOffsets[meta.Stream.ID()].(map[int]int64)
+		if !ok {
+			continue
+		}
+		if offset, exists := partitions[meta.PartitionID]; exists {
+			topicOffsets[meta.Stream.Name()] = append(topicOffsets[meta.Stream.Name()], kafka.OffsetCommit{
+				Partition: meta.PartitionID,
+				Offset:    offset,
+			})
+		}
+	}
+	if len(topicOffsets) == 0 {
+		return nil
+	}
+	_, err := r.config.AdminClient.OffsetCommit(ctx, &kafka.OffsetCommitRequest{
+		GroupID: r.config.ConsumerGroupID,
+		Topics:  topicOffsets,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to commit recovery offsets to group %s: %s", r.config.ConsumerGroupID, err)
+	}
+	logger.Infof("committed recovery offsets for %d topics to group %s", len(topicOffsets), r.config.ConsumerGroupID)
+	return nil
+}
+
+// PartitionOffsetsByStream builds streamID → partition → offset from the last message per topic partition.
+// The result is map[string]any for use as CDC metadata (e.g. olake_2pc via abstract handleWriterCleanup).
+func (r *ReaderManager) PartitionOffsetsByStream(lastMessages map[types.PartitionKey]kafka.Message) map[string]any {
+	out := make(map[string]any)
+	for partitionKey, message := range lastMessages {
+		meta, ok := r.GetPartitionIndex(fmt.Sprintf("%s:%d", partitionKey.Topic, partitionKey.Partition))
+		if !ok || meta.Stream == nil {
+			continue
+		}
+		streamID := meta.Stream.ID()
+		partitions, _ := out[streamID].(map[int]int64)
+		if partitions == nil {
+			partitions = make(map[int]int64)
+			out[streamID] = partitions
+		}
+		partitions[meta.PartitionID] = message.Offset
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 // ShouldMatchPartitionCount returns whether readers should match partition count
 func (r *ReaderManager) ShouldMatchPartitionCount() bool {
 	return r.config.ThreadsEqualTotalPartitions

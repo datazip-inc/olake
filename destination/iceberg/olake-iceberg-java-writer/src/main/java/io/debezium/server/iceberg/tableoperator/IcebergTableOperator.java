@@ -463,8 +463,8 @@ public class IcebergTableOperator {
               JsonNode payloadNode = mapper.readTree(payload);
               rootNode.put(STATE_FIELD_LATEST_THREAD_ID, threadId);
               if (payloadNode.isObject()) {
-                  // Merge payload directly into root node
-                  payloadNode.fields().forEachRemaining(entry -> rootNode.set(entry.getKey(), entry.getValue()));
+                  // Deep Merge payload directly into root node
+                  mergePayloadIntoRoot(rootNode, payloadNode);
               }
           } else {
               // No payload => backfill/snapshot style: append threadId to full_refresh_committed_ids
@@ -483,6 +483,33 @@ public class IcebergTableOperator {
       } catch (JsonProcessingException e) {
           LOGGER.error("Failed to update JSON state for key: " + STATE_KEY_2PC, e);
           throw new RuntimeException("Failed to update JSON state", e);
+      }
+  }
+
+  /** One-level merge for string-encoded JSON objects (e.g. state); otherwise overwrite. */
+  private void mergePayloadIntoRoot(ObjectNode rootNode, JsonNode payloadNode) {
+      payloadNode.fields().forEachRemaining(e -> {
+          String key = e.getKey();
+          JsonNode value = e.getValue();
+          ObjectNode in = parseJSONObject(value);
+          if (in == null) {
+              rootNode.set(key, value);
+              return;
+          }
+          ObjectNode merged = parseJSONObject(rootNode.get(key));
+          if (merged == null) merged = mapper.createObjectNode();
+          merged.setAll(in);
+          rootNode.put(key, merged.toString());
+      });
+  }
+
+  private ObjectNode parseJSONObject(JsonNode node) {
+      if (node == null || !node.isTextual()) return null;
+      try {
+          JsonNode p = mapper.readTree(node.asText());
+          return p.isObject() ? (ObjectNode) p : null;
+      } catch (JsonProcessingException ignored) {
+          return null;
       }
   }
 
