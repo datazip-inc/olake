@@ -298,15 +298,17 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	// Create appropriate parser and infer schema (format-specific logic from parser package)
 	switch s.config.FileFormat {
 	case FormatCSV:
-		logger.Infof("Inferring schema from file(s): %s (%d files in stream)", files[0].FileKey, len(files))
-		inferredStream, err = s.inferSchemaForCSV(ctx, files[0], stream)
+		sampleFiles := files[:1]
+		logger.Infof("Inferring schema from %d sample file(s) out of %d files in stream", len(sampleFiles), len(files))
+		inferredStream, err = s.inferSchemaForCSV(ctx, sampleFiles, stream)
 	case FormatJSON:
 		sampleFiles := schemaSampleFiles(files)
-		logger.Infof("Inferring schema from file(s): %s (%d files in stream)", schemaSampleFileKeys(sampleFiles), len(files))
+		logger.Infof("Inferring schema from %d sample file(s) out of %d files in stream", len(sampleFiles), len(files))
 		inferredStream, err = s.inferSchemaForJSON(ctx, sampleFiles, stream)
 	case FormatParquet:
-		logger.Infof("Inferring schema from file(s): %s (%d files in stream)", files[0].FileKey, len(files))
-		inferredStream, err = s.inferSchemaForParquet(ctx, files[0], stream)
+		sampleFiles := files[:1]
+		logger.Infof("Inferring schema from %d sample file(s) out of %d files in stream", len(sampleFiles), len(files))
+		inferredStream, err = s.inferSchemaForParquet(ctx, sampleFiles, stream)
 	default:
 		return nil, fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
 	}
@@ -342,17 +344,9 @@ func schemaSampleFiles(files []FileObject) []FileObject {
 	return []FileObject{firstFile, lastFile}
 }
 
-func schemaSampleFileKeys(files []FileObject) string {
-	keys := make([]string, 0, len(files))
-	for _, file := range files {
-		keys = append(keys, file.FileKey)
-	}
-	return strings.Join(keys, ", ")
-}
-
-// withFileReader opens one or more CSV/JSON readers, closes them after the callback,
+// withFileReaders opens one or more CSV/JSON readers, closes them after the callback,
 // and passes the readers in the same order as the input files.
-func (s *S3) withFileReader(ctx context.Context, files []FileObject, callback func([]io.Reader) (*types.Stream, error)) (*types.Stream, error) {
+func (s *S3) withFileReaders(ctx context.Context, files []FileObject, callback func([]io.Reader) (*types.Stream, error)) (*types.Stream, error) {
 	readers := make([]io.Reader, 0, len(files))
 	for _, file := range files {
 		reader, _, err := s.getFileReader(ctx, file.FileKey)
@@ -390,8 +384,8 @@ func (s *S3) withParquetReader(ctx context.Context, fileKey string, fileSize int
 }
 
 // inferSchemaForCSV infers schema from a CSV file
-func (s *S3) inferSchemaForCSV(ctx context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
-	return s.withFileReader(ctx, []FileObject{file}, func(readers []io.Reader) (*types.Stream, error) {
+func (s *S3) inferSchemaForCSV(ctx context.Context, files []FileObject, stream *types.Stream) (*types.Stream, error) {
+	return s.withFileReaders(ctx, files, func(readers []io.Reader) (*types.Stream, error) {
 		csvParser := parser.NewCSVParser(*s.config.GetCSVConfig(), stream)
 		return csvParser.InferSchema(ctx, readers[0])
 	})
@@ -399,14 +393,15 @@ func (s *S3) inferSchemaForCSV(ctx context.Context, file FileObject, stream *typ
 
 // inferSchemaForJSON infers schema from JSON sample files.
 func (s *S3) inferSchemaForJSON(ctx context.Context, files []FileObject, stream *types.Stream) (*types.Stream, error) {
-	return s.withFileReader(ctx, files, func(readers []io.Reader) (*types.Stream, error) {
+	return s.withFileReaders(ctx, files, func(readers []io.Reader) (*types.Stream, error) {
 		jsonParser := parser.NewJSONParser(*s.config.GetJSONConfig(), stream)
 		return jsonParser.InferSchemaFromReaders(ctx, readers...)
 	})
 }
 
 // inferSchemaForParquet infers schema from a Parquet file
-func (s *S3) inferSchemaForParquet(ctx context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
+func (s *S3) inferSchemaForParquet(ctx context.Context, files []FileObject, stream *types.Stream) (*types.Stream, error) {
+	file := files[0]
 	return s.withParquetReader(ctx, file.FileKey, file.Size, func(reader io.Reader) (*types.Stream, error) {
 		parquetParser := parser.NewParquetParser(*s.config.GetParquetConfig(), stream)
 		return parquetParser.InferSchema(ctx, reader)

@@ -12,11 +12,6 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-const (
-	jsonSchemaMaxSamples           = 100
-	jsonSchemaMaxBytesForInference = 10 * 1024 * 1024
-)
-
 // JSONParser implements the Parser interface for JSON files
 type JSONParser struct {
 	config JSONConfig
@@ -46,6 +41,9 @@ func (p *JSONParser) InferSchemaFromReaders(ctx context.Context, readers ...io.R
 		return nil, fmt.Errorf("no JSON readers provided")
 	}
 
+	maxSamples := 100
+	const maxBytesForInference = 10 * 1024 * 1024 // 10MB
+
 	allRecords := []map[string]interface{}{}
 	for i, reader := range readers {
 		select {
@@ -56,7 +54,7 @@ func (p *JSONParser) InferSchemaFromReaders(ctx context.Context, readers ...io.R
 
 		// Limit data read for schema inference to prevent OOM on large files.
 		// 10MB should be enough to get 100 sample records for most JSON files.
-		limitedReader := io.LimitReader(reader, jsonSchemaMaxBytesForInference)
+		limitedReader := io.LimitReader(reader, maxBytesForInference)
 
 		data, err := io.ReadAll(limitedReader)
 		if err != nil {
@@ -69,7 +67,7 @@ func (p *JSONParser) InferSchemaFromReaders(ctx context.Context, readers ...io.R
 		}
 
 		// Parse JSON based on detected format.
-		sampleRecords, err := p.parseJSONContent(trimmed, jsonSchemaMaxSamples)
+		sampleRecords, err := p.parseJSONContent(trimmed, maxSamples)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON sample %d: %s", i+1, err)
 		}
