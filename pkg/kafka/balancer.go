@@ -45,14 +45,11 @@ func (b *CustomGroupBalancer) Balance(consumerBalancer *kgo.ConsumerBalancer, pa
 		return plan
 	}
 
-	// number of consumers to use
-	consumerCount := min(b.requiredConsumerIDs, len(members))
-
-	// active partitions with data in partition index
+	// active partitions with data in partition metadata
 	activePartitions := make([]types.PartitionKey, 0)
 	for topic, partitions := range partitionsPerTopic {
 		for partition := range partitions {
-			if _, ok := b.partitionIndex[PartitionIndexKey(topic, partition)]; ok {
+			if _, ok := b.partitionMeta[PartitionMetadataKey(topic, partition)]; ok {
 				activePartitions = append(activePartitions, types.PartitionKey{Topic: topic, Partition: partition})
 			}
 		}
@@ -60,19 +57,21 @@ func (b *CustomGroupBalancer) Balance(consumerBalancer *kgo.ConsumerBalancer, pa
 
 	// partition assignment in round-robin manner across consumers
 	for index, activePartition := range activePartitions {
-		consumerIndex := index % consumerCount
+		consumerIndex := index % len(members)
 		plan.AddPartition(&members[consumerIndex], activePartition.Topic, activePartition.Partition)
 	}
 
 	return plan
 }
 
-// custom balancer example:
-// | max_threads | total partitions | reader-IDs per stream (distinct) | reused? |
-// | ------------ | ---------------- | -------------------------------- | ------- |
-// | 6            | 6 (3+3)          | 3 + 3                            | no      |
-// | 5            | 6                | 3 + 2                            | 1 ID    |
-// | 4            | 6                | 2 + 2                            | 2 IDs   |
-// | 3            | 6                | 2 + 1                            | 3 IDs   |
-// | 2            | 6                | 1 + 1                            | 4 IDs   |
-// | 1            | 6                | 1 + 1                            | 5 IDs   |
+// Active partitions are distributed round-robin across all group members.
+// Only partitions present in partitionMeta receive assignments.
+// Example distribution (2 topics × 3 partitions each = 6 active partitions):
+// | max_threads | active partitions | partitions per member (approx) |
+// | ----------- | ----------------- | ------------------------------ |
+// | 6           | 6                 | 1, 1, 1, 1, 1, 1               |
+// | 5           | 6                 | 2, 1, 1, 1, 1                  |
+// | 4           | 6                 | 2, 2, 1, 1                     |
+// | 3           | 6                 | 2, 2, 2                        |
+// | 2           | 6                 | 3, 3                           |
+// | 1           | 6                 | 6                              |

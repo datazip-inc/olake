@@ -93,9 +93,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	err = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
-		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(record.Message.Topic, record.Message.Partition))
+		currentPartitionMeta, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(record.Message.Topic, record.Message.Partition))
 		if !exists {
-			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
+			return false, fmt.Errorf("missing partition Metadata for topic %s partition %d", record.Message.Topic, record.Message.Partition)
 		}
 
 		// process the change if data is present
@@ -145,9 +145,8 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 
 		// Type assert and validate messages
 		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]*kgo.Record)
-		if !isValid || len(lastMessages) == 0 {
-			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
-			return nil
+		if !isValid {
+			return fmt.Errorf("reader %s has invalid checkpoint message type %T", readerID, lastMessagesMeta)
 		}
 
 		// Prepare messages for commit and track affected streams
@@ -158,8 +157,8 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 			messages = append(messages, message)
 
 			// Resolve stream for this partition
-			partitionID := kafkapkg.PartitionIndexKey(partitionKey.Topic, partitionKey.Partition)
-			if partitionMeta, exists := k.readerManager.GetPartitionIndex(partitionID); exists && partitionMeta.Stream != nil {
+			partitionID := kafkapkg.PartitionMetadataKey(partitionKey.Topic, partitionKey.Partition)
+			if partitionMeta, exists := k.readerManager.GetPartitionMeta(partitionID); exists && partitionMeta.Stream != nil {
 				syncedStreams[partitionMeta.Stream.ID()] = partitionMeta.Stream
 			}
 		}
@@ -201,59 +200,64 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 	var iter *kgo.FetchesRecordIter
 
 	for {
-		// checked before every poll and every record so a rebalance signal is never delayed by full batch processing.
-		if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
-			return err
-		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			// checked before every poll and every record so a rebalance signal is never delayed by full batch processing.
+			if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
+				return err
+			}
 
-		// iter being nil triggers first poll.
-		// iter.Done() being true triggers next polls when the current batch is fully consumed.
-		if iter == nil || iter.Done() {
-			pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-			// poll for new messages
-			fetches := reader.PollFetches(pollCtx)
-			pollCtxErr := pollCtx.Err()
-			cancel()
+			// iter being nil triggers first poll.
+			// iter.Done() being true triggers next polls when the current batch is fully consumed.
+			if iter == nil || iter.Done() {
+				pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				// poll for new messages
+				fetches := reader.PollFetches(pollCtx)
+				pollCtxErr := pollCtx.Err()
+				cancel()
 
-			// no new messages for 10s means reader has caught up; exit cleanly without error.
-			if errors.Is(pollCtxErr, context.DeadlineExceeded) {
-				logger.Warnf("poll context deadline exceeded: %s", pollCtxErr)
+				// no new messages for 10s means reader has caught up; exit cleanly without error.
+				if errors.Is(pollCtxErr, context.DeadlineExceeded) {
+					logger.Warnf("poll context deadline exceeded: %s", pollCtxErr)
+					return nil
+				}
+
+				// any fetch error (including parent ctx cancellation) is non-retryable.
+				// For more info, go through the documentation: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#Fetches.Errors
+				if err := fetches.Err(); err != nil {
+					return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrNonRetryable, err)
+				}
+
+				// wrap batch into iterator
+				iter = fetches.RecordIter()
+				// check exit state again before processing the batch
+				continue
+			}
+
+			message := iter.Next()
+			data, key, err := k.parseKafkaData(message)
+			if err != nil {
+				logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
+			} else if data != nil {
+				// data map will be nil (in cases like null and unparseable message values) so nil check is required
+				data[Partition] = message.Partition
+				data[Offset] = message.Offset
+				data[Key] = key
+				data[KafkaTimestamp], err = typeutils.ReformatDate(message.Timestamp, true)
+				if err != nil {
+					return fmt.Errorf("failed to reformat date: %s", err)
+				}
+			}
+
+			stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
+			if err != nil {
+				return err
+			}
+			if stopProcessing {
 				return nil
 			}
-
-			// any fetch error (including parent ctx cancellation) is non-retryable.
-			// For more info, go through the documentation: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#Fetches.Errors
-			if err := fetches.Err(); err != nil {
-				return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrNonRetryable, err)
-			}
-
-			// wrap batch into iterator
-			iter = fetches.RecordIter()
-			// check exit state again before processing the batch
-			continue
-		}
-
-		message := iter.Next()
-		data, key, err := k.parseKafkaData(message)
-		if err != nil {
-			logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
-		} else if data != nil {
-			// data map will be nil (in cases like null and unparseable message values) so nil check is required
-			data[Partition] = message.Partition
-			data[Offset] = message.Offset
-			data[Key] = key
-			data[KafkaTimestamp], err = typeutils.ReformatDate(message.Timestamp, true)
-			if err != nil {
-				return fmt.Errorf("failed to reformat date: %s", err)
-			}
-		}
-
-		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
-		if err != nil {
-			return err
-		}
-		if stopProcessing {
-			return nil
 		}
 	}
 }
