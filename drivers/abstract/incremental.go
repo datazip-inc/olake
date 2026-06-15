@@ -16,6 +16,13 @@ import (
 )
 
 func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
+	for _, stream := range streams {
+		primaryCursor, _ := stream.Cursor()
+		if primaryCursor == "" {
+			return fmt.Errorf("cursor field is empty for stream[%s], please set cursor_field in streams.json", stream.ID())
+		}
+	}
+
 	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 
