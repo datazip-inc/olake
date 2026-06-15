@@ -237,11 +237,11 @@ func TestJSONParser_InferSchema_NullableFields(t *testing.T) {
 	assert.True(t, nameProperty.Nullable(), "name should be nullable when missing from one sampled record")
 }
 
-func TestJSONParser_InferSchemaFromReaders_MixedFormats(t *testing.T) {
+func TestJSONParser_InferSchema_MixedReaderFormats(t *testing.T) {
 	stream := types.NewStream("test", "test", nil)
 	parser := NewJSONParser(JSONConfig{}, stream)
 
-	result, err := parser.InferSchemaFromReaders(
+	result, err := parser.InferSchema(
 		context.Background(),
 		strings.NewReader(`{"id": 1, "first_only": "value"}`),
 		strings.NewReader(`[{"id": 2, "array_only": true}]`),

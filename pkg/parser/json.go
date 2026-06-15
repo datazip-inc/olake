@@ -26,15 +26,9 @@ func NewJSONParser(config JSONConfig, stream *types.Stream) *JSONParser {
 	}
 }
 
-// InferSchema reads the first few records of a JSON file to infer the schema
-// Supports JSONL (line-delimited), JSON Array, and single JSON object formats
-func (p *JSONParser) InferSchema(ctx context.Context, reader io.Reader) (*types.Stream, error) {
-	return p.InferSchemaFromReaders(ctx, reader)
-}
-
-// InferSchemaFromReaders infers a JSON schema from one or more independent JSON readers.
+// InferSchema infers a JSON schema from one or more independent JSON readers.
 // Each reader may be JSONL, a JSON array, or a single JSON object.
-func (p *JSONParser) InferSchemaFromReaders(ctx context.Context, readers ...io.Reader) (*types.Stream, error) {
+func (p *JSONParser) InferSchema(ctx context.Context, readers ...io.Reader) (*types.Stream, error) {
 	logger.Debug("Inferring JSON schema from sample data")
 
 	if len(readers) == 0 {

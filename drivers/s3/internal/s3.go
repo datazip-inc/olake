@@ -395,7 +395,7 @@ func (s *S3) inferSchemaForCSV(ctx context.Context, files []FileObject, stream *
 func (s *S3) inferSchemaForJSON(ctx context.Context, files []FileObject, stream *types.Stream) (*types.Stream, error) {
 	return s.withFileReaders(ctx, files, func(readers []io.Reader) (*types.Stream, error) {
 		jsonParser := parser.NewJSONParser(*s.config.GetJSONConfig(), stream)
-		return jsonParser.InferSchemaFromReaders(ctx, readers...)
+		return jsonParser.InferSchema(ctx, readers...)
 	})
 }
 
