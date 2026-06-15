@@ -14,7 +14,18 @@ package driver
 //  2. ReadBatch(*[]T, ...): reads the entire current rowset directly into
 //     typed Go slices, bypassing database/sql.Scan and convertAssign entirely.
 //
+// Producer-consumer concurrency
+// ──────────────────────────────
+// The producer goroutine calls ReadBatch in a tight loop. Each call fills
+// typed column slices for db2DefaultFetchSize rows in one shot. The consumer
+// goroutine converts those raw values through the driver's dataTypeConverter
+// and hands records to OnMessage. A buffered channel decouples the two so that
+// I/O-bound reading and CPU-bound conversion overlap.
+//
+// Selector
+// ────────
 // Set DB2_READ_MODE=mapscan to fall back to the standard MapScanConcurrent
+// path (e.g. for debugging or when query has bound parameters).
 
 import (
 	"context"
@@ -143,9 +154,8 @@ type batchMsg struct {
 	batch *colBatch
 }
 
-// readBatchConcurrent reads the result of query using the patched driver's
-// ReadBatch API. It runs a producer goroutine (SQLFetch + typed decode) and a
-// consumer goroutine (OLake type conversion + OnMessage) concurrently.
+// readBatchConcurrent executes query (with optional args) via the patched driver,
+// fetches rows in bulk with ReadBatch, converts them to OLake records, and calls onMessage.
 func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any, onMessage abstract.BackfillMsgFn) error {
 	sqlConn, err := d.client.Conn(ctx)
 	if err != nil {
@@ -153,15 +163,20 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 	}
 	defer sqlConn.Close()
 
+	// raw connection to enable access to the underlying driver connection,
+	// used to bypass the database/sql layer and directly interact with the forked driver.
 	return sqlConn.Raw(func(driverConn interface{}) error {
 		c, ok := driverConn.(*goibmdb.Conn)
 		if !ok {
 			return fmt.Errorf("readBatchConcurrent: not a *go_ibm_db.Conn (%T)", driverConn)
 		}
 
+		// set the fetch size for the connection to the default value.
 		c.SetFetchSize(db2DefaultFetchSize)
 
 		var rows *goibmdb.Rows
+		// len(args) = 0: backfill for full_refresh or cdc sync
+		// len(args) > 0: incremental sync
 		if len(args) == 0 {
 			dr, err := c.Query(query, nil)
 			if err != nil {
