@@ -189,6 +189,7 @@ For advanced users and automation, OLake Go's core logic is exposed via a powerf
 * `check`: Validates connection configurations for sources and destinations.
 * `discover`: Returns all available streams (e.g., tables) and their schemas from a source.
 * `sync`: Executes the data replication job, extracting from the source and writing to the destination.
+* `clear-destination` : Clears data in the destination, only for the selected streams defined in `streams.json`.
 
 **Find out more about CLI [here](https://olake.io/docs/install/docker-cli/).**
 
@@ -232,7 +233,7 @@ Below are other different ways you can run OLake Go:
 - [x] Oracle Full Load Support
 - [x] Oracle Incremental
 - [x] Filters for Full Load and Incremental
-- [ ] Interoperability
+- [ ] Interoperability (Coming Soon)
 - [ ] Iceberg V3 Support
 
 ---
