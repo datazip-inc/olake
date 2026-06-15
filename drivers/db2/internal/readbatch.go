@@ -14,16 +14,6 @@ package driver
 //  2. ReadBatch(*[]T, ...): reads the entire current rowset directly into
 //     typed Go slices, bypassing database/sql.Scan and convertAssign entirely.
 //
-// Producer-consumer concurrency
-// ──────────────────────────────
-// The producer goroutine calls ReadBatch in a tight loop. Each call fills
-// typed column slices for db2DefaultFetchSize rows in one shot. The consumer
-// goroutine converts those raw values through the driver's dataTypeConverter
-// and hands records to OnMessage. A buffered channel decouples the two so that
-// I/O-bound reading and CPU-bound conversion overlap.
-//
-// Selector
-// ────────
 // Set DB2_READ_MODE=mapscan to fall back to the standard MapScanConcurrent
 
 import (

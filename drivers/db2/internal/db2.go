@@ -278,8 +278,7 @@ func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface
 // reformatResolved performs the value conversion once the olake DataType is
 // already known. The ReadBatch fast path resolves the DataType a single time
 // per column (see buildResolvedConverters) and calls this directly, avoiding
-// the per-cell strings.ToLower/Split inside ExtractAndMapColumnType — which the
-// CPU profile showed accounting for ~26% of total sync CPU.
+// the per-cell strings.ToLower/Split inside ExtractAndMapColumnType
 func (d *DB2) reformatResolved(value interface{}, olakeType types.DataType) (interface{}, error) {
 	return typeutils.ReformatValue(olakeType, value)
 }
@@ -297,10 +296,7 @@ func isFixedLengthCharType(dbTypeName string) bool {
 }
 
 // buildResolvedConverters compiles one converter closure per column with the
-// olake DataType (and TIME flag) resolved exactly once — not per cell. This is
-// the completed form of the optimisation buildReadBatchConverters only started:
-// the column type string is parsed a single time at setup instead of on every
-// one of the (rows × columns) cells.
+// olake DataType (and TIME flag) resolved exactly once — not per cell.
 func (d *DB2) buildResolvedConverters(colTypeNames []string) []func(interface{}) (interface{}, error) {
 	funcs := make([]func(interface{}) (interface{}, error), len(colTypeNames))
 	for i, typeName := range colTypeNames {
