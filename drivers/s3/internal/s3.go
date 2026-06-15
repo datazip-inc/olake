@@ -298,17 +298,14 @@ func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Strea
 	// Create appropriate parser and infer schema (format-specific logic from parser package)
 	switch s.config.FileFormat {
 	case FormatCSV:
-		sampleFiles := files[:1]
-		logger.Infof("Inferring schema from %d sample file(s) out of %d files in stream", len(sampleFiles), len(files))
-		inferredStream, err = s.inferSchemaForCSV(ctx, sampleFiles, stream)
+		logger.Infof("Inferring CSV schema for stream %s (%d file(s))", streamName, len(files))
+		inferredStream, err = s.inferSchemaForCSV(ctx, files[:1], stream)
 	case FormatJSON:
-		sampleFiles := schemaSampleFiles(files)
-		logger.Infof("Inferring schema from %d sample file(s) out of %d files in stream", len(sampleFiles), len(files))
-		inferredStream, err = s.inferSchemaForJSON(ctx, sampleFiles, stream)
+		logger.Infof("Inferring JSON schema for stream %s (%d file(s))", streamName, len(files))
+		inferredStream, err = s.inferSchemaForJSON(ctx, schemaSampleFiles(files), stream)
 	case FormatParquet:
-		sampleFiles := files[:1]
-		logger.Infof("Inferring schema from %d sample file(s) out of %d files in stream", len(sampleFiles), len(files))
-		inferredStream, err = s.inferSchemaForParquet(ctx, sampleFiles, stream)
+		logger.Infof("Inferring Parquet schema for stream %s (%d file(s))", streamName, len(files))
+		inferredStream, err = s.inferSchemaForParquet(ctx, files[:1], stream)
 	default:
 		return nil, fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
 	}
