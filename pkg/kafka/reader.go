@@ -142,9 +142,10 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 		}
 
 		partitionsMetadata[PartitionMetadataKey(topic, partitionDetail.Partition)] = types.PartitionMetaData{
-			Stream:      stream,
-			PartitionID: partitionDetail.Partition,
-			EndOffset:   endOffsetDetail.Offset,
+			Stream:          stream,
+			PartitionID:     partitionDetail.Partition,
+			EndOffset:       endOffsetDetail.Offset,
+			CommittedOffset: committedOffset,
 		}
 	}
 	return partitionsMetadata, nil

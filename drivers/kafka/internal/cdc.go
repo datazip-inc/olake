@@ -151,9 +151,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	// where offsets are stored as the next consumable offset (message.Offset + 1) for broker offset recovery.
 	metadataByStream := make(map[string]any)
 	for partitionKey, message := range lastMessages {
-		partitionMeta, exists := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(partitionKey.Topic, partitionKey.Partition))
+		partitionMeta, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(partitionKey.Topic, partitionKey.Partition))
 		if !exists {
-			return nil, fmt.Errorf("missing partition index for topic %s partition %d", partitionKey.Topic, partitionKey.Partition)
+			return nil, fmt.Errorf("missing partition metadata for topic %s partition %d", partitionKey.Topic, partitionKey.Partition)
 		}
 		streamID := partitionMeta.Stream.ID()
 		state, _ := metadataByStream[streamID].(*types.KafkaMetadataState)
@@ -415,9 +415,9 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		currentPartitionID := assignedPartition.Partition
 		currentTopic := assignedPartition.Topic
 
-		partitionMeta, ok := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(currentTopic, currentPartitionID))
+		partitionMeta, ok := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(currentTopic, currentPartitionID))
 		if !ok {
-			return false, fmt.Errorf("%w: assigned partition %s:%d missing from partition index", constants.ErrNonRetryable, currentTopic, currentPartitionID)
+			return false, fmt.Errorf("%w: assigned partition %s:%d missing from partition metadata", constants.ErrNonRetryable, currentTopic, currentPartitionID)
 		}
 
 		streamID := partitionMeta.Stream.ID()
