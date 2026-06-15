@@ -17,9 +17,9 @@ type Flattener interface {
 // is called at most once per unique column name per batch, not once per record.
 // Create one flattener per batch and reuse it across all records in that batch.
 type FlattenerImpl struct {
-	omitNilValues bool
-	keyFn         func(string) string
-	keyCache      sync.Map // batch-scoped: write-once per key, then read-only
+	omitNilValues     bool
+	resolveColumnName func(string) string
+	keyCache          sync.Map // batch-scoped: write-once per key, then read-only
 }
 
 // NewFlattener returns a flattener that resolves record keys using the provided
@@ -28,7 +28,7 @@ type FlattenerImpl struct {
 // Create one instance per batch and reuse it across all records — the internal
 // cache amortizes repeated resolve calls for the same column names.
 func NewFlattener(resolve func(string) string) Flattener {
-	return &FlattenerImpl{omitNilValues: true, keyFn: resolve}
+	return &FlattenerImpl{omitNilValues: true, resolveColumnName: resolve}
 }
 
 func (f *FlattenerImpl) Flatten(data types.Record) (types.Record, error) {
@@ -44,12 +44,12 @@ func (f *FlattenerImpl) Flatten(data types.Record) (types.Record, error) {
 }
 
 // resolveKey returns the output key for a column, using the instance-level cache
-// to avoid calling keyFn more than once per unique column name per batch.
+// to avoid calling resolveColumnName more than once per unique column name per batch.
 func (f *FlattenerImpl) resolveKey(key string) string {
 	if cached, ok := f.keyCache.Load(key); ok {
 		return cached.(string)
 	}
-	resolved := f.keyFn(key)
+	resolved := f.resolveColumnName(key)
 	f.keyCache.Store(key, resolved)
 	return resolved
 }

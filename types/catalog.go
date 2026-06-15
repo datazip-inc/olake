@@ -53,7 +53,7 @@ type StreamMetadata struct {
 	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization"`
 	// When enabled, source column names are preserved as-is; otherwise utils.Reformat() is applied to generate destination-safe lowercase column names.
-	UseSourceColumnNames bool `json:"use_source_column_names,omitempty"`
+	UseSourceColumnNames bool `json:"use_source_column_names"`
 	//legacy filter input
 	Filter string `json:"filter,omitempty"`
 	//new filter input

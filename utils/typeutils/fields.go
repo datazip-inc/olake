@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -115,7 +116,10 @@ func (f Fields) ToProperties() map[string]*types.Property {
 // pass stream.ResolveColumnName to honor the stream's naming strategy.
 func (f Fields) FromSchema(schema *types.TypeSchema, resolve func(string) string) {
 	schema.Properties.Range(func(key, value any) bool {
-		f[resolve(key.(string))] = NewField(value.(*types.Property).DataType())
+		property := value.(*types.Property)
+		fieldName := key.(string)
+		resolvedKey := utils.Ternary(property.DestinationColumnName != "", resolve(fieldName), fieldName).(string)
+		f[resolvedKey] = NewField(property.DataType())
 		return true
 	})
 }
