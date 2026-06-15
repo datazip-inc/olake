@@ -28,6 +28,7 @@ package driver
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"io"
 	"reflect"
@@ -155,7 +156,7 @@ type batchMsg struct {
 // readBatchConcurrent reads the result of query using the patched driver's
 // ReadBatch API. It runs a producer goroutine (SQLFetch + typed decode) and a
 // consumer goroutine (OLake type conversion + OnMessage) concurrently.
-func (d *DB2) readBatchConcurrent(ctx context.Context, query string, onMessage abstract.BackfillMsgFn) error {
+func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any, onMessage abstract.BackfillMsgFn) error {
 	sqlConn, err := d.client.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("readBatchConcurrent: acquire conn: %w", err)
@@ -168,19 +169,31 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, onMessage a
 			return fmt.Errorf("readBatchConcurrent: not a *go_ibm_db.Conn (%T)", driverConn)
 		}
 
-		// Push the fetch size to the driver before executing the query.
 		c.SetFetchSize(db2DefaultFetchSize)
 
-		dr, err := c.Query(query, nil)
-		if err != nil {
-			return fmt.Errorf("readBatchConcurrent: query: %w", err)
+		var rows *goibmdb.Rows
+		if len(args) == 0 {
+			dr, err := c.Query(query, nil)
+			if err != nil {
+				return fmt.Errorf("readBatchConcurrent: query: %w", err)
+			}
+			var ok bool
+			rows, ok = dr.(*goibmdb.Rows)
+			if !ok {
+				dr.Close()
+				return fmt.Errorf("readBatchConcurrent: expected *go_ibm_db.Rows, got %T", dr)
+			}
+		} else {
+			driverArgs := make([]driver.Value, len(args))
+			for i, a := range args {
+				driverArgs[i] = a
+			}
+			rows, err = c.QueryWithArgs(query, driverArgs)
+			if err != nil {
+				return fmt.Errorf("readBatchConcurrent: query with args: %w", err)
+			}
 		}
-		defer dr.Close()
-
-		rows, ok := dr.(*goibmdb.Rows)
-		if !ok {
-			return fmt.Errorf("readBatchConcurrent: expected *go_ibm_db.Rows, got %T", dr)
-		}
+		defer rows.Close()
 
 		// Collect column metadata once.
 		colNames := rows.Columns()
