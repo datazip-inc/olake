@@ -56,7 +56,7 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 	readMode := os.Getenv("DB2_READ_MODE")
 	if readMode != "mapscan" {
 		logger.Infof("[DB2] backfill read path: readbatch (DB2_READ_MODE=%q, fetch_size=%d)", readMode, db2DefaultFetchSize)
-		return d.readBatchConcurrent(ctx, stmt, nil, OnMessage)
+		return d.readBatchConcurrent(ctx, stmt, args, OnMessage)
 	}
 	logger.Infof("[DB2] backfill read path: mapscan (DB2_READ_MODE=%q, fetch_size=%d)", readMode, db2DefaultFetchSize)
 

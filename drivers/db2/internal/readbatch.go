@@ -33,7 +33,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"strings"
 	"time"
 
 	goibmdb "github.com/ibmdb/go_ibm_db"
@@ -110,26 +109,6 @@ func buildColBuffers(scanTypes []reflect.Type, fetchSize int) []colBuffer {
 		}
 	}
 	return bufs
-}
-
-// isNullDecimalRaw treats driver zero-values for NULL DECIMAL/DECFLOAT cells as
-// SQL null. ReadBatch uses [][]byte (nil) after the driver TypeScan fix; empty
-// string/slice remain as a fallback for older driver builds.
-func isNullDecimalRaw(raw interface{}, dbTypeName string) bool {
-	n := strings.ToLower(dbTypeName)
-	if n != "decimal" && n != "decfloat" {
-		return false
-	}
-	switch v := raw.(type) {
-	case nil:
-		return true
-	case string:
-		return v == ""
-	case []byte:
-		return len(v) == 0
-	default:
-		return false
-	}
 }
 
 // colBatch bundles a reusable set of column buffers with the matching
