@@ -18,27 +18,30 @@ import (
 // NewReaderManager creates a new Kafka reader manager
 func NewReaderManager(config ReaderConfig) *ReaderManager {
 	return &ReaderManager{
-		config:         config,
-		readers:        make([]*kafkaReader, 0),
-		partitionIndex: make(map[string]types.PartitionMetaData),
+		config:        config,
+		readers:       make([]*kafkaReader, 0),
+		partitionMeta: make(map[string]types.PartitionMetaData),
 	}
 }
 
 // CreateReaders creates Kafka readers based on the provided streams and configuration
 func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.StreamInterface) error {
-	r.partitionIndex = make(map[string]types.PartitionMetaData)
+	r.partitionMeta = make(map[string]types.PartitionMetaData)
 	for _, stream := range streams {
 		// populate topics from streams
 		r.topics = append(r.topics, stream.Name())
 
-		// set partitions for the stream
-		if err := r.SetPartitions(ctx, stream); err != nil {
-			return fmt.Errorf("failed to set partitions for stream %s: %s", stream.ID(), err)
+		partitionsMetadata, err := r.PartitionsForStream(ctx, stream)
+		if err != nil {
+			return fmt.Errorf("failed to get partitions for stream %s: %s", stream.ID(), err)
+		}
+		for key, meta := range partitionsMetadata {
+			r.partitionMeta[key] = meta
 		}
 	}
 
 	// total partitions with new messages
-	totalPartitions := len(r.partitionIndex)
+	totalPartitions := len(r.partitionMeta)
 	if totalPartitions == 0 {
 		logger.Infof("no partitions with new messages, skipping reader creation for group %s", r.config.ConsumerGroupID)
 		return nil
@@ -52,7 +55,7 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 		clientID := fmt.Sprintf("olake-%s-%s", r.config.ConsumerGroupID, readerID)
 
 		// create reader (rebalance callbacks disabled during initial reader creation and partition assignment)
-		reader, err := r.CreateReader(readerID, clientID, readersToCreate, false)
+		reader, err := r.CreateReader(readerID, clientID, false)
 		if err != nil {
 			return fmt.Errorf("failed to create reader %d: %s", readerIndex, err)
 		}
@@ -79,9 +82,9 @@ func (r *ReaderManager) GetReaderCount() int {
 	return len(r.readers)
 }
 
-// GetPartitionIndex returns the partition index
-func (r *ReaderManager) GetPartitionIndex(partitionKey string) (types.PartitionMetaData, bool) {
-	partitionMeta, exists := r.partitionIndex[partitionKey]
+// GetPartitionMeta returns the partition metadata
+func (r *ReaderManager) GetPartitionMeta(partitionMetadataKey string) (types.PartitionMetaData, bool) {
+	partitionMeta, exists := r.partitionMeta[partitionMetadataKey]
 	return partitionMeta, exists
 }
 
@@ -95,26 +98,26 @@ func (r *ReaderManager) GetReaderIDAndClientID(readerIndex int) (string, string)
 	return r.readers[readerIndex].id, r.readers[readerIndex].clientID
 }
 
-// sets partitions that need to be synced for a stream
-func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamInterface) error {
+// PartitionsForStream returns partitions that need to be synced for a stream.
+func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.StreamInterface) (map[string]types.PartitionMetaData, error) {
 	topic := stream.Name()
 	topicDetail, topicDetailErr := r.GetTopicMetadata(ctx, topic)
 	if topicDetailErr != nil {
-		return fmt.Errorf("failed to fetch topic metadata for topic %s: %s", topic, topicDetailErr)
+		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", topic, topicDetailErr)
 	}
 
 	startOffsets, endOffsets, listOffsetsErr := r.ListTopicOffsets(ctx, topic)
 	if listOffsetsErr != nil {
-		return fmt.Errorf("failed to list offsets for topic %s: %s", topic, listOffsetsErr)
+		return nil, fmt.Errorf("failed to list offsets for topic %s: %s", topic, listOffsetsErr)
 	}
 
 	// fetch already committed offset of partition
 	committedTopicOffsets, committedOffsetsErr := r.FetchCommittedOffsets(ctx, topic)
 	if committedOffsetsErr != nil {
-		return fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, committedOffsetsErr)
+		return nil, fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, committedOffsetsErr)
 	}
 
-	// build partition metadata
+	partitionsMetadata := make(map[string]types.PartitionMetaData)
 	for _, partitionDetail := range topicDetail.Partitions {
 		startOffsetDetail, endOffsetDetail, offsetsFound := r.GetPartitionOffsets(startOffsets, endOffsets, topic, partitionDetail.Partition)
 		if !offsetsFound {
@@ -138,18 +141,17 @@ func (r *ReaderManager) SetPartitions(ctx context.Context, stream types.StreamIn
 			continue
 		}
 
-		r.partitionIndex[PartitionIndexKey(topic, partitionDetail.Partition)] = types.PartitionMetaData{
-			Stream:          stream,
-			PartitionID:     partitionDetail.Partition,
-			EndOffset:       endOffsetDetail.Offset,
-			CommittedOffset: committedOffset,
+		partitionsMetadata[PartitionMetadataKey(topic, partitionDetail.Partition)] = types.PartitionMetaData{
+			Stream:      stream,
+			PartitionID: partitionDetail.Partition,
+			EndOffset:   endOffsetDetail.Offset,
 		}
 	}
-	return nil
+	return partitionsMetadata, nil
 }
 
-// PartitionIndexKey returns the map key used for partition index lookups.
-func PartitionIndexKey(topic string, partition int32) string {
+// PartitionMetadataKey returns the map key used for partition metadata lookups.
+func PartitionMetadataKey(topic string, partition int32) string {
 	return fmt.Sprintf("%s:%d", topic, partition)
 }
 
@@ -278,7 +280,7 @@ func (r *ReaderManager) RestartReader(readerIndex int) (*kgo.Client, error) {
 
 	currentReader.Close()
 
-	newReader, err := r.CreateReader(readerID, clientID, len(r.readers), true)
+	newReader, err := r.CreateReader(readerID, clientID, true)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to recreate kafka reader %d after close: %s", constants.ErrNonRetryable, readerIndex, err)
 	}
@@ -290,7 +292,7 @@ func (r *ReaderManager) RestartReader(readerIndex int) (*kgo.Client, error) {
 
 // CreateReader creates a single kafka reader client.
 // When enableRebalanceCallbacks is true, rebalance callbacks are registered on the reader.
-func (r *ReaderManager) CreateReader(readerID, clientID string, requiredConsumers int, enableRebalanceCallbacks bool) (*kgo.Client, error) {
+func (r *ReaderManager) CreateReader(readerID, clientID string, enableRebalanceCallbacks bool) (*kgo.Client, error) {
 	readerOpts := append([]kgo.Opt{}, r.config.Dialer...)
 
 	readerOpts = append(
@@ -300,8 +302,7 @@ func (r *ReaderManager) CreateReader(readerID, clientID string, requiredConsumer
 		kgo.InstanceID(readerID),
 		kgo.ConsumeTopics(r.topics...),
 		kgo.Balancers(&CustomGroupBalancer{
-			requiredConsumerIDs: requiredConsumers,
-			partitionIndex:      r.partitionIndex,
+			partitionMeta: r.partitionMeta,
 		}),
 		kgo.FetchMinBytes(1),
 		kgo.FetchMaxBytes(10e6),
@@ -371,39 +372,35 @@ func (r *ReaderManager) waitForPartitionAssignment(ctx context.Context) error {
 	joinCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	for {
-		if joinCtx.Err() != nil {
-			return fmt.Errorf("timed out waiting for partition assignment on consumer group %s: %s", r.config.ConsumerGroupID, joinCtx.Err())
-		}
-		var (
-			allReadersJoined           = true
-			expectedGenerationID int32 = -1
-		)
-		for _, kafkaReader := range r.readers {
-			_, currentReaderGenerationID := kafkaReader.reader.GroupMetadata()
-
-			// generation id -1 means not yet joined
-			// mismatch means readers are on different generations, partition assignment not yet completed
-			if currentReaderGenerationID < 0 || (expectedGenerationID >= 0 && expectedGenerationID != currentReaderGenerationID) {
-				allReadersJoined = false
-				break
-			}
-			if expectedGenerationID < 0 {
-				expectedGenerationID = currentReaderGenerationID
-			}
-		}
-
-		if allReadersJoined {
-			r.generationID.Store(expectedGenerationID)
-			// brief wait to let partition assignment fully propagate before fetching starts.
-			time.Sleep(2 * time.Second)
-			logger.Infof("consumer group %s stable: all readers assigned, generation id: %d", r.config.ConsumerGroupID, expectedGenerationID)
-			return nil
-		}
-
 		select {
 		case <-joinCtx.Done():
-			return fmt.Errorf("timed out waiting for partition assignment on consumer group %s: %s", r.config.ConsumerGroupID, joinCtx.Err())
+			return joinCtx.Err()
 		case <-time.After(500 * time.Millisecond):
+			var (
+				allReadersJoined           = true
+				expectedGenerationID int32 = -1
+			)
+			for _, kafkaReader := range r.readers {
+				_, currentReaderGenerationID := kafkaReader.reader.GroupMetadata()
+
+				// generation id -1 means not yet joined
+				// mismatch means readers are on different generations, partition assignment not yet completed
+				if currentReaderGenerationID < 0 || (expectedGenerationID >= 0 && expectedGenerationID != currentReaderGenerationID) {
+					allReadersJoined = false
+					break
+				}
+				if expectedGenerationID < 0 {
+					expectedGenerationID = currentReaderGenerationID
+				}
+			}
+
+			if allReadersJoined {
+				r.generationID.Store(expectedGenerationID)
+				// brief wait to let partition assignment fully propagate before fetching starts.
+				time.Sleep(2 * time.Second)
+				logger.Infof("consumer group %s stable: all readers assigned, generation id: %d", r.config.ConsumerGroupID, expectedGenerationID)
+				return nil
+			}
 		}
 	}
 }

@@ -118,6 +118,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
 	}
 
+	// TODO: Avoid modifying the configured/default retry count during initialization across all drivers.
 	// check for default backoff count
 	k.config.RetryCount = utils.Ternary(k.config.RetryCount <= 0, 1, k.config.RetryCount+1).(int)
 
@@ -356,8 +357,13 @@ func (k *Kafka) checkPartitionCompletion(assignedPartitions []types.PartitionKey
 	// cache observed partitions
 	if len(observedPartitions) == 0 {
 		// Ensure we have all assigned partitions tracked
-		for _, assignedPk := range assignedPartitions {
-			if _, exists := k.readerManager.GetPartitionIndex(kafkapkg.PartitionIndexKey(assignedPk.Topic, assignedPk.Partition)); exists {
+		assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
+		if err != nil {
+			return false, err
+		}
+
+		for _, assignedPk := range assigned {
+			if _, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(assignedPk.Topic, assignedPk.Partition)); exists {
 				observedPartitions[assignedPk] = struct{}{}
 			}
 		}
