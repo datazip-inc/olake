@@ -264,10 +264,6 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 	// no cursor validation in cdc and backfill sync
 	if s.Stream.SyncMode == INCREMENTAL {
 		primaryCursor, secondaryCursor := s.Cursor()
-
-		if primaryCursor == "" {
-			return fmt.Errorf("Cursor field is empty")
-		}
 		if !source.AvailableCursorFields.Exists(primaryCursor) {
 			return fmt.Errorf("invalid cursor field [%s]; valid are %v", primaryCursor, source.AvailableCursorFields)
 		}
