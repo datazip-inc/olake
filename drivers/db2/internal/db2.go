@@ -275,6 +275,7 @@ func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface
 	return d.reformatResolved(value, olakeType)
 }
 
+// TODO(BEFORE MERGE): make the comments concise after review
 // reformatResolved performs the value conversion once the olake DataType is
 // already known. The ReadBatch fast path resolves the DataType a single time
 // per column (see buildResolvedConverters) and calls this directly, avoiding
