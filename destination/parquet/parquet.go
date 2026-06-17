@@ -55,6 +55,11 @@ func (p *Parquet) GetConfigRef() destination.Config {
 	return p.config
 }
 
+// SetConfig points this writer at a shared, already-parsed config instance.
+func (p *Parquet) SetConfig(c destination.Config) {
+	p.config = c.(*Config)
+}
+
 // Spec returns a new Config instance.
 func (p *Parquet) Spec() any {
 	return Config{}
@@ -128,11 +133,6 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	p.partitionedFiles = make(map[string][]*FileMetadata)
 	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
 	p.schema = make(typeutils.Fields)
-
-	// for s3 p.config.path may not be provided
-	if p.config.Path == "" {
-		p.config.Path = os.TempDir()
-	}
 
 	err := p.initS3Writer()
 	if err != nil {

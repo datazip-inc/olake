@@ -14,7 +14,10 @@ type Write = func(ctx context.Context, channel <-chan types.Record) error
 type FlattenFunction = func(record types.Record) (types.Record, error)
 
 type Writer interface {
+	// GetConfigRef returns a fresh config pointer to unmarshal destination config into.
 	GetConfigRef() Config
+	// SetConfig assigns a shared, pre-parsed read-only config instance provided by the writer pool.
+	SetConfig(Config)
 	Spec() any
 	Type() string
 	// Sets up connections and perform checks; doesn't load Streams

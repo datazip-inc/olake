@@ -99,14 +99,14 @@ var syncCmd = &cobra.Command{
 			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
 		}
 
-		// Initialize destination-owned process resources (Iceberg shared JVM) once,
-		// up front. Every later destination path (clear, Check, Setup) only reads
-		// the running instance. Register the (idempotent, nil-safe) Shutdown first
-		// so teardown is guaranteed even if Initialize fails after partially starting.
-		defer destination.Shutdown(cmd.Context(), destinationConfig)
-		if err := destination.Initialize(cmd.Context(), destinationConfig); err != nil {
-			return fmt.Errorf("failed to initialize destination: %s", err)
+		// Build the writer pool up front: it starts destination-owned resources
+		// (e.g. the Iceberg shared JVM) and validates the connection. pool.Close
+		// tears them down on exit (normal return or signal-cancelled context).
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize)
+		if err != nil {
+			return err
 		}
+		defer pool.Close(cmd.Context())
 
 		if streams == nil {
 			state.Streams = selectedStreamsMetadata.NewStreamsState
@@ -122,15 +122,9 @@ var syncCmd = &cobra.Command{
 			if state, err = connector.ClearState(dropStreams); err != nil {
 				return fmt.Errorf("error clearing state for full refresh streams: %s", err)
 			}
-			cerr := destination.ClearDestination(cmd.Context(), destinationConfig, dropStreams)
-			if cerr != nil {
+			if cerr := pool.Clear(cmd.Context(), dropStreams); cerr != nil {
 				return fmt.Errorf("failed to clear destination: %s", cerr)
 			}
-		}
-
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize)
-		if err != nil {
-			return err
 		}
 
 		// start monitoring stats

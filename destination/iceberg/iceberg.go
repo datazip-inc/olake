@@ -62,6 +62,11 @@ func (i *Iceberg) GetConfigRef() destination.Config {
 	return i.config
 }
 
+// SetConfig points this writer at a shared, already-parsed config instance.
+func (i *Iceberg) SetConfig(c destination.Config) {
+	i.config = c.(*Config)
+}
+
 func (i *Iceberg) Spec() any {
 	return Config{}
 }
@@ -108,7 +113,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	// writer thread runs, so here we only read the running instance.
 	server := getServer()
 	if server == nil {
-		return nil, nil, fmt.Errorf("iceberg server not initialized; destination.Initialize must run before Setup")
+		return nil, nil, fmt.Errorf("iceberg server not initialized; the writer pool must initialize the destination before Setup")
 	}
 
 	// persist server details
@@ -262,7 +267,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	// Get-only: the JVM is provisioned once by the protocol layer before Check.
 	server := getServer()
 	if server == nil {
-		return fmt.Errorf("iceberg server not initialized; destination.Initialize must run before Check")
+		return fmt.Errorf("iceberg server not initialized; the writer pool must initialize the destination before Check")
 	}
 
 	// Stash for releaseSession to find on defer.
@@ -621,7 +626,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 	// Get-only: the JVM is provisioned once by the protocol layer before clear.
 	server := getServer()
 	if server == nil {
-		return fmt.Errorf("iceberg server not initialized; destination.Initialize must run before DropStreams")
+		return fmt.Errorf("iceberg server not initialized; the writer pool must initialize the destination before DropStreams")
 	}
 
 	// Stash so releaseSession can drop the drop-thread state on the JVM side.

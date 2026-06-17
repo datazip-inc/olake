@@ -39,9 +39,9 @@ type (
 	}
 
 	WriterPool struct {
-		configMutex  sync.Mutex
 		stats        *Stats
-		config       any
+		lifecycle    Writer // adapter owning destination-level resources; reused for Clear/Close (no re-parse)
+		parsedConfig Config // destination config parsed once; shared by every writer thread (read-only after parse)
 		init         NewFunc
 		writerSchema sync.Map
 		batchSize    int64
@@ -90,19 +90,39 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 	}
 }
 
+// NewWriterPool builds a writer pool for a destination. It owns the lifecycle of
+// destination-level process resources: it starts them up front (e.g. the Iceberg
+// shared JVM, via Initializable), validates the connection (Check), and exposes
+// Close to tear them down. Call pool.Close() when done (defer it right after a
+// successful NewWriterPool).
 func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	newfunc, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
 	}
 
+	// Parse the destination config exactly once into a shared instance. Check may
+	// finalize it (e.g. Parquet sets a temp staging Path for S3); every writer
+	// thread then reuses this same instance read-only via SetConfig.
 	adapter := newfunc()
-	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
-		return nil, err
+	parsedConfig := adapter.GetConfigRef()
+	if err := utils.Unmarshal(config.WriterConfig, parsedConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal destination config: %s", err)
 	}
 
-	err := adapter.Check(ctx)
-	if err != nil {
+	// Start long-lived destination resources before any check/setup work.
+	if in, ok := adapter.(Initializable); ok {
+		if err := in.Initialize(ctx); err != nil {
+			return nil, fmt.Errorf("failed to initialize destination: %s", err)
+		}
+	}
+
+	if err := adapter.Check(ctx); err != nil {
+		// Roll back anything Initialize started so we don't orphan it; there is
+		// no pool object for the caller to Close on this error path.
+		if s, ok := adapter.(Shutdownable); ok {
+			_ = s.Shutdown(ctx)
+		}
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
@@ -113,9 +133,10 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 			ReadCount:          atomic.Int64{},
 			RecordsFiltered:    atomic.Int64{},
 		},
-		config:    config.WriterConfig,
-		init:      newfunc,
-		batchSize: batchSize,
+		lifecycle:    adapter,
+		parsedConfig: parsedConfig,
+		init:         newfunc,
+		batchSize:    batchSize,
 	}
 
 	for _, stream := range syncStreams {
@@ -126,6 +147,28 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 	}
 
 	return pool, nil
+}
+
+// Close tears down destination-owned process resources (e.g. the Iceberg shared
+// JVM) via the pool's lifecycle adapter. Idempotent and safe to defer right
+// after a successful NewWriterPool.
+func (w *WriterPool) Close(ctx context.Context) {
+	s, ok := w.lifecycle.(Shutdownable)
+	if !ok {
+		return
+	}
+	if err := s.Shutdown(ctx); err != nil {
+		logger.Warnf("WriterPool.Close: %s", err)
+	}
+}
+
+// Clear drops the given streams from the destination, reusing the pool's
+// already-initialized lifecycle adapter (and its parsed config).
+func (w *WriterPool) Clear(ctx context.Context, dropStreams []types.StreamInterface) error {
+	if len(dropStreams) == 0 {
+		return nil
+	}
+	return w.lifecycle.DropStreams(ctx, dropStreams)
 }
 
 func (w *WriterPool) AddRecordsToSyncStats(count int64) {
@@ -156,14 +199,10 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	var writerThread Writer
 	prevStreamState, err := func() (*types.MetadataState, error) {
-		// init writer with configurations
+		// init writer and point it at the config parsed once at pool creation,
+		// shared read-only across all writer threads.
 		writerThread = w.init()
-		w.configMutex.Lock()
-		err := utils.Unmarshal(w.config, writerThread.GetConfigRef())
-		w.configMutex.Unlock()
-		if err != nil {
-			return nil, err
-		}
+		writerThread.SetConfig(w.parsedConfig)
 
 		// setup table and schema
 		streamArtifact.mu.Lock()
@@ -296,68 +335,3 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 	}
 }
 
-func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
-	newfunc, found := RegisteredWriters[config.Type]
-	if !found {
-		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
-	}
-
-	adapter := newfunc()
-	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
-		return err
-	}
-
-	if dropStreams != nil {
-		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
-			return fmt.Errorf("failed to drop the streams: %s", err)
-		}
-	}
-	return nil
-}
-
-// Initialize starts destination-level process resources once, up front, if the
-// registered writer implements Initializable. No-op for destinations without
-// long-lived resources (parquet). Pair it with a deferred Shutdown.
-func Initialize(ctx context.Context, config *types.WriterConfig) error {
-	if config == nil {
-		return nil
-	}
-	newfunc, found := RegisteredWriters[config.Type]
-	if !found {
-		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
-	}
-	adapter := newfunc()
-	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
-		return fmt.Errorf("failed to unmarshal destination config: %s", err)
-	}
-	in, ok := adapter.(Initializable)
-	if !ok {
-		return nil
-	}
-	return in.Initialize(ctx)
-}
-
-// Shutdown invokes destination-level cleanup if the registered writer
-// implements Shutdownable. No-op for destinations without long-lived
-// resources (parquet).
-func Shutdown(ctx context.Context, config *types.WriterConfig) {
-	if config == nil {
-		return
-	}
-	newfunc, found := RegisteredWriters[config.Type]
-	if !found {
-		return
-	}
-	adapter := newfunc()
-	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
-		logger.Warnf("destination.Shutdown: failed to unmarshal config: %s", err)
-		return
-	}
-	s, ok := adapter.(Shutdownable)
-	if !ok {
-		return
-	}
-	if err := s.Shutdown(ctx); err != nil {
-		logger.Warnf("destination.Shutdown: %s", err)
-	}
-}

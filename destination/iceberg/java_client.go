@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -34,13 +33,9 @@ type serverInstance struct {
 
 // Shared single-JVM state for the lifetime of the process. Every Iceberg writer
 // connects to this one JVM; per-stream context rides on each gRPC payload.
-// initializeServer starts it once (guarded by startOnce), getServer loads the
-// pointer lock-free, and shutdownSharedServer swaps it out lock-free.
-var (
-	sharedServer atomic.Pointer[serverInstance]
-	startOnce    sync.Once
-	startErr     error
-)
+// initializeServer starts it, getServer loads the pointer lock-free, and
+// shutdownSharedServer swaps it out lock-free.
+var sharedServer atomic.Pointer[serverInstance]
 
 // getServerConfigJSON builds the catalog/storage-level config the JVM consumes
 // at startup. Per-stream concepts (namespace, upsert, identifier-fields,
@@ -122,26 +117,21 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 	return json.Marshal(serverConfig)
 }
 
-// initializeServer launches the shared JVM exactly once and returns it. This is
-// the single place a JVM is started — invoked from the protocol layer via
-// Iceberg.Initialize before any sync/check/clear work begins. Concurrent/repeat
-// callers all observe the same instance. The catalog/storage portion of `config`
-// is what drives the JVM CLI; later callers that pass a different config still
-// receive the already-running JVM. This is intentional: in a single OLake sync
-// the destination config is fixed.
+// initializeServer launches the shared JVM and returns it. This is the single
+// place a JVM is started — invoked from the protocol layer via Iceberg.Initialize
+// (WriterPool.NewWriterPool) before any sync/check/clear work begins, so it runs
+// exactly once with no concurrency. The nil-check keeps it idempotent if called
+// again, returning the already-running instance.
 func initializeServer(config *Config) (*serverInstance, error) {
-	startOnce.Do(func() {
-		inst, err := startSharedServer(config)
-		if err != nil {
-			startErr = err
-			return
-		}
-		sharedServer.Store(inst)
-	})
-	if startErr != nil {
-		return nil, startErr
+	if inst := sharedServer.Load(); inst != nil {
+		return inst, nil
 	}
-	return sharedServer.Load(), nil
+	inst, err := startSharedServer(config)
+	if err != nil {
+		return nil, err
+	}
+	sharedServer.Store(inst)
+	return inst, nil
 }
 
 // getServer returns the running shared JVM lock-free (read path for Check,
