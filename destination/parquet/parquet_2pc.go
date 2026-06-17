@@ -29,39 +29,38 @@ const (
 type parquet2PCCompletedMarker struct {
 	ThreadID      string
 	MetadataState *types.MetadataState
-	modTime       time.Time
+	// completedAt selects the latest CDC/incremental metadata marker.
+	completedAt time.Time
 }
 
+type parquet2PCStagingEntry struct {
+	StagingDir string
+	Marker     *parquet2PCCompletedMarker
+}
+
+// load2PCState restores committed progress and reconciles staged attempts before setup returns.
 func (p *Parquet) load2PCState(ctx context.Context) (*types.MetadataState, error) {
-	markers, err := p.listCompletedMarkers(ctx)
+	stagingEntries, err := p.listStagingEntries(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	stagingDirs, err := p.listStagingDirs(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	completedStagingDirs := make(map[string]bool, len(markers))
-	for _, marker := range markers {
-		stagingDir := p.stagingDirName(marker.ThreadID)
-		completedStagingDirs[stagingDir] = true
-		if stagingDirs[stagingDir] {
-			if err := p.promoteStaging(ctx, marker.ThreadID); err != nil {
+	markers := make([]parquet2PCCompletedMarker, 0, len(stagingEntries))
+	for _, entry := range stagingEntries {
+		if entry.Marker == nil {
+			if err := p.deleteStagingByName(ctx, entry.StagingDir); err != nil {
 				return nil, err
 			}
-			if err := p.cleanupCommittedStaging(marker.ThreadID); err != nil {
-				logger.Warnf("Thread[%s]: failed to cleanup committed parquet 2pc staging dir: %s", marker.ThreadID, err)
-			}
+			continue
 		}
-	}
 
-	for stagingDir := range stagingDirs {
-		if !completedStagingDirs[stagingDir] {
-			if err := p.deleteStagingByName(ctx, stagingDir); err != nil {
-				return nil, err
-			}
+		marker := *entry.Marker
+		markers = append(markers, marker)
+		if err := p.promoteStaging(ctx, marker.ThreadID); err != nil {
+			return nil, err
+		}
+		if err := p.cleanupCommittedStaging(marker.ThreadID); err != nil {
+			logger.Warnf("Thread[%s]: failed to cleanup committed parquet 2pc staging dir: %s", marker.ThreadID, err)
 		}
 	}
 
@@ -75,7 +74,7 @@ func (p *Parquet) load2PCState(ctx context.Context) (*types.MetadataState, error
 			fullRefreshCommittedIDs = append(fullRefreshCommittedIDs, marker.ThreadID)
 			continue
 		}
-		if latestStateMarker == nil || marker.modTime.After(latestStateMarker.modTime) {
+		if latestStateMarker == nil || marker.completedAt.After(latestStateMarker.completedAt) {
 			markerCopy := marker
 			latestStateMarker = &markerCopy
 		}
@@ -106,6 +105,7 @@ func (p *Parquet) load2PCState(ctx context.Context) (*types.MetadataState, error
 	return state, nil
 }
 
+// metadataState normalizes close-time state into the MetadataState shape used for recovery.
 func (p *Parquet) metadataState(finalMetadataState any) (*types.MetadataState, error) {
 	var metadataState *types.MetadataState
 	if finalMetadataState == nil {
@@ -136,6 +136,7 @@ func (p *Parquet) metadataState(finalMetadataState any) (*types.MetadataState, e
 	return metadataState, nil
 }
 
+// writeCompletedMarker records the current thread as destination-committed.
 func (p *Parquet) writeCompletedMarker(ctx context.Context, metadataState *types.MetadataState) error {
 	data := []byte("{}")
 	if metadataState != nil {
@@ -148,72 +149,89 @@ func (p *Parquet) writeCompletedMarker(ctx context.Context, metadataState *types
 	return p.write2PCObject(ctx, p.completedMarkerName(p.options.ThreadID), data)
 }
 
-func (p *Parquet) listCompletedMarkers(ctx context.Context) ([]parquet2PCCompletedMarker, error) {
+// listStagingEntries lists staging folders and attaches completed markers when present.
+func (p *Parquet) listStagingEntries(ctx context.Context) (map[string]parquet2PCStagingEntry, error) {
 	if p.s3Client != nil {
-		return p.listS3CompletedMarkers(ctx)
+		return p.listS3StagingEntries(ctx)
 	}
-	return p.listLocalCompletedMarkers()
+	return p.listLocalStagingEntries()
 }
 
-func (p *Parquet) listLocalCompletedMarkers() ([]parquet2PCCompletedMarker, error) {
+// listLocalStagingEntries builds staging entries from local 2PC directories.
+func (p *Parquet) listLocalStagingEntries() (map[string]parquet2PCStagingEntry, error) {
 	entries, err := os.ReadDir(p.local2PCPath())
 	if os.IsNotExist(err) {
-		return nil, nil
+		return map[string]parquet2PCStagingEntry{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	markers := make([]parquet2PCCompletedMarker, 0)
+	stagingEntries := make(map[string]parquet2PCStagingEntry)
 	for _, entry := range entries {
 		if !entry.IsDir() || !strings.HasSuffix(entry.Name(), parquet2PCStagingSuffix) {
 			continue
 		}
+		stagingEntry := parquet2PCStagingEntry{StagingDir: entry.Name()}
 		marker, err := p.readLocalCompletedMarker(entry.Name())
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
+		if err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}
-		markers = append(markers, marker)
+		if err == nil {
+			stagingEntry.Marker = &marker
+		}
+		stagingEntries[entry.Name()] = stagingEntry
 	}
-	return markers, nil
+	return stagingEntries, nil
 }
 
-func (p *Parquet) listS3CompletedMarkers(ctx context.Context) ([]parquet2PCCompletedMarker, error) {
+// listS3StagingEntries builds staging entries from objects under the table 2PC prefix.
+func (p *Parquet) listS3StagingEntries(ctx context.Context) (map[string]parquet2PCStagingEntry, error) {
 	prefix := p.s3ObjectPath(filepath.Join(p.basePath, parquet2PCDir)) + "/"
-	markers := make([]parquet2PCCompletedMarker, 0)
+	stagingEntries := make(map[string]parquet2PCStagingEntry)
 	var pageErr error
 
-	err := p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
-		Bucket: aws.String(p.config.Bucket),
-		Prefix: aws.String(prefix),
-	}, func(page *s3.ListObjectsOutput, _ bool) bool {
-		for _, obj := range page.Contents {
-			if obj.Key == nil {
-				continue
+	err := p.retryS3(ctx, func(ctx context.Context) error {
+		pageErr = nil
+		stagingEntries = make(map[string]parquet2PCStagingEntry)
+		return p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
+			Bucket: aws.String(p.config.Bucket),
+			Prefix: aws.String(prefix),
+		}, func(page *s3.ListObjectsOutput, _ bool) bool {
+			for _, obj := range page.Contents {
+				if obj.Key == nil {
+					continue
+				}
+				relPath := strings.TrimPrefix(*obj.Key, prefix)
+				parts := strings.SplitN(relPath, "/", 2)
+				if len(parts) != 2 || !strings.HasSuffix(parts[0], parquet2PCStagingSuffix) {
+					continue
+				}
+
+				stagingEntry := stagingEntries[parts[0]]
+				if stagingEntry.StagingDir == "" {
+					stagingEntry.StagingDir = parts[0]
+				}
+				if parts[1] == parquet2PCCompletedFile {
+					marker, err := p.readS3CompletedMarker(ctx, parts[0], *obj.Key, obj.LastModified)
+					if err != nil {
+						pageErr = err
+						return false
+					}
+					stagingEntry.Marker = &marker
+				}
+				stagingEntries[parts[0]] = stagingEntry
 			}
-			relPath := strings.TrimPrefix(*obj.Key, prefix)
-			parts := strings.Split(relPath, "/")
-			if len(parts) != 2 || !strings.HasSuffix(parts[0], parquet2PCStagingSuffix) || parts[1] != parquet2PCCompletedFile {
-				continue
-			}
-			marker, err := p.readS3CompletedMarker(ctx, parts[0], *obj.Key, obj.LastModified)
-			if err != nil {
-				pageErr = err
-				return false
-			}
-			markers = append(markers, marker)
-		}
-		return true
+			return true
+		})
 	})
 	if err != nil {
 		return nil, err
 	}
-	return markers, pageErr
+	return stagingEntries, pageErr
 }
 
+// readLocalCompletedMarker reads and parses a local _completed.json marker.
 func (p *Parquet) readLocalCompletedMarker(stagingDir string) (parquet2PCCompletedMarker, error) {
 	threadID, err := threadIDFromStagingDir(stagingDir)
 	if err != nil {
@@ -232,6 +250,7 @@ func (p *Parquet) readLocalCompletedMarker(stagingDir string) (parquet2PCComplet
 	return p.parseCompletedMarker(threadID, data, info.ModTime())
 }
 
+// readS3CompletedMarker reads and parses an S3 _completed.json marker.
 func (p *Parquet) readS3CompletedMarker(ctx context.Context, stagingDir, key string, lastModified *time.Time) (parquet2PCCompletedMarker, error) {
 	threadID, err := threadIDFromStagingDir(stagingDir)
 	if err != nil {
@@ -243,17 +262,18 @@ func (p *Parquet) readS3CompletedMarker(ctx context.Context, stagingDir, key str
 		return parquet2PCCompletedMarker{}, err
 	}
 
-	modTime := time.Time{}
+	completedAt := time.Time{}
 	if lastModified != nil {
-		modTime = *lastModified
+		completedAt = *lastModified
 	}
-	return p.parseCompletedMarker(threadID, data, modTime)
+	return p.parseCompletedMarker(threadID, data, completedAt)
 }
 
-func (p *Parquet) parseCompletedMarker(threadID string, data []byte, modTime time.Time) (parquet2PCCompletedMarker, error) {
+// parseCompletedMarker decodes optional metadata from a completed marker body.
+func (p *Parquet) parseCompletedMarker(threadID string, data []byte, completedAt time.Time) (parquet2PCCompletedMarker, error) {
 	marker := parquet2PCCompletedMarker{
-		ThreadID: threadID,
-		modTime:  modTime,
+		ThreadID:    threadID,
+		completedAt: completedAt,
 	}
 
 	trimmedData := bytes.TrimSpace(data)
@@ -272,6 +292,7 @@ func (p *Parquet) parseCompletedMarker(threadID string, data []byte, modTime tim
 	return marker, nil
 }
 
+// promoteStaging moves committed staged files into the visible table path.
 func (p *Parquet) promoteStaging(ctx context.Context, threadID string) error {
 	if p.s3Client != nil {
 		return p.promoteS3Staging(ctx, threadID)
@@ -279,6 +300,7 @@ func (p *Parquet) promoteStaging(ctx context.Context, threadID string) error {
 	return p.promoteLocalStaging(threadID)
 }
 
+// promoteLocalStaging renames local staged files into their final table paths.
 func (p *Parquet) promoteLocalStaging(threadID string) error {
 	stagingPath := p.localStagingPath(threadID)
 	if _, err := os.Stat(stagingPath); os.IsNotExist(err) {
@@ -309,32 +331,36 @@ func (p *Parquet) promoteLocalStaging(threadID string) error {
 	})
 }
 
+// promoteS3Staging copies committed S3 staged objects into their final table keys.
 func (p *Parquet) promoteS3Staging(ctx context.Context, threadID string) error {
 	stagingPrefix := p.s3StagingPrefix(threadID)
 	var pageErr error
 
-	err := p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
-		Bucket: aws.String(p.config.Bucket),
-		Prefix: aws.String(stagingPrefix),
-	}, func(page *s3.ListObjectsOutput, _ bool) bool {
-		for _, obj := range page.Contents {
-			if obj.Key == nil {
-				continue
+	err := p.retryS3(ctx, func(ctx context.Context) error {
+		pageErr = nil
+		return p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
+			Bucket: aws.String(p.config.Bucket),
+			Prefix: aws.String(stagingPrefix),
+		}, func(page *s3.ListObjectsOutput, _ bool) bool {
+			for _, obj := range page.Contents {
+				if obj.Key == nil {
+					continue
+				}
+				relPath := strings.TrimPrefix(*obj.Key, stagingPrefix)
+				if relPath == "" || relPath == parquet2PCCompletedFile {
+					continue
+				}
+				finalKey := p.s3ObjectPath(filepath.Join(p.basePath, relPath))
+				if err := p.copyS3Object(ctx, *obj.Key, finalKey); err != nil {
+					pageErr = err
+					return false
+				}
+				if err := p.deleteS3Object(ctx, *obj.Key); err != nil {
+					logger.Warnf("Thread[%s]: failed to delete staged parquet object[%s]: %s", threadID, *obj.Key, err)
+				}
 			}
-			relPath := strings.TrimPrefix(*obj.Key, stagingPrefix)
-			if relPath == "" || relPath == parquet2PCCompletedFile {
-				continue
-			}
-			finalKey := p.s3ObjectPath(filepath.Join(p.basePath, relPath))
-			if err := p.copyS3Object(ctx, *obj.Key, finalKey); err != nil {
-				pageErr = err
-				return false
-			}
-			if err := p.deleteS3Object(ctx, *obj.Key); err != nil {
-				logger.Warnf("Thread[%s]: failed to delete staged parquet object[%s]: %s", threadID, *obj.Key, err)
-			}
-		}
-		return true
+			return true
+		})
 	})
 	if err != nil {
 		return err
@@ -342,15 +368,19 @@ func (p *Parquet) promoteS3Staging(ctx context.Context, threadID string) error {
 	return pageErr
 }
 
+// copyS3Object copies one staged object into its final S3 key.
 func (p *Parquet) copyS3Object(ctx context.Context, sourceKey, destinationKey string) error {
-	_, err := p.s3Client.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
-		Bucket:     aws.String(p.config.Bucket),
-		CopySource: aws.String(p.s3CopySource(sourceKey)),
-		Key:        aws.String(destinationKey),
+	return p.retryS3(ctx, func(ctx context.Context) error {
+		_, err := p.s3Client.CopyObjectWithContext(ctx, &s3.CopyObjectInput{
+			Bucket:     aws.String(p.config.Bucket),
+			CopySource: aws.String(p.s3CopySource(sourceKey)),
+			Key:        aws.String(destinationKey),
+		})
+		return err
 	})
-	return err
 }
 
+// cleanupCommittedStaging removes local staging data after committed promotion.
 func (p *Parquet) cleanupCommittedStaging(threadID string) error {
 	if p.s3Client != nil {
 		return nil
@@ -358,6 +388,7 @@ func (p *Parquet) cleanupCommittedStaging(threadID string) error {
 	return p.cleanupLocalCommittedStaging(threadID)
 }
 
+// cleanupLocalCommittedStaging keeps the completed marker and removes empty local partition dirs.
 func (p *Parquet) cleanupLocalCommittedStaging(threadID string) error {
 	stagingPath := p.localStagingPath(threadID)
 	var dirs []string
@@ -387,6 +418,7 @@ func (p *Parquet) cleanupLocalCommittedStaging(threadID string) error {
 	return nil
 }
 
+// deleteStagingByName removes an uncommitted staging folder.
 func (p *Parquet) deleteStagingByName(ctx context.Context, stagingDir string) error {
 	if p.s3Client != nil {
 		err := p.deleteS3Prefix(ctx, p.s3ObjectPath(filepath.Join(p.basePath, parquet2PCDir, stagingDir))+"/")
@@ -402,78 +434,30 @@ func (p *Parquet) deleteStagingByName(ctx context.Context, stagingDir string) er
 	return nil
 }
 
-func (p *Parquet) listStagingDirs(ctx context.Context) (map[string]bool, error) {
-	if p.s3Client != nil {
-		return p.listS3StagingDirs(ctx)
-	}
-	return p.listLocalStagingDirs()
-}
-
-func (p *Parquet) listLocalStagingDirs() (map[string]bool, error) {
-	entries, err := os.ReadDir(p.local2PCPath())
-	if os.IsNotExist(err) {
-		return map[string]bool{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	stagingDirs := make(map[string]bool)
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasSuffix(entry.Name(), parquet2PCStagingSuffix) {
-			stagingDirs[entry.Name()] = true
-		}
-	}
-	return stagingDirs, nil
-}
-
-func (p *Parquet) listS3StagingDirs(ctx context.Context) (map[string]bool, error) {
-	prefix := p.s3ObjectPath(filepath.Join(p.basePath, parquet2PCDir)) + "/"
-	stagingDirs := make(map[string]bool)
-	var pageErr error
-
-	err := p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
-		Bucket: aws.String(p.config.Bucket),
-		Prefix: aws.String(prefix),
-	}, func(page *s3.ListObjectsOutput, _ bool) bool {
-		for _, obj := range page.Contents {
-			if obj.Key == nil {
-				continue
-			}
-			relPath := strings.TrimPrefix(*obj.Key, prefix)
-			parts := strings.SplitN(relPath, "/", 2)
-			if len(parts) > 0 && strings.HasSuffix(parts[0], parquet2PCStagingSuffix) {
-				stagingDirs[parts[0]] = true
-			}
-		}
-		return true
-	})
-	if err != nil {
-		return nil, err
-	}
-	return stagingDirs, pageErr
-}
-
+// deleteS3Prefix deletes all objects under an S3 prefix.
 func (p *Parquet) deleteS3Prefix(ctx context.Context, prefix string) error {
 	var pageErr error
-	err := p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
-		Bucket: aws.String(p.config.Bucket),
-		Prefix: aws.String(prefix),
-	}, func(page *s3.ListObjectsOutput, _ bool) bool {
-		keys := make([]string, 0, len(page.Contents))
-		for _, obj := range page.Contents {
-			if obj.Key != nil {
-				keys = append(keys, *obj.Key)
+	err := p.retryS3(ctx, func(ctx context.Context) error {
+		pageErr = nil
+		return p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
+			Bucket: aws.String(p.config.Bucket),
+			Prefix: aws.String(prefix),
+		}, func(page *s3.ListObjectsOutput, _ bool) bool {
+			keys := make([]string, 0, len(page.Contents))
+			for _, obj := range page.Contents {
+				if obj.Key != nil {
+					keys = append(keys, *obj.Key)
+				}
 			}
-		}
-		if len(keys) == 0 {
-			return true
-		}
-		concurrency := min(len(keys), 8)
-		pageErr = utils.Concurrent(ctx, keys, concurrency, func(_ context.Context, key string, _ int) error {
-			return p.deleteS3Object(ctx, key)
+			if len(keys) == 0 {
+				return true
+			}
+			concurrency := min(len(keys), 8)
+			pageErr = utils.Concurrent(ctx, keys, concurrency, func(_ context.Context, key string, _ int) error {
+				return p.deleteS3Object(ctx, key)
+			})
+			return pageErr == nil
 		})
-		return pageErr == nil
 	})
 	if err != nil {
 		return err
@@ -481,62 +465,86 @@ func (p *Parquet) deleteS3Prefix(ctx context.Context, prefix string) error {
 	return pageErr
 }
 
+// deleteS3Object deletes one S3 object.
 func (p *Parquet) deleteS3Object(ctx context.Context, key string) error {
-	_, err := p.s3Client.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
-		Bucket: aws.String(p.config.Bucket),
-		Key:    aws.String(key),
-	})
-	return err
-}
-
-func (p *Parquet) write2PCObject(ctx context.Context, name string, data []byte) error {
-	if p.s3Client != nil {
-		_, err := p.s3Client.PutObjectWithContext(ctx, &s3.PutObjectInput{
+	return p.retryS3(ctx, func(ctx context.Context) error {
+		_, err := p.s3Client.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
 			Bucket: aws.String(p.config.Bucket),
-			Key:    aws.String(p.s3ObjectPath(filepath.Join(p.basePath, parquet2PCDir, name))),
-			Body:   bytes.NewReader(data),
+			Key:    aws.String(key),
 		})
 		return err
+	})
+}
+
+// write2PCObject writes a local or S3 object under the table 2PC prefix.
+func (p *Parquet) write2PCObject(ctx context.Context, name string, data []byte) error {
+	if p.s3Client != nil {
+		return p.retryS3(ctx, func(ctx context.Context) error {
+			_, err := p.s3Client.PutObjectWithContext(ctx, &s3.PutObjectInput{
+				Bucket: aws.String(p.config.Bucket),
+				Key:    aws.String(p.s3ObjectPath(filepath.Join(p.basePath, parquet2PCDir, name))),
+				Body:   bytes.NewReader(data),
+			})
+			return err
+		})
 	}
 	return writeLocalFile(filepath.Join(p.local2PCPath(), name), data)
 }
 
+// readS3Object reads an S3 object body into memory.
 func (p *Parquet) readS3Object(ctx context.Context, key string) ([]byte, error) {
-	res, err := p.s3Client.GetObjectWithContext(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(p.config.Bucket),
-		Key:    aws.String(key),
+	var data []byte
+	err := p.retryS3(ctx, func(ctx context.Context) error {
+		res, err := p.s3Client.GetObjectWithContext(ctx, &s3.GetObjectInput{
+			Bucket: aws.String(p.config.Bucket),
+			Key:    aws.String(key),
+		})
+		if err != nil {
+			return err
+		}
+		defer res.Body.Close()
+
+		data, err = io.ReadAll(res.Body)
+		return err
 	})
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	return io.ReadAll(res.Body)
+	return data, err
 }
 
+// retryS3 retries S3 operations with the same rate-limit policy used by Parquet cleanup.
+func (p *Parquet) retryS3(ctx context.Context, fn func(context.Context) error) error {
+	return utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, fn)
+}
+
+// local2PCPath returns the local table 2PC directory.
 func (p *Parquet) local2PCPath() string {
 	return filepath.Join(p.config.Path, p.basePath, parquet2PCDir)
 }
 
+// localStagingPath returns a thread's local staging directory.
 func (p *Parquet) localStagingPath(threadID string) string {
 	return filepath.Join(p.local2PCPath(), p.stagingDirName(threadID))
 }
 
-func (p *Parquet) stagingDataDir(basePath string) string {
-	relPath, err := filepath.Rel(p.basePath, basePath)
+// stagingDataDir returns the hidden staging directory corresponding to a final table directory.
+func (p *Parquet) stagingDataDir(finalDir string) string {
+	relPath, err := filepath.Rel(p.basePath, finalDir)
 	if err != nil || relPath == "." {
 		relPath = ""
 	}
 	return filepath.Join(p.basePath, parquet2PCDir, p.stagingDirName(p.options.ThreadID), relPath)
 }
 
+// stagingDataPath maps a final table file path to the current thread's staging path.
 func (p *Parquet) stagingDataPath(finalPath string) string {
 	return filepath.Join(p.stagingDataDir(filepath.Dir(finalPath)), filepath.Base(finalPath))
 }
 
+// s3StagingPrefix returns the S3 prefix for a thread's staging objects.
 func (p *Parquet) s3StagingPrefix(threadID string) string {
 	return p.s3ObjectPath(filepath.Join(p.basePath, parquet2PCDir, p.stagingDirName(threadID))) + "/"
 }
 
+// s3ObjectPath applies the configured prefix to a table-relative S3 key.
 func (p *Parquet) s3ObjectPath(relativePath string) string {
 	prefix := strings.Trim(p.config.Prefix, "/")
 	if prefix == "" {
@@ -545,23 +553,28 @@ func (p *Parquet) s3ObjectPath(relativePath string) string {
 	return filepath.Join(prefix, relativePath)
 }
 
+// s3CopySource builds the URL-escaped CopySource value expected by S3.
 func (p *Parquet) s3CopySource(key string) string {
 	escapedKey := strings.ReplaceAll(url.PathEscape(key), "%2F", "/")
 	return p.config.Bucket + "/" + escapedKey
 }
 
+// completedMarkerName returns the marker path relative to the table 2PC directory.
 func (p *Parquet) completedMarkerName(threadID string) string {
 	return filepath.Join(p.stagingDirName(threadID), parquet2PCCompletedFile)
 }
 
+// stagingDirName returns the escaped staging directory name for a thread.
 func (p *Parquet) stagingDirName(threadID string) string {
 	return p.encodedThreadID(threadID) + parquet2PCStagingSuffix
 }
 
+// encodedThreadID makes thread IDs safe for local and S3 path segments.
 func (p *Parquet) encodedThreadID(threadID string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(threadID))
 }
 
+// threadIDFromStagingDir decodes the original thread ID from a staging directory name.
 func threadIDFromStagingDir(name string) (string, error) {
 	encodedID := strings.TrimSuffix(name, parquet2PCStagingSuffix)
 	data, err := base64.RawURLEncoding.DecodeString(encodedID)
@@ -571,6 +584,7 @@ func threadIDFromStagingDir(name string) (string, error) {
 	return string(data), nil
 }
 
+// writeLocalFile writes a file through a temp file and local rename.
 func writeLocalFile(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), os.ModePerm); err != nil {
 		return err

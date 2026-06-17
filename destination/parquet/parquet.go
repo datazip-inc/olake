@@ -270,7 +270,8 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) dataFiles() []parquetDataFile {
+// stagedDataFiles returns the current thread's parquet files using the paths used during 2PC close.
+func (p *Parquet) stagedDataFiles() []parquetDataFile {
 	var dataFiles []parquetDataFile
 	for basePath, parquetFiles := range p.partitionedFiles {
 		for _, parquetFile := range parquetFiles {
@@ -333,21 +334,25 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []parquetDataFile
 		concurrency := min(runtime.GOMAXPROCS(0)*2, len(dataFiles))
 
 		err := utils.Concurrent(ctx, dataFiles, concurrency, func(_ context.Context, info parquetDataFile, _ int) error {
-			// Open file for S3 upload
-			file, err := os.Open(info.LocalPath)
-			if err != nil {
-				return fmt.Errorf("failed to open file %s: %s", info.LocalPath, err)
-			}
-			defer file.Close()
+			err := utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(ctx context.Context) error {
+				file, err := os.Open(info.LocalPath)
+				if err != nil {
+					return fmt.Errorf("failed to open file %s: %s", info.LocalPath, err)
+				}
+				defer file.Close()
 
-			// Upload to S3 using multipart upload (automatically handles files > 5GB)
-			_, err = p.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
-				Bucket: aws.String(p.config.Bucket),
-				Key:    aws.String(info.S3StagingKeyPath),
-				Body:   file,
+				_, err = p.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
+					Bucket: aws.String(p.config.Bucket),
+					Key:    aws.String(info.S3StagingKeyPath),
+					Body:   file,
+				})
+				if err != nil {
+					return fmt.Errorf("failed to put object into s3 (%s): %w", info.S3StagingKeyPath, err)
+				}
+				return nil
 			})
 			if err != nil {
-				return fmt.Errorf("failed to put object into s3 (%s): %s", info.S3StagingKeyPath, err)
+				return err
 			}
 
 			// Remove local file after successful upload
@@ -365,7 +370,7 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []parquetDataFile
 }
 
 func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
-	dataFiles := p.dataFiles()
+	dataFiles := p.stagedDataFiles()
 	metadataState, err := p.metadataState(finalMetadataState)
 	if err != nil {
 		if closeErr := p.closePqFiles(ctx, true); closeErr != nil {
