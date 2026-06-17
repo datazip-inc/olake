@@ -110,22 +110,6 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 		return nil, fmt.Errorf("failed to unmarshal destination config: %s", err)
 	}
 
-	// Start long-lived destination resources before any check/setup work.
-	if in, ok := adapter.(Initializable); ok {
-		if err := in.Initialize(ctx); err != nil {
-			return nil, fmt.Errorf("failed to initialize destination: %s", err)
-		}
-	}
-
-	if err := adapter.Check(ctx); err != nil {
-		// Roll back anything Initialize started so we don't orphan it; there is
-		// no pool object for the caller to Close on this error path.
-		if s, ok := adapter.(Shutdownable); ok {
-			_ = s.Shutdown(ctx)
-		}
-		return nil, fmt.Errorf("failed to test destination: %s", err)
-	}
-
 	pool := &WriterPool{
 		stats: &Stats{
 			TotalRecordsToSync: atomic.Int64{},
@@ -137,6 +121,20 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 		parsedConfig: parsedConfig,
 		init:         newfunc,
 		batchSize:    batchSize,
+	}
+
+	// Start long-lived destination resources before any check/setup work.
+	if in, ok := adapter.(Initializable); ok {
+		if err := in.Initialize(ctx); err != nil {
+			return nil, fmt.Errorf("failed to initialize destination: %s", err)
+		}
+	}
+
+	if err := adapter.Check(ctx); err != nil {
+		// Caller has no pool to Close on this error path, so tear down whatever
+		// Initialize started here.
+		pool.Close(ctx)
+		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
 	for _, stream := range syncStreams {
