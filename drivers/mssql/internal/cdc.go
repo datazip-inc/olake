@@ -235,11 +235,15 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 		return nil
 	}
 
-	// Read replicas are read-only; sp_cdc_enable_table / sp_cdc_disable_table require
-	// write access to the primary.
+	// Read replicas are read-only; sp_cdc_enable_table / sp_cdc_disable_table require write access to the primary.
+	// When primary_config is provided, use that connection.
+	mgmtClient := m.client
 	if m.isReadReplica {
-		logger.Debug("manage_capture_instances is enabled but the connection targets a read-only replica; capture instance management is skipped")
-		return nil
+		if m.primaryClient == nil {
+			logger.Warn("manage_capture_instances enabled on replica but no primary_config provided; skipping")
+			return nil
+		}
+		mgmtClient = m.primaryClient
 	}
 
 	// Fetch DDL history for all streams in bulk
@@ -287,7 +291,7 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 		for idx, capture := range instances {
 			if idx != activeIdx && (currentCursorLSN == "" || capture.startLSN <= currentCursorLSN) {
 				query := jdbc.MSSQLCDCDisableCaptureInstanceQuery()
-				_, err := m.client.ExecContext(ctx, query, capture.schema, capture.table, capture.instanceName)
+				_, err := mgmtClient.ExecContext(ctx, query, capture.schema, capture.table, capture.instanceName)
 				if err != nil {
 					return fmt.Errorf("failed to delete obsolete capture instance %s for %s: %w", capture.instanceName, streamID, err)
 				}
@@ -311,7 +315,7 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 				newInstanceName := fmt.Sprintf("olake_%s_%d", streamPart, time.Now().Unix())
 
 				createCaptureInstanceQuery := jdbc.MSSQLCDCCreateCaptureInstanceQuery()
-				_, err := m.client.ExecContext(ctx, createCaptureInstanceQuery, latestCapture.schema, latestCapture.table, newInstanceName)
+				_, err := mgmtClient.ExecContext(ctx, createCaptureInstanceQuery, latestCapture.schema, latestCapture.table, newInstanceName)
 				if err != nil {
 					return fmt.Errorf("failed to create new capture instance for schema drift on %s: %w", streamID, err)
 				}

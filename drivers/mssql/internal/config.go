@@ -22,25 +22,30 @@ type Config struct {
 	SSLConfiguration       *utils.SSLConfig  `json:"ssl"`
 	ManageCaptureInstances bool              `json:"manage_capture_instances"`
 	SSHConfig              *utils.SSHConfig  `json:"ssh_config"`
+	PrimaryConfig          *PrimaryConfig    `json:"primary_config,omitempty"`
+}
+
+// PrimaryConfig holds connection details for the primary replica when the main
+// connection targets a read-only secondary.
+// Used exclusively for CDC capture instance management.
+type PrimaryConfig struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (p *PrimaryConfig) Validate() error {
+	if err := validateSQLConnection(p.Host, p.Port, p.Username, p.Password, true); err != nil {
+		return err
+	}
+	return utils.Validate(p)
 }
 
 // Validate checks and normalises MSSQL configuration.
 func (c *Config) Validate() error {
-	if c.Host == "" {
-		return fmt.Errorf("empty host name")
-	} else if strings.Contains(c.Host, "https") || strings.Contains(c.Host, "http") {
-		return fmt.Errorf("host should not contain http or https")
-	}
-
-	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("invalid port number: must be between 1 and 65535")
-	}
-
-	if c.Username == "" {
-		return fmt.Errorf("username is required")
-	}
-	if c.Password == "" {
-		return fmt.Errorf("password is required")
+	if err := validateSQLConnection(c.Host, c.Port, c.Username, c.Password, false); err != nil {
+		return err
 	}
 	if c.Database == "" {
 		return fmt.Errorf("database is required")
@@ -65,14 +70,52 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
 
+	if c.PrimaryConfig != nil {
+		if err := c.PrimaryConfig.Validate(); err != nil {
+			return err
+		}
+	}
+
 	return utils.Validate(c)
+}
+
+func validateSQLConnection(host string, port int, username, password string, isPrimary bool) error {
+	prefix := utils.Ternary(isPrimary, "primary_config:", "").(string)
+	if host == "" {
+		return fmt.Errorf("%sempty host name", prefix)
+	}
+	if strings.Contains(host, "https") || strings.Contains(host, "http") {
+		return fmt.Errorf("%s host should not contain http or https", prefix)
+	}
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("%s invalid port number: must be between 1 and 65535", prefix)
+	}
+	if username == "" {
+		return fmt.Errorf("%s username is required", prefix)
+	}
+	if password == "" {
+		return fmt.Errorf("%s password is required", prefix)
+	}
+	return nil
 }
 
 // URI returns the sqlserver:// connection string for go-mssqldb.
 func (c *Config) URI() string {
-	host := c.Host
+	return c.buildURI(c.Host, c.Port, c.Username, c.Password)
+}
+
+// primaryURI returns the sqlserver:// connection string for the primary replica,
+// inheriting database, SSL, and JDBC params from the main config.
+func (c *Config) primaryURI() string {
+	if c.PrimaryConfig == nil {
+		return ""
+	}
+	return c.buildURI(c.PrimaryConfig.Host, c.PrimaryConfig.Port, c.PrimaryConfig.Username, c.PrimaryConfig.Password)
+}
+
+func (c *Config) buildURI(host string, port int, username, password string) string {
 	if !strings.Contains(host, ":") {
-		host = fmt.Sprintf("%s:%d", host, c.Port)
+		host = fmt.Sprintf("%s:%d", host, port)
 	}
 
 	query := url.Values{}
@@ -99,7 +142,7 @@ func (c *Config) URI() string {
 
 	u := &url.URL{
 		Scheme:   "sqlserver",
-		User:     url.UserPassword(c.Username, c.Password),
+		User:     url.UserPassword(username, password),
 		Host:     host,
 		RawQuery: query.Encode(),
 	}
