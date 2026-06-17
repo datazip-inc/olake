@@ -101,7 +101,7 @@ var syncCmd = &cobra.Command{
 
 		// Build the writer pool up front: it starts destination-owned resources
 		// (e.g. the Iceberg shared JVM) and validates the connection. pool.Close
-		// tears them down on exit (normal return or signal-cancelled context).
+		// tears them down on exit (normal return or signal-canceled context).
 		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize)
 		if err != nil {
 			return err

@@ -334,4 +334,3 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 		return nil
 	}
 }
-
