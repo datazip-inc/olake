@@ -91,7 +91,7 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		logger.Info("Connected to a read-only MSSQL replica; agent catch-up wait will be skipped")
 	}
 
-	if m.config.ManageCaptureInstances && m.config.PrimaryConfig != nil {
+	if m.config.ManageCaptureInstances && m.config.PrimaryConfig != nil && m.config.PrimaryConfig.Host != "" {
 		m.primaryClient, err = setupDBConnection(
 			ctx,
 			m.config.primaryURI(),

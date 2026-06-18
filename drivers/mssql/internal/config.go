@@ -70,7 +70,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
 
-	if c.ManageCaptureInstances && c.PrimaryConfig != nil {
+	if c.ManageCaptureInstances && c.PrimaryConfig != nil && c.PrimaryConfig.Host != "" {
 		if err := c.PrimaryConfig.Validate(); err != nil {
 			return err
 		}
@@ -80,21 +80,21 @@ func (c *Config) Validate() error {
 }
 
 func validateSQLConnection(host string, port int, username, password string, isPrimaryNode bool) error {
-	prefix := utils.Ternary(isPrimaryNode, "primary_config:", "").(string)
+	prefix := utils.Ternary(isPrimaryNode, "primary_config: ", "").(string)
 	if host == "" {
-		return fmt.Errorf("%s empty host name", prefix)
+		return fmt.Errorf("%sempty host name", prefix)
 	}
 	if strings.Contains(host, "https") || strings.Contains(host, "http") {
-		return fmt.Errorf("%s host should not contain http or https", prefix)
+		return fmt.Errorf("%shost should not contain http or https", prefix)
 	}
 	if port <= 0 || port > 65535 {
-		return fmt.Errorf("%s invalid port number: must be between 1 and 65535", prefix)
+		return fmt.Errorf("%sinvalid port number: must be between 1 and 65535", prefix)
 	}
 	if username == "" {
-		return fmt.Errorf("%s username is required", prefix)
+		return fmt.Errorf("%susername is required", prefix)
 	}
 	if password == "" {
-		return fmt.Errorf("%s password is required", prefix)
+		return fmt.Errorf("%spassword is required", prefix)
 	}
 	return nil
 }

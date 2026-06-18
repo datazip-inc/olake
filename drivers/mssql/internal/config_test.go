@@ -166,24 +166,6 @@ func TestConfig_Validate(t *testing.T) {
 			expectErr: false,
 		},
 		{
-			name: "invalid primary_config - empty host",
-			config: &Config{
-				Host:                   "replica-host",
-				Port:                   1433,
-				Database:               "testdb",
-				Username:               "sa",
-				Password:               "Password!123",
-				ManageCaptureInstances: true,
-				PrimaryConfig: &PrimaryConfig{
-					Host:     "",
-					Port:     1433,
-					Username: "sa",
-					Password: "PrimaryPass!123",
-				},
-			},
-			expectErr: true,
-		},
-		{
 			name: "invalid primary_config - bad port",
 			config: &Config{
 				Host:                   "replica-host",
@@ -220,7 +202,7 @@ func TestConfig_Validate(t *testing.T) {
 			expectErr: true,
 		},
 		{
-			name: "primary_config with invalid creds ignored when manage_capture_instances is false",
+			name: "primary_config ignored when manage_capture_instances is false",
 			config: &Config{
 				Host:     "replica-host",
 				Port:     1433,
@@ -233,6 +215,19 @@ func TestConfig_Validate(t *testing.T) {
 					Username: "",
 					Password: "",
 				},
+			},
+			expectErr: false,
+		},
+		{
+			name: "empty primary_config object ignored when manage_capture_instances is true",
+			config: &Config{
+				Host:                   "mssql-primary",
+				Port:                   1433,
+				Database:               "testdb",
+				Username:               "sa",
+				Password:               "Password!123",
+				ManageCaptureInstances: true,
+				PrimaryConfig:          &PrimaryConfig{},
 			},
 			expectErr: false,
 		},
