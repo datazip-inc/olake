@@ -29,10 +29,11 @@ type Config struct {
 // connection targets a read-only secondary.
 // Used exclusively for CDC capture instance management.
 type PrimaryConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Host          string            `json:"host"`
+	Port          int               `json:"port"`
+	Username      string            `json:"username"`
+	Password      string            `json:"password"`
+	JDBCURLParams map[string]string `json:"jdbc_url_params"`
 }
 
 func (p *PrimaryConfig) Validate() error {
@@ -70,7 +71,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
 
-	if c.PrimaryConfig != nil {
+	if c.PrimaryConfig != nil && c.PrimaryConfig.Host != "" {
 		if err := c.PrimaryConfig.Validate(); err != nil {
 			return err
 		}
@@ -79,10 +80,10 @@ func (c *Config) Validate() error {
 	return utils.Validate(c)
 }
 
-func validateSQLConnection(host string, port int, username, password string, isPrimary bool) error {
-	prefix := utils.Ternary(isPrimary, "primary_config:", "").(string)
+func validateSQLConnection(host string, port int, username, password string, isPrimaryNode bool) error {
+	prefix := utils.Ternary(isPrimaryNode, "primary_config:", "").(string)
 	if host == "" {
-		return fmt.Errorf("%sempty host name", prefix)
+		return fmt.Errorf("%s empty host name", prefix)
 	}
 	if strings.Contains(host, "https") || strings.Contains(host, "http") {
 		return fmt.Errorf("%s host should not contain http or https", prefix)
@@ -101,26 +102,31 @@ func validateSQLConnection(host string, port int, username, password string, isP
 
 // URI returns the sqlserver:// connection string for go-mssqldb.
 func (c *Config) URI() string {
-	return c.buildURI(c.Host, c.Port, c.Username, c.Password)
+	return c.buildURI(c.Host, c.Port, c.Username, c.Password, c.JDBCURLParams)
 }
 
-// primaryURI returns the sqlserver:// connection string for the primary replica,
-// inheriting database, SSL, and JDBC params from the main config.
+// primaryURI returns the sqlserver:// connection string for the primary replica.
 func (c *Config) primaryURI() string {
-	if c.PrimaryConfig == nil {
+	if c.PrimaryConfig.Host == "" {
 		return ""
 	}
-	return c.buildURI(c.PrimaryConfig.Host, c.PrimaryConfig.Port, c.PrimaryConfig.Username, c.PrimaryConfig.Password)
+	return c.buildURI(
+		c.PrimaryConfig.Host,
+		c.PrimaryConfig.Port,
+		c.PrimaryConfig.Username,
+		c.PrimaryConfig.Password,
+		c.PrimaryConfig.JDBCURLParams,
+	)
 }
 
-func (c *Config) buildURI(host string, port int, username, password string) string {
+func (c *Config) buildURI(host string, port int, username, password string, jdbcParams map[string]string) string {
 	if !strings.Contains(host, ":") {
 		host = fmt.Sprintf("%s:%d", host, port)
 	}
 
 	query := url.Values{}
 
-	for k, v := range c.JDBCURLParams {
+	for k, v := range jdbcParams {
 		query.Add(k, v)
 	}
 

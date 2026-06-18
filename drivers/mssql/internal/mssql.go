@@ -62,7 +62,15 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	}
 
 	var err error
-	m.client, m.sshClient, err = setupDBConnection(ctx, m.config.URI(), m.config.Host, nil, m.config.SSHConfig, m.config.MaxThreads)
+	m.sshClient, err = setupSSH(m.config.SSHConfig)
+	if err != nil {
+		return fmt.Errorf("failed to setup SSH connection: %s", err)
+	}
+	if m.sshClient != nil {
+		logger.Info("Connecting to MSSQL via SSH tunnel")
+	}
+
+	m.client, err = setupDBConnection(ctx, m.config.URI(), m.sshClient, m.config.Host, m.config.MaxThreads)
 	if err != nil {
 		return fmt.Errorf("failed to connect to MSSQL: %s", err)
 	}
@@ -82,18 +90,17 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	if m.isReadReplica {
 		logger.Info("Connected to a read-only MSSQL replica; agent catch-up wait will be skipped")
 		if m.config.ManageCaptureInstances && m.config.PrimaryConfig != nil {
-			m.primaryClient, _, err = setupDBConnection(
+			m.primaryClient, err = setupDBConnection(
 				ctx,
 				m.config.primaryURI(),
-				m.config.PrimaryConfig.Host,
 				m.sshClient,
-				m.config.SSHConfig,
+				m.config.PrimaryConfig.Host,
 				1,
 			)
 			if err != nil {
-				return fmt.Errorf("failed to connect to primary for capture instance management: %w", err)
+				return fmt.Errorf("failed to connect to primary for capture instance management: %s", err)
 			}
-			logger.Info("conected to primary MSSQL connection for capture instance management")
+			logger.Info("connected to primary node successfully for capture instance management")
 		}
 	}
 	return nil
@@ -136,54 +143,38 @@ func (m *MSSQL) Close() error {
 	return nil
 }
 
-// setupDBConnection opens a *sqlx.DB to SQL Server.
-func setupDBConnection(
-	ctx context.Context,
-	uri string,
-	host string,
-	existingSSH *ssh.Client,
-	sshCfg *utils.SSHConfig,
-	maxConns int,
-) (*sqlx.DB, *ssh.Client, error) {
-	sshTunnel := existingSSH
-	if sshTunnel == nil && sshCfg != nil && sshCfg.Host != "" {
-		var err error
-		sshTunnel, err = sshCfg.SetupSSHConnection()
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to setup SSH connection: %s", err)
-		}
-		logger.Info("established SSH tunnel connection successfully")
+func setupSSH(sshCfg *utils.SSHConfig) (*ssh.Client, error) {
+	if sshCfg == nil || sshCfg.Host == "" {
+		return nil, nil
 	}
 
-	var client *sqlx.DB
-	if sshTunnel != nil {
-		connector, err := mssql.NewConnector(uri)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create MSSQL connector: %s", err)
-		}
-		connector.Dialer = &mssqlSSHDialer{sshClient: sshTunnel, host: host}
-		client = sqlx.NewDb(sql.OpenDB(connector), "sqlserver")
-	} else {
-		db, err := sql.Open("sqlserver", uri)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open MSSQL connection: %s", err)
-		}
-		client = sqlx.NewDb(db, "sqlserver")
+	sshClient, err := sshCfg.SetupSSHConnection()
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("established SSH tunnel connection successfully")
+	return sshClient, nil
+}
+
+func setupDBConnection(ctx context.Context, uri string, sshClient *ssh.Client, host string, maxConns int) (*sqlx.DB, error) {
+	connector, err := mssql.NewConnector(uri)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MSSQL connector: %s", err)
+	}
+	if sshClient != nil {
+		connector.Dialer = &mssqlSSHDialer{sshClient: sshClient, host: host}
 	}
 
+	client := sqlx.NewDb(sql.OpenDB(connector), "sqlserver")
 	client.SetMaxOpenConns(maxConns)
 
 	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := client.PingContext(pingCtx); err != nil {
-		return nil, nil, fmt.Errorf("failed to ping database: %s", err)
+		return nil, fmt.Errorf("failed to ping database: %s", err)
 	}
 
-	var newSSH *ssh.Client
-	if existingSSH == nil {
-		newSSH = sshTunnel
-	}
-	return client, newSSH, nil
+	return client, nil
 }
 
 type mssqlSSHDialer struct {

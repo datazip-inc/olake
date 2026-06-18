@@ -224,7 +224,8 @@ const MSSQLUISchema = `{
     },
     "ui:grid": [
       { "host": 12, "port": 12 },
-      { "username": 12, "password": 12 }
+      { "username": 12, "password": 12 },
+      { "jdbc_url_params": 12 }
     ],
     "password": {
       "ui:widget": "password"

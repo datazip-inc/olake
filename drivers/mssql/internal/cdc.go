@@ -240,7 +240,7 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 	mgmtClient := m.client
 	if m.isReadReplica {
 		if m.primaryClient == nil {
-			logger.Warn("manage_capture_instances enabled on replica but no primary_config provided; skipping")
+			logger.Warn("manage_capture_instances enabled on replica but no primary_config provided. capture instance management is skipped")
 			return nil
 		}
 		mgmtClient = m.primaryClient

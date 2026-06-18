@@ -205,6 +205,13 @@
                                     "description": "Password for connecting to the primary replica",
                                     "format": "password",
                                     "minLength": 1
+                                },
+                                "jdbc_url_params": {
+                                    "type": "object",
+                                    "title": "Primary JDBC URL Parameters",
+                                    "description": "Additional connection parameters for the primary replica. Independent from the main connection JDBC URL parameters. Uses the same SSL settings as the main connection.",
+                                    "additionalProperties": true,
+                                    "default": {}
                                 }
                             }
                         }

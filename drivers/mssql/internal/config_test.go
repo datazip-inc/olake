@@ -354,42 +354,95 @@ func TestConfig_URI(t *testing.T) {
 }
 
 func TestConfig_PrimaryURI(t *testing.T) {
-	config := &Config{
-		Host:     "replica-host",
-		Port:     1433,
-		Database: "testdb",
-		Username: "replica_user",
-		Password: "ReplicaPass!123",
-		JDBCURLParams: map[string]string{
-			"ApplicationIntent": "ReadOnly",
+	tests := []struct {
+		name             string
+		config           *Config
+		expectedContains []string
+		notExpected      []string
+	}{
+		{
+			name: "uses ssl from main config without primary jdbc params",
+			config: &Config{
+				Host:     "replica-host",
+				Port:     1433,
+				Database: "testdb",
+				Username: "replica_user",
+				Password: "ReplicaPass!123",
+				JDBCURLParams: map[string]string{
+					"ApplicationIntent": "ReadOnly",
+				},
+				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeRequire},
+				PrimaryConfig: &PrimaryConfig{
+					Host:     "primary-host",
+					Port:     1433,
+					Username: "primary_user",
+					Password: "PrimaryPass!123",
+				},
+			},
+			expectedContains: []string{
+				"primary-host:1433",
+				"database=testdb",
+				"encrypt=true",
+				"TrustServerCertificate=true",
+			},
+			notExpected: []string{
+				"ApplicationIntent=ReadOnly",
+				"replica-host",
+			},
 		},
-		SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeRequire},
-		PrimaryConfig: &PrimaryConfig{
-			Host:     "primary-host",
-			Port:     1433,
-			Username: "primary_user",
-			Password: "PrimaryPass!123",
+		{
+			name: "uses primary-specific jdbc params without read-only intent",
+			config: &Config{
+				Host:     "replica-host",
+				Port:     1433,
+				Database: "testdb",
+				Username: "replica_user",
+				Password: "ReplicaPass!123",
+				JDBCURLParams: map[string]string{
+					"ApplicationIntent": "ReadOnly",
+				},
+				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeRequire},
+				PrimaryConfig: &PrimaryConfig{
+					Host:     "primary-host",
+					Port:     1433,
+					Username: "primary_user",
+					Password: "PrimaryPass!123",
+					JDBCURLParams: map[string]string{
+						"MultiSubnetFailover": "true",
+					},
+				},
+			},
+			expectedContains: []string{
+				"primary-host:1433",
+				"database=testdb",
+				"MultiSubnetFailover=true",
+				"encrypt=true",
+				"TrustServerCertificate=true",
+			},
+			notExpected: []string{
+				"ApplicationIntent=ReadOnly",
+				"replica-host",
+			},
 		},
 	}
 
-	require.NoError(t, config.Validate())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, tt.config.Validate())
 
-	connStr := config.primaryURI()
+			connStr := tt.config.primaryURI()
 
-	for _, expected := range []string{
-		"primary-host:1433",
-		"database=testdb",
-		"ApplicationIntent=ReadOnly",
-		"encrypt=true",
-		"TrustServerCertificate=true",
-	} {
-		if !strings.Contains(connStr, expected) {
-			t.Errorf("expected primary URI to contain %q, got %s", expected, connStr)
-		}
-	}
-
-	if strings.Contains(connStr, "replica-host") {
-		t.Errorf("expected primary URI to not contain replica host, got %s", connStr)
+			for _, expected := range tt.expectedContains {
+				if !strings.Contains(connStr, expected) {
+					t.Errorf("expected primary URI to contain %q, got %s", expected, connStr)
+				}
+			}
+			for _, notExpected := range tt.notExpected {
+				if strings.Contains(connStr, notExpected) {
+					t.Errorf("expected primary URI to not contain %q, got %s", notExpected, connStr)
+				}
+			}
+		})
 	}
 }
 
@@ -458,6 +511,29 @@ func TestConfig_SSHConfigDeserialization(t *testing.T) {
 			wantHost: "bastion",
 			wantPort: 22,
 		},
+		{
+			name: "with primary_config jdbc params",
+			jsonData: `{
+				"host": "replica-host",
+				"port": 1433,
+				"database": "testdb",
+				"username": "sa",
+				"password": "Password!123",
+				"jdbc_url_params": {
+					"ApplicationIntent": "ReadOnly"
+				},
+				"primary_config": {
+					"host": "primary-host",
+					"port": 1433,
+					"username": "sa",
+					"password": "PrimaryPass!123",
+					"jdbc_url_params": {
+						"MultiSubnetFailover": "true"
+					}
+				}
+			}`,
+			wantSSH: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -483,12 +559,23 @@ func TestConfig_SSHConfigDeserialization(t *testing.T) {
 				}
 			}
 
-			if strings.Contains(tt.name, "primary_config") {
+			switch tt.name {
+			case "with primary_config":
 				if config.PrimaryConfig == nil {
 					t.Fatal("Expected primary_config to be present")
 				}
 				if config.PrimaryConfig.Host != "primary-host" {
 					t.Errorf("Expected primary host primary-host, got %q", config.PrimaryConfig.Host)
+				}
+			case "with primary_config jdbc params":
+				if config.PrimaryConfig == nil {
+					t.Fatal("Expected primary_config to be present")
+				}
+				if config.PrimaryConfig.Host != "primary-host" {
+					t.Errorf("Expected primary host primary-host, got %q", config.PrimaryConfig.Host)
+				}
+				if config.PrimaryConfig.JDBCURLParams["MultiSubnetFailover"] != "true" {
+					t.Errorf("Expected primary jdbc_url_params MultiSubnetFailover=true, got %v", config.PrimaryConfig.JDBCURLParams)
 				}
 			}
 		})
