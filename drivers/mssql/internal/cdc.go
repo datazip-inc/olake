@@ -238,12 +238,11 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 	// Read replicas are read-only; sp_cdc_enable_table / sp_cdc_disable_table require write access to the primary.
 	// When primary_config is provided, use that connection.
 	mgmtClient := m.client
-	if m.isReadReplica {
-		if m.primaryClient == nil {
-			logger.Warn("manage_capture_instances enabled on replica but no primary_config provided. capture instance management is skipped")
-			return nil
-		}
+	if m.primaryClient != nil {
 		mgmtClient = m.primaryClient
+	} else if m.isReadReplica {
+		logger.Warn("manage_capture_instances enabled on read replica but no primary_config provided. capture instance management is skipped")
+		return nil
 	}
 
 	// Fetch DDL history for all streams in bulk

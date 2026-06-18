@@ -89,19 +89,20 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	m.isReadReplica = m.detectReadReplica(ctx)
 	if m.isReadReplica {
 		logger.Info("Connected to a read-only MSSQL replica; agent catch-up wait will be skipped")
-		if m.config.ManageCaptureInstances && m.config.PrimaryConfig != nil {
-			m.primaryClient, err = setupDBConnection(
-				ctx,
-				m.config.primaryURI(),
-				m.sshClient,
-				m.config.PrimaryConfig.Host,
-				1,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to connect to primary for capture instance management: %s", err)
-			}
-			logger.Info("connected to primary node successfully for capture instance management")
+	}
+
+	if m.config.ManageCaptureInstances && m.config.PrimaryConfig != nil {
+		m.primaryClient, err = setupDBConnection(
+			ctx,
+			m.config.primaryURI(),
+			m.sshClient,
+			m.config.PrimaryConfig.Host,
+			1,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to connect to primary for capture instance management: %s", err)
 		}
+		logger.Info("connected to primary node successfully for capture instance management")
 	}
 	return nil
 }

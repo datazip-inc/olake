@@ -168,11 +168,12 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid primary_config - empty host",
 			config: &Config{
-				Host:     "replica-host",
-				Port:     1433,
-				Database: "testdb",
-				Username: "sa",
-				Password: "Password!123",
+				Host:                   "replica-host",
+				Port:                   1433,
+				Database:               "testdb",
+				Username:               "sa",
+				Password:               "Password!123",
+				ManageCaptureInstances: true,
 				PrimaryConfig: &PrimaryConfig{
 					Host:     "",
 					Port:     1433,
@@ -185,11 +186,12 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid primary_config - bad port",
 			config: &Config{
-				Host:     "replica-host",
-				Port:     1433,
-				Database: "testdb",
-				Username: "sa",
-				Password: "Password!123",
+				Host:                   "replica-host",
+				Port:                   1433,
+				Database:               "testdb",
+				Username:               "sa",
+				Password:               "Password!123",
+				ManageCaptureInstances: true,
 				PrimaryConfig: &PrimaryConfig{
 					Host:     "primary-host",
 					Port:     -1,
@@ -202,11 +204,12 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name: "invalid primary_config - missing password",
 			config: &Config{
-				Host:     "replica-host",
-				Port:     1433,
-				Database: "testdb",
-				Username: "sa",
-				Password: "Password!123",
+				Host:                   "replica-host",
+				Port:                   1433,
+				Database:               "testdb",
+				Username:               "sa",
+				Password:               "Password!123",
+				ManageCaptureInstances: true,
 				PrimaryConfig: &PrimaryConfig{
 					Host:     "primary-host",
 					Port:     1433,
@@ -215,6 +218,23 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			expectErr: true,
+		},
+		{
+			name: "primary_config with invalid creds ignored when manage_capture_instances is false",
+			config: &Config{
+				Host:     "replica-host",
+				Port:     1433,
+				Database: "testdb",
+				Username: "sa",
+				Password: "Password!123",
+				PrimaryConfig: &PrimaryConfig{
+					Host:     "",
+					Port:     -1,
+					Username: "",
+					Password: "",
+				},
+			},
+			expectErr: false,
 		},
 	}
 
@@ -390,40 +410,6 @@ func TestConfig_PrimaryURI(t *testing.T) {
 				"replica-host",
 			},
 		},
-		{
-			name: "uses primary-specific jdbc params without read-only intent",
-			config: &Config{
-				Host:     "replica-host",
-				Port:     1433,
-				Database: "testdb",
-				Username: "replica_user",
-				Password: "ReplicaPass!123",
-				JDBCURLParams: map[string]string{
-					"ApplicationIntent": "ReadOnly",
-				},
-				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeRequire},
-				PrimaryConfig: &PrimaryConfig{
-					Host:     "primary-host",
-					Port:     1433,
-					Username: "primary_user",
-					Password: "PrimaryPass!123",
-					JDBCURLParams: map[string]string{
-						"MultiSubnetFailover": "true",
-					},
-				},
-			},
-			expectedContains: []string{
-				"primary-host:1433",
-				"database=testdb",
-				"MultiSubnetFailover=true",
-				"encrypt=true",
-				"TrustServerCertificate=true",
-			},
-			notExpected: []string{
-				"ApplicationIntent=ReadOnly",
-				"replica-host",
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -511,29 +497,6 @@ func TestConfig_SSHConfigDeserialization(t *testing.T) {
 			wantHost: "bastion",
 			wantPort: 22,
 		},
-		{
-			name: "with primary_config jdbc params",
-			jsonData: `{
-				"host": "replica-host",
-				"port": 1433,
-				"database": "testdb",
-				"username": "sa",
-				"password": "Password!123",
-				"jdbc_url_params": {
-					"ApplicationIntent": "ReadOnly"
-				},
-				"primary_config": {
-					"host": "primary-host",
-					"port": 1433,
-					"username": "sa",
-					"password": "PrimaryPass!123",
-					"jdbc_url_params": {
-						"MultiSubnetFailover": "true"
-					}
-				}
-			}`,
-			wantSSH: false,
-		},
 	}
 
 	for _, tt := range tests {
@@ -566,16 +529,6 @@ func TestConfig_SSHConfigDeserialization(t *testing.T) {
 				}
 				if config.PrimaryConfig.Host != "primary-host" {
 					t.Errorf("Expected primary host primary-host, got %q", config.PrimaryConfig.Host)
-				}
-			case "with primary_config jdbc params":
-				if config.PrimaryConfig == nil {
-					t.Fatal("Expected primary_config to be present")
-				}
-				if config.PrimaryConfig.Host != "primary-host" {
-					t.Errorf("Expected primary host primary-host, got %q", config.PrimaryConfig.Host)
-				}
-				if config.PrimaryConfig.JDBCURLParams["MultiSubnetFailover"] != "true" {
-					t.Errorf("Expected primary jdbc_url_params MultiSubnetFailover=true, got %v", config.PrimaryConfig.JDBCURLParams)
 				}
 			}
 		})

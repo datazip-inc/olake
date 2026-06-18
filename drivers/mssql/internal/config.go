@@ -29,11 +29,10 @@ type Config struct {
 // connection targets a read-only secondary.
 // Used exclusively for CDC capture instance management.
 type PrimaryConfig struct {
-	Host          string            `json:"host"`
-	Port          int               `json:"port"`
-	Username      string            `json:"username"`
-	Password      string            `json:"password"`
-	JDBCURLParams map[string]string `json:"jdbc_url_params"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 func (p *PrimaryConfig) Validate() error {
@@ -71,7 +70,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
 
-	if c.PrimaryConfig != nil && c.PrimaryConfig.Host != "" {
+	if c.ManageCaptureInstances && c.PrimaryConfig != nil {
 		if err := c.PrimaryConfig.Validate(); err != nil {
 			return err
 		}
@@ -107,7 +106,7 @@ func (c *Config) URI() string {
 
 // primaryURI returns the sqlserver:// connection string for the primary replica.
 func (c *Config) primaryURI() string {
-	if c.PrimaryConfig.Host == "" {
+	if c.PrimaryConfig == nil || c.PrimaryConfig.Host == "" {
 		return ""
 	}
 	return c.buildURI(
@@ -115,7 +114,7 @@ func (c *Config) primaryURI() string {
 		c.PrimaryConfig.Port,
 		c.PrimaryConfig.Username,
 		c.PrimaryConfig.Password,
-		c.PrimaryConfig.JDBCURLParams,
+		nil,
 	)
 }
 
