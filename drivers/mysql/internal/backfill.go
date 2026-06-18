@@ -182,9 +182,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
 	default:
 		logger.Debugf("Falling back to limit offset method for stream %s", stream.ID())
-		chunks := limitOffsetChunks(approxRowCount, chunkSize)
-		logger.Debugf("Chunking completed using limit offset method for stream %s", stream.ID())
-		return chunks, nil
+		return m.limitOffsetChunks(ctx, stream, approxRowCount, chunkSize)
 	}
 }
 
@@ -250,8 +248,19 @@ func primaryKeyChunkArgs(currentVal any, pkColumnCount int) []any {
 	return args
 }
 
-// limitOffsetChunks divides a table without a usable key into offset-based chunks.
-func limitOffsetChunks(approxRowCount, chunkSize int64) *types.Set[types.Chunk] {
+// limitOffsetChunks runs offset-based chunking under the same isolation wrapper used by the previous inline flow.
+func (m *MySQL) limitOffsetChunks(ctx context.Context, stream types.StreamInterface, approxRowCount, chunkSize int64) (*types.Set[types.Chunk], error) {
+	var chunks *types.Set[types.Chunk]
+	err := jdbc.WithIsolation(ctx, m.client, true, func(_ *sql.Tx) error {
+		chunks = buildLimitOffsetChunks(approxRowCount, chunkSize)
+		logger.Debugf("Chunking completed using limit offset method for stream %s", stream.ID())
+		return nil
+	})
+	return chunks, err
+}
+
+// buildLimitOffsetChunks divides a table without a usable key into offset-based chunks.
+func buildLimitOffsetChunks(approxRowCount, chunkSize int64) *types.Set[types.Chunk] {
 	chunks := types.NewSet[types.Chunk]()
 
 	// Start with the first batch-sized range.

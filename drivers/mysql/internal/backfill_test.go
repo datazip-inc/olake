@@ -51,7 +51,7 @@ func TestLimitOffsetChunks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertChunksEqual(t, limitOffsetChunks(tt.approxRowCount, tt.chunkSize), tt.expected)
+			assertChunksEqual(t, buildLimitOffsetChunks(tt.approxRowCount, tt.chunkSize), tt.expected)
 		})
 	}
 }
