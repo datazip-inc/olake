@@ -272,16 +272,6 @@ func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface
 			return typeutils.ReformatValue(olakeType, strings.TrimRight(string(v), " "))
 		}
 	}
-	return d.reformatResolved(value, olakeType)
-}
-
-// TODO(BEFORE MERGE): make the comments concise after review
-// reformatResolved performs the value conversion once the olake DataType is
-// already known. The ReadBatch fast path resolves the DataType a single time
-// per column (see buildResolvedConverters) and calls this directly, avoiding
-// the per-cell strings.ToLower/Split inside ExtractAndMapColumnType — which the
-// CPU profile showed accounting for ~26% of total sync CPU.
-func (d *DB2) reformatResolved(value interface{}, olakeType types.DataType) (interface{}, error) {
 	return typeutils.ReformatValue(olakeType, value)
 }
 
@@ -326,7 +316,7 @@ func (d *DB2) buildResolvedConverters(colTypeNames []string) []func(interface{})
 					return typeutils.ReformatValue(olakeType, strings.TrimRight(string(v), " "))
 				}
 			}
-			v, err := d.reformatResolved(raw, olakeType)
+			v, err := typeutils.ReformatValue(olakeType, raw)
 			if err != nil && !errors.Is(err, typeutils.ErrNullValue) {
 				return nil, err
 			}

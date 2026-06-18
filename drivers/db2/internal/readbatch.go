@@ -30,6 +30,7 @@ package driver
 import (
 	"context"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -64,39 +65,39 @@ func buildColBuffers(scanTypes []reflect.Type, fetchSize int) []colBuffer {
 	timeType := reflect.TypeOf(time.Time{})
 	bufs := make([]colBuffer, len(scanTypes))
 
-	for i, t := range scanTypes {
+	for i, scanType := range scanTypes {
 		switch {
-		case t.Kind() == reflect.Bool:
+		case scanType.Kind() == reflect.Bool:
 			s := make([]bool, fetchSize)
 			bufs[i].dest = &s
 			bufs[i].getValue = func(j int) interface{} { return s[j] }
 
-		case t.Kind() == reflect.Int32:
+		case scanType.Kind() == reflect.Int32:
 			s := make([]int32, fetchSize)
 			bufs[i].dest = &s
 			bufs[i].getValue = func(j int) interface{} { return s[j] }
 
-		case t.Kind() == reflect.Int64:
+		case scanType.Kind() == reflect.Int64:
 			s := make([]int64, fetchSize)
 			bufs[i].dest = &s
 			bufs[i].getValue = func(j int) interface{} { return s[j] }
 
-		case t.Kind() == reflect.Float64:
+		case scanType.Kind() == reflect.Float64:
 			s := make([]float64, fetchSize)
 			bufs[i].dest = &s
 			bufs[i].getValue = func(j int) interface{} { return s[j] }
 
-		case t.Kind() == reflect.String:
+		case scanType.Kind() == reflect.String:
 			s := make([]string, fetchSize)
 			bufs[i].dest = &s
 			bufs[i].getValue = func(j int) interface{} { return s[j] }
 
-		case t.Kind() == reflect.Slice: // []byte
+		case scanType.Kind() == reflect.Slice: // []byte
 			s := make([][]byte, fetchSize)
 			bufs[i].dest = &s
 			bufs[i].getValue = func(j int) interface{} { return s[j] }
 
-		case t == timeType: // time.Time (Struct kind)
+		case scanType == timeType: // time.Tim
 			s := make([]time.Time, fetchSize)
 			bufs[i].dest = &s
 			bufs[i].getValue = func(j int) interface{} { return s[j] }
@@ -112,7 +113,7 @@ func buildColBuffers(scanTypes []reflect.Type, fetchSize int) []colBuffer {
 }
 
 // colBatch bundles a reusable set of column buffers with the matching
-// []interface{} argument slice handed to ReadBatch. Recycling these across
+// []interface{} destination slice handed to ReadBatch. Recycling these across
 // fetches (via a free-list channel) removes the per-batch buildColBuffers
 // allocations that the alloc profile showed at ~25% of all heap allocations.
 //
@@ -122,7 +123,7 @@ func buildColBuffers(scanTypes []reflect.Type, fetchSize int) []colBuffer {
 // for every type — the typed destination slices alone cannot express NULL.
 type colBatch struct {
 	bufs  []colBuffer
-	args  []interface{}
+	dests []interface{}
 	nulls [][]bool
 }
 
@@ -145,19 +146,19 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 	// raw connection to enable access to the underlying driver connection,
 	// used to bypass the database/sql layer and directly interact with the forked driver.
 	return sqlConn.Raw(func(driverConn interface{}) error {
-		c, ok := driverConn.(*goibmdb.Conn)
+		conn, ok := driverConn.(*goibmdb.Conn)
 		if !ok {
 			return fmt.Errorf("readBatchConcurrent: not a *go_ibm_db.Conn (%T)", driverConn)
 		}
 
 		// set the fetch size for the connection to the default value.
-		c.SetFetchSize(db2DefaultFetchSize)
+		conn.SetFetchSize(db2DefaultFetchSize)
 
 		var rows *goibmdb.Rows
 		// len(args) = 0: backfill for full_refresh or cdc sync
 		// len(args) > 0: incremental sync
 		if len(args) == 0 {
-			dr, err := c.Query(query, nil)
+			dr, err := conn.Query(query, nil)
 			if err != nil {
 				return fmt.Errorf("readBatchConcurrent: query: %w", err)
 			}
@@ -172,7 +173,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 			for i, a := range args {
 				driverArgs[i] = a
 			}
-			rows, err = c.QueryWithArgs(query, driverArgs)
+			rows, err = conn.QueryWithArgs(query, driverArgs)
 			if err != nil {
 				return fmt.Errorf("readBatchConcurrent: query with args: %w", err)
 			}
@@ -212,15 +213,15 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		// no per-batch column-buffer allocation happens in steady state.
 		const inFlight = batchChannelDepth + 2
 		freeCh := make(chan *colBatch, inFlight)
-		for k := 0; k < inFlight; k++ {
+		for range inFlight {
 			bufs := buildColBuffers(scanTypes, fetchSize)
-			args := make([]interface{}, nCols)
+			colDests := make([]interface{}, nCols)
 			nulls := make([][]bool, nCols)
 			for j := range bufs {
-				args[j] = bufs[j].dest
+				colDests[j] = bufs[j].dest
 				nulls[j] = make([]bool, fetchSize)
 			}
-			freeCh <- &colBatch{bufs: bufs, args: args, nulls: nulls}
+			freeCh <- &colBatch{bufs: bufs, dests: colDests, nulls: nulls}
 		}
 
 		// ── Producer ────────────────────────────────────────────────────────
@@ -237,18 +238,19 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 				case cb = <-freeCh:
 				}
 
-				n, err := rows.ReadBatch(cb.args, cb.nulls)
-				if err == io.EOF {
+				n, err := rows.ReadBatch(cb.dests, cb.nulls)
+				if n > 0 {
+					select {
+					case <-ctx.Done():
+						return nil
+					case batchCh <- batchMsg{n: n, batch: cb}:
+					}
+				}
+				if errors.Is(err, io.EOF) {
 					return nil
 				}
 				if err != nil {
 					return fmt.Errorf("ReadBatch: %w", err)
-				}
-
-				select {
-				case <-ctx.Done():
-					return nil // consumer failed; its error will surface via errgroup
-				case batchCh <- batchMsg{n: n, batch: cb}:
 				}
 			}
 		}
