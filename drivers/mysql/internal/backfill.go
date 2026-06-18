@@ -146,25 +146,26 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			return nil, fmt.Errorf("failed to fetch column datatype and max length for column %s: %s", pkColumns[0], err)
 		}
 
-		// Prefer an arithmetic split for evenly distributed numeric keys.
+		// 1. Try Numeric Strategy
 		numericChunkBounds = isNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType)
 		if numericChunkBounds == nil {
+			// 2. If not numeric, check for supported String strategy
 			stringChunkBounds = isStringSupportedPK(minVal, maxVal, dataMaxLength, dataType)
 		}
 	}
 
 	switch {
 	case numericChunkBounds != nil:
-		logger.Infof("Using splitEvenlyForInt Method for stream %s", stream.ID())
+		logger.Debugf("Using splitEvenlyForInt Method for stream %s", stream.ID())
 		chunks, err := splitEvenlyForInt(numericChunkBounds)
 		if err != nil {
 			logger.Warnf("int64 arithmetic overflow, falling back to splitViaPrimaryKey for stream %s", stream.ID())
 			return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
 		}
-		logger.Infof("Chunking completed using splitEvenlyForInt Method for stream %s", stream.ID())
+		logger.Debugf("Chunking completed using splitEvenlyForInt Method for stream %s", stream.ID())
 		return chunks, nil
 	case stringChunkBounds != nil:
-		logger.Infof("Using splitEvenlyForString Method for stream %s", stream.ID())
+		logger.Debugf("Using splitEvenlyForString Method for stream %s", stream.ID())
 		chunks, err := m.splitEvenlyForString(ctx, stream, stringChunkBounds, pkColumns[0], columnCollationType, approxTableSize)
 		if err != nil {
 			return nil, err
@@ -173,20 +174,16 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 			logger.Warnf("failed to generate chunks for stream %s, falling back to splitViaPrimaryKey method", stream.ID())
 			return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
 		}
-		logger.Infof("Chunking completed using splitEvenlyForString Method for stream %s", stream.ID())
+		logger.Debugf("Chunking completed using splitEvenlyForString Method for stream %s", stream.ID())
 		return chunks, nil
 	case len(pkColumns) > 0:
-		logger.Infof("Using splitViaPrimaryKey Method for stream %s", stream.ID())
+		logger.Debugf("Using splitViaPrimaryKey Method for stream %s", stream.ID())
 		return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
 	default:
-		logger.Infof("Falling back to limit offset method for stream %s", stream.ID())
-		var chunks *types.Set[types.Chunk]
-		err := jdbc.WithIsolation(ctx, m.client, true, func(_ *sql.Tx) error {
-			chunks = limitOffsetChunks(approxRowCount, chunkSize)
-			logger.Infof("Chunking completed using limit offset method for stream %s", stream.ID())
-			return nil
-		})
-		return chunks, err
+		logger.Debugf("Falling back to limit offset method for stream %s", stream.ID())
+		chunks := limitOffsetChunks(approxRowCount, chunkSize)
+		logger.Debugf("Chunking completed using limit offset method for stream %s", stream.ID())
+		return chunks, nil
 	}
 }
 
@@ -230,7 +227,7 @@ func (m *MySQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 			})
 		}
 
-		logger.Infof("Chunking completed using splitViaPrimaryKey Method for stream %s", stream.ID())
+		logger.Debugf("Chunking completed using splitViaPrimaryKey Method for stream %s", stream.ID())
 		return nil
 	})
 }
@@ -339,7 +336,9 @@ Chunks:
 */
 func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInterface, bounds *StringChunkBounds, pkColumn, columnCollationType string, approxTableSize int64) (*types.Set[types.Chunk], error) {
 	expectedChunks := expectedStringChunkCount(approxTableSize)
-	stringChunkStepSize := stringChunkStepSize(bounds, expectedChunks)
+	stringChunkStepSize := new(big.Int).Sub(bounds.maxEncodedBigIntValue, bounds.minEncodedBigIntValue)
+	stringChunkStepSize.Add(stringChunkStepSize, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
+	stringChunkStepSize.Div(stringChunkStepSize, big.NewInt(expectedChunks))
 	chunkBoundaries := []string{}
 
 	for stepShrinkFactor := int64(1); stepShrinkFactor <= int64(1000000); stepShrinkFactor = stepShrinkFactor * 2 {
@@ -385,14 +384,6 @@ func expectedStringChunkCount(approxTableSize int64) int64 {
 		return 1
 	}
 	return expectedChunks
-}
-
-// stringChunkStepSize calculates a ceil-divided step across the encoded string-key range.
-func stringChunkStepSize(bounds *StringChunkBounds, expectedChunks int64) *big.Int {
-	stepSize := new(big.Int).Sub(bounds.maxEncodedBigIntValue, bounds.minEncodedBigIntValue)
-	stepSize.Add(stepSize, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
-	stepSize.Div(stepSize, big.NewInt(expectedChunks))
-	return stepSize
 }
 
 // stringChunkCandidates creates candidate boundaries for one adaptive string-key attempt.

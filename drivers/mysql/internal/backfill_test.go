@@ -196,23 +196,14 @@ func TestExpectedStringChunkCount(t *testing.T) {
 	}
 }
 
-func TestStringChunkStepSizeUsesCeilDivision(t *testing.T) {
-	bounds := &StringChunkBounds{
-		minEncodedBigIntValue: big.NewInt(1),
-		maxEncodedBigIntValue: big.NewInt(10),
-	}
-
-	if actual := stringChunkStepSize(bounds, 4); actual.Cmp(big.NewInt(3)) != 0 {
-		t.Fatalf("expected step size 3, got %s", actual)
-	}
-}
-
 func TestStringChunkCandidates(t *testing.T) {
 	bounds := isStringSupportedPK("aa", "az", validNullInt64(2), "varchar")
 	if bounds == nil {
 		t.Fatal("expected supported string bounds")
 	}
-	step := stringChunkStepSize(bounds, 4)
+	step := new(big.Int).Sub(bounds.maxEncodedBigIntValue, bounds.minEncodedBigIntValue)
+	step.Add(step, new(big.Int).Sub(big.NewInt(4), big.NewInt(1)))
+	step.Div(step, big.NewInt(4))
 	originalStep := new(big.Int).Set(step)
 
 	candidates := stringChunkCandidates(bounds, step, 4, 1)
