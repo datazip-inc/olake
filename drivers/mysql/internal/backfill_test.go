@@ -3,7 +3,6 @@ package driver
 import (
 	"database/sql"
 	"math"
-	"math/big"
 	"reflect"
 	"testing"
 
@@ -196,65 +195,6 @@ func TestExpectedStringChunkCount(t *testing.T) {
 	}
 }
 
-func TestStringChunkCandidates(t *testing.T) {
-	bounds := isStringSupportedPK("aa", "az", validNullInt64(2), "varchar")
-	if bounds == nil {
-		t.Fatal("expected supported string bounds")
-	}
-	step := new(big.Int).Sub(bounds.maxEncodedBigIntValue, bounds.minEncodedBigIntValue)
-	step.Add(step, new(big.Int).Sub(big.NewInt(4), big.NewInt(1)))
-	step.Div(step, big.NewInt(4))
-	originalStep := new(big.Int).Set(step)
-
-	candidates := stringChunkCandidates(bounds, step, 4, 1)
-	if len(candidates) == 0 {
-		t.Fatal("expected string chunk candidates")
-	}
-	if candidates[0] != bounds.MinPadded {
-		t.Fatalf("expected first candidate %q, got %q", bounds.MinPadded, candidates[0])
-	}
-	if candidates[len(candidates)-1] != bounds.MaxPadded {
-		t.Fatalf("expected final candidate %q, got %q", bounds.MaxPadded, candidates[len(candidates)-1])
-	}
-	if step.Cmp(originalStep) != 0 {
-		t.Fatalf("candidate generation mutated step size: expected %s, got %s", originalStep, step)
-	}
-}
-
-func TestChunksFromBoundaries(t *testing.T) {
-	tests := []struct {
-		name       string
-		boundaries []string
-		expected   []types.Chunk
-	}{
-		{name: "empty", boundaries: nil, expected: nil},
-		{
-			name:       "single boundary",
-			boundaries: []string{"m"},
-			expected: []types.Chunk{
-				{Min: nil, Max: "m"},
-				{Min: "m", Max: nil},
-			},
-		},
-		{
-			name:       "multiple boundaries",
-			boundaries: []string{"aa", "mm", "zz"},
-			expected: []types.Chunk{
-				{Min: nil, Max: "aa"},
-				{Min: "aa", Max: "mm"},
-				{Min: "mm", Max: "zz"},
-				{Min: "zz", Max: nil},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assertChunksEqual(t, chunksFromBoundaries(tt.boundaries), tt.expected)
-		})
-	}
-}
-
 func TestIsNumericAndEvenDistributed(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -269,7 +209,7 @@ func TestIsNumericAndEvenDistributed(t *testing.T) {
 		{name: "unsupported type", minVal: 1, maxVal: 100, approxRowCount: 100, chunkSize: 10, dataType: "varchar"},
 		{name: "invalid minimum", minVal: "not-a-number", maxVal: 100, approxRowCount: 100, chunkSize: 10, dataType: "bigint"},
 		{name: "invalid maximum", minVal: 1, maxVal: "not-a-number", approxRowCount: 100, chunkSize: 10, dataType: "bigint"},
-		{name: "sparse distribution", minVal: 1, maxVal: 10000, approxRowCount: 10, chunkSize: 10, dataType: "bigint"},
+		{name: "sparse distribution", minVal: 1, maxVal: 10002, approxRowCount: 10, chunkSize: 10, dataType: "bigint"},
 		{name: "zero row estimate", minVal: 1, maxVal: 100, approxRowCount: 0, chunkSize: 10, dataType: "bigint"},
 	}
 

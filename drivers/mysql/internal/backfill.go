@@ -147,6 +147,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		}
 
 		// 1. Try Numeric Strategy
+		// Prefer an arithmetic split for evenly distributed numeric keys.
 		numericChunkBounds = isNumericAndEvenDistributed(minVal, maxVal, approxRowCount, chunkSize, dataType)
 		if numericChunkBounds == nil {
 			// 2. If not numeric, check for supported String strategy
@@ -201,6 +202,7 @@ func (m *MySQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 
 		logger.Infof("Stream %s extremes - min: %v, max: %v", stream.ID(), utils.ConvertToString(minVal), utils.ConvertToString(maxVal))
 
+		// Generate chunks based on range
 		query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
 		currentVal := minVal
 		for {
@@ -234,9 +236,13 @@ func (m *MySQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 
 // primaryKeyChunkArgs expands a composite key for the nested predicates in NextChunkEndQuery.
 func primaryKeyChunkArgs(currentVal any, pkColumnCount int) []any {
+	// Split the current value into parts
 	columns := strings.Split(utils.ConvertToString(currentVal), ",")
+
+	// Create args array with the correct number of arguments for the query
 	args := make([]any, 0)
 	for columnIndex := 0; columnIndex < pkColumnCount; columnIndex++ {
+		// For each column combination in the WHERE clause, we need to add the necessary parts
 		for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
 			args = append(args, columns[partIndex])
 		}
@@ -247,10 +253,14 @@ func primaryKeyChunkArgs(currentVal any, pkColumnCount int) []any {
 // limitOffsetChunks divides a table without a usable key into offset-based chunks.
 func limitOffsetChunks(approxRowCount, chunkSize int64) *types.Set[types.Chunk] {
 	chunks := types.NewSet[types.Chunk]()
+
+	// Start with the first batch-sized range.
 	chunks.Insert(types.Chunk{
 		Min: nil,
 		Max: utils.ConvertToString(chunkSize),
 	})
+
+	// Continue adding batch-sized offset ranges until the approximate row count is covered.
 	lastChunk := chunkSize
 	for lastChunk < approxRowCount {
 		chunks.Insert(types.Chunk{
@@ -259,6 +269,8 @@ func limitOffsetChunks(approxRowCount, chunkSize int64) *types.Set[types.Chunk] 
 		})
 		lastChunk += chunkSize
 	}
+
+	// Add the trailing open-ended range.
 	chunks.Insert(types.Chunk{
 		Min: utils.ConvertToString(lastChunk),
 		Max: nil,
@@ -336,14 +348,35 @@ Chunks:
 */
 func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInterface, bounds *StringChunkBounds, pkColumn, columnCollationType string, approxTableSize int64) (*types.Set[types.Chunk], error) {
 	expectedChunks := expectedStringChunkCount(approxTableSize)
+	// Calculate a ceil-divided step across the encoded string-key range.
 	stringChunkStepSize := new(big.Int).Sub(bounds.maxEncodedBigIntValue, bounds.minEncodedBigIntValue)
 	stringChunkStepSize.Add(stringChunkStepSize, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
 	stringChunkStepSize.Div(stringChunkStepSize, big.NewInt(expectedChunks))
-	chunkBoundaries := []string{}
+
+	var (
+		chunkBoundaries  = []string{}   // final chunk boundary values from DB
+		rangeSlice       = []string{}   // reusable slice for boundary values per iteration
+		adjustedStepSize = new(big.Int) // step size adjusted each iteration for balanced chunking
+		currentBoundary  = new(big.Int) // current position in keyspace while generating boundaries
+	)
 
 	for stepShrinkFactor := int64(1); stepShrinkFactor <= int64(1000000); stepShrinkFactor = stepShrinkFactor * 2 {
-		rangeSlice := stringChunkCandidates(bounds, stringChunkStepSize, expectedChunks, stepShrinkFactor)
+		rangeSlice = rangeSlice[:0]
 
+		// Create candidate boundaries for one adaptive string-key attempt.
+		adjustedStepSize.Set(stringChunkStepSize)
+		adjustedStepSize.Add(adjustedStepSize, big.NewInt(stepShrinkFactor))
+		adjustedStepSize.Div(adjustedStepSize, big.NewInt(stepShrinkFactor+1))
+		currentBoundary.Set(bounds.minEncodedBigIntValue)
+
+		for chunkIdx := int64(0); chunkIdx < expectedChunks*(stepShrinkFactor+1) && currentBoundary.Cmp(bounds.maxEncodedBigIntValue) < 0; chunkIdx++ {
+			rangeSlice = append(rangeSlice, decodeBigIntToCharsetString(currentBoundary))
+			currentBoundary.Add(currentBoundary, adjustedStepSize)
+		}
+
+		rangeSlice = append(rangeSlice, bounds.MaxPadded)
+
+		// Align boundaries with actual DB values using MySQL collation ordering
 		query, args := jdbc.MySQLDistinctAlignedPKValuesWithCollationQuery(stream, pkColumn, rangeSlice, columnCollationType, bounds.MinPadded, bounds.MaxPadded)
 		rows, err := m.client.QueryContext(ctx, query, args...)
 		if err != nil {
@@ -374,7 +407,25 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 	if len(chunkBoundaries) < int(math.Ceil(float64(constants.MysqlChunkAcceptanceRatio*float64(expectedChunks)))) {
 		return nil, nil
 	}
-	return chunksFromBoundaries(condenseStrings(chunkBoundaries, expectedChunks)), nil
+	chunkBoundaries = condenseStrings(chunkBoundaries, expectedChunks)
+
+	// Convert ordered boundary values into open-ended chunks.
+	chunks := types.NewSet[types.Chunk]()
+	chunks.Insert(types.Chunk{
+		Min: nil,
+		Max: chunkBoundaries[0],
+	})
+	for idx := 1; idx < len(chunkBoundaries); idx++ {
+		chunks.Insert(types.Chunk{
+			Min: chunkBoundaries[idx-1],
+			Max: chunkBoundaries[idx],
+		})
+	}
+	chunks.Insert(types.Chunk{
+		Min: chunkBoundaries[len(chunkBoundaries)-1],
+		Max: nil,
+	})
+	return chunks, nil
 }
 
 // expectedStringChunkCount estimates the target number of string-key chunks from table size.
@@ -384,45 +435,6 @@ func expectedStringChunkCount(approxTableSize int64) int64 {
 		return 1
 	}
 	return expectedChunks
-}
-
-// stringChunkCandidates creates candidate boundaries for one adaptive string-key attempt.
-func stringChunkCandidates(bounds *StringChunkBounds, stepSize *big.Int, expectedChunks, stepShrinkFactor int64) []string {
-	rangeSlice := []string{}
-	adjustedStepSize := new(big.Int).Set(stepSize)
-	adjustedStepSize.Add(adjustedStepSize, big.NewInt(stepShrinkFactor))
-	adjustedStepSize.Div(adjustedStepSize, big.NewInt(stepShrinkFactor+1))
-	currentBoundary := new(big.Int).Set(bounds.minEncodedBigIntValue)
-
-	for chunkIdx := int64(0); chunkIdx < expectedChunks*(stepShrinkFactor+1) && currentBoundary.Cmp(bounds.maxEncodedBigIntValue) < 0; chunkIdx++ {
-		rangeSlice = append(rangeSlice, decodeBigIntToCharsetString(currentBoundary))
-		currentBoundary.Add(currentBoundary, adjustedStepSize)
-	}
-
-	return append(rangeSlice, bounds.MaxPadded)
-}
-
-// chunksFromBoundaries converts ordered boundary values into open-ended chunks.
-func chunksFromBoundaries(boundaries []string) *types.Set[types.Chunk] {
-	chunks := types.NewSet[types.Chunk]()
-	if len(boundaries) == 0 {
-		return chunks
-	}
-	chunks.Insert(types.Chunk{
-		Min: nil,
-		Max: boundaries[0],
-	})
-	for idx := 1; idx < len(boundaries); idx++ {
-		chunks.Insert(types.Chunk{
-			Min: boundaries[idx-1],
-			Max: boundaries[idx],
-		})
-	}
-	chunks.Insert(types.Chunk{
-		Min: boundaries[len(boundaries)-1],
-		Max: nil,
-	})
-	return chunks
 }
 
 func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {
