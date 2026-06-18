@@ -463,7 +463,7 @@ public class IcebergTableOperator {
               JsonNode payloadNode = mapper.readTree(payload);
               rootNode.put(STATE_FIELD_LATEST_THREAD_ID, threadId);
               if (payloadNode.isObject()) {
-                  // Deep Merge payload directly into root node
+                  // One-level merge payload into root node
                   mergePayloadIntoRoot(rootNode, payloadNode);
               }
           } else {
@@ -486,41 +486,23 @@ public class IcebergTableOperator {
       }
   }
 
-  // deep merge payload into root node
+  // Some drivers (e.g. Kafka) can have multiple writers updating metadata for the same stream.
+  // Perform a one-level merge to preserve fields written by other writers.
   private void mergePayloadIntoRoot(ObjectNode rootNode, JsonNode payloadNode) {
-    payloadNode.fields().forEachRemaining(entry -> {
-        String key = entry.getKey();
-        ObjectNode value = parseJSONObject(entry.getValue());
+      payloadNode.fields().forEachRemaining(entry -> {
+          String incomingStateKey = entry.getKey();
+          ObjectNode incomingStateValue = parseJSONObject(entry.getValue());
+          ObjectNode storedStateValue = parseJSONObject(rootNode.get(incomingStateKey));
 
-        if (value == null) {
-            rootNode.set(key, entry.getValue());
-            return;
-        }
-
-        ObjectNode existingValue = parseJSONObject(rootNode.get(key));
-        if (existingValue == null) {
-            rootNode.put(key, value.toString());
-            return;
-        }
-
-        merge(existingValue, value);
-        rootNode.put(key, existingValue.toString());
-    });
-  }
-
-  private void merge(ObjectNode existingObject, ObjectNode incomingObject) {
-    incomingObject.fields().forEachRemaining(incomingFieldEntry -> {
-        String incomingFieldKey = incomingFieldEntry.getKey();
-
-        JsonNode existingFieldValue = existingObject.get(incomingFieldKey);
-        JsonNode incomingFieldValue = incomingFieldEntry.getValue();
-
-        if (existingFieldValue != null && existingFieldValue.isObject() && incomingFieldValue.isObject()) {
-            merge((ObjectNode) existingFieldValue, (ObjectNode) incomingFieldValue);
-        } else {
-            existingObject.set(incomingFieldKey, incomingFieldValue);
-        }
-    });
+          if (incomingStateValue != null && storedStateValue != null) {
+              incomingStateValue.fields().forEachRemaining(field ->
+                  storedStateValue.set(field.getKey(), field.getValue())
+              );
+              rootNode.put(incomingStateKey, storedStateValue.toString());
+          } else {
+              rootNode.set(incomingStateKey, entry.getValue());
+          }
+      });
   }
 
   private ObjectNode parseJSONObject(JsonNode node) {

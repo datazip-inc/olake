@@ -22,12 +22,6 @@ type PartitionMetaData struct {
 	CommittedOffset int64
 }
 
-// KafkaMetadataState holds the metadata for a Kafka stream
-type KafkaMetadataState struct {
-	ConsumerGroupID string          `json:"consumer_group_id"`
-	Offsets         map[int32]int64 `json:"offsets"`
-}
-
 // PartitionKey represents a unique key for a Kafka partition and topic
 type PartitionKey struct {
 	Topic     string
