@@ -113,8 +113,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 			convStream.SyncMode = types.CDC
 		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
 			convStream.SyncMode = types.INCREMENTAL
-			// If cursorField is already set, leave it unchanged.
-			// Otherwise, if availableCursorFields exist, cursorField defaults to first availableCursorField.
+			// If availableCursorFields exist, cursorField defaults to first availableCursorField.
 			if convStream.AvailableCursorFields.Len() > 0 {
 				convStream.CursorField = convStream.AvailableCursorFields.Array()[0]
 			}
