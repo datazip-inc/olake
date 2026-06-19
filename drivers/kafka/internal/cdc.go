@@ -145,8 +145,9 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 
 		// Type assert and validate messages
 		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]*kgo.Record)
-		if !isValid {
-			return fmt.Errorf("reader %s has invalid checkpoint message type %T", readerID, lastMessagesMeta)
+		if !isValid || len(lastMessages) == 0 {
+			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
+			return nil
 		}
 
 		// Prepare messages for commit and track affected streams
