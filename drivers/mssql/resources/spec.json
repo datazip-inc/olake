@@ -171,6 +171,55 @@
             ]
         }
     },
+    "dependencies": {
+        "manage_capture_instances": {
+            "oneOf": [
+                {
+                    "properties": {
+                        "manage_capture_instances": {
+                            "const": true
+                        },
+                        "primary_config": {
+                            "type": "object",
+                            "title": "Primary Configuration",
+                            "description": "Connection details for the Always On primary replica. Required when the main connection targets a read-only secondary and capture instance management is enabled. Uses the same SSH tunnel as the main connection.",
+                            "properties": {
+                                "host": {
+                                    "type": "string",
+                                    "title": "Primary Host",
+                                    "description": "Host address of the primary replica"
+                                },
+                                "port": {
+                                    "type": "integer",
+                                    "title": "Primary Port",
+                                    "description": "Port number of the primary replica"
+                                },
+                                "username": {
+                                    "type": "string",
+                                    "title": "Primary Username",
+                                    "description": "Username for connecting to the primary replica"
+                                },
+                                "password": {
+                                    "type": "string",
+                                    "title": "Primary Password",
+                                    "description": "Password for connecting to the primary replica",
+                                    "format": "password",
+                                    "minLength": 1
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "manage_capture_instances": {
+                            "const": false
+                        }
+                    }
+                }
+            ]
+        }
+    },
     "required": [
         "host",
         "port",
