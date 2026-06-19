@@ -3,39 +3,48 @@ package kafka
 import (
 	"net/http"
 	"sync"
+	"sync/atomic"
 
 	"github.com/datazip-inc/olake/types"
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kgo"
+)
+
+// ReaderManager exit modes used to control CDC processing flow.
+const (
+	normalProcessing int32 = iota // normal processing state
+	gracefulExit                  // stop processing on rebalance (without triggering retries)
+	nonRetryableExit              // stop processing due to unrecoverable kafka errors
 )
 
 // ReaderConfig holds configuration for creating Kafka readers
 type ReaderConfig struct {
 	MaxThreads                  int
 	ThreadsEqualTotalPartitions bool
-	BootstrapServers            string
 	ConsumerGroupID             string
-	Dialer                      *kafka.Dialer
-	AdminClient                 *kafka.Client
+	Dialer                      []kgo.Opt
+	AdminClient                 *kadm.Client
 }
 
 type kafkaReader struct {
 	id       string
 	clientID string
-	reader   *kafka.Reader
+	reader   *kgo.Client
 }
 
 // ReaderManager manages Kafka readers and their metadata
 type ReaderManager struct {
-	config         ReaderConfig
-	readers        []*kafkaReader
-	partitionIndex map[string]types.PartitionMetaData // get per-partition boundaries
+	config        ReaderConfig
+	readers       []*kafkaReader
+	topics        []string                           // topics to be consumed
+	partitionMeta map[string]types.PartitionMetaData // get per-partition boundaries
+	exitMode      atomic.Int32                       // normalProcessing | gracefulExit | nonRetryableExit
+	generationID  atomic.Int32                       // consumer group generationId: used to detect rebalances
 }
 
 // CustomGroupBalancer ensures proper consumer ID distribution according to requirements
 type CustomGroupBalancer struct {
-	requiredConsumerIDs int
-	readerIndex         int
-	partitionIndex      map[string]types.PartitionMetaData
+	partitionMeta map[string]types.PartitionMetaData
 }
 
 // SchemaRegistryClient holds the schema registry client information
