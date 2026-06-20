@@ -4,8 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.debezium.serde.DebeziumSerdes;
-import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
-import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
+import io.debezium.server.iceberg.rpc.ArrowIngestRouter;
+import io.debezium.server.iceberg.rpc.RowsIngestRouter;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import jakarta.enterprise.context.Dependent;
@@ -72,9 +72,10 @@ public class OlakeRpcServer {
             catalogName = stringConfigMap.get("catalog-name");
         }
 
-        if (stringConfigMap.get("table-namespace") == null) {
-            throw new Exception("Iceberg table namespace not found");
-        }
+        // NOTE: table-namespace / upsert / partition-fields are no longer process-launch
+        // config. A single process now serves many writer threads, so these per-writer
+        // settings arrive in each request's metadata and are applied per thread_id by the
+        // router services below.
 
         if (stringConfigMap.get("upsert") != null) {
             upsert_records = Boolean.parseBoolean(stringConfigMap.get("upsert"));
@@ -128,18 +129,17 @@ public class OlakeRpcServer {
         ServerBuilder<?> serverBuilder = ServerBuilder.forPort(port)
                     .maxInboundMessageSize(maxMessageSize);
 
+        // A single registered router service per type multiplexes all writer threads,
+        // creating one per-thread worker (OlakeArrowIngester / OlakeRowsIngester) keyed
+        // by thread_id. Only the Catalog is shared process-wide.
         if (arrowWriterEnabled) {
-             OlakeArrowIngester oai = new OlakeArrowIngester(upsert_records, stringConfigMap.get("table-namespace"),
-                       icebergCatalog);
-             serverBuilder.addService(oai);
-             LOGGER.info("Arrow writer enabled - registered OlakeArrowIngester service");
+             serverBuilder.addService(new ArrowIngestRouter(icebergCatalog));
+             LOGGER.info("Arrow writer enabled - registered ArrowIngestRouter (per-thread workers)");
         }
 
-        // Check(), Setup() uses legacy writer approach, we will always need this service
-        OlakeRowsIngester ori = new OlakeRowsIngester(upsert_records, stringConfigMap.get("table-namespace"),
-                  icebergCatalog, partitionTransforms);
-        serverBuilder.addService(ori);
-        LOGGER.info("Legacy writer enabled - registered OlakeRowsIngester service");
+        // Check()/Setup() and the legacy write path always need the rows service.
+        serverBuilder.addService(new RowsIngestRouter(icebergCatalog));
+        LOGGER.info("Registered RowsIngestRouter (per-thread workers)");
 
         Server server = serverBuilder.build().start();
 

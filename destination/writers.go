@@ -61,6 +61,21 @@ type (
 
 var RegisteredWriters = map[types.DestinationType]NewFunc{}
 
+// serverShutdownHooks are run once when a WriterPool is closed, used by destinations
+// that keep a process-global server (e.g. the single Iceberg Java process) alive for
+// the whole sync and need to tear it down at the end.
+var (
+	serverShutdownHooks   []func()
+	serverShutdownHooksMu sync.Mutex
+)
+
+// RegisterServerShutdownHook registers a teardown function run on WriterPool.Close.
+func RegisterServerShutdownHook(hook func()) {
+	serverShutdownHooksMu.Lock()
+	defer serverShutdownHooksMu.Unlock()
+	serverShutdownHooks = append(serverShutdownHooks, hook)
+}
+
 func WithIdentifier(identifier string) ThreadOptions {
 	return func(opt *Options) {
 		opt.Identifier = identifier
@@ -130,6 +145,17 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 
 func (w *WriterPool) AddRecordsToSyncStats(count int64) {
 	w.stats.TotalRecordsToSync.Add(count)
+}
+
+// Close runs registered server shutdown hooks (e.g. stops the shared Iceberg Java
+// process). Safe to call once after a sync; hooks are no-ops if nothing was started.
+func (w *WriterPool) Close() {
+	serverShutdownHooksMu.Lock()
+	hooks := append([]func(){}, serverShutdownHooks...)
+	serverShutdownHooksMu.Unlock()
+	for _, hook := range hooks {
+		hook()
+	}
 }
 
 func (w *WriterPool) GetStats() *Stats {
