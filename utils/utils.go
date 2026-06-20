@@ -185,7 +185,11 @@ func UnmarshalFile(file string, dest any, credsFile bool) error {
 		}
 		decryptedJSON = []byte(dConfig)
 	}
-	err = json.Unmarshal(decryptedJSON, dest)
+	trimmed := strings.TrimSpace(string(decryptedJSON))
+        if trimmed == "" {
+                return nil
+        }
+    err = json.Unmarshal([]byte(trimmed), dest)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal file[%s]: %s", file, err)
 	}
