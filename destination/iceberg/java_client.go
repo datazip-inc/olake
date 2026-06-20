@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -30,12 +29,6 @@ type serverInstance struct {
 	conn        *grpc.ClientConn
 	serverID    string
 }
-
-// Shared single-JVM state for the lifetime of the process. Every Iceberg writer
-// connects to this one JVM; per-stream context rides on each gRPC payload.
-// initializeServer starts it, getServer loads the pointer lock-free, and
-// shutdownSharedServer swaps it out lock-free.
-var sharedServer atomic.Pointer[serverInstance]
 
 // getServerConfigJSON builds the catalog/storage-level config the JVM consumes
 // at startup. Per-stream concepts (namespace, upsert, identifier-fields,
@@ -117,153 +110,90 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 	return json.Marshal(serverConfig)
 }
 
-// initializeServer launches the shared JVM and returns it. This is the single
-// place a JVM is started — invoked from the protocol layer via Iceberg.Initialize
-// (WriterPool.NewWriterPool) before any sync/check/clear work begins, so it runs
-// exactly once with no concurrency. The nil-check keeps it idempotent if called
-// again, returning the already-running instance.
-func initializeServer(config *Config) (*serverInstance, error) {
-	if inst := sharedServer.Load(); inst != nil {
-		return inst, nil
-	}
-	inst, err := startSharedServer(config)
-	if err != nil {
-		return nil, err
-	}
-	sharedServer.Store(inst)
-	return inst, nil
-}
-
-// getServer returns the running shared JVM lock-free (read path for Check,
-// Setup, DropStreams, gRPC sends). Returns nil only if initializeServer never
-// ran, which the protocol layer guarantees against by initializing up front.
-func getServer() *serverInstance {
-	return sharedServer.Load()
-}
-
-// shutdownSharedServer kills the JVM and releases its port. Idempotent and
-// lock-free via an atomic swap — only the first caller sees a non-nil instance.
-// Signal-driven teardown flows through here too: the root context cancels on
-// signal, the command returns, and its deferred Shutdown runs this.
-func shutdownSharedServer() {
-	inst := sharedServer.Swap(nil)
-	if inst == nil {
-		return
-	}
-
-	logger.Infof("Shutting down shared Iceberg JVM on port %d", inst.port)
-	if inst.conn != nil {
-		_ = inst.conn.Close()
-	}
-	if inst.cmd != nil && inst.cmd.Process != nil {
-		// Ask politely first; the JVM's own shutdown hook releases the gRPC port
-		// in an orderly way. Hard-kill only if it doesn't exit in a few seconds.
-		_ = inst.cmd.Process.Signal(syscall.SIGTERM)
-		done := make(chan struct{}, 1)
-		go func() {
-			_, _ = inst.cmd.Process.Wait()
-			done <- struct{}{}
-		}()
-		select {
-		case <-done:
-		case <-time.After(10 * time.Second):
-			logger.Warnf("Iceberg JVM did not exit within 10s after SIGTERM, killing")
-			_ = inst.cmd.Process.Kill()
-		}
-	}
-}
-
-func startSharedServer(config *Config) (*serverInstance, error) {
+// startServer launches the JVM and returns the running instance. Invoked once
+// from Iceberg.Initialize (via WriterPool.NewWriterPool) before any
+// sync/check/clear work begins.
+func startServer(config *Config) (*serverInstance, error) {
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("failed to validate config: %s", err)
+		return nil, fmt.Errorf("failed to validate config: %w", err)
 	}
 
-	const maxAttempts = 10
 	const serverID = "shared"
 	port := defaultServerPort
 
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		// Single JVM: reclaim the port if a stale process is still holding it.
-		reclaimPort(port)
+	// Forcefully kill any existing process on this port before starting
+	reclaimPort(port)
 
-		configJSON, err := getServerConfigJSON(config, port, config.UseArrowWrites)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create server config: %s", err)
-		}
-		// TODO: research the following flags in arrow writer and legacy writer
-		// need to do some research on the following flags
-		var serverCmd *exec.Cmd
-		if os.Getenv("OLAKE_DEBUG_MODE") != "" {
-			serverCmd = exec.Command("java",
-				"-XX:+UseG1GC",
-				"-XX:InitialRAMPercentage=40.0",
-				"-XX:MaxRAMPercentage=60.0",
-				"-XX:MaxDirectMemorySize=8g",
-				"-XX:+ExitOnOutOfMemoryError",
-				"-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
-				"-jar", config.JarPath, string(configJSON))
-		} else {
-			serverCmd = exec.Command("java",
-				"-XX:+UseG1GC",
-				"-XX:InitialRAMPercentage=40.0",
-				"-XX:MaxRAMPercentage=60.0",
-				"-XX:MaxDirectMemorySize=8g",
-				"-XX:+ExitOnOutOfMemoryError",
-				"-jar", config.JarPath, string(configJSON))
-		}
-
-		serverCmd.Env = os.Environ()
-		appendEnv := func(key, value string) {
-			if value == "" {
-				return
-			}
-			prefix := key + "="
-			for i := range serverCmd.Env {
-				if strings.HasPrefix(serverCmd.Env[i], prefix) {
-					serverCmd.Env[i] = prefix + value
-					return
-				}
-			}
-			serverCmd.Env = append(serverCmd.Env, prefix+value)
-		}
-		appendEnv("AWS_ACCESS_KEY_ID", config.AccessKey)
-		appendEnv("AWS_SECRET_ACCESS_KEY", config.SecretKey)
-		appendEnv("AWS_REGION", config.Region)
-		appendEnv("AWS_SESSION_TOKEN", config.SessionToken)
-		appendEnv("AWS_PROFILE", config.ProfileName)
-
-		if err := logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd); err != nil {
-			errLower := strings.ToLower(err.Error())
-			if strings.Contains(errLower, "address in use") || strings.Contains(errLower, "failed to bind") || strings.Contains(errLower, "bindexception") || strings.Contains(errLower, "eaddrinuse") {
-				logger.Warnf("Iceberg JVM: port %d bind failed, retrying with next port", port)
-				port++
-				continue
-			}
-			return nil, fmt.Errorf("failed to start iceberg java writer and setup logger: %s", err)
-		}
-
-		conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", config.ServerHost, strconv.Itoa(port)),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-			grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
-		if err != nil {
-			if serverCmd != nil && serverCmd.Process != nil {
-				_ = serverCmd.Process.Kill()
-			}
-			return nil, fmt.Errorf("failed to create new grpc client: %s", err)
-		}
-
-		logger.Infof("Started shared Iceberg JVM on port %d", port)
-		return &serverInstance{
-			port:        port,
-			cmd:         serverCmd,
-			client:      proto.NewRecordIngestServiceClient(conn),
-			arrowClient: proto.NewArrowIngestServiceClient(conn),
-			conn:        conn,
-			serverID:    serverID,
-		}, nil
+	configJSON, err := getServerConfigJSON(config, port, config.UseArrowWrites)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create server config: %w", err)
 	}
 
-	return nil, fmt.Errorf("failed to start iceberg writer after %d attempts due to port binding conflicts", maxAttempts)
+	// TODO: research the following flags in arrow writer and legacy writer
+	// need to do some research on the following flags
+	var serverCmd *exec.Cmd
+	if os.Getenv("OLAKE_DEBUG_MODE") != "" {
+		serverCmd = exec.Command("java",
+			"-XX:+UseG1GC",
+			"-XX:InitialRAMPercentage=40.0",
+			"-XX:MaxRAMPercentage=60.0",
+			"-XX:MaxDirectMemorySize=8g",
+			"-XX:+ExitOnOutOfMemoryError",
+			"-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
+			"-jar", config.JarPath, string(configJSON))
+	} else {
+		serverCmd = exec.Command("java",
+			"-XX:+UseG1GC",
+			"-XX:InitialRAMPercentage=40.0",
+			"-XX:MaxRAMPercentage=60.0",
+			"-XX:MaxDirectMemorySize=8g",
+			"-XX:+ExitOnOutOfMemoryError",
+			"-jar", config.JarPath, string(configJSON))
+	}
+
+	serverCmd.Env = os.Environ()
+	appendEnv := func(key, value string) {
+		if value == "" {
+			return
+		}
+		prefix := key + "="
+		for i := range serverCmd.Env {
+			if strings.HasPrefix(serverCmd.Env[i], prefix) {
+				serverCmd.Env[i] = prefix + value
+				return
+			}
+		}
+		serverCmd.Env = append(serverCmd.Env, prefix+value)
+	}
+	appendEnv("AWS_ACCESS_KEY_ID", config.AccessKey)
+	appendEnv("AWS_SECRET_ACCESS_KEY", config.SecretKey)
+	appendEnv("AWS_REGION", config.Region)
+	appendEnv("AWS_SESSION_TOKEN", config.SessionToken)
+	appendEnv("AWS_PROFILE", config.ProfileName)
+
+	if err := logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd); err != nil {
+		return nil, fmt.Errorf("failed to start iceberg java writer and setup logger: %w", err)
+	}
+
+	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", config.ServerHost, strconv.Itoa(port)),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithDefaultCallOptions(grpc.WaitForReady(true)))
+	if err != nil {
+		if serverCmd != nil && serverCmd.Process != nil {
+			_ = serverCmd.Process.Kill()
+		}
+		return nil, fmt.Errorf("failed to create new grpc client: %w", err)
+	}
+
+	logger.Infof("Started shared Iceberg JVM on port %d", port)
+	return &serverInstance{
+		port:        port,
+		cmd:         serverCmd,
+		client:      proto.NewRecordIngestServiceClient(conn),
+		arrowClient: proto.NewArrowIngestServiceClient(conn),
+		conn:        conn,
+		serverID:    serverID,
+	}, nil
 }
 
 func (s *serverInstance) SendClientRequest(ctx context.Context, payload interface{}) (interface{}, error) {
@@ -277,8 +207,37 @@ func (s *serverInstance) SendClientRequest(ctx context.Context, payload interfac
 	}
 }
 
-func (s *serverInstance) ServerID() string {
-	return s.serverID
+// Shutdown kills the JVM and releases its port. Safe to call from defer.
+// Signal-driven teardown flows through here too: the root context cancels on
+// signal, the command returns, and its deferred Close runs this.
+func (s *serverInstance) Shutdown(ctx context.Context) {
+	if s == nil {
+		return
+	}
+
+	logger.Infof("Shutting down shared Iceberg JVM on port %d", s.port)
+	if s.conn != nil {
+		_ = s.conn.Close()
+	}
+	if s.cmd != nil && s.cmd.Process != nil {
+		// Ask politely first; the JVM's own shutdown hook releases the gRPC port
+		// in an orderly way. Hard-kill only if it doesn't exit in a few seconds.
+		_ = s.cmd.Process.Signal(syscall.SIGTERM)
+		done := make(chan struct{}, 1)
+		go func() {
+			_, _ = s.cmd.Process.Wait()
+			done <- struct{}{}
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			logger.Warnf("Context cancelled, killing Iceberg JVM")
+			_ = s.cmd.Process.Kill()
+		case <-time.After(10 * time.Second):
+			logger.Warnf("Iceberg JVM did not exit within 10s after SIGTERM, killing")
+			_ = s.cmd.Process.Kill()
+		}
+	}
 }
 
 // reclaimPort frees the given port by killing whatever process is currently

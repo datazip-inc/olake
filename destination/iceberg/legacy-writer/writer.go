@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -20,16 +21,14 @@ type LegacyWriter struct {
 	schema  map[string]string
 	stream  types.StreamInterface
 	server  internal.ServerClient
-	meta    *internal.StreamMetaCtx
 }
 
-func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, meta *internal.StreamMetaCtx) *LegacyWriter {
+func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient) *LegacyWriter {
 	return &LegacyWriter{
 		options: options,
 		schema:  schema,
 		stream:  stream,
 		server:  server,
-		meta:    meta,
 	}
 }
 
@@ -39,7 +38,7 @@ func New(options *destination.Options, schema map[string]string, stream types.St
 // payloads carry only the thread_id the JVM routes on (callers add schema/payload).
 func (w *LegacyWriter) newMetadata() *proto.IcebergPayload_Metadata {
 	return &proto.IcebergPayload_Metadata{
-		ThreadId: w.meta.ThreadID,
+		ThreadId: w.options.ThreadID,
 	}
 }
 
@@ -146,6 +145,23 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 	ingestResponse := res.(*proto.RecordIngestResponse)
 	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, ingestResponse.GetResult())
 
+	return nil
+}
+
+func (w *LegacyWriter) Cleanup() error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req := &proto.IcebergPayload{
+		Type: proto.IcebergPayload_CLOSE_SESSION,
+		Metadata: &proto.IcebergPayload_Metadata{
+			ThreadId: w.options.ThreadID,
+		},
+	}
+
+	if _, err := w.server.SendClientRequest(cleanupCtx, req); err != nil {
+		return fmt.Errorf("failed to close iceberg session: %s", err)
+	}
 	return nil
 }
 

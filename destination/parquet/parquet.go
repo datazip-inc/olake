@@ -37,63 +37,57 @@ type FileMetadata struct {
 	file     source.ParquetFile
 }
 
-// Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
+// Parquet is the destination-level manager. It validates config and S3 access
+// (Check), clears streams (DropTables), and spawns per-stream writer threads.
 type Parquet struct {
+	config     *Config
+	s3Client   *s3.S3
+	s3Uploader *s3manager.Uploader
+}
+
+// ParquetWriter writes Parquet files for a single stream thread to a local path
+// and optionally uploads them to S3.
+type ParquetWriter struct {
+	*Parquet
 	options          *destination.Options
-	config           *Config
 	stream           types.StreamInterface
 	basePath         string                     // construct with streamNamespace/streamName
 	partitionedFiles map[string][]*FileMetadata // mapping of basePath/{regex} -> pqFiles
-	s3Client         *s3.S3
-	s3Uploader       *s3manager.Uploader
 	schema           typeutils.Fields
 }
 
-// GetConfigRef returns the config reference for the parquet writer.
-func (p *Parquet) GetConfigRef() destination.Config {
-	p.config = &Config{}
-	return p.config
-}
-
-// SetConfig points this writer at a shared, already-parsed config instance.
-func (p *Parquet) SetConfig(c destination.Config) {
-	p.config = c.(*Config)
-}
-
-// Spec returns a new Config instance.
-func (p *Parquet) Spec() any {
-	return Config{}
-}
-
-// setup s3 client if credentials provided
-func (p *Parquet) initS3Writer() error {
-	if p.config.Bucket == "" || p.config.Region == "" {
-		return nil
-	}
-
-	s3Config := aws.Config{
-		Region: aws.String(p.config.Region),
-	}
-	if p.config.S3Endpoint != "" {
-		s3Config.Endpoint = aws.String(p.config.S3Endpoint)
-		// Force path-style URLs (e.g., http://minio:9000/bucket/key) to support MinIO and avoid bucket-based DNS resolution
-		s3Config.S3ForcePathStyle = aws.Bool(true)
-	}
-	if p.config.AccessKey != "" && p.config.SecretKey != "" {
-		s3Config.Credentials = credentials.NewStaticCredentials(p.config.AccessKey, p.config.SecretKey, "")
-	}
-	sess, err := session.NewSession(&s3Config)
-	if err != nil {
-		return fmt.Errorf("failed to create AWS session: %s", err)
-	}
-	p.s3Client = s3.New(sess)
-	// Initialize uploader for multipart uploads (handles files > 5GB automatically)
-	p.s3Uploader = s3manager.NewUploader(sess)
-
+// Cleanup is a no-op for Parquet; there are no long-lived process resources.
+func (p *Parquet) Cleanup(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) createNewPartitionFile(basePath string) error {
+// newS3Writer builds an S3 client + uploader if credentials are provided,
+// returning (nil, nil, nil) when no bucket/region is configured.
+func newS3Writer(config *Config) (*s3.S3, *s3manager.Uploader, error) {
+	if config.Bucket == "" || config.Region == "" {
+		return nil, nil, nil
+	}
+
+	s3Config := aws.Config{
+		Region: aws.String(config.Region),
+	}
+	if config.S3Endpoint != "" {
+		s3Config.Endpoint = aws.String(config.S3Endpoint)
+		// Force path-style URLs (e.g., http://minio:9000/bucket/key) to support MinIO and avoid bucket-based DNS resolution
+		s3Config.S3ForcePathStyle = aws.Bool(true)
+	}
+	if config.AccessKey != "" && config.SecretKey != "" {
+		s3Config.Credentials = credentials.NewStaticCredentials(config.AccessKey, config.SecretKey, "")
+	}
+	sess, err := session.NewSession(&s3Config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create AWS session: %s", err)
+	}
+	// Initialize uploader for multipart uploads (handles files > 5GB automatically)
+	return s3.New(sess), s3manager.NewUploader(sess), nil
+}
+
+func (p *ParquetWriter) createNewPartitionFile(basePath string) error {
 	// construct directory path
 	directoryPath := filepath.Join(p.config.Path, basePath)
 
@@ -127,39 +121,36 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, *types.MetadataState, error) {
-	p.options = options
-	p.stream = stream
-	p.partitionedFiles = make(map[string][]*FileMetadata)
-	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
-	p.schema = make(typeutils.Fields)
+func (p *Parquet) NewWriterThread(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (destination.Writer, any, *types.MetadataState, error) {
+	threadSchema := make(typeutils.Fields)
 
-	err := p.initS3Writer()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if !p.stream.NormalizationEnabled() {
-		return p.schema, nil, nil
-	}
-
-	if schema != nil {
-		fields, ok := schema.(typeutils.Fields)
-		if !ok {
-			return nil, nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
+	if stream.NormalizationEnabled() {
+		if schema != nil {
+			fields, ok := schema.(typeutils.Fields)
+			if !ok {
+				return nil, nil, nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
+			}
+			threadSchema = fields.Clone()
+		} else {
+			fields := make(typeutils.Fields)
+			fields.FromSchema(stream.Schema())
+			threadSchema = fields.Clone() // update schema
 		}
-		p.schema = fields.Clone()
-		return fields, nil, nil
 	}
 
-	fields := make(typeutils.Fields)
-	fields.FromSchema(stream.Schema())
-	p.schema = fields.Clone() // update schema
-	return fields, nil, nil
+	return &ParquetWriter{
+		Parquet:          p,
+		options:          options,
+		stream:           stream,
+		basePath:         filepath.Join(stream.GetDestinationDatabase(nil), stream.GetDestinationTable()),
+		schema:           threadSchema,
+		partitionedFiles: make(map[string][]*FileMetadata),
+	}, schema, nil, nil
+
 }
 
 // Write writes a record to the Parquet file.
-func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
+func (p *ParquetWriter) Write(_ context.Context, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
 		// Normalise "i" -? "c": Parquet has no equality-delete concept; downstream
@@ -214,20 +205,11 @@ func (p *Parquet) Check(_ context.Context) error {
 	uniqueSuffix := fmt.Sprintf("%d", time.Now().UnixNano())
 	threadID := fmt.Sprintf("test_parquet_destination_%s", uniqueSuffix)
 
-	p.options = &destination.Options{
-		ThreadID: threadID,
-	}
-
-	// check for s3 writer configuration
-	err := p.initS3Writer()
-	if err != nil {
-		return err
-	}
 	// test for s3 permissions
 	if p.s3Client != nil {
 		testKey := filepath.Join(p.config.Prefix, "olake_writer_test", utils.TimestampedFileName(".txt"))
 		// Try to upload a small test file
-		_, err = p.s3Client.PutObject(&s3.PutObjectInput{
+		_, err := p.s3Client.PutObject(&s3.PutObjectInput{
 			Bucket: aws.String(p.config.Bucket),
 			Key:    aws.String(testKey),
 			Body:   strings.NewReader("S3 write test"),
@@ -238,9 +220,9 @@ func (p *Parquet) Check(_ context.Context) error {
 		p.config.Path = os.TempDir()
 		// trim '/' from prefix path
 		p.config.Prefix = strings.Trim(p.config.Prefix, "/")
-		logger.Infof("Thread[%s]: s3 writer configuration found", p.options.ThreadID)
+		logger.Infof("Thread[%s]: s3 writer configuration found", threadID)
 	} else if p.config.Path != "" {
-		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", p.options.ThreadID, p.config.Path)
+		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", threadID, p.config.Path)
 	} else {
 		return fmt.Errorf("invalid configuration found")
 	}
@@ -260,7 +242,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) closePqFiles(ctx context.Context, _ any, closeOnError bool) error {
+func (p *ParquetWriter) closePqFiles(ctx context.Context, _ any, closeOnError bool) error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -354,13 +336,13 @@ func (p *Parquet) closePqFiles(ctx context.Context, _ any, closeOnError bool) er
 	return nil
 }
 
-func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
+func (p *ParquetWriter) CleanupAndCommit(ctx context.Context, finalMetadataState any) error {
 	// TODO: implement 2pc in parquet writer (difficulty: hard)
 	return p.closePqFiles(ctx, finalMetadataState, ctx.Err() != nil)
 }
 
 // validate schema change & evolution and removes null records
-func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+func (p *ParquetWriter) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, records, nil, nil
 	}
@@ -434,7 +416,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
-func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
+func (p *ParquetWriter) EvolveSchema(_ context.Context, _, _ any) (any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, nil
 	}
@@ -459,7 +441,7 @@ func (p *Parquet) Type() string {
 	return string(types.Parquet)
 }
 
-func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp time.Time) string {
+func (p *ParquetWriter) getPartitionedFilePath(values map[string]any, olakeTimestamp time.Time) string {
 	pattern := p.stream.Self().StreamMetadata.PartitionRegex
 	if pattern == "" {
 		return p.basePath
@@ -527,13 +509,7 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 	return filepath.Join(p.basePath, strings.TrimSuffix(result, "/"))
 }
 
-func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []types.StreamInterface) error {
-	// check for s3 writer configuration
-	err := p.initS3Writer()
-	if err != nil {
-		return err
-	}
-
+func (p *Parquet) DropTables(ctx context.Context, selectedStreams []types.StreamInterface) error {
 	if len(selectedStreams) == 0 {
 		logger.Infof("no streams selected for clearing, skipping clear operation")
 		return nil
@@ -694,7 +670,26 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 }
 
 func init() {
-	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
-		return new(Parquet)
+	destination.RegisteredWriters[types.Parquet] = func(config any) (destination.Destination, error) {
+		parquetConfig := &Config{}
+		err := utils.Unmarshal(config, parquetConfig)
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal parquet config: %s", err)
+		}
+
+		if err := parquetConfig.Validate(); err != nil {
+			return nil, fmt.Errorf("failed to validate parquet config: %s", err)
+		}
+
+		s3Client, s3Uploader, err := newS3Writer(parquetConfig)
+		if err != nil {
+			return nil, err
+		}
+
+		return &Parquet{
+			config:     parquetConfig,
+			s3Client:   s3Client,
+			s3Uploader: s3Uploader,
+		}, nil
 	}
 }
