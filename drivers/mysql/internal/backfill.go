@@ -169,10 +169,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		logger.Debugf("Using splitEvenlyForString Method for stream %s", stream.ID())
 		chunks, err := m.splitEvenlyForString(ctx, stream, stringChunkBounds, pkColumns[0], columnCollationType, approxTableSize)
 		if err != nil {
-			return nil, err
-		}
-		if chunks == nil {
-			logger.Warnf("failed to generate chunks for stream %s, falling back to splitViaPrimaryKey method", stream.ID())
+			logger.Warnf("failed to generate string chunks for stream %s: %s, falling back to splitViaPrimaryKey method", stream.ID(), err)
 			return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
 		}
 		logger.Debugf("Chunking completed using splitEvenlyForString Method for stream %s", stream.ID())
@@ -252,39 +249,33 @@ func primaryKeyChunkArgs(currentVal any, pkColumnCount int) []any {
 func (m *MySQL) limitOffsetChunks(ctx context.Context, stream types.StreamInterface, approxRowCount, chunkSize int64) (*types.Set[types.Chunk], error) {
 	var chunks *types.Set[types.Chunk]
 	err := jdbc.WithIsolation(ctx, m.client, true, func(_ *sql.Tx) error {
-		chunks = buildLimitOffsetChunks(approxRowCount, chunkSize)
+		chunks = types.NewSet[types.Chunk]()
+
+		// Start with the first batch-sized range.
+		chunks.Insert(types.Chunk{
+			Min: nil,
+			Max: utils.ConvertToString(chunkSize),
+		})
+
+		// Continue adding batch-sized offset ranges until the approximate row count is covered.
+		lastChunk := chunkSize
+		for lastChunk < approxRowCount {
+			chunks.Insert(types.Chunk{
+				Min: utils.ConvertToString(lastChunk),
+				Max: utils.ConvertToString(lastChunk + chunkSize),
+			})
+			lastChunk += chunkSize
+		}
+
+		// Add the trailing open-ended range.
+		chunks.Insert(types.Chunk{
+			Min: utils.ConvertToString(lastChunk),
+			Max: nil,
+		})
 		logger.Debugf("Chunking completed using limit offset method for stream %s", stream.ID())
 		return nil
 	})
 	return chunks, err
-}
-
-// buildLimitOffsetChunks divides a table without a usable key into offset-based chunks.
-func buildLimitOffsetChunks(approxRowCount, chunkSize int64) *types.Set[types.Chunk] {
-	chunks := types.NewSet[types.Chunk]()
-
-	// Start with the first batch-sized range.
-	chunks.Insert(types.Chunk{
-		Min: nil,
-		Max: utils.ConvertToString(chunkSize),
-	})
-
-	// Continue adding batch-sized offset ranges until the approximate row count is covered.
-	lastChunk := chunkSize
-	for lastChunk < approxRowCount {
-		chunks.Insert(types.Chunk{
-			Min: utils.ConvertToString(lastChunk),
-			Max: utils.ConvertToString(lastChunk + chunkSize),
-		})
-		lastChunk += chunkSize
-	}
-
-	// Add the trailing open-ended range.
-	chunks.Insert(types.Chunk{
-		Min: utils.ConvertToString(lastChunk),
-		Max: nil,
-	})
-	return chunks
 }
 
 /*
@@ -356,7 +347,10 @@ Chunks:
 (-inf, "aa"), ["aa","ai"), ["ai","ar"), ["ar","az"), ["az", +inf)
 */
 func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInterface, bounds *StringChunkBounds, pkColumn, columnCollationType string, approxTableSize int64) (*types.Set[types.Chunk], error) {
-	expectedChunks := expectedStringChunkCount(approxTableSize)
+	expectedChunks := int64(math.Ceil(float64(approxTableSize) / float64(constants.EffectiveParquetSize)))
+	if expectedChunks <= 0 {
+		expectedChunks = 1
+	}
 	// Calculate a ceil-divided step across the encoded string-key range.
 	stringChunkStepSize := new(big.Int).Sub(bounds.maxEncodedBigIntValue, bounds.minEncodedBigIntValue)
 	stringChunkStepSize.Add(stringChunkStepSize, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
@@ -414,7 +408,7 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 	}
 
 	if len(chunkBoundaries) < int(math.Ceil(float64(constants.MysqlChunkAcceptanceRatio*float64(expectedChunks)))) {
-		return nil, nil
+		return nil, fmt.Errorf("insufficient string chunk boundaries generated")
 	}
 	chunkBoundaries = condenseStrings(chunkBoundaries, expectedChunks)
 
@@ -435,15 +429,6 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 		Max: nil,
 	})
 	return chunks, nil
-}
-
-// expectedStringChunkCount estimates the target number of string-key chunks from table size.
-func expectedStringChunkCount(approxTableSize int64) int64 {
-	expectedChunks := int64(math.Ceil(float64(approxTableSize) / float64(constants.EffectiveParquetSize)))
-	if expectedChunks <= 0 {
-		return 1
-	}
-	return expectedChunks
 }
 
 func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {

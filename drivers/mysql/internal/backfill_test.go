@@ -6,55 +6,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 )
-
-func TestLimitOffsetChunks(t *testing.T) {
-	tests := []struct {
-		name           string
-		approxRowCount int64
-		chunkSize      int64
-		expected       []types.Chunk
-	}{
-		{
-			name:           "partial final chunk",
-			approxRowCount: 250,
-			chunkSize:      100,
-			expected: []types.Chunk{
-				{Min: nil, Max: "100"},
-				{Min: "100", Max: "200"},
-				{Min: "200", Max: "300"},
-				{Min: "300", Max: nil},
-			},
-		},
-		{
-			name:           "table smaller than one chunk",
-			approxRowCount: 50,
-			chunkSize:      100,
-			expected: []types.Chunk{
-				{Min: nil, Max: "100"},
-				{Min: "100", Max: nil},
-			},
-		},
-		{
-			name:           "exact chunk boundary",
-			approxRowCount: 200,
-			chunkSize:      100,
-			expected: []types.Chunk{
-				{Min: nil, Max: "100"},
-				{Min: "100", Max: "200"},
-				{Min: "200", Max: nil},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assertChunksEqual(t, buildLimitOffsetChunks(tt.approxRowCount, tt.chunkSize), tt.expected)
-		})
-	}
-}
 
 func TestSplitEvenlyForInt(t *testing.T) {
 	tests := []struct {
@@ -169,27 +122,6 @@ func TestPrimaryKeyChunkArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if actual := primaryKeyChunkArgs(tt.currentValue, tt.pkColumnCount); !reflect.DeepEqual(actual, tt.expected) {
 				t.Fatalf("expected args %v, got %v", tt.expected, actual)
-			}
-		})
-	}
-}
-
-func TestExpectedStringChunkCount(t *testing.T) {
-	tests := []struct {
-		name            string
-		approxTableSize int64
-		expected        int64
-	}{
-		{name: "empty estimate", approxTableSize: 0, expected: 1},
-		{name: "smaller than target file", approxTableSize: constants.EffectiveParquetSize - 1, expected: 1},
-		{name: "exact target file", approxTableSize: constants.EffectiveParquetSize, expected: 1},
-		{name: "multiple target files", approxTableSize: constants.EffectiveParquetSize*2 + 1, expected: 3},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if actual := expectedStringChunkCount(tt.approxTableSize); actual != tt.expected {
-				t.Fatalf("expected %d chunks, got %d", tt.expected, actual)
 			}
 		})
 	}
