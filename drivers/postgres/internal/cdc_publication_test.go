@@ -44,6 +44,8 @@ func (m *mockStream) IsSelectedColumn() func(string) bool {
 	return func(_ string) bool { return true }
 }
 
+func (m *mockStream) ResolveColumnName(key string) string { return key }
+
 func ms(schema, table string) types.StreamInterface {
 	return &mockStream{name: table, namespace: schema}
 }
