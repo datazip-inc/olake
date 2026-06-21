@@ -16,22 +16,27 @@ type mockStream struct {
 
 func (m *mockStream) Name() string      { return m.name }
 func (m *mockStream) Namespace() string { return m.namespace }
-func (m *mockStream) ID() string        { return m.namespace + "." + m.name }
+func (m *mockStream) ID() string {
+	if m.namespace != "" {
+		return m.namespace + "." + m.name
+	}
+	return m.name
+}
 
 // Remaining interface stubs — not exercised by these tests.
-func (m *mockStream) Self() *types.ConfiguredStream  { return nil }
-func (m *mockStream) Schema() *types.TypeSchema      { return nil }
-func (m *mockStream) GetStream() *types.Stream       { return nil }
-func (m *mockStream) GetSyncMode() types.SyncMode    { return "" }
+func (m *mockStream) Self() *types.ConfiguredStream { return nil }
+func (m *mockStream) Schema() *types.TypeSchema     { return nil }
+func (m *mockStream) GetStream() *types.Stream      { return nil }
+func (m *mockStream) GetSyncMode() types.SyncMode   { return "" }
 func (m *mockStream) GetFilter() (types.FilterConfig, bool, error) {
 	return types.FilterConfig{}, false, nil
 }
 func (m *mockStream) SupportedSyncModes() *types.Set[types.SyncMode] { return nil }
-func (m *mockStream) Cursor() (string, string)                        { return "", "" }
-func (m *mockStream) Validate(_ *types.Stream) error                  { return nil }
-func (m *mockStream) NormalizationEnabled() bool                      { return false }
-func (m *mockStream) GetDestinationDatabase(_ *string) string         { return "" }
-func (m *mockStream) GetDestinationTable() string                     { return "" }
+func (m *mockStream) Cursor() (string, string)                       { return "", "" }
+func (m *mockStream) Validate(_ *types.Stream) error                 { return nil }
+func (m *mockStream) NormalizationEnabled() bool                     { return false }
+func (m *mockStream) GetDestinationDatabase(_ *string) string        { return "" }
+func (m *mockStream) GetDestinationTable() string                    { return "" }
 func (m *mockStream) RetainSelectedColumns() func(map[string]interface{}) map[string]interface{} {
 	return func(r map[string]interface{}) map[string]interface{} { return r }
 }
@@ -43,22 +48,20 @@ func ms(schema, table string) types.StreamInterface {
 	return &mockStream{name: table, namespace: schema}
 }
 
-// Tests for checkStreamsInPublication (pure logic, no DB required)
+// Tests for checkStreamsInPublication
 
 func TestCheckStreamsInPublication(t *testing.T) {
 	tests := []struct {
-		name        string
-		publication string
-		pubTables   []pubTable
-		streams     []types.StreamInterface
-		wantErr     bool
-		// substrings that must appear in the error message
-		errContains []string
-		// isNonRetryable: error must wrap constants.ErrNonRetryable
+		name           string
+		publication    string
+		pubTables      []pubTable
+		streams        []types.StreamInterface
+		wantErr        bool
+		errContains    []string
 		isNonRetryable bool
 	}{
 		{
-			name:        "happy path — all streams present",
+			name:        "happy path — all streams present, matched via ID()",
 			publication: "my_pub",
 			pubTables: []pubTable{
 				{Schema: "public", Table: "orders"},
@@ -108,7 +111,7 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			isNonRetryable: true,
 		},
 		{
-			name:        "case-insensitive match — publication uses uppercase",
+			name:        "case-insensitive match — DB side uppercase, stream.ID() lowercase",
 			publication: "pub",
 			pubTables: []pubTable{
 				{Schema: "PUBLIC", Table: "ORDERS"},
@@ -119,7 +122,7 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "case-insensitive match — streams use uppercase",
+			name:        "case-insensitive match — stream.ID() uppercase, DB side lowercase",
 			publication: "pub",
 			pubTables: []pubTable{
 				{Schema: "public", Table: "orders"},
@@ -130,7 +133,7 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "multiple schemas — correct matching",
+			name:        "multiple schemas — correct matching via ID()",
 			publication: "cross_schema_pub",
 			pubTables: []pubTable{
 				{Schema: "public", Table: "orders"},
@@ -182,6 +185,16 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			wantErr:     true,
 			errContains: []string{"ALTER PUBLICATION mypub ADD TABLE", "public.t1", "public.t2"},
 		},
+		{
+			name:        "missing table names in error use stream.ID() format",
+			publication: "pub",
+			pubTables:   []pubTable{{Schema: "public", Table: "other"}},
+			streams: []types.StreamInterface{
+				ms("sales", "orders"),
+			},
+			wantErr:     true,
+			errContains: []string{"sales.orders"}, // exact ID() format, not reconstructed
+		},
 	}
 
 	for _, tt := range tests {
@@ -206,5 +219,13 @@ func TestCheckStreamsInPublication(t *testing.T) {
 				t.Errorf("expected ErrNonRetryable to be wrapped in error, got: %v", err)
 			}
 		})
+	}
+}
+
+func TestStreamID_FormatAssumption(t *testing.T) {
+	s := ms("public", "orders")
+	want := "public.orders"
+	if s.ID() != want {
+		t.Fatalf("mockStream.ID() = %q, want %q — checkStreamsInPublication assumes namespace.name format", s.ID(), want)
 	}
 }
