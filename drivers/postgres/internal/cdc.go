@@ -39,7 +39,7 @@ func fetchPublicationTables(ctx context.Context, conn *sqlx.DB, publication stri
 	return rows, nil
 }
 
-// checkStreamsInPublication is the pure validation logic (no DB dependency).
+// checkStreamsInPublication is the pure validation logic.
 // Given the list of publication tables and selected streams, returns an error
 // if any stream is not covered by the publication.
 func checkStreamsInPublication(publication string, pubTables []pubTable, streams []types.StreamInterface) error {
@@ -51,7 +51,7 @@ func checkStreamsInPublication(publication string, pubTables []pubTable, streams
 		)
 	}
 
-	// Build a normalised lookup set: "schema.table" → present
+	// Build a normalised lookup set: "schema.table" -> present
 	pubSet := make(map[string]struct{}, len(pubTables))
 	for _, r := range pubTables {
 		key := strings.ToLower(r.Schema) + "." + strings.ToLower(r.Table)
@@ -60,9 +60,9 @@ func checkStreamsInPublication(publication string, pubTables []pubTable, streams
 
 	var missing []string
 	for _, stream := range streams {
-		key := strings.ToLower(stream.Namespace()) + "." + strings.ToLower(stream.Name())
+		key := strings.ToLower(stream.ID())
 		if _, ok := pubSet[key]; !ok {
-			missing = append(missing, stream.Namespace()+"."+stream.Name())
+			missing = append(missing, stream.ID())
 		}
 	}
 
@@ -82,7 +82,8 @@ func checkStreamsInPublication(publication string, pubTables []pubTable, streams
 }
 
 // validatePublicationContainsStreams is called from PreCDC.
-// Fixes: https://github.com/datazip-inc/olake/issues/752
+// It fetches the publication's table list and delegates to
+// checkStreamsInPublication for the comparison.
 func validatePublicationContainsStreams(ctx context.Context, conn *sqlx.DB, publication string, streams []types.StreamInterface) error {
 	if publication == "" || len(streams) == 0 {
 		return nil
@@ -93,8 +94,6 @@ func validatePublicationContainsStreams(ctx context.Context, conn *sqlx.DB, publ
 	}
 	return checkStreamsInPublication(publication, pubTables, streams)
 }
-
-
 
 func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
@@ -122,13 +121,10 @@ func (p *Postgres) ChangeStreamConfig() (bool, bool, bool) {
 }
 
 func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
-	// Validate all selected streams exist in the publication before touching the slot.
-    // Fixes: https://github.com/datazip-inc/olake/issues/752
-	
-	if err := validatePublicationContainsStreams(ctx, p.client, p.cdcConfig.Publication, streams); err != nil {
-        return fmt.Errorf("publication validation failed: %w", err)
-    }
 
+	if err := validatePublicationContainsStreams(ctx, p.client, p.cdcConfig.Publication, streams); err != nil {
+		return fmt.Errorf("publication validation failed: %w", err)
+	}
 
 	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
 	if err != nil {
