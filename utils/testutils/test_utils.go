@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -1155,6 +1156,65 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 	})
 }
 
+// validateAndStripCursorField checks that the actual catalog's chosen cursor is valid,
+// then removes it from both catalogs to ensure clean structural comparison.
+func validateAndStripCursorField(t *testing.T, expected, actual []byte) ([]byte, []byte, error) {
+	t.Helper()
+
+	strip := func(data []byte, validate bool) ([]byte, error) {
+		var catalog map[string]interface{}
+		if err := json.Unmarshal(data, &catalog); err != nil {
+			return data, nil // Not JSON; let NormalizedEqual catch structural errors
+		}
+
+		streams, _ := catalog["streams"].([]interface{})
+		for _, s := range streams {
+			entry, _ := s.(map[string]interface{})
+			stream, _ := entry["stream"].(map[string]interface{})
+			syncMode, _ := stream["sync_mode"].(string)
+			availCursors, _ := stream["available_cursor_fields"].([]interface{})
+
+			if syncMode != "incremental" {
+				continue
+			}
+
+			if validate {
+				cursorField, _ := stream["cursor_field"].(string)
+				if cursorField == "" {
+					return nil, fmt.Errorf("stream %q has sync_mode=incremental but empty cursor_field", stream["name"])
+				}
+
+				found := false
+				for _, av := range availCursors {
+					if s, ok := av.(string); ok && s == cursorField {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return nil, fmt.Errorf("stream %q: cursor_field %q not in available_cursor_fields %v",
+						stream["name"], cursorField, availCursors)
+				}
+				t.Logf("stream %q: cursor_field=%q correctly auto-selected", stream["name"], cursorField)
+			}
+			delete(stream, "cursor_field")
+		}
+		return json.Marshal(catalog)
+	}
+
+	normActual, err := strip(actual, true) // Validate and strip actual catalog
+	if err != nil {
+		return nil, nil, err
+	}
+
+	normExpected, err := strip(expected, false) // Strip expected catalog for 1:1 comparison
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return normExpected, normActual, nil
+}
+
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	ctx := context.Background()
 
@@ -1189,8 +1249,15 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("failed to read actual streams JSON: %s", err)
 			}
-			if !utils.NormalizedEqual(string(streamsJSON), string(testStreamsJSON)) {
-				return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", string(streamsJSON), string(testStreamsJSON))
+
+			// Validate and strip the non-deterministic auto-selected cursor_field
+			// from incremental streams before comparing the catalogs.
+			normalizedExpected, normalizedActual, normalizeErr := validateAndStripCursorField(t, streamsJSON, testStreamsJSON)
+			if normalizeErr != nil {
+				return normalizeErr
+			}
+			if !utils.NormalizedEqual(string(normalizedExpected), string(normalizedActual)) {
+				return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", normalizedExpected, normalizedActual)
 			}
 			t.Logf("Generated streams validated with test streams")
 
