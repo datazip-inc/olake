@@ -26,7 +26,7 @@ We welcome all kinds of contributions — bug fixes, documentation improvements,
 👉 [Check our open issues here](../../issues)
 
 ---
-Let’s hack, learn, and grow together this Hacktoberfest. Happy contributing & happy engineering! ⚡ 
+Let’s hack, learn, and grow together this SWoC 2026. Happy contributing & happy engineering! ⚡ 
 ---
 
 ## Getting Help
