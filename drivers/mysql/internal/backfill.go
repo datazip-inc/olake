@@ -179,32 +179,37 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
 	default:
 		logger.Debugf("Falling back to limit offset method for stream %s", stream.ID())
-		var chunks *types.Set[types.Chunk]
-		err := jdbc.WithIsolation(ctx, m.client, true, func(_ *sql.Tx) error {
-			chunks = types.NewSet[types.Chunk]()
-			chunks.Insert(types.Chunk{
-				Min: nil,
-				Max: utils.ConvertToString(chunkSize),
-			})
+		return m.limitOffsetChunks(ctx, stream, approxRowCount, chunkSize)
+	}
+}
 
-			lastChunk := chunkSize
-			for lastChunk < approxRowCount {
-				chunks.Insert(types.Chunk{
-					Min: utils.ConvertToString(lastChunk),
-					Max: utils.ConvertToString(lastChunk + chunkSize),
-				})
-				lastChunk += chunkSize
-			}
+// limitOffsetChunks splits tables without a usable chunk key into offset ranges.
+func (m *MySQL) limitOffsetChunks(ctx context.Context, stream types.StreamInterface, approxRowCount, chunkSize int64) (*types.Set[types.Chunk], error) {
+	var chunks *types.Set[types.Chunk]
+	err := jdbc.WithIsolation(ctx, m.client, true, func(_ *sql.Tx) error {
+		chunks = types.NewSet[types.Chunk]()
+		chunks.Insert(types.Chunk{
+			Min: nil,
+			Max: utils.ConvertToString(chunkSize),
+		})
 
+		lastChunk := chunkSize
+		for lastChunk < approxRowCount {
 			chunks.Insert(types.Chunk{
 				Min: utils.ConvertToString(lastChunk),
-				Max: nil,
+				Max: utils.ConvertToString(lastChunk + chunkSize),
 			})
-			logger.Debugf("Chunking completed using limit offset method for stream %s", stream.ID())
-			return nil
+			lastChunk += chunkSize
+		}
+
+		chunks.Insert(types.Chunk{
+			Min: utils.ConvertToString(lastChunk),
+			Max: nil,
 		})
-		return chunks, err
-	}
+		logger.Debugf("Chunking completed using limit offset method for stream %s", stream.ID())
+		return nil
+	})
+	return chunks, err
 }
 
 // splitViaPrimaryKey walks ordered primary-key values to find chunk boundaries.
