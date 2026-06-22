@@ -11,14 +11,14 @@ import (
 
 func TestSplitEvenlyForInt(t *testing.T) {
 	tests := []struct {
-		name      string
-		bounds    *NumericChunkBounds
-		expected  []types.Chunk
-		wantError bool
+		name        string
+		input       *NumericChunkBounds
+		expected    []types.Chunk
+		expectError bool
 	}{
 		{
 			name: "even positive range",
-			bounds: &NumericChunkBounds{
+			input: &NumericChunkBounds{
 				MinBoundary: 0,
 				MaxBoundary: 100,
 				ChunkStep:   25,
@@ -34,7 +34,7 @@ func TestSplitEvenlyForInt(t *testing.T) {
 		},
 		{
 			name: "negative range",
-			bounds: &NumericChunkBounds{
+			input: &NumericChunkBounds{
 				MinBoundary: -10,
 				MaxBoundary: 10,
 				ChunkStep:   10,
@@ -48,7 +48,7 @@ func TestSplitEvenlyForInt(t *testing.T) {
 		},
 		{
 			name: "step larger than range",
-			bounds: &NumericChunkBounds{
+			input: &NumericChunkBounds{
 				MinBoundary: 10,
 				MaxBoundary: 20,
 				ChunkStep:   50,
@@ -60,28 +60,28 @@ func TestSplitEvenlyForInt(t *testing.T) {
 		},
 		{
 			name: "zero step",
-			bounds: &NumericChunkBounds{
+			input: &NumericChunkBounds{
 				MinBoundary: 1,
 				MaxBoundary: 2,
 				ChunkStep:   0,
 			},
-			wantError: true,
+			expectError: true,
 		},
 		{
 			name: "overflow",
-			bounds: &NumericChunkBounds{
+			input: &NumericChunkBounds{
 				MinBoundary: math.MaxInt64 - 1,
 				MaxBoundary: math.MaxInt64,
 				ChunkStep:   2,
 			},
-			wantError: true,
+			expectError: true,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			chunks, err := splitEvenlyForInt(tt.bounds)
-			if tt.wantError {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			chunks, err := splitEvenlyForInt(tc.input)
+			if tc.expectError {
 				if err == nil {
 					t.Fatal("expected an error")
 				}
@@ -90,39 +90,7 @@ func TestSplitEvenlyForInt(t *testing.T) {
 			if err != nil {
 				t.Fatalf("split evenly for int: %s", err)
 			}
-			assertChunksEqual(t, chunks, tt.expected)
-		})
-	}
-}
-
-func TestPrimaryKeyChunkArgs(t *testing.T) {
-	tests := []struct {
-		name          string
-		currentValue  any
-		pkColumnCount int
-		expected      []any
-	}{
-		{name: "single key", currentValue: 42, pkColumnCount: 1, expected: []any{"42"}},
-		{
-			name:          "composite key",
-			currentValue:  "tenant_1,42,abc",
-			pkColumnCount: 3,
-			expected:      []any{"tenant_1", "tenant_1", "42", "tenant_1", "42", "abc"},
-		},
-		{
-			name:          "fewer values than columns",
-			currentValue:  "tenant_1,42",
-			pkColumnCount: 3,
-			expected:      []any{"tenant_1", "tenant_1", "42", "tenant_1", "42"},
-		},
-		{name: "no columns", currentValue: "tenant_1", pkColumnCount: 0, expected: []any{}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if actual := primaryKeyChunkArgs(tt.currentValue, tt.pkColumnCount); !reflect.DeepEqual(actual, tt.expected) {
-				t.Fatalf("expected args %v, got %v", tt.expected, actual)
-			}
+			assertChunksEqual(t, chunks, tc.expected)
 		})
 	}
 }
@@ -135,9 +103,9 @@ func TestIsNumericAndEvenDistributed(t *testing.T) {
 		approxRowCount int64
 		chunkSize      int64
 		dataType       string
-		wantBounds     bool
+		expected       bool
 	}{
-		{name: "supported bigint", minVal: 1, maxVal: 100, approxRowCount: 100, chunkSize: 10, dataType: "BIGINT", wantBounds: true},
+		{name: "supported bigint", minVal: 1, maxVal: 100, approxRowCount: 100, chunkSize: 10, dataType: "BIGINT", expected: true},
 		{name: "unsupported type", minVal: 1, maxVal: 100, approxRowCount: 100, chunkSize: 10, dataType: "varchar"},
 		{name: "invalid minimum", minVal: "not-a-number", maxVal: 100, approxRowCount: 100, chunkSize: 10, dataType: "bigint"},
 		{name: "invalid maximum", minVal: 1, maxVal: "not-a-number", approxRowCount: 100, chunkSize: 10, dataType: "bigint"},
@@ -145,11 +113,11 @@ func TestIsNumericAndEvenDistributed(t *testing.T) {
 		{name: "zero row estimate", minVal: 1, maxVal: 100, approxRowCount: 0, chunkSize: 10, dataType: "bigint"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bounds := isNumericAndEvenDistributed(tt.minVal, tt.maxVal, tt.approxRowCount, tt.chunkSize, tt.dataType)
-			if (bounds != nil) != tt.wantBounds {
-				t.Fatalf("expected bounds=%t, got %v", tt.wantBounds, bounds)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bounds := isNumericAndEvenDistributed(tc.minVal, tc.maxVal, tc.approxRowCount, tc.chunkSize, tc.dataType)
+			if (bounds != nil) != tc.expected {
+				t.Fatalf("expected bounds=%t, got %v", tc.expected, bounds)
 			}
 		})
 	}
@@ -162,21 +130,21 @@ func TestIsStringSupportedPK(t *testing.T) {
 		maxVal        any
 		dataMaxLength sql.NullInt64
 		dataType      string
-		wantBounds    bool
+		expected      bool
 	}{
-		{name: "supported varchar", minVal: "aa", maxVal: "az", dataMaxLength: validNullInt64(3), dataType: "varchar", wantBounds: true},
-		{name: "supported char", minVal: "a", maxVal: "z", dataMaxLength: validNullInt64(1), dataType: "char", wantBounds: true},
+		{name: "supported varchar", minVal: "aa", maxVal: "az", dataMaxLength: validNullInt64(3), dataType: "varchar", expected: true},
+		{name: "supported char", minVal: "a", maxVal: "z", dataMaxLength: validNullInt64(1), dataType: "char", expected: true},
 		{name: "unsupported type", minVal: "aa", maxVal: "az", dataMaxLength: validNullInt64(2), dataType: "text"},
 		{name: "missing max length", minVal: "aa", maxVal: "az", dataType: "varchar"},
 		{name: "unsupported character", minVal: "aa", maxVal: "az\n", dataMaxLength: validNullInt64(3), dataType: "varchar"},
 		{name: "non increasing range", minVal: "az", maxVal: "aa", dataMaxLength: validNullInt64(2), dataType: "varchar"},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			bounds := isStringSupportedPK(tt.minVal, tt.maxVal, tt.dataMaxLength, tt.dataType)
-			if (bounds != nil) != tt.wantBounds {
-				t.Fatalf("expected bounds=%t, got %v", tt.wantBounds, bounds)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bounds := isStringSupportedPK(tc.minVal, tc.maxVal, tc.dataMaxLength, tc.dataType)
+			if (bounds != nil) != tc.expected {
+				t.Fatalf("expected bounds=%t, got %v", tc.expected, bounds)
 			}
 		})
 	}
@@ -213,9 +181,9 @@ func TestPadRightWithZeroes(t *testing.T) {
 		{value: "a", maxLength: 2, expected: "a0"},
 	}
 
-	for _, tt := range tests {
-		if actual := padRightWithZeroes(tt.value, tt.maxLength); actual != tt.expected {
-			t.Fatalf("pad %q to %d: expected %q, got %q", tt.value, tt.maxLength, tt.expected, actual)
+	for _, tc := range tests {
+		if actual := padRightWithZeroes(tc.value, tc.maxLength); actual != tc.expected {
+			t.Fatalf("pad %q to %d: expected %q, got %q", tc.value, tc.maxLength, tc.expected, actual)
 		}
 	}
 }
@@ -224,23 +192,23 @@ func TestCondenseStrings(t *testing.T) {
 	tests := []struct {
 		name       string
 		candidates []string
-		expected   int64
-		want       []string
+		chunkCount int64
+		expected   []string
 	}{
-		{name: "already small enough", candidates: []string{"a", "b"}, expected: 3, want: []string{"a", "b"}},
-		{name: "single boundary", candidates: []string{"a", "b", "c"}, expected: 1, want: []string{"a"}},
+		{name: "already small enough", candidates: []string{"a", "b"}, chunkCount: 3, expected: []string{"a", "b"}},
+		{name: "single boundary", candidates: []string{"a", "b", "c"}, chunkCount: 1, expected: []string{"a"}},
 		{
 			name:       "balanced subset",
 			candidates: []string{"0", "1", "2", "3", "4", "5", "6"},
-			expected:   4,
-			want:       []string{"0", "2", "4", "6"},
+			chunkCount: 4,
+			expected:   []string{"0", "2", "4", "6"},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if actual := condenseStrings(tt.candidates, tt.expected); !reflect.DeepEqual(actual, tt.want) {
-				t.Fatalf("expected %v, got %v", tt.want, actual)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if actual := condenseStrings(tc.candidates, tc.chunkCount); !reflect.DeepEqual(actual, tc.expected) {
+				t.Fatalf("expected %v, got %v", tc.expected, actual)
 			}
 		})
 	}

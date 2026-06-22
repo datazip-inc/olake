@@ -160,7 +160,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		logger.Debugf("Using splitEvenlyForInt Method for stream %s", stream.ID())
 		chunks, err := splitEvenlyForInt(numericChunkBounds)
 		if err != nil {
-			logger.Warnf("int64 arithmetic overflow, falling back to splitViaPrimaryKey for stream %s", stream.ID())
+			logger.Warnf("failed to generate integer chunks for stream %s: %s, falling back to splitViaPrimaryKey method", stream.ID(), err)
 			return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
 		}
 		logger.Debugf("Chunking completed using splitEvenlyForInt Method for stream %s", stream.ID())
@@ -179,7 +179,31 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return m.splitViaPrimaryKey(ctx, stream, minVal, maxVal, pkColumns, chunkSize)
 	default:
 		logger.Debugf("Falling back to limit offset method for stream %s", stream.ID())
-		return m.limitOffsetChunks(ctx, stream, approxRowCount, chunkSize)
+		var chunks *types.Set[types.Chunk]
+		err := jdbc.WithIsolation(ctx, m.client, true, func(_ *sql.Tx) error {
+			chunks = types.NewSet[types.Chunk]()
+			chunks.Insert(types.Chunk{
+				Min: nil,
+				Max: utils.ConvertToString(chunkSize),
+			})
+
+			lastChunk := chunkSize
+			for lastChunk < approxRowCount {
+				chunks.Insert(types.Chunk{
+					Min: utils.ConvertToString(lastChunk),
+					Max: utils.ConvertToString(lastChunk + chunkSize),
+				})
+				lastChunk += chunkSize
+			}
+
+			chunks.Insert(types.Chunk{
+				Min: utils.ConvertToString(lastChunk),
+				Max: nil,
+			})
+			logger.Debugf("Chunking completed using limit offset method for stream %s", stream.ID())
+			return nil
+		})
+		return chunks, err
 	}
 }
 
@@ -201,13 +225,24 @@ func (m *MySQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 		query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
 		currentVal := minVal
 		for {
-			args := primaryKeyChunkArgs(currentVal, len(pkColumns))
+			columns := strings.Split(utils.ConvertToString(currentVal), ",")
+			args := make([]any, 0)
+			for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
+				for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
+					args = append(args, columns[partIndex])
+				}
+			}
+
 			var nextValRaw any
 			err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
-			if err == sql.ErrNoRows || nextValRaw == nil {
+			if err == sql.ErrNoRows {
 				break
-			} else if err != nil {
+			}
+			if err != nil {
 				return fmt.Errorf("failed to get next chunk end: %s", err)
+			}
+			if nextValRaw == nil {
+				break
 			}
 			if currentVal != nil {
 				chunks.Insert(types.Chunk{
@@ -227,55 +262,6 @@ func (m *MySQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 		logger.Debugf("Chunking completed using splitViaPrimaryKey Method for stream %s", stream.ID())
 		return nil
 	})
-}
-
-// primaryKeyChunkArgs expands a composite key for the nested predicates in NextChunkEndQuery.
-func primaryKeyChunkArgs(currentVal any, pkColumnCount int) []any {
-	// Split the current value into parts
-	columns := strings.Split(utils.ConvertToString(currentVal), ",")
-
-	// Create args array with the correct number of arguments for the query
-	args := make([]any, 0)
-	for columnIndex := 0; columnIndex < pkColumnCount; columnIndex++ {
-		// For each column combination in the WHERE clause, we need to add the necessary parts
-		for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
-			args = append(args, columns[partIndex])
-		}
-	}
-	return args
-}
-
-// limitOffsetChunks runs offset-based chunking under the same isolation wrapper used by the previous inline flow.
-func (m *MySQL) limitOffsetChunks(ctx context.Context, stream types.StreamInterface, approxRowCount, chunkSize int64) (*types.Set[types.Chunk], error) {
-	var chunks *types.Set[types.Chunk]
-	err := jdbc.WithIsolation(ctx, m.client, true, func(_ *sql.Tx) error {
-		chunks = types.NewSet[types.Chunk]()
-
-		// Start with the first batch-sized range.
-		chunks.Insert(types.Chunk{
-			Min: nil,
-			Max: utils.ConvertToString(chunkSize),
-		})
-
-		// Continue adding batch-sized offset ranges until the approximate row count is covered.
-		lastChunk := chunkSize
-		for lastChunk < approxRowCount {
-			chunks.Insert(types.Chunk{
-				Min: utils.ConvertToString(lastChunk),
-				Max: utils.ConvertToString(lastChunk + chunkSize),
-			})
-			lastChunk += chunkSize
-		}
-
-		// Add the trailing open-ended range.
-		chunks.Insert(types.Chunk{
-			Min: utils.ConvertToString(lastChunk),
-			Max: nil,
-		})
-		logger.Debugf("Chunking completed using limit offset method for stream %s", stream.ID())
-		return nil
-	})
-	return chunks, err
 }
 
 /*
@@ -361,6 +347,7 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 		rangeSlice       = []string{}   // reusable slice for boundary values per iteration
 		adjustedStepSize = new(big.Int) // step size adjusted each iteration for balanced chunking
 		currentBoundary  = new(big.Int) // current position in keyspace while generating boundaries
+		boundaryQueryErr error
 	)
 
 	for stepShrinkFactor := int64(1); stepShrinkFactor <= int64(1000000); stepShrinkFactor = stepShrinkFactor * 2 {
@@ -383,7 +370,8 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 		query, args := jdbc.MySQLDistinctAlignedPKValuesWithCollationQuery(stream, pkColumn, rangeSlice, columnCollationType, bounds.MinPadded, bounds.MaxPadded)
 		rows, err := m.client.QueryContext(ctx, query, args...)
 		if err != nil {
-			logger.Debugf("distinct boundary query failed for stream %s: %s", stream.ID(), err)
+			boundaryQueryErr = fmt.Errorf("failed to query distinct string chunk boundaries: %w", err)
+			logger.Debugf("%s for stream %s", boundaryQueryErr, stream.ID())
 			break
 		}
 		rangeSlice = rangeSlice[:0]
@@ -395,6 +383,7 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 			}
 			rangeSlice = append(rangeSlice, val)
 		}
+		rows.Close()
 
 		if err := rows.Err(); err != nil {
 			return nil, fmt.Errorf("row iteration error during distinct boundaries iteration: %s", err)
@@ -408,6 +397,9 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 	}
 
 	if len(chunkBoundaries) < int(math.Ceil(float64(constants.MysqlChunkAcceptanceRatio*float64(expectedChunks)))) {
+		if boundaryQueryErr != nil {
+			return nil, boundaryQueryErr
+		}
 		return nil, fmt.Errorf("insufficient string chunk boundaries generated")
 	}
 	chunkBoundaries = condenseStrings(chunkBoundaries, expectedChunks)
