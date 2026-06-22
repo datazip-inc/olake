@@ -39,7 +39,7 @@ func (i *Iceberg) Cleanup(ctx context.Context) error {
 }
 
 type IcebergWriter struct {
-	*Iceberg
+	server        *serverInstance
 	options       *destination.Options
 	stream        types.StreamInterface
 	partitionInfo []internal.PartitionInfo // ordered slice to preserve partition column order
@@ -139,7 +139,7 @@ func (i *Iceberg) NewWriterThread(ctx context.Context, stream types.StreamInterf
 	}
 
 	return &IcebergWriter{
-		Iceberg:       i,
+		server:        i.server,
 		stream:        stream,
 		options:       options,
 		partitionInfo: partitionInfo,

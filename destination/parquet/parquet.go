@@ -48,7 +48,9 @@ type Parquet struct {
 // ParquetWriter writes Parquet files for a single stream thread to a local path
 // and optionally uploads them to S3.
 type ParquetWriter struct {
-	*Parquet
+	config           *Config
+	s3Client         *s3.S3
+	s3Uploader       *s3manager.Uploader
 	options          *destination.Options
 	stream           types.StreamInterface
 	basePath         string                     // construct with streamNamespace/streamName
@@ -139,7 +141,9 @@ func (p *Parquet) NewWriterThread(_ context.Context, stream types.StreamInterfac
 	}
 
 	return &ParquetWriter{
-		Parquet:          p,
+		config:           p.config,
+		s3Client:         p.s3Client,
+		s3Uploader:       p.s3Uploader,
 		options:          options,
 		stream:           stream,
 		basePath:         filepath.Join(stream.GetDestinationDatabase(nil), stream.GetDestinationTable()),

@@ -163,12 +163,10 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		// setup table and schema
 		streamArtifact.mu.Lock()
 		defer streamArtifact.mu.Unlock()
-
 		writerThread, threadSchema, prevStreamState, err := w.destination.NewWriterThread(ctx, stream, streamArtifact.schema, opts)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create writer thread: %s", err)
 		}
-
 		if streamArtifact.schema == nil {
 			// First thread for this stream: cache the schema so subsequent threads
 			// skip parsing the schema out of the GET_OR_CREATE_TABLE response.
