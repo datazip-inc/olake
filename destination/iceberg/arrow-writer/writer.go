@@ -12,6 +12,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/arrow-go/v18/parquet/metadata"
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
@@ -20,6 +21,7 @@ import (
 )
 
 type ArrowWriter struct {
+	options        *destination.Options
 	fileschemajson map[string]string // file type -> iceberg schema JSON
 	schema         map[string]string
 	arrowSchema    map[string]*arrow.Schema // file type -> arrow schema
@@ -30,7 +32,6 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
-	meta           *internal.StreamMetaCtx
 }
 
 type Writer struct {
@@ -65,8 +66,9 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, meta *internal.StreamMetaCtx) (*ArrowWriter, error) {
+func New(ctx context.Context, options *destination.Options, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
+		options:       options,
 		partitionInfo: partitionInfo,
 		schema:        schema,
 		stream:        stream,
@@ -75,7 +77,6 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
-		meta:          meta,
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -83,17 +84,6 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 	}
 
 	return writer, nil
-}
-
-// newMetadata builds the per-request Metadata. The session-constant context
-// (namespace, dest table, upsert) was already captured by the JVM on the
-// JSONSCHEMA payload that creates the arrow session (see fetchFileSchemaJSON),
-// so every later FILEPATH / UPLOAD_FILE / REGISTER_AND_COMMIT payload carries
-// only the thread_id the JVM routes on.
-func (w *ArrowWriter) newMetadata() *proto.ArrowPayload_Metadata {
-	return &proto.ArrowPayload_Metadata{
-		ThreadId: w.meta.ThreadID,
-	}
 }
 
 // computes both partition key and typed values
@@ -356,11 +346,12 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 		orderedFiles = append(orderedFiles, pf.PosDeleteFiles...)
 	}
 
-	md := w.newMetadata()
-	md.FileMetadata = orderedFiles
 	commitRequest := &proto.ArrowPayload{
-		Type:     proto.ArrowPayload_REGISTER_AND_COMMIT,
-		Metadata: md,
+		Type: proto.ArrowPayload_REGISTER_AND_COMMIT,
+		Metadata: &proto.ArrowPayload_Metadata{
+			ThreadId:     w.options.ThreadID,
+			FileMetadata: orderedFiles,
+		},
 	}
 
 	// Commit payload from CDC/driver only: e.g. {"captured_cdc_pos":"0/123ABC"}
@@ -374,6 +365,24 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 
 	if _, err := w.server.SendClientRequest(commitCtx, commitRequest); err != nil {
 		return fmt.Errorf("failed to commit arrow files: %s", err)
+	}
+
+	return nil
+}
+
+func (w *ArrowWriter) Cleanup() error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	arrowReq := &proto.ArrowPayload{
+		Type: proto.ArrowPayload_CLOSE_SESSION,
+		Metadata: &proto.ArrowPayload_Metadata{
+			ThreadId: w.options.ThreadID,
+		},
+	}
+
+	if _, err := w.server.SendClientRequest(cleanupCtx, arrowReq); err != nil {
+		return fmt.Errorf("failed to close arrow session: %s", err)
 	}
 
 	return nil
@@ -532,8 +541,10 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Sc
 
 func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string) (string, error) {
 	request := &proto.ArrowPayload{
-		Type:     proto.ArrowPayload_FILEPATH,
-		Metadata: w.newMetadata(),
+		Type: proto.ArrowPayload_FILEPATH,
+		Metadata: &proto.ArrowPayload_Metadata{
+			ThreadId: w.options.ThreadID,
+		},
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -556,14 +567,15 @@ func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string)
 }
 
 func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partitionKey string) error {
-	md := w.newMetadata()
-	md.FileUpload = &proto.ArrowPayload_FileUploadRequest{
-		FileData: rw.currentBuffer.Bytes(),
-		FilePath: rw.filePath,
-	}
 	request := &proto.ArrowPayload{
-		Type:     proto.ArrowPayload_UPLOAD_FILE,
-		Metadata: md,
+		Type: proto.ArrowPayload_UPLOAD_FILE,
+		Metadata: &proto.ArrowPayload_Metadata{
+			ThreadId: w.options.ThreadID,
+			FileUpload: &proto.ArrowPayload_FileUploadRequest{
+				FileData: rw.currentBuffer.Bytes(),
+				FilePath: rw.filePath,
+			},
+		},
 	}
 
 	uploadCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -612,10 +624,10 @@ func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_JSONSCHEMA,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.meta.DestTableName,
-			ThreadId:      w.meta.ThreadID,
-			Namespace:     w.meta.Namespace,
-			Upsert:        w.meta.Upsert,
+			DestTableName: w.stream.GetDestinationTable(),
+			ThreadId:      w.options.ThreadID,
+			Namespace:     w.stream.GetDestinationDatabase(nil),
+			Upsert:        w.upsertMode,
 		},
 	}
 

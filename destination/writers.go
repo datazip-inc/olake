@@ -12,14 +12,9 @@ import (
 )
 
 type (
-	NewFunc        func() Writer
-	InsertFunction func(record types.RawRecord) (err error)
-	CloseFunction  func()
-	WriterOption   func(Writer) error
+	initDest func(config any) (Destination, error)
 
 	Options struct {
-		Identifier  string
-		Number      int64
 		Backfill    bool
 		ThreadID    string
 		ApplyFilter bool
@@ -40,9 +35,7 @@ type (
 
 	WriterPool struct {
 		stats        *Stats
-		lifecycle    Writer // adapter owning destination-level resources; reused for Clear/Close (no re-parse)
-		parsedConfig Config // destination config parsed once; shared by every writer thread (read-only after parse)
-		init         NewFunc
+		destination  Destination // adapter owning destination-level resources; reused for Clear/Close and spawning writer threads
 		writerSchema sync.Map
 		batchSize    int64
 	}
@@ -59,19 +52,7 @@ type (
 	}
 )
 
-var RegisteredWriters = map[types.DestinationType]NewFunc{}
-
-func WithIdentifier(identifier string) ThreadOptions {
-	return func(opt *Options) {
-		opt.Identifier = identifier
-	}
-}
-
-func WithNumber(number int64) ThreadOptions {
-	return func(opt *Options) {
-		opt.Number = number
-	}
-}
+var RegisteredWriters = map[types.DestinationType]initDest{}
 
 func WithBackfill(backfill bool) ThreadOptions {
 	return func(opt *Options) {
@@ -90,26 +71,21 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 	}
 }
 
-// NewWriterPool builds a writer pool for a destination. It owns the lifecycle of
+// NewWriterPool builds a writer pool for a destination. It owns the destination of
 // destination-level process resources: it starts them up front (e.g. the Iceberg
 // shared JVM, via Initializable), validates the connection (Check), and exposes
 // Close to tear them down. Call pool.Close() when done (defer it right after a
 // successful NewWriterPool).
 func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
-	newfunc, found := RegisteredWriters[config.Type]
+	initDest, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
 	}
 
-	// Parse the destination config exactly once into a shared instance. Check may
-	// finalize it (e.g. Parquet sets a temp staging Path for S3); every writer
-	// thread then reuses this same instance read-only via SetConfig.
-	adapter := newfunc()
-	parsedConfig := adapter.GetConfigRef()
-	if err := utils.Unmarshal(config.WriterConfig, parsedConfig); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal destination config: %s", err)
+	adapter, err := initDest(config.WriterConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize destination: %s", err)
 	}
-
 	pool := &WriterPool{
 		stats: &Stats{
 			TotalRecordsToSync: atomic.Int64{},
@@ -117,17 +93,8 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 			ReadCount:          atomic.Int64{},
 			RecordsFiltered:    atomic.Int64{},
 		},
-		lifecycle:    adapter,
-		parsedConfig: parsedConfig,
-		init:         newfunc,
-		batchSize:    batchSize,
-	}
-
-	// Start long-lived destination resources before any check/setup work.
-	if in, ok := adapter.(Initializable); ok {
-		if err := in.Initialize(ctx); err != nil {
-			return nil, fmt.Errorf("failed to initialize destination: %s", err)
-		}
+		destination: adapter,
+		batchSize:   batchSize,
 	}
 
 	if err := adapter.Check(ctx); err != nil {
@@ -148,25 +115,21 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 }
 
 // Close tears down destination-owned process resources (e.g. the Iceberg shared
-// JVM) via the pool's lifecycle adapter. Idempotent and safe to defer right
+// JVM) via the pool's destination adapter. Idempotent and safe to defer right
 // after a successful NewWriterPool.
 func (w *WriterPool) Close(ctx context.Context) {
-	s, ok := w.lifecycle.(Shutdownable)
-	if !ok {
-		return
-	}
-	if err := s.Shutdown(ctx); err != nil {
+	if err := w.destination.Cleanup(ctx); err != nil {
 		logger.Warnf("WriterPool.Close: %s", err)
 	}
 }
 
 // Clear drops the given streams from the destination, reusing the pool's
-// already-initialized lifecycle adapter (and its parsed config).
+// already-initialized destination adapter (and its parsed config).
 func (w *WriterPool) Clear(ctx context.Context, dropStreams []types.StreamInterface) error {
 	if len(dropStreams) == 0 {
 		return nil
 	}
-	return w.lifecycle.DropStreams(ctx, dropStreams)
+	return w.destination.DropTables(ctx, dropStreams)
 }
 
 func (w *WriterPool) AddRecordsToSyncStats(count int64) {
@@ -195,32 +158,25 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		return nil, nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
 	}
 
-	var writerThread Writer
-	prevStreamState, err := func() (*types.MetadataState, error) {
-		// init writer and point it at the config parsed once at pool creation,
-		// shared read-only across all writer threads.
-		writerThread = w.init()
-		writerThread.SetConfig(w.parsedConfig)
-
+	writerThread, prevStreamState, err := func() (Writer, *types.MetadataState, error) {
+		// create thread writer from the destination adapter
 		// setup table and schema
 		streamArtifact.mu.Lock()
 		defer streamArtifact.mu.Unlock()
-
-		output, prevStreamState, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
+		writerThread, threadSchema, prevStreamState, err := w.destination.NewWriterThread(ctx, stream, streamArtifact.schema, opts)
 		if err != nil {
-			return nil, fmt.Errorf("failed to setup the writer thread: %s", err)
+			return nil, nil, fmt.Errorf("failed to create writer thread: %s", err)
 		}
-
 		if streamArtifact.schema == nil {
 			// First thread for this stream: cache the schema so subsequent threads
 			// skip parsing the schema out of the GET_OR_CREATE_TABLE response.
 			// metadataState is intentionally NOT cached, every NewWriter call must
 			// receive a fresh olake_2pc snapshot from Java so that retries see the
 			// up-to-date committed chunk IDs / cursor positions.
-			streamArtifact.schema = output
+			streamArtifact.schema = threadSchema
 		}
 
-		return prevStreamState, nil
+		return writerThread, prevStreamState, nil
 	}()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to setup writer thread: %s", err)
@@ -305,7 +261,7 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
 	select {
 	case <-ctx.Done():
-		err := wt.writer.Close(ctx, finalMetadataState)
+		err := wt.writer.CleanupAndCommit(ctx, finalMetadataState)
 		if err != nil {
 			return fmt.Errorf("failed to close writer: %s", err)
 		}
@@ -316,7 +272,7 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
 
-			closeErr := wt.writer.Close(ctx, finalMetadataState)
+			closeErr := wt.writer.CleanupAndCommit(ctx, finalMetadataState)
 			if closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
 			}
