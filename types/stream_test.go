@@ -13,7 +13,6 @@ import (
 )
 
 func TestStream_NewStream(t *testing.T) {
-
 	tests := []struct {
 		//test identifier
 		testName string
@@ -123,7 +122,6 @@ func TestStream_NewStream(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.testName, func(t *testing.T) {
-
 			if tt.viperPrefix != "" {
 				viper.Set(constants.DestinationDatabasePrefix, tt.viperPrefix)
 				t.Cleanup(func() { viper.Set(constants.DestinationDatabasePrefix, "") })
@@ -571,7 +569,6 @@ func TestStream_WithUpsertField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.testName, func(t *testing.T) {
-
 			asserts := assert.New(t)
 
 			stream := NewStream("grades", "students", nil)
@@ -666,7 +663,6 @@ func TestStream_UnmarshalJSON(t *testing.T) {
 	})
 
 	t.Run("Empty json test", func(t *testing.T) {
-
 		asserts := assert.New(t)
 
 		jsonData := []byte(`{}`)
@@ -682,7 +678,6 @@ func TestStream_UnmarshalJSON(t *testing.T) {
 		asserts.NotNil(stream.AvailableCursorFields, "AvailableCursorFields should be initialized")
 		asserts.NotNil(stream.SourceDefinedPrimaryKey, "SourceDefinedPrimaryKey should be initialized")
 		asserts.NotNil(stream.SupportedSyncModes, "SupportedSyncModes should be initialized")
-
 	})
 
 	t.Run("All fields populated test", func(t *testing.T) {
@@ -789,5 +784,4 @@ func TestStream_LogCatalog(t *testing.T) {
 	err = json.Unmarshal(content, &savedCatalog)
 	assert.NoError(t, err, "File content should be valid JSON")
 	assert.Equal(t, 2, len(savedCatalog.Streams), "Saved catalog should contain 2 streams")
-
 }
