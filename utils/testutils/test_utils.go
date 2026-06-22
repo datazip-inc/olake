@@ -1163,7 +1163,8 @@ func validateAndStripCursorField(t *testing.T, expected, actual []byte) ([]byte,
 
 	strip := func(data []byte, validate bool) ([]byte, error) {
 		var catalog map[string]interface{}
-		if err := json.Unmarshal(data, &catalog); err != nil {
+		isJSON := json.Unmarshal(data, &catalog) == nil
+		if !isJSON {
 			return data, nil // Not JSON; let NormalizedEqual catch structural errors
 		}
 
