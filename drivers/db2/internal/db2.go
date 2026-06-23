@@ -1,327 +1,330 @@
 package driver
 
+// readbatch.go — fast-path DB2 bulk reader using the patched go_ibm_db driver.
+//
+// Architecture
+// ────────────
+// Instead of the standard database/sql.Rows.Scan path (one CGO SQLFetch per
+// row, convertAssign reflection per cell), this file uses two features of the
+// patched driver:
+//
+//  1. Block fetch (SQL_ATTR_ROW_ARRAY_SIZE): SQLFetch returns db2DefaultFetchSize
+//     rows per CGO call instead of one.
+//
+//  2. ReadBatch(*[]T, ...): reads the entire current rowset directly into
+//     typed Go slices, bypassing database/sql.Scan and convertAssign entirely.
+//
+// Producer-consumer concurrency
+// ──────────────────────────────
+// The producer goroutine calls ReadBatch in a tight loop. Each call fills
+// typed column slices for db2DefaultFetchSize rows in one shot. The consumer
+// goroutine converts those raw values through the driver's dataTypeConverter
+// and hands records to OnMessage. A buffered channel decouples the two so that
+// I/O-bound reading and CPU-bound conversion overlap.
+//
+// Selector
+// ────────
+// Set DB2_READ_MODE=mapscan to fall back to the standard MapScanConcurrent
+// path (e.g. for debugging or when query has bound parameters).
+
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
-	"net"
-	"strings"
+	"reflect"
 	"time"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/pkg/jdbc"
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/datazip-inc/olake/utils/typeutils"
-	_ "github.com/ibmdb/go_ibm_db"
-	"github.com/jmoiron/sqlx"
-	"golang.org/x/crypto/ssh"
+	goibmdb "github.com/ibmdb/go_ibm_db"
 )
 
-const db2DefaultFetchSize = 200
+// batchChannelDepth controls how many filled rowsets can be queued between the
+// producer and consumer. 4 lets the producer run ~800 rows ahead.
+const batchChannelDepth = 4
 
-type DB2 struct {
-	client      *sqlx.DB
-	config      *Config
-	state       *types.State
-	sshClient   *ssh.Client
-	sshListener net.Listener
+// colBuffer holds the typed destination slice for one column in a ReadBatch
+// call. dest is passed to ReadBatch; getValue extracts the i-th element.
+type colBuffer struct {
+	// dest is a *[]T pointer. ReadBatch writes into the slice it points to.
+	dest interface{}
+	// getValue returns element i as interface{} for type-conversion.
+	// The closure captures the slice variable directly: because the patched
+	// driver's ensureCapXxx only reallocates when len < n, and we pre-allocate
+	// to fetchSize which equals the driver's rowset size, the underlying array
+	// is never replaced and the captured slice header stays valid.
+	getValue func(i int) interface{}
 }
 
-func (d *DB2) CDCSupported() bool {
-	return false // CDC is not supported for db2 yet
+// colBatch bundles a reusable set of column buffers with the matching
+// []interface{} destination slice handed to ReadBatch. Recycling these across
+// fetches (via a free-list channel) removes the per-batch buildColBuffers
+// allocations that the alloc profile showed at ~25% of all heap allocations.
+//
+// nulls holds one []bool per column (each sized fetchSize). The driver's
+// ReadBatchWithNulls fills nulls[c][i] = true when column c, row i is SQL NULL.
+// This is what lets the fast path preserve the NULL-vs-zero-value distinction
+// for every type — the typed destination slices alone cannot express NULL.
+type colBatch struct {
+	bufs  []colBuffer
+	dests []interface{}
+	nulls [][]bool
 }
 
-func (d *DB2) Setup(ctx context.Context) error {
-	if err := d.config.Validate(); err != nil {
-		return err
-	}
+// batchMsg is the unit sent from producer to consumer: one filled colBatch plus
+// the row count for that fetch.
+type batchMsg struct {
+	n     int
+	batch *colBatch
+}
 
-	if d.config.SSHConfig != nil && d.config.SSHConfig.Host != "" {
-		logger.Info("Found SSH Configuration")
-		var err error
-		d.sshClient, err = d.config.SSHConfig.SetupSSHConnection()
-		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
-		}
-	}
-
-	var dsn string
-	if d.sshClient != nil {
-		logger.Info("Connecting to DB2 via SSH tunnel")
-
-		listener, err := net.Listen("tcp", "localhost:0")
-		if err != nil {
-			return fmt.Errorf("failed to create local listener for SSH tunnel: %s", err)
-		}
-		d.sshListener = listener
-
-		remoteAddr := fmt.Sprintf("%s:%d", d.config.Host, d.config.Port)
-		go d.forwardConnections(listener, remoteAddr)
-
-		localAddr := listener.Addr().(*net.TCPAddr)
-		dsn = d.config.BuildTunnelDSN(localAddr.Port)
-	} else {
-		dsn = d.config.BuildDSN()
-	}
-
-	client, err := sqlx.Open("go_ibm_db", dsn)
+// readBatchConcurrent executes query (with optional args) via the patched driver,
+// fetches rows in bulk with ReadBatch, converts them to OLake records, and calls onMessage.
+func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any, onMessage abstract.BackfillMsgFn) error {
+	sqlConn, err := d.client.Conn(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to open db2 connection: %s", err)
+		return fmt.Errorf("readBatchConcurrent: acquire conn: %s", err)
 	}
+	defer sqlConn.Close()
 
-	client.SetMaxOpenConns(d.config.MaxThreads)
-
-	// Verify connection
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping db2: %s", err)
-	}
-
-	d.client = client
-	d.config.RetryCount = utils.Ternary(d.config.RetryCount <= 0, 1, d.config.RetryCount+1).(int)
-	return nil
-}
-
-func (d *DB2) StateType() types.StateType {
-	return types.StreamType
-}
-
-func (d *DB2) SetupState(state *types.State) {
-	d.state = state
-}
-
-func (d *DB2) GetConfigRef() abstract.Config {
-	d.config = &Config{}
-	return d.config
-}
-
-func (d *DB2) Spec() any {
-	return Config{}
-}
-
-func (d *DB2) CloseConnection() {
-	if d.client != nil {
-		if err := d.client.Close(); err != nil {
-			logger.Error("failed to close db2 connection: %s", err)
-		}
-	}
-
-	if d.sshListener != nil {
-		if err := d.sshListener.Close(); err != nil {
-			logger.Errorf("failed to close SSH tunnel listener: %s", err)
-		}
-	}
-
-	if d.sshClient != nil {
-		if err := d.sshClient.Close(); err != nil {
-			logger.Errorf("failed to close SSH client: %s", err)
-		}
-	}
-}
-
-func (d *DB2) forwardConnections(listener net.Listener, remoteAddr string) {
-	for {
-		localConn, err := listener.Accept()
-		if err != nil {
-			return
+	// raw connection to enable access to the underlying driver connection,
+	// used to bypass the database/sql layer and directly interact with the forked driver.
+	return sqlConn.Raw(func(driverConn interface{}) error {
+		conn, ok := driverConn.(*goibmdb.Conn)
+		if !ok {
+			return fmt.Errorf("readBatchConcurrent: not a *go_ibm_db.Conn (%T)", driverConn)
 		}
 
-		remoteConn, err := d.sshClient.Dial("tcp", remoteAddr)
-		if err != nil {
-			logger.Warnf("failed to dial DB2 target %s through SSH tunnel: %s", remoteAddr, err)
-			localConn.Close()
-			continue
-		}
+		// TODO: check if we need to make it configurable
+		// set the fetch size for the connection to the default value.
+		conn.SetFetchSize(db2DefaultFetchSize)
 
-		go func() {
-			defer localConn.Close()
-			defer remoteConn.Close()
-
-			done := make(chan struct{}, 2)
-			go func() { io.Copy(localConn, remoteConn); done <- struct{}{} }()
-			go func() { io.Copy(remoteConn, localConn); done <- struct{}{} }()
-			<-done
-		}()
-	}
-}
-
-func (d *DB2) Type() string {
-	return string(constants.DB2)
-}
-
-func (d *DB2) MaxConnections() int {
-	return d.config.MaxThreads
-}
-
-func (d *DB2) MaxRetries() int {
-	return d.config.RetryCount
-}
-
-func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
-	logger.Infof("Starting discover for DB2 database %s", d.config.Database)
-
-	rows, err := d.client.QueryContext(ctx, jdbc.DB2DiscoveryQuery())
-	if err != nil {
-		return nil, fmt.Errorf("failed to list tables: %s", err)
-	}
-	defer rows.Close()
-
-	var streamNames []string
-	for rows.Next() {
-		var schema, name string
-		if err := rows.Scan(&schema, &name); err != nil {
-			return nil, fmt.Errorf("failed to scan table row: %s", err)
-		}
-		streamNames = append(streamNames, fmt.Sprintf("%s.%s", schema, name))
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over table rows: %s", err)
-	}
-
-	return streamNames, nil
-}
-
-func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	populateStreams := func(ctx context.Context, streamName string) (*types.Stream, error) {
-		logger.Infof("producing type schema for stream [%s]", streamName)
-
-		parts := strings.Split(streamName, ".")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-		}
-
-		schemaName, tableName := parts[0], parts[1]
-		stream := types.NewStream(tableName, schemaName, &d.config.Database)
-
-		rows, err := d.client.QueryContext(ctx, jdbc.DB2TableSchemaAndPrimaryKeysQuery(), schemaName, tableName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to query column metadata: %s", err)
+		var rows *goibmdb.Rows
+		// len(args) = 0: backfill for full_refresh
+		// len(args) > 0: incremental sync
+		if len(args) == 0 {
+			driverRows, err := conn.Query(query, nil)
+			if err != nil {
+				return fmt.Errorf("readBatchConcurrent: query: %s", err)
+			}
+			var ok bool
+			rows, ok = driverRows.(*goibmdb.Rows)
+			if !ok {
+				driverRows.Close()
+				return fmt.Errorf("readBatchConcurrent: expected *go_ibm_db.Rows, got %T", driverRows)
+			}
+		} else {
+			driverArgs := make([]driver.Value, len(args))
+			for i, a := range args {
+				driverArgs[i] = a
+			}
+			rows, err = conn.QueryWithArgs(query, driverArgs)
+			if err != nil {
+				return fmt.Errorf("readBatchConcurrent: query with args: %s", err)
+			}
 		}
 		defer rows.Close()
 
-		for rows.Next() {
-			var (
-				columnName string
-				dataType   string
-				isNullable string
-				pkColumn   *string
-			)
-
-			if err := rows.Scan(&columnName, &dataType, &isNullable, &pkColumn); err != nil {
-				return nil, fmt.Errorf("failed to scan column: %s", err)
-			}
-
-			stream.WithCursorField(columnName)
-			datatype := types.Unknown
-
-			if val, found := db2TypeToDataTypes[strings.ToLower(dataType)]; found {
-				datatype = val
-			} else {
-				logger.Debugf("unsupported DB2 type '%s' for column '%s.%s', defaulting to String", dataType, streamName, columnName)
-				datatype = types.String
-			}
-			stream.UpsertField(columnName, datatype, isNullable == "Y", false)
-
-			if pkColumn != nil {
-				stream.WithPrimaryKey(columnName)
-			}
+		// Collect column metadata once.
+		colNames := rows.Columns()
+		nCols := len(colNames)
+		scanTypes := make([]reflect.Type, nCols)
+		colTypeNames := make([]string, nCols)
+		for idx := range nCols {
+			scanTypes[idx] = rows.ColumnTypeScanType(idx)
+			colTypeNames[idx] = rows.ColumnTypeDatabaseTypeName(idx)
 		}
-		return stream, rows.Err()
-	}
 
-	stream, err := populateStreams(ctx, streamName)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
-		}
-		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
-	}
+		// Pre-compile per-column converters once, with the olake DataType
+		// resolved a single time per column (not per cell). See
+		// buildResolvedConverters.
+		convFuncs := d.buildResolvedConverters(colTypeNames)
 
-	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
-	if d.CDCSupported() {
-		stream.WithSyncMode(types.CDC, types.STRICTCDC)
-	}
+		// Read the fetch size back from the rows object — this is the value the
+		// driver actually applied to SQL_ATTR_ROW_ARRAY_SIZE. When the result
+		// set contains non-bindable columns (CLOB/DBCLOB/XML), BindColumns in
+		// the patched driver resets SQL_ATTR_ROW_ARRAY_SIZE to 1. In that case
+		// rows.FetchSize() returns 1 and we skip the producer-consumer goroutine
+		// pair (two channel hops per row) and run a simple inline loop instead.
+		fetchSize := rows.FetchSize()
 
-	return stream, nil
-}
-
-func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
-	if value == nil {
-		return nil, typeutils.ErrNullValue
-	}
-
-	// ColumnTypeDatabaseTypeName returns the DB2 type name in uppercase as-is,
-	// so this comparison must be uppercase "TIME".
-	if columnType == "TIME" {
-		return typeutils.ReformatTimeValue(value)
-	}
-
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, db2TypeToDataTypes)
-
-	if isFixedLengthCharType(columnType) && olakeType == types.String {
-		switch v := value.(type) {
-		case string:
-			return typeutils.ReformatValue(olakeType, strings.TrimRight(v, " "))
-		case []byte:
-			return typeutils.ReformatValue(olakeType, strings.TrimRight(string(v), " "))
-		}
-	}
-	return typeutils.ReformatValue(olakeType, value)
-}
-
-// isFixedLengthCharType returns true for DB2 types that pad values to the
-// declared width with trailing spaces. Only these types should have trailing
-// spaces trimmed; variable-length types (VARCHAR, CLOB, etc.) store spaces
-// as meaningful data and must not be trimmed.
-func isFixedLengthCharType(dbTypeName string) bool {
-	switch strings.ToLower(dbTypeName) {
-	case "char", "character", "chararr", "chararray", "graphic":
-		return true
-	}
-	return false
-}
-
-// buildResolvedConverters compiles one converter closure per column with the
-// olake DataType (and TIME flag) resolved exactly once — not per cell. This is
-// the completed form of the optimisation buildReadBatchConverters only started:
-// the column type string is parsed a single time at setup instead of on every
-// one of the (rows × columns) cells.
-func (d *DB2) buildResolvedConverters(colTypeNames []string) []func(interface{}) (interface{}, error) {
-	funcs := make([]func(interface{}) (interface{}, error), len(colTypeNames))
-	for i, typeName := range colTypeNames {
-		tn := typeName // captured per column; never changes
-		olakeType := typeutils.ExtractAndMapColumnType(tn, db2TypeToDataTypes)
-		funcs[i] = func(raw interface{}) (interface{}, error) {
-			if raw == nil {
-				return nil, nil
-			}
-			if tn == "TIME" {
-				v, err := typeutils.ReformatTimeValue(raw)
-				if err != nil && !errors.Is(err, typeutils.ErrNullValue) {
-					return nil, err
+		// processBatch converts one filled colBatch (n rows) to OLake records.
+		// Shared by both the inline (FetchSize=1) and concurrent paths below.
+		processBatch := func(cb *colBatch, n int) error {
+			for rowIdx := 0; rowIdx < n; rowIdx++ {
+				record := make(map[string]interface{}, nCols)
+				for colIdx, colName := range colNames {
+					// SQL NULL is reported via the driver's null mask, not the
+					// typed slice (which stores a zero-value for NULL cells).
+					// Emit nil so NULL stays distinct from a real 0/""/false/
+					if cb.nulls[colIdx][rowIdx] {
+						record[colName] = nil
+						continue
+					}
+					raw := cb.bufs[colIdx].getValue(rowIdx)
+					conv, err := convFuncs[colIdx](raw)
+					if err != nil {
+						return fmt.Errorf("column %s: %s", colName, err)
+					}
+					record[colName] = conv
 				}
-				return v, nil
-			}
-			if isFixedLengthCharType(tn) && olakeType == types.String {
-				switch v := raw.(type) {
-				case string:
-					return typeutils.ReformatValue(olakeType, strings.TrimRight(v, " "))
-				case []byte:
-					return typeutils.ReformatValue(olakeType, strings.TrimRight(string(v), " "))
+				if err := onMessage(ctx, record); err != nil {
+					return err
 				}
 			}
-			v, err := typeutils.ReformatValue(olakeType, raw)
-			if err != nil && !errors.Is(err, typeutils.ErrNullValue) {
-				return nil, err
+			return nil
+		}
+
+		// ── Inline path (FetchSize=1, non-bindable columns present) ─────────
+		// When the driver downgraded to FetchSize=1 due to CLOB/DBCLOB/XML
+		// columns, producer-consumer goroutine overhead (two channel round-trips
+		// per row) costs more than it saves. Run a single-goroutine loop instead.
+		if fetchSize == 1 {
+			cb := newColBatch(scanTypes, 1)
+			for {
+				if err := ctx.Err(); err != nil {
+					return nil
+				}
+				n, readErr := rows.ReadBatch(cb.dests, cb.nulls)
+				if n > 0 {
+					if err := processBatch(cb, n); err != nil {
+						return err
+					}
+				}
+				switch {
+				case errors.Is(readErr, io.EOF):
+					return nil
+				case readErr != nil:
+					return fmt.Errorf("ReadBatch: %s", readErr)
+				}
 			}
-			return v, nil
+		}
+
+		// ── Concurrent path (FetchSize>1, all columns bindable) ─────────────
+		// Buffered channel: producer stages batchChannelDepth rowsets ahead.
+		batchCh := make(chan batchMsg, batchChannelDepth)
+
+		// Free-list of reusable buffer sets. Sized to cover every colBatch that
+		// can be in flight simultaneously: one being filled by the producer, up
+		// to batchChannelDepth queued in batchCh, and one being drained by the
+		// consumer. The consumer returns each set to freeCh once it is done, so
+		// no per-batch column-buffer allocation happens in steady state.
+		const inFlight = batchChannelDepth + 2
+		freeCh := make(chan *colBatch, inFlight)
+		for range inFlight {
+			freeCh <- newColBatch(scanTypes, fetchSize)
+		}
+
+		// ── Producer ────────────────────────────────────────────────────────
+		// Calls ReadBatch in a tight loop. Each call fills typed slices for up
+		// to fetchSize rows in a single SQLFetch — no database/sql overhead.
+		// Buffer sets are leased from freeCh and recycled by the consumer.
+		producer := func(ctx context.Context) (err error) {
+			// recover so an unsafe.Pointer panic in ReadBatch returns an error instead of crashing the process.
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("readBatchConcurrent producer: panic: %v", r)
+				}
+			}()
+			defer close(batchCh)
+			for {
+				var cb *colBatch
+				select {
+				case <-ctx.Done():
+					return nil
+				case cb = <-freeCh:
+				}
+
+				n, readErr := rows.ReadBatch(cb.dests, cb.nulls)
+				if n > 0 {
+					select {
+					case <-ctx.Done():
+					case batchCh <- batchMsg{n: n, batch: cb}:
+					}
+				} else {
+					freeCh <- cb
+				}
+				switch {
+				case errors.Is(readErr, io.EOF):
+					return nil
+				case readErr != nil:
+					return fmt.Errorf("ReadBatch: %s", readErr)
+				}
+			}
+		}
+
+		// ── Consumer ────────────────────────────────────────────────────────
+		// Converts each row of each batch through the pre-compiled converters
+		// and calls OnMessage. Runs concurrently with the producer, then returns
+		// the buffer set to freeCh for reuse.
+		consumer := func(ctx context.Context) (err error) {
+			// recover so a panic in getValue, convFuncs, or onMessage returns an error instead of crashing the process.
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("readBatchConcurrent consumer: panic: %v", r)
+				}
+			}()
+			for b := range batchCh {
+				if err := processBatch(b.batch, b.n); err != nil {
+					return err
+				}
+				freeCh <- b.batch
+			}
+			return nil
+		}
+
+		return utils.ConcurrentF(ctx, consumer, producer)
+	})
+}
+
+// makeColBuffer allocates a typed column slice and wires dest/getValue for ReadBatch.
+func makeColBuffer[T any](fetchSize int) colBuffer {
+	colValues := make([]T, fetchSize)
+	return colBuffer{
+		dest:     &colValues,
+		getValue: func(j int) interface{} { return colValues[j] },
+	}
+}
+
+// buildColBuffers allocates a fresh set of typed column slices for one ReadBatch
+// call. The element type for each column is determined from its ColumnTypeScanType.
+func buildColBuffers(scanTypes []reflect.Type, fetchSize int) []colBuffer {
+	bufs := make([]colBuffer, len(scanTypes))
+
+	for i, scanType := range scanTypes {
+		switch {
+		case scanType.Kind() == reflect.Bool:
+			bufs[i] = makeColBuffer[bool](fetchSize)
+		case scanType.Kind() == reflect.Int32:
+			bufs[i] = makeColBuffer[int32](fetchSize)
+		case scanType.Kind() == reflect.Int64:
+			bufs[i] = makeColBuffer[int64](fetchSize)
+		case scanType.Kind() == reflect.Float64:
+			bufs[i] = makeColBuffer[float64](fetchSize)
+		case scanType.Kind() == reflect.String:
+			bufs[i] = makeColBuffer[string](fetchSize)
+		case scanType.Kind() == reflect.Slice: // []byte
+			bufs[i] = makeColBuffer[[]byte](fetchSize)
+		case scanType == reflect.TypeOf(time.Time{}):
+			bufs[i] = makeColBuffer[time.Time](fetchSize)
+		default:
+			bufs[i] = makeColBuffer[string](fetchSize)
 		}
 	}
-	return funcs
+	return bufs
+}
+
+// newColBatch allocates typed column buffers, null masks, and the dest slice
+// for one ReadBatch call at the given fetchSize.
+func newColBatch(scanTypes []reflect.Type, fetchSize int) *colBatch {
+	bufs := buildColBuffers(scanTypes, fetchSize)
+	colDests := make([]interface{}, len(bufs))
+	nulls := make([][]bool, len(bufs))
+	for j := range bufs {
+		colDests[j] = bufs[j].dest
+		nulls[j] = make([]bool, fetchSize)
+	}
+	return &colBatch{bufs: bufs, dests: colDests, nulls: nulls}
 }
