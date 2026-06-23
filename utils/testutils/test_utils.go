@@ -1208,12 +1208,7 @@ func validateAndStripCursorField(t *testing.T, expected, actual []byte) ([]byte,
 		return nil, nil, err
 	}
 
-	normExpected, err := strip(expected, false) // Strip expected catalog for 1:1 comparison
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return normExpected, normActual, nil
+	return expected, normActual, nil
 }
 
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
