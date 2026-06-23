@@ -50,24 +50,13 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
 
     // Single map: one entry per active Go writer thread.
     // Each session is fully self-contained — exact replica of what one JVM owned.
-    private final ConcurrentMap<String, ArrowSession> sessions = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, IcebergSession> sessions;
 
-    public OlakeArrowIngester(Catalog icebergCatalog) {
+    public OlakeArrowIngester(Catalog icebergCatalog, ConcurrentMap<String, IcebergSession> sessions) {
         this.icebergCatalog = icebergCatalog;
+        this.sessions = sessions;
     }
 
-    private static final class ArrowSession {
-        final Table icebergTable;
-        final OutputFileFactory fileFactory;
-        final IcebergTableOperator op;
-
-        ArrowSession(Table icebergTable, boolean upsert) {
-            this.icebergTable = icebergTable;
-            FileFormat fileFormat = IcebergUtil.getTableFileFormat(icebergTable);
-            this.fileFactory = IcebergUtil.getTableOutputFileFactory(icebergTable, fileFormat);
-            this.op = new IcebergTableOperator(upsert);
-        }
-    }
 
     @Override
     public void icebergAPI(ArrowPayload request, StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver) {
@@ -90,39 +79,13 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                 return;
             }
 
-            // JSONSCHEMA is the session-creating handshake: it is the first arrow
-            // payload Go sends for a thread and is the only one that carries the
-            // session-constant context (namespace, dest table, upsert). Build the
-            // session here once; every later payload reuses it by thread_id alone.
-            if (request.getType() == ArrowPayload.PayloadType.JSONSCHEMA) {
-                String destTableName = metadata.getDestTableName();
-                String namespace = metadata.getNamespace();
-                boolean upsert = metadata.getUpsert();
-
-                if (destTableName == null || destTableName.isEmpty()) {
-                    throw new Exception("Destination table name not present in metadata");
-                }
-                if (namespace == null || namespace.isEmpty()) {
-                    throw new Exception("Namespace not present in metadata");
-                }
-
-                TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
-                // Table must already exist (created by the legacy ingester during Setup).
-                sessions.computeIfAbsent(threadId, k -> {
-                    if (!icebergCatalog.tableExists(tid)) {
-                        throw new RuntimeException("Table does not exist: " + tid);
-                    }
-                    return new ArrowSession(icebergCatalog.loadTable(tid), upsert);
-                });
-            }
-
-            // Every payload other than JSONSCHEMA must run against an existing
-            // session created by the JSONSCHEMA handshake above.
-            ArrowSession session = sessions.get(threadId);
-            if (session == null) {
-                throw new Exception("No active arrow session for thread " + threadId
-                        + "; JSONSCHEMA handshake must run before " + request.getType());
-            }
+    // Every payload other than JSONSCHEMA must run against an existing
+    // session created by the JSONSCHEMA handshake above.
+    IcebergSession session = sessions.get(threadId);
+    if (session == null) {
+        throw new Exception("No active arrow session for thread " + threadId
+                + "; GET_OR_CREATE_TABLE handshake on row ingester must run before " + request.getType());
+    }
 
             switch (request.getType()) {
                 case JSONSCHEMA -> {

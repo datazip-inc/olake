@@ -46,48 +46,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
     private final Catalog icebergCatalog;
 
-    // One entry per active Go writer thread. Each session is self-contained:
-    // it owns its own Table handle (loaded from the catalog on first use) and
-    // its own IcebergTableOperator (with an independent BaseTaskWriter).
-    // This is the exact isolation the old per-thread JVM gave for free.
-    private final ConcurrentMap<String, ThreadSession> sessions = new ConcurrentHashMap<>();
+    // Shared sessions map (one entry per active Go writer thread)
+    // Used by both OlakeRowsIngester and OlakeArrowIngester
+    private final ConcurrentMap<String, IcebergSession> sessions;
 
-    public OlakeRowsIngester(Catalog icebergCatalog) {
+    public OlakeRowsIngester(Catalog icebergCatalog, ConcurrentMap<String, IcebergSession> sessions) {
         this.icebergCatalog = icebergCatalog;
-    }
-
-    private final class ThreadSession {
-        final Table icebergTable;
-        final IcebergTableOperator op;
-
-        // Session-constant context captured once at GET_OR_CREATE_TABLE. The Go
-        // side stamps these only on the session-creating request; later RECORDS /
-        // COMMIT / EVOLVE_SCHEMA payloads omit them and we read from here instead.
-        //
-        // A non-empty identifierField is exactly the "create identifier fields"
-        // flag (both derive from the same NoIdentifierFields config on the Go
-        // side), so we keep only identifierField and read createIdentifierFields()
-        // off it. upsert is independent (append-mode / backfill phase) and stays.
-        final String identifierField;
-        final boolean upsert;
-        
-        ThreadSession(TableIdentifier tid,
-                      String identifierField,
-                      List<IcebergPayload.SchemaField> schemaMetadata,
-                      List<Map<String, String>> partitionTransforms,
-                      boolean upsert) {
-            Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
-            this.icebergTable = loadOrCreateTable(tid, schema, partitionTransforms);
-            this.op = new IcebergTableOperator(upsert);
-            this.identifierField = identifierField;
-            this.upsert = upsert;
-        }
-
-        // Identifier fields are created/maintained exactly when the stream has a
-        // non-empty identifier field (i.e. NoIdentifierFields was false on Go side).
-        boolean createIdentifierFields() {
-            return identifierField != null && !identifierField.isEmpty();
-        }
+        this.sessions = sessions;
     }
 
     @Override
@@ -143,7 +108,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             // create-identifier-fields, partition spec) rides only on the
             // GET_OR_CREATE_TABLE payload; the session captures it once. Every
             // later request omits those fields and we read them from the session.
-            ThreadSession session;
+            IcebergSession session;
             if (request.getType() == IcebergPayload.PayloadType.GET_OR_CREATE_TABLE) {
                 if (destTableName == null || destTableName.isEmpty()) {
                     throw new Exception("Destination table name not present in metadata");
@@ -162,7 +127,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 // on the same threadId (which Go's CxGroup limit-1 prevents, but
                 // defensive here), only one session is created.
                 session = sessions.computeIfAbsent(threadId,
-                        k -> new ThreadSession(tid, identifierField, schemaMetadata, partitionTransforms, upsert));
+                        k -> {
+                            Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
+                            Table icebergTable = loadOrCreateTable(tid, schema, partitionTransforms);
+                            return new IcebergSession(icebergTable, upsert, identifierField);
+                        });
             } else {
                 // RECORDS / COMMIT / EVOLVE_SCHEMA / REFRESH_TABLE_SCHEMA: the
                 // session must already exist (GET_OR_CREATE_TABLE runs first in
