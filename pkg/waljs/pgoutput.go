@@ -158,7 +158,12 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 			col = oldTuple.Columns[idx]
 		}
 		if col.Data == nil {
-			data[colName] = nil
+			// If the column is a TOAST column, set the value to __olake_unavailable_value__ otherwise set it to nil
+			if col.DataType == pglogrepl.TupleDataTypeToast {
+				data[colName] = "__olake_unavailable_value__"
+			} else {
+				data[colName] = nil
+			}
 			continue
 		}
 
