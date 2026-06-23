@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -230,7 +231,7 @@ func TestFlatten(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			flattener := NewFlattener()
+			flattener := NewFlattener(utils.Reformat)
 
 			result, err := flattener.Flatten(tc.input)
 
@@ -516,7 +517,7 @@ func TestFlattenInternal(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			flattener := NewFlattener()
+			flattener := NewFlattener(utils.Reformat)
 			destination := make(types.Record)
 
 			err := flattener.(*FlattenerImpl).flatten(tc.key, tc.value, destination)

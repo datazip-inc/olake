@@ -198,6 +198,7 @@ const MSSQLUISchema = `{
     { "port": 12, "max_threads": 12 },
     { "retry_count": 12, "jdbc_url_params": 12 },
     { "ssl": 12, "manage_capture_instances": 12 },
+    { "primary_config": 24 },
     { "update_method": 12, "ssh_config": 12 }
   ],
   "ssl": {
@@ -215,6 +216,19 @@ const MSSQLUISchema = `{
   },
   "manage_capture_instances": {
     "ui:widget": "boolean"
+  },
+  "primary_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "password": 12 }
+    ],
+    "password": {
+      "ui:widget": "password"
+    }
   },
   "ssh_config": {
     "ui:options": {

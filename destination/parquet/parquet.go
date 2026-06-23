@@ -135,7 +135,7 @@ func (p *Parquet) NewWriterThread(_ context.Context, stream types.StreamInterfac
 			threadSchema = fields.Clone()
 		} else {
 			fields := make(typeutils.Fields)
-			fields.FromSchema(stream.Schema())
+			fields.FromSchema(stream.Schema(), stream.ResolveColumnName)
 			threadSchema = fields.Clone() // update schema
 		}
 	}
@@ -357,10 +357,13 @@ func (p *ParquetWriter) FlattenAndCleanData(ctx context.Context, records []types
 
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
+	// One flattener per batch: the internal cache amortizes resolve calls
+	// across all records so each column name is resolved only once.
+	batchFlattener := typeutils.NewFlattener(p.stream.ResolveColumnName)
 	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 		// Add common fields
 		maps.Copy(records[idx].Data, record.OlakeColumns)
-		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+		flattenedRecord, err := batchFlattener.Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
 		}
@@ -411,7 +414,7 @@ func (p *ParquetWriter) FlattenAndCleanData(ctx context.Context, records []types
 		if filterErr != nil {
 			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
 		}
-		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, p.schema)
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, p.schema, p.stream.ResolveColumnName)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
 		}
@@ -465,7 +468,6 @@ func (p *ParquetWriter) getPartitionedFilePath(values map[string]any, olakeTimes
 		colName := strings.TrimSpace(strings.Trim(regexVarBlock[0], `'`))
 		defaultValue := strings.TrimSpace(strings.Trim(regexVarBlock[1], `'`))
 		granularity := strings.TrimSpace(strings.Trim(regexVarBlock[2], `'`))
-
 		if defaultValue == "" {
 			defaultValue = fmt.Sprintf("default_%s", colName)
 		}
@@ -499,7 +501,16 @@ func (p *ParquetWriter) getPartitionedFilePath(values map[string]any, olakeTimes
 		if colName == "now()" {
 			return granularityFunction(olakeTimestamp)
 		}
-		value, exists := values[colName]
+		// Resolve the regex column name using the stream's naming strategy so that the
+		// key matches record.Data keys after FlattenAndCleanData (resolved when
+		// normalization=true, raw source name when normalization=false).
+		// Try the resolved key first; fall back to the raw source name so that
+		// normalization=false + use_source_column_names=false still works.
+		resolvedColName := p.stream.ResolveColumnName(colName)
+		value, exists := values[resolvedColName]
+		if !exists {
+			value, exists = values[colName]
+		}
 		if exists && value != nil {
 			return granularityFunction(value)
 		}

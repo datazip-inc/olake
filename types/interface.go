@@ -19,6 +19,8 @@ type StreamInterface interface {
 	// Column selection helpers (driven by StreamMetadata.SelectedColumns)
 	RetainSelectedColumns() func(map[string]interface{}) map[string]interface{}
 	IsSelectedColumn() func(string) bool
+	// ResolveColumnName returns the output column name based on the stream naming strategy, preserving the source name when use_source_column_names is enabled or applying utils.Reformat otherwise.
+	ResolveColumnName(key string) string
 }
 
 type StateInterface interface {

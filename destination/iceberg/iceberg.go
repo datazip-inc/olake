@@ -74,7 +74,7 @@ func (i *Iceberg) Type() string {
 
 // NewWriterThread spawns a thread-specific writer for a stream.
 func (i *Iceberg) NewWriterThread(ctx context.Context, stream types.StreamInterface, _ any, options *destination.Options) (destination.Writer, any, *types.MetadataState, error) {
-	partitionInfo, err := parsePartitionRegex(stream.GetPartitionRegex())
+	partitionInfo, err := parsePartitionRegex(stream.GetPartitionRegex(), stream.ResolveColumnName)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to parse partition regex: %s", err)
 	}
@@ -285,9 +285,12 @@ func (i *IcebergWriter) FlattenAndCleanData(ctx context.Context, records []types
 		}
 
 		// parallel flatten data and detect schema difference
+		// One flattener per batch: the internal cache amortizes resolve calls
+		// across all records so each column name is resolved only once.
+		batchFlattener := typeutils.NewFlattener(i.stream.ResolveColumnName)
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-			flattenRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+			flattenRecord, err := batchFlattener.Flatten(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}
@@ -363,7 +366,7 @@ func (i *IcebergWriter) FlattenAndCleanData(ctx context.Context, records []types
 		if filterErr != nil {
 			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
 		}
-		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema)
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema, i.stream.ResolveColumnName)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
 		}
@@ -454,7 +457,7 @@ func (i *IcebergWriter) EvolveSchema(ctx context.Context, globalSchema, recordsR
 }
 
 // parsePartitionRegex parses the partition regex and populates the partitionInfo slice
-func parsePartitionRegex(pattern string) ([]internal.PartitionInfo, error) {
+func parsePartitionRegex(pattern string, resolveColumnName func(string) string) ([]internal.PartitionInfo, error) {
 	// path pattern example: /{col_name, partition_transform}/{col_name, partition_transform}
 	// This strictly identifies column name and partition transform entries
 	var partitionInfo []internal.PartitionInfo
@@ -481,7 +484,7 @@ func parsePartitionRegex(pattern string) ([]internal.PartitionInfo, error) {
 		// destination column name without scattering utils.Reformat() calls.
 		partitionInfo = append(partitionInfo, internal.PartitionInfo{
 			Field:       colName,
-			SchemaField: utils.Reformat(colName),
+			SchemaField: resolveColumnName(colName),
 			Transform:   transform,
 		})
 	}
