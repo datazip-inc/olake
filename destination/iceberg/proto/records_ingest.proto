@@ -3,6 +3,10 @@ syntax = "proto3";
 package io.debezium.server.iceberg.rpc;
 
 option go_package = "iceberg/proto";
+// Keep the Java outer class name stable as RecordIngest regardless of the
+// proto file name (the file is records_ingest.proto, which would otherwise
+// default to RecordsIngest and break existing io...rpc.RecordIngest.* imports).
+option java_outer_classname = "RecordIngest";
 
 service RecordIngestService {
   rpc SendRecords(IcebergPayload) returns (RecordIngestResponse);
@@ -26,11 +30,21 @@ message IcebergPayload {
     optional string identifier_field = 3;
     repeated SchemaField schema = 4;
     string payload = 6;
+    // Per-writer config carried per request so a single Java process can serve
+    // many writer threads (previously baked into process-launch config).
+    string namespace = 7;                       // Iceberg table namespace (destination database)
+    bool upsert = 8;                            // upsert vs append for this writer
+    repeated PartitionField partition_fields = 9; // partition spec at table creation
   }
 
   message SchemaField {
     string ice_type = 1;
     string key = 2;
+  }
+
+  message PartitionField {
+    string field = 1;
+    string transform = 2;
   }
 
   // OPTIMIZED: Replace google.protobuf.Value with typed fields
@@ -105,6 +119,9 @@ message ArrowPayload {
     repeated FileMetadata file_metadata = 3;
     optional FileUploadRequest file_upload = 4;
     string payload = 6;
+    // Per-writer config carried per request (single Java process multiplexing).
+    string namespace = 7; // Iceberg table namespace (destination database)
+    bool upsert = 8;      // upsert vs append for this writer
   }
 
   Metadata metadata = 2;

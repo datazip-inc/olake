@@ -123,6 +123,9 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// Tear down any process-global destination server (e.g. the single shared
+		// Iceberg Java process) once the sync finishes.
+		defer pool.Close()
 
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {

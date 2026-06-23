@@ -30,6 +30,7 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
+	namespace      string // Iceberg namespace, sent per request so the single Java process can build this thread's worker
 }
 
 type Writer struct {
@@ -64,7 +65,7 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
+func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool, namespace string) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
 		partitionInfo: partitionInfo,
 		schema:        schema,
@@ -74,6 +75,7 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
+		namespace:     namespace,
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -349,6 +351,8 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 			ThreadId:      w.server.ServerID(),
 			DestTableName: w.stream.GetDestinationTable(),
 			FileMetadata:  orderedFiles,
+			Namespace:     w.namespace,
+			Upsert:        w.upsertMode,
 		},
 	}
 
@@ -525,6 +529,8 @@ func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string)
 		Metadata: &proto.ArrowPayload_Metadata{
 			DestTableName: w.stream.GetDestinationTable(),
 			ThreadId:      w.server.ServerID(),
+			Namespace:     w.namespace,
+			Upsert:        w.upsertMode,
 		},
 	}
 
@@ -553,6 +559,8 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 		Metadata: &proto.ArrowPayload_Metadata{
 			DestTableName: w.stream.GetDestinationTable(),
 			ThreadId:      w.server.ServerID(),
+			Namespace:     w.namespace,
+			Upsert:        w.upsertMode,
 			FileUpload: &proto.ArrowPayload_FileUploadRequest{
 				FileData: rw.currentBuffer.Bytes(),
 				FilePath: rw.filePath,
@@ -603,6 +611,8 @@ func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 		Metadata: &proto.ArrowPayload_Metadata{
 			DestTableName: w.stream.GetDestinationTable(),
 			ThreadId:      w.server.ServerID(),
+			Namespace:     w.namespace,
+			Upsert:        w.upsertMode,
 		},
 	}
 

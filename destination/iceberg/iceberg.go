@@ -67,7 +67,7 @@ func (i *Iceberg) Spec() any {
 
 func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
 	if i.config.UseArrowWrites {
-		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
+		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
 	}
 
 	// default: legacy writer
@@ -103,7 +103,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		}
 	}
 
-	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
+	server, err := newIcebergClient(i.config, options.ThreadID, false, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to start iceberg server: %s", err)
 	}
@@ -149,6 +149,11 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 			DestTableName:   i.stream.GetDestinationTable(),
 			ThreadId:        i.server.serverID,
 			IdentifierField: &identifierField,
+			// Per-writer config the single Java process needs to build this thread's
+			// worker (previously baked into process-launch config).
+			Namespace:       i.stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+			Upsert:          isUpsertMode(i.stream, i.options.Backfill),
+			PartitionFields: toProtoPartitionFields(i.partitionInfo),
 		},
 	})
 	if err != nil {
@@ -223,8 +228,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
 		destinationDB = fmt.Sprintf("%s_%s", utils.Reformat(prefix), destinationDB)
 	}
-	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []internal.PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
+	// Create a temporary (dedicated) setup for checking
+	server, err := newIcebergClient(i.config, i.options.ThreadID, true, false)
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server: %s", err)
 	}
@@ -245,6 +250,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 			ThreadId:      server.serverID,
 			DestTableName: destinationDB,
 			Schema:        types.GetIcebergRawSchema(),
+			Namespace:     destinationDB,
 		},
 	}
 
@@ -270,6 +276,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 			ThreadId:      server.serverID,
 			DestTableName: destinationDB,
 			Schema:        protoSchema,
+			Namespace:     destinationDB,
 		},
 		Records: []*proto.IcebergPayload_IceRecord{{
 			Fields:     protoColumns,
@@ -577,8 +584,8 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 		return nil
 	}
 
-	// server setup for dropping tables
-	server, err := newIcebergClient(i.config, []internal.PartitionInfo{}, i.options.ThreadID, false, false, "")
+	// server setup for dropping tables (dedicated, short-lived process)
+	server, err := newIcebergClient(i.config, i.options.ThreadID, false, false)
 	if err != nil {
 		return fmt.Errorf("failed to setup iceberg server for dropping streams: %s", err)
 	}
@@ -672,8 +679,28 @@ func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
 }
 
+// toProtoPartitionFields converts the ordered partition info into proto partition
+// fields sent per request at table creation. Field uses SchemaField (the reformatted
+// destination column name) to match the Iceberg schema, mirroring the previous
+// launch-config behavior.
+func toProtoPartitionFields(partitionInfo []internal.PartitionInfo) []*proto.IcebergPayload_PartitionField {
+	if len(partitionInfo) == 0 {
+		return nil
+	}
+	fields := make([]*proto.IcebergPayload_PartitionField, 0, len(partitionInfo))
+	for _, info := range partitionInfo {
+		fields = append(fields, &proto.IcebergPayload_PartitionField{
+			Field:     info.SchemaField,
+			Transform: info.Transform,
+		})
+	}
+	return fields
+}
+
 func init() {
 	destination.RegisteredWriters[types.Iceberg] = func() destination.Writer {
 		return new(Iceberg)
 	}
+	// Tear down the process-global Iceberg server when the writer pool closes.
+	destination.RegisterServerShutdownHook(ShutdownSharedServer)
 }
