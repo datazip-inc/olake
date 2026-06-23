@@ -210,11 +210,10 @@ public class IcebergUtil {
       }
       
       // Create the table with the partition spec
-      PartitionSpec spec = specBuilder.build();
       return icebergCatalog.buildTable(tableIdentifier, schema)
               .withProperty(FORMAT_VERSION, "2")
               .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
-              .withPartitionSpec(spec)
+              .withPartitionSpec(specBuilder.build())
               .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
               .create();
     }

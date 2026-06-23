@@ -35,7 +35,6 @@ import jakarta.enterprise.context.Dependent;
 public class OlakeRpcServer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRpcServer.class);
-
     protected static final Serde<JsonNode> valSerde = DebeziumSerdes.payloadJson(JsonNode.class);
     protected static final Serde<JsonNode> keySerde = DebeziumSerdes.payloadJson(JsonNode.class);
     final static Configuration hadoopConf = new Configuration();
@@ -54,7 +53,6 @@ public class OlakeRpcServer {
         ObjectMapper objectMapper = new ObjectMapper();
         Map<String, Object> configMap = objectMapper.readValue(jsonConfig, new TypeReference<Map<String, Object>>() {
         });
-
         LOGGER.info("Logs will be output to console only");
 
         // Only catalog/storage-level config is consumed here. Stream-level context
