@@ -72,6 +72,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             // CLOSE_SESSION: release the session's Table handle and operator.
             // Mirrors what process exit did for free in the old per-JVM model.
             if (request.getType() == IcebergPayload.PayloadType.CLOSE_SESSION) {
+                 // Give active RECORDS/COMMIT gRPC requests on this cancelled thread some time to check isCancelled(),
+                // call closeQuietly() to abort/close the writer cleanly, and exit, before we remove the session.
+                try {
+                    Thread.sleep(1000); // 1 second
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
                 sessions.remove(threadId);
                 sendResponse(responseObserver, requestId + " closed session " + threadId);
                 LOGGER.debug("{} closed session {}", requestId, threadId);

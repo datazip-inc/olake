@@ -74,6 +74,13 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
             // clear op.filesToCommit while an in-flight REGISTER_AND_COMMIT may be
             // using that list. Nothing to close here; the session is GC'd.
             if (request.getType() == ArrowPayload.PayloadType.CLOSE_SESSION) {
+                  // Give active UPLOAD/REGISTER_AND_COMMIT gRPC requests on this cancelled thread some time to exit,
+                // before we remove the session.
+                try {
+                    Thread.sleep(1000); // 1 second
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
                 sessions.remove(threadId);
                 sendResponse(responseObserver, requestId + " closed arrow session " + threadId);
                 return;
