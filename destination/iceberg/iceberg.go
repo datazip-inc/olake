@@ -155,8 +155,13 @@ func (i *writer) Write(ctx context.Context, records []types.RawRecord) error {
 
 func (i *writer) CleanupAndCommit(ctx context.Context, finalMetadataState any) (err error) {
 	defer func() {
-		cleanupErr := i.writer.Cleanup()
-		err = utils.Ternary(err == nil, cleanupErr, fmt.Errorf("%s: cleanup error: %w", err, cleanupErr)).(error)
+		if cleanupErr := i.writer.Cleanup(); cleanupErr != nil {
+			if err == nil {
+				err = cleanupErr
+			} else {
+				err = fmt.Errorf("%s: cleanup error: %w", err, cleanupErr)
+			}
+		}
 	}()
 
 	select {
