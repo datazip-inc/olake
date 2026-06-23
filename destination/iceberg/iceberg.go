@@ -38,7 +38,7 @@ func (i *Iceberg) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-type IcebergWriter struct {
+type writer struct {
 	server        *serverInstance
 	options       *destination.Options
 	stream        types.StreamInterface
@@ -128,32 +128,32 @@ func (i *Iceberg) NewWriterThread(ctx context.Context, stream types.StreamInterf
 		}
 	}
 
-	var writer Writer
+	var iWriter Writer
 	if i.config.UseArrowWrites {
-		writer, err = arrowwriter.New(ctx, options, partitionInfo, schema, stream, i.server, upsert)
+		iWriter, err = arrowwriter.New(ctx, options, partitionInfo, schema, stream, i.server, upsert)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("failed to create arrow writer: %s", err)
 		}
 	} else {
-		writer = legacywriter.New(options, schema, stream, i.server)
+		iWriter = legacywriter.New(options, schema, stream, i.server)
 	}
 
-	return &IcebergWriter{
+	return &writer{
 		server:        i.server,
 		stream:        stream,
 		options:       options,
 		partitionInfo: partitionInfo,
 		schema:        schema,
-		writer:        writer,
+		writer:        iWriter,
 	}, schema, &metadataState, nil
 }
 
 // note: java server parses time from long value which will in milliseconds
-func (i *IcebergWriter) Write(ctx context.Context, records []types.RawRecord) error {
+func (i *writer) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
 }
 
-func (i *IcebergWriter) CleanupAndCommit(ctx context.Context, finalMetadataState any) (err error) {
+func (i *writer) CleanupAndCommit(ctx context.Context, finalMetadataState any) (err error) {
 	defer func() {
 		cleanupErr := i.writer.Cleanup()
 		err = utils.Ternary(err == nil, cleanupErr, fmt.Errorf("%s: cleanup error: %w", err, cleanupErr)).(error)
@@ -232,7 +232,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 }
 
 // validate schema change & evolution and removes null records
-func (i *IcebergWriter) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+func (i *writer) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	// extractSchemaFromRecords detects difference in current thread schema and the batch that being received
 	// Also extracts current batch schema
 	extractSchemaFromRecords := func(ctx context.Context, records []types.RawRecord) (bool, map[string]string, error) {
@@ -376,7 +376,7 @@ func (i *IcebergWriter) FlattenAndCleanData(ctx context.Context, records []types
 }
 
 // compares with global schema and update schema in destination accordingly
-func (i *IcebergWriter) EvolveSchema(ctx context.Context, globalSchema, recordsRawSchema any) (any, error) {
+func (i *writer) EvolveSchema(ctx context.Context, globalSchema, recordsRawSchema any) (any, error) {
 	if !i.stream.NormalizationEnabled() {
 		return i.schema, nil
 	}

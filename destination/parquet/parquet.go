@@ -45,9 +45,9 @@ type Parquet struct {
 	s3Uploader *s3manager.Uploader
 }
 
-// ParquetWriter writes Parquet files for a single stream thread to a local path
+// Writer writes Parquet files for a single stream thread to a local path
 // and optionally uploads them to S3.
-type ParquetWriter struct {
+type Writer struct {
 	config           *Config
 	s3Client         *s3.S3
 	s3Uploader       *s3manager.Uploader
@@ -89,7 +89,7 @@ func newS3Writer(config *Config) (*s3.S3, *s3manager.Uploader, error) {
 	return s3.New(sess), s3manager.NewUploader(sess), nil
 }
 
-func (p *ParquetWriter) createNewPartitionFile(basePath string) error {
+func (p *Writer) createNewPartitionFile(basePath string) error {
 	// construct directory path
 	directoryPath := filepath.Join(p.config.Path, basePath)
 
@@ -140,7 +140,7 @@ func (p *Parquet) NewWriterThread(_ context.Context, stream types.StreamInterfac
 		}
 	}
 
-	return &ParquetWriter{
+	return &Writer{
 		config:           p.config,
 		s3Client:         p.s3Client,
 		s3Uploader:       p.s3Uploader,
@@ -150,11 +150,10 @@ func (p *Parquet) NewWriterThread(_ context.Context, stream types.StreamInterfac
 		schema:           threadSchema,
 		partitionedFiles: make(map[string][]*FileMetadata),
 	}, schema, nil, nil
-
 }
 
 // Write writes a record to the Parquet file.
-func (p *ParquetWriter) Write(_ context.Context, records []types.RawRecord) error {
+func (p *Writer) Write(_ context.Context, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
 		// Normalise "i" -? "c": Parquet has no equality-delete concept; downstream
@@ -246,7 +245,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *ParquetWriter) closePqFiles(ctx context.Context, _ any, closeOnError bool) error {
+func (p *Writer) closePqFiles(ctx context.Context, _ any, closeOnError bool) error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -340,13 +339,13 @@ func (p *ParquetWriter) closePqFiles(ctx context.Context, _ any, closeOnError bo
 	return nil
 }
 
-func (p *ParquetWriter) CleanupAndCommit(ctx context.Context, finalMetadataState any) error {
+func (p *Writer) CleanupAndCommit(ctx context.Context, finalMetadataState any) error {
 	// TODO: implement 2pc in parquet writer (difficulty: hard)
 	return p.closePqFiles(ctx, finalMetadataState, ctx.Err() != nil)
 }
 
 // validate schema change & evolution and removes null records
-func (p *ParquetWriter) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
+func (p *Writer) FlattenAndCleanData(ctx context.Context, records []types.RawRecord) (bool, []types.RawRecord, any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, records, nil, nil
 	}
@@ -423,7 +422,7 @@ func (p *ParquetWriter) FlattenAndCleanData(ctx context.Context, records []types
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
-func (p *ParquetWriter) EvolveSchema(_ context.Context, _, _ any) (any, error) {
+func (p *Writer) EvolveSchema(_ context.Context, _, _ any) (any, error) {
 	if !p.stream.NormalizationEnabled() {
 		return false, nil
 	}
@@ -448,7 +447,7 @@ func (p *Parquet) Type() string {
 	return string(types.Parquet)
 }
 
-func (p *ParquetWriter) getPartitionedFilePath(values map[string]any, olakeTimestamp time.Time) string {
+func (p *Writer) getPartitionedFilePath(values map[string]any, olakeTimestamp time.Time) string {
 	pattern := p.stream.Self().StreamMetadata.PartitionRegex
 	if pattern == "" {
 		return p.basePath
