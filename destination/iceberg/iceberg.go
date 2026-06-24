@@ -155,7 +155,17 @@ func (i *writer) Write(ctx context.Context, records []types.RawRecord) error {
 
 func (i *writer) CleanupAndCommit(ctx context.Context, finalMetadataState any) (err error) {
 	defer func() {
-		if cleanupErr := i.writer.Cleanup(); cleanupErr != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		req := &proto.IcebergPayload{
+			Type: proto.IcebergPayload_CLOSE_SESSION,
+			Metadata: &proto.IcebergPayload_Metadata{
+				ThreadId: i.options.ThreadID,
+			},
+		}
+
+		if _, cleanupErr := i.server.SendClientRequest(cleanupCtx, req); cleanupErr != nil {
 			if err == nil {
 				err = cleanupErr
 			} else {

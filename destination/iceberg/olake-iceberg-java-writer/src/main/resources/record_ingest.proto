@@ -84,7 +84,6 @@ message ArrowPayload {
     REGISTER_AND_COMMIT = 1;
     JSONSCHEMA = 2;
     FILEPATH = 3;
-    CLOSE_SESSION = 4;
   }
 
   PayloadType type = 1;

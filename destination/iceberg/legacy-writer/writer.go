@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -139,23 +138,6 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 	ingestResponse := res.(*proto.RecordIngestResponse)
 	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, ingestResponse.GetResult())
 
-	return nil
-}
-
-func (w *LegacyWriter) Cleanup() error {
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_CLOSE_SESSION,
-		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId: w.options.ThreadID,
-		},
-	}
-
-	if _, err := w.server.SendClientRequest(cleanupCtx, req); err != nil {
-		return fmt.Errorf("failed to close iceberg session: %s", err)
-	}
 	return nil
 }
 

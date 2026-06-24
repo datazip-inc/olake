@@ -370,24 +370,6 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 	return nil
 }
 
-func (w *ArrowWriter) Cleanup() error {
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	arrowReq := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_CLOSE_SESSION,
-		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId: w.options.ThreadID,
-		},
-	}
-
-	if _, err := w.server.SendClientRequest(cleanupCtx, arrowReq); err != nil {
-		return fmt.Errorf("failed to close arrow session: %s", err)
-	}
-
-	return nil
-}
-
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {
 	for partitionKey, writer := range w.writers {
 		if writer == nil {

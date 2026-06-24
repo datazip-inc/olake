@@ -67,22 +67,6 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                 throw new Exception("Thread id not present in metadata");
             }
 
-            // CLOSE_SESSION: just drop the session. No closeQuietly() — it would
-            // clear op.filesToCommit while an in-flight REGISTER_AND_COMMIT may be
-            // using that list. Nothing to close here; the session is GC'd.
-            if (request.getType() == ArrowPayload.PayloadType.CLOSE_SESSION) {
-                  // Give active UPLOAD/REGISTER_AND_COMMIT gRPC requests on this cancelled thread some time to exit,
-                // before we remove the session.
-                try {
-                    Thread.sleep(1000); // 1 second
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                sessions.remove(threadId);
-                sendResponse(responseObserver, requestId + " closed arrow session " + threadId);
-                return;
-            }
-
     // Every payload other than JSONSCHEMA must run against an existing
     // session created by the JSONSCHEMA handshake above.
     IcebergSession session = sessions.get(threadId);
