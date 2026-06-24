@@ -52,7 +52,7 @@
         "read_preference": {
             "type": "string",
             "title": "Read Preference",
-            "description": "Read preference for MongoDB (e.g., secondaryPreferred)"
+            "description": "Read preference for MongoDB (e.g., secondaryPreferred). Applies to both SRV and replica set connections."
         },
         "replica_set": {
             "type": "string",
