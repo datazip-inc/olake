@@ -204,6 +204,12 @@ func Init() {
 		return zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: "2006-01-02 15:04:05",
+			PartsOrder: []string{
+            	zerolog.TimestampFieldName,
+            	zerolog.LevelFieldName,
+            	zerolog.CallerFieldName,
+            	zerolog.MessageFieldName,
+        	},
 			FormatLevel: func(i interface{}) string {
 				level := strings.ToLower(fmt.Sprintf("%s", i))
 				if color, exists := logColors[level]; exists {
@@ -211,16 +217,22 @@ func Init() {
 				}
 				return strings.ToUpper(level)
 			},
+			FieldsExclude: []string{"channel", "commit", "version"},
 			FormatMessage: func(i interface{}) string {
+				metadataPrefix := fmt.Sprintf("\033[36mchannel=%s commit=%s version=%s\033[0m", 
+                constants.GetReleaseChannel(),
+                constants.GetCommitSHA(),
+                constants.GetVersion(),
+            )
 				switch v := i.(type) {
 				case string:
-					return v
+					return fmt.Sprintf("%s %s", metadataPrefix, v)
 				default:
 					jsonMsg, err := json.Marshal(v)
 					if err != nil {
 						return fmt.Sprintf("failed to marshal log message: %s", err)
 					}
-					return string(jsonMsg)
+					return fmt.Sprintf("%s %s", metadataPrefix, string(jsonMsg))
 				}
 			},
 			FormatTimestamp: func(i interface{}) string {
@@ -233,7 +245,7 @@ func Init() {
 	multiWriter := zerolog.MultiLevelWriter(rotatingFile, newConsoleWriter())
 
 	// Create global logger (immutable after init)
-	logger = zerolog.New(multiWriter).With().Timestamp().Logger()
+	logger = zerolog.New(multiWriter).With().Timestamp().Str("version", constants.GetVersion()).Str("commit", constants.GetCommitSHA()).Str("channel", constants.GetReleaseChannel()).Logger()
 }
 
 // ProcessOutputReader is a struct that manages reading output from a process
