@@ -34,7 +34,6 @@ import (
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	goibmdb "github.com/ibmdb/go_ibm_db"
 )
@@ -90,29 +89,17 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		// set the fetch size for the connection to the default value.
 		conn.SetFetchSize(db2DefaultFetchSize)
 
-		var rows *goibmdb.Rows
-		// len(args) = 0: backfill for full_refresh
-		// len(args) > 0: incremental sync
-		if len(args) == 0 {
-			driverRows, err := conn.Query(query, nil)
+		driverArgs := make([]driver.Value, len(args))
+		for i, a := range args {
+			v, err := driver.DefaultParameterConverter.ConvertValue(a)
 			if err != nil {
-				return fmt.Errorf("readBatchConcurrent: query: %s", err)
+				return fmt.Errorf("readBatchConcurrent: arg[%d] type %T not supported by ODBC: %w", i, a, err)
 			}
-			var ok bool
-			rows, ok = driverRows.(*goibmdb.Rows)
-			if !ok {
-				driverRows.Close()
-				return fmt.Errorf("readBatchConcurrent: expected *go_ibm_db.Rows, got %T", driverRows)
-			}
-		} else {
-			driverArgs := make([]driver.Value, len(args))
-			for i, a := range args {
-				driverArgs[i] = a
-			}
-			rows, err = conn.QueryWithArgs(query, driverArgs)
-			if err != nil {
-				return fmt.Errorf("readBatchConcurrent: query with args: %s", err)
-			}
+			driverArgs[i] = v
+		}
+		rows, err := conn.QueryWithArgs(query, driverArgs)
+		if err != nil {
+			return fmt.Errorf("readBatchConcurrent: query: %s", err)
 		}
 		defer rows.Close()
 
@@ -168,7 +155,6 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		// columns, producer-consumer goroutine overhead (two channel round-trips
 		// per row) costs more than it saves. Run a single-goroutine loop instead.
 		if fetchSize == 1 {
-			logger.Info("db2 block-fetch disabled: non-bindable columns detected. falling back to row-by-row fetch")
 			batch := newColBatch(scanTypes, 1)
 			for {
 				if err := ctx.Err(); err != nil {
@@ -260,28 +246,6 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 	})
 }
 
-// buildResolvedConverters returns one converter per column. Each converter
-// turns a raw ReadBatch value into the OLake representation (e.g. int64,
-// timestamp, "HH:MM:SS" for TIME). DB2 type -> OLake type mapping.
-func (d *DB2) buildResolvedConverters(colTypeNames []string) []func(interface{}) (interface{}, error) {
-	convFuncs := make([]func(interface{}) (interface{}, error), len(colTypeNames))
-	for i, typeName := range colTypeNames {
-		olakeType := typeutils.ExtractAndMapColumnType(typeName, db2TypeToDataTypes)
-		convFuncs[i] = func(raw interface{}) (interface{}, error) {
-			if strings.EqualFold(typeName, "TIME") {
-				return typeutils.ReformatTimeValue(raw)
-			}
-
-			v, err := typeutils.ReformatValue(olakeType, raw)
-			if err != nil && !errors.Is(err, typeutils.ErrNullValue) {
-				return nil, err
-			}
-			return v, nil
-		}
-	}
-	return convFuncs
-}
-
 // newColBatch allocates typed column buffers, null masks, and the dest slice
 // for one ReadBatch call at the given fetchSize.
 func newColBatch(scanTypes []reflect.Type, fetchSize int) *colBatch {
@@ -319,4 +283,26 @@ func setColColumn[T any](batch *colBatch, idx, fetchSize int) {
 	batch.dests[idx] = &colValues
 	batch.getValues[idx] = func(j int) interface{} { return colValues[j] }
 	batch.nulls[idx] = make([]bool, fetchSize)
+}
+
+// buildResolvedConverters returns one converter per column. Each converter
+// turns a raw ReadBatch value into the OLake representation (e.g. int64,
+// timestamp, "HH:MM:SS" for TIME). DB2 type -> OLake type mapping.
+func (d *DB2) buildResolvedConverters(colTypeNames []string) []func(interface{}) (interface{}, error) {
+	convFuncs := make([]func(interface{}) (interface{}, error), len(colTypeNames))
+	for i, typeName := range colTypeNames {
+		olakeType := typeutils.ExtractAndMapColumnType(typeName, db2TypeToDataTypes)
+		convFuncs[i] = func(raw interface{}) (interface{}, error) {
+			if strings.EqualFold(typeName, "TIME") {
+				return typeutils.ReformatTimeValue(raw)
+			}
+
+			v, err := typeutils.ReformatValue(olakeType, raw)
+			if err != nil && !errors.Is(err, typeutils.ErrNullValue) {
+				return nil, err
+			}
+			return v, nil
+		}
+	}
+	return convFuncs
 }
