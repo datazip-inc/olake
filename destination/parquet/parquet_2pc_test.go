@@ -22,6 +22,7 @@ func TestLoad2PCState(t *testing.T) {
 		name string
 		run  func(t *testing.T)
 	}{
+		// full refresh markers have no metadata, so setup recovers committed thread ids from marker paths
 		{
 			name: "returns full refresh completed marker ids",
 			run: func(t *testing.T) {
@@ -38,6 +39,7 @@ func TestLoad2PCState(t *testing.T) {
 				require.True(t, slices.Contains(state.FullRefreshCommittedIDs, "thread-2"))
 			},
 		},
+		// CDC/incremental markers can persist metadata state, so setup selects the newest marker
 		{
 			name: "returns latest metadata state",
 			run: func(t *testing.T) {
@@ -65,6 +67,7 @@ func TestLoad2PCState(t *testing.T) {
 				require.Empty(t, state.FullRefreshCommittedIDs)
 			},
 		},
+		// completed staging is rolled forward into final table paths before setup returns
 		{
 			name: "promotes completed staging before returning state",
 			run: func(t *testing.T) {
@@ -84,6 +87,7 @@ func TestLoad2PCState(t *testing.T) {
 				require.Equal(t, 0, testStagedParquetFiles(t, p, "completed-thread"))
 			},
 		},
+		// staging without a completed marker belongs to an interrupted attempt and is removed
 		{
 			name: "deletes staging without completed marker",
 			run: func(t *testing.T) {
@@ -107,6 +111,7 @@ func TestLoad2PCState(t *testing.T) {
 	}
 }
 
+// TestMetadataStateWrapsIncrementalPayload verifies raw cursor payloads are wrapped for recovery.
 func TestMetadataStateWrapsIncrementalPayload(t *testing.T) {
 	p := testParquet2PC(t, "incremental-thread")
 
@@ -116,6 +121,7 @@ func TestMetadataStateWrapsIncrementalPayload(t *testing.T) {
 	require.Equal(t, `{"id":10}`, state.State)
 }
 
+// TestCloseWritesCompletedMarkerWithMetadataState verifies close stores cursor metadata with data.
 func TestCloseWritesCompletedMarkerWithMetadataState(t *testing.T) {
 	ctx := context.Background()
 	stream := testConfiguredStream()
@@ -156,6 +162,7 @@ func TestCloseWritesCompletedMarkerWithMetadataState(t *testing.T) {
 	require.Equal(t, 1, testFinalParquetFiles(t, p))
 }
 
+// TestCloseWritesFullRefreshCompletedMarker verifies full refresh close writes an empty marker.
 func TestCloseWritesFullRefreshCompletedMarker(t *testing.T) {
 	ctx := context.Background()
 	stream := testConfiguredStream()
@@ -186,6 +193,7 @@ func TestCloseWritesFullRefreshCompletedMarker(t *testing.T) {
 	require.Equal(t, 1, testFinalParquetFiles(t, p))
 }
 
+// TestCloseWritesMetadataOnlyCompletedMarker verifies no-op syncs still commit metadata state.
 func TestCloseWritesMetadataOnlyCompletedMarker(t *testing.T) {
 	ctx := context.Background()
 	stream := testConfiguredStream()

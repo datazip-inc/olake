@@ -383,6 +383,7 @@ func (p *Parquet) copyS3Object(ctx context.Context, sourceKey, destinationKey st
 // cleanupCommittedStaging removes local staging data after committed promotion.
 func (p *Parquet) cleanupCommittedStaging(threadID string) error {
 	if p.s3Client != nil {
+		// S3 has no empty directories; promotion deletes staged data objects and keeps _completed.json.
 		return nil
 	}
 	return p.cleanupLocalCommittedStaging(threadID)
@@ -411,7 +412,7 @@ func (p *Parquet) cleanupLocalCommittedStaging(threadID string) error {
 
 	for idx := len(dirs) - 1; idx >= 0; idx-- {
 		dir := dirs[idx]
-		if err := os.Remove(dir); err != nil && !os.IsNotExist(err) && !os.IsExist(err) {
+		if err := os.Remove(dir); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}

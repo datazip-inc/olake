@@ -143,18 +143,17 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	// persist replicator for post cdc
 	p.replicator = replicator
 
-	// Destination 2PC metadata can be ahead of the external source state when
-	// the destination commit succeeded but saving the source state failed. If all
-	// streams are already committed and the slot is exactly at that committed LSN,
-	// there is no WAL left to replay; PostCDC will persist the recovered state.
-	skipValidation := recoveryLSN != nil && len(remainingStreams) == 0 && *recoveryLSN == slot.LSN
-	if !skipValidation {
-		// validate global state (might got invalid during full load)
+	// validateGlobalState ensures slot and state agree before WAL replay begins.
+	// Skip when remainingStreams is empty (all streams already committed in Iceberg), or
+	// when slot.confirmed_flush_lsn already equals the metadata-committed recovery LSN —
+	// the prior sync ack'd the slot but crashed before saving state, so all syncs were already committed
+	slotAtMetadataLSN := recoveryLSN != nil && slot.LSN == *recoveryLSN
+	if len(remainingStreams) > 0 && !slotAtMetadataLSN {
 		if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
 			return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
 		}
 	} else {
-		logger.Infof("all streams already committed in destination and slot is at committed LSN, skipping state LSN validation")
+		logger.Infof("all streams already committed in destination, skipping state LSN validation")
 	}
 
 	// choose replicator via factory based on OutputPlugin config (default wal2json)
@@ -168,9 +167,9 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	// keepalive ServerWALEnd).  If we let that overshoot propagate, PostCDC will
 	// acknowledge the slot past the recovery target, permanently skipping any WAL
 	// records that fall between the target and the overshoot.
-	// Fix: pin ClientXLogPos to the exact recovery LSN so that both the destination
+	// Fix: pin ClientXLogPos to the exact recovery LSN so that both the Iceberg
 	// metadata state (returned here) and the PostCDC slot acknowledgement land on
-	// the same position that the destination already committed.
+	// the same position that Iceberg already committed.
 	if recoveryLSN != nil {
 		p.replicator.Socket().ClientXLogPos = *recoveryLSN
 		return waljs.WALState{LSN: metadataCommittedLSN}, nil
