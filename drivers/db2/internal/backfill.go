@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"math"
-	"os"
 	"sort"
 	"strings"
 
@@ -52,27 +51,8 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 
 	logger.Debugf("Starting backfill for %s with chunk %v using query: %s", stream.ID(), chunk, stmt)
 
-	// TODO: decide how to handle read_mode: env or flag
-	readMode := os.Getenv("DB2_READ_MODE")
-	if readMode != "mapscan" {
-		logger.Infof("[DB2] backfill read path: readbatch (DB2_READ_MODE=%q, fetch_size=%d)", readMode, db2DefaultFetchSize)
-		return d.readBatchConcurrent(ctx, stmt, args, OnMessage)
-	}
-	logger.Infof("[DB2] backfill read path: mapscan (DB2_READ_MODE=%q, fetch_size=%d)", readMode, db2DefaultFetchSize)
-
-	// begin transaction for chunk iteration (by default isolation mode in db2 driver is cursor stability (also known as read committed))
-	// db2 driver does not support custom isolation level setting
-	tx, err := d.client.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
-	}
-	defer tx.Rollback()
-
-	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
-		return tx.QueryContext(ctx, query, args...)
-	})
-
-	return jdbc.MapScanConcurrent(setter, d.dataTypeConverter, OnMessage)
+	logger.Infof("[DB2] backfill read path: readbatch (fetch_size=%d)", db2DefaultFetchSize)
+	return d.readBatchConcurrent(ctx, stmt, args, OnMessage)
 }
 
 func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

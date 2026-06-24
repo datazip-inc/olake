@@ -2,7 +2,6 @@ package driver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,13 +14,10 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/datazip-inc/olake/utils/typeutils"
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/ssh"
 )
-
-const db2DefaultFetchSize = 200
 
 type DB2 struct {
 	client      *sqlx.DB
@@ -249,45 +245,4 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 	}
 
 	return stream, nil
-}
-
-func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
-	if value == nil {
-		return nil, typeutils.ErrNullValue
-	}
-
-	if columnType == "TIME" {
-		return typeutils.ReformatTimeValue(value)
-	}
-
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, db2TypeToDataTypes)
-	return typeutils.ReformatValue(olakeType, value)
-}
-
-// buildResolvedConverters compiles one converter closure per column with the
-// olake DataType (and TIME flag) resolved exactly once — not per cell. This is
-// the completed form of the optimisation buildReadBatchConverters only started:
-// the column type string is parsed a single time at setup instead of on every
-// one of the (rows × columns) cells.
-func (d *DB2) buildResolvedConverters(colTypeNames []string) []func(interface{}) (interface{}, error) {
-	convFuncs := make([]func(interface{}) (interface{}, error), len(colTypeNames))
-	for i, typeName := range colTypeNames {
-		olakeType := typeutils.ExtractAndMapColumnType(typeName, db2TypeToDataTypes)
-		convFuncs[i] = func(raw interface{}) (interface{}, error) {
-			if strings.EqualFold(typeName, "TIME") {
-				v, err := typeutils.ReformatTimeValue(raw)
-				if err != nil && !errors.Is(err, typeutils.ErrNullValue) {
-					return nil, err
-				}
-				return v, nil
-			}
-
-			v, err := typeutils.ReformatValue(olakeType, raw)
-			if err != nil && !errors.Is(err, typeutils.ErrNullValue) {
-				return nil, err
-			}
-			return v, nil
-		}
-	}
-	return convFuncs
 }
