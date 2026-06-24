@@ -8,7 +8,6 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 func (d *DB2) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
@@ -31,7 +30,5 @@ func (d *DB2) StreamIncrementalChanges(ctx context.Context, stream types.StreamI
 	if err != nil {
 		return fmt.Errorf("failed to build incremental query: %s", err)
 	}
-
-	logger.Infof("[DB2] incremental read path: readbatch (fetch_size=%d)", db2DefaultFetchSize)
 	return d.readBatchConcurrent(ctx, incrementalQuery, queryArgs, processFn)
 }

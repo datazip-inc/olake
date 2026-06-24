@@ -50,24 +50,19 @@ const (
 	db2DefaultFetchSize = 200
 )
 
-// colBatch holds all per-column buffers and null masks for one ReadBatch call.
+// colBatch holds all per-column buffers, null masks, and the row count for one
+// ReadBatch call. It is the unit exchanged between the producer and consumer.
 //
 // dests are *[]T pointers passed directly to ReadBatch (one per column).
 // getValues are closures that extract element i from each column's typed slice.
-//
-// nulls holds one []bool per column (each sized fetchSize). The driver's
-// ReadBatchWithNulls fills nulls[c][i] = true when column c, row i is SQL NULL.
+// nulls holds one []bool per column (each sized fetchSize). The driver fills
+// nulls[c][i] = true when column c, row i is SQL NULL.
+// rowCount is set by the producer to the number of rows filled in the last ReadBatch.
 type colBatch struct {
 	dests     []interface{}
 	getValues []func(i int) interface{}
 	nulls     [][]bool
-}
-
-// batchMsg is the unit sent from producer to consumer: one filled colBatch plus
-// the row count for that fetch.
-type batchMsg struct {
-	n     int
-	batch *colBatch
+	rowCount  int
 }
 
 // readBatchConcurrent executes query (with optional args) via the patched driver,
@@ -128,9 +123,9 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		// rows.FetchSize() returns 1 and we skip the producer-consumer.
 		fetchSize := rows.FetchSize()
 
-		// processBatch converts one filled colBatch (n rows) to OLake records.
-		processBatch := func(batch *colBatch, n int) error {
-			for rowIdx := range n {
+		// processBatch converts one filled colBatch to OLake records.
+		processBatch := func(batch *colBatch) error {
+			for rowIdx := range batch.rowCount {
 				record := make(map[string]interface{}, nCols)
 				for colIdx, colName := range colNames {
 					// SQL NULL is reported via the driver's null mask
@@ -163,24 +158,22 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 				if err := ctx.Err(); err != nil {
 					return ctx.Err()
 				}
-				n, readErr := rows.ReadBatch(batch.dests, batch.nulls)
-				if n > 0 {
-					if err := processBatch(batch, n); err != nil {
-						return err
-					}
+				var readErr error
+				batch.rowCount, readErr = rows.ReadBatch(batch.dests, batch.nulls)
+				if err := processBatch(batch); err != nil {
+					return err
 				}
-				switch {
-				case errors.Is(readErr, io.EOF):
+				if errors.Is(readErr, io.EOF) {
 					return nil
-				case readErr != nil:
+				}
+				if readErr != nil {
 					return fmt.Errorf("ReadBatchConcurrent: %s", readErr)
 				}
 			}
 		}
 
 		// Concurrent path (FetchSize>1, all columns bindable)
-		// Buffered channel: producer stages batchChannelDepth rowsets ahead.
-		batchCh := make(chan batchMsg, batchChannelDepth)
+		batchCh := make(chan *colBatch, batchChannelDepth)
 
 		freeCh := make(chan *colBatch, inFlight)
 		for range inFlight {
@@ -189,7 +182,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 
 		// ── Producer ────────────────────────────────────────────────────────
 		// Calls ReadBatch in a tight loop. Each call fills typed slices for up
-		// to fetchSize rows in a single SQLFetch no database/sql overhead.
+		// to fetchSize rows in a single SQLFetch.
 		// Buffer sets are leased from freeCh and recycled by the consumer.
 		producer := func(ctx context.Context) (err error) {
 			// recover so a panic in ReadBatch returns an error instead of crashing the process.
@@ -200,25 +193,21 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 			}()
 			defer close(batchCh)
 			for {
-				var batch *colBatch
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
-				case batch = <-freeCh:
-					n, readErr := rows.ReadBatch(batch.dests, batch.nulls)
-					if n > 0 {
-						select {
-						case <-ctx.Done():
-							return ctx.Err()
-						case batchCh <- batchMsg{n: n, batch: batch}:
-						}
-					} else {
-						freeCh <- batch
+				case batch := <-freeCh:
+					var readErr error
+					batch.rowCount, readErr = rows.ReadBatch(batch.dests, batch.nulls)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case batchCh <- batch:
 					}
-					switch {
-					case errors.Is(readErr, io.EOF):
+					if errors.Is(readErr, io.EOF) {
 						return nil
-					case readErr != nil:
+					}
+					if readErr != nil {
 						return fmt.Errorf("ReadBatchConcurrent producer: %s", readErr)
 					}
 				}
@@ -236,11 +225,11 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 					err = fmt.Errorf("readBatchConcurrent consumer: panic: %v", r)
 				}
 			}()
-			for b := range batchCh {
-				if err := processBatch(b.batch, b.n); err != nil {
+			for batch := range batchCh {
+				if err := processBatch(batch); err != nil {
 					return err
 				}
-				freeCh <- b.batch
+				freeCh <- batch
 			}
 			return nil
 		}
