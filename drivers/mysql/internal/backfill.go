@@ -230,9 +230,13 @@ func (m *MySQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 		query := jdbc.NextChunkEndQuery(stream, pkColumns, chunkSize)
 		currentVal := minVal
 		for {
+			// Split the current value into parts
 			columns := strings.Split(utils.ConvertToString(currentVal), ",")
+
+			// Create args array with the correct number of arguments for the query
 			args := make([]any, 0)
 			for columnIndex := 0; columnIndex < len(pkColumns); columnIndex++ {
+				// For each column combination in the WHERE clause, we need to add the necessary parts
 				for partIndex := 0; partIndex <= columnIndex && partIndex < len(columns); partIndex++ {
 					args = append(args, columns[partIndex])
 				}
@@ -240,14 +244,10 @@ func (m *MySQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 
 			var nextValRaw any
 			err := tx.QueryRowContext(ctx, query, args...).Scan(&nextValRaw)
-			if err == sql.ErrNoRows {
+			if err == sql.ErrNoRows || nextValRaw == nil {
 				break
-			}
-			if err != nil {
+			} else if err != nil {
 				return fmt.Errorf("failed to get next chunk end: %s", err)
-			}
-			if nextValRaw == nil {
-				break
 			}
 			if currentVal != nil {
 				chunks.Insert(types.Chunk{
@@ -339,9 +339,7 @@ Chunks:
 */
 func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInterface, bounds *StringChunkBounds, pkColumn, columnCollationType string, approxTableSize int64) (*types.Set[types.Chunk], error) {
 	expectedChunks := int64(math.Ceil(float64(approxTableSize) / float64(constants.EffectiveParquetSize)))
-	if expectedChunks <= 0 {
-		expectedChunks = 1
-	}
+	expectedChunks = utils.Ternary(expectedChunks <= 0, int64(1), expectedChunks).(int64)
 	// Calculate a ceil-divided step across the encoded string-key range.
 	stringChunkStepSize := new(big.Int).Sub(bounds.maxEncodedBigIntValue, bounds.minEncodedBigIntValue)
 	stringChunkStepSize.Add(stringChunkStepSize, new(big.Int).Sub(big.NewInt(expectedChunks), big.NewInt(1)))
@@ -375,8 +373,8 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 		query, args := jdbc.MySQLDistinctAlignedPKValuesWithCollationQuery(stream, pkColumn, rangeSlice, columnCollationType, bounds.MinPadded, bounds.MaxPadded)
 		rows, err := m.client.QueryContext(ctx, query, args...)
 		if err != nil {
-			boundaryQueryErr = fmt.Errorf("failed to query distinct string chunk boundaries: %w", err)
-			logger.Debugf("%s for stream %s", boundaryQueryErr, stream.ID())
+			boundaryQueryErr = fmt.Errorf("distinct boundary query failed for stream %s: %s", stream.ID(), err)
+			logger.Debugf("%s", boundaryQueryErr)
 			break
 		}
 		rangeSlice = rangeSlice[:0]
