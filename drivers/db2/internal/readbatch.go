@@ -33,7 +33,9 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	goibmdb "github.com/ibmdb/go_ibm_db"
 )
@@ -155,10 +157,11 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		// columns, producer-consumer goroutine overhead (two channel round-trips
 		// per row) costs more than it saves. Run a single-goroutine loop instead.
 		if fetchSize == 1 {
+			logger.Infof("[DB2] readBatchConcurrent: block fetch downgraded to fetch_size=1 (non-bindable columns such as CLOB/DBCLOB/XML); using inline read path")
 			batch := newColBatch(scanTypes, 1)
 			for {
 				if err := ctx.Err(); err != nil {
-					return nil
+					return ctx.Err()
 				}
 				n, readErr := rows.ReadBatch(batch.dests, batch.nulls)
 				if n > 0 {
@@ -295,6 +298,12 @@ func (d *DB2) buildResolvedConverters(colTypeNames []string) []func(interface{})
 		convFuncs[i] = func(raw interface{}) (interface{}, error) {
 			if strings.EqualFold(typeName, "TIME") {
 				return typeutils.ReformatTimeValue(raw)
+			}
+
+			if olakeType == types.String {
+				if s, ok := raw.(string); ok {
+					return strings.TrimSpace(s), nil
+				}
 			}
 
 			v, err := typeutils.ReformatValue(olakeType, raw)
