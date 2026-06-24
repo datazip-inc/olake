@@ -89,7 +89,7 @@ public class OlakeRpcServer {
         ConcurrentMap<String, IcebergSession> sharedSessions = new ConcurrentHashMap<>();
 
         if (arrowWriterEnabled) {
-             OlakeArrowIngester oai = new OlakeArrowIngester(icebergCatalog, sharedSessions);
+             OlakeArrowIngester oai = new OlakeArrowIngester(sharedSessions);
              serverBuilder.addService(oai);
              LOGGER.info("Arrow writer enabled - registered OlakeArrowIngester service");
         }

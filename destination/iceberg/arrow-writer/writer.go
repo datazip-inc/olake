@@ -619,7 +619,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 // It is the session-creating handshake (analogous to the rows path's
 // GET_OR_CREATE_TABLE): it carries the full session-constant context so the JVM
 // can build and cache the arrow session once. All later payloads send only the
-// thread_id (see newMetadata).
+// thread_id.
 func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_JSONSCHEMA,

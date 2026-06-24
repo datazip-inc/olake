@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.function.BooleanSupplier;
 
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;

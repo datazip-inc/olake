@@ -46,14 +46,11 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
     private static final String FILE_TYPE_EQUALITY_DELETE = "equalityDelete";
     private static final String FILE_TYPE_POSITIONAL_DELETE = "positionalDelete";
 
-    private final Catalog icebergCatalog;
-
     // Single map: one entry per active Go writer thread.
     // Each session is fully self-contained — exact replica of what one JVM owned.
     private final ConcurrentMap<String, IcebergSession> sessions;
 
-    public OlakeArrowIngester(Catalog icebergCatalog, ConcurrentMap<String, IcebergSession> sessions) {
-        this.icebergCatalog = icebergCatalog;
+    public OlakeArrowIngester(ConcurrentMap<String, IcebergSession> sessions) {
         this.sessions = sessions;
     }
 

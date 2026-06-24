@@ -32,16 +32,6 @@ func New(options *destination.Options, schema map[string]string, stream types.St
 	}
 }
 
-// newMetadata builds the per-request Metadata. The session-constant context
-// (namespace, upsert, partition spec, identifier-field) was already captured by
-// the JVM on the GET_OR_CREATE_TABLE payload during Setup, so RECORDS / COMMIT
-// payloads carry only the thread_id the JVM routes on (callers add schema/payload).
-func (w *LegacyWriter) newMetadata() *proto.IcebergPayload_Metadata {
-	return &proto.IcebergPayload_Metadata{
-		ThreadId: w.options.ThreadID,
-	}
-}
-
 func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) error {
 	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(w.schema))
 	for field, dType := range w.schema {
@@ -88,7 +78,9 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		return nil
 	}
 
-	md := w.newMetadata()
+	md := &proto.IcebergPayload_Metadata{
+		ThreadId: w.options.ThreadID,
+	}
 	md.Schema = protoSchema
 	request := &proto.IcebergPayload{
 		Type:     proto.IcebergPayload_RECORDS,
@@ -126,7 +118,9 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 		payloadStr = string(payloadBytes)
 	}
 
-	md := w.newMetadata()
+	md := &proto.IcebergPayload_Metadata{
+		ThreadId: w.options.ThreadID,
+	}
 	md.Payload = payloadStr
 	request := &proto.IcebergPayload{
 		Type:     proto.IcebergPayload_COMMIT,
