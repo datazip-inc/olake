@@ -9,11 +9,14 @@ var db2TypeToDataTypes = map[string]types.DataType{
 	"bigint":   types.Int64,
 
 	// numeric / decimal
-	"real":     types.Float32,
-	"float":    types.Float64,
-	"numeric":  types.Float64,
-	"double":   types.Float64,
-	"decimal":  types.Float64,
+	"real":    types.Float32,
+	"float":   types.Float64,
+	"numeric": types.Float64,
+	"double":  types.Float64,
+	"decimal": types.Float64,
+
+	// TODO: DECFLOAT supports exponents up to ±384 (DECFLOAT(34)), which exceeds
+	// float64 range (±308). Preserve as string to avoid ParseFloat overflow.
 	"decfloat": types.Float64,
 
 	// boolean
