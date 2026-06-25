@@ -164,8 +164,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 				}
 				if errors.Is(readErr, io.EOF) {
 					return nil
-				}
-				if readErr != nil {
+				} else if readErr != nil {
 					return fmt.Errorf("ReadBatchConcurrent: %s", readErr)
 				}
 			}
@@ -205,8 +204,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 					}
 					if errors.Is(readErr, io.EOF) {
 						return nil
-					}
-					if readErr != nil {
+					} else if readErr != nil {
 						return fmt.Errorf("ReadBatchConcurrent producer: %s", readErr)
 					}
 				}
