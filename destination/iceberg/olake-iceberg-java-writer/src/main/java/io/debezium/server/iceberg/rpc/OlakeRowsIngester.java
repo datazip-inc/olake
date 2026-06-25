@@ -25,7 +25,7 @@ import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
 
 /**
- * Multi-tenant gRPC service for the legacy (rows-based) Iceberg write path.
+ * Multi-Thread-Session gRPC service for the legacy (rows-based) Iceberg write path.
  *
  * Design mirrors the old N-JVM model exactly, but inside one process:
  *   old model  → each JVM owned one Table handle + one IcebergTableOperator
@@ -130,9 +130,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 List<Map<String, String>> partitionTransforms = toPartitionList(metadata.getPartitionFieldsList());
                 TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
 
-                // computeIfAbsent is atomic so even if two gRPC server threads race
-                // on the same threadId (which Go's CxGroup limit-1 prevents, but
-                // defensive here), only one session is created.
+                // computeIfAbsent creates a new session if the threadId is not present in the sessions map
                 session = sessions.computeIfAbsent(threadId,
                         k -> {
                             Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
@@ -157,7 +155,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     LOGGER.debug("{} Successfully committed data for thread: {}", requestId, threadId);
                     break;
 
-                case EVOLVE_SCHEMA: {
+                case EVOLVE_SCHEMA:
                     SchemaConvertor convertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
                     session.op.applyFieldAddition(session.icebergTable, convertor.convertToIcebergSchema(), session.createIdentifierFields());
                     session.icebergTable.refresh();
@@ -166,7 +164,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, session.icebergTable.schema().toString());
                     LOGGER.info("{} Successfully applied schema evolution for thread: {}", requestId, threadId);
                     break;
-                }
 
                 case REFRESH_TABLE_SCHEMA:
                     session.icebergTable.refresh();
@@ -175,15 +172,14 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, session.icebergTable.schema().toString());
                     break;
 
-                case GET_OR_CREATE_TABLE: {
+                case GET_OR_CREATE_TABLE:
                     session.icebergTable.refresh();
                     String commitState = session.op.getCommitState(session.icebergTable);
                     sendResponse(responseObserver, session.icebergTable.schema().toString(),
                             commitState != null ? commitState : "");
                     break;
-                }
 
-                case RECORDS: {
+                case RECORDS:
                     LOGGER.debug("{} Received {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     SchemaConvertor recordsConvertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(session.upsert, session.icebergTable.schema(), request.getRecordsList());
@@ -193,7 +189,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.debug("{} Successfully wrote {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     break;
-                }
 
                 default:
                     throw new IllegalArgumentException("Unknown payload type: " + request.getType());
@@ -223,15 +218,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private Table loadOrCreateTable(TableIdentifier tableId, Schema schema, List<Map<String, String>> partitionTransforms) {
         return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
             try {
+                // no need to check if the table already exists, because the table is created by the thread that calls the get_or_create_table method
                 return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms);
-            } catch (AlreadyExistsException e) {
-                // Another session (separate threadId, same destination table) won
-                // the create race in the window between our load and create. The
-                // table now exists — load and use it instead of failing.
-                LOGGER.debug("Table {} was created concurrently by another session; loading existing", tableId);
-                return IcebergUtil.loadIcebergTable(icebergCatalog, tableId)
-                        .orElseThrow(() -> new DebeziumException(
-                                "Table " + tableId + " reported as already existing but could not be loaded", e));
             } catch (Exception e) {
                 String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s",
                                                     tableId, e.getMessage());

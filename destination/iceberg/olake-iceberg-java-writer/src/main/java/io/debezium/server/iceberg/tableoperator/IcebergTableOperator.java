@@ -124,8 +124,12 @@ public class IcebergTableOperator {
   public void closeQuietly() {
     try {
       if (writer != null) {
-        try { writer.abort(); } catch (Exception ignore) {}
-        try { writer.close(); } catch (Exception ignore) {}
+        try { writer.abort(); } catch (Exception ignore) {
+          LOGGER.warn("Failed to abort writer", ignore);
+        }
+        try { writer.close(); } catch (Exception ignore) {
+          LOGGER.warn("Failed to close writer", ignore);
+        }
       }
     } finally {
       writer = null;
@@ -311,12 +315,12 @@ public class IcebergTableOperator {
       // Clean up the writer
       try {
         writer.abort();
-      } catch (Exception abortEx) {
+      } catch (IOException abortEx) {
         LOGGER.warn("Failed to abort writer", abortEx);
       }
       try {
         writer.close();
-      } catch (Exception e) {
+      } catch (IOException e) {
         LOGGER.warn("Failed to close writer", e);
       }
       // Never reuse an aborted/corrupted writer for the next batch.
