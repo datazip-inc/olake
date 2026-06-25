@@ -16,8 +16,6 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-// test commit
-
 func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.Postgres,
