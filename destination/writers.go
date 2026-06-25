@@ -183,6 +183,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to setup writer thread: %s", err)
 	}
+
 	return &WriterThread{
 		buffer:         []types.RawRecord{},
 		batchSize:      w.batchSize,

@@ -6,7 +6,7 @@
  *
  */
 
-package io.debezium.server.iceberg.tableoperator;
+package io.olake.server.iceberg.writer.legacy.operator;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -46,15 +46,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
-import jakarta.enterprise.context.Dependent;
+import io.olake.server.iceberg.rpc.RecordIngest.CommitRequest;
 
 /**
  * Wrapper to perform operations on iceberg tables
  *
  * @author Rafael Acevedo
  */
-@Dependent
 public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
@@ -327,7 +325,7 @@ public class IcebergTableOperator {
   }
 
      public void registerDataFiles(String threadId, Table table, String filePath,
-               List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
+               List<CommitRequest.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
                MetricsConfig metricsConfig = MetricsConfig.forTable(table);
@@ -367,7 +365,7 @@ public class IcebergTableOperator {
      }
 
      public void registerEqDeleteFiles(String threadId, Table table, String filePath, int equalityFieldId,
-               long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
+               long recordCount, List<CommitRequest.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
                InputFile inputFile = fileIO.newInputFile(filePath);
@@ -406,7 +404,7 @@ public class IcebergTableOperator {
      }
 
      public void registerPosDeleteFiles(String threadId, Table table, String filePath,
-               long recordCount, List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
+               long recordCount, List<CommitRequest.PartitionValue> partitionValues) {
           try {
                FileIO fileIO = table.io();
                InputFile inputFile = fileIO.newInputFile(filePath);
@@ -445,14 +443,14 @@ public class IcebergTableOperator {
      }
 
      private PartitionData partitionDataFromTypedValues(PartitionSpec spec,
-               List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
+               List<CommitRequest.PartitionValue> partitionValues) {
           PartitionData partitionData = new PartitionData(spec.partitionType());
           if (partitionValues == null || partitionValues.isEmpty()) {
                return partitionData;
           }
 
           for (int i = 0; i < partitionValues.size() && i < spec.fields().size(); i++) {
-               ArrowPayload.FileMetadata.PartitionValue protoValue = partitionValues.get(i);
+               CommitRequest.PartitionValue protoValue = partitionValues.get(i);
                Object value = switch (protoValue.getValueCase()) {
                     case INT_VALUE -> protoValue.getIntValue();
                     case LONG_VALUE -> protoValue.getLongValue();

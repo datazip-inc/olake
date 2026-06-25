@@ -74,10 +74,10 @@ func CreateRawRecord(data map[string]any, olakeColumns map[string]any) RawRecord
 }
 
 // returns raw schema in iceberg format
-func GetIcebergRawSchema() []*proto.IcebergPayload_SchemaField {
-	var icebergFields []*proto.IcebergPayload_SchemaField
+func GetIcebergRawSchema() []*proto.SchemaField {
+	var icebergFields []*proto.SchemaField
 	for key, typ := range RawSchema {
-		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+		icebergFields = append(icebergFields, &proto.SchemaField{
 			IceType: typ.ToIceberg(),
 			Key:     key,
 		})

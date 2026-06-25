@@ -1,4 +1,5 @@
-olake
+/olake
+drivers/*/olake
 .vscode
 test
 .DS_Store

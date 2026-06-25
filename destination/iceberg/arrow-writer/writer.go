@@ -56,9 +56,9 @@ type RollingWriter struct {
 }
 
 type PartitionFiles struct {
-	DataFiles      []*proto.ArrowPayload_FileMetadata
-	EqDeleteFiles  []*proto.ArrowPayload_FileMetadata
-	PosDeleteFiles []*proto.ArrowPayload_FileMetadata
+	DataFiles      []*proto.CommitRequest_FileMetadata
+	EqDeleteFiles  []*proto.CommitRequest_FileMetadata
+	PosDeleteFiles []*proto.CommitRequest_FileMetadata
 }
 
 type PositionalDelete struct {
@@ -339,25 +339,22 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 	}
 
 	// Build ordered file list: equality deletes → data → positional deletes
-	var orderedFiles []*proto.ArrowPayload_FileMetadata
+	var orderedFiles []*proto.CommitRequest_FileMetadata
 	for _, pf := range w.createdFiles {
 		orderedFiles = append(orderedFiles, pf.EqDeleteFiles...)
 		orderedFiles = append(orderedFiles, pf.DataFiles...)
 		orderedFiles = append(orderedFiles, pf.PosDeleteFiles...)
 	}
 
-	commitRequest := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_REGISTER_AND_COMMIT,
-		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId:     w.options.ThreadID,
-			FileMetadata: orderedFiles,
-		},
+	commitRequest := &proto.CommitRequest{
+		ThreadId:     w.options.ThreadID,
+		FileMetadata: orderedFiles,
 	}
 
 	// Commit payload from CDC/driver only: e.g. {"captured_cdc_pos":"0/123ABC"}
 	if finalMetadataState != nil {
 		payloadBytes, _ := json.Marshal(finalMetadataState)
-		commitRequest.Metadata.Payload = string(payloadBytes)
+		commitRequest.Payload = string(payloadBytes)
 	}
 
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -374,11 +371,8 @@ func (w *ArrowWriter) Cleanup() error {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	arrowReq := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_CLOSE_SESSION,
-		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId: w.options.ThreadID,
-		},
+	arrowReq := &proto.CloseSessionRequest{
+		ThreadId: w.options.ThreadID,
 	}
 
 	if _, err := w.server.SendClientRequest(cleanupCtx, arrowReq); err != nil {
@@ -540,11 +534,8 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Sc
 }
 
 func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string) (string, error) {
-	request := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_FILEPATH,
-		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId: w.options.ThreadID,
-		},
+	request := &proto.GetFilePathRequest{
+		ThreadId: w.options.ThreadID,
 	}
 
 	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -555,7 +546,7 @@ func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string)
 		return "", fmt.Errorf("failed to allocate file path: %s", err)
 	}
 
-	basePath := resp.(*proto.ArrowIngestResponse).GetResult()
+	basePath := resp.(*proto.GetFilePathResponse).GetResult()
 
 	if partitionKey != "" {
 		// Insert partition key into path: dir/file.parquet → dir/partitionKey/file.parquet
@@ -567,15 +558,10 @@ func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string)
 }
 
 func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partitionKey string) error {
-	request := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_UPLOAD_FILE,
-		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId: w.options.ThreadID,
-			FileUpload: &proto.ArrowPayload_FileUploadRequest{
-				FileData: rw.currentBuffer.Bytes(),
-				FilePath: rw.filePath,
-			},
-		},
+	request := &proto.UploadFileRequest{
+		ThreadId: w.options.ThreadID,
+		FileData: rw.currentBuffer.Bytes(),
+		FilePath: rw.filePath,
 	}
 
 	uploadCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -590,7 +576,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 		return fmt.Errorf("failed to convert partition values: %s", err)
 	}
 
-	fileMeta := &proto.ArrowPayload_FileMetadata{
+	fileMeta := &proto.CommitRequest_FileMetadata{
 		FileType:        rw.fileType,
 		FilePath:        rw.filePath,
 		RecordCount:     rw.currentRowCount,
@@ -621,14 +607,14 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 // can build and cache the arrow session once. All later payloads send only the
 // thread_id (see newMetadata).
 func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
-	request := &proto.ArrowPayload{
-		Type: proto.ArrowPayload_JSONSCHEMA,
-		Metadata: &proto.ArrowPayload_Metadata{
+	request := &proto.InitSessionRequest{
+		ThreadId: w.options.ThreadID,
+		TableConfig: &proto.TableConfig{
 			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.options.ThreadID,
 			Namespace:     w.stream.GetDestinationDatabase(nil),
 			Upsert:        w.upsertMode,
 		},
+		Mode: proto.WriterMode_ARROW,
 	}
 
 	schemaCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -639,6 +625,6 @@ func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 		return fmt.Errorf("failed to fetch schema JSON from server: %s", err)
 	}
 
-	w.fileschemajson = resp.(*proto.ArrowIngestResponse).GetIcebergSchemas()
+	w.fileschemajson = resp.(*proto.InitSessionResponse).GetIcebergSchemas()
 	return nil
 }

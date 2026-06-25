@@ -24,8 +24,8 @@ const defaultServerPort = 50051
 type serverInstance struct {
 	port        int
 	cmd         *exec.Cmd
-	client      proto.RecordIngestServiceClient
-	arrowClient proto.ArrowIngestServiceClient
+	catalogClient proto.CatalogServiceClient
+	writerClient  proto.WriterServiceClient
 	conn        *grpc.ClientConn
 	serverID    string
 }
@@ -55,7 +55,7 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 		serverConfig["catalog-impl"] = "org.apache.iceberg.aws.glue.GlueCatalog"
 		// if custom glue endpoint creds are passed
 		if config.UseGlueAdditionalConfig {
-			addMapKeyIfNotEmpty("client.factory", "io.debezium.server.iceberg.OlakeAwsClientFactory")
+			addMapKeyIfNotEmpty("client.factory", "io.olake.server.iceberg.OlakeAwsClientFactory")
 			addMapKeyIfNotEmpty("glue.access-key-id", config.GlueAccessKey)
 			addMapKeyIfNotEmpty("glue.secret-access-key", config.GlueSecretKey)
 			addMapKeyIfNotEmpty("glue.endpoint", config.GlueEndpoint)
@@ -187,21 +187,45 @@ func startServer(config *Config) (*serverInstance, error) {
 
 	logger.Infof("Started shared Iceberg JVM on port %d", port)
 	return &serverInstance{
-		port:        port,
-		cmd:         serverCmd,
-		client:      proto.NewRecordIngestServiceClient(conn),
-		arrowClient: proto.NewArrowIngestServiceClient(conn),
-		conn:        conn,
-		serverID:    serverID,
+		port:          port,
+		cmd:           serverCmd,
+		catalogClient: proto.NewCatalogServiceClient(conn),
+		writerClient:  proto.NewWriterServiceClient(conn),
+		conn:          conn,
+		serverID:      serverID,
 	}, nil
+}
+
+func (s *serverInstance) CatalogClient() proto.CatalogServiceClient {
+	return s.catalogClient
+}
+
+func (s *serverInstance) WriterClient() proto.WriterServiceClient {
+	return s.writerClient
 }
 
 func (s *serverInstance) SendClientRequest(ctx context.Context, payload interface{}) (interface{}, error) {
 	switch p := payload.(type) {
-	case *proto.IcebergPayload:
-		return s.client.SendRecords(ctx, p)
-	case *proto.ArrowPayload:
-		return s.arrowClient.IcebergAPI(ctx, p)
+	case *proto.CheckConnectionRequest:
+		return s.catalogClient.CheckConnection(ctx, p)
+	case *proto.DropTablesRequest:
+		return s.catalogClient.DropTables(ctx, p)
+	case *proto.InitSessionRequest:
+		return s.writerClient.InitSession(ctx, p)
+	case *proto.SendRecordsRequest:
+		return s.writerClient.SendRecords(ctx, p)
+	case *proto.EvolveSchemaRequest:
+		return s.writerClient.EvolveSchema(ctx, p)
+	case *proto.RefreshTableSchemaRequest:
+		return s.writerClient.RefreshTableSchema(ctx, p)
+	case *proto.GetFilePathRequest:
+		return s.writerClient.GetFilePath(ctx, p)
+	case *proto.UploadFileRequest:
+		return s.writerClient.UploadFile(ctx, p)
+	case *proto.CommitRequest:
+		return s.writerClient.Commit(ctx, p)
+	case *proto.CloseSessionRequest:
+		return s.writerClient.CloseSession(ctx, p)
 	default:
 		return nil, fmt.Errorf("unsupported payload type: %T", payload)
 	}

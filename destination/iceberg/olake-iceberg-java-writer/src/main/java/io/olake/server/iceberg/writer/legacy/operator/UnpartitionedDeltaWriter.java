@@ -1,4 +1,4 @@
-package io.debezium.server.iceberg.tableoperator;
+package io.olake.server.iceberg.writer.legacy.operator;
 
 import java.io.IOException;
 import java.util.Set;

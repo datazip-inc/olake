@@ -1,139 +1,194 @@
 syntax = "proto3";
 
-package io.debezium.server.iceberg.rpc;
+package io.olake.server.iceberg.rpc;
 
 option go_package = "iceberg/proto";
 option java_outer_classname = "RecordIngest";
 
-service RecordIngestService {
-  rpc SendRecords(IcebergPayload) returns (RecordIngestResponse);
+// ============================================
+// Core Shared Messages
+// ============================================
+message SchemaField {
+  string ice_type = 1;
+  string key = 2;
 }
 
-message IcebergPayload {
-  enum PayloadType {
-    RECORDS = 0;
-    COMMIT = 1;
-    EVOLVE_SCHEMA = 2;
-    DROP_TABLE = 3;
-    GET_OR_CREATE_TABLE = 4;
-    REFRESH_TABLE_SCHEMA = 5;
-    CLOSE_SESSION = 6;
+message PartitionField {
+  string field = 1;
+  string transform = 2;
+}
+
+message TableConfig {
+  string dest_table_name = 1;
+  string namespace = 2;
+  bool upsert = 3;
+}
+
+enum WriterMode {
+  LEGACY = 0;
+  ARROW = 1;
+}
+
+// ============================================
+// Catalog Service (Stateless)
+// ============================================
+service CatalogService {
+  rpc CheckConnection(CheckConnectionRequest) returns (CheckConnectionResponse);
+  rpc DropTables(DropTablesRequest) returns (DropTablesResponse);
+}
+
+message CheckConnectionRequest {
+  string namespace = 1;
+  string table_name = 2;
+}
+message CheckConnectionResponse {
+  string result = 1;
+}
+
+message DropTablesRequest {
+  repeated string tables = 1; // "namespace.table"
+}
+message DropTablesResponse {
+  string result = 1;
+}
+
+// ============================================
+// Unified Writer Service
+// ============================================
+service WriterService {
+  rpc InitSession(InitSessionRequest) returns (InitSessionResponse);
+  
+  // Row methods
+  rpc SendRecords(SendRecordsRequest) returns (SendRecordsResponse);
+  rpc EvolveSchema(EvolveSchemaRequest) returns (EvolveSchemaResponse);
+  rpc RefreshTableSchema(RefreshTableSchemaRequest) returns (RefreshTableSchemaResponse);
+  
+  // Arrow methods
+  rpc GetFilePath(GetFilePathRequest) returns (GetFilePathResponse);
+  rpc UploadFile(UploadFileRequest) returns (UploadFileResponse);
+  
+  // Common methods
+  rpc Commit(CommitRequest) returns (CommitResponse);
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+}
+
+message InitSessionRequest {
+  string thread_id = 1;
+  TableConfig table_config = 2;
+  WriterMode mode = 3;
+  
+  // Legacy writer: schema + partition spec. Identifier field (_olake_id) is set on the
+  // JVM when table_config.upsert is true; append mode creates tables without identifiers.
+  repeated SchemaField schema = 4;
+  repeated PartitionField partition_fields = 5;
+}
+
+message InitSessionResponse {
+  string result = 1;
+  string olake_2pc_state = 2; // For row
+  string schema_json = 3; // For row
+  map<string, string> icebergSchemas = 4; // For arrow
+}
+
+message SendRecordsRequest {
+  string thread_id = 1;
+  repeated SchemaField schema = 2;
+  
+  message FieldValue {
+    oneof value {
+      string string_value = 1;
+      int32 int_value = 2;
+      int64 long_value = 3;
+      float float_value = 4;
+      double double_value = 5;
+      bool bool_value = 6;
+      bytes bytes_value = 7;
+    }
   }
   
-  PayloadType type = 1;
-
-  message Metadata {
-    string dest_table_name = 1;
-    string thread_id = 2;
-    optional string identifier_field = 3;
-    repeated SchemaField schema = 4;
-    string payload = 6;
-    // Per-stream context (previously baked into JVM CLI args)
-    string namespace = 7;
-    bool upsert = 8;
-    bool create_identifier_fields = 9;
-    repeated PartitionField partition_fields = 10;
-  }
-
-  message SchemaField {
-    string ice_type = 1;
-    string key = 2;
-  }
-
-  message PartitionField {
-    string field = 1;
-    string transform = 2;
-  }
-
-  // OPTIMIZED: Replace google.protobuf.Value with typed fields
   message IceRecord {
-    // Use oneof for efficient memory usage - only one field type active per record field
-    message FieldValue {
-      oneof value {
-        string string_value = 1;
-        int32 int_value = 2;
-        int64 long_value = 3;
-        float float_value = 4;
-        double double_value = 5;
-        bool bool_value = 6;
-        bytes bytes_value = 7;
-      }
-    }
-    
     repeated FieldValue fields = 1;
-    string record_type = 2;  // "u", "c", "r"
+    string record_type = 2; // "u", "c", "r"
   }
-
-  Metadata metadata = 2;
+  
   repeated IceRecord records = 3;
 }
 
-message RecordIngestResponse {
+message SendRecordsResponse {
   string result = 1;
-  bool success = 2;  // Adding success boolean for better error handling
-  string olake_2pc_state = 3;  // GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
 }
 
-service ArrowIngestService {
-  rpc IcebergAPI(ArrowPayload) returns (ArrowIngestResponse);
+message EvolveSchemaRequest {
+  string thread_id = 1;
+  repeated SchemaField schema = 2;
 }
 
-message ArrowPayload {
-  enum PayloadType {
-    UPLOAD_FILE = 0;
-    REGISTER_AND_COMMIT = 1;
-    JSONSCHEMA = 2;
-    FILEPATH = 3;
-    CLOSE_SESSION = 4;
+message EvolveSchemaResponse {
+  string result = 1;
+  string schema_json = 2;
+}
+
+message RefreshTableSchemaRequest {
+  string thread_id = 1;
+}
+
+message RefreshTableSchemaResponse {
+  string result = 1;
+  string schema_json = 2;
+}
+
+message GetFilePathRequest {
+  string thread_id = 1;
+}
+
+message GetFilePathResponse {
+  string result = 1;
+}
+
+message UploadFileRequest {
+  string thread_id = 1;
+  string file_path = 2;
+  bytes file_data = 3;
+}
+
+message UploadFileResponse {
+  string result = 1;
+}
+
+message CommitRequest {
+  string thread_id = 1;
+  string payload = 2;
+  
+  // For arrow
+  message PartitionValue {
+    oneof value {
+      int32 int_value = 1;
+      int64 long_value = 2;
+      string string_value = 3;
+      float float_value = 4;
+      double double_value = 5;
+      bool bool_value = 6;
+    }
   }
 
-  PayloadType type = 1;
-
   message FileMetadata {
-    message PartitionValue {
-      oneof value {
-        int32 int_value = 1;
-        int64 long_value = 2;
-        string string_value = 3;
-        float float_value = 4;
-        double double_value = 5;
-        bool bool_value = 6;
-      }
-    }
-
     string file_type = 1;
     string file_path = 2;
     int64 record_count = 3;
     repeated PartitionValue partition_values = 5;
   }
-
-  message FileUploadRequest {
-    bytes file_data = 1;
-    string file_path = 2;
-  }
-
-  message PartitionField {
-    string field = 1;
-    string transform = 2;
-  }
-
-  message Metadata {
-    string dest_table_name = 1;
-    string thread_id = 2;
-    repeated FileMetadata file_metadata = 3;
-    optional FileUploadRequest file_upload = 4;
-    string payload = 6;
-    // Per-stream context (previously baked into JVM CLI args)
-    string namespace = 7;
-    bool upsert = 8;
-    bool create_identifier_fields = 9;
-    repeated PartitionField partition_fields = 10;
-  }
-
-  Metadata metadata = 2;
+  
+  repeated FileMetadata file_metadata = 3;
 }
 
-message ArrowIngestResponse {
+message CommitResponse {
   string result = 1;
-  map<string, string> icebergSchemas = 2;
+}
+
+message CloseSessionRequest {
+  string thread_id = 1;
+}
+
+message CloseSessionResponse {
+  string result = 1;
 }

@@ -163,8 +163,8 @@ func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *par
 	return parquet.NewSchema("olake_schema", groupNode)
 }
 
-func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface, includeColumns ...string) []*proto.IcebergPayload_SchemaField {
-	var icebergFields []*proto.IcebergPayload_SchemaField
+func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface, includeColumns ...string) []*proto.SchemaField {
+	var icebergFields []*proto.SchemaField
 	isSelected := stream.IsSelectedColumn()
 
 	// build a lookup set so partition columns can be included even in defaultColumns mode
@@ -177,7 +177,7 @@ func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface, incl
 		if !isSelected(utils.Reformat(colName)) || (defaultColumns && !prop.OlakeColumn && !includeSet.Exists(colName)) {
 			return true
 		}
-		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+		icebergFields = append(icebergFields, &proto.SchemaField{
 			IceType: prop.DataType().ToIceberg(),
 			Key:     prop.getDestinationColumnName(colName),
 		})
@@ -185,7 +185,7 @@ func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface, incl
 	})
 
 	if defaultColumns {
-		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
+		icebergFields = append(icebergFields, &proto.SchemaField{
 			IceType: "string",
 			Key:     constants.StringifiedData,
 		})

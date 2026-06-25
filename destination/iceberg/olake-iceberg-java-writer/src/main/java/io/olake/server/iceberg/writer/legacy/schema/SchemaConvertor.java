@@ -1,4 +1,4 @@
-package io.debezium.server.iceberg;
+package io.olake.server.iceberg.writer.legacy.schema;
 
 import java.util.Map;
 
@@ -16,20 +16,20 @@ import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 
-import  io.debezium.server.iceberg.rpc.RecordIngest;
-import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord;
-import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue;
-import io.debezium.server.iceberg.tableoperator.Operation;
-import io.debezium.server.iceberg.tableoperator.RecordWrapper;
+import  io.olake.server.iceberg.rpc.RecordIngest;
+import io.olake.server.iceberg.rpc.RecordIngest.SendRecordsRequest.IceRecord;
+import io.olake.server.iceberg.rpc.RecordIngest.SendRecordsRequest.FieldValue;
+import io.olake.server.iceberg.writer.legacy.operator.Operation;
+import io.olake.server.iceberg.writer.legacy.operator.RecordWrapper;
 
 public class SchemaConvertor {
-  private final List<RecordIngest.IcebergPayload.SchemaField> schemaMetadata;
+  private final List<RecordIngest.SchemaField> schemaMetadata;
   private final String identifierField;
   protected static final Logger LOGGER = LoggerFactory.getLogger(SchemaConvertor.class);
 
   public static final List<String> TS_MS_FIELDS = List.of("_olake_timestamp", "_cdc_timestamp");
 
-  public SchemaConvertor(String pk, List<RecordIngest.IcebergPayload.SchemaField> schema) {
+  public SchemaConvertor(String pk, List<RecordIngest.SchemaField> schema) {
     schemaMetadata = schema;
     identifierField = pk;
   }
@@ -37,7 +37,7 @@ public class SchemaConvertor {
   // currently implemented for primitive fields only
   public Schema convertToIcebergSchema() {
     RecordSchemaData schemaData = new RecordSchemaData();
-    for(RecordIngest.IcebergPayload.SchemaField rawField :  schemaMetadata){
+    for(RecordIngest.SchemaField rawField :  schemaMetadata){
       String fieldName = rawField.getKey(); // field name 
       String fieldType = rawField.getIceType();
       Boolean isPkField = (fieldName.equals(identifierField));
@@ -52,7 +52,7 @@ public class SchemaConvertor {
       // Pre-compute schema information once
       Map<String, Integer> fieldNameToIndexMap = new HashMap<>();
       for (int index = 0; index < schemaMetadata.size(); index++) {
-          RecordIngest.IcebergPayload.SchemaField rawField = schemaMetadata.get(index);
+          RecordIngest.SchemaField rawField = schemaMetadata.get(index);
           String fieldName = rawField.getKey(); // or whatever method gives the field name
           fieldNameToIndexMap.put(fieldName, index); // Map field name → index
       }

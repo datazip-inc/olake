@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package io.debezium.server.iceberg.tableoperator;
+package io.olake.server.iceberg.writer.legacy.operator;
 
 public enum Operation {
   INSERT,  // "i" — first-CDC overlap insert; equality-delete before write
