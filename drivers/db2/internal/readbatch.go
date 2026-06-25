@@ -82,7 +82,6 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 			return fmt.Errorf("readBatchConcurrent: not a *go_ibm_db.Conn (%T)", driverConn)
 		}
 
-		// TODO: check if we need to make it configurable
 		// set the fetch size for the connection to the default value.
 		conn.SetFetchSize(db2DefaultFetchSize)
 
