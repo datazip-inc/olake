@@ -51,7 +51,6 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 
 	logger.Debugf("Starting backfill for %s with chunk %v using query: %s", stream.ID(), chunk, stmt)
 
-	logger.Infof("[DB2] backfill read path: readbatch (fetch_size=%d)", db2DefaultFetchSize)
 	return d.readBatchConcurrent(ctx, stmt, args, OnMessage)
 }
 
