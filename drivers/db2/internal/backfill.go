@@ -66,7 +66,7 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 	return jdbc.MapScanConcurrent(setter, d.dataTypeConverter, OnMessage)
 }
 
-func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.Pool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	// Approx Row Count
 	var approxRowCount int64
 	rowCountQuery := jdbc.DB2ApproxRowCountQuery(stream)

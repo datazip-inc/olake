@@ -15,7 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
+func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.Pool, streams ...types.StreamInterface) error {
 	backfillWaitChannel := make(chan string, len(streams))
 	defer close(backfillWaitChannel)
 

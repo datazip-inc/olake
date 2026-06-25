@@ -30,7 +30,7 @@ type Iceberg struct {
 }
 
 // Close tears down the shared JVM. Safe to call from defer (idempotent).
-func (i *Iceberg) Cleanup(ctx context.Context) error {
+func (i *Iceberg) Close(ctx context.Context) error {
 	if i.server != nil {
 		i.server.Shutdown(ctx)
 		i.server = nil
@@ -153,7 +153,8 @@ func (i *writer) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
 }
 
-func (i *writer) CleanupAndCommit(ctx context.Context, finalMetadataState any) (err error) {
+// commits to iceberg if no context err present, always cleanup session
+func (i *writer) CommitAndCleanup(ctx context.Context, finalMetadataState any) (err error) {
 	defer func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

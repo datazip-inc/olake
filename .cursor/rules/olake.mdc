@@ -33,7 +33,7 @@ OLake is an open-source, high-performance **EL (Extract-Load)** tool that replic
 │       └── internal/                # Driver logic + *_test.go integration tests
 ├── destination/
 │   ├── interface.go                 # destination.Writer — every destination implements this
-│   ├── writers.go                   # WriterPool, WriterThread (concurrent writer management)
+│   ├── writers.go                   # Pool, WriterThread (concurrent writer management)
 │   ├── iceberg/                     # Iceberg destination (legacy + arrow write modes)
 │   │   ├── olake-iceberg-java-writer/   # Java Maven project (gRPC server)
 │   │   ├── proto/                   # Protobuf definitions + generated Go code

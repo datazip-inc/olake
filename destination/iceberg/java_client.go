@@ -111,7 +111,7 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 }
 
 // startServer launches the JVM and returns the running instance. Invoked once
-// from Iceberg.Initialize (via WriterPool.NewWriterPool) before any
+// from Iceberg.Initialize (via Pool.NewWriterPool) before any
 // sync/check/clear work begins.
 func startServer(config *Config) (*serverInstance, error) {
 	if err := config.Validate(); err != nil {

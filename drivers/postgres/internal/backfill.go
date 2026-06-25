@@ -49,7 +49,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	return jdbc.MapScanConcurrent(setter, p.dataTypeConverter, OnMessage)
 }
 
-func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.Pool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	var approxRowCount int64
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRowContext(ctx, approxRowCountQuery).Scan(&approxRowCount)

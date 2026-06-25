@@ -16,7 +16,6 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-
 // ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
@@ -55,7 +54,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	return jdbc.MapScanConcurrent(setter, o.dataTypeConverter, OnMessage)
 }
 
-func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.Pool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	// Get approximate row count from Oracle statistics for progress tracking
 	var approxRowCount int64
 	var avgRowSize float64
