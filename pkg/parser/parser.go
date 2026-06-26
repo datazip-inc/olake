@@ -10,9 +10,9 @@ import (
 // Parser defines the interface for file format parsers
 // This interface separates parsing logic from storage operations (S3, GCS, etc.)
 type Parser interface {
-	// InferSchema reads a small sample from the reader to infer schema
+	// InferSchema reads small samples from one or more readers to infer schema
 	// Should not load entire file into memory
-	InferSchema(ctx context.Context, reader io.Reader) (*types.Stream, error)
+	InferSchema(ctx context.Context, readers ...io.Reader) (*types.Stream, error)
 
 	// StreamRecords reads records from the reader and calls callback for each record
 	// Supports context cancellation to prevent resource leaks

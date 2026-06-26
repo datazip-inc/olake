@@ -33,11 +33,14 @@ func NewParquetParser(config ParquetConfig, stream *types.Stream) *ParquetParser
 // InferSchema reads Parquet file metadata to infer the schema
 // For Parquet, schema is stored in file metadata, so we don't need to read data
 // NOTE: reader must be io.ReaderAt for Parquet (use S3RangeReader or bytes.Reader)
-func (p *ParquetParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
+func (p *ParquetParser) InferSchema(_ context.Context, readers ...io.Reader) (*types.Stream, error) {
 	logger.Debug("Inferring Parquet schema from file metadata")
+	if len(readers) == 0 {
+		return nil, fmt.Errorf("no Parquet readers provided")
+	}
 
 	// Prepare reader and get file size
-	readerAt, fileSize, err := prepareParquetReader(reader)
+	readerAt, fileSize, err := prepareParquetReader(readers[0])
 	if err != nil {
 		return nil, err
 	}

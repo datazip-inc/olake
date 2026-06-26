@@ -36,11 +36,14 @@ func NewCSVParser(config CSVConfig, stream *types.Stream) *CSVParser {
 
 // InferSchema reads the first few rows of a CSV file to infer the schema
 // Uses small samples to avoid loading entire file into memory
-func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
+func (p *CSVParser) InferSchema(_ context.Context, readers ...io.Reader) (*types.Stream, error) {
 	logger.Debug("Inferring CSV schema from sample data")
+	if len(readers) == 0 {
+		return nil, fmt.Errorf("no CSV readers provided")
+	}
 
 	// Create CSV reader
-	csvReader := csv.NewReader(reader)
+	csvReader := csv.NewReader(readers[0])
 	csvReader.Comma = rune(p.config.Delimiter[0])
 	if p.config.QuoteCharacter != "" {
 		csvReader.LazyQuotes = true
