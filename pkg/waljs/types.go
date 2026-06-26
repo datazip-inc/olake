@@ -3,6 +3,7 @@ package waljs
 import (
 	"crypto/tls"
 	"net/url"
+	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/types"
@@ -21,6 +22,10 @@ type Config struct {
 	BatchSize           int
 	// Publications is used with pgoutput
 	Publication string
+	// BytesCounter accumulates the number of source data bytes processed during
+	// CDC replay. Each column value is counted using PostgreSQL's on-disk storage
+	// size (equivalent to pg_column_size). Nil means no counting is performed.
+	BytesCounter *atomic.Int64
 }
 
 type WALState struct {

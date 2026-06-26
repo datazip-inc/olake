@@ -10,6 +10,12 @@ import (
 type BackfillMsgFn func(ctx context.Context, message map[string]any) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 
+// BytesMeasurable is an optional interface for drivers that track how many
+// source bytes they have processed. AbstractDriver.BytesRead() delegates here.
+type BytesMeasurable interface {
+	BytesRead() int64
+}
+
 type Config interface {
 	Validate() error
 }

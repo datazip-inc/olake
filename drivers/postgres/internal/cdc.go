@@ -34,6 +34,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		Tables:              types.NewSet(streams...),
 		TLSConfig:           tlsConfig,
 		Publication:         p.cdcConfig.Publication,
+		BytesCounter:        &p.bytesRead,
 	}, nil
 }
 

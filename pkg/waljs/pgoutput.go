@@ -142,18 +142,24 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		return data, nil
 	}
 
+	// Accumulate pg_column_size(row.*)-equivalent bytes in one pass:
+	// per-row HeapTupleHeader overhead + inter-column alignment padding + column data.
+	if p.socket.bytesCounter != nil {
+		p.socket.bytesCounter.Add(tupleRowBytes(rel, tuple))
+	}
+
 	for idx, col := range tuple.Columns {
 		if idx >= len(rel.Columns) {
 			continue
 		}
 		colName := rel.Columns[idx].Name
-		colType := rel.Columns[idx].DataType
 		if col.Data == nil {
 			data[colName] = nil
 			continue
 		}
 
 		// Convert according to OID to string
+		colType := rel.Columns[idx].DataType
 		typeName := oidToString(colType)
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
@@ -162,6 +168,149 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		data[colName] = val
 	}
 	return data, nil
+}
+
+// numericBinaryBytes computes the PostgreSQL on-disk size of a NUMERIC value
+// from its text representation as sent by the pgoutput logical-replication plugin.
+//
+// Storage: 1-byte short-varlena header + 2-byte n_header + 2 bytes × ndigits,
+// where ndigits = ⌈int_decimal_digits/4⌉ + ⌈frac_decimal_digits/4⌉ after
+// stripping leading zeros (integer part) and trailing zeros (fractional part).
+func numericBinaryBytes(data []byte) int64 {
+	s := string(data)
+	if s == "" {
+		return 3
+	}
+	if len(s) > 0 && (s[0] == '+' || s[0] == '-') {
+		s = s[1:]
+	}
+	sl := strings.ToLower(s)
+	if sl == "nan" || sl == "infinity" || sl == "inf" {
+		return 3
+	}
+
+	var intPart, fracPart string
+	if dot := strings.IndexByte(s, '.'); dot >= 0 {
+		intPart = s[:dot]
+		fracPart = s[dot+1:]
+	} else {
+		intPart = s
+	}
+	intPart = strings.TrimLeft(intPart, "0")
+	fracPart = strings.TrimRight(fracPart, "0")
+
+	intDigits := (len(intPart) + 3) / 4
+	fracDigits := (len(fracPart) + 3) / 4
+	ndigits := int64(intDigits + fracDigits)
+	return 3 + 2*ndigits
+}
+
+// oidStorageBytes returns the number of bytes PostgreSQL stores for a column value
+// with the given OID — equivalent to pg_column_size(value).
+//
+// Fixed-width types always use the same number of bytes.
+// NUMERIC uses PostgreSQL's variable-length base-10000 digit encoding.
+// All other variable-width types (VARCHAR, TEXT, BYTEA, JSON, JSONB, …) use
+// len(data) + varlena header (1-byte for total ≤ 127 bytes, 4-byte otherwise).
+func oidStorageBytes(oid uint32, data []byte) int64 {
+	switch oid {
+	case pgtype.Int2OID:
+		return 2
+	case pgtype.Int4OID:
+		return 4
+	case pgtype.Int8OID:
+		return 8
+	case pgtype.Float4OID:
+		return 4
+	case pgtype.Float8OID:
+		return 8
+	case pgtype.BoolOID:
+		return 1
+	case pgtype.DateOID:
+		return 4
+	case pgtype.TimeOID:
+		return 8
+	case pgtype.TimestampOID, pgtype.TimestamptzOID:
+		return 8
+	case pgtype.UUIDOID:
+		return 16
+	case pgtype.NumericOID:
+		// NUMERIC is variable-length; pgoutput sends it as text (e.g. "3.52").
+		return numericBinaryBytes(data)
+	default:
+		// Variable-width: VARCHAR, TEXT, BYTEA, JSON, JSONB, arrays, etc.
+		n := int64(len(data))
+		if n <= 127 {
+			return n + 1 // 1-byte short-varlena header
+		}
+		return n + 4 // 4-byte long-varlena header
+	}
+}
+
+// oidAlignment returns the alignment boundary (bytes) PostgreSQL uses for a
+// column with the given OID when laying it out inside a heap tuple.
+// This matches the typalign field in pg_type.
+func oidAlignment(oid uint32, storedBytes int64) int64 {
+	switch oid {
+	case pgtype.Int8OID, pgtype.Float8OID,
+		pgtype.TimestampOID, pgtype.TimestamptzOID,
+		pgtype.TimeOID, 1266 /* timetz OID, not exported by pgtype */ :
+		return 8
+	case pgtype.Int4OID, pgtype.Float4OID, pgtype.DateOID, 26 /* OID OID */ :
+		return 4
+	case pgtype.Int2OID:
+		return 2
+	default:
+		// Variable-length types: short varlena (≤ 127 bytes) → 1-byte aligned,
+		// long varlena (> 127 bytes) → 4-byte aligned.
+		// BOOL (1 byte), NUMERIC short form: 1-byte aligned.
+		if storedBytes <= 127 {
+			return 1
+		}
+		return 4
+	}
+}
+
+// tupleRowBytes computes the pg_column_size(row.*)-equivalent byte count for a
+// complete CDC tuple: HeapTupleHeader overhead + inter-column alignment padding
+// + individual column storage bytes.
+func tupleRowBytes(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) int64 {
+	n := len(rel.Columns)
+
+	// ── 1. HeapTupleHeader ─────────────────────────────────────────────────
+	hasNull := false
+	for _, col := range tuple.Columns {
+		if col.Data == nil {
+			hasNull = true
+			break
+		}
+	}
+	headerSize := 23
+	if hasNull {
+		headerSize += (n + 7) / 8 // null bitmap: 1 bit per attribute, rounded up
+	}
+	// MAXALIGN to 8 bytes (standard 64-bit PostgreSQL)
+	tHoff := int64((headerSize + 7) &^ 7)
+
+	// ── 2. Column data with inter-column alignment padding ─────────────────
+	dataOffset := int64(0)
+	for i, col := range tuple.Columns {
+		if i >= len(rel.Columns) || col.Data == nil {
+			continue
+		}
+		oid := rel.Columns[i].DataType
+		colBytes := oidStorageBytes(oid, col.Data)
+		align := oidAlignment(oid, colBytes)
+
+		if align > 1 {
+			if rem := dataOffset % align; rem != 0 {
+				dataOffset += align - rem
+			}
+		}
+		dataOffset += colBytes
+	}
+
+	return tHoff + dataOffset
 }
 
 func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {

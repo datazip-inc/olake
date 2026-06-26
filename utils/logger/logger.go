@@ -135,7 +135,7 @@ func FileLoggerWithPath(content any, path string) error {
 	return nil
 }
 
-func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
+func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int64)) {
 	startTime := time.Now()
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -146,7 +146,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 				Info("Monitoring stopped")
 				return
 			case <-ticker.C:
-				runningThreads, recordsToSync, syncedRecords := statsFunc()
+				runningThreads, recordsToSync, syncedRecords, bytesRead := statsFunc()
 				memStats := new(runtime.MemStats)
 				runtime.ReadMemStats(memStats)
 				speed := float64(syncedRecords) / time.Since(startTime).Seconds()
@@ -159,6 +159,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 				stats := map[string]interface{}{
 					"Writer Threads":           runningThreads,
 					"Synced Records":           syncedRecords,
+					"Bytes Read":               bytesRead,
 					"Memory":                   fmt.Sprintf("%d mb", memStats.HeapInuse/(1024*1024)),
 					"Speed":                    fmt.Sprintf("%.2f rps", speed),
 					"Seconds Elapsed":          fmt.Sprintf("%.2f", timeElapsed),
@@ -462,4 +463,20 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		}
 		return fmt.Errorf("iceberg writer %s did not become ready within %d seconds: %s", processName, timeoutSec, stderrTail)
 	}
+}
+
+// FormatBytes converts a byte count to a human-readable string with the most
+// appropriate unit (B, KB, MB, GB, TB). Always shows two decimal places for
+// units larger than bytes.
+func FormatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTP"[exp])
 }

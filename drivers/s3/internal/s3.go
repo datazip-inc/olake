@@ -8,6 +8,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"sync/atomic"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -31,6 +32,12 @@ type S3 struct {
 	state           *types.State
 	filePattern     *regexp.Regexp
 	discoveredFiles map[string][]FileObject // map[streamName][]files
+	bytesRead       atomic.Int64
+}
+
+// BytesRead returns the total bytes processed (sum of file sizes).
+func (s *S3) BytesRead() int64 {
+	return s.bytesRead.Load()
 }
 
 // GetConfigRef returns a reference to the config struct

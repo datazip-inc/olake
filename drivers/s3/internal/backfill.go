@@ -169,6 +169,7 @@ func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, ch
 // lastModified is passed as parameter to avoid redundant file metadata lookups
 func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key string, fileSize int64, lastModified string, processFn abstract.BackfillMsgFn) error {
 	// For Parquet streaming, use S3 range requests (no need to load entire file into memory)
+	var err error
 	if s.config.FileFormat == FormatParquet {
 		parquetConfig := s.config.GetParquetConfig()
 		if parquetConfig.StreamingEnabled && fileSize > 0 {
@@ -177,7 +178,11 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 				key, float64(fileSize)/(1024*1024))
 			rangeReader := NewS3RangeReader(ctx, s.client, s.config.BucketName, key, fileSize)
 			wrapper := parser.NewParquetReaderWrapper(rangeReader, fileSize)
-			return s.parseFileWithReader(ctx, stream, key, wrapper, lastModified, processFn)
+			err = s.parseFileWithReader(ctx, stream, key, wrapper, lastModified, processFn)
+			if err == nil {
+				s.bytesRead.Add(fileSize)
+			}
+			return err
 		}
 	}
 
@@ -197,7 +202,13 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 		}
 	}()
 
-	return s.parseFileWithReader(ctx, stream, key, reader, lastModified, processFn)
+	err = s.parseFileWithReader(ctx, stream, key, reader, lastModified, processFn)
+	if err == nil {
+		// Only increment the bytes counter upon successful processing of the entire file.
+		// This uses the exact S3 object size without needing to intercept read calls.
+		s.bytesRead.Add(fileSize)
+	}
+	return err
 }
 
 // parseFileWithReader handles the common parsing logic for all file formats

@@ -88,7 +88,13 @@ func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter
 }
 
 // TODO: Use MapScanConcurrent instead of MapScan for incremental as well
-func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error)) error {
+//
+// MapScan scans the current row into dest. The optional addRowBytes callback is
+// invoked once per complete row with all raw (pre-conversion) column values and
+// their SQL column types, allowing callers to compute per-row byte counts
+// (including inter-column alignment padding) without an extra pass.
+// Pass nil or omit to skip byte counting.
+func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error), addRowBytes ...func(rawVals []any, colTypes []*sql.ColumnType)) error {
 	columns, colTypes, err := getColumnMetadata(rows)
 	if err != nil {
 		return err
@@ -103,23 +109,37 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 		return err
 	}
 
+	rawVals := make([]any, len(columns))
+	for i := range scanValues {
+		rawVals[i] = *(scanValues[i].(*any)) // Dereference pointer before storing
+	}
+
+	if len(addRowBytes) > 0 && addRowBytes[0] != nil {
+		addRowBytes[0](rawVals, colTypes)
+	}
+
 	for i, col := range columns {
-		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
 		if converter != nil {
-			conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
+			conv, err := normalizeDataTypeAndConvert(rawVals[i], colTypes[i], converter)
 			if err != nil {
 				return err
 			}
 			dest[col] = conv
 		} else {
-			dest[col] = rawData
+			dest[col] = rawVals[i]
 		}
 	}
 
 	return nil
 }
 
-func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn) error {
+// MapScanConcurrent scans rows concurrently using a producer/consumer pattern.
+// The optional addRowBytes callback is invoked in the producer goroutine once
+// per complete row with all raw (pre-conversion) column values and their SQL
+// column types, allowing callers to compute per-row byte counts (including
+// inter-column alignment padding) without a second pass. Pass nil or omit to
+// skip byte counting.
+func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn, addRowBytes ...func(rawVals []any, colTypes []*sql.ColumnType)) error {
 	valuesCh := make(chan []any)
 
 	var (
@@ -127,6 +147,11 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 		colTypes  []*sql.ColumnType
 		scanDests []any // reused pointers for rows.Scan
 	)
+
+	var rowBytesFn func([]any, []*sql.ColumnType)
+	if len(addRowBytes) > 0 && addRowBytes[0] != nil {
+		rowBytesFn = addRowBytes[0]
+	}
 
 	// Producer: scan rows and push raw values onto the channel.
 	producer := func(ctx context.Context) error {
@@ -153,6 +178,10 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 			vals := make([]any, len(columns))
 			for i := range scanDests {
 				vals[i] = *(scanDests[i].(*any))
+			}
+
+			if rowBytesFn != nil {
+				rowBytesFn(vals, colTypes)
 			}
 
 			select {

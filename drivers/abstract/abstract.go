@@ -47,6 +47,15 @@ func (a *AbstractDriver) SetupState(state *types.State) {
 	a.driver.SetupState(state)
 }
 
+// BytesRead returns the total source bytes accumulated by the inner driver,
+// or 0 if the driver does not implement BytesMeasurable.
+func (a *AbstractDriver) BytesRead() int64 {
+	if bm, ok := a.driver.(BytesMeasurable); ok {
+		return bm.BytesRead()
+	}
+	return 0
+}
+
 func (a *AbstractDriver) GetConfigRef() Config {
 	return a.driver.GetConfigRef()
 }
