@@ -4,14 +4,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,7 +17,6 @@ import io.debezium.DebeziumException;
 import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.SchemaConvertor;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
-import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
@@ -72,13 +69,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             // CLOSE_SESSION: release the session's Table handle and operator.
             // Mirrors what process exit did for free in the old per-JVM model.
             if (request.getType() == IcebergPayload.PayloadType.CLOSE_SESSION) {
-                 // Give active RECORDS/COMMIT gRPC requests on this cancelled thread some time to check isCancelled(),
-                // call closeQuietly() to abort/close the writer cleanly, and exit, before we remove the session.
-                try {
-                    Thread.sleep(1000); // 1 second
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
                 sessions.remove(threadId);
                 sendResponse(responseObserver, requestId + " closed session " + threadId);
                 LOGGER.debug("{} closed session {}", requestId, threadId);
