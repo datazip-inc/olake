@@ -34,7 +34,7 @@ jobs:
 
       - name: Install DB2 CLI Driver
         run: |
-          go run github.com/datazip-inc/go_ibm_db/installer@v0.0.1
+          go run -C drivers/db2 github.com/ibmdb/go_ibm_db/installer@v0.4.5
           cp -r "$(go env GOPATH)/pkg/mod/github.com/ibmdb/clidriver" ./clidriver
           IBM_DB_HOME="$(pwd)/clidriver"
           echo "IBM_DB_HOME=$IBM_DB_HOME" >> $GITHUB_ENV

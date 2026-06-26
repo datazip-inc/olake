@@ -8,7 +8,7 @@ ARG DRIVER_NAME=olake
 
 # DB2 conditional setup
 RUN if [ "$DRIVER_NAME" = "db2" ]; then \
-  go run github.com/datazip-inc/go_ibm_db/installer@v0.0.1; \
+  go run -C drivers/db2 github.com/ibmdb/go_ibm_db/installer@v0.4.5; \
 else \
   # for other drivers, create empty clidriver directory to avoid build failure
   mkdir -p /go/pkg/mod/github.com/ibmdb/clidriver; \
