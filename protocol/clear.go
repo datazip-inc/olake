@@ -62,9 +62,14 @@ var clearCmd = &cobra.Command{
 		// Setup new state after clear for connector
 		connector.SetupState(newState)
 
-		// drop/clear streams from destination
-		cerr := destination.ClearDestination(cmd.Context(), destinationConfig, dropStreams)
-		if cerr != nil {
+		// drop/clear streams from destination. The pool starts destination
+		// resources (e.g. the Iceberg JVM) and Close tears them down.
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
+		if err != nil {
+			return err
+		}
+		defer pool.Close(cmd.Context())
+		if cerr := pool.Clear(cmd.Context(), dropStreams); cerr != nil {
 			return fmt.Errorf("failed to clear destination: %s", cerr)
 		}
 		logger.Infof("Successfully cleared destination data for selected streams.")

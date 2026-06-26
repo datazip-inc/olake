@@ -77,14 +77,14 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		return nil
 	}
 
+	md := &proto.IcebergPayload_Metadata{
+		ThreadId: w.options.ThreadID,
+	}
+	md.Schema = protoSchema
 	request := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_RECORDS,
-		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
-			Schema:        protoSchema,
-		},
-		Records: protoRecords,
+		Type:     proto.IcebergPayload_RECORDS,
+		Metadata: md,
+		Records:  protoRecords,
 	}
 
 	// Send to gRPC server with timeout
@@ -117,13 +117,13 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 		payloadStr = string(payloadBytes)
 	}
 
+	md := &proto.IcebergPayload_Metadata{
+		ThreadId: w.options.ThreadID,
+	}
+	md.Payload = payloadStr
 	request := &proto.IcebergPayload{
-		Type: proto.IcebergPayload_COMMIT,
-		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      w.server.ServerID(),
-			DestTableName: w.stream.GetDestinationTable(),
-			Payload:       payloadStr,
-		},
+		Type:     proto.IcebergPayload_COMMIT,
+		Metadata: md,
 	}
 
 	// Send commit request with timeout
