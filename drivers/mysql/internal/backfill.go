@@ -386,7 +386,6 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 			}
 			rangeSlice = append(rangeSlice, val)
 		}
-		rows.Close()
 
 		if err := rows.Err(); err != nil {
 			return nil, fmt.Errorf("row iteration error during distinct boundaries iteration: %s", err)
