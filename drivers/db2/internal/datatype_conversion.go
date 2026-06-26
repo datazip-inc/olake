@@ -15,9 +15,9 @@ var db2TypeToDataTypes = map[string]types.DataType{
 	"double":  types.Float64,
 	"decimal": types.Float64,
 
-	// TODO: DECFLOAT supports exponents up to ±384 (DECFLOAT(34)), which exceeds
-	// float64 range (±308). Preserve as string to avoid ParseFloat overflow.
-	"decfloat": types.Float64,
+	// DECFLOAT (16/34) exceeds float64 range and precision; the ODBC driver returns
+	// values as decimal text, so preserve them as string to avoid ParseFloat overflow.
+	"decfloat": types.String,
 
 	// boolean
 	"boolean": types.Bool,
