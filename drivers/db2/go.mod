@@ -64,6 +64,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
+	github.com/ibmruntimes/go-recordio/v2 v2.0.0-20240416213906-ae0ad556db70 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
@@ -157,5 +158,6 @@ replace (
 	cloud.google.com/go/compute => cloud.google.com/go/compute v1.23.3
 	cloud.google.com/go/compute/metadata => cloud.google.com/go/compute/metadata v0.6.0
 	github.com/datazip-inc/olake => ../../
+	github.com/ibmdb/go_ibm_db => github.com/datazip-inc/go_ibm_db v0.0.1
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 )
