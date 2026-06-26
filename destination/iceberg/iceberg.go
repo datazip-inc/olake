@@ -145,7 +145,7 @@ func (i *Iceberg) NewWriterThread(ctx context.Context, stream types.StreamInterf
 		partitionInfo: partitionInfo,
 		schema:        schema,
 		writer:        iWriter,
-	}, schema, &metadataState, nil
+	}, copySchema(schema), &metadataState, nil
 }
 
 // note: java server parses time from long value which will in milliseconds
