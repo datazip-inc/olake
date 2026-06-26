@@ -115,6 +115,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	var schema map[string]string
 
+	var protoSchema []*proto.IcebergPayload_SchemaField
 	if globalSchema == nil {
 		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
 
@@ -126,39 +127,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 				partitionFields = append(partitionFields, p.Field)
 			}
 		}
-
-		var requestPayload proto.IcebergPayload
-		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
-		requestPayload = proto.IcebergPayload{
-			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
-			Metadata: &proto.IcebergPayload_Metadata{
-				Schema:          iceSchema,
-				DestTableName:   i.stream.GetDestinationTable(),
-				ThreadId:        i.server.serverID,
-				IdentifierField: &identifierField,
-			},
-		}
-
-		response, err := i.server.SendClientRequest(ctx, &requestPayload)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
-		}
-
-		ingestResponse := response.(*proto.RecordIngestResponse)
-		schema, err = parseSchema(ingestResponse.GetResult())
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
-		}
-
-		// Capture optional olake_2pc state from table metadata without returning early,
-		// so we fall through to create the writer for this thread.
-		if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
-			var metadataState types.MetadataState
-			if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
-				return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
-			}
-			i.olake2PCState = &metadataState
-		}
+		protoSchema = stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
 	} else {
 		// set global schema for current thread
 		var ok bool
@@ -166,6 +135,40 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globa
 		if !ok {
 			return nil, nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
 		}
+
+		protoSchema = make([]*proto.IcebergPayload_SchemaField, 0, len(schema))
+		for field, dType := range schema {
+			protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{Key: field, IceType: dType})
+		}
+	}
+
+	metaResp, err := i.server.SendClientRequest(ctx, &proto.IcebergPayload{
+		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+		Metadata: &proto.IcebergPayload_Metadata{
+			Schema:          protoSchema,
+			DestTableName:   i.stream.GetDestinationTable(),
+			ThreadId:        i.server.serverID,
+			IdentifierField: &identifierField,
+		},
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get or create table: %s", err)
+	}
+
+	ingestResponse := metaResp.(*proto.RecordIngestResponse)
+	if globalSchema == nil {
+		schema, err = parseSchema(ingestResponse.GetResult())
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
+		}
+	}
+
+	if raw := ingestResponse.GetOlake_2PcState(); raw != "" {
+		var ms types.MetadataState
+		if err := json.Unmarshal([]byte(raw), &ms); err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
+		}
+		i.olake2PCState = &ms
 	}
 
 	// set schema for current thread
@@ -342,9 +345,12 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 
 		// parallel flatten data and detect schema difference
+		// One flattener per batch: the internal cache amortizes resolve calls
+		// across all records so each column name is resolved only once.
+		batchFlattener := typeutils.NewFlattener(i.stream.ResolveColumnName)
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-			flattenRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+			flattenRecord, err := batchFlattener.Flatten(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}
@@ -420,7 +426,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		if filterErr != nil {
 			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
 		}
-		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema)
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema, i.stream.ResolveColumnName)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
 		}
@@ -526,11 +532,11 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
 		// Append to ordered slice to preserve partition order.
-		// SchemaField is reformatted once here so all consumers use the consistent
-		// destination column name without scattering utils.Reformat() calls.
+		// SchemaField is resolved once here via the stream's naming strategy so
+		// all consumers get a consistent output column name.
 		i.partitionInfo = append(i.partitionInfo, internal.PartitionInfo{
 			Field:       colName,
-			SchemaField: utils.Reformat(colName),
+			SchemaField: i.stream.ResolveColumnName(colName),
 			Transform:   transform,
 		})
 	}
