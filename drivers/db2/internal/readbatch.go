@@ -93,7 +93,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 			}
 			driverArgs[i] = v
 		}
-		rows, err := conn.QueryWithArgs(query, driverArgs)
+		rows, err := conn.QueryBatch(query, driverArgs)
 		if err != nil {
 			return fmt.Errorf("readBatchConcurrent: query: %s", err)
 		}
