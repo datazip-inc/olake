@@ -20,7 +20,7 @@ import (
 //   - Sequential: Process streams one at a time after all backfills complete
 //   - Parallel: Process all streams simultaneously after all backfills complete
 //   - Concurrent: Start each stream's CDC immediately after its backfill completes (can overlap)
-func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
+func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destination.Pool, streams ...types.StreamInterface) error {
 	// run pre cdc of drivers
 	if err := a.driver.PreCDC(mainCtx, streams); err != nil {
 		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", a.driver.Type(), err)
@@ -97,7 +97,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 //   - For MongoDB: index into the streams array
 //   - For Kafka: reader ID
 //   - For Postgres: ignored (uses global replication slot)
-func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int, streams []types.StreamInterface) (err error) {
+func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.Pool, streamIndex int, streams []types.StreamInterface) (err error) {
 	filterDataBySelectedColumnsFns := make(map[string]func(map[string]interface{}) map[string]interface{})
 
 	// create cdc context, so that main context not affected if cdc retries
@@ -112,7 +112,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 	var finalMetadataState any
 	clearDedup := false
-	writers := make(map[string]*destination.WriterThread)
+	writers := make(map[string]*destination.Thread)
 	metadataStates := make(map[string]any)
 	// true (default) → overlap window open, inserts emit "i" (equality delete + write).
 	// false          → steady-state, inserts emit "c" (write only).

@@ -59,7 +59,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	return cursor.Err()
 }
 
-func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.Pool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 	recordCount, storageSize, err := m.totalCountAndStorageSizeInCollection(ctx, collection)
 	if err != nil {

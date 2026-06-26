@@ -15,7 +15,7 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams chan string, pool *destination.WriterPool, stream types.StreamInterface) error {
+func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams chan string, pool *destination.Pool, stream types.StreamInterface) error {
 	chunksSet := a.state.GetChunks(stream.Self())
 	var err error
 	if chunksSet == nil || chunksSet.Len() == 0 {

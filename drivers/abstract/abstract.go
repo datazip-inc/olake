@@ -164,7 +164,7 @@ func (a *AbstractDriver) ClearState(streams []types.StreamInterface) (*types.Sta
 	return a.state, nil
 }
 
-func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
+func (a *AbstractDriver) Read(ctx context.Context, pool *destination.Pool, backfillStreams, cdcStreams, incrementalStreams []types.StreamInterface) error {
 	// set max read connections
 	if a.driver.MaxConnections() > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
@@ -269,11 +269,11 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	}
 
 	switch w := writer.(type) {
-	case *destination.WriterThread:
+	case *destination.Thread:
 		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
 			closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
 		}
-	case map[string]*destination.WriterThread:
+	case map[string]*destination.Thread:
 		// Multiple writers keyed by stream ID
 		for streamID, inserter := range w {
 			if inserter != nil {

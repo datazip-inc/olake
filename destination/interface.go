@@ -16,7 +16,7 @@ type Destination interface {
 	// NewWriterThread creates a thread-specific writer for a stream.
 	NewWriterThread(ctx context.Context, stream types.StreamInterface, schema any, opts *Options) (Writer, any, *types.MetadataState, error)
 	// Cleanup tears down destination-owned process resources (e.g. the shared JVM).
-	Cleanup(ctx context.Context) error
+	Close(ctx context.Context) error
 }
 
 // Writer represents a thread-specific writer for a stream.
@@ -28,5 +28,5 @@ type Writer interface {
 	// EvolveSchema updates the schema based on changes.
 	EvolveSchema(ctx context.Context, globalSchema, recordsSchema any) (any, error)
 	// cleans and commits(if no error) files and data to destination
-	CleanupAndCommit(ctx context.Context, finalMetadataState any) error
+	CommitAndCleanup(ctx context.Context, finalMetadataState any) error
 }

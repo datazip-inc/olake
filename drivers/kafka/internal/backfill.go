@@ -9,7 +9,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-func (k *Kafka) GetOrSplitChunks(_ context.Context, _ *destination.WriterPool, _ types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (k *Kafka) GetOrSplitChunks(_ context.Context, _ *destination.Pool, _ types.StreamInterface) (*types.Set[types.Chunk], error) {
 	return nil, fmt.Errorf("GetOrSplitChunks not supported for Kafka driver")
 }
 
