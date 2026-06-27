@@ -94,7 +94,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		// (embeds a timestamp and provide monotonically increasing values, useful in sharded clusters).
 		// Other _id types (e.g., strings, integers) do not guarantee this ordering or timestamp metadata,
 		// leading to uneven splits, overlaps, or gaps.
-		logger.Infof("using split vector strategy for stream: %s", stream.ID())
+		logger.Debugf("using split vector strategy for stream: %s", stream.ID())
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
 			objectIDBson := bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}
@@ -157,7 +157,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 	bucketAutoStrategy := func(storageSize float64) ([]types.Chunk, error) {
-		logger.Infof("using bucket auto strategy for stream: %s", stream.ID())
+		logger.Debugf("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
 		numberOfBuckets := int(math.Ceil(storageSize / float64(constants.EffectiveParquetSize)))
 		pipeline := mongo.Pipeline{
