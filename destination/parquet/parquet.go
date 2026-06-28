@@ -153,7 +153,7 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	}
 
 	fields := make(typeutils.Fields)
-	fields.FromSchema(stream.Schema())
+	fields.FromSchema(stream.Schema(), stream.ResolveColumnName)
 	p.schema = fields.Clone() // update schema
 	return fields, nil, nil
 }
