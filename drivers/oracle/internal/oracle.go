@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -26,7 +27,10 @@ type Oracle struct {
 	state      *types.State
 	CDCSupport bool
 	sshClient  *ssh.Client
+	bytesRead  atomic.Int64
 }
+
+func (o *Oracle) BytesRead() int64 { return o.bytesRead.Load() }
 
 func (o *Oracle) Setup(ctx context.Context) error {
 	err := o.config.Validate()

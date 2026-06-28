@@ -7,6 +7,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	mssql "github.com/microsoft/go-mssqldb"
@@ -32,7 +33,10 @@ type MSSQL struct {
 	cdcSupported  bool
 	isReadReplica bool
 	sshClient     *ssh.Client
+	bytesRead     atomic.Int64
 }
+
+func (m *MSSQL) BytesRead() int64 { return m.bytesRead.Load() }
 
 // GetConfigRef implements abstract.DriverInterface.
 func (m *MSSQL) GetConfigRef() abstract.Config {

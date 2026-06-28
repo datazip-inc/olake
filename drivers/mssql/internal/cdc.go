@@ -360,11 +360,14 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 	}
 	defer rows.Close()
 
+	// Create once per result set: caches column index, skips before-images (op 3),
+	// excludes __$* metadata columns. See bytes.go for details.
+	cdcBytes := m.newCDCBytesCounter()
 	for rows.Next() {
 		// Use MapScan to properly convert data types including binary types
 		// TODO: check if we can use MapScanConcurrent for mssql
 		record := make(map[string]interface{})
-		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
+		if err := jdbc.MapScan(rows, record, m.dataTypeConverter, cdcBytes); err != nil {
 			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
 		}
 

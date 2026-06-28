@@ -39,7 +39,7 @@ func (d *DB2) StreamIncrementalChanges(ctx context.Context, stream types.StreamI
 
 	for rows.Next() {
 		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, d.dataTypeConverter); err != nil {
+		if err := jdbc.MapScan(rows, record, d.dataTypeConverter, d.addRowBytes); err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}
 

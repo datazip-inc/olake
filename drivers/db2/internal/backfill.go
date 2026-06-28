@@ -63,7 +63,7 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return jdbc.MapScanConcurrent(setter, d.dataTypeConverter, OnMessage)
+	return jdbc.MapScanConcurrent(setter, d.dataTypeConverter, OnMessage, d.addRowBytes)
 }
 
 func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
