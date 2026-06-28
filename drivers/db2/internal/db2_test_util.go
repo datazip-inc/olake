@@ -47,6 +47,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_varchar VARCHAR(50),
 				col_date DATE,
 				col_decimal DECIMAL(10, 2),
+				col_decfloat DECFLOAT,
 				col_double DOUBLE,
 				col_real REAL,
 				col_int INTEGER,
@@ -77,13 +78,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
 				col_cursor, col_bigint, col_char, col_character,
-				col_varchar, col_date, col_decimal,
+				col_varchar, col_date, col_decimal, col_decfloat,
 				col_double, col_real, col_int, col_smallint,
 				col_clob, col_blob, col_timestamp, col_time,
 				col_graphic, col_vargraphic, col_bool, excludedColumn
 			) VALUES (
 				6, 12345678901234, 'c', 'char_val',
-				'varchar_val', DATE('2023-01-01'), 123.45,
+				'varchar_val', DATE('2023-01-01'), 123.45, 123.45,
 				123.456789, 123.5, 123, 123,
 				CLOB('sample text'), BLOB(X'424C4F422044415441204F4E45'),
 				TIMESTAMP('2023-01-01-12.00.00.000000'),
@@ -99,13 +100,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		filteredQuery := fmt.Sprintf(`
 			INSERT INTO %s (
 				col_cursor, col_bigint, col_char, col_character,
-				col_varchar, col_date, col_decimal,
+				col_varchar, col_date, col_decimal, col_decfloat,
 				col_double, col_real, col_int, col_smallint,
 				col_clob, col_blob, col_timestamp, col_time,
 				col_graphic, col_vargraphic, col_bool, excludedColumn
 			) VALUES (
 				-1, 111111111111111, 'x', 'filtered',
-				'filtered_val', DATE('2022-06-15'), 50.123,
+				'filtered_val', DATE('2022-06-15'), 50.123, 50.123,
 				50.123, 50.0, 0, 0,
 				CLOB('filtered text'), BLOB(X'00'),
 				TIMESTAMP('2022-06-15-10.00.00.000000'),
@@ -123,13 +124,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
 				col_cursor, col_bigint, col_char, col_character,
-				col_varchar, col_date, col_decimal,
+				col_varchar, col_date, col_decimal, col_decfloat,
 				col_double, col_real, col_int, col_smallint,
 				col_clob, col_blob, col_timestamp, col_time,
 				col_graphic, col_vargraphic, col_bool
 			) VALUES (
 				7, 12345678901234, 'c', 'char_val',
-				'varchar_val', DATE('2023-01-01'), 123.45,
+				'varchar_val', DATE('2023-01-01'), 123.45, 123.45,
 				123.456789, 123.5, 123, 123,
 				CLOB('sample text'), BLOB(X'424C4F422044415441204F4E45'),
 				TIMESTAMP('2023-01-01-12.00.00.000000'),
@@ -183,13 +184,13 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
 			col_cursor, col_bigint, col_char, col_character,
-			col_varchar, col_date, col_decimal,
+			col_varchar, col_date, col_decimal, col_decfloat,
 			col_double, col_real, col_int, col_smallint,
 			col_clob, col_blob, col_timestamp, col_time,
 			col_graphic, col_vargraphic, col_bool, excludedColumn
 		) VALUES (
 			%d, 12345678901234, 'c', 'char_val',
-			'varchar_val', DATE('2023-01-01'), 123.45,
+			'varchar_val', DATE('2023-01-01'), 123.45, 123.45,
 			123.456789, 123.5, 123, 123,
 			CLOB('sample text'), BLOB(X'424C4F422044415441204F4E45'),
 			TIMESTAMP('2023-01-01-12.00.00.000000'),
@@ -207,13 +208,13 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 	filteredQuery := fmt.Sprintf(`
 		INSERT INTO %s (
 			col_cursor, col_bigint, col_char, col_character,
-			col_varchar, col_date, col_decimal,
+			col_varchar, col_date, col_decimal, col_decfloat,
 			col_double, col_real, col_int, col_smallint,
 			col_clob, col_blob, col_timestamp, col_time,
 			col_graphic, col_vargraphic, col_bool, excludedColumn
 		) VALUES (
 			-1, 111111111111111, 'x', 'filtered',
-			'filtered_val', DATE('2021-06-15'), 500234.123,
+			'filtered_val', DATE('2021-06-15'), 500234.123, 500234.123,
 			500234.123, 500234.0, 0, 0,
 			CLOB('filtered text'), BLOB(X'00'),
 			TIMESTAMP('2021-06-15-10.00.00.000000'),
@@ -235,6 +236,7 @@ var ExpectedDB2Data = map[string]interface{}{
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":    float64(123.45),
+	"col_decfloat":   "123.45",
 	"col_double":     123.456789,
 	"col_real":       float32(123.5),
 	"col_int":        int32(123),
@@ -255,6 +257,7 @@ var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":    float64(123.45),
+	"col_decfloat":   "123.45",
 	"col_double":     123.456789,
 	"col_real":       float32(123.5),
 	"col_int":        int32(123),
@@ -278,6 +281,7 @@ var DB2ToDestinationSchema = map[string]string{
 	"col_varchar":    "string",
 	"col_date":       "timestamp",
 	"col_decimal":    "double",
+	"col_decfloat":   "string",
 	"col_double":     "double",
 	"col_real":       "float",
 	"col_int":        "integer",
@@ -300,6 +304,7 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 	"col_varchar":    "string",
 	"col_date":       "timestamp",
 	"col_decimal":    "double",
+	"col_decfloat":   "string",
 	"col_double":     "double",
 	"col_real":       "float",
 	"col_int":        "integer",
