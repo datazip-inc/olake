@@ -151,7 +151,11 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                     int eqDeleteFileCount = 0;
                     int posDeleteFileCount = 0;
 
+                    io.grpc.Context grpcContext = io.grpc.Context.current();
                     for (ArrowPayload.FileMetadata fileMeta : fileMetadataList) {
+                        if (grpcContext.isCancelled()) {
+                            throw new Exception("gRPC request context is cancelled by client mid-commit");
+                        }
                         String fileType = fileMeta.getFileType();
                         String filePath = fileMeta.getFilePath();
                         long recordCount = fileMeta.getRecordCount();

@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/datazip-inc/olake/destination"
@@ -68,8 +69,8 @@ var clearCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer pool.Close(cmd.Context())
-		if cerr := pool.Clear(cmd.Context(), dropStreams); cerr != nil {
+		defer pool.Shutdown(context.Background())
+		if cerr := pool.DropStreams(cmd.Context(), dropStreams); cerr != nil {
 			return fmt.Errorf("failed to clear destination: %s", cerr)
 		}
 		logger.Infof("Successfully cleared destination data for selected streams.")

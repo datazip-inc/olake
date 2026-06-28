@@ -70,14 +70,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         // off it. upsert is independent (append-mode / backfill phase) and stays.
         final String identifierField;
         final boolean upsert;
-
-        // Set by CLOSE_SESSION for THIS thread only. Polled by the in-flight write
-        // loop, which stops between records and closes its own writer on its own
-        // thread. CLOSE_SESSION never touches the writer itself, so the writer is
-        // only ever touched by the single (Go-serialized) op running for this
-        // session — there is no concurrent writer access and no lock needed.
-        volatile boolean cancelled = false;
-
+        
         ThreadSession(TableIdentifier tid,
                       String identifierField,
                       List<IcebergPayload.SchemaField> schemaMetadata,
@@ -114,14 +107,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             // CLOSE_SESSION: release the session's Table handle and operator.
             // Mirrors what process exit did for free in the old per-JVM model.
             if (request.getType() == IcebergPayload.PayloadType.CLOSE_SESSION) {
-                ThreadSession closed = sessions.remove(threadId);
-                if (closed != null) {
-                    // Only raise the flag — never touch the writer here. This runs on
-                    // a different gRPC thread than the in-flight write, and closing it
-                    // concurrently with writer.write() is what corrupts Parquet. The
-                    // write loop sees `cancelled` and closes its own writer; we don't wait.
-                    closed.cancelled = true;
-                }
+                sessions.remove(threadId);
                 sendResponse(responseObserver, requestId + " closed session " + threadId);
                 LOGGER.debug("{} closed session {}", requestId, threadId);
                 return;
@@ -225,7 +211,9 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     LOGGER.debug("{} Received {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     SchemaConvertor recordsConvertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(session.upsert, session.icebergTable.schema(), request.getRecordsList());
-                    session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords, () -> session.cancelled);
+                    
+                    session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords);
+                    
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.debug("{} Successfully wrote {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     break;

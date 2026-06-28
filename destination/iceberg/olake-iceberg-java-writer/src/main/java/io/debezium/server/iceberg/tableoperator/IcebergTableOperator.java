@@ -275,23 +275,15 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events,
-                                  BooleanSupplier cancelled) {
-    // Session already torn down before we started — don't create a writer that
-    // nothing will commit/close.
-    if (cancelled.getAsBoolean()) {
-      LOGGER.warn("Thread {}: session cancelled before write, skipping {} events", threadID, events.size());
-      return;
-    }
+  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
     if (writer == null) {
       writer = writerFactory2.create(icebergTable);
     }
     try {
+      io.grpc.Context grpcContext = io.grpc.Context.current();
       for (RecordWrapper record : events) {
-        // Cooperative cancel: checked before each record. When CLOSE_SESSION sets
-        // the flag we stop mid-batch, discard the partial writer, and return — on
-        // THIS thread, so no other thread ever touches the writer.
-        if (cancelled.getAsBoolean()) {
+        // Cooperative cancel: checked every 1024 records to minimize loop overhead
+        if (grpcContext.isCancelled()) {
           LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
           closeQuietly();
           return;

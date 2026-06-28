@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/datazip-inc/olake/destination"
@@ -43,7 +44,7 @@ var checkCmd = &cobra.Command{
 				if err != nil {
 					return err
 				}
-				pool.Close(cmd.Context())
+				pool.Shutdown(context.Background())
 				return nil
 			}
 
