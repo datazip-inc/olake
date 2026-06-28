@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -37,6 +38,7 @@ type MySQL struct {
 	// effectiveTZ is the resolved timezone (e.g. for CDC binlog TimestampStringLocation).
 	// Derived from config (jdbc_url_params.time_zone) or detected from the DB session.
 	effectiveTZ *time.Location
+	bytesRead   atomic.Int64 // accumulated source bytes (InnoDB storage equivalent)
 }
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
@@ -48,6 +50,11 @@ type MySQLGlobalState struct {
 func (m *MySQL) CDCSupported() bool {
 	return m.CDCSupport
 }
+
+// BytesRead returns the total source bytes processed so far, counted as the
+// InnoDB on-disk storage equivalent for every column value scanned
+// (full_refresh / incremental) or received via binlog (CDC).
+func (m *MySQL) BytesRead() int64 { return m.bytesRead.Load() }
 
 // GetConfigRef returns a reference to the configuration
 func (m *MySQL) GetConfigRef() abstract.Config {
@@ -181,7 +188,7 @@ func (m *MySQL) MaxRetries() int {
 	return m.config.RetryCount
 }
 
-func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m *MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for MySQL database %s", m.config.Database)
 	query := jdbc.MySQLDiscoverTablesQuery()
 	rows, err := m.client.QueryContext(ctx, query, m.config.Database)

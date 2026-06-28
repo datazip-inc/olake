@@ -40,6 +40,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		InitialWaitTime:         time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
 		SSHClient:               m.sshClient,
 		TLSConfig:               tlsConfig,
+		BytesCounter:            &m.bytesRead,
 	}
 
 	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, streamsToSync, m.dataTypeConverter)

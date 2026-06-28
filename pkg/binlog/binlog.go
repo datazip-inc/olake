@@ -59,7 +59,7 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		syncer:          replication.NewBinlogSyncer(syncerConfig),
 		CurrentPos:      pos,
 		initialWaitTime: config.InitialWaitTime,
-		changeFilter:    NewChangeFilter(typeConverter, streams...),
+		changeFilter:    NewChangeFilter(config.BytesCounter, typeConverter, streams...),
 	}, nil
 }
 
