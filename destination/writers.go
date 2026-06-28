@@ -35,7 +35,6 @@ type (
 
 	WriterPool struct {
 		stats        *Stats
-		adapter      Writer
 		initWriter   initWriter
 		shutdown     func(ctx context.Context)
 		writerSchema sync.Map
@@ -95,7 +94,6 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 			ReadCount:          atomic.Int64{},
 			RecordsFiltered:    atomic.Int64{},
 		},
-		adapter:    adapter,
 		initWriter: initWriter,
 		shutdown:   shutdown,
 		batchSize:  batchSize,
@@ -120,14 +118,6 @@ func (w *WriterPool) Shutdown(ctx context.Context) {
 	if w.shutdown != nil {
 		w.shutdown(ctx)
 	}
-}
-
-// Clear drops the given streams from the destination.
-func (w *WriterPool) DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error {
-	if len(dropStreams) == 0 {
-		return nil
-	}
-	return w.adapter.DropStreams(ctx, dropStreams)
 }
 
 func (w *WriterPool) AddRecordsToSyncStats(count int64) {
@@ -291,4 +281,27 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 		}
 		return nil
 	}
+}
+
+func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
+	if len(dropStreams) == 0 {
+		return nil
+	}
+
+	initWriter, found := RegisteredWriters[config.Type]
+	if !found {
+		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
+	}
+
+	adapter, shutdown, err := initWriter(config.WriterConfig)
+	if err != nil {
+		return fmt.Errorf("failed to initialize destination: %s", err)
+	}
+	defer shutdown(context.Background())
+
+	if err := adapter.DropStreams(ctx, dropStreams); err != nil {
+		return fmt.Errorf("failed to drop streams: %s", err)
+	}
+
+	return nil
 }

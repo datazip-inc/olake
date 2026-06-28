@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/datazip-inc/olake/destination"
@@ -63,14 +62,7 @@ var clearCmd = &cobra.Command{
 		// Setup new state after clear for connector
 		connector.SetupState(newState)
 
-		// drop/clear streams from destination. The pool starts destination
-		// resources (e.g. the Iceberg JVM) and Close tears them down.
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
-		if err != nil {
-			return err
-		}
-		defer pool.Shutdown(context.Background())
-		if cerr := pool.DropStreams(cmd.Context(), dropStreams); cerr != nil {
+		if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
 			return fmt.Errorf("failed to clear destination: %s", cerr)
 		}
 		logger.Infof("Successfully cleared destination data for selected streams.")
