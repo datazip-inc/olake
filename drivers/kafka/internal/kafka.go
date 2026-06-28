@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
@@ -46,7 +47,10 @@ type Kafka struct {
 	readerManager        *kafkapkg.ReaderManager
 	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
 	schemaRegistryClient *kafkapkg.SchemaRegistryClient
+	bytesRead            atomic.Int64
 }
+
+func (k *Kafka) BytesRead() int64 { return k.bytesRead.Load() }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
 	k.config = &Config{}

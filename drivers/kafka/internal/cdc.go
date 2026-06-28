@@ -80,6 +80,11 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	}()
 
 	err := k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
+		// Count raw wire bytes: len(Key) + len(Value).
+		// Headers are excluded: they carry protocol metadata (schema IDs, trace
+		// context) not user data, and are typically tiny or absent.
+		k.bytesRead.Add(int64(len(record.Message.Key) + len(record.Message.Value)))
+
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
