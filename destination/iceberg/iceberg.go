@@ -32,7 +32,6 @@ type Iceberg struct {
 	server        *serverInstance          // shared Java server instance (per-process singleton)
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
-	olake2PCState *types.MetadataState     // olake_2pc_state for current stream
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
 	// It defines when to complete the Java writer and when schema evolution is required.
@@ -59,16 +58,6 @@ func (i *Iceberg) Type() string {
 	return string(types.Iceberg)
 }
 
-func (i *Iceberg) GetConfigRef() destination.Config {
-	i.config = &Config{}
-	return i.config
-}
-
-// SetConfig points this writer at a shared, already-parsed config instance.
-func (i *Iceberg) SetConfig(c destination.Config) {
-	i.config = c.(*Config)
-}
-
 func (i *Iceberg) Spec() any {
 	return Config{}
 }
@@ -81,7 +70,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 
 	// parse partition regex
 	var err error
-	i.partitionInfo, err = parsePartitionRegex(stream.GetPartitionRegex())
+	i.partitionInfo, err = parsePartitionRegex(stream.GetPartitionRegex(), stream.ResolveColumnName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse partition regex: %s", err)
 	}
@@ -124,20 +113,19 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
 	}
 
+	// get schema from response
 	ingestResponse := response.(*proto.RecordIngestResponse)
 	schema, err := parseSchema(ingestResponse.GetResult())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
 	}
 
-	// Capture optional olake_2pc state from table metadata without returning early,
-	// so we fall through to create the writer for this thread.
+	// get metadata state from response
+	var metadataState types.MetadataState
 	if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
-		var metadataState types.MetadataState
 		if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
 			return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
 		}
-		i.olake2PCState = &metadataState
 	}
 
 	// set schema for current thread
@@ -149,7 +137,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server)
 	}
 
-	return schema, i.olake2PCState, nil
+	return schema, &metadataState, nil
 }
 
 // note: java server parses time from long value which will in milliseconds
@@ -305,7 +293,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		// parallel flatten data and detect schema difference
 		// One flattener per batch: the internal cache amortizes resolve calls
 		// across all records so each column name is resolved only once.
-		batchFlattener := typeutils.NewFlattener()
+		batchFlattener := typeutils.NewFlattener(i.stream.ResolveColumnName)
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 			flattenRecord, err := batchFlattener.Flatten(record.Data)
@@ -384,7 +372,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		if filterErr != nil {
 			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
 		}
-		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema)
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema, i.stream.ResolveColumnName)
 		if err != nil {
 			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
 		}
@@ -475,7 +463,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 }
 
 // parsePartitionRegex parses the partition regex and populates the partitionInfo slice
-func parsePartitionRegex(pattern string) ([]internal.PartitionInfo, error) {
+func parsePartitionRegex(pattern string, resolveColumnName func(string) string) ([]internal.PartitionInfo, error) {
 	// path pattern example: /{col_name, partition_transform}/{col_name, partition_transform}
 	// This strictly identifies column name and partition transform entries
 	var partitionInfo []internal.PartitionInfo
@@ -485,6 +473,10 @@ func parsePartitionRegex(pattern string) ([]internal.PartitionInfo, error) {
 
 	patternRegex := regexp.MustCompile(constants.PartitionRegexIceberg)
 	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no matches found for partition regex: %s", pattern)
+	}
+
 	if len(matches) == 0 {
 		return nil, fmt.Errorf("no matches found for partition regex: %s", pattern)
 	}
@@ -502,7 +494,7 @@ func parsePartitionRegex(pattern string) ([]internal.PartitionInfo, error) {
 		// destination column name without scattering utils.Reformat() calls.
 		partitionInfo = append(partitionInfo, internal.PartitionInfo{
 			Field:       colName,
-			SchemaField: colName,
+			SchemaField: resolveColumnName(colName),
 			Transform:   transform,
 		})
 	}
@@ -569,11 +561,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, tables []types.StreamInterfac
 
 // returns a new copy of schema
 func copySchema(schema map[string]string) map[string]string {
-	copySchema := make(map[string]string)
-	for key, value := range schema {
-		copySchema[key] = value
-	}
-	return copySchema
+	return maps.Clone(schema)
 }
 
 func parseSchema(schemaStr string) (map[string]string, error) {

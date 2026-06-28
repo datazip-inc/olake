@@ -3,6 +3,7 @@ package io.debezium.server.iceberg;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogUtil;
@@ -19,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.debezium.serde.DebeziumSerdes;
 import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
 import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
+import io.debezium.server.iceberg.rpc.IcebergSession;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import jakarta.enterprise.context.Dependent;
@@ -33,7 +35,6 @@ import jakarta.enterprise.context.Dependent;
 public class OlakeRpcServer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRpcServer.class);
-
     protected static final Serde<JsonNode> valSerde = DebeziumSerdes.payloadJson(JsonNode.class);
     protected static final Serde<JsonNode> keySerde = DebeziumSerdes.payloadJson(JsonNode.class);
     final static Configuration hadoopConf = new Configuration();
@@ -52,7 +53,6 @@ public class OlakeRpcServer {
         ObjectMapper objectMapper = new ObjectMapper();
         Map<String, Object> configMap = objectMapper.readValue(jsonConfig, new TypeReference<Map<String, Object>>() {
         });
-
         LOGGER.info("Logs will be output to console only");
 
         // Only catalog/storage-level config is consumed here. Stream-level context
@@ -86,15 +86,17 @@ public class OlakeRpcServer {
         ServerBuilder<?> serverBuilder = ServerBuilder.forPort(port)
                     .maxInboundMessageSize(maxMessageSize);
 
+        ConcurrentMap<String, IcebergSession> sharedSessions = new ConcurrentHashMap<>();
+
         if (arrowWriterEnabled) {
-             OlakeArrowIngester oai = new OlakeArrowIngester(icebergCatalog);
+             OlakeArrowIngester oai = new OlakeArrowIngester(sharedSessions);
              serverBuilder.addService(oai);
              LOGGER.info("Arrow writer enabled - registered OlakeArrowIngester service");
         }
 
         // Legacy ingester is always registered (Check, GET_OR_CREATE_TABLE, DROP_TABLE
         // and the default RECORDS path all flow through it).
-        OlakeRowsIngester ori = new OlakeRowsIngester(icebergCatalog);
+        OlakeRowsIngester ori = new OlakeRowsIngester(icebergCatalog, sharedSessions);
         serverBuilder.addService(ori);
         LOGGER.info("Legacy writer enabled - registered OlakeRowsIngester service");
 

@@ -4,27 +4,19 @@ import java.io.OutputStream;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
-import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.catalog.Catalog;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
 import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFile;
-import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.types.Types.NestedField;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
-import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
 import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
 
@@ -46,28 +38,14 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
     private static final String FILE_TYPE_EQUALITY_DELETE = "equalityDelete";
     private static final String FILE_TYPE_POSITIONAL_DELETE = "positionalDelete";
 
-    private final Catalog icebergCatalog;
-
     // Single map: one entry per active Go writer thread.
     // Each session is fully self-contained — exact replica of what one JVM owned.
-    private final ConcurrentMap<String, ArrowSession> sessions = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, IcebergSession> sessions;
 
-    public OlakeArrowIngester(Catalog icebergCatalog) {
-        this.icebergCatalog = icebergCatalog;
+    public OlakeArrowIngester(ConcurrentMap<String, IcebergSession> sessions) {
+        this.sessions = sessions;
     }
 
-    private static final class ArrowSession {
-        final Table icebergTable;
-        final OutputFileFactory fileFactory;
-        final IcebergTableOperator op;
-
-        ArrowSession(Table icebergTable, boolean upsert) {
-            this.icebergTable = icebergTable;
-            FileFormat fileFormat = IcebergUtil.getTableFileFormat(icebergTable);
-            this.fileFactory = IcebergUtil.getTableOutputFileFactory(icebergTable, fileFormat);
-            this.op = new IcebergTableOperator(upsert);
-        }
-    }
 
     @Override
     public void icebergAPI(ArrowPayload request, StreamObserver<RecordIngest.ArrowIngestResponse> responseObserver) {
@@ -81,48 +59,13 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                 throw new Exception("Thread id not present in metadata");
             }
 
-            // CLOSE_SESSION: just drop the session. No closeQuietly() — it would
-            // clear op.filesToCommit while an in-flight REGISTER_AND_COMMIT may be
-            // using that list. Nothing to close here; the session is GC'd.
-            if (request.getType() == ArrowPayload.PayloadType.CLOSE_SESSION) {
-                sessions.remove(threadId);
-                sendResponse(responseObserver, requestId + " closed arrow session " + threadId);
-                return;
-            }
-
-            // JSONSCHEMA is the session-creating handshake: it is the first arrow
-            // payload Go sends for a thread and is the only one that carries the
-            // session-constant context (namespace, dest table, upsert). Build the
-            // session here once; every later payload reuses it by thread_id alone.
-            if (request.getType() == ArrowPayload.PayloadType.JSONSCHEMA) {
-                String destTableName = metadata.getDestTableName();
-                String namespace = metadata.getNamespace();
-                boolean upsert = metadata.getUpsert();
-
-                if (destTableName == null || destTableName.isEmpty()) {
-                    throw new Exception("Destination table name not present in metadata");
-                }
-                if (namespace == null || namespace.isEmpty()) {
-                    throw new Exception("Namespace not present in metadata");
-                }
-
-                TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
-                // Table must already exist (created by the legacy ingester during Setup).
-                sessions.computeIfAbsent(threadId, k -> {
-                    if (!icebergCatalog.tableExists(tid)) {
-                        throw new RuntimeException("Table does not exist: " + tid);
-                    }
-                    return new ArrowSession(icebergCatalog.loadTable(tid), upsert);
-                });
-            }
-
-            // Every payload other than JSONSCHEMA must run against an existing
-            // session created by the JSONSCHEMA handshake above.
-            ArrowSession session = sessions.get(threadId);
-            if (session == null) {
-                throw new Exception("No active arrow session for thread " + threadId
-                        + "; JSONSCHEMA handshake must run before " + request.getType());
-            }
+    // Every payload other than JSONSCHEMA must run against an existing
+    // session created by the JSONSCHEMA handshake above.
+    IcebergSession session = sessions.get(threadId);
+    if (session == null) {
+        throw new Exception("No active arrow session for thread " + threadId
+                + "; GET_OR_CREATE_TABLE handshake on row ingester must run before " + request.getType());
+    }
 
             switch (request.getType()) {
                 case JSONSCHEMA -> {

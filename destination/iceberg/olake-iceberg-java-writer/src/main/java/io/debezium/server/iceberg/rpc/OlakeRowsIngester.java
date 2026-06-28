@@ -4,14 +4,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -19,13 +17,12 @@ import io.debezium.DebeziumException;
 import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.SchemaConvertor;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
-import io.debezium.server.iceberg.tableoperator.IcebergTableOperator;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
 
 /**
- * Multi-tenant gRPC service for the legacy (rows-based) Iceberg write path.
+ * Multi-Thread-Session gRPC service for the legacy (rows-based) Iceberg write path.
  *
  * Design mirrors the old N-JVM model exactly, but inside one process:
  *   old model  → each JVM owned one Table handle + one IcebergTableOperator
@@ -46,48 +43,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
     private final Catalog icebergCatalog;
 
-    // One entry per active Go writer thread. Each session is self-contained:
-    // it owns its own Table handle (loaded from the catalog on first use) and
-    // its own IcebergTableOperator (with an independent BaseTaskWriter).
-    // This is the exact isolation the old per-thread JVM gave for free.
-    private final ConcurrentMap<String, ThreadSession> sessions = new ConcurrentHashMap<>();
+    // Shared sessions map (one entry per active Go writer thread)
+    // Used by both OlakeRowsIngester and OlakeArrowIngester
+    private final ConcurrentMap<String, IcebergSession> sessions;
 
-    public OlakeRowsIngester(Catalog icebergCatalog) {
+    public OlakeRowsIngester(Catalog icebergCatalog, ConcurrentMap<String, IcebergSession> sessions) {
         this.icebergCatalog = icebergCatalog;
-    }
-
-    private final class ThreadSession {
-        final Table icebergTable;
-        final IcebergTableOperator op;
-
-        // Session-constant context captured once at GET_OR_CREATE_TABLE. The Go
-        // side stamps these only on the session-creating request; later RECORDS /
-        // COMMIT / EVOLVE_SCHEMA payloads omit them and we read from here instead.
-        //
-        // A non-empty identifierField is exactly the "create identifier fields"
-        // flag (both derive from the same NoIdentifierFields config on the Go
-        // side), so we keep only identifierField and read createIdentifierFields()
-        // off it. upsert is independent (append-mode / backfill phase) and stays.
-        final String identifierField;
-        final boolean upsert;
-        
-        ThreadSession(TableIdentifier tid,
-                      String identifierField,
-                      List<IcebergPayload.SchemaField> schemaMetadata,
-                      List<Map<String, String>> partitionTransforms,
-                      boolean upsert) {
-            Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
-            this.icebergTable = loadOrCreateTable(tid, schema, partitionTransforms);
-            this.op = new IcebergTableOperator(upsert);
-            this.identifierField = identifierField;
-            this.upsert = upsert;
-        }
-
-        // Identifier fields are created/maintained exactly when the stream has a
-        // non-empty identifier field (i.e. NoIdentifierFields was false on Go side).
-        boolean createIdentifierFields() {
-            return identifierField != null && !identifierField.isEmpty();
-        }
+        this.sessions = sessions;
     }
 
     @Override
@@ -143,7 +105,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             // create-identifier-fields, partition spec) rides only on the
             // GET_OR_CREATE_TABLE payload; the session captures it once. Every
             // later request omits those fields and we read them from the session.
-            ThreadSession session;
+            IcebergSession session;
             if (request.getType() == IcebergPayload.PayloadType.GET_OR_CREATE_TABLE) {
                 if (destTableName == null || destTableName.isEmpty()) {
                     throw new Exception("Destination table name not present in metadata");
@@ -158,11 +120,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 List<Map<String, String>> partitionTransforms = toPartitionList(metadata.getPartitionFieldsList());
                 TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
 
-                // computeIfAbsent is atomic so even if two gRPC server threads race
-                // on the same threadId (which Go's CxGroup limit-1 prevents, but
-                // defensive here), only one session is created.
+                // computeIfAbsent creates a new session if the threadId is not present in the sessions map
                 session = sessions.computeIfAbsent(threadId,
-                        k -> new ThreadSession(tid, identifierField, schemaMetadata, partitionTransforms, upsert));
+                        k -> {
+                            Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
+                            Table icebergTable = loadOrCreateTable(tid, schema, partitionTransforms);
+                            return new IcebergSession(icebergTable, upsert, identifierField);
+                        });
             } else {
                 // RECORDS / COMMIT / EVOLVE_SCHEMA / REFRESH_TABLE_SCHEMA: the
                 // session must already exist (GET_OR_CREATE_TABLE runs first in
@@ -181,7 +145,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     LOGGER.debug("{} Successfully committed data for thread: {}", requestId, threadId);
                     break;
 
-                case EVOLVE_SCHEMA: {
+                case EVOLVE_SCHEMA:
                     SchemaConvertor convertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
                     session.op.applyFieldAddition(session.icebergTable, convertor.convertToIcebergSchema(), session.createIdentifierFields());
                     session.icebergTable.refresh();
@@ -190,7 +154,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, session.icebergTable.schema().toString());
                     LOGGER.info("{} Successfully applied schema evolution for thread: {}", requestId, threadId);
                     break;
-                }
 
                 case REFRESH_TABLE_SCHEMA:
                     session.icebergTable.refresh();
@@ -199,15 +162,14 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, session.icebergTable.schema().toString());
                     break;
 
-                case GET_OR_CREATE_TABLE: {
+                case GET_OR_CREATE_TABLE:
                     session.icebergTable.refresh();
                     String commitState = session.op.getCommitState(session.icebergTable);
                     sendResponse(responseObserver, session.icebergTable.schema().toString(),
                             commitState != null ? commitState : "");
                     break;
-                }
 
-                case RECORDS: {
+                case RECORDS:
                     LOGGER.debug("{} Received {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     SchemaConvertor recordsConvertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(session.upsert, session.icebergTable.schema(), request.getRecordsList());
@@ -217,7 +179,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
                     LOGGER.debug("{} Successfully wrote {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     break;
-                }
 
                 default:
                     throw new IllegalArgumentException("Unknown payload type: " + request.getType());
@@ -247,15 +208,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
     private Table loadOrCreateTable(TableIdentifier tableId, Schema schema, List<Map<String, String>> partitionTransforms) {
         return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
             try {
+                // no need to check if the table already exists, because the table is created by the thread that calls the get_or_create_table method
                 return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms);
-            } catch (AlreadyExistsException e) {
-                // Another session (separate threadId, same destination table) won
-                // the create race in the window between our load and create. The
-                // table now exists — load and use it instead of failing.
-                LOGGER.debug("Table {} was created concurrently by another session; loading existing", tableId);
-                return IcebergUtil.loadIcebergTable(icebergCatalog, tableId)
-                        .orElseThrow(() -> new DebeziumException(
-                                "Table " + tableId + " reported as already existing but could not be loaded", e));
             } catch (Exception e) {
                 String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s",
                                                     tableId, e.getMessage());

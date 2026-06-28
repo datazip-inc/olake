@@ -88,7 +88,6 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize destination: %s", err)
 	}
-
 	pool := &WriterPool{
 		stats: &Stats{
 			TotalRecordsToSync: atomic.Int64{},
