@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -88,6 +89,7 @@ type Mongo struct {
 	state      *types.State // reference to globally present state
 	streams    []types.StreamInterface
 	sshDialer  *MongoSSHDialer
+	bytesRead  atomic.Int64
 }
 
 // MongoSSHDialer implements a custom dialer for SSH tunnel connections.
@@ -122,6 +124,10 @@ func (m *Mongo) Spec() any {
 func (m *Mongo) CDCSupported() bool {
 	return m.CDCSupport
 }
+
+// BytesRead returns total source bytes processed — the BSON wire-format size of every document
+// cursor.Current is bson.Raw, which IS the on-disk BSON bytes
+func (m *Mongo) BytesRead() int64 { return m.bytesRead.Load() }
 
 func (m *Mongo) Setup(ctx context.Context) error {
 

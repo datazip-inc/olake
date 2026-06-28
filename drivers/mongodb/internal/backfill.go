@@ -50,6 +50,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		} else if err = cursor.Decode(&doc); err != nil {
 			return fmt.Errorf("backfill decoding document: %s", err)
 		}
+		m.bytesRead.Add(int64(len(cursor.Current)))
 		// filter mongo object
 		filterMongoObject(doc)
 		if err := OnMessage(ctx, doc); err != nil {
