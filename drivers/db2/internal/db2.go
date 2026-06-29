@@ -14,7 +14,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/datazip-inc/olake/utils/typeutils"
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/ssh"
@@ -246,25 +245,4 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 	}
 
 	return stream, nil
-}
-
-func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
-	if value == nil {
-		return nil, typeutils.ErrNullValue
-	}
-
-	if columnType == "TIME" {
-		return typeutils.ReformatTimeValue(value)
-	}
-
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, db2TypeToDataTypes)
-
-	// in db2, string based types come in byte format
-	if olakeType == types.String {
-		if v, ok := value.([]byte); ok {
-			return strings.TrimSpace(string(v)), nil
-		}
-	}
-
-	return typeutils.ReformatValue(olakeType, value)
 }
