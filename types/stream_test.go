@@ -637,7 +637,6 @@ func TestStreamUnmarshalJSON(t *testing.T) {
 }
 
 func TestStreamsToMap(t *testing.T) {
-
 	t.Run("empty input test", func(t *testing.T) {
 		streamMap := StreamsToMap()
 		assert.Equal(t, 0, len(streamMap), "map should be empty")
