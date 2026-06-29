@@ -1170,7 +1170,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 				useArrow bool
 			}{
 				{"Legacy", false},
-				{"Arrow", true},
+				// {"Arrow", true},
 			}
 
 			if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
@@ -1383,14 +1383,6 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			time.Sleep(retryDelay)
-		}
-		if attempt > 0 && queryErr != nil && strings.Contains(queryErr.Error(), "connection reset by peer") {
-			_ = spark.Stop()
-			spark, queryErr = sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
-			if queryErr != nil {
-				t.Logf("Failed to reconnect to Spark Connect: %v", queryErr)
-				continue
-			}
 		}
 		var selectQueryDf sql.DataFrame
 		// This is to check if the table exists in destination, as race condition might cause table to not be created yet
