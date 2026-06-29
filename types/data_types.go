@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/parquet-go/parquet-go"
@@ -111,6 +112,34 @@ func (d DataType) ToNewParquet() parquet.Node {
 
 	n = parquet.Optional(n) // Ensure the field is nullable
 	return n
+}
+
+// arrowTimestampUTC mirrors parquet-go's parquet.Timestamp(Microsecond), whose
+// IsAdjustedToUTC defaults to true; a non-empty TimeZone makes the arrow->parquet
+// encoder emit the same adjustedToUTC=true annotation. OLake stores UTC micros.
+var arrowTimestampUTC = &arrow.TimestampType{Unit: arrow.Microsecond, TimeZone: "UTC"}
+
+// ToArrow maps an OLake data type to its arrow type. It is the arrow-pipeline
+// counterpart of ToNewParquet and must stay in lockstep with it: composite types
+// (object/array) and anything unrecognised are stored as JSON-encoded strings.
+func (d DataType) ToArrow() arrow.DataType {
+	switch d {
+	case Int32:
+		return arrow.PrimitiveTypes.Int32
+	case Float32:
+		return arrow.PrimitiveTypes.Float32
+	case Int64:
+		return arrow.PrimitiveTypes.Int64
+	case Float64:
+		return arrow.PrimitiveTypes.Float64
+	case Bool:
+		return arrow.FixedWidthTypes.Boolean
+	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
+		return arrowTimestampUTC
+	default:
+		// String, Object, Array and any unsupported type -> string
+		return arrow.BinaryTypes.String
+	}
 }
 
 func (d DataType) ToIceberg() string {
