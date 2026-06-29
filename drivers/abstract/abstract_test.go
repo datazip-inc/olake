@@ -17,7 +17,6 @@ import (
 
 // Implements DriverInterface entirely in memory.
 // Fields control what each method returns so individual tests can tune behaviour.
-
 type mockDriver struct {
 	driverType     string
 	cdcSupported   bool
@@ -225,7 +224,6 @@ func TestSupportsCdcColumn(t *testing.T) {
 }
 
 // TestDiscover
-
 func TestDiscover_IsSync_ReturnsNil(t *testing.T) {
 	ad, mock := newTestDriver("postgres", true)
 	mock.streamNames = []string{"orders", "users"}
@@ -260,7 +258,6 @@ func TestDiscover_ProduceSchemaError(t *testing.T) {
 	}
 
 	_, err := ad.Discover(context.Background(), 0, false)
-	// abstract.go wraps this as: "error occurred while waiting for connection group: ..."
 	assert.ErrorContains(t, err, "error occurred while waiting for connection group")
 }
 
@@ -705,4 +702,98 @@ func TestCDCChange_AllKinds(t *testing.T) {
 	}
 }
 
-//--------------------------------------------------------------------------------------
+func TestDiscover_SyncModeSelection_StrictCDC(t *testing.T) {
+	// STRICTCDC sits between INCREMENTAL and FULLREFRESH in priority.
+	ad, mock := newTestDriver("postgres", false)
+	mock.streamNames = []string{"events"}
+	mock.produceSchemaFn = func(name string) (*types.Stream, error) {
+		s := types.NewStream(name, "public", nil)
+		s.SupportedSyncModes = types.NewSet(types.STRICTCDC, types.FULLREFRESH)
+		return s, nil
+	}
+
+	streams, err := ad.Discover(context.Background(), 0, false)
+	require.NoError(t, err)
+	require.Len(t, streams, 1)
+	assert.Equal(t, types.STRICTCDC, streams[0].SyncMode)
+}
+
+func TestRead_MaxConnections_Applied(t *testing.T) {
+	// MaxConnections > 0 should update GlobalConnGroup before any sync runs.
+	mock := &mockDriver{driverType: "postgres", maxConnections: 5, maxRetries: 1}
+	ad := NewAbstractDriver(context.Background(), mock)
+
+	assert.NoError(t, ad.Read(context.Background(), nil, nil, nil, nil))
+}
+
+func TestWaitForBackfillCompletion_GlobalConnGroupCancelled(t *testing.T) {
+	// If the driver's connection group is cancelled mid-backfill,
+	// we should get ErrGlobalContextGroup back, not a context.Canceled.
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	defer rootCancel()
+
+	mock := &mockDriver{driverType: "postgres", maxRetries: 1}
+	ad := NewAbstractDriver(rootCtx, mock)
+
+	streams := []types.StreamInterface{
+		&mockConfiguredStream{name: "orders", namespace: "public"},
+	}
+	ch := make(chan string) // intentionally empty so the select blocks
+
+	rootCancel()
+
+	err := ad.waitForBackfillCompletion(context.Background(), ch, streams, nil)
+	assert.Equal(t, constants.ErrGlobalContextGroup, err)
+}
+
+func TestHandleWriterCleanup_PanicRecovery(t *testing.T) {
+	// recover() only works inside a deferred call, so we wrap it properly here.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var err error
+	var state any
+	writers := map[string]*destination.WriterThread{}
+
+	func() {
+		defer handleWriterCleanup(ctx, cancel, &err, writers, "t1", &state, nil)
+		panic("something went wrong")
+	}()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "panic recovered")
+	assert.Contains(t, err.Error(), "something went wrong")
+}
+
+func TestHandleWriterCleanup_MtState_NonNil(t *testing.T) {
+	// String values go through SetMetadataState without JSON marshalling should be fine.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var err error
+	var state any = "some_cursor_value"
+	writers := map[string]*destination.WriterThread{}
+
+	handleWriterCleanup(ctx, cancel, &err, writers, "t1", &state, nil)
+	assert.NoError(t, err)
+}
+
+func TestHandleWriterCleanup_MtState_UnmarshalableValue(t *testing.T) {
+	// Channels can't be JSON-marshalled, so SetMetadataState will error.
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var err error
+	var state any = make(chan int)
+	writers := map[string]*destination.WriterThread{}
+
+	handleWriterCleanup(ctx, cancel, &err, writers, "", &state, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to set metadata state")
+
+	select {
+	case <-ctx.Done():
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected context to be cancelled after metadata state error")
+	}
+}
