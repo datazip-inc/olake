@@ -52,7 +52,6 @@ jobs:
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
 
       - name: Start Kafka
-        if: inputs.test_type == 'integration'
         run: docker compose -f ./drivers/kafka/docker-compose.yml up -d
 
       - name: Wait for MySQL
@@ -101,7 +100,6 @@ jobs:
             docker exec db2-test bash -c "su - db2inst1 -c 'db2 connect to TESTDB'"
 
       - name: Wait for Kafka
-        if: inputs.test_type == 'integration'
         uses: nick-fields/retry@v2
         with:
           timeout_minutes: 5
@@ -176,5 +174,5 @@ jobs:
           docker compose -f ./drivers/mssql/docker-compose.yml down
 
       - name: Cleanup Kafka
-        if: always() && inputs.test_type == 'integration'
+        if: always()
         run: docker compose -f ./drivers/kafka/docker-compose.yml down
