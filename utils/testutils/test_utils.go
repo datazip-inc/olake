@@ -851,7 +851,7 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
-	twoPCCDCTestCases := []syncTestCase{
+	dbTwoPCCDCTestCases := []syncTestCase{
 		{
 			name:                     "Full-Refresh",
 			operation:                "",
@@ -900,7 +900,52 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 		},
 	}
 
-	for _, tc := range twoPCCDCTestCases {
+	kafkaTwoPCCDCTestCases := []syncTestCase{
+		{
+			name:                     "CDC - initial load",
+			operation:                "",
+			useState:                 false,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 5,
+		},
+		{
+			name:                     "CDC - insert",
+			operation:                "add",
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 10,
+		},
+		{
+			// Simulates a 2PC failure after the destination commit but before the source offset commit
+			// by rolling back the committed source offset for partition 0 before the recovery sync.
+			// Also adds a new partition with one message to validate new partition discovery.
+			name:                     "CDC - Recovery Sync",
+			operation:                "insert_2pc",
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 11,
+		},
+		{
+			// No new Kafka messages; sync picks up the lagging partition-0 message from recovery.
+			name:                     "CDC - Post Recovery Sync",
+			operation:                "",
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 12,
+		},
+	}
+
+	testCases := utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTwoPCCDCTestCases, dbTwoPCCDCTestCases).([]syncTestCase)
+
+	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, cmd := range tc.preSetupCommands {
 				if code, out, execErr := utils.ExecCommand(ctx, c, cmd); execErr != nil || code != 0 {

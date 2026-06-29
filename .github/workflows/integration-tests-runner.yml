@@ -161,7 +161,9 @@ jobs:
       - name: Run 2PC Integration Tests
         if: inputs.test_type == '2pc'
         run: |
-          go test -v -p 6 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/mssql/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... -timeout 0 -run '2PC'
+          # go test -v -p 7 ./drivers/kafka/internal/... ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/mssql/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... -timeout 0 -run '2PC'
+          go test -v -p 1 ./drivers/kafka/internal/... -timeout 0 -run '2PC'
+
 
       - name: Cleanup
         if: always()

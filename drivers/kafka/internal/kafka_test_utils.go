@@ -125,37 +125,46 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 		kafkaJSONBroker = "127.0.0.1:29092"
 	}
 
-	// kafka writer
-	writer, err := kgo.NewClient(
+	// kafka client
+	client, err := kgo.NewClient(
 		kgo.SeedBrokers(kafkaJSONBroker),
 		kgo.DefaultProduceTopic(streams[0]),
 		kgo.RecordPartitioner(kgo.ManualPartitioner()),
 	)
 	require.NoError(t, err)
-	defer writer.Close()
+	defer client.Close()
 
 	switch operation {
 	case "create":
-		createKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
+		createKafkaTopic(ctx, t, client, streams[0])
 
 	case "clean":
-		deleteKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
-		createKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
+		deleteKafkaTopic(ctx, t, client, streams[0])
+		createKafkaTopic(ctx, t, client, streams[0])
 
 	case "drop":
-		deleteKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
+		deleteKafkaTopic(ctx, t, client, streams[0])
 
 	case "add":
 		// 5 messages inserted with different partitions
 		for partition := range partitionCount {
-			writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: int32(partition)})
+			writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: int32(partition)})
 		}
-		writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: jsonKey, Value: jsonFilterValue})
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonFilterValue})
 		t.Logf("Added 6 messages to topic '%s' (one per partition and one for filters)", streams[0])
 
 	case "update":
-		writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: jsonKey, Value: jsonUpdatedValue})
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonUpdatedValue})
 		t.Logf("Added 1 updated message to topic '%s'", streams[0])
+
+	case "insert_2pc":
+		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
+		commitConsumerGroupOffset(ctx, t, client, "kafka-Json-integration-test-group", streams[0], 0, 1)
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
+		// add a new partition with one message to simulate evolution of schema map in destination metadata
+		addKafkaPartitions(ctx, t, client, streams[0], 1)
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 5})
+		t.Logf("Rolled back partition %d, added partition %d with 1 message, and added 1 message on partition %d for topic '%s'", 0, 5, 0, streams[0])
 
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
@@ -174,25 +183,25 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 	} else {
 		kafkaAvroBroker = "127.0.0.1:29192"
 	}
-	// kafka writer
-	writer, err := kgo.NewClient(
+	// kafka client
+	client, err := kgo.NewClient(
 		kgo.SeedBrokers(kafkaAvroBroker),
 		kgo.DefaultProduceTopic(streams[0]),
 		kgo.RecordPartitioner(kgo.RoundRobinPartitioner()),
 	)
 	require.NoError(t, err)
-	defer writer.Close()
+	defer client.Close()
 
 	switch operation {
 	case "create":
-		createKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
+		createKafkaTopic(ctx, t, client, streams[0])
 
 	case "clean":
-		deleteKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
-		createKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
+		deleteKafkaTopic(ctx, t, client, streams[0])
+		createKafkaTopic(ctx, t, client, streams[0])
 
 	case "drop":
-		deleteKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
+		deleteKafkaTopic(ctx, t, client, streams[0])
 
 	case "add":
 		// avro codec
@@ -201,8 +210,8 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, streams[0], avroSchema)
 
 		// avro messages written
-		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroValue, streams[0])
-		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroFilterValue, streams[0])
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroValue, streams[0])
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroFilterValue, streams[0])
 		t.Logf("Added 2 messages to topic '%s' (one valid for sync and one filtered out)", streams[0])
 
 	case "update":
@@ -211,7 +220,7 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, streams[0], updatedAvroSchema)
 
 		// avro message written with new schema
-		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroUpdatedValue, streams[0])
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroUpdatedValue, streams[0])
 		t.Logf("Added 1 updated message to topic '%s'", streams[0])
 
 	default:
@@ -220,35 +229,48 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 }
 
 // deleteTopic deletes the topic and waits briefly so the broker can settle (matches prior test harness behavior).
-func deleteKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
+func deleteKafkaTopic(ctx context.Context, t *testing.T, client *kgo.Client, topic string) {
 	t.Helper()
 
-	// connect to kafka cluster
-	client, err := kgo.NewClient(kgo.SeedBrokers(broker))
-	require.NoError(t, err, "failed to dial kafka broker")
-	defer client.Close()
-
-	// delete topic
-	_, err = kadm.NewClient(client).DeleteTopics(ctx, topic)
+	_, err := kadm.NewClient(client).DeleteTopics(ctx, topic)
 	require.NoError(t, err, "failed to delete topic '%s'", topic)
 	time.Sleep(5 * time.Second)
 }
 
 // createTopic creates the test topic with a fixed partition count and replication factor 1.
-func createKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
+func createKafkaTopic(ctx context.Context, t *testing.T, client *kgo.Client, topic string) {
 	t.Helper()
 
-	// connect to kafka cluster
-	client, err := kgo.NewClient(kgo.SeedBrokers(broker))
-	require.NoError(t, err, "failed to dial kafka broker")
-	defer client.Close()
-
-	// create topic
 	res, err := kadm.NewClient(client).CreateTopics(ctx, int32(partitionCount), 1, nil, topic)
 	if err == nil && res[topic].Err != nil && !errors.Is(res[topic].Err, kerr.TopicAlreadyExists) {
 		err = res[topic].Err
 	}
 	require.NoError(t, err, "failed to create topic '%s'", topic)
+}
+
+// addKafkaPartitions adds Kafka partitions to a topic for 2PC recovery tests.
+func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, topic string, add int) {
+	t.Helper()
+
+	res, err := kadm.NewClient(client).CreatePartitions(ctx, add, topic)
+	require.NoError(t, err, "failed to add partitions to topic '%s'", topic)
+	require.NoError(t, res.Error(), "partition expansion returned errors for topic '%s'", topic)
+	topicRes, topicErr := res.On(topic, nil)
+	require.NoError(t, topicErr, "no partition expansion response for topic '%s'", topic)
+	require.NoError(t, topicRes.Err, "failed to add %d partition(s) to topic '%s'", add, topic)
+	t.Logf("Added %d partition(s) to topic '%s'", add, topic)
+}
+
+// commitConsumerGroupOffset commits a consumer group offset to a Kafka topic partition for 2PC recovery tests.
+func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Client, consumerGroupID, topic string, partition int32, offset int64) {
+	t.Helper()
+
+	toCommit := kadm.Offsets{}
+	toCommit.AddOffset(topic, partition, offset, -1)
+	committed, err := kadm.NewClient(client).CommitOffsets(ctx, consumerGroupID, toCommit)
+	require.NoError(t, err)
+	require.NoError(t, committed.Error())
+	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, offset)
 }
 
 // Writes a Kafka message with retries until success or context timeout.
