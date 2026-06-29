@@ -1170,7 +1170,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 				useArrow bool
 			}{
 				{"Legacy", false},
-				// {"Arrow", true},
+				{"Arrow", true},
 			}
 
 			if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
