@@ -49,21 +49,9 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
 
-	// begin transaction for chunk iteration (by default isolation mode in db2 driver is cursor stability (also known as read committed))
-	// db2 driver does not support custom isolation level setting
-	tx, err := d.client.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
-	}
-	defer tx.Rollback()
-
 	logger.Debugf("Starting backfill for %s with chunk %v using query: %s", stream.ID(), chunk, stmt)
 
-	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
-		return tx.QueryContext(ctx, query, args...)
-	})
-
-	return jdbc.MapScanConcurrent(setter, d.dataTypeConverter, OnMessage)
+	return d.readBatchConcurrent(ctx, stmt, args, OnMessage)
 }
 
 func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
