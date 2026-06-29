@@ -159,7 +159,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_2pc":
 		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, client, "kafka-Json-integration-test-group", streams[0], 0, 1)
+		commitConsumerGroupOffset(ctx, t, kafkaJSONBroker, "kafka-Json-integration-test-group", streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
@@ -261,16 +261,41 @@ func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, t
 	t.Logf("Added %d partition(s) to topic '%s'", add, topic)
 }
 
-// commitConsumerGroupOffset commits a consumer group offset to a Kafka topic partition for 2PC recovery tests.
-func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Client, consumerGroupID, topic string, partition int32, offset int64) {
+// commitConsumerGroupOffset rolls back a consumer group offset for 2PC recovery tests.
+// nextOffset is the next consumable offset (e.g. 1 means re-read from offset 1).
+func commitConsumerGroupOffset(ctx context.Context, t *testing.T, broker, consumerGroupID, topic string, partition int32, nextOffset int64) {
 	t.Helper()
 
-	toCommit := kadm.Offsets{}
-	toCommit.AddOffset(topic, partition, offset, -1)
-	committed, err := kadm.NewClient(client).CommitOffsets(ctx, consumerGroupID, toCommit)
+	consumer, err := kgo.NewClient(
+		kgo.SeedBrokers(broker),
+		kgo.ConsumerGroup(consumerGroupID),
+		kgo.ConsumePartitions(map[string]map[int32]kgo.Offset{
+			topic: {partition: kgo.NewOffset().AtStart()},
+		}),
+		kgo.DisableAutoCommit(),
+	)
 	require.NoError(t, err)
-	require.NoError(t, committed.Error())
-	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, offset)
+	defer consumer.Close()
+
+	joinCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+
+	for joinCtx.Err() == nil {
+		if _, generationID := consumer.GroupMetadata(); generationID >= 0 {
+			break
+		}
+		consumer.PollFetches(joinCtx)
+	}
+	require.NoError(t, joinCtx.Err(), "timed out joining consumer group %s", consumerGroupID)
+
+	// CommitRecords stores nextOffset as record.Offset + 1 (same as Olake CDC recovery).
+	require.NoError(t, consumer.CommitRecords(ctx, &kgo.Record{
+		Topic:       topic,
+		Partition:   partition,
+		Offset:      nextOffset - 1,
+		LeaderEpoch: -1,
+	}))
+	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, nextOffset)
 }
 
 // Writes a Kafka message with retries until success or context timeout.
