@@ -269,9 +269,7 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, broker, consum
 	consumer, err := kgo.NewClient(
 		kgo.SeedBrokers(broker),
 		kgo.ConsumerGroup(consumerGroupID),
-		kgo.ConsumePartitions(map[string]map[int32]kgo.Offset{
-			topic: {partition: kgo.NewOffset().AtStart()},
-		}),
+		kgo.ConsumeTopics(topic),
 		kgo.DisableAutoCommit(),
 	)
 	require.NoError(t, err)
