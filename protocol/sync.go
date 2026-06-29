@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -106,7 +107,7 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer pool.Close(cmd.Context())
+		defer pool.Shutdown(context.Background())
 
 		if streams == nil {
 			state.Streams = selectedStreamsMetadata.NewStreamsState
@@ -122,7 +123,7 @@ var syncCmd = &cobra.Command{
 			if state, err = connector.ClearState(dropStreams); err != nil {
 				return fmt.Errorf("error clearing state for full refresh streams: %s", err)
 			}
-			if cerr := pool.Clear(cmd.Context(), dropStreams); cerr != nil {
+			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
 				return fmt.Errorf("failed to clear destination: %s", cerr)
 			}
 		}

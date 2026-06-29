@@ -231,7 +231,7 @@ func (s *serverInstance) Shutdown(ctx context.Context) {
 		select {
 		case <-done:
 		case <-ctx.Done():
-			logger.Warnf("Context canceled, killing Iceberg JVM")
+			logger.Warnf("Context cancelled, killing Iceberg JVM")
 			_ = s.cmd.Process.Kill()
 		case <-time.After(10 * time.Second):
 			logger.Warnf("Iceberg JVM did not exit within 10s after SIGTERM, killing")
