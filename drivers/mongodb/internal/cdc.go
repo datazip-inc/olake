@@ -66,6 +66,7 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
+// StreamChanges returns (resumeToken, error). Per-change BSON document payload bytes are reported via CDCChange.Bytes (set in handleChangeDoc).
 func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
 	mtState := metadataStates[stream.ID()]
@@ -172,7 +173,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 	// Count the BSON bytes of the actual document payload, not the full
 	// change-event envelope (which adds operationType, clusterTime, ns,
 	// documentKey, updateDescription, resumeToken on top of the doc).
-	m.bytesRead.Add(cdcDocBytes(cursor.Current, record.OperationType))
+	docBytes := cdcDocBytes(cursor.Current, record.OperationType)
 
 	record.OperationType = normalizeOperationType(record.OperationType)
 
@@ -207,6 +208,7 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 		ExtraColumns: map[string]any{
 			CDCResumeToken: token,
 		},
+		Bytes: docBytes,
 	}
 
 	if err := OnMessage(ctx, change); err != nil {

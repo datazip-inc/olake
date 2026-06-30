@@ -16,9 +16,10 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-
-// ChunkIterator implements the abstract.DriverInterface
-func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+// ChunkIterator implements the abstract.DriverInterface. It returns
+// (sourceBytes, error); sourceBytes is committed to Stats.BytesCommitted via
+// WriterThread.Close on a successful destination commit.
+func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (int64, error) {
 	opts := jdbc.DriverOptions{
 		Driver: constants.Oracle,
 		Stream: stream,
@@ -27,17 +28,17 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return 0, fmt.Errorf("failed to set threshold filter: %s", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, o.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return 0, fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
 	tx, err := o.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
+		return 0, fmt.Errorf("failed to begin transaction: %s", err)
 	}
 	defer tx.Rollback()
 
@@ -45,14 +46,17 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 
 	stmt, err := jdbc.OracleChunkScanQuery(stream, chunk, filter)
 	if err != nil {
-		return fmt.Errorf("failed to build chunk scan query: %s", err)
+		return 0, fmt.Errorf("failed to build chunk scan query: %s", err)
 	}
 	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return jdbc.MapScanConcurrent(setter, o.dataTypeConverter, OnMessage, o.addRowBytes)
+	// localBytes resets to 0 on every call (including retries).
+	var localBytes int64
+	err = jdbc.MapScanConcurrent(setter, o.dataTypeConverter, OnMessage, makeLocalAddRowBytes(&localBytes))
+	return localBytes, err
 }
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

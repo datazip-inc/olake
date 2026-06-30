@@ -16,6 +16,9 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// prepareWALJSConfig builds the WAL replication config. Per-change source bytes
+// are reported via CDCChange.Bytes (set in the pgoutput emit path), so no byte
+// counter is threaded through here.
 func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
 		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
@@ -34,7 +37,6 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 		Tables:              types.NewSet(streams...),
 		TLSConfig:           tlsConfig,
 		Publication:         p.cdcConfig.Publication,
-		BytesCounter:        &p.bytesRead,
 	}, nil
 }
 
@@ -60,6 +62,8 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
+// StreamChanges returns (metadataState, error). Per-change WAL bytes are
+// reported via CDCChange.Bytes (set in the pgoutput emit path)
 func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[string]any, callback abstract.CDCMsgFn) (any, error) {
 	var postgresGlobalState waljs.WALState
 	rawGlobalState := p.state.GetGlobal()
@@ -72,7 +76,6 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 
 	for streamID, rawMtState := range metadataStates {
 		if rawMtState == nil {
-			// No previous CDC state for this stream (fresh run), skip recovery check.
 			continue
 		}
 		if stMtState, ok := rawMtState.(string); ok {
@@ -81,7 +84,6 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
 			}
 
-			// Recovery is only needed when metadata is strictly AHEAD of state .
 			parsedMetaLSN, err := pglogrepl.ParseLSN(mtState.LSN)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse metadata LSN %q: %s", mtState.LSN, err)
@@ -91,23 +93,18 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 				return nil, fmt.Errorf("failed to parse global state LSN %q: %s", postgresGlobalState.LSN, err)
 			}
 			if parsedMetaLSN > parsedStateLSN {
-				// metadata ahead of state: genuine crash-recovery path
 				metadataCommittedLSN = mtState.LSN
 				finishedStreams = append(finishedStreams, streamID)
 			}
-			// state >= metadata: blank sync scenario — stream forward normally
 		} else {
 			return nil, fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState)
 		}
 	}
 
 	var remainingStreams []types.StreamInterface
-	// recoveryLSN is non-nil only when we need a bounded recovery sync; in the
-	// normal path it stays nil so NewReplicator uses the live IdentifySystem LSN.
 	var recoveryLSN *pglogrepl.LSN
 
 	if len(finishedStreams) > 0 {
-		// recovery sync required: read up to the LSN stored in the Iceberg metadata
 		parsed, err := pglogrepl.ParseLSN(metadataCommittedLSN)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse recovery LSN %q: %s", metadataCommittedLSN, err)
@@ -141,12 +138,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		return nil, fmt.Errorf("failed to create wal connection: %s", err)
 	}
 
-	// persist replicator for post cdc
 	p.replicator = replicator
 
-	// validateGlobalState ensures slot and state agree before WAL replay begins.
-	// Skip it when remainingStreams is empty: all streams are already committed in
-	// Iceberg, so no WAL will be replayed and the slot/state relationship is irrelevant.
 	if len(remainingStreams) > 0 {
 		if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
 			return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
@@ -155,20 +148,11 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		logger.Infof("all streams already committed in destination, skipping state LSN validation")
 	}
 
-	// choose replicator via factory based on OutputPlugin config (default wal2json)
 	err = p.replicator.StreamChanges(ctx, p.client, callback)
 	if err != nil {
 		return nil, err
 	}
 
-	// In recovery mode the replicator exits as soon as ClientXLogPos >= recoveryLSN,
-	// which means ClientXLogPos may overshoot (e.g. land on the next WAL boundary or a
-	// keepalive ServerWALEnd).  If we let that overshoot propagate, PostCDC will
-	// acknowledge the slot past the recovery target, permanently skipping any WAL
-	// records that fall between the target and the overshoot.
-	// Fix: pin ClientXLogPos to the exact recovery LSN so that both the Iceberg
-	// metadata state (returned here) and the PostCDC slot acknowledgement land on
-	// the same position that Iceberg already committed.
 	if recoveryLSN != nil {
 		p.replicator.Socket().ClientXLogPos = *recoveryLSN
 		return waljs.WALState{LSN: metadataCommittedLSN}, nil

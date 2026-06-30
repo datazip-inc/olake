@@ -60,6 +60,7 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
 }
 
+// StreamChanges returns (state, error). Per-change raw wire bytes (key + value) are reported via CDCChange.Bytes.
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	// get reader
 	reader := k.readerManager.GetReader(readerID)
@@ -80,11 +81,6 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	}()
 
 	err := k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
-		// Count raw wire bytes: len(Key) + len(Value).
-		// Headers are excluded: they carry protocol metadata (schema IDs, trace
-		// context) not user data, and are typically tiny or absent.
-		k.bytesRead.Add(int64(len(record.Message.Key) + len(record.Message.Value)))
-
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
@@ -94,11 +90,14 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 
 		// process the change if data is present
 		if record.Data != nil {
+			// Raw wire bytes: len(Key) + len(Value). Headers are excluded — they
+			// carry protocol metadata (schema IDs, trace context), not user data.
 			err := processFn(ctx, abstract.CDCChange{
 				Stream:    currentPartitionMeta.Stream,
 				Timestamp: record.Message.Time,
 				Kind:      "create",
 				Data:      record.Data,
+				Bytes:     int64(len(record.Message.Key) + len(record.Message.Value)),
 			})
 			if err != nil {
 				return false, err

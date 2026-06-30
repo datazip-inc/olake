@@ -13,6 +13,6 @@ func (k *Kafka) GetOrSplitChunks(_ context.Context, _ *destination.WriterPool, _
 	return nil, fmt.Errorf("GetOrSplitChunks not supported for Kafka driver")
 }
 
-func (k *Kafka) ChunkIterator(_ context.Context, _ types.StreamInterface, _ types.Chunk, _ abstract.BackfillMsgFn) error {
-	return fmt.Errorf("ChunkIterator not supported for Kafka driver")
+func (k *Kafka) ChunkIterator(_ context.Context, _ types.StreamInterface, _ types.Chunk, _ abstract.BackfillMsgFn) (int64, error) {
+	return 0, fmt.Errorf("ChunkIterator not supported for Kafka driver")
 }

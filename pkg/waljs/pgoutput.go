@@ -136,17 +136,18 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) (map[string]any, error) {
+// tupleValuesToMap converts a WAL tuple to a column map and returns the
+// pg_column_size(row.*)-equivalent byte count (per-row HeapTupleHeader overhead
+// + inter-column alignment padding + column data) so the caller can attribute
+// it to the change's stream for per-stream billing.
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) (map[string]any, int64, error) {
 	data := make(map[string]any)
 	if tuple == nil {
-		return data, nil
+		return data, 0, nil
 	}
 
-	// Accumulate pg_column_size(row.*)-equivalent bytes in one pass:
-	// per-row HeapTupleHeader overhead + inter-column alignment padding + column data.
-	if p.socket.bytesCounter != nil {
-		p.socket.bytesCounter.Add(tupleRowBytes(rel, tuple))
-	}
+	// Compute on-disk bytes in one pass; attached to CDCChange.Bytes by the caller.
+	rowBytes := tupleRowBytes(rel, tuple)
 
 	for idx, col := range tuple.Columns {
 		if idx >= len(rel.Columns) {
@@ -163,11 +164,11 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		typeName := oidToString(colType)
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
-			return nil, err
+			return nil, 0, err
 		}
 		data[colName] = val
 	}
-	return data, nil
+	return data, rowBytes, nil
 }
 
 // numericBinaryBytes computes the PostgreSQL on-disk size of a NUMERIC value
@@ -324,7 +325,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.Tuple)
+	values, rowBytes, err := p.tupleValuesToMap(rel, m.Tuple)
 	if err != nil {
 		return err
 	}
@@ -335,6 +336,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		Kind:         "insert",
 		Data:         values,
 		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
+		Bytes:        rowBytes,
 	})
 }
 
@@ -349,7 +351,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.NewTuple)
+	values, rowBytes, err := p.tupleValuesToMap(rel, m.NewTuple)
 	if err != nil {
 		return err
 	}
@@ -360,6 +362,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		Kind:         "update",
 		Data:         values,
 		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
+		Bytes:        rowBytes,
 	})
 }
 
@@ -374,7 +377,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.OldTuple)
+	values, rowBytes, err := p.tupleValuesToMap(rel, m.OldTuple)
 	if err != nil {
 		return err
 	}
@@ -385,6 +388,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		Kind:         "delete",
 		Data:         values,
 		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
+		Bytes:        rowBytes,
 	})
 }
 

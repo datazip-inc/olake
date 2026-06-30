@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -90,7 +91,12 @@ func db2RowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
 	return total
 }
 
-// addRowBytes is the MapScan/MapScanConcurrent callback for backfill and incremental.
-func (d *DB2) addRowBytes(vals []any, colTypes []*sql.ColumnType) {
-	d.bytesRead.Add(db2RowBytes(vals, colTypes))
+// makeLocalAddRowBytes accumulates row bytes into a caller-owned local int64 that
+// lives on the ChunkIterator / StreamIncrementalChanges call stack, so it resets
+// to 0 on every retry (no double counting).
+func makeLocalAddRowBytes(local *int64) func([]any, []*sql.ColumnType) {
+	return func(vals []any, colTypes []*sql.ColumnType) {
+		// atomic: MapScanConcurrent invokes this from the producer goroutine.
+		atomic.AddInt64(local, db2RowBytes(vals, colTypes))
+	}
 }

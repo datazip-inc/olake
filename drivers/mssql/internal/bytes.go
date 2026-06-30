@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync/atomic"
 )
 
 // mssqlColumnBytes returns the SQL Server on-disk byte count for a single column value.
@@ -74,53 +75,28 @@ func mssqlRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
 	return total
 }
 
-// addRowBytes is the MapScan/MapScanConcurrent callback for backfill and incremental.
-func (m *MSSQL) addRowBytes(vals []any, colTypes []*sql.ColumnType) {
-	m.bytesRead.Add(mssqlRowBytes(vals, colTypes))
+// makeLocalAddRowBytes returns the MapScan/MapScanConcurrent callback for backfill
+// and incremental. It accumulates row bytes into a caller-owned local int64 that
+// lives on the ChunkIterator / StreamIncrementalChanges call stack, so it resets
+// to 0 on every retry (no double counting).
+func makeLocalAddRowBytes(local *int64) func([]any, []*sql.ColumnType) {
+	return func(vals []any, colTypes []*sql.ColumnType) {
+		// atomic: MapScanConcurrent invokes this from the producer goroutine.
+		atomic.AddInt64(local, mssqlRowBytes(vals, colTypes))
+	}
 }
 
-// newCDCBytesCounter returns a MapScan-compatible callback for CDC rows that:
-//   - Skips before-image rows (SQL Server CDC op-code 3 = UPDATE BEFORE) to avoid
-//     double-counting updates — only the after-image (op-code 4) is counted.
-//   - Excludes the four CDC metadata columns (__$operation, __$start_lsn,
-//     __$seqval, __$update_mask) from the byte sum.
-//
-// The returned closure is stateful (caches opIdx on the first call) and must
-// be created once per result set — not once per row.
-func (m *MSSQL) newCDCBytesCounter() func([]any, []*sql.ColumnType) {
-	opIdx := -1 // index of __$operation column; initialized on first call
-	return func(vals []any, colTypes []*sql.ColumnType) {
-		// Find __$operation column index once for this result set.
-		if opIdx < 0 {
-			for i, ct := range colTypes {
-				if ct.Name() == "__$operation" {
-					opIdx = i
-					break
-				}
-			}
+// mssqlCDCRowBytes sums the on-disk bytes of a CDC row's actual data columns,
+// excluding the four CDC metadata columns (__$operation, __$start_lsn,
+// __$seqval, __$update_mask). Before-image rows (op-code 3) are skipped by the
+// caller before emit, so they never reach CDCChange.Bytes.
+func mssqlCDCRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
+	var total int64
+	for i, v := range vals {
+		if strings.HasPrefix(colTypes[i].Name(), "__$") {
+			continue
 		}
-		// Skip before-image (op-code 3 = UPDATE BEFORE).
-		// Raw value from go-mssqldb for INT column is int64.
-		if opIdx >= 0 {
-			var code int64
-			switch v := vals[opIdx].(type) {
-			case int32:
-				code = int64(v)
-			case int64:
-				code = v
-			}
-			if code == 3 {
-				return
-			}
-		}
-		// Sum only actual data columns, excluding CDC metadata (__$*).
-		var total int64
-		for i, v := range vals {
-			if strings.HasPrefix(colTypes[i].Name(), "__$") {
-				continue
-			}
-			total += mssqlColumnBytes(v, colTypes[i].DatabaseTypeName())
-		}
-		m.bytesRead.Add(total)
+		total += mssqlColumnBytes(v, colTypes[i].DatabaseTypeName())
 	}
+	return total
 }

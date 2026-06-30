@@ -88,8 +88,10 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				a.state.SetCursor(stream.Self(), secondaryCursor, a.FormatCursorValue(maxSecondaryCursorValue))
 			}(incrementalCtx)
 
+			// bytesMap holds source bytes for this incremental run, keyed by threadID.
+			bytesMap := map[string]int64{}
 			var mtState any
-			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, &mtState, nil)
+			defer handleWriterCleanup(incrementalCtx, incrementalCtxCancel, &err, inserter, threadID, &mtState, nil, bytesMap)
 
 			defer func() {
 				mtStateMap := map[string]any{primaryCursor: a.FormatCursorValue(maxPrimaryCursorValue)}
@@ -128,8 +130,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 			filterDataBySelectedColumnsFn := stream.RetainSelectedColumns()
 
-			// No retry logic here - retry happens at Read level
-			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
+			incrBytes, incrScanErr := a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any) error {
 				maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
 				olakeColumns := map[string]any{
 					constants.OlakeID:        utils.GetKeysHash(record, stream.GetStream().SourceDefinedPrimaryKey.Array()...),
@@ -139,6 +140,8 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				filteredData := filterDataBySelectedColumnsFn(record)
 				return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
 			})
+			bytesMap[threadID] = incrBytes
+			return incrScanErr
 		})
 		return nil
 	})

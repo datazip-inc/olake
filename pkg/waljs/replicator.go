@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -38,10 +37,6 @@ type Socket struct {
 	ReplicationSlot string
 	// initialWaitTime is the duration to wait for first wal log catchup before timing out
 	initialWaitTime time.Duration
-	// bytesCounter is an optional pointer to an atomic counter that accumulates
-	// source data bytes (pg_column_size equivalent) for each CDC change processed.
-	// Nil means byte counting is disabled for this connection.
-	bytesCounter *atomic.Int64
 }
 
 // Replicator defines an abstraction over different logical decoding plugins.
@@ -118,7 +113,6 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 		CurrentWalPosition: targetWalPos,
 		ReplicationSlot:    config.ReplicationSlotName,
 		initialWaitTime:    config.InitialWaitTime,
-		bytesCounter:       config.BytesCounter,
 	}
 
 	plugin := strings.ToLower(strings.TrimSpace(slot.Plugin))

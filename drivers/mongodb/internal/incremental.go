@@ -13,13 +13,13 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-// StreamIncrementalChanges implements incremental sync for MongoDB
-func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
+// StreamIncrementalChanges implements incremental sync for MongoDB. It returns (sourceBytes, error).
+func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) (int64, error) {
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
 
 	incrementalCondition, err := m.buildIncrementalCondition(stream)
 	if err != nil {
-		return fmt.Errorf("failed to build incremental condition: %s", err)
+		return 0, fmt.Errorf("failed to build incremental condition: %s", err)
 	}
 	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
@@ -28,23 +28,25 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 	cursor, err := collection.Find(ctx, incrementalCondition, findOpts)
 	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %s", err)
+		return 0, fmt.Errorf("failed to execute incremental query: %s", err)
 	}
 	defer cursor.Close(ctx)
 
+	// localBytes resets to 0 on every call (including retries).
+	var localBytes int64
 	for cursor.Next(ctx) {
 		var doc bson.M
 		if err := cursor.Decode(&doc); err != nil {
-			return fmt.Errorf("decode error: %s", err)
+			return 0, fmt.Errorf("decode error: %s", err)
 		}
-		m.bytesRead.Add(int64(len(cursor.Current)))
+		localBytes += int64(len(cursor.Current))
 		filterMongoObject(doc)
 		if err := processFn(ctx, doc); err != nil {
-			return fmt.Errorf("process error: %s", err)
+			return 0, fmt.Errorf("process error: %s", err)
 		}
 	}
 
-	return cursor.Err()
+	return localBytes, cursor.Err()
 }
 
 // buildIncrementalCondition generates the incremental condition BSON for MongoDB based on datatype and cursor value.

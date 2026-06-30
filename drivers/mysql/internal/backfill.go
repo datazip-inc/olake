@@ -21,7 +21,8 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+// ChunkIterator returns (sourceBytes, error). sourceBytes is the InnoDB storage equivalent for all rows scanned
+func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (int64, error) {
 	opts := jdbc.DriverOptions{
 		Driver: constants.MySQL,
 		Stream: stream,
@@ -29,15 +30,17 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return 0, fmt.Errorf("failed to set threshold filter: %s", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, m.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return 0, fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
+	// localBytes resets to 0 on every call (including retries) — no stale data.
+	var localBytes int64
 	// Begin transaction with repeatable read isolation
-	return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
+	err = jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
 		// Build query for the chunk
 		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
@@ -57,8 +60,9 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
-		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, m.addRowBytes)
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, makeLocalAddRowBytes(&localBytes))
 	})
+	return localBytes, err
 }
 
 // TODO: Separate chunking-related logic from this function so the individual components can be unit tested independently.
@@ -562,19 +566,19 @@ func padRightWithZeroes(s string, maxLength int) string {
 }
 
 /*
-	condenseStrings picks expectedChunks elements evenly from candidateBoundaries.
+condenseStrings picks expectedChunks elements evenly from candidateBoundaries.
 
-	Each output index i (0..expectedChunks-1) is mapped to an input index (0..numCandidateBoundaries-1) using the formula:
+Each output index i (0..expectedChunks-1) is mapped to an input index (0..numCandidateBoundaries-1) using the formula:
 
-		idx ≈ round(i*(numCandidateBoundaries-1)/(expectedChunks-1))
+	idx ≈ round(i*(numCandidateBoundaries-1)/(expectedChunks-1))
 
-	- Always includes first (0) and last (numCandidateBoundaries-1)
-	- Rounding keeps spacing balanced (no left/right bias)
+- Always includes first (0) and last (numCandidateBoundaries-1)
+- Rounding keeps spacing balanced (no left/right bias)
 
-	Example:
-	numCandidateBoundaries = 15 (indices 0..14), expectedChunks = 8
-	Range is split into 7 equal gaps (~2 apart), so we pick:
-	[0,2,4,6,8,10,12,14]
+Example:
+numCandidateBoundaries = 15 (indices 0..14), expectedChunks = 8
+Range is split into 7 equal gaps (~2 apart), so we pick:
+[0,2,4,6,8,10,12,14]
 */
 func condenseStrings(candidateBoundaries []string, expectedChunks int64) []string {
 	numCandidateBoundaries := int64(len(candidateBoundaries))

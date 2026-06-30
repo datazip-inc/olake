@@ -16,7 +16,11 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
+// ChunkIterator returns (sourceBytes, error). sourceBytes is the pg_column_size
+// equivalent for all rows scanned. The abstract driver captures &sourceBytes in
+// the handleWriterCleanup defer and passes it to WriterThread.Close, which adds
+// it to Stats.BytesCommitted atomically with the Iceberg commit.
+func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (int64, error) {
 	opts := jdbc.DriverOptions{
 		Driver: constants.Postgres,
 		Stream: stream,
@@ -24,16 +28,16 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return 0, fmt.Errorf("failed to set threshold filter: %s", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, p.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return 0, fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
 
@@ -46,7 +50,10 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return jdbc.MapScanConcurrent(setter, p.dataTypeConverter, OnMessage, p.addRowBytes)
+	// localBytes resets to 0 on every call (including retries) — no stale data.
+	var localBytes int64
+	err = jdbc.MapScanConcurrent(setter, p.dataTypeConverter, OnMessage, makeLocalAddRowBytes(&localBytes))
+	return localBytes, err
 }
 
 func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

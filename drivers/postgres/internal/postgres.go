@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -72,17 +71,11 @@ type Postgres struct {
 	replicator waljs.Replicator
 	state      *types.State // reference to globally present state
 	streams    []types.StreamInterface
-	bytesRead  atomic.Int64 // accumulated source bytes (pg_column_size equivalent)
 }
 
 func (p *Postgres) CDCSupported() bool {
 	return p.CDCSupport
 }
-
-// BytesRead returns the total source bytes processed so far, counted as the
-// pg_column_size-equivalent storage bytes for every column value scanned
-// (full_refresh / incremental) or replayed via WAL (CDC).
-func (p *Postgres) BytesRead() int64 { return p.bytesRead.Load() }
 
 func (p *Postgres) Setup(ctx context.Context) error {
 	err := p.config.Validate()

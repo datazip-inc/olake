@@ -18,6 +18,7 @@ type CDCChange struct {
 	Kind         string
 	Data         map[string]any
 	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
+	Bytes        int64
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
@@ -45,15 +46,6 @@ func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDri
 func (a *AbstractDriver) SetupState(state *types.State) {
 	a.state = state
 	a.driver.SetupState(state)
-}
-
-// BytesRead returns the total source bytes accumulated by the inner driver,
-// or 0 if the driver does not implement BytesMeasurable.
-func (a *AbstractDriver) BytesRead() int64 {
-	if bm, ok := a.driver.(BytesMeasurable); ok {
-		return bm.BytesRead()
-	}
-	return 0
 }
 
 func (a *AbstractDriver) GetConfigRef() Config {
@@ -256,7 +248,7 @@ func generateThreadID(streamID, hash string) string {
 // The writer parameter can be either:
 //   - *destination.WriterThread for a single writer
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any, dedupInserts *bool) {
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any, dedupInserts *bool, bytesByStream map[string]int64) {
 	if r := recover(); r != nil {
 		*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: panic recovered: %v", *err, r)).(error)
 	}
@@ -279,14 +271,25 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 
 	switch w := writer.(type) {
 	case *destination.WriterThread:
-		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
+		// Backfill / incremental: one writer per chunk/run. Bytes are keyed by
+		// threadID — set by the caller after the scan returns, before this defer fires.
+		var sourceBytes int64
+		if bytesByStream != nil {
+			sourceBytes = bytesByStream[threadID]
+		}
+		if threadErr := w.Close(ctx, metadataState, sourceBytes); threadErr != nil {
 			closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
 		}
 	case map[string]*destination.WriterThread:
-		// Multiple writers keyed by stream ID
+		// CDC: one handleWriterCleanup call, multiple writers. Each writer is
+		// billed exactly its own stream's accumulated bytes (0 if it saw no changes this session)
 		for streamID, inserter := range w {
 			if inserter != nil {
-				if threadErr := inserter.Close(ctx, metadataState); threadErr != nil {
+				var streamBytes int64
+				if bytesByStream != nil {
+					streamBytes = bytesByStream[streamID]
+				}
+				if threadErr := inserter.Close(ctx, metadataState, streamBytes); threadErr != nil {
 					closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
 				}
 			}

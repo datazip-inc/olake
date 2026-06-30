@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -27,14 +26,11 @@ type DB2 struct {
 	state       *types.State
 	sshClient   *ssh.Client
 	sshListener net.Listener
-	bytesRead   atomic.Int64
 }
 
 func (d *DB2) CDCSupported() bool {
 	return false // CDC is not supported for db2 yet
 }
-
-func (d *DB2) BytesRead() int64 { return d.bytesRead.Load() }
 
 func (d *DB2) Setup(ctx context.Context) error {
 	if err := d.config.Validate(); err != nil {

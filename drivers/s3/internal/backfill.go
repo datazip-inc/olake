@@ -121,9 +121,12 @@ func (s *S3) groupFilesIntoChunks(files []FileObject) *types.Set[types.Chunk] {
 	return chunks
 }
 
-// ChunkIterator reads and processes records from S3 file(s) in a chunk
-// Handles chunks as arrays (Min = []string): single file = array size 1, grouped files = array size > 1
-func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn abstract.BackfillMsgFn) error {
+// ChunkIterator reads and processes records from S3 file(s) in a chunk.
+// Handles chunks as arrays (Min = []string): single file = array size 1, grouped files = array size > 1.
+// It returns (sourceBytes, error); sourceBytes is the sum of S3 object sizes for
+// successfully processed files, committed to Stats.BytesCommitted via
+// WriterThread.Close on a successful destination commit.
+func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn abstract.BackfillMsgFn) (int64, error) {
 	// Convert chunk.Min to []string, handling both []string and []interface{} (from state deserialization)
 	var fileKeys []string
 
@@ -139,13 +142,13 @@ func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, ch
 		for i, item := range v {
 			key, ok := item.(string)
 			if !ok {
-				return fmt.Errorf("invalid file key type in chunk: expected string, got %T", item)
+				return 0, fmt.Errorf("invalid file key type in chunk: expected string, got %T", item)
 			}
 			fileKeys[i] = key
 		}
 
 	default:
-		return fmt.Errorf("invalid chunk Min type: expected []string, got %T", chunk.Min)
+		return 0, fmt.Errorf("invalid chunk Min type: expected []string, got %T", chunk.Min)
 	}
 
 	// Process all files in the chunk
@@ -153,21 +156,27 @@ func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, ch
 	// Grouped small files: array size > 1
 	logger.Infof("Processing chunk with %d file(s)", len(fileKeys))
 
+	// localBytes resets to 0 on every call (including retries).
+	var localBytes int64
 	for i, key := range fileKeys {
 		logger.Debugf("Processing file %d/%d in chunk: %s", i+1, len(fileKeys), key)
 		fileSize := s.getFileSize(stream.Name(), key)
 		lastModified := s.getFileLastModified(stream.Name(), key)
-		if err := s.processFile(ctx, stream, key, fileSize, lastModified, processFn); err != nil {
-			return fmt.Errorf("failed to process file %s in chunk: %s", key, err)
+		processedBytes, err := s.processFile(ctx, stream, key, fileSize, lastModified, processFn)
+		if err != nil {
+			return 0, fmt.Errorf("failed to process file %s in chunk: %s", key, err)
 		}
+		localBytes += processedBytes
 	}
 
-	return nil
+	return localBytes, nil
 }
 
-// processFile handles the processing of a single S3 file using the parser package
-// lastModified is passed as parameter to avoid redundant file metadata lookups
-func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key string, fileSize int64, lastModified string, processFn abstract.BackfillMsgFn) error {
+// processFile handles the processing of a single S3 file using the parser package.
+// lastModified is passed as parameter to avoid redundant file metadata lookups.
+// It returns the file's S3 object size only on successful processing (0 otherwise),
+// so callers can accumulate committed source bytes.
+func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key string, fileSize int64, lastModified string, processFn abstract.BackfillMsgFn) (int64, error) {
 	// For Parquet streaming, use S3 range requests (no need to load entire file into memory)
 	var err error
 	if s.config.FileFormat == FormatParquet {
@@ -179,10 +188,10 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 			rangeReader := NewS3RangeReader(ctx, s.client, s.config.BucketName, key, fileSize)
 			wrapper := parser.NewParquetReaderWrapper(rangeReader, fileSize)
 			err = s.parseFileWithReader(ctx, stream, key, wrapper, lastModified, processFn)
-			if err == nil {
-				s.bytesRead.Add(fileSize)
+			if err != nil {
+				return 0, err
 			}
-			return err
+			return fileSize, nil
 		}
 	}
 
@@ -192,9 +201,9 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 		// Check if file was deleted between discovery and processing
 		if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "NotFound") {
 			logger.Warnf("File %s was deleted or not found, skipping", key)
-			return nil // Don't fail the entire sync for a missing file
+			return 0, nil // Don't fail the entire sync for a missing file
 		}
-		return fmt.Errorf("failed to get reader: %s", err)
+		return 0, fmt.Errorf("failed to get reader: %s", err)
 	}
 	defer func() {
 		if closer, ok := reader.(io.Closer); ok {
@@ -203,12 +212,12 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 	}()
 
 	err = s.parseFileWithReader(ctx, stream, key, reader, lastModified, processFn)
-	if err == nil {
-		// Only increment the bytes counter upon successful processing of the entire file.
-		// This uses the exact S3 object size without needing to intercept read calls.
-		s.bytesRead.Add(fileSize)
+	if err != nil {
+		return 0, err
 	}
-	return err
+	// Only count bytes upon successful processing of the entire file.
+	// This uses the exact S3 object size without needing to intercept read calls.
+	return fileSize, nil
 }
 
 // parseFileWithReader handles the common parsing logic for all file formats

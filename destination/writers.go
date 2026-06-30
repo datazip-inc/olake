@@ -36,6 +36,7 @@ type (
 		ReadCount          atomic.Int64 // records that got read
 		RecordsFiltered    atomic.Int64 // records that got filtered
 		ThreadCount        atomic.Int64 // total number of writer threads
+		BytesCommitted     atomic.Int64 // source bytes committed to destination (updated in writer.Close on success)
 	}
 
 	WriterPool struct {
@@ -265,7 +266,7 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
-func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
+func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any, sourceBytes int64) (err error) {
 	select {
 	case <-ctx.Done():
 		err := wt.writer.Close(ctx, finalMetadataState)
@@ -282,6 +283,8 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 			closeErr := wt.writer.Close(ctx, finalMetadataState)
 			if closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
+			} else if sourceBytes > 0 {
+				wt.stats.BytesCommitted.Add(sourceBytes)
 			}
 		}()
 

@@ -10,12 +10,6 @@ import (
 type BackfillMsgFn func(ctx context.Context, message map[string]any) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 
-// BytesMeasurable is an optional interface for drivers that track how many
-// source bytes they have processed. AbstractDriver.BytesRead() delegates here.
-type BytesMeasurable interface {
-	BytesRead() int64
-}
-
 type Config interface {
 	Validate() error
 }
@@ -35,14 +29,17 @@ type DriverInterface interface {
 	ProduceSchema(ctx context.Context, stream string) (*types.Stream, error)
 	// specific to backfill
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
-	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
+	// ChunkIterator returns (sourceBytes, error). sourceBytes is the sum of source-DB storage bytes for every row scanned
+	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) (int64, error)
 	//incremental specific
 	FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error)
-	StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
+	// StreamIncrementalChanges returns (sourceBytes, error) — same contract as ChunkIterator.
+	StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) (int64, error)
 	// specific to cdc
 	CDCSupported() bool
 	ChangeStreamConfig() (sequential bool, parallel bool, concurrent bool)
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
+	// StreamChanges returns (metadataState, error).
 	StreamChanges(ctx context.Context, identifier int, metadataState map[string]any, processFn CDCMsgFn) (any, error)
 	PostCDC(ctx context.Context, identifier int) error // to save state
 }

@@ -10,7 +10,8 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
+// StreamIncrementalChanges returns (sourceBytes, error).
+func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) (int64, error) {
 	opts := jdbc.DriverOptions{
 		Driver: constants.Postgres,
 		Stream: stream,
@@ -18,26 +19,28 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to build incremental condition: %s", err)
+		return 0, fmt.Errorf("failed to build incremental condition: %s", err)
 	}
 
 	rows, err := p.client.QueryContext(ctx, incrementalQuery, queryArgs...)
 	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %s", err)
+		return 0, fmt.Errorf("failed to execute incremental query: %s", err)
 	}
 	defer rows.Close()
 
+	var localBytes int64
 	for rows.Next() {
 		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, p.dataTypeConverter, p.addRowBytes); err != nil {
-			return fmt.Errorf("failed to scan record: %s", err)
+		if err := jdbc.MapScan(rows, record, p.dataTypeConverter, makeLocalAddRowBytes(&localBytes)); err != nil {
+			return 0, fmt.Errorf("failed to scan record: %s", err)
 		}
 
 		if err := processFn(ctx, record); err != nil {
-			return fmt.Errorf("process error: %s", err)
+			return 0, fmt.Errorf("process error: %s", err)
 		}
 	}
-	return rows.Err()
+
+	return localBytes, rows.Err()
 }
 
 func (p *Postgres) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {

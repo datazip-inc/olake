@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -35,15 +34,13 @@ type ChangeFilter struct {
 	streams       map[string]types.StreamInterface // Keyed by "schema.table"
 	converter     func(value interface{}, columnType string) (interface{}, error)
 	lastGTIDEvent time.Time
-	bytesCounter  *atomic.Int64 // nil = counting disabled
 }
 
 // NewChangeFilter creates a filter for the given streams.
-func NewChangeFilter(bytesCounter *atomic.Int64, typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
+func NewChangeFilter(typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
 	filter := ChangeFilter{
-		streams:      make(map[string]types.StreamInterface),
-		converter:    typeConverter,
-		bytesCounter: bytesCounter,
+		streams:   make(map[string]types.StreamInterface),
+		converter: typeConverter,
 	}
 	for _, stream := range streams {
 		filter.streams[fmt.Sprintf("%s.%s", stream.Namespace(), stream.Name())] = stream
@@ -90,9 +87,6 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 	}
 
 	for _, row := range rowsToProcess {
-		if f.bytesCounter != nil {
-			f.bytesCounter.Add(mysqlCDCRowBytes(row, columnTypes))
-		}
 		record, err := convertRowToMap(row, e.Table, columnTypes, f.converter)
 		if err != nil {
 			return err
@@ -114,6 +108,8 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 				CDCBinlogFileName: pos.Name,
 				CDCBinlogFilePos:  pos.Pos, // Use the event position
 			},
+			// InnoDB on-disk byte sum for this row; attributed per stream at commit.
+			Bytes: mysqlCDCRowBytes(row, columnTypes),
 		}
 		if err := callback(ctx, change); err != nil {
 			return err

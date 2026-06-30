@@ -2,7 +2,6 @@ package binlog
 
 import (
 	"crypto/tls"
-	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/types"
@@ -25,7 +24,6 @@ type Config struct {
 	SSHClient               *ssh.Client
 	TLSConfig               *tls.Config
 	TimestampStringLocation *time.Location
-	BytesCounter            *atomic.Int64
 }
 
 // BinlogState holds the current binlog position.

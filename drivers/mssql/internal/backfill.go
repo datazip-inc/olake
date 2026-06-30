@@ -26,8 +26,8 @@ import (
 // (IN_ROW_DATA max row size). Using the ceiling yields smaller chunks.
 const usableBytesPerPage = 8060
 
-// ChunkIterator implements snapshot iteration over MSSQL chunks.
-func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, onMessage abstract.BackfillMsgFn) error {
+// ChunkIterator implements snapshot iteration over MSSQL chunks. It returns (sourceBytes, error).
+func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, onMessage abstract.BackfillMsgFn) (int64, error) {
 	opts := jdbc.DriverOptions{
 		Driver: constants.MSSQL,
 		Stream: stream,
@@ -35,12 +35,12 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return 0, fmt.Errorf("failed to set threshold filter: %s", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, m.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during MSSQL chunk iteration: %s", err)
+		return 0, fmt.Errorf("failed to parse filter during MSSQL chunk iteration: %s", err)
 	}
 
 	keyCols := stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -62,7 +62,7 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 	tx, err := m.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
+		return 0, fmt.Errorf("failed to begin transaction: %s", err)
 	}
 	defer tx.Rollback()
 
@@ -70,7 +70,10 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage, m.addRowBytes)
+	// localBytes resets to 0 on every call (including retries).
+	var localBytes int64
+	err = jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage, makeLocalAddRowBytes(&localBytes))
+	return localBytes, err
 }
 
 // GetOrSplitChunks splits a table into chunks using PK seek or %%physloc%% fallback.

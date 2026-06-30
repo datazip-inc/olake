@@ -146,7 +146,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 				Info("Monitoring stopped")
 				return
 			case <-ticker.C:
-				runningThreads, recordsToSync, syncedRecords, bytesRead := statsFunc()
+				runningThreads, recordsToSync, syncedRecords, bytesCommitted := statsFunc()
 				memStats := new(runtime.MemStats)
 				runtime.ReadMemStats(memStats)
 				speed := float64(syncedRecords) / time.Since(startTime).Seconds()
@@ -159,7 +159,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 				stats := map[string]interface{}{
 					"Writer Threads":           runningThreads,
 					"Synced Records":           syncedRecords,
-					"Bytes Read":               bytesRead,
+					"Bytes Committed":          bytesCommitted,
 					"Memory":                   fmt.Sprintf("%d mb", memStats.HeapInuse/(1024*1024)),
 					"Speed":                    fmt.Sprintf("%.2f rps", speed),
 					"Seconds Elapsed":          fmt.Sprintf("%.2f", timeElapsed),
