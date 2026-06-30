@@ -18,9 +18,8 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-// ChunkIterator returns (sourceBytes, error); sourceBytes is committed to
-// Stats.BytesCommitted via WriterThread.Close on a successful destination commit.
-func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (int64, error) {
+// ChunkIterator scans a chunk, delivering each row to OnMessage with its source byte size.
+func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.DB2,
 		Stream: stream,
@@ -30,12 +29,12 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return 0, fmt.Errorf("failed to set threshold filter: %s", err)
+		return fmt.Errorf("failed to set threshold filter: %s", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, d.Type(), thresholdFilter)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
 	// if PK present then PK based chunking else RID based chunking
@@ -55,7 +54,7 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 	// db2 driver does not support custom isolation level setting
 	tx, err := d.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return 0, fmt.Errorf("failed to begin transaction: %s", err)
+		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
 	defer tx.Rollback()
 
@@ -65,10 +64,8 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	// localBytes resets to 0 on every call (including retries).
-	var localBytes int64
-	err = jdbc.MapScanConcurrent(setter, d.dataTypeConverter, OnMessage, makeLocalAddRowBytes(&localBytes))
-	return localBytes, err
+	err = jdbc.MapScanConcurrent(setter, d.dataTypeConverter, OnMessage, db2RowBytes)
+	return err
 }
 
 func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

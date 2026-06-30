@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"sync/atomic"
 )
 
 // mssqlColumnBytes returns the SQL Server on-disk byte count for a single column value.
@@ -73,17 +72,6 @@ func mssqlRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
 		total += mssqlColumnBytes(v, colTypes[i].DatabaseTypeName())
 	}
 	return total
-}
-
-// makeLocalAddRowBytes returns the MapScan/MapScanConcurrent callback for backfill
-// and incremental. It accumulates row bytes into a caller-owned local int64 that
-// lives on the ChunkIterator / StreamIncrementalChanges call stack, so it resets
-// to 0 on every retry (no double counting).
-func makeLocalAddRowBytes(local *int64) func([]any, []*sql.ColumnType) {
-	return func(vals []any, colTypes []*sql.ColumnType) {
-		// atomic: MapScanConcurrent invokes this from the producer goroutine.
-		atomic.AddInt64(local, mssqlRowBytes(vals, colTypes))
-	}
 }
 
 // mssqlCDCRowBytes sums the on-disk bytes of a CDC row's actual data columns,

@@ -14,7 +14,7 @@ import (
 )
 
 // StreamIncrementalChanges implements incremental sync for Oracle.
-func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) (int64, error) {
+func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.Oracle,
 		Stream: stream,
@@ -23,28 +23,27 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
-		return 0, fmt.Errorf("failed to build incremental condition: %s", err)
+		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}
 
 	rows, err := o.client.QueryContext(ctx, incrementalQuery, queryArgs...)
 	if err != nil {
-		return 0, fmt.Errorf("failed to execute incremental query: %s", err)
+		return fmt.Errorf("failed to execute incremental query: %s", err)
 	}
 	defer rows.Close()
 
-	// localBytes resets to 0 on every call (including retries).
-	var localBytes int64
 	for rows.Next() {
 		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, o.dataTypeConverter, makeLocalAddRowBytes(&localBytes)); err != nil {
-			return 0, fmt.Errorf("failed to scan record: %s", err)
+		rowBytes, err := jdbc.MapScan(rows, record, o.dataTypeConverter, oracleRowBytes)
+		if err != nil {
+			return fmt.Errorf("failed to scan record: %s", err)
 		}
 
-		if err := processFn(ctx, record); err != nil {
-			return 0, fmt.Errorf("process error: %s", err)
+		if err := processFn(ctx, record, rowBytes); err != nil {
+			return fmt.Errorf("process error: %s", err)
 		}
 	}
-	return localBytes, rows.Err()
+	return rows.Err()
 }
 
 func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {

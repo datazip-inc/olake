@@ -2,7 +2,6 @@ package driver
 
 import (
 	"database/sql"
-	"sync/atomic"
 
 	"github.com/datazip-inc/olake/pkg/binlog"
 )
@@ -16,17 +15,4 @@ func mysqlRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
 		total += binlog.MysqlColumnBytes(v, colTypes[i].DatabaseTypeName())
 	}
 	return total
-}
-
-// makeLocalAddRowBytes returns a jdbc.MapScan / jdbc.MapScanConcurrent callback
-// that accumulates row bytes into a caller-owned local int64. The local lives on
-// the ChunkIterator / StreamIncrementalChanges call stack, so it resets to 0 on
-// every retry (no double counting). The caller returns the final value, which
-// the abstract driver commits to Stats.BytesCommitted via WriterThread.Close.
-func makeLocalAddRowBytes(local *int64) func([]any, []*sql.ColumnType) {
-	return func(vals []any, colTypes []*sql.ColumnType) {
-		// atomic: MapScanConcurrent invokes this from the producer goroutine
-		// while the consumer goroutine runs concurrently.
-		atomic.AddInt64(local, mysqlRowBytes(vals, colTypes))
-	}
 }

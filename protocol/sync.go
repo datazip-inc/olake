@@ -146,7 +146,8 @@ var syncCmd = &cobra.Command{
 		}
 
 		state.LogWithLock()
-		// TODO: record count also contain records which arrived in retry attempts, need to remove them
+		// ReadCount/RecordsFiltered are rolled back per-thread on failed or retried
+		// chunks (see WriterThread.Close), so this reflects committed rows only.
 		stats := pool.GetStats()
 		readRecordsCount := max(int64(0), stats.ReadCount.Load()-stats.RecordsFiltered.Load())
 		bytesCommitted := stats.BytesCommitted.Load()

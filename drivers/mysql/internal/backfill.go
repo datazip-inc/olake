@@ -21,8 +21,8 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-// ChunkIterator returns (sourceBytes, error). sourceBytes is the InnoDB storage equivalent for all rows scanned
-func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (int64, error) {
+// ChunkIterator scans a chunk, delivering each row to OnMessage with its InnoDB-equivalent source byte size.
+func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.MySQL,
 		Stream: stream,
@@ -30,15 +30,13 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return 0, fmt.Errorf("failed to set threshold filter: %s", err)
+		return fmt.Errorf("failed to set threshold filter: %s", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, m.Type(), thresholdFilter)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
-	// localBytes resets to 0 on every call (including retries) — no stale data.
-	var localBytes int64
 	// Begin transaction with repeatable read isolation
 	err = jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
 		// Build query for the chunk
@@ -60,9 +58,9 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
-		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, makeLocalAddRowBytes(&localBytes))
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, mysqlRowBytes)
 	})
-	return localBytes, err
+	return err
 }
 
 // TODO: Separate chunking-related logic from this function so the individual components can be unit tested independently.

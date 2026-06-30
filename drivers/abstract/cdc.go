@@ -137,10 +137,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		metadataStates[stream.ID()] = writerMetaState
 	}
 
-	// cdcBytesByStream accumulates per-stream source bytes for this CDC session.
-	// The driver sets change.Bytes at emit time (where the stream is known).
-	cdcBytesByStream := make(map[string]int64)
-	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", &finalMetadataState, &clearDedup, cdcBytesByStream)
+	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", &finalMetadataState, &clearDedup)
 
 	finalMetadataState, err = a.driver.StreamChanges(cdcCtx, streamIndex, metadataStates, func(ctx context.Context, change CDCChange) error {
 		writer := writers[change.Stream.ID()]
@@ -159,11 +156,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		}
 		filteredData := filterDataBySelectedColumnsFn(change.Data)
 
-		if pushErr := writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns)); pushErr != nil {
-			return pushErr
-		}
-		cdcBytesByStream[change.Stream.ID()] += change.Bytes
-		return nil
+		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns), change.Bytes)
 	})
 
 	return err

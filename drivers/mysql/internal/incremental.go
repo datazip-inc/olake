@@ -11,8 +11,8 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-// StreamIncrementalChanges returns (sourceBytes, error) — same contract as ChunkIterator.
-func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) (int64, error) {
+// StreamIncrementalChanges streams incremental records to the callback, each with its source byte size.
+func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.MySQL,
 		Stream: stream,
@@ -20,31 +20,30 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
-		return 0, fmt.Errorf("failed to build incremental condition: %s", err)
+		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}
 
 	var rows *sql.Rows
 	rows, err = m.client.QueryContext(ctx, incrementalQuery, queryArgs...)
 	if err != nil {
-		return 0, fmt.Errorf("failed to execute incremental query: %s", err)
+		return fmt.Errorf("failed to execute incremental query: %s", err)
 	}
 	defer rows.Close()
 
-	// localBytes resets to 0 on every call (including retries).
-	var localBytes int64
 	// Scan rows and process
 	for rows.Next() {
 		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, m.dataTypeConverter, makeLocalAddRowBytes(&localBytes)); err != nil {
-			return 0, fmt.Errorf("failed to scan record: %s", err)
+		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mysqlRowBytes)
+		if err != nil {
+			return fmt.Errorf("failed to scan record: %s", err)
 		}
 
-		if err := processFn(ctx, record); err != nil {
-			return 0, fmt.Errorf("process error: %s", err)
+		if err := processFn(ctx, record, rowBytes); err != nil {
+			return fmt.Errorf("process error: %s", err)
 		}
 	}
 
-	return localBytes, rows.Err()
+	return rows.Err()
 }
 
 func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {

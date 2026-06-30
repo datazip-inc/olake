@@ -248,7 +248,7 @@ func generateThreadID(streamID, hash string) string {
 // The writer parameter can be either:
 //   - *destination.WriterThread for a single writer
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any, dedupInserts *bool, bytesByStream map[string]int64) {
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any, dedupInserts *bool) {
 	if r := recover(); r != nil {
 		*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: panic recovered: %v", *err, r)).(error)
 	}
@@ -271,25 +271,15 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 
 	switch w := writer.(type) {
 	case *destination.WriterThread:
-		// Backfill / incremental: one writer per chunk/run. Bytes are keyed by
-		// threadID — set by the caller after the scan returns, before this defer fires.
-		var sourceBytes int64
-		if bytesByStream != nil {
-			sourceBytes = bytesByStream[threadID]
-		}
-		if threadErr := w.Close(ctx, metadataState, sourceBytes); threadErr != nil {
+		// Backfill / incremental: one writer per chunk/run.
+		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
 			closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
 		}
 	case map[string]*destination.WriterThread:
-		// CDC: one handleWriterCleanup call, multiple writers. Each writer is
-		// billed exactly its own stream's accumulated bytes (0 if it saw no changes this session)
+		// CDC: one handleWriterCleanup call, multiple writers (one per stream).
 		for streamID, inserter := range w {
 			if inserter != nil {
-				var streamBytes int64
-				if bytesByStream != nil {
-					streamBytes = bytesByStream[streamID]
-				}
-				if threadErr := inserter.Close(ctx, metadataState, streamBytes); threadErr != nil {
+				if threadErr := inserter.Close(ctx, metadataState); threadErr != nil {
 					closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
 				}
 			}

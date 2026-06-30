@@ -365,18 +365,14 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 	}
 	defer rows.Close()
 
-	// rowBytes holds the after-image data-column byte sum for the row most
-	// recently scanned by MapScan (excludes __$* metadata columns). Set fresh on
-	// every MapScan call, then attached to the emitted change below.
-	var rowBytes int64
-	rowByteFn := func(vals []any, colTypes []*sql.ColumnType) {
-		rowBytes = mssqlCDCRowBytes(vals, colTypes)
-	}
 	for rows.Next() {
 		// Use MapScan to properly convert data types including binary types
 		// TODO: check if we can use MapScanConcurrent for mssql
+		// rowBytes is the after-image data-column byte sum (excludes __$* metadata
+		// columns), attached to the emitted change below.
 		record := make(map[string]interface{})
-		if err := jdbc.MapScan(rows, record, m.dataTypeConverter, rowByteFn); err != nil {
+		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mssqlCDCRowBytes)
+		if err != nil {
 			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
 		}
 

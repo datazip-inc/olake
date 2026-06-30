@@ -65,10 +65,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 			logger.Infof("finished chunk min[%v] and max[%v] of stream %s", chunk.Min, chunk.Max, stream.ID())
 		}(backfillCtx)
 
-		// bytesMap holds source bytes for this chunk, keyed by threadID.
-		// Set after ChunkIterator returns (in the function body, before return triggers the defer).
-		bytesMap := map[string]int64{}
-		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID, nil, nil, bytesMap)
+		defer handleWriterCleanup(backfillCtx, backfillCtxCancel, &err, inserter, threadID, nil, nil)
 
 		if prevMetadataState != nil {
 			if slices.Contains(prevMetadataState.FullRefreshCommittedIDs, threadID) {
@@ -79,7 +76,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 
-		iterBytes, iterErr := a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
+		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any, sourceBytes int64) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			olakeColumns := map[string]any{
 				constants.OlakeID:        olakeID,
@@ -94,10 +91,8 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 			filteredData := filterDataBySelectedColumnsFn(data)
 
-			return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
+			return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns), sourceBytes)
 		})
-		bytesMap[threadID] = iterBytes
-		return iterErr
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)
 	return nil

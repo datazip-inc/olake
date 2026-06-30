@@ -45,36 +45,36 @@ func (s *S3) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterf
 //  2. This method processes only files added/modified AFTER the cursor (LastModified > cursor)
 //  3. Processes files sequentially (no chunking/parallelization for simplicity)
 //
-// StreamIncrementalChanges returns (sourceBytes, error) — same contract as ChunkIterator.
-func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) (int64, error) {
+// StreamIncrementalChanges streams incremental records to the callback, each with its source byte size.
+func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
 	streamName := stream.Name()
 
 	// Get the cursor from the abstract layer's state management
 	configuredStream, ok := stream.(*types.ConfiguredStream)
 	if !ok {
 		logger.Infof("Stream %s: not a configured stream, skipping incremental sync", streamName)
-		return 0, nil
+		return nil
 	}
 
 	// Get primary cursor field
 	primaryCursor, _ := configuredStream.Cursor()
 	if primaryCursor == "" {
 		logger.Infof("Stream %s: no cursor configured, skipping incremental sync", streamName)
-		return 0, nil
+		return nil
 	}
 
 	// Get cursor value from state (managed by abstract layer)
 	cursorValue := s.state.GetCursor(configuredStream, primaryCursor)
 	if cursorValue == nil {
 		logger.Infof("Stream %s: no cursor value in state, skipping incremental sync", streamName)
-		return 0, nil
+		return nil
 	}
 
 	// Parse cursor as string (timestamp format: 2006-01-02T15:04:05Z)
 	cursor, ok := cursorValue.(string)
 	if !ok {
 		logger.Warnf("Stream %s: invalid cursor format, expected string got %T", streamName, cursorValue)
-		return 0, nil
+		return nil
 	}
 
 	logger.Infof("Stream %s: processing incremental changes (files with LastModified > %s)",
@@ -84,7 +84,7 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 	files, exists := s.discoveredFiles[streamName]
 	if !exists || len(files) == 0 {
 		logger.Infof("Stream %s: no files found for incremental processing", streamName)
-		return 0, nil
+		return nil
 	}
 
 	// Filter files to only include those modified AFTER the cursor
@@ -92,14 +92,12 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 
 	if len(incrementalFiles) == 0 {
 		logger.Infof("Stream %s: no new files to process (all files <= cursor)", streamName)
-		return 0, nil
+		return nil
 	}
 
 	logger.Infof("Stream %s: found %d file(s) for incremental processing",
 		streamName, len(incrementalFiles))
 
-	// localBytes resets to 0 on every call (including retries).
-	var localBytes int64
 	// Process each incremental file sequentially
 	// Note: We process one-by-one for simplicity. Parallelization can be added later if needed.
 	for i, file := range incrementalFiles {
@@ -109,23 +107,22 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 		// Check context cancellation
 		select {
 		case <-ctx.Done():
-			return 0, ctx.Err()
+			return ctx.Err()
 		default:
 		}
 
 		// Process the file using the same logic as backfill
 		// Pass file.LastModified directly (already available) to avoid redundant lookup
-		processedBytes, err := s.processFile(ctx, stream, file.FileKey, file.Size, file.LastModified, cb)
-		if err != nil {
-			return 0, fmt.Errorf("failed to process incremental file %s: %s", file.FileKey, err)
+		// Per-record uncompressed bytes are accounted live via Push inside processFile.
+		if err := s.processFile(ctx, stream, file.FileKey, file.Size, file.LastModified, cb); err != nil {
+			return fmt.Errorf("failed to process incremental file %s: %s", file.FileKey, err)
 		}
-		localBytes += processedBytes
 	}
 
 	logger.Infof("Stream %s: completed incremental processing of %d file(s)",
 		streamName, len(incrementalFiles))
 
-	return localBytes, nil
+	return nil
 }
 
 // filterFilesByCursor filters files based on LastModified timestamp cursor

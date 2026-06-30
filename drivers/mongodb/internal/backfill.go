@@ -21,14 +21,14 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-// ChunkIterator returns (sourceBytes, error). sourceBytes is the sum of BSON wire-format document sizes scanned.
-func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) (int64, error) {
+// ChunkIterator scans a chunk, passing each document's BSON wire-format size to OnMessage for
+func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := options.Aggregate().SetAllowDiskUse(true).SetBatchSize(int32(math.Pow10(6)))
 	collection := m.client.Database(stream.Namespace(), options.Database().SetReadConcern(readconcern.Majority())).Collection(stream.Name())
 
 	filter, err := m.buildFilter(stream)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 
 	logger.Debugf("Starting backfill from %v to %v with filter: %s", chunk.Min, chunk.Max, filter)
@@ -36,31 +36,30 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	// check for _id type
 	ObjectIDPresent, err := isObjectID(ctx, collection)
 	if err != nil {
-		return 0, fmt.Errorf("failed to check if _id is ObjectID: %s", err)
+		return fmt.Errorf("failed to check if _id is ObjectID: %s", err)
 	}
 
 	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, ObjectIDPresent), opts)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create cursor: %s", err)
+		return fmt.Errorf("failed to create cursor: %s", err)
 	}
 	defer cursor.Close(ctx)
-	// localBytes resets to 0 on every call (including retries). The cursor loop is single-goroutine, so a plain int64 is sufficient.
-	var localBytes int64
 	for cursor.Next(ctx) {
 		var doc bson.M
 		if _, err = cursor.Current.LookupErr("_id"); err != nil {
-			return 0, fmt.Errorf("looking up idProperty: %s", err)
+			return fmt.Errorf("looking up idProperty: %s", err)
 		} else if err = cursor.Decode(&doc); err != nil {
-			return 0, fmt.Errorf("backfill decoding document: %s", err)
+			return fmt.Errorf("backfill decoding document: %s", err)
 		}
-		localBytes += int64(len(cursor.Current))
+		// BSON wire-format size of this document, read before the cursor advances.
+		docBytes := int64(len(cursor.Current))
 		// filter mongo object
 		filterMongoObject(doc)
-		if err := OnMessage(ctx, doc); err != nil {
-			return 0, fmt.Errorf("failed to send message to writer: %s", err)
+		if err := OnMessage(ctx, doc, docBytes); err != nil {
+			return fmt.Errorf("failed to send message to writer: %s", err)
 		}
 	}
-	return localBytes, cursor.Err()
+	return cursor.Err()
 }
 
 func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"sync/atomic"
 )
 
 // pgNumericBinaryBytes computes the number of bytes PostgreSQL uses to store a
@@ -235,18 +234,4 @@ func pgCompositeRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
 	}
 
 	return tHoff + dataOffset
-}
-
-// makeLocalAddRowBytes returns a MapScanConcurrent/MapScan callback that
-// accumulates bytes into a caller-owned local int64.
-// The local variable lives on the ChunkIterator/StreamIncrementalChanges call
-// stack, so it resets naturally on every retry. The caller returns the final
-// value, which handleWriterCleanup passes to WriterThread.Close so it is
-// committed to Stats.BytesCommitted only after a successful destination commit.
-func makeLocalAddRowBytes(local *int64) func([]any, []*sql.ColumnType) {
-	return func(vals []any, colTypes []*sql.ColumnType) {
-		// atomic because MapScanConcurrent calls this from the producer goroutine
-		// while the consumer goroutine is running concurrently.
-		atomic.AddInt64(local, pgCompositeRowBytes(vals, colTypes))
-	}
 }

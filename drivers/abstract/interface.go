@@ -7,7 +7,11 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-type BackfillMsgFn func(ctx context.Context, message map[string]any) error
+// Drivers that know each record's size during the scan:
+// - all JDBC drivers
+// - mongo
+// - for s3 (only per-file after the scan, so it passes 0 and reports the total via the ChunkIterator return value instead)
+type BackfillMsgFn func(ctx context.Context, message map[string]any, sourceBytes int64) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 
 type Config interface {
@@ -29,12 +33,10 @@ type DriverInterface interface {
 	ProduceSchema(ctx context.Context, stream string) (*types.Stream, error)
 	// specific to backfill
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
-	// ChunkIterator returns (sourceBytes, error). sourceBytes is the sum of source-DB storage bytes for every row scanned
-	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) (int64, error)
+	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
 	//incremental specific
 	FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error)
-	// StreamIncrementalChanges returns (sourceBytes, error) — same contract as ChunkIterator.
-	StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) (int64, error)
+	StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
 	// specific to cdc
 	CDCSupported() bool
 	ChangeStreamConfig() (sequential bool, parallel bool, concurrent bool)
