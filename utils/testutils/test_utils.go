@@ -1249,13 +1249,20 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 		{
 			name:         "CDC - first rebalance sync",
 			operation:    "rebalance",
-			useState:     false,
+			useState:     true,
 			allowFailure: true,
 		},
 		{
+			// Stop the trigger consumer before resuming so it cannot hold partition assignments.
 			name:      "CDC - second rebalance sync",
 			operation: "stop_rebalance",
 			useState:  true,
+		},
+		{
+			// After a partial rebalance exit the broker offset may lag destination metadata;
+			// the prior sync aligns offsets (recovery), this sync consumes the remainder.
+			name:     "CDC - third resume sync",
+			useState: true,
 		},
 	}
 
