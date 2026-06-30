@@ -1253,9 +1253,9 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 			allowFailure: true,
 		},
 		{
-			name:         "CDC - second rebalance sync",
-			operation:    "stop_rebalance",
-			useState:     true,
+			name:      "CDC - second rebalance sync",
+			operation: "stop_rebalance",
+			useState:  true,
 		},
 	}
 

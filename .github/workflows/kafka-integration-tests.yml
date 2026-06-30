@@ -36,13 +36,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Data Directories
-        run: |
-          sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
-          sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/minio-data
-          sudo chown -R 999:999 /home/runner/work/olake/olake/destination/iceberg/local-test/data
-          sudo chmod -R 777 /home/runner/work/olake/olake/destination/iceberg/local-test/data
-
       - name: Start Test Infrastructure
         run: |
           docker compose -f ./drivers/kafka/docker-compose.yml up -d
@@ -65,6 +58,14 @@ jobs:
           retry_wait_seconds: 10
           command: |
             bash -c 'echo > /dev/tcp/127.0.0.1/15002'
+
+      - name: Set up Data Directories
+        run: |
+          sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
+          sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/minio-data
+          sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/ivy-cache
+          sudo chown -R 999:999 /home/runner/work/olake/olake/destination/iceberg/local-test/data
+          sudo chmod -R 777 /home/runner/work/olake/olake/destination/iceberg/local-test/data
 
       - name: Install Go Dependencies
         run: go mod download
