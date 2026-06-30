@@ -117,26 +117,6 @@ public class IcebergTableOperator {
   }
 
   /**
-   * Best-effort cleanup. Aborts and closes the writer without committing; clears
-   * filesToCommit. Used on CLOSE_SESSION when the Go side is releasing this thread
-   * (e.g. after a chunk has already committed or on a panic teardown).
-   */
-  public void closeQuietly() {
-    try {
-      if (writer != null) {
-        try { writer.abort(); } catch (Exception ignore) {
-          LOGGER.warn("Failed to abort writer", ignore);
-        }
-        try { writer.close(); } catch (Exception ignore) {
-          LOGGER.warn("Failed to close writer", ignore);
-        }
-      }
-    } finally {
-      writer = null;
-      filesToCommit.clear();
-    }
-  }
-  /**
    * Commits data files for a specific thread
    * 
    * @param threadId The thread ID to commit
@@ -288,7 +268,6 @@ public class IcebergTableOperator {
         // Cooperative cancel: checked every 1024 records to minimize loop overhead
         if (grpcContext.isCancelled()) {
           LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
-          closeQuietly();
           return;
         }
         try{

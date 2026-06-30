@@ -120,7 +120,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 List<Map<String, String>> partitionTransforms = toPartitionList(metadata.getPartitionFieldsList());
                 TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
 
-                // computeIfAbsent creates a new session if the threadId is not present in the sessions map
+                // If a session already exists for this threadId, remove it to force recreation
+                sessions.remove(threadId);
+                
+                // computeIfAbsent creates a new session since we just removed any existing one
                 session = sessions.computeIfAbsent(threadId,
                         k -> {
                             Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();

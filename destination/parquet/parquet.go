@@ -55,11 +55,6 @@ func (p *Parquet) GetConfigRef() destination.Config {
 	return p.config
 }
 
-// SetConfig points this writer at a shared, already-parsed config instance.
-func (p *Parquet) SetConfig(c destination.Config) {
-	p.config = c.(*Config)
-}
-
 // Spec returns a new Config instance.
 func (p *Parquet) Spec() any {
 	return Config{}
