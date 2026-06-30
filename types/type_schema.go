@@ -2,8 +2,10 @@ package types
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 
+	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
@@ -161,6 +163,65 @@ func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *par
 	}
 
 	return parquet.NewSchema("olake_schema", groupNode)
+}
+
+// ToArrow builds the arrow schema written by the parquet destination. It mirrors
+// ToParquet column-for-column — same OLake system columns, same selection and
+// defaultColumns rules, same stringified "data" column when defaultColumns is set —
+// so the arrow pipeline reproduces the physical schema the legacy writer produced.
+// Fields are emitted in a stable alphabetical order.
+func (t *TypeSchema) ToArrow(defaultColumns bool, stream StreamInterface) *arrow.Schema {
+	// Default OLake system columns, mirroring ToParquet's base group. A schema
+	// property of the same name overrides these below (and becomes nullable),
+	// exactly as the parquet.Group map overwrite does.
+	colTypes := map[string]arrow.DataType{
+		constants.OlakeID:        arrow.BinaryTypes.String,
+		constants.OlakeTimestamp: arrowTimestampUTC,
+		constants.OpType:         arrow.BinaryTypes.String,
+		constants.CdcTimestamp:   arrowTimestampUTC,
+	}
+	nullable := map[string]bool{
+		constants.OlakeID:        false,
+		constants.OlakeTimestamp: false,
+		constants.OpType:         false,
+		constants.CdcTimestamp:   true,
+	}
+
+	isSelected := stream.IsSelectedColumn()
+	t.Properties.Range(func(key, value any) bool {
+		prop := value.(*Property)
+		outName := stream.ResolveColumnName(key.(string))
+		if !isSelected(outName) || (defaultColumns && !prop.OlakeColumn) {
+			return true
+		}
+		colTypes[outName] = prop.DataType().ToArrow()
+		nullable[outName] = true // ToNewParquet makes every data column optional
+		return true
+	})
+
+	if defaultColumns {
+		colTypes[constants.StringifiedData] = arrow.BinaryTypes.String
+		nullable[constants.StringifiedData] = false // parquet.JSON() is required
+	}
+
+	names := make([]string, 0, len(colTypes))
+	for name := range colTypes {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	fields := make([]arrow.Field, 0, len(names))
+	for _, name := range names {
+		field := arrow.Field{Name: name, Type: colTypes[name], Nullable: nullable[name]}
+		// Preserve the JSON logical type for the denormalized "data" column, matching
+		// ToParquet's parquet.JSON(). Only set in defaultColumns mode, where "data" is
+		// unambiguously the stringified column we add below (never a real source column).
+		if defaultColumns && name == constants.StringifiedData {
+			field.Metadata = arrow.MetadataFrom(map[string]string{"PARQUET:logical": "JSON"})
+		}
+		fields = append(fields, field)
+	}
+	return arrow.NewSchema(fields, nil)
 }
 
 func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface, includeColumns ...string) []*proto.IcebergPayload_SchemaField {
