@@ -68,7 +68,6 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return k.readerManager.CreateReaders(ctx, streams)
 }
 
-// StreamChanges returns (state, error). Per-change raw wire bytes (key + value) are reported via CDCChange.Bytes.
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	// Restart the reader to create a fresh franz-go client for each StreamChanges attempt.
 	// franz-go keeps uncommitted offsets in memory, so restarting clears that state and

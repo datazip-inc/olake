@@ -121,9 +121,8 @@ func (s *S3) groupFilesIntoChunks(files []FileObject) *types.Set[types.Chunk] {
 	return chunks
 }
 
-// ChunkIterator reads and processes records from S3 file(s) in a chunk.
-// Handles chunks as arrays (Min = []string): single file = array size 1, grouped files = array size > 1.
-// Each record's uncompressed data size (recordDataBytes) is accounted live via Push.
+// ChunkIterator reads and processes records from S3 file(s) in a chunk
+// Handles chunks as arrays (Min = []string): single file = array size 1, grouped files = array size > 1
 func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn abstract.BackfillMsgFn) error {
 	// Convert chunk.Min to []string, handling both []string and []interface{} (from state deserialization)
 	var fileKeys []string
@@ -166,12 +165,10 @@ func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, ch
 	return nil
 }
 
-// processFile handles the processing of a single S3 file using the parser package.
-// lastModified is passed as parameter to avoid redundant file metadata lookups.
-// Per-record source bytes are accounted live via Push inside parseFileWithReader.
+// processFile handles the processing of a single S3 file using the parser package
+// lastModified is passed as parameter to avoid redundant file metadata lookups
 func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key string, fileSize int64, lastModified string, processFn abstract.BackfillMsgFn) error {
 	// For Parquet streaming, use S3 range requests (no need to load entire file into memory)
-	var err error
 	if s.config.FileFormat == FormatParquet {
 		parquetConfig := s.config.GetParquetConfig()
 		if parquetConfig.StreamingEnabled && fileSize > 0 {

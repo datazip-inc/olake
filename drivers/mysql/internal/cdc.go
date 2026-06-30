@@ -15,9 +15,6 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
-// prepareBinlogConn builds the binlog connection. Per-change source bytes are
-// reported via CDCChange.Bytes (set in the binlog change filter), so no byte
-// counter is threaded through here.
 func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlobalState, streamsToSync []types.StreamInterface) (*binlog.Connection, error) {
 	// Build TLS config if SSL is configured
 	var tlsConfig *tls.Config
@@ -69,7 +66,6 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
-// StreamChanges returns (metadataState, error). Per-change binlog bytes are reported via CDCChange.Bytes.
 func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	savedState := m.state.GetGlobal()
 	if savedState == nil || savedState.State == nil {

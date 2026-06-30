@@ -91,9 +91,7 @@ func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter
 //
 // MapScan scans the current row into dest and returns the row's source-DB byte
 // size. The optional rowBytesFn is invoked once with all raw (pre-conversion)
-// column values and their SQL column types, allowing callers to compute the
-// per-row byte count (including inter-column alignment padding) without an extra
-// pass. Returns 0 bytes when rowBytesFn is nil or omitted.
+// column values and their SQL column types, allowing callers to compute the per-row byte count.
 func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error), rowBytesFn ...func(rawVals []any, colTypes []*sql.ColumnType) int64) (int64, error) {
 	columns, colTypes, err := getColumnMetadata(rows)
 	if err != nil {
@@ -136,10 +134,7 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 
 // MapScanConcurrent scans rows concurrently using a producer/consumer pattern.
 // The optional rowBytesFn is invoked in the consumer goroutine once per complete
-// row with all raw (pre-conversion) column values and their SQL column types; its
-// result (the row's source-DB byte size, including inter-column alignment padding)
-// is forwarded to OnMessage so the bytes can be accounted live alongside the
-// record. Pass nil or omit to report 0 bytes per row.
+// row with all raw (pre-conversion) column values and their SQL column types.
 func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn, rowBytesFn ...func(rawVals []any, colTypes []*sql.ColumnType) int64) error {
 	valuesCh := make(chan []any)
 

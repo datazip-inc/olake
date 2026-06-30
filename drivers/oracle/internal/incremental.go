@@ -13,7 +13,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// StreamIncrementalChanges implements incremental sync for Oracle.
+// StreamIncrementalChanges implements incremental sync for Oracle
 func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.Oracle,

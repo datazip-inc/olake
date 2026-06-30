@@ -75,9 +75,7 @@ func mssqlRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
 }
 
 // mssqlCDCRowBytes sums the on-disk bytes of a CDC row's actual data columns,
-// excluding the four CDC metadata columns (__$operation, __$start_lsn,
-// __$seqval, __$update_mask). Before-image rows (op-code 3) are skipped by the
-// caller before emit, so they never reach CDCChange.Bytes.
+// excluding the four CDC metadata columns (__$operation, __$start_lsn, __$seqval, __$update_mask).
 func mssqlCDCRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
 	var total int64
 	for i, v := range vals {

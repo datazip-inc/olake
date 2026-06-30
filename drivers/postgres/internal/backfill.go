@@ -16,7 +16,6 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-// ChunkIterator scans a chunk, passing each row's pg_column_size-equivalent byte size to OnMessage
 func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.Postgres,
@@ -47,8 +46,7 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	err = jdbc.MapScanConcurrent(setter, p.dataTypeConverter, OnMessage, pgCompositeRowBytes)
-	return err
+	return jdbc.MapScanConcurrent(setter, p.dataTypeConverter, OnMessage, pgCompositeRowBytes)
 }
 
 func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

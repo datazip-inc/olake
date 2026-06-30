@@ -10,7 +10,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-// StreamIncrementalChanges streams rows to processFn, passing each row's source byte size for live accounting.
 func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.Postgres,

@@ -11,7 +11,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-// StreamIncrementalChanges streams incremental records to the callback, each with its source byte size.
 func (m *MSSQL) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.MSSQL,

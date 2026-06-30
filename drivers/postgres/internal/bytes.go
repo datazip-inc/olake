@@ -58,9 +58,7 @@ func pgNumericBinaryBytes(s string) int64 {
 	return 3 + 2*ndigits
 }
 
-// pgStorageBytes returns the number of bytes PostgreSQL uses to store the given
-// column value on disk — matching what pg_column_size() returns for individual
-// columns.
+// pgStorageBytes returns the number of bytes PostgreSQL uses to store the given column value on disk.
 //
 // Fixed-width types always use the same number of bytes regardless of value:
 //
@@ -85,7 +83,7 @@ func pgNumericBinaryBytes(s string) int64 {
 //	1-byte header for values ≤ 127 bytes total (short varlena)
 //	4-byte header for longer values
 //
-// NULL values return 0 (matching coalesce(pg_column_size(null), 0)).
+// NULL values return 0.
 func pgStorageBytes(rawVal any, colType *sql.ColumnType) int64 {
 	if rawVal == nil {
 		return 0
@@ -149,9 +147,7 @@ func pgStorageBytes(rawVal any, colType *sql.ColumnType) int64 {
 	}
 }
 
-// pgColAlignment returns the alignment boundary (in bytes) PostgreSQL uses when
-// laying out a column value inside a heap tuple — needed to reproduce the
-// inter-column padding that pg_column_size(row.*) includes.
+// pgColAlignment returns the alignment boundary (in bytes) PostgreSQL uses when laying out a column value inside a heap tuple.
 //
 //	8-byte aligned: INT8, FLOAT8, TIMESTAMP, TIMESTAMPTZ, TIME, TIMETZ, MONEY, INTERVAL
 //	4-byte aligned: INT4, FLOAT4, DATE, OID
@@ -176,7 +172,7 @@ func pgColAlignment(colType *sql.ColumnType, storedBytes int64) int64 {
 		// Variable-length types.
 		// Short varlena (≤ 127 total bytes) → 1-byte aligned.
 		// Long varlena (> 127 total bytes)  → 4-byte aligned.
-		// BOOL (1 byte) falls here too, and storedBytes=1 ≤ 127, so alignment=1 ✓.
+		// BOOL (1 byte) falls here too, and storedBytes=1 ≤ 127, so alignment=1
 		if storedBytes <= 127 {
 			return 1
 		}
@@ -191,14 +187,10 @@ func pgColAlignment(colType *sql.ColumnType, storedBytes int64) int64 {
 //     column is NULL), padded to the next MAXALIGN(8) boundary → t_hoff.
 //  2. Column data laid out with inter-column alignment padding exactly as
 //     PostgreSQL's heap_compute_data_size() does.
-//
-// The sum is effectively what you get from:
-//
-//	SELECT sum(pg_column_size(t.*)) FROM tbl t
 func pgCompositeRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
 	n := len(vals)
 
-	// ── 1. HeapTupleHeader ──────────────────────────────────────────────────
+	// HeapTupleHeader
 	hasNull := false
 	for _, v := range vals {
 		if v == nil {
@@ -214,7 +206,7 @@ func pgCompositeRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
 	// MAXALIGN to 8 bytes (64-bit PostgreSQL builds)
 	tHoff := int64((headerSize + 7) &^ 7)
 
-	// ── 2. Column data with inter-column alignment padding ──────────────────
+	// Column data with inter-column alignment padding
 	dataOffset := int64(0)
 	for i, v := range vals {
 		if v == nil {

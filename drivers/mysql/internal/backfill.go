@@ -21,7 +21,6 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-// ChunkIterator scans a chunk, delivering each row to OnMessage with its InnoDB-equivalent source byte size.
 func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.MySQL,
@@ -38,7 +37,7 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
 	}
 	// Begin transaction with repeatable read isolation
-	err = jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
+	return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
 		// Build query for the chunk
 		pkColumns := stream.GetStream().SourceDefinedPrimaryKey.Array()
 		chunkColumn := stream.Self().StreamMetadata.ChunkColumn
@@ -60,7 +59,6 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		})
 		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, mysqlRowBytes)
 	})
-	return err
 }
 
 // TODO: Separate chunking-related logic from this function so the individual components can be unit tested independently.
@@ -564,19 +562,19 @@ func padRightWithZeroes(s string, maxLength int) string {
 }
 
 /*
-condenseStrings picks expectedChunks elements evenly from candidateBoundaries.
+	condenseStrings picks expectedChunks elements evenly from candidateBoundaries.
 
-Each output index i (0..expectedChunks-1) is mapped to an input index (0..numCandidateBoundaries-1) using the formula:
+	Each output index i (0..expectedChunks-1) is mapped to an input index (0..numCandidateBoundaries-1) using the formula:
 
-	idx ≈ round(i*(numCandidateBoundaries-1)/(expectedChunks-1))
+		idx ≈ round(i*(numCandidateBoundaries-1)/(expectedChunks-1))
 
-- Always includes first (0) and last (numCandidateBoundaries-1)
-- Rounding keeps spacing balanced (no left/right bias)
+	- Always includes first (0) and last (numCandidateBoundaries-1)
+	- Rounding keeps spacing balanced (no left/right bias)
 
-Example:
-numCandidateBoundaries = 15 (indices 0..14), expectedChunks = 8
-Range is split into 7 equal gaps (~2 apart), so we pick:
-[0,2,4,6,8,10,12,14]
+	Example:
+	numCandidateBoundaries = 15 (indices 0..14), expectedChunks = 8
+	Range is split into 7 equal gaps (~2 apart), so we pick:
+	[0,2,4,6,8,10,12,14]
 */
 func condenseStrings(candidateBoundaries []string, expectedChunks int64) []string {
 	numCandidateBoundaries := int64(len(candidateBoundaries))

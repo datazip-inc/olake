@@ -16,7 +16,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// ChunkIterator scans a chunk, delivering each row to OnMessage with its source byte size
+// ChunkIterator implements the abstract.DriverInterface
 func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.Oracle,
@@ -51,8 +51,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	err = jdbc.MapScanConcurrent(setter, o.dataTypeConverter, OnMessage, oracleRowBytes)
-	return err
+	return jdbc.MapScanConcurrent(setter, o.dataTypeConverter, OnMessage, oracleRowBytes)
 }
 
 func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {

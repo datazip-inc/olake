@@ -13,8 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
 )
 
-// StreamIncrementalChanges implements incremental sync for MongoDB, passing each
-// document's BSON wire-format size to processFn for live byte accounting.
+// StreamIncrementalChanges implements incremental sync for MongoDB
 func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	collection := m.client.Database(stream.Namespace()).Collection(stream.Name())
 

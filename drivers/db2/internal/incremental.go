@@ -18,7 +18,6 @@ func (d *DB2) FetchMaxCursorValues(ctx context.Context, stream types.StreamInter
 	return maxPrimaryCursorValue, maxSecondaryCursorValue, nil
 }
 
-// StreamIncrementalChanges streams incremental records to the callback, each with its source byte size.
 func (d *DB2) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, processFn abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.DB2,

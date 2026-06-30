@@ -376,7 +376,6 @@ func decodeBytesToString(b []byte, collationID uint64) (string, error) {
 
 // mysqlCDCRowBytes returns the approximate InnoDB on-disk byte sum for a
 // binlog row, using the raw decoded Go values and their MySQL type names.
-// Called once per CDC row — no extra pass over the data is needed.
 func mysqlCDCRowBytes(row []interface{}, columnTypes []string) int64 {
 	var total int64
 	for i, v := range row {

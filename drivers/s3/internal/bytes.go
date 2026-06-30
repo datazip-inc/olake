@@ -6,13 +6,10 @@ import (
 )
 
 // recordDataBytes returns the approximate UNCOMPRESSED size (in bytes) of a parsed
-// record's data — the sum of its value sizes. This is the s3 analogue of the
-// per-row source size other drivers report (postgres pg_column_size, mongo BSON
-// doc size): it measures the actual decompressed data volume of the record, NOT
+// record's data — the sum of its value sizes. it measures the actual decompressed data volume of the record, NOT
 // the compressed S3 object size, so the metric reflects the data actually read and materialized rather than the file's on-disk compressed size.
 //
-// Keys (column names) are excluded — they are schema, not data — matching how the
-// SQL drivers size a row (pg_column_size sums column values, not column names).
+// Keys (column names) are excluded — they are schema, not data
 func recordDataBytes(record map[string]any) int64 {
 	var total int64
 	for _, v := range record {
@@ -55,7 +52,6 @@ func valueBytes(v any) int64 {
 		}
 		return total
 	default:
-		// Fallback for uncommon types: textual length is a reasonable proxy.
 		return int64(len(fmt.Sprintf("%v", x)))
 	}
 }

@@ -89,10 +89,6 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 }
 
 // StreamChanges fetches a bounded window of CDC changes for a specific stream.
-// It returns (targetLSN, error). Per-change source bytes are reported via
-// CDCChange.Bytes (set in fetchTableChangesInLSNRange); the abstract driver
-// accumulates them per stream and commits each stream's total to its own
-// WriterThread on a successful destination commit.
 func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
 	// Get current position for this stream
@@ -342,7 +338,6 @@ func newestValidInstance(instances []captureInstance, currentLSN string) (int, *
 }
 
 // fetchTableChangesInLSNRange fetches and emits CDC changes for a single table/capture-instance within an LSN range.
-// Each emitted change carries its after-image source bytes via CDCChange.Bytes.
 func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.StreamInterface, capture captureInstance, fromLSN, toLSN string, processFn abstract.CDCMsgFn) error {
 	// Move the lower bound forward by one LSN to avoid re-emitting the last processed row.
 	effectiveFromLSN, err := m.advanceLSN(ctx, fromLSN)
@@ -371,8 +366,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 	for rows.Next() {
 		// Use MapScan to properly convert data types including binary types
 		// TODO: check if we can use MapScanConcurrent for mssql
-		// rowBytes is the after-image data-column byte sum (excludes __$* metadata
-		// columns), attached to the emitted change below.
+		// rowBytes is the after-image data-column byte sum (excludes __$* metadata columns), attached to the emitted change below.
 		record := make(map[string]interface{})
 		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mssqlCDCRowBytes)
 		if err != nil {

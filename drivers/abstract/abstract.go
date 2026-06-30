@@ -271,12 +271,11 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 
 	switch w := writer.(type) {
 	case *destination.WriterThread:
-		// Backfill / incremental: one writer per chunk/run.
 		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
 			closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
 		}
 	case map[string]*destination.WriterThread:
-		// CDC: one handleWriterCleanup call, multiple writers (one per stream).
+		// Multiple writers keyed by stream ID
 		for streamID, inserter := range w {
 			if inserter != nil {
 				if threadErr := inserter.Close(ctx, metadataState); threadErr != nil {

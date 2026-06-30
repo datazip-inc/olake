@@ -18,7 +18,6 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
-// ChunkIterator scans a chunk, delivering each row to OnMessage with its source byte size.
 func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, OnMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.DB2,

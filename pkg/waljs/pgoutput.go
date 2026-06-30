@@ -139,9 +139,6 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-// tupleValuesToMap converts a WAL tuple to a column map and returns the
-// pg_column_size(row.*)-equivalent byte count (per-row HeapTupleHeader overhead
-// + inter-column alignment padding + column data).
 func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, int64, error) {
 	data := make(map[string]any)
 	if tuple == nil {
@@ -181,10 +178,6 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 
 // numericBinaryBytes computes the PostgreSQL on-disk size of a NUMERIC value
 // from its text representation as sent by the pgoutput logical-replication plugin.
-//
-// Storage: 1-byte short-varlena header + 2-byte n_header + 2 bytes × ndigits,
-// where ndigits = ⌈int_decimal_digits/4⌉ + ⌈frac_decimal_digits/4⌉ after
-// stripping leading zeros (integer part) and trailing zeros (fractional part).
 func numericBinaryBytes(data []byte) int64 {
 	s := string(data)
 	if s == "" {
@@ -216,11 +209,6 @@ func numericBinaryBytes(data []byte) int64 {
 
 // oidStorageBytes returns the number of bytes PostgreSQL stores for a column value
 // with the given OID — equivalent to pg_column_size(value).
-//
-// Fixed-width types always use the same number of bytes.
-// NUMERIC uses PostgreSQL's variable-length base-10000 digit encoding.
-// All other variable-width types (VARCHAR, TEXT, BYTEA, JSON, JSONB, …) use
-// len(data) + varlena header (1-byte for total ≤ 127 bytes, 4-byte otherwise).
 func oidStorageBytes(oid uint32, data []byte) int64 {
 	switch oid {
 	case pgtype.Int2OID:
@@ -286,7 +274,7 @@ func oidAlignment(oid uint32, storedBytes int64) int64 {
 func tupleRowBytes(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) int64 {
 	n := len(rel.Columns)
 
-	// ── 1. HeapTupleHeader ─────────────────────────────────────────────────
+	// HeapTupleHeader
 	hasNull := false
 	for _, col := range tuple.Columns {
 		if col.Data == nil {
@@ -301,7 +289,7 @@ func tupleRowBytes(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) i
 	// MAXALIGN to 8 bytes (standard 64-bit PostgreSQL)
 	tHoff := int64((headerSize + 7) &^ 7)
 
-	// ── 2. Column data with inter-column alignment padding ─────────────────
+	// Column data with inter-column alignment padding
 	dataOffset := int64(0)
 	for i, col := range tuple.Columns {
 		if i >= len(rel.Columns) || col.Data == nil {

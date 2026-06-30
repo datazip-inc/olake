@@ -7,10 +7,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-// Drivers that know each record's size during the scan:
-// - all JDBC drivers
-// - mongo
-// - for s3 (only per-file after the scan, so it passes 0 and reports the total via the ChunkIterator return value instead)
 type BackfillMsgFn func(ctx context.Context, message map[string]any, sourceBytes int64) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 
@@ -41,7 +37,6 @@ type DriverInterface interface {
 	CDCSupported() bool
 	ChangeStreamConfig() (sequential bool, parallel bool, concurrent bool)
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
-	// StreamChanges returns (metadataState, error).
 	StreamChanges(ctx context.Context, identifier int, metadataState map[string]any, processFn CDCMsgFn) (any, error)
 	PostCDC(ctx context.Context, identifier int) error // to save state
 }

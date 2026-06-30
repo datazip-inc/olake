@@ -128,6 +128,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 			filterDataBySelectedColumnsFn := stream.RetainSelectedColumns()
 
+			// No retry logic here - retry happens at Read level
 			return a.driver.StreamIncrementalChanges(incrementalCtx, stream, func(ctx context.Context, record map[string]any, sourceBytes int64) error {
 				maxPrimaryCursorValue, maxSecondaryCursorValue = a.getMaxIncrementCursorFromData(primaryCursor, secondaryCursor, maxPrimaryCursorValue, maxSecondaryCursorValue, record)
 				olakeColumns := map[string]any{

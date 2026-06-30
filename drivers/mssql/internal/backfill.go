@@ -26,7 +26,7 @@ import (
 // (IN_ROW_DATA max row size). Using the ceiling yields smaller chunks.
 const usableBytesPerPage = 8060
 
-// ChunkIterator scans a chunk, delivering each row to onMessage with its source byte size.
+// ChunkIterator implements snapshot iteration over MSSQL chunks.
 func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, onMessage abstract.BackfillMsgFn) error {
 	opts := jdbc.DriverOptions{
 		Driver: constants.MSSQL,
@@ -70,8 +70,7 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	err = jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage, mssqlRowBytes)
-	return err
+	return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage, mssqlRowBytes)
 }
 
 // GetOrSplitChunks splits a table into chunks using PK seek or %%physloc%% fallback.

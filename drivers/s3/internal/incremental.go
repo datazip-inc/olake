@@ -44,8 +44,6 @@ func (s *S3) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterf
 //  1. Backfill phase processes all discovered files
 //  2. This method processes only files added/modified AFTER the cursor (LastModified > cursor)
 //  3. Processes files sequentially (no chunking/parallelization for simplicity)
-//
-// StreamIncrementalChanges streams incremental records to the callback, each with its source byte size.
 func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb abstract.BackfillMsgFn) error {
 	streamName := stream.Name()
 
@@ -113,7 +111,6 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 
 		// Process the file using the same logic as backfill
 		// Pass file.LastModified directly (already available) to avoid redundant lookup
-		// Per-record uncompressed bytes are accounted live via Push inside processFile.
 		if err := s.processFile(ctx, stream, file.FileKey, file.Size, file.LastModified, cb); err != nil {
 			return fmt.Errorf("failed to process incremental file %s: %s", file.FileKey, err)
 		}
