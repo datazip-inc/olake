@@ -181,17 +181,12 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 		t.Logf("Rolled back partition %d, added partition %d with 1 message, and added 1 message on partition %d for topic '%s'", 0, 5, 0, streams[0])
 
 	case "rebalance":
+		msg := &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: rebalanceBulkPartition}
 		for written := 0; written < rebalanceBulkMessageCount; written += rebalanceBulkBatchSize {
 			batchCount := min(rebalanceBulkBatchSize, rebalanceBulkMessageCount-written)
 			records := make([]*kgo.Record, batchCount)
 			for i := range records {
-				offset := int64(written + i)
-				records[i] = &kgo.Record{
-					Key:       jsonKey,
-					Value:     jsonValue,
-					Partition: rebalanceBulkPartition,
-					Offset:    offset,
-				}
+				records[i] = msg
 			}
 			for {
 				err := client.ProduceSync(ctx, records...).FirstErr()
