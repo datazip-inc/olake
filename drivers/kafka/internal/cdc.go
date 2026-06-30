@@ -120,8 +120,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			if !hasProcessed {
 				processedOffset = -1
 			}
+			message := lastMessages[partitionKey]
 			pointerOffset := int64(-1)
-			if message := lastMessages[partitionKey]; message != nil {
+			if message != nil {
 				pointerOffset = message.Offset
 			}
 			logger.Infof(
@@ -130,6 +131,14 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 				partitionKey.Topic, partitionKey.Partition,
 				storedOffset, pointerOffset, processedOffset,
 			)
+			if message != nil {
+				logger.Infof(
+					"reader[%d] (%s) %s lastMessages record: topic=%s partition=%d offset=%d key=%s value=%s",
+					readerID, readerInstanceID, phase,
+					message.Topic, message.Partition, message.Offset,
+					string(message.Key), string(message.Value),
+				)
+			}
 		}
 	}
 
@@ -235,6 +244,11 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 
 		for partitionKey, message := range lastMessages {
 			messages = append(messages, message)
+			logger.Infof(
+				"reader %s post cdc lastMessages record: topic=%s partition=%d offset=%d key=%s value=%s",
+				readerID, message.Topic, message.Partition, message.Offset,
+				string(message.Key), string(message.Value),
+			)
 
 			// Resolve stream for this partition
 			partitionID := kafkapkg.PartitionMetadataKey(partitionKey.Topic, partitionKey.Partition)
