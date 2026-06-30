@@ -72,11 +72,8 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 	}
 }
 
-// NewWriterPool builds a writer pool for a destination. It owns the destination of
-// destination-level process resources: it starts them up front (e.g. the Iceberg
-// shared JVM, via Initializable), validates the connection (Check), and exposes
-// Close to tear them down. Call pool.Close() when done (defer it right after a
-// successful NewWriterPool).
+// NewWriterPool manages a destination's shared resources (e.g., Iceberg JVM) and connection health.
+// It initializes global state, runs checks, and provides thread-level writers. Call Close() to clean up.
 func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	initWriter, found := RegisteredWriters[config.Type]
 	if !found {

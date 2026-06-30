@@ -597,19 +597,12 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	return nil
 }
 
-// fetchFileSchemaJSON sends the first arrow payload (JSONSCHEMA) for the thread.
-// It is the session-creating handshake (analogous to the rows path's
-// GET_OR_CREATE_TABLE): it carries the full session-constant context so the JVM
-// can build and cache the arrow session once. All later payloads send only the
-// thread_id.
+// fetchFileSchemaJSON retrieves the Iceberg schemas for Arrow serialization.
 func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_JSONSCHEMA,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.options.ThreadID,
-			Namespace:     w.stream.GetDestinationDatabase(nil),
-			Upsert:        w.upsertMode,
+			ThreadId: w.options.ThreadID,
 		},
 	}
 
