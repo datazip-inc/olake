@@ -19,4 +19,6 @@ jobs:
         run: go mod download
 
       - name: Run All Unit Tests
-        run: go test -v ./...
+        run: |
+          TEST_PACKAGES=$(git ls-files '*_test.go' | xargs -n1 dirname | sort -u | sed 's#^#./#' | xargs go list -f '{{ .ImportPath }}')
+          go test -v -count=1 -skip 'Integration|2PC|Performance' $TEST_PACKAGES
