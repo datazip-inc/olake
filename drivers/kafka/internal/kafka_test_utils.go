@@ -75,6 +75,7 @@ const (
 var (
 	// rebalance trigger
 	rebalanceTriggerCancel context.CancelFunc
+	rebalanceTriggerDone   chan struct{} // closed when the trigger goroutine has fully exited
 
 	// JSON
 	jsonKey          = []byte("json-key")
@@ -264,8 +265,20 @@ func startRebalanceTriggerConsumer(ctx context.Context, t *testing.T, broker, gr
 	)
 	require.NoError(t, err)
 
+	done := make(chan struct{})
+	rebalanceTriggerDone = done
+
 	go func() {
-		defer client.Close()
+		defer func() {
+			// kgo.InstanceID disables the automatic LeaveGroup in client.Close() for static members.
+			// Send an explicit LeaveGroup so the broker removes this member immediately instead of
+			// waiting for session.timeout.ms, which would cause a rebalance in the next sync.
+			client.LeaveGroup()
+			t.Logf("rebalance trigger consumer: sent LeaveGroup (group=%s instanceID=%s)", groupID, instanceID)
+			client.Close()
+			close(done)
+			t.Logf("rebalance trigger consumer: goroutine exited (group=%s instanceID=%s)", groupID, instanceID)
+		}()
 		for {
 			if ctx.Err() != nil {
 				return
@@ -279,6 +292,13 @@ func stopRebalanceTrigger() {
 	if rebalanceTriggerCancel != nil {
 		rebalanceTriggerCancel()
 		rebalanceTriggerCancel = nil
+	}
+	// Wait for the goroutine to fully exit and the explicit LeaveGroup to be sent.
+	// Without this, the static member lingers in the broker (kgo.InstanceID skips LeaveGroup
+	// on Close) and may still hold a partition assignment when the next sync starts.
+	if rebalanceTriggerDone != nil {
+		<-rebalanceTriggerDone
+		rebalanceTriggerDone = nil
 	}
 }
 
