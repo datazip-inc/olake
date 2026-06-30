@@ -1,7 +1,6 @@
 package driver
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -79,13 +78,4 @@ func db2ColumnBytes(rawVal any, typeName string) int64 {
 	default:
 		return int64(len(fmt.Sprintf("%v", v)))
 	}
-}
-
-// db2RowBytes sums column bytes for a complete row scanned via database/sql.
-func db2RowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
-	var total int64
-	for i, v := range vals {
-		total += db2ColumnBytes(v, colTypes[i].DatabaseTypeName())
-	}
-	return total
 }

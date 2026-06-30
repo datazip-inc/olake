@@ -140,7 +140,12 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 
 	p.replicator = replicator
 
-	if len(remainingStreams) > 0 {
+	// validateGlobalState ensures slot and state agree before WAL replay begins.
+	// Skip when remainingStreams is empty (all streams already committed in Iceberg), or
+	// when slot.confirmed_flush_lsn already equals the metadata-committed recovery LSN —
+	// the prior sync ack'd the slot but crashed before saving state, so all syncs were already committed
+	slotAtMetadataLSN := recoveryLSN != nil && slot.LSN == *recoveryLSN
+	if len(remainingStreams) > 0 && !slotAtMetadataLSN {
 		if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
 			return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
 		}

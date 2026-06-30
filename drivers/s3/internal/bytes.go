@@ -9,9 +9,7 @@ import (
 // record's data — the sum of its value sizes. This is the s3 analogue of the
 // per-row source size other drivers report (postgres pg_column_size, mongo BSON
 // doc size): it measures the actual decompressed data volume of the record, NOT
-// the compressed S3 object size. Billing on this reflects the data actually read
-// and materialized (the memory/compute cost), instead of under-billing by the
-// file's on-disk compressed size.
+// the compressed S3 object size, so the metric reflects the data actually read and materialized rather than the file's on-disk compressed size.
 //
 // Keys (column names) are excluded — they are schema, not data — matching how the
 // SQL drivers size a row (pg_column_size sums column values, not column names).
