@@ -8,10 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/linkedin/goavro/v2"
 	"github.com/stretchr/testify/require"
@@ -22,8 +25,14 @@ import (
 )
 
 const (
-	partitionCount        = 5
-	avroSchemaRegistryURL = "http://127.0.0.1:8081"
+	partitionCount                = 5
+	rebalanceBulkMessageCount     = 100_000
+	rebalanceBulkPartition        = int32(0)
+	rebalanceBulkBatchSize        = 500
+	kafkaJSONIntegrationBroker    = "127.0.0.1:29092"
+	rebalanceConsumerGroupID      = "kafka-Json-integration-test-group"
+	kafkaJSONIntegrationStatsPath = "./testdata/json/stats.json"
+	avroSchemaRegistryURL         = "http://127.0.0.1:8081"
 
 	// Base Avro schema
 	avroSchema = `{
@@ -64,6 +73,9 @@ const (
 )
 
 var (
+	// rebalance trigger
+	rebalanceTriggerCancel context.CancelFunc
+
 	// JSON
 	jsonKey          = []byte("json-key")
 	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
@@ -123,7 +135,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 		utils.UnmarshalFile("./testdata/source.json", &config, false)
 		kafkaJSONBroker = config.BootstrapServers
 	} else {
-		kafkaJSONBroker = "127.0.0.1:29092"
+		kafkaJSONBroker = kafkaJSONIntegrationBroker
 	}
 
 	// kafka client
@@ -160,15 +172,113 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_2pc":
 		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, kafkaJSONBroker, "kafka-Json-integration-test-group", streams[0], 0, 1)
+		commitConsumerGroupOffset(ctx, t, kafkaJSONBroker, rebalanceConsumerGroupID, streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 5})
 		t.Logf("Rolled back partition %d, added partition %d with 1 message, and added 1 message on partition %d for topic '%s'", 0, 5, 0, streams[0])
 
+	case "rebalance":
+		msg := &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: rebalanceBulkPartition}
+		for written := 0; written < rebalanceBulkMessageCount; written += rebalanceBulkBatchSize {
+			batchCount := min(rebalanceBulkBatchSize, rebalanceBulkMessageCount-written)
+			records := make([]*kgo.Record, batchCount)
+			for i := range records {
+				records[i] = msg
+			}
+			for {
+				err := client.ProduceSync(ctx, records...).FirstErr()
+				if err == nil {
+					break
+				}
+				if ctx.Err() != nil {
+					require.NoError(t, err, "failed writing kafka rebalance bulk batch (batch_size=%d): %v", batchCount, err)
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+		t.Logf("Added %d messages to topic '%s' on partition %d", rebalanceBulkMessageCount, streams[0], rebalanceBulkPartition)
+
+		topic := streams[0]
+		rebalanceCtx, cancel := context.WithCancel(ctx)
+		rebalanceTriggerCancel = cancel
+		go func() {
+			waitForSyncProgress(rebalanceCtx, t, kafkaJSONIntegrationStatsPath)
+			if rebalanceCtx.Err() != nil {
+				return
+			}
+			startRebalanceTriggerConsumer(rebalanceCtx, t, kafkaJSONIntegrationBroker, rebalanceConsumerGroupID, topic)
+			t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", rebalanceConsumerGroupID, topic)
+		}()
+
+	case "stop_rebalance":
+		stopRebalanceTrigger()
+		t.Logf("stopped rebalance trigger consumer")
+
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
+	}
+}
+
+func waitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
+	t.Helper()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := os.Stat(statsPath); err == nil {
+				var stats struct {
+					SyncedRecords int64 `json:"Synced Records"`
+				}
+				if err := utils.UnmarshalFile(statsPath, &stats, false); err == nil && stats.SyncedRecords > 0 {
+					t.Logf("sync started: %d records synced", stats.SyncedRecords)
+					return
+				}
+			}
+		}
+	}
+}
+
+func startRebalanceTriggerConsumer(ctx context.Context, t *testing.T, broker, groupID, topic string) {
+	t.Helper()
+
+	instanceID := fmt.Sprintf("rebalance-trigger-%d", time.Now().UnixNano())
+
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(broker),
+		kgo.ConsumerGroup(groupID),
+		kgo.ClientID(instanceID),
+		kgo.InstanceID(instanceID),
+		kgo.ConsumeTopics(topic),
+		kgo.Balancers(kafkapkg.NewCustomGroupBalancer(map[string]types.PartitionMetaData{
+			kafkapkg.PartitionMetadataKey(topic, rebalanceBulkPartition): {PartitionID: rebalanceBulkPartition},
+		})),
+		kgo.FetchMinBytes(1),
+		kgo.DisableAutoCommit(),
+	)
+	require.NoError(t, err)
+
+	go func() {
+		defer client.Close()
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			client.PollFetches(ctx)
+		}
+	}()
+}
+
+func stopRebalanceTrigger() {
+	if rebalanceTriggerCancel != nil {
+		rebalanceTriggerCancel()
+		rebalanceTriggerCancel = nil
 	}
 }
 

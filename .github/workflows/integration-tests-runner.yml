@@ -49,10 +49,8 @@ jobs:
           docker compose -f ./drivers/oracle/docker-compose.yml up -d
           docker compose -f ./drivers/db2/docker-compose.yml up -d
           docker compose -f ./drivers/mssql/docker-compose.yml up -d
+          docker compose -f ./drivers/kafka/docker-compose.yml up -d
           docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
-
-      - name: Start Kafka
-        run: docker compose -f ./drivers/kafka/docker-compose.yml up -d
 
       - name: Wait for MySQL
         uses: nick-fields/retry@v2
@@ -179,7 +177,4 @@ jobs:
           docker compose -f ./drivers/mongodb/docker-compose.yml down
           docker compose -f ./drivers/db2/docker-compose.yml down
           docker compose -f ./drivers/mssql/docker-compose.yml down
-
-      - name: Cleanup Kafka
-        if: always()
-        run: docker compose -f ./drivers/kafka/docker-compose.yml down
+          docker compose -f ./drivers/kafka/docker-compose.yml down

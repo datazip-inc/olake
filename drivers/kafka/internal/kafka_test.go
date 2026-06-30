@@ -97,3 +97,7 @@ func TestKafka2PC(t *testing.T) {
 	t.Parallel()
 	kafkaJsonBaseConfig().Test2PCIntegration(t)
 }
+
+func TestKafkaRebalance(t *testing.T) {
+	kafkaJsonBaseConfig().TestRebalance(t)
+}
