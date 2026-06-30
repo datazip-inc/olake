@@ -116,6 +116,19 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 	if committedOffsetsErr != nil {
 		return nil, fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, committedOffsetsErr)
 	}
+	if len(committedTopicOffsets) == 0 {
+		logger.Infof(
+			"consumer group %s topic %s: no pre-existing broker committed offsets",
+			r.config.ConsumerGroupID, topic,
+		)
+	} else {
+		for partition, offset := range committedTopicOffsets {
+			logger.Infof(
+				"consumer group %s topic %s partition %d: pre-existing broker_committed=%d",
+				r.config.ConsumerGroupID, topic, partition, offset,
+			)
+		}
+	}
 
 	partitionsMetadata := make(map[string]types.PartitionMetaData)
 	for _, partitionDetail := range topicDetail.Partitions {

@@ -106,12 +106,36 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 
 	// track processing state
 	lastMessages := make(map[types.PartitionKey]*kgo.Record)
+	// offset captured by value when lastMessages is updated; used to detect franz-go record pointer reuse.
+	lastCheckpointOffsets := make(map[types.PartitionKey]int64)
+	// last offset that went through processFn (record.Data != nil).
+	lastProcessedOffsets := make(map[types.PartitionKey]int64)
 	// maintain completed partitions and observed partitions to track loop termination (for the current reader)
 	completedPartitions := make(map[types.PartitionKey]struct{}) // completed partitions by the current reader
 	observedPartitions := make(map[types.PartitionKey]struct{})  // cached partitions which are observed by the current reader
 
+	logCheckpointOffsets := func(phase string) {
+		for partitionKey, storedOffset := range lastCheckpointOffsets {
+			processedOffset, hasProcessed := lastProcessedOffsets[partitionKey]
+			if !hasProcessed {
+				processedOffset = -1
+			}
+			pointerOffset := int64(-1)
+			if message := lastMessages[partitionKey]; message != nil {
+				pointerOffset = message.Offset
+			}
+			logger.Infof(
+				"reader[%d] (%s) %s: topic=%s partition=%d offset_when_stored=%d pointer_offset_now=%d last_processed_offset=%d",
+				readerID, readerInstanceID, phase,
+				partitionKey.Topic, partitionKey.Partition,
+				storedOffset, pointerOffset, processedOffset,
+			)
+		}
+	}
+
 	defer func() {
 		if len(lastMessages) > 0 {
+			logCheckpointOffsets("checkpoint in defer")
 			k.checkpointMessage.Store(readerID, lastMessages)
 		}
 	}()
@@ -138,6 +162,10 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 
 		lastMessages[currentPartitionKey] = record.Message
+		lastCheckpointOffsets[currentPartitionKey] = record.Message.Offset
+		if record.Data != nil {
+			lastProcessedOffsets[currentPartitionKey] = record.Message.Offset
+		}
 
 		// check if partition is complete
 		if record.Message.Offset >= currentPartitionMeta.EndOffset-1 {
@@ -156,6 +184,8 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	if err != nil {
 		return nil, err
 	}
+
+	logCheckpointOffsets("checkpoint at loop exit")
 
 	// Build per-stream recovery metadata.
 	// Returns map[streamID]map[string]any with consumer_group_id and partition_N -> next consumable offset
@@ -223,7 +253,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 			_, generationID := reader.GroupMetadata()
 			for _, message := range messages {
 				logger.Infof(
-					"reader %s post cdc commit: generation id=%d topic=%s partition=%d offset=%d",
+					"reader %s post cdc commit (pointer offset): generation id=%d topic=%s partition=%d offset=%d",
 					readerID, generationID, message.Topic, message.Partition, message.Offset,
 				)
 			}
