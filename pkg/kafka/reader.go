@@ -242,6 +242,8 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 		return fmt.Errorf("describe groups error: %s", describedGroup.Err)
 	}
 
+	logger.Infof("consumer group %s: %d existing consumers before cleanup", r.config.ConsumerGroupID, len(describedGroup.Members))
+
 	if len(describedGroup.Members) > 0 {
 		leaveGroupRequest := kmsg.NewPtrLeaveGroupRequest()
 		leaveGroupRequest.Group = r.config.ConsumerGroupID
@@ -261,6 +263,18 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 		if leaveGroupResponse.ErrorCode != 0 {
 			return fmt.Errorf("leave group error code: %d", leaveGroupResponse.ErrorCode)
 		}
+
+		describedGroupsAfter, describeAfterErr := r.config.AdminClient.DescribeGroups(cleanupCtx, r.config.ConsumerGroupID)
+		if describeAfterErr != nil {
+			return fmt.Errorf("describe groups after cleanup failed: %s", describeAfterErr)
+		}
+
+		describedGroupAfter := describedGroupsAfter[r.config.ConsumerGroupID]
+		if describedGroupAfter.Err != nil && describedGroupAfter.Err != kerr.GroupIDNotFound {
+			return fmt.Errorf("describe groups after cleanup error: %s", describedGroupAfter.Err)
+		}
+
+		logger.Infof("consumer group %s: %d existing consumers after cleanup", r.config.ConsumerGroupID, len(describedGroupAfter.Members))
 	}
 
 	for _, kafkaReader := range r.readers {
