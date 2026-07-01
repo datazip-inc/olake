@@ -116,6 +116,19 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 	if committedOffsetsErr != nil {
 		return nil, fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, committedOffsetsErr)
 	}
+	if len(committedTopicOffsets) == 0 {
+		logger.Infof(
+			"consumer group %s topic %s: no pre-existing broker committed offsets",
+			r.config.ConsumerGroupID, topic,
+		)
+	} else {
+		for partition, offset := range committedTopicOffsets {
+			logger.Infof(
+				"consumer group %s topic %s partition %d: pre-existing broker_committed=%d",
+				r.config.ConsumerGroupID, topic, partition, offset,
+			)
+		}
+	}
 
 	partitionsMetadata := make(map[string]types.PartitionMetaData)
 	for _, partitionDetail := range topicDetail.Partitions {
@@ -147,6 +160,14 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 			EndOffset:       endOffsetDetail.Offset,
 			CommittedOffset: committedOffset,
 		}
+		pendingMessages := endOffsetDetail.Offset - startOffsetDetail.Offset
+		if hasCommitted {
+			pendingMessages = endOffsetDetail.Offset - committedOffset
+		}
+		logger.Infof(
+			"topic %s partition %d eligible for sync: broker_committed=%d end_offset=%d pending_messages=%d",
+			topic, partitionDetail.Partition, committedOffset, endOffsetDetail.Offset, pendingMessages,
+		)
 	}
 	return partitionsMetadata, nil
 }
@@ -241,6 +262,8 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 	if describedGroup.Err != nil && describedGroup.Err != kerr.GroupIDNotFound {
 		return fmt.Errorf("describe groups error: %s", describedGroup.Err)
 	}
+
+	logDescribedGroupMembers(r.config.ConsumerGroupID, "before cleanup", describedGroup.Members)
 
 	if len(describedGroup.Members) > 0 {
 		leaveGroupRequest := kmsg.NewPtrLeaveGroupRequest()

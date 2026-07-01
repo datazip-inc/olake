@@ -221,7 +221,8 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.St
 
 		messageCount := 0
 
-		_ = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
+		assignedPartitions := []types.PartitionKey{{Topic: streamName, Partition: partitionDetail.Partition}}
+		_ = k.processKafkaMessages(ctx, -1, reader, assignedPartitions, func(record types.KafkaRecord) (bool, error) {
 			messageCount++
 			if record.Data != nil {
 				mu.Lock()

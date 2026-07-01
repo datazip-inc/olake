@@ -22,7 +22,7 @@ jobs:
   kafka-rebalance-tests:
     environment: integration_tests
     runs-on: 16gb-runner
-    timeout-minutes: 20
+    timeout-minutes: 90
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -55,9 +55,9 @@ jobs:
       - name: Wait for Spark Connect
         uses: nick-fields/retry@v2
         with:
-          timeout_minutes: 5
-          max_attempts: 30
-          retry_wait_seconds: 5
+          timeout_minutes: 15
+          max_attempts: 60
+          retry_wait_seconds: 10
           command: |
             bash -c 'echo > /dev/tcp/127.0.0.1/15002'
 

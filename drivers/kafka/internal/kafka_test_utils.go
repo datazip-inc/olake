@@ -77,14 +77,14 @@ var (
 	rebalanceTriggerCancel context.CancelFunc
 	rebalanceTriggerDone   chan struct{} // closed when the trigger goroutine has fully exited
 
-	// JSON
-	jsonKey          = []byte("json-key")
+	// JSON message keys must be valid JSON objects (driver parses keys as JSON before falling back to raw bytes).
+	jsonKey          = []byte(`{"key":"json-key"}`)
 	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
 	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
 
 	// Avro
-	avroKey   = []byte("avro-key")
+	avroKey   = []byte(`{"key":"avro-key"}`)
 	avroValue = map[string]interface{}{
 		"int32_value":     int32(132),
 		"int64_value":     int64(6400000000),
@@ -260,6 +260,7 @@ func startRebalanceTriggerConsumer(ctx context.Context, t *testing.T, broker, gr
 		kgo.SeedBrokers(broker),
 		kgo.ConsumerGroup(groupID),
 		kgo.ClientID(instanceID),
+		kgo.InstanceID(instanceID),
 		kgo.ConsumeTopics(topic),
 		kgo.Balancers(kafkapkg.NewCustomGroupBalancer(map[string]types.PartitionMetaData{
 			kafkapkg.PartitionMetadataKey(topic, rebalanceBulkPartition): {PartitionID: rebalanceBulkPartition},
