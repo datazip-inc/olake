@@ -460,7 +460,7 @@ func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, t
 // commitConsumerGroupOffset commits a consumer group offset to a Kafka topic partition for 2PC recovery tests.
 func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Client, consumerGroupID, topic string, partition int32, offset int64) {
 	t.Helper()
-	time.Sleep(10 * time.Second)
+	time.Sleep(45 * time.Second)
 	toCommit := kadm.Offsets{}
 	toCommit.AddOffset(topic, partition, offset, -1)
 	committed, err := kadm.NewClient(client).CommitOffsets(ctx, consumerGroupID, toCommit)
