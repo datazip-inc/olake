@@ -117,15 +117,6 @@ jobs:
           command: |
             docker exec olake-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password!123' -C -Q "SELECT 1"
 
-      - name: Wait for Spark Connect
-        uses: nick-fields/retry@v2
-        with:
-          timeout_minutes: 15
-          max_attempts: 60
-          retry_wait_seconds: 10
-          command: |
-            bash -c 'echo > /dev/tcp/127.0.0.1/15002'
-
       - name: Initialize MSSQL Database
         run: |
           docker exec olake-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password!123' -C -d master -i /docker-entrypoint-initdb.d/01-init.sql
@@ -165,7 +156,7 @@ jobs:
       - name: Run 2PC Integration Tests
         if: inputs.test_type == '2pc'
         run: |
-          go test -v -p 7 ./drivers/kafka/internal/... ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/mssql/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... -timeout 0 -run '2PC'
+          go test -v -p 7 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/mssql/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/kafka/internal/... -timeout 0 -run '2PC'
 
       - name: Cleanup
         if: always()

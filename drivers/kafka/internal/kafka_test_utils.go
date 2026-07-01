@@ -77,14 +77,14 @@ var (
 	rebalanceTriggerCancel context.CancelFunc
 	rebalanceTriggerDone   chan struct{} // closed when the trigger goroutine has fully exited
 
-	// JSON message keys must be valid JSON objects (driver parses keys as JSON before falling back to raw bytes).
-	jsonKey          = []byte(`{"key":"json-key"}`)
+	// JSON
+	jsonKey          = []byte("json-key")
 	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
 	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
 
 	// Avro
-	avroKey   = []byte(`{"key":"avro-key"}`)
+	avroKey   = []byte("avro-key")
 	avroValue = map[string]interface{}{
 		"int32_value":     int32(132),
 		"int64_value":     int64(6400000000),

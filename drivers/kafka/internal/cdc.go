@@ -100,56 +100,19 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		return nil, fmt.Errorf("failed to restart reader %d: %s", readerID, err)
 	}
 
-	_, generationID := reader.GroupMetadata()
-	logger.Infof("reader[%d]: restarted reader for consumption, generation id: %d", readerID, generationID)
-	k.logReaderOffsetSnapshot(ctx, readerID, assignedPartitions, "before first poll")
-
 	// track processing state
 	lastMessages := make(map[types.PartitionKey]*kgo.Record)
-	// offset captured by value when lastMessages is updated; used to detect franz-go record pointer reuse.
-	lastCheckpointOffsets := make(map[types.PartitionKey]int64)
-	// last offset that went through processFn (record.Data != nil).
-	lastProcessedOffsets := make(map[types.PartitionKey]int64)
 	// maintain completed partitions and observed partitions to track loop termination (for the current reader)
 	completedPartitions := make(map[types.PartitionKey]struct{}) // completed partitions by the current reader
 	observedPartitions := make(map[types.PartitionKey]struct{})  // cached partitions which are observed by the current reader
 
-	logCheckpointOffsets := func(phase string) {
-		for partitionKey, storedOffset := range lastCheckpointOffsets {
-			processedOffset, hasProcessed := lastProcessedOffsets[partitionKey]
-			if !hasProcessed {
-				processedOffset = -1
-			}
-			message := lastMessages[partitionKey]
-			pointerOffset := int64(-1)
-			if message != nil {
-				pointerOffset = message.Offset
-			}
-			logger.Infof(
-				"reader[%d] (%s) %s: topic=%s partition=%d offset_when_stored=%d pointer_offset_now=%d last_processed_offset=%d",
-				readerID, readerInstanceID, phase,
-				partitionKey.Topic, partitionKey.Partition,
-				storedOffset, pointerOffset, processedOffset,
-			)
-			if message != nil {
-				logger.Infof(
-					"reader[%d] (%s) %s lastMessages record: topic=%s partition=%d offset=%d key=%s value=%s",
-					readerID, readerInstanceID, phase,
-					message.Topic, message.Partition, message.Offset,
-					string(message.Key), string(message.Value),
-				)
-			}
-		}
-	}
-
 	defer func() {
 		if len(lastMessages) > 0 {
-			logCheckpointOffsets("checkpoint in defer")
 			k.checkpointMessage.Store(readerID, lastMessages)
 		}
 	}()
 
-	err = k.processKafkaMessages(ctx, readerID, reader, assignedPartitions, func(record types.KafkaRecord) (bool, error) {
+	err = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(record.Message.Topic, record.Message.Partition))
@@ -171,10 +134,6 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 
 		lastMessages[currentPartitionKey] = record.Message
-		lastCheckpointOffsets[currentPartitionKey] = record.Message.Offset
-		if record.Data != nil {
-			lastProcessedOffsets[currentPartitionKey] = record.Message.Offset
-		}
 
 		// check if partition is complete
 		if record.Message.Offset >= currentPartitionMeta.EndOffset-1 {
@@ -193,8 +152,6 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	if err != nil {
 		return nil, err
 	}
-
-	logCheckpointOffsets("checkpoint at loop exit")
 
 	// Build per-stream recovery metadata.
 	// Returns map[streamID]map[string]any with consumer_group_id and partition_N -> next consumable offset
@@ -244,11 +201,6 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 
 		for partitionKey, message := range lastMessages {
 			messages = append(messages, message)
-			logger.Infof(
-				"reader %s post cdc lastMessages record: topic=%s partition=%d offset=%d key=%s value=%s",
-				readerID, message.Topic, message.Partition, message.Offset,
-				string(message.Key), string(message.Value),
-			)
 
 			// Resolve stream for this partition
 			partitionID := kafkapkg.PartitionMetadataKey(partitionKey.Topic, partitionKey.Partition)
@@ -265,12 +217,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 			}
 
 			_, generationID := reader.GroupMetadata()
-			for _, message := range messages {
-				logger.Infof(
-					"reader %s post cdc commit (pointer offset): generation id=%d topic=%s partition=%d offset=%d",
-					readerID, generationID, message.Topic, message.Partition, message.Offset,
-				)
-			}
+			logger.Debugf("reader %s post cdc: generation id: %d", readerID, generationID)
 
 			if err := reader.CommitRecords(ctx, messages...); err != nil {
 				return fmt.Errorf("commit failed for reader %s: %s", readerID, err)
@@ -295,9 +242,8 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 
 // processKafkaMessages processes messages from a Kafka reader
 // until stopProcessFn signals stop, a rebalance is detected, or the poll times out (reader caught up).
-func (k *Kafka) processKafkaMessages(ctx context.Context, readerID int, reader *kgo.Client, assignedPartitions []types.PartitionKey, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
+func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
 	var iter *kgo.FetchesRecordIter
-	pollAttempt := 0
 
 	for {
 		select {
@@ -312,28 +258,15 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, readerID int, reader *
 			// iter being nil triggers first poll.
 			// iter.Done() being true triggers next polls when the current batch is fully consumed.
 			if iter == nil || iter.Done() {
-				pollAttempt++
-				pollCtx, cancel := context.WithTimeout(ctx, kafkapkg.CDCPollTimeout)
-				logger.Infof(
-					"reader[%d]: poll attempt %d starting (timeout=%s)",
-					readerID, pollAttempt, kafkapkg.CDCPollTimeout,
-				)
+				pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 				// poll for new messages
 				fetches := reader.PollFetches(pollCtx)
 				pollCtxErr := pollCtx.Err()
 				cancel()
 
-				recordCount := 0
-				fetches.EachRecord(func(_ *kgo.Record) { recordCount++ })
-
-				// no new messages for CDCPollTimeout means reader has caught up; exit cleanly without error.
+				// no new messages for 10s means reader has caught up; exit cleanly without error.
 				if errors.Is(pollCtxErr, context.DeadlineExceeded) {
-					_, generationID := reader.GroupMetadata()
-					logger.Warnf(
-						"reader[%d]: poll attempt %d timed out after %s with %d records (generation id=%d); consumer sees no new data",
-						readerID, pollAttempt, kafkapkg.CDCPollTimeout, recordCount, generationID,
-					)
-					k.logReaderOffsetSnapshot(ctx, readerID, assignedPartitions, "poll timeout")
+					logger.Warnf("poll context deadline exceeded: %s", pollCtxErr)
 					return nil
 				}
 
@@ -342,8 +275,6 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, readerID int, reader *
 				if err := fetches.Err(); err != nil {
 					return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrNonRetryable, err)
 				}
-
-				logger.Infof("reader[%d]: poll attempt %d returned %d records", readerID, pollAttempt, recordCount)
 
 				// wrap batch into iterator
 				iter = fetches.RecordIter()
@@ -581,50 +512,4 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		return false, fmt.Errorf("recovery offset commit failed, cannot continue (would cause duplicates): %s", err)
 	}
 	return true, nil
-}
-
-func (k *Kafka) logReaderOffsetSnapshot(ctx context.Context, readerID int, assignedPartitions []types.PartitionKey, phase string) {
-	topicsSeen := make(map[string]struct{})
-	for _, partition := range assignedPartitions {
-		topicsSeen[partition.Topic] = struct{}{}
-	}
-
-	for topic := range topicsSeen {
-		committedTopicOffsets, err := k.readerManager.FetchCommittedOffsets(ctx, topic)
-		if err != nil {
-			logger.Warnf("reader[%d] %s: failed to fetch broker offsets for topic %s: %s", readerID, phase, topic, err)
-			continue
-		}
-
-		startOffsets, endOffsets, err := k.readerManager.ListTopicOffsets(ctx, topic)
-		if err != nil {
-			logger.Warnf("reader[%d] %s: failed to list topic offsets for %s: %s", readerID, phase, topic, err)
-			continue
-		}
-
-		for _, partition := range assignedPartitions {
-			if partition.Topic != topic {
-				continue
-			}
-			_, endOffsetDetail, found := k.readerManager.GetPartitionOffsets(startOffsets, endOffsets, topic, partition.Partition)
-			if !found {
-				continue
-			}
-			brokerCommitted, hasCommitted := committedTopicOffsets[partition.Partition]
-			if !hasCommitted {
-				brokerCommitted = -1
-			}
-			partitionMeta, hasMeta := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(topic, partition.Partition))
-			cachedEnd := int64(-1)
-			cachedCommitted := int64(-1)
-			if hasMeta {
-				cachedEnd = partitionMeta.EndOffset
-				cachedCommitted = partitionMeta.CommittedOffset
-			}
-			logger.Infof(
-				"reader[%d] %s snapshot topic=%s partition=%d broker_committed=%d end_offset=%d cached_committed=%d cached_end=%d",
-				readerID, phase, topic, partition.Partition, brokerCommitted, endOffsetDetail.Offset, cachedCommitted, cachedEnd,
-			)
-		}
-	}
 }
