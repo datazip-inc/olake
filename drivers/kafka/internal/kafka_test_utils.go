@@ -21,7 +21,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/twmb/franz-go/pkg/kmsg"
+	// "github.com/twmb/franz-go/pkg/kmsg"
 )
 
 const (
@@ -77,14 +77,14 @@ var (
 	rebalanceTriggerDone   chan struct{} // closed when the trigger goroutine has fully exited
 	kafkaJsonStatsPath     string        // set from TestConfig.HostStatsPath in kafka_test.go
 
-	// JSON message keys must be valid JSON objects (driver parses keys as JSON before falling back to raw bytes).
-	jsonKey          = []byte(`{"key":"json-key"}`)
+	// JSON
+	jsonKey          = []byte("json-key")
 	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
 	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
 
 	// Avro
-	avroKey   = []byte(`{"key":"avro-key"}`)
+	avroKey   = []byte("avro-key")
 	avroValue = map[string]interface{}{
 		"int32_value":     int32(132),
 		"int64_value":     int64(6400000000),
@@ -173,14 +173,14 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_2pc":
 		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, kafkaJSONBroker, KafkaJsonConsumerGroupID, streams[0], 0, 1)
+		commitConsumerGroupOffset(ctx, t, client, KafkaJsonConsumerGroupID, streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 5})
 		t.Logf("Rolled back partition %d, added partition %d with 1 message, and added 1 message on partition %d for topic '%s'", 0, 5, 0, streams[0])
 
-	case "rebalance":
+	case "insert_rebalance":
 		for written := 0; written < rebalanceBulkMessageCount; written += rebalanceBulkBatchSize {
 			batchCount := min(rebalanceBulkBatchSize, rebalanceBulkMessageCount-written)
 			records := make([]*kgo.Record, batchCount)
@@ -214,7 +214,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 			if rebalanceCtx.Err() != nil {
 				return
 			}
-			startRebalanceTriggerConsumer(rebalanceCtx, t, kafkaJSONIntegrationBroker, KafkaJsonConsumerGroupID, topic)
+			startRebalanceTrigger(rebalanceCtx, t, kafkaJSONIntegrationBroker, KafkaJsonConsumerGroupID, topic)
 			t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJsonConsumerGroupID, topic)
 		}()
 
@@ -251,7 +251,7 @@ func waitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
 	}
 }
 
-func startRebalanceTriggerConsumer(ctx context.Context, t *testing.T, broker, groupID, topic string) {
+func startRebalanceTrigger(ctx context.Context, t *testing.T, broker, groupID, topic string) {
 	t.Helper()
 
 	instanceID := fmt.Sprintf("rebalance-trigger-%d", time.Now().UnixNano())
@@ -397,64 +397,76 @@ func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, t
 	t.Logf("Added %d partition(s) to topic '%s'", add, topic)
 }
 
-// commitConsumerGroupOffset rolls back a consumer group offset for 2PC recovery tests.
-// nextOffset is the next consumable offset (e.g. 1 means re-read from offset 1).
-func commitConsumerGroupOffset(ctx context.Context, t *testing.T, broker, consumerGroupID, topic string, partition int32, nextOffset int64) {
+// // commitConsumerGroupOffset rolls back a consumer group offset for 2PC recovery tests.
+// // nextOffset is the next consumable offset (e.g. 1 means re-read from offset 1).
+// func commitConsumerGroupOffset(ctx context.Context, t *testing.T, broker, consumerGroupID, topic string, partition int32, nextOffset int64) {
+// 	t.Helper()
+
+// 	seed, err := kgo.NewClient(kgo.SeedBrokers(broker))
+// 	require.NoError(t, err)
+// 	defer seed.Close()
+
+// 	adm := kadm.NewClient(seed)
+
+// 	// Olake uses multiple static group members; force-leave any lingering members, then wait until empty.
+// 	require.NoError(t, utils.RetryOnBackoff(ctx, 60, 2*time.Second, func(ctx context.Context) error {
+// 		groups, describeErr := adm.DescribeGroups(ctx, consumerGroupID)
+// 		if describeErr != nil {
+// 			return describeErr
+// 		}
+// 		group := groups[consumerGroupID]
+// 		if group.Err != nil && !errors.Is(group.Err, kerr.GroupIDNotFound) {
+// 			return group.Err
+// 		}
+// 		if len(group.Members) == 0 {
+// 			return nil
+// 		}
+
+// 		leaveReq := kmsg.NewPtrLeaveGroupRequest()
+// 		leaveReq.Group = consumerGroupID
+// 		for _, member := range group.Members {
+// 			leaveReq.Members = append(leaveReq.Members, kmsg.LeaveGroupRequestMember{
+// 				MemberID:   member.MemberID,
+// 				InstanceID: member.InstanceID,
+// 			})
+// 		}
+// 		leaveResp, leaveErr := leaveReq.RequestWith(ctx, seed)
+// 		if leaveErr != nil {
+// 			return fmt.Errorf("leave group %s: %w", consumerGroupID, leaveErr)
+// 		}
+// 		if leaveResp.ErrorCode != 0 {
+// 			return fmt.Errorf("leave group %s error code %d", consumerGroupID, leaveResp.ErrorCode)
+// 		}
+// 		return fmt.Errorf("consumer group %s still has %d active member(s)", consumerGroupID, len(group.Members))
+// 	}))
+
+// 	fetched, err := adm.FetchOffsets(ctx, consumerGroupID)
+// 	require.NoError(t, err)
+
+// 	toCommit := fetched.Offsets()
+// 	toCommit.Delete(topic, partition)
+// 	toCommit.AddOffset(topic, partition, nextOffset, -1)
+
+// 	// Delete and re-seed offsets admin-side; avoids joining Olake's multi-member consumer group.
+// 	_, err = adm.DeleteGroup(ctx, consumerGroupID)
+// 	require.NoError(t, err)
+
+// 	committed, err := adm.CommitOffsets(ctx, consumerGroupID, toCommit)
+// 	require.NoError(t, err)
+// 	require.NoError(t, committed.Error())
+// 	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, nextOffset)
+// }
+
+// commitConsumerGroupOffset commits a consumer group offset to a Kafka topic partition for 2PC recovery tests.
+func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Client, consumerGroupID, topic string, partition int32, offset int64) {
 	t.Helper()
 
-	seed, err := kgo.NewClient(kgo.SeedBrokers(broker))
-	require.NoError(t, err)
-	defer seed.Close()
-
-	adm := kadm.NewClient(seed)
-
-	// Olake uses multiple static group members; force-leave any lingering members, then wait until empty.
-	require.NoError(t, utils.RetryOnBackoff(ctx, 60, 2*time.Second, func(ctx context.Context) error {
-		groups, describeErr := adm.DescribeGroups(ctx, consumerGroupID)
-		if describeErr != nil {
-			return describeErr
-		}
-		group := groups[consumerGroupID]
-		if group.Err != nil && !errors.Is(group.Err, kerr.GroupIDNotFound) {
-			return group.Err
-		}
-		if len(group.Members) == 0 {
-			return nil
-		}
-
-		leaveReq := kmsg.NewPtrLeaveGroupRequest()
-		leaveReq.Group = consumerGroupID
-		for _, member := range group.Members {
-			leaveReq.Members = append(leaveReq.Members, kmsg.LeaveGroupRequestMember{
-				MemberID:   member.MemberID,
-				InstanceID: member.InstanceID,
-			})
-		}
-		leaveResp, leaveErr := leaveReq.RequestWith(ctx, seed)
-		if leaveErr != nil {
-			return fmt.Errorf("leave group %s: %w", consumerGroupID, leaveErr)
-		}
-		if leaveResp.ErrorCode != 0 {
-			return fmt.Errorf("leave group %s error code %d", consumerGroupID, leaveResp.ErrorCode)
-		}
-		return fmt.Errorf("consumer group %s still has %d active member(s)", consumerGroupID, len(group.Members))
-	}))
-
-	fetched, err := adm.FetchOffsets(ctx, consumerGroupID)
-	require.NoError(t, err)
-
-	toCommit := fetched.Offsets()
-	toCommit.Delete(topic, partition)
-	toCommit.AddOffset(topic, partition, nextOffset, -1)
-
-	// Delete and re-seed offsets admin-side; avoids joining Olake's multi-member consumer group.
-	_, err = adm.DeleteGroup(ctx, consumerGroupID)
-	require.NoError(t, err)
-
-	committed, err := adm.CommitOffsets(ctx, consumerGroupID, toCommit)
+	toCommit := kadm.Offsets{}
+	toCommit.AddOffset(topic, partition, offset, -1)
+	committed, err := kadm.NewClient(client).CommitOffsets(ctx, consumerGroupID, toCommit)
 	require.NoError(t, err)
 	require.NoError(t, committed.Error())
-	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, nextOffset)
+	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, offset)
 }
 
 // Writes a Kafka message with retries until success or context timeout.

@@ -1253,7 +1253,7 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 	rebalanceTestCases := []syncTestCase{
 		{
 			name:      "CDC - first rebalance sync",
-			operation: "rebalance",
+			operation: "insert_rebalance",
 			useState:  true,
 		},
 		{
