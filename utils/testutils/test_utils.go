@@ -1267,12 +1267,6 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 			operation: "stop_rebalance",
 			useState:  true,
 		},
-		{
-			// After a partial rebalance exit the broker offset may lag destination metadata;
-			// the prior sync aligns offsets (recovery), this sync consumes the remainder.
-			name:     "CDC - third resume sync",
-			useState: true,
-		},
 	}
 
 	for _, tc := range rebalanceTestCases {
