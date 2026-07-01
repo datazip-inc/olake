@@ -261,6 +261,12 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 		if leaveGroupResponse.ErrorCode != 0 {
 			return fmt.Errorf("leave group error code: %d", leaveGroupResponse.ErrorCode)
 		}
+
+		select {
+		case <-cleanupCtx.Done():
+			return fmt.Errorf("post-cleanup stabilization wait cancelled: %s", cleanupCtx.Err())
+		case <-time.After(11 * time.Second):
+		}
 	}
 
 	for _, kafkaReader := range r.readers {
