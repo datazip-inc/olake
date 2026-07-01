@@ -229,6 +229,13 @@ func syncCommand(config TestConfig, useState bool, destinationType string, flags
 	return baseCmd
 }
 
+func logSyncOutput(t *testing.T, out []byte) {
+	t.Helper()
+	if len(out) > 0 {
+		t.Logf("sync output:\n%s", out)
+	}
+}
+
 // pass flags as `--flag1, flag1 value, --flag2, flag2 value...`
 func discoverCommand(config TestConfig, flags ...string) string {
 	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
@@ -414,6 +421,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	// Run sync command
 	code, out, err := utils.ExecCommand(ctx, c, cmd)
+	logSyncOutput(t, out)
 	if err != nil || code != 0 {
 		return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 	}
@@ -1217,6 +1225,7 @@ func (cfg *IntegrationTest) runRebalanceSync(
 	cmd := syncCommand(*cfg.TestConfig, useState, "iceberg", "--destination-database-prefix", destDBPrefix)
 
 	code, out, err := utils.ExecCommand(ctx, c, cmd)
+	logSyncOutput(t, out)
 	if err != nil {
 		return fmt.Errorf("sync exec error: %w\n%s", err, out)
 	}
