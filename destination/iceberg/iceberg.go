@@ -637,6 +637,8 @@ func init() {
 				server: server,
 			}, func(ctx context.Context) {
 				server.Shutdown(ctx)
+				icebergConfig = nil
+				server = nil
 			}, nil
 	}
 }

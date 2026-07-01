@@ -129,6 +129,11 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
 	p.schema = make(typeutils.Fields)
 
+	// for s3 p.config.path may not be provided
+	if p.config.Path == "" {
+		p.config.Path = os.TempDir()
+	}
+
 	err := p.initS3Writer()
 	if err != nil {
 		return nil, nil, err

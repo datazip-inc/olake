@@ -265,7 +265,7 @@ public class IcebergTableOperator {
     try {
       io.grpc.Context grpcContext = io.grpc.Context.current();
       for (RecordWrapper record : events) {
-        // Cooperative cancel: checked every 1024 records to minimize loop overhead
+        // Cooperative cancel: check on every record to stop processing early if client disconnects
         if (grpcContext.isCancelled()) {
           LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
           return;
@@ -302,8 +302,6 @@ public class IcebergTableOperator {
       } catch (IOException e) {
         LOGGER.warn("Failed to close writer", e);
       }
-      // Never reuse an aborted/corrupted writer for the next batch.
-      writer = null;
       throw new RuntimeException("Failed to write data to table: " + icebergTable.name(), ex);
     }
   }
