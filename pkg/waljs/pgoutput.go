@@ -176,14 +176,13 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 	return data, rowBytes, nil
 }
 
-// numericBinaryBytes computes the PostgreSQL on-disk size of a NUMERIC value
-// from its text representation as sent by the pgoutput logical-replication plugin.
-func numericBinaryBytes(data []byte) int64 {
-	s := string(data)
+// NumericBinaryBytes returns the size (in bytes) of a PostgreSQL NUMERIC value from
+// its text representation (as sent by pgoutput or scanned by pgx), using PostgreSQL's base-10000 digit encoding
+func NumericBinaryBytes(s string) int64 {
 	if s == "" {
 		return 3
 	}
-	if len(s) > 0 && (s[0] == '+' || s[0] == '-') {
+	if s[0] == '+' || s[0] == '-' {
 		s = s[1:]
 	}
 	sl := strings.ToLower(s)
@@ -207,8 +206,9 @@ func numericBinaryBytes(data []byte) int64 {
 	return 3 + 2*ndigits
 }
 
-// oidStorageBytes returns the number of bytes PostgreSQL stores for a column value
-// with the given OID — equivalent to pg_column_size(value).
+// oidStorageBytes returns the size of the data Olake reads for a column value with
+// the given OID. Fixed-width types use their natural width; NUMERIC uses the
+// base-10000 encoding; variable-width types use the length of the value pgoutput sent (as text).
 func oidStorageBytes(oid uint32, data []byte) int64 {
 	switch oid {
 	case pgtype.Int2OID:
@@ -233,81 +233,24 @@ func oidStorageBytes(oid uint32, data []byte) int64 {
 		return 16
 	case pgtype.NumericOID:
 		// NUMERIC is variable-length; pgoutput sends it as text (e.g. "3.52").
-		return numericBinaryBytes(data)
+		return NumericBinaryBytes(string(data))
 	default:
 		// Variable-width: VARCHAR, TEXT, BYTEA, JSON, JSONB, arrays, etc.
-		n := int64(len(data))
-		if n <= 127 {
-			return n + 1 // 1-byte short-varlena header
-		}
-		return n + 4 // 4-byte long-varlena header
+		return int64(len(data))
 	}
 }
 
-// oidAlignment returns the alignment boundary (bytes) PostgreSQL uses for a
-// column with the given OID when laying it out inside a heap tuple.
-// This matches the typalign field in pg_type.
-func oidAlignment(oid uint32, storedBytes int64) int64 {
-	switch oid {
-	case pgtype.Int8OID, pgtype.Float8OID,
-		pgtype.TimestampOID, pgtype.TimestamptzOID,
-		pgtype.TimeOID, 1266 /* timetz OID, not exported by pgtype */ :
-		return 8
-	case pgtype.Int4OID, pgtype.Float4OID, pgtype.DateOID, 26 /* OID OID */ :
-		return 4
-	case pgtype.Int2OID:
-		return 2
-	default:
-		// Variable-length types: short varlena (≤ 127 bytes) → 1-byte aligned,
-		// long varlena (> 127 bytes) → 4-byte aligned.
-		// BOOL (1 byte), NUMERIC short form: 1-byte aligned.
-		if storedBytes <= 127 {
-			return 1
-		}
-		return 4
-	}
-}
-
-// tupleRowBytes computes the pg_column_size(row.*)-equivalent byte count for a
-// complete CDC tuple: HeapTupleHeader overhead + inter-column alignment padding
-// + individual column storage bytes.
+// tupleRowBytes sums the data bytes of every non-NULL column in a CDC tuple — the
+// data Olake reads for the row, excluding heap-tuple storage overhead.
 func tupleRowBytes(rel *pglogrepl.RelationMessage, tuple *pglogrepl.TupleData) int64 {
-	n := len(rel.Columns)
-
-	// HeapTupleHeader
-	hasNull := false
-	for _, col := range tuple.Columns {
-		if col.Data == nil {
-			hasNull = true
-			break
-		}
-	}
-	headerSize := 23
-	if hasNull {
-		headerSize += (n + 7) / 8 // null bitmap: 1 bit per attribute, rounded up
-	}
-	// MAXALIGN to 8 bytes (standard 64-bit PostgreSQL)
-	tHoff := int64((headerSize + 7) &^ 7)
-
-	// Column data with inter-column alignment padding
-	dataOffset := int64(0)
+	var total int64
 	for i, col := range tuple.Columns {
 		if i >= len(rel.Columns) || col.Data == nil {
-			continue
+			continue // out-of-range or NULL / unchanged-TOAST columns carry no data
 		}
-		oid := rel.Columns[i].DataType
-		colBytes := oidStorageBytes(oid, col.Data)
-		align := oidAlignment(oid, colBytes)
-
-		if align > 1 {
-			if rem := dataOffset % align; rem != 0 {
-				dataOffset += align - rem
-			}
-		}
-		dataOffset += colBytes
+		total += oidStorageBytes(rel.Columns[i].DataType, col.Data)
 	}
-
-	return tHoff + dataOffset
+	return total
 }
 
 func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {
