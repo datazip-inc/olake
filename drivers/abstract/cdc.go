@@ -159,6 +159,23 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
 	})
 
+	// Even if no records are read, the replication position (LSN, binlog offset,
+	// or resume token) may still move forward because of heartbeats or keep-alive
+	// messages. If StreamChanges doesn't return updated metadata, use the last
+	// metadata position we already have so the metadata file stays up to date.
+	//
+	// Otherwise, a sync with no new data leaves the metadata file stale. If the
+	// stream is later deselected and selected again, it can fail to start because
+	// it tries to resume from an old LSN.
+	if err == nil && finalMetadataState == nil {
+		for streamID, state := range metadataStates {
+			if state != nil {
+				finalMetadataState = state
+				logger.Infof("no new CDC records. using prior metadata state for stream[%s] to keep current metadata", streamID)
+				break
+			}
+		}
+	}
 	return err
 }
 
