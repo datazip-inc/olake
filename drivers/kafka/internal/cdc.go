@@ -102,10 +102,6 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 
 	// track processing state
 	lastMessages := make(map[types.PartitionKey]*kgo.Record)
-	// offset captured by value when lastMessages is updated; used to detect franz-go record pointer reuse.
-	lastCheckpointOffsets := make(map[types.PartitionKey]int64)
-	// last offset that went through processFn (record.Data != nil).
-	lastProcessedOffsets := make(map[types.PartitionKey]int64)
 	// maintain completed partitions and observed partitions to track loop termination (for the current reader)
 	completedPartitions := make(map[types.PartitionKey]struct{}) // completed partitions by the current reader
 	observedPartitions := make(map[types.PartitionKey]struct{})  // cached partitions which are observed by the current reader
@@ -138,10 +134,6 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 
 		lastMessages[currentPartitionKey] = record.Message
-		lastCheckpointOffsets[currentPartitionKey] = record.Message.Offset
-		if record.Data != nil {
-			lastProcessedOffsets[currentPartitionKey] = record.Message.Offset
-		}
 
 		// check if partition is complete
 		if record.Message.Offset >= currentPartitionMeta.EndOffset-1 {
