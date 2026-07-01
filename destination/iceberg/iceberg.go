@@ -133,6 +133,9 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 
 	if i.config.UseArrowWrites {
 		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create arrow writer: %s", err)
+		}
 	} else {
 		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server)
 	}
