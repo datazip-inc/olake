@@ -81,7 +81,6 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 
 	// A successful recovery stops processing for this reader so the next run starts from the recovered offsets.
 	if isRecoveryPerformed {
-		logger.Infof("reader[%d]: offset recovery committed to broker; skipping consumption this sync", readerID)
 		return nil, nil
 	}
 
@@ -185,9 +184,8 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 
 		// Type assert and validate messages
 		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]*kgo.Record)
-		if !isValid || len(lastMessages) == 0 {
-			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
-			return nil
+		if !isValid {
+			return fmt.Errorf("reader %s has invalid checkpoint message type %T", readerID, lastMessagesMeta)
 		}
 
 		// Prepare messages for commit and track affected streams
@@ -459,6 +457,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		partitionKey := fmt.Sprintf("partition_%d", currentPartitionID)
 		offsetValue, hasMeta := streamMetadata[streamID][partitionKey]
 		if !hasMeta {
+			// No destination cursor for this partition; skip recovery and let RestartReader consume from broker/default offset.
 			continue
 		}
 
@@ -488,6 +487,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		return false, nil
 	}
 
+	logger.Infof("reader[%d]: crash-recovery detected, committing %d partitions to broker", readerID, len(recordsToCommit))
 	if err := reader.CommitRecords(ctx, recordsToCommit...); err != nil {
 		return false, fmt.Errorf("recovery offset commit failed, cannot continue (would cause duplicates): %s", err)
 	}
