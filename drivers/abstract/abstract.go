@@ -18,6 +18,7 @@ type CDCChange struct {
 	Kind         string
 	Data         map[string]any
 	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
+	Bytes        int64
 }
 
 type AbstractDriver struct { //nolint:gosec,revive

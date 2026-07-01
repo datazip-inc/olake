@@ -108,6 +108,8 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 				CDCBinlogFileName: pos.Name,
 				CDCBinlogFilePos:  pos.Pos, // Use the event position
 			},
+			// InnoDB on-disk byte sum for this row; attributed per stream at commit.
+			Bytes: mysqlCDCRowBytes(row, columnTypes),
 		}
 		if err := callback(ctx, change); err != nil {
 			return err
@@ -370,4 +372,63 @@ func decodeBytesToString(b []byte, collationID uint64) (string, error) {
 		return string(b), nil
 	}
 	return decoder(b)
+}
+
+// mysqlCDCRowBytes returns the approximate InnoDB on-disk byte sum for a
+// binlog row, using the raw decoded Go values and their MySQL type names.
+func mysqlCDCRowBytes(row []interface{}, columnTypes []string) int64 {
+	var total int64
+	for i, v := range row {
+		typeName := ""
+		if i < len(columnTypes) {
+			typeName = columnTypes[i]
+		}
+		total += MysqlColumnBytes(v, typeName)
+	}
+	return total
+}
+
+// MysqlColumnBytes returns the InnoDB on-disk byte count for a single column
+// value identified by its MySQL type name (as returned by mysqlTypeName or
+// database/sql ColumnType.DatabaseTypeName). Fixed-width types use their
+// InnoDB storage size; variable-width types use the actual byte length of the Go value.
+func MysqlColumnBytes(rawVal any, typeName string) int64 {
+	if rawVal == nil {
+		return 0
+	}
+	t := strings.ToUpper(strings.TrimSpace(typeName))
+	// Strip UNSIGNED prefix (e.g. "UNSIGNED BIGINT" → "BIGINT")
+	t = strings.TrimPrefix(t, "UNSIGNED ")
+	switch t {
+	case "TINYINT", "BOOL", "BOOLEAN", "YEAR":
+		return 1
+	case "SMALLINT":
+		return 2
+	case "MEDIUMINT":
+		return 3
+	case "INT", "INTEGER", "FLOAT":
+		return 4
+	case "BIGINT", "DOUBLE", "REAL":
+		return 8
+	case "DATE":
+		return 3
+	// Conservative max sizes — fractional seconds can add 1-3 bytes beyond the base.
+	case "TIME":
+		return 6 // TIME(6) max
+	case "TIMESTAMP":
+		return 7 // TIMESTAMP(6) max
+	case "DATETIME":
+		return 8 // DATETIME(6) max
+	default:
+		// Variable-length: VARCHAR, CHAR, TEXT*, BLOB*, DECIMAL, NUMERIC,
+		// JSON, BIT, ENUM, SET, GEOMETRY, and any unknown type.
+		switch v := rawVal.(type) {
+		case string:
+			return int64(len(v))
+		case []byte:
+			return int64(len(v))
+		default:
+			return int64(len(fmt.Sprintf("%v", v)))
+		}
+	}
 }

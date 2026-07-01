@@ -88,10 +88,14 @@ func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter
 }
 
 // TODO: Use MapScanConcurrent instead of MapScan for incremental as well
-func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error)) error {
+//
+// MapScan scans the current row into dest and returns the row's source-DB byte
+// size. The optional rowBytesFn is invoked once with all raw (pre-conversion)
+// column values and their SQL column types, allowing callers to compute the per-row byte count.
+func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error), rowBytesFn ...func(rawVals []any, colTypes []*sql.ColumnType) int64) (int64, error) {
 	columns, colTypes, err := getColumnMetadata(rows)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	scanValues := make([]any, len(columns))
@@ -100,26 +104,38 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 	}
 
 	if err := rows.Scan(scanValues...); err != nil {
-		return err
+		return 0, err
+	}
+
+	rawVals := make([]any, len(columns))
+	for i := range scanValues {
+		rawVals[i] = *(scanValues[i].(*any)) // Dereference pointer before storing
+	}
+
+	var rowBytes int64
+	if len(rowBytesFn) > 0 && rowBytesFn[0] != nil {
+		rowBytes = rowBytesFn[0](rawVals, colTypes)
 	}
 
 	for i, col := range columns {
-		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
 		if converter != nil {
-			conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
+			conv, err := normalizeDataTypeAndConvert(rawVals[i], colTypes[i], converter)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			dest[col] = conv
 		} else {
-			dest[col] = rawData
+			dest[col] = rawVals[i]
 		}
 	}
 
-	return nil
+	return rowBytes, nil
 }
 
-func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn) error {
+// MapScanConcurrent scans rows concurrently using a producer/consumer pattern.
+// The optional rowBytesFn is invoked in the consumer goroutine once per complete
+// row with all raw (pre-conversion) column values and their SQL column types.
+func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn, rowBytesFn ...func(rawVals []any, colTypes []*sql.ColumnType) int64) error {
 	valuesCh := make(chan []any)
 
 	var (
@@ -127,6 +143,11 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 		colTypes  []*sql.ColumnType
 		scanDests []any // reused pointers for rows.Scan
 	)
+
+	var bytesFn func([]any, []*sql.ColumnType) int64
+	if len(rowBytesFn) > 0 && rowBytesFn[0] != nil {
+		bytesFn = rowBytesFn[0]
+	}
 
 	// Producer: scan rows and push raw values onto the channel.
 	producer := func(ctx context.Context) error {
@@ -168,6 +189,11 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 	// Consumer: convert + emit records.
 	consumer := func(ctx context.Context) error {
 		for vals := range valuesCh {
+			var rowBytes int64
+			if bytesFn != nil {
+				rowBytes = bytesFn(vals, colTypes)
+			}
+
 			record := make(map[string]any, len(columns))
 			for i, col := range columns {
 				rawData := vals[i]
@@ -183,7 +209,7 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 				record[col] = conv
 			}
 
-			if err := OnMessage(ctx, record); err != nil {
+			if err := OnMessage(ctx, record, rowBytes); err != nil {
 				return err
 			}
 		}

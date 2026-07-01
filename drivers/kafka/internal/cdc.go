@@ -100,11 +100,14 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 
 		// process the change if data is present
 		if record.Data != nil {
+			// Raw wire bytes: len(Key) + len(Value). Headers are excluded — they
+			// carry protocol metadata (schema IDs, trace context), not user data.
 			err := processFn(ctx, abstract.CDCChange{
 				Stream:    currentPartitionMeta.Stream,
 				Timestamp: record.Message.Timestamp,
 				Kind:      "create",
 				Data:      record.Data,
+				Bytes:     int64(len(record.Message.Key) + len(record.Message.Value)),
 			})
 			if err != nil {
 				return false, err

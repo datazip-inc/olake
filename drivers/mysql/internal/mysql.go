@@ -181,7 +181,7 @@ func (m *MySQL) MaxRetries() int {
 	return m.config.RetryCount
 }
 
-func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m *MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	logger.Infof("Starting discover for MySQL database %s", m.config.Database)
 	query := jdbc.MySQLDiscoverTablesQuery()
 	rows, err := m.client.QueryContext(ctx, query, m.config.Database)

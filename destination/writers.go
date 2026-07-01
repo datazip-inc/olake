@@ -36,6 +36,7 @@ type (
 		ReadCount          atomic.Int64 // records that got read
 		RecordsFiltered    atomic.Int64 // records that got filtered
 		ThreadCount        atomic.Int64 // total number of writer threads
+		BytesCommitted     atomic.Int64 // source bytes committed to destination (updated in writer.Close on success)
 	}
 
 	WriterPool struct {
@@ -56,6 +57,14 @@ type (
 		batchSize      int64
 		streamArtifact *writerSchema
 		group          *utils.CxGroup
+		// recordsPushed / recordsFiltered / bytesPushed track this thread's own
+		// contribution to the pool-wide ReadCount / RecordsFiltered / BytesCommitted
+		// stats. The stats are updated live as records are read; if the chunk/run
+		// fails (or is retried), Close rolls these contributions back so the stats —
+		// and the RPS derived from them — reflect only committed data.
+		recordsPushed   atomic.Int64
+		recordsFiltered atomic.Int64
+		bytesPushed     atomic.Int64
 	}
 )
 
@@ -199,7 +208,11 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	}, prevStreamState, nil
 }
 
-func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error {
+// Push appends a record to the thread buffer and updates the live stats. sourceBytes
+// is the record's source-DB storage size (0 for drivers that account bytes at commit
+// time). Both the read count and the byte count are added live and rolled back by
+// Close if the chunk/run fails to commit (see rollbackStats).
+func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, sourceBytes int64) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -208,6 +221,11 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 		return wt.group.Block()
 	default:
 		wt.stats.ReadCount.Add(1)
+		wt.recordsPushed.Add(1)
+		if sourceBytes != 0 {
+			wt.stats.BytesCommitted.Add(sourceBytes)
+			wt.bytesPushed.Add(sourceBytes)
+		}
 		wt.buffer = append(wt.buffer, record)
 		if len(wt.buffer) >= int(wt.batchSize) {
 			buf := make([]types.RawRecord, len(wt.buffer))
@@ -243,7 +261,9 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	if err != nil {
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
-	wt.stats.RecordsFiltered.Add(int64(recordsCountBeforeFiltering - len(buf)))
+	filtered := int64(recordsCountBeforeFiltering - len(buf))
+	wt.stats.RecordsFiltered.Add(filtered)
+	wt.recordsFiltered.Add(filtered)
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
 		wt.streamArtifact.mu.Lock()
@@ -265,12 +285,24 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
+// rollbackStats removes this thread's live contribution to the pool-wide
+// read/filtered/byte counters. Called when the chunk/run does not commit (failure,
+// retry or abort) so the stats reflect only committed data and retried attempts are
+// not double-counted.
+func (wt *WriterThread) rollbackStats() {
+	wt.stats.ReadCount.Add(-wt.recordsPushed.Load())
+	wt.stats.RecordsFiltered.Add(-wt.recordsFiltered.Load())
+	wt.stats.BytesCommitted.Add(-wt.bytesPushed.Load())
+}
+
 func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
 	select {
 	case <-ctx.Done():
-		err := wt.writer.Close(ctx, finalMetadataState)
-		if err != nil {
-			return fmt.Errorf("failed to close writer: %s", err)
+		// Aborted before commit: writer.Close releases resources without committing,
+		// so nothing this thread pushed reaches the destination — roll its stats back.
+		wt.rollbackStats()
+		if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
+			return fmt.Errorf("failed to close writer: %s", closeErr)
 		}
 		return nil
 	default:
@@ -279,9 +311,15 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
 
-			closeErr := wt.writer.Close(ctx, finalMetadataState)
-			if closeErr != nil {
+			if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
+			}
+			// Commit is successful only when both the final flush and writer.Close (dest
+			// COMMIT) returned no error. All source bytes were already added live via
+			// Push, so success needs no action; on any failure roll back this thread's
+			// live read/filtered/byte stats so they count committed data only.
+			if err != nil {
+				wt.rollbackStats()
 			}
 		}()
 

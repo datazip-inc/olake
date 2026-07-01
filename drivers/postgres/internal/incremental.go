@@ -29,14 +29,16 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 
 	for rows.Next() {
 		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, p.dataTypeConverter); err != nil {
+		rowBytes, err := jdbc.MapScan(rows, record, p.dataTypeConverter, pgCompositeRowBytes)
+		if err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}
 
-		if err := processFn(ctx, record); err != nil {
+		if err := processFn(ctx, record, rowBytes); err != nil {
 			return fmt.Errorf("process error: %s", err)
 		}
 	}
+
 	return rows.Err()
 }
 

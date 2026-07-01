@@ -125,9 +125,9 @@ var syncCmd = &cobra.Command{
 		}
 
 		// start monitoring stats
-		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
+		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64, int64) {
 			stats := pool.GetStats()
-			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load()
+			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load(), stats.BytesCommitted.Load()
 		})
 
 		// Setup State for Connector
@@ -146,10 +146,14 @@ var syncCmd = &cobra.Command{
 		}
 
 		state.LogWithLock()
-		// TODO: record count also contain records which arrived in retry attempts, need to remove them
+		// ReadCount/RecordsFiltered are rolled back per-thread on failed or retried
+		// chunks (see WriterThread.Close), so this reflects committed rows only.
 		stats := pool.GetStats()
 		readRecordsCount := max(int64(0), stats.ReadCount.Load()-stats.RecordsFiltered.Load())
-		logger.Infof("Total records read: %d", readRecordsCount)
+		bytesCommitted := stats.BytesCommitted.Load()
+		logger.Infof("Total records read: %d | Total bytes committed: %s",
+			readRecordsCount,
+			logger.FormatBytes(bytesCommitted))
 		return nil
 	},
 }

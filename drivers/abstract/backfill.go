@@ -76,7 +76,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 
-		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any) error {
+		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any, sourceBytes int64) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			olakeColumns := map[string]any{
 				constants.OlakeID:        olakeID,
@@ -91,7 +91,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 			filteredData := filterDataBySelectedColumnsFn(data)
 
-			return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
+			return inserter.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns), sourceBytes)
 		})
 	}
 	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, chunks, a.driver.MaxRetries(), chunkProcessor)

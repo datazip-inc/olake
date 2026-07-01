@@ -34,11 +34,12 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 
 	for rows.Next() {
 		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, o.dataTypeConverter); err != nil {
+		rowBytes, err := jdbc.MapScan(rows, record, o.dataTypeConverter, oracleRowBytes)
+		if err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}
 
-		if err := processFn(ctx, record); err != nil {
+		if err := processFn(ctx, record, rowBytes); err != nil {
 			return fmt.Errorf("process error: %s", err)
 		}
 	}

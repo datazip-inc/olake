@@ -70,7 +70,7 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage)
+	return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage, mssqlRowBytes)
 }
 
 // GetOrSplitChunks splits a table into chunks using PK seek or %%physloc%% fallback.
