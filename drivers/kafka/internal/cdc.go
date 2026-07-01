@@ -73,12 +73,6 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		return nil, fmt.Errorf("reader[%d]: get assigned partitions failed: %s", readerID, err)
 	}
 
-	readerInstanceID, _ := k.readerManager.GetReaderIDAndClientID(readerID)
-	logger.Infof("reader[%d] (%s): starting CDC with %d assigned partition(s)", readerID, readerInstanceID, len(assignedPartitions))
-	for _, partition := range assignedPartitions {
-		logger.Infof("reader[%d]: assigned topic=%s partition=%d", readerID, partition.Topic, partition.Partition)
-	}
-
 	// Recover broker offsets from destination metadata if needed.
 	isRecoveryPerformed, err := k.syncCommittedOffsetsWithMetadata(ctx, readerID, k.readerManager.GetReader(readerID), metadataStates, assignedPartitions)
 	if err != nil {
@@ -112,7 +106,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 	}()
 
-	err = k.processKafkaMessages(ctx, readerID, reader, assignedPartitions, func(record types.KafkaRecord) (bool, error) {
+	err = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(record.Message.Topic, record.Message.Partition))
@@ -243,7 +237,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 
 // processKafkaMessages processes messages from a Kafka reader
 // until stopProcessFn signals stop, a rebalance is detected, or the poll times out (reader caught up).
-func (k *Kafka) processKafkaMessages(ctx context.Context, readerID int, reader *kgo.Client, assignedPartitions []types.PartitionKey, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
+func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
 	var iter *kgo.FetchesRecordIter
 
 	for {
@@ -264,9 +258,6 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, readerID int, reader *
 				fetches := reader.PollFetches(pollCtx)
 				pollCtxErr := pollCtx.Err()
 				cancel()
-
-				recordCount := 0
-				fetches.EachRecord(func(_ *kgo.Record) { recordCount++ })
 
 				// no new messages for 10s means reader has caught up; exit cleanly without error.
 				if errors.Is(pollCtxErr, context.DeadlineExceeded) {
@@ -468,10 +459,6 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		partitionKey := fmt.Sprintf("partition_%d", currentPartitionID)
 		offsetValue, hasMeta := streamMetadata[streamID][partitionKey]
 		if !hasMeta {
-			logger.Infof(
-				"reader[%d] topic %s partition %d: no destination metadata cursor (broker_committed=%d end_offset=%d); consuming from broker offset",
-				readerID, currentTopic, currentPartitionID, kafkaCommittedOffset, partitionMeta.EndOffset,
-			)
 			continue
 		}
 
@@ -479,11 +466,6 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		if err != nil {
 			return false, fmt.Errorf("stream[%s] topic %s partition %d: invalid metadata offset: %s", streamID, currentTopic, currentPartitionID, err)
 		}
-
-		logger.Infof(
-			"reader[%d] topic %s partition %d offset check: broker_committed=%d destination_next=%d end_offset=%d",
-			readerID, currentTopic, currentPartitionID, kafkaCommittedOffset, metaCommittedOffset, partitionMeta.EndOffset,
-		)
 
 		// destination metadata offset must not exceed the current partition end offset.
 		// this can happen when a topic is deleted and recreated with fewer messages.
@@ -498,20 +480,14 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 
 		// Broker is behind destination (or has no committed offset yet): align broker to destination before consuming.
 		if kafkaCommittedOffset < 0 || metaCommittedOffset > kafkaCommittedOffset {
-			logger.Infof(
-				"reader[%d] topic %s partition %d: broker behind destination, will commit offset %d to broker",
-				readerID, currentTopic, currentPartitionID, metaCommittedOffset-1,
-			)
 			recordsToCommit = append(recordsToCommit, &kgo.Record{Topic: currentTopic, Partition: currentPartitionID, Offset: metaCommittedOffset - 1, LeaderEpoch: -1})
 		}
 	}
 
 	if len(recordsToCommit) == 0 {
-		logger.Infof("reader[%d]: no broker/destination offset recovery needed", readerID)
 		return false, nil
 	}
 
-	logger.Infof("reader[%d]: crash-recovery detected, committing %d partitions to broker", readerID, len(recordsToCommit))
 	if err := reader.CommitRecords(ctx, recordsToCommit...); err != nil {
 		return false, fmt.Errorf("recovery offset commit failed, cannot continue (would cause duplicates): %s", err)
 	}
