@@ -12,14 +12,9 @@ import (
 )
 
 type (
-	NewFunc        func() Writer
-	InsertFunction func(record types.RawRecord) (err error)
-	CloseFunction  func()
-	WriterOption   func(Writer) error
+	initWriter func(config any) (Writer, func(ctx context.Context), error)
 
 	Options struct {
-		Identifier  string
-		Number      int64
 		Backfill    bool
 		ThreadID    string
 		ApplyFilter bool
@@ -39,10 +34,9 @@ type (
 	}
 
 	WriterPool struct {
-		configMutex  sync.Mutex
 		stats        *Stats
-		config       any
-		init         NewFunc
+		initWriter   initWriter
+		shutdown     func(ctx context.Context)
 		writerSchema sync.Map
 		batchSize    int64
 	}
@@ -59,19 +53,7 @@ type (
 	}
 )
 
-var RegisteredWriters = map[types.DestinationType]NewFunc{}
-
-func WithIdentifier(identifier string) ThreadOptions {
-	return func(opt *Options) {
-		opt.Identifier = identifier
-	}
-}
-
-func WithNumber(number int64) ThreadOptions {
-	return func(opt *Options) {
-		opt.Number = number
-	}
-}
+var RegisteredWriters = map[types.DestinationType]initWriter{}
 
 func WithBackfill(backfill bool) ThreadOptions {
 	return func(opt *Options) {
@@ -90,22 +72,18 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 	}
 }
 
+// NewWriterPool manages a destination's shared resources (e.g., Iceberg JVM) and connection health.
+// It initializes global state, runs checks, and provides thread-level writers. Call Close() to clean up.
 func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
-	newfunc, found := RegisteredWriters[config.Type]
+	initWriter, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
 	}
 
-	adapter := newfunc()
-	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
-		return nil, err
-	}
-
-	err := adapter.Check(ctx)
+	adapter, shutdown, err := initWriter(config.WriterConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to test destination: %s", err)
+		return nil, fmt.Errorf("failed to initialize destination: %s", err)
 	}
-
 	pool := &WriterPool{
 		stats: &Stats{
 			TotalRecordsToSync: atomic.Int64{},
@@ -113,9 +91,13 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 			ReadCount:          atomic.Int64{},
 			RecordsFiltered:    atomic.Int64{},
 		},
-		config:    config.WriterConfig,
-		init:      newfunc,
-		batchSize: batchSize,
+		initWriter: initWriter,
+		shutdown:   shutdown,
+		batchSize:  batchSize,
+	}
+
+	if err := adapter.Check(ctx); err != nil {
+		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
 	for _, stream := range syncStreams {
@@ -126,6 +108,13 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 	}
 
 	return pool, nil
+}
+
+// Shutdown tears down destination-level process resources (like the Iceberg Java server)
+func (w *WriterPool) Shutdown(ctx context.Context) {
+	if w.shutdown != nil {
+		w.shutdown(ctx)
+	}
 }
 
 func (w *WriterPool) AddRecordsToSyncStats(count int64) {
@@ -154,36 +143,31 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		return nil, nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
 	}
 
-	var writerThread Writer
-	prevStreamState, err := func() (*types.MetadataState, error) {
-		// init writer with configurations
-		writerThread = w.init()
-		w.configMutex.Lock()
-		err := utils.Unmarshal(w.config, writerThread.GetConfigRef())
-		w.configMutex.Unlock()
+	writerThread, prevStreamState, err := func() (Writer, *types.MetadataState, error) {
+		// init writer and point it at the config parsed once at pool creation,
+		// shared read-only across all writer threads.
+		writerThread, _, err := w.initWriter(nil)
 		if err != nil {
-			return nil, err
+			return nil, nil, fmt.Errorf("failed to initialize writer: %s", err)
 		}
 
 		// setup table and schema
 		streamArtifact.mu.Lock()
 		defer streamArtifact.mu.Unlock()
-
-		output, prevStreamState, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
+		threadSchema, prevStreamState, err := writerThread.Setup(ctx, stream, streamArtifact.schema, opts)
 		if err != nil {
-			return nil, fmt.Errorf("failed to setup the writer thread: %s", err)
+			return nil, nil, fmt.Errorf("failed to create writer thread: %s", err)
 		}
-
 		if streamArtifact.schema == nil {
 			// First thread for this stream: cache the schema so subsequent threads
 			// skip parsing the schema out of the GET_OR_CREATE_TABLE response.
 			// metadataState is intentionally NOT cached, every NewWriter call must
 			// receive a fresh olake_2pc snapshot from Java so that retries see the
 			// up-to-date committed chunk IDs / cursor positions.
-			streamArtifact.schema = output
+			streamArtifact.schema = threadSchema
 		}
 
-		return prevStreamState, nil
+		return writerThread, prevStreamState, nil
 	}()
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to setup writer thread: %s", err)
@@ -296,21 +280,25 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 	}
 }
 
-func ClearDestination(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
-	newfunc, found := RegisteredWriters[config.Type]
+func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
+	if len(dropStreams) == 0 {
+		return nil
+	}
+
+	initWriter, found := RegisteredWriters[config.Type]
 	if !found {
 		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
 	}
 
-	adapter := newfunc()
-	if err := utils.Unmarshal(config.WriterConfig, adapter.GetConfigRef()); err != nil {
-		return err
+	adapter, shutdown, err := initWriter(config.WriterConfig)
+	if err != nil {
+		return fmt.Errorf("failed to initialize destination: %s", err)
+	}
+	defer shutdown(context.Background())
+
+	if err := adapter.DropStreams(ctx, dropStreams); err != nil {
+		return fmt.Errorf("failed to drop streams: %s", err)
 	}
 
-	if dropStreams != nil {
-		if err := adapter.DropStreams(ctx, dropStreams); err != nil {
-			return fmt.Errorf("failed to drop the streams: %s", err)
-		}
-	}
 	return nil
 }

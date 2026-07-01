@@ -12,6 +12,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/arrow-go/v18/parquet/metadata"
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
@@ -20,6 +21,7 @@ import (
 )
 
 type ArrowWriter struct {
+	options        *destination.Options
 	fileschemajson map[string]string // file type -> iceberg schema JSON
 	schema         map[string]string
 	arrowSchema    map[string]*arrow.Schema // file type -> arrow schema
@@ -64,8 +66,9 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
+func New(ctx context.Context, options *destination.Options, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
+		options:       options,
 		partitionInfo: partitionInfo,
 		schema:        schema,
 		stream:        stream,
@@ -346,9 +349,8 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 	commitRequest := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_REGISTER_AND_COMMIT,
 		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId:      w.server.ServerID(),
-			DestTableName: w.stream.GetDestinationTable(),
-			FileMetadata:  orderedFiles,
+			ThreadId:     w.options.ThreadID,
+			FileMetadata: orderedFiles,
 		},
 	}
 
@@ -523,8 +525,7 @@ func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string)
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_FILEPATH,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
+			ThreadId: w.options.ThreadID,
 		},
 	}
 
@@ -551,8 +552,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_UPLOAD_FILE,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
+			ThreadId: w.options.ThreadID,
 			FileUpload: &proto.ArrowPayload_FileUploadRequest{
 				FileData: rw.currentBuffer.Bytes(),
 				FilePath: rw.filePath,
@@ -597,12 +597,12 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	return nil
 }
 
+// fetchFileSchemaJSON retrieves the Iceberg schemas for Arrow serialization.
 func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_JSONSCHEMA,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
+			ThreadId: w.options.ThreadID,
 		},
 	}
 
