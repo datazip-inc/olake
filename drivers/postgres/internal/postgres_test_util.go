@@ -261,6 +261,17 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "evolve-schema":
 		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT, ADD COLUMN includedColumn INTEGER`, integrationTestTable)
 
+	case "rolling_create":
+		// simple table used by the parquet rolling integration test
+		query = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id BIGINT PRIMARY KEY, payload TEXT)`, integrationTestTable)
+
+	case "rolling_seed":
+		// bulk-load incompressible random payloads so the parquet output far exceeds the
+		// small roll threshold and is split into many files.
+		query = fmt.Sprintf(`INSERT INTO %s (id, payload)
+			SELECT g, md5(random()::text) || md5(random()::text) || md5(random()::text)
+			FROM generate_series(1, %d) g`, integrationTestTable, testutils.RollingSeedRows)
+
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}

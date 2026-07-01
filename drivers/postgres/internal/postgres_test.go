@@ -53,6 +53,17 @@ func TestPostgres2PC(t *testing.T) {
 	postgresBaseConfig().Test2PCIntegration(t)
 }
 
+func TestPostgresParquetRollingIntegration(t *testing.T) {
+	t.Parallel()
+	cfg := &testutils.IntegrationTest{
+		TestConfig:    testutils.GetTestConfig(string(constants.Postgres)),
+		Namespace:     "public",
+		DestinationDB: "postgres_postgres_public",
+		ExecuteQuery:  ExecuteQuery,
+	}
+	cfg.TestParquetRolling(t)
+}
+
 func TestPostgresPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(string(constants.Postgres)),
