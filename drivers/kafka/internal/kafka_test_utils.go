@@ -25,14 +25,13 @@ import (
 )
 
 const (
-	partitionCount                = 5
-	rebalanceBulkMessageCount     = 100_000
-	rebalanceBulkPartition        = int32(0)
-	rebalanceBulkBatchSize        = 500
-	kafkaJSONIntegrationBroker    = "127.0.0.1:29092"
-	rebalanceConsumerGroupID      = "kafka-Json-integration-test-group"
-	kafkaJSONIntegrationStatsPath = "./testdata/json/stats.json"
-	avroSchemaRegistryURL         = "http://127.0.0.1:8081"
+	partitionCount             = 5
+	rebalanceBulkMessageCount  = 100_000
+	rebalanceBulkPartition     = int32(0)
+	rebalanceBulkBatchSize     = 500
+	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
+	KafkaJsonConsumerGroupID   = "kafka-Json-integration-test-group"
+	avroSchemaRegistryURL      = "http://127.0.0.1:8081"
 
 	// Base Avro schema
 	avroSchema = `{
@@ -76,6 +75,7 @@ var (
 	// rebalance trigger
 	rebalanceTriggerCancel context.CancelFunc
 	rebalanceTriggerDone   chan struct{} // closed when the trigger goroutine has fully exited
+	kafkaJsonStatsPath     string        // set from TestConfig.HostStatsPath in kafka_test.go
 
 	// JSON message keys must be valid JSON objects (driver parses keys as JSON before falling back to raw bytes).
 	jsonKey          = []byte(`{"key":"json-key"}`)
@@ -173,7 +173,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_2pc":
 		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, kafkaJSONBroker, rebalanceConsumerGroupID, streams[0], 0, 1)
+		commitConsumerGroupOffset(ctx, t, kafkaJSONBroker, KafkaJsonConsumerGroupID, streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
@@ -210,12 +210,12 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 		rebalanceCtx, cancel := context.WithCancel(ctx)
 		rebalanceTriggerCancel = cancel
 		go func() {
-			waitForSyncProgress(rebalanceCtx, t, kafkaJSONIntegrationStatsPath)
+			waitForSyncProgress(rebalanceCtx, t, kafkaJsonStatsPath)
 			if rebalanceCtx.Err() != nil {
 				return
 			}
-			startRebalanceTriggerConsumer(rebalanceCtx, t, kafkaJSONIntegrationBroker, rebalanceConsumerGroupID, topic)
-			t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", rebalanceConsumerGroupID, topic)
+			startRebalanceTriggerConsumer(rebalanceCtx, t, kafkaJSONIntegrationBroker, KafkaJsonConsumerGroupID, topic)
+			t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJsonConsumerGroupID, topic)
 		}()
 
 	case "stop_rebalance":

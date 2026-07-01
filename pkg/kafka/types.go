@@ -4,19 +4,11 @@ import (
 	"net/http"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
-
-// CDCPollTimeout is how long PollFetches waits when no records arrive before treating the reader as caught up.
-const CDCPollTimeout = 10 * time.Second
-
-// PostCleanupStabilizationDelay waits after force-leaving stale group members before new readers join.
-// Matches CDCPollTimeout so we can detect members that reappear within one poll window.
-const PostCleanupStabilizationDelay = CDCPollTimeout + time.Second
 
 // ReaderManager exit modes used to control CDC processing flow.
 const (
