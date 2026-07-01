@@ -116,19 +116,6 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 	if committedOffsetsErr != nil {
 		return nil, fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, committedOffsetsErr)
 	}
-	if len(committedTopicOffsets) == 0 {
-		logger.Infof(
-			"consumer group %s topic %s: no pre-existing broker committed offsets",
-			r.config.ConsumerGroupID, topic,
-		)
-	} else {
-		for partition, offset := range committedTopicOffsets {
-			logger.Infof(
-				"consumer group %s topic %s partition %d: pre-existing broker_committed=%d",
-				r.config.ConsumerGroupID, topic, partition, offset,
-			)
-		}
-	}
 
 	partitionsMetadata := make(map[string]types.PartitionMetaData)
 	for _, partitionDetail := range topicDetail.Partitions {
@@ -160,14 +147,6 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 			EndOffset:       endOffsetDetail.Offset,
 			CommittedOffset: committedOffset,
 		}
-		pendingMessages := endOffsetDetail.Offset - startOffsetDetail.Offset
-		if hasCommitted {
-			pendingMessages = endOffsetDetail.Offset - committedOffset
-		}
-		logger.Infof(
-			"topic %s partition %d eligible for sync: broker_committed=%d end_offset=%d pending_messages=%d",
-			topic, partitionDetail.Partition, committedOffset, endOffsetDetail.Offset, pendingMessages,
-		)
 	}
 	return partitionsMetadata, nil
 }
@@ -263,8 +242,6 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 		return fmt.Errorf("describe groups error: %s", describedGroup.Err)
 	}
 
-	logDescribedGroupMembers(r.config.ConsumerGroupID, "before cleanup", describedGroup.Members)
-
 	if len(describedGroup.Members) > 0 {
 		leaveGroupRequest := kmsg.NewPtrLeaveGroupRequest()
 		leaveGroupRequest.Group = r.config.ConsumerGroupID
@@ -283,46 +260,6 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 
 		if leaveGroupResponse.ErrorCode != 0 {
 			return fmt.Errorf("leave group error code: %d", leaveGroupResponse.ErrorCode)
-		}
-
-		describedGroupsAfter, describeAfterErr := r.config.AdminClient.DescribeGroups(cleanupCtx, r.config.ConsumerGroupID)
-		if describeAfterErr != nil {
-			return fmt.Errorf("describe groups after cleanup failed: %s", describeAfterErr)
-		}
-
-		describedGroupAfter := describedGroupsAfter[r.config.ConsumerGroupID]
-		if describedGroupAfter.Err != nil && describedGroupAfter.Err != kerr.GroupIDNotFound {
-			return fmt.Errorf("describe groups after cleanup error: %s", describedGroupAfter.Err)
-		}
-
-		logDescribedGroupMembers(r.config.ConsumerGroupID, "immediately after cleanup", describedGroupAfter.Members)
-
-		logger.Infof(
-			"consumer group %s: waiting %s before new readers join (matches CDC poll window) to detect stale member rejoin",
-			r.config.ConsumerGroupID, PostCleanupStabilizationDelay,
-		)
-		select {
-		case <-cleanupCtx.Done():
-			return fmt.Errorf("post-cleanup stabilization wait cancelled: %s", cleanupCtx.Err())
-		case <-time.After(PostCleanupStabilizationDelay):
-		}
-
-		describedGroupsDelayed, describeDelayedErr := r.config.AdminClient.DescribeGroups(cleanupCtx, r.config.ConsumerGroupID)
-		if describeDelayedErr != nil {
-			return fmt.Errorf("describe groups after stabilization wait failed: %s", describeDelayedErr)
-		}
-
-		describedGroupDelayed := describedGroupsDelayed[r.config.ConsumerGroupID]
-		if describedGroupDelayed.Err != nil && describedGroupDelayed.Err != kerr.GroupIDNotFound {
-			return fmt.Errorf("describe groups after stabilization wait error: %s", describedGroupDelayed.Err)
-		}
-
-		logDescribedGroupMembers(r.config.ConsumerGroupID, "after stabilization wait", describedGroupDelayed.Members)
-		if len(describedGroupDelayed.Members) > 0 {
-			logger.Warnf(
-				"consumer group %s: %d member(s) reappeared within %s after force-leave; new readers not created yet",
-				r.config.ConsumerGroupID, len(describedGroupDelayed.Members), PostCleanupStabilizationDelay,
-			)
 		}
 	}
 
@@ -466,19 +403,5 @@ func (r *ReaderManager) waitForPartitionAssignment(ctx context.Context) error {
 				return nil
 			}
 		}
-	}
-}
-
-func logDescribedGroupMembers(groupID, phase string, members []kadm.DescribedGroupMember) {
-	logger.Infof("consumer group %s: %d existing consumers %s", groupID, len(members), phase)
-	for _, member := range members {
-		instanceID := "<none>"
-		if member.InstanceID != nil {
-			instanceID = *member.InstanceID
-		}
-		logger.Infof(
-			"consumer group %s member %s: member_id=%s instance_id=%s client_id=%s",
-			groupID, phase, member.MemberID, instanceID, member.ClientID,
-		)
 	}
 }
