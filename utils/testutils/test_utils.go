@@ -199,7 +199,6 @@ func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 		HostTestDataPath:       fmt.Sprintf(hostTestDataPath, driver, ""),
 		HostTestCatalogPath:    fmt.Sprintf(hostTestDataPath, driver, "test_streams.json"),
 		HostCatalogPath:        fmt.Sprintf(hostTestDataPath, driver, "streams.json"),
-		HostStatsPath:          fmt.Sprintf(hostTestDataPath, driver, "stats.json"),
 		BenchmarksPath:         fmt.Sprintf(hostTestDataPath, driver, "benchmarks.json"),
 		SourcePath:             fmt.Sprintf(containerTestDataPath, driver, "source.json"),
 		CatalogPath:            fmt.Sprintf(containerTestDataPath, driver, "streams.json"),
@@ -393,7 +392,6 @@ type syncTestCase struct {
 	preSetupCommands         []string // shell commands to execute in the container before the sync
 	verifyNoDuplicates       bool     // if true, assert COUNT(*) == COUNT(DISTINCT _olake_id) after sync
 	expectedRowCountByOpType int64    // when > 0, assert COUNT(DISTINCT _olake_id) == this value (catches over-sync and under-sync)
-	allowFailure             bool     // rebalance only: tolerate non-zero sync exit on rebalance interrupt; defaults to false for all other cases
 }
 
 // runSyncAndVerify executes a sync command and verifies the results in Iceberg
@@ -1213,13 +1211,11 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 }
 
 // runRebalanceSync runs a sync command for the rebalance test.
-// When allowFailure is true, a non-zero exit code is logged but not treated as an error.
 func (cfg *IntegrationTest) runRebalanceSync(
 	ctx context.Context,
 	t *testing.T,
 	c testcontainers.Container,
 	useState bool,
-	allowFailure bool,
 ) error {
 	t.Helper()
 
@@ -1231,14 +1227,10 @@ func (cfg *IntegrationTest) runRebalanceSync(
 	if err != nil {
 		return fmt.Errorf("sync exec error: %w\n%s", err, out)
 	}
-	if code != 0 && !allowFailure {
+	if code != 0 {
 		return fmt.Errorf("sync failed (%d): %s", code, out)
 	}
-	if code != 0 {
-		t.Logf("sync exited with code %d (allowed)", code)
-	} else {
-		t.Logf("sync completed successfully")
-	}
+	t.Logf("sync completed successfully")
 	return nil
 }
 
@@ -1252,16 +1244,16 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 	t.Log("Starting Kafka rebalance recovery test")
 
 	dropIcebergTable(t, testTable, cfg.DestinationDB)
-	if code, out, err := utils.ExecCommand(ctx, c, resetStateFileCommand(*cfg.TestConfig)); err != nil || code != 0 {
+	code, out, err := utils.ExecCommand(ctx, c, resetStateFileCommand(*cfg.TestConfig))
+	if err != nil || code != 0 {
 		return fmt.Errorf("failed to reset state file (%d): %s\n%s", code, err, out)
 	}
 
 	rebalanceTestCases := []syncTestCase{
 		{
-			name:         "CDC - first rebalance sync",
-			operation:    "rebalance",
-			useState:     true,
-			allowFailure: true,
+			name:      "CDC - first rebalance sync",
+			operation: "rebalance",
+			useState:  true,
 		},
 		{
 			// Stop the trigger consumer before resuming so it cannot hold partition assignments.
@@ -1273,17 +1265,9 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 
 	for _, tc := range rebalanceTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, cmd := range tc.preSetupCommands {
-				if code, out, execErr := utils.ExecCommand(ctx, c, cmd); execErr != nil || code != 0 {
-					t.Fatalf("%s pre-sync command failed (%d): %v\n%s", tc.name, code, execErr, out)
-				}
-			}
+			cfg.ExecuteQuery(ctx, t, []string{testTable}, tc.operation, false)
 
-			if tc.operation != "" {
-				cfg.ExecuteQuery(ctx, t, []string{testTable}, tc.operation, false)
-			}
-
-			if err := cfg.runRebalanceSync(ctx, t, c, tc.useState, tc.allowFailure); err != nil {
+			if err := cfg.runRebalanceSync(ctx, t, c, tc.useState); err != nil {
 				t.Fatalf("%s failed: %v", tc.name, err)
 			}
 		})
@@ -1292,7 +1276,10 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 	VerifyIcebergNoDuplicates(ctx, t, testTable, cfg.DestinationDB, "c", kafkaRebalanceBulkMessageCount)
 
 	t.Log("Kafka rebalance recovery test completed successfully")
+
 	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	t.Logf("Dropped Iceberg table: %s", testTable)
+
 	return nil
 }
 
