@@ -353,16 +353,11 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 }
 
 // checkPartitionCompletion checks if a partition is complete and handles loop termination
-func (k *Kafka) checkPartitionCompletion(ctx context.Context, readerID int, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
+func (k *Kafka) checkPartitionCompletion(assignedPartitions []types.PartitionKey, completedPartitions, observedPartitions map[types.PartitionKey]struct{}) (bool, error) {
 	// cache observed partitions
 	if len(observedPartitions) == 0 {
 		// Ensure we have all assigned partitions tracked
-		assigned, err := k.getReaderAssignedPartitions(ctx, readerID)
-		if err != nil {
-			return false, err
-		}
-
-		for _, assignedPk := range assigned {
+		for _, assignedPk := range assignedPartitions {
 			if _, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(assignedPk.Topic, assignedPk.Partition)); exists {
 				observedPartitions[assignedPk] = struct{}{}
 			}

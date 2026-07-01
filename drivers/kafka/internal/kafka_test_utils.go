@@ -8,21 +8,30 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/linkedin/goavro/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
+	// "github.com/twmb/franz-go/pkg/kmsg"
 )
 
 const (
-	partitionCount        = 5
-	avroSchemaRegistryURL = "http://127.0.0.1:8081"
+	partitionCount             = 5
+	rebalanceBulkMessageCount  = 100_000
+	rebalanceBulkPartition     = int32(0)
+	rebalanceBulkBatchSize     = 500
+	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
+	KafkaJsonConsumerGroupID   = "kafka-Json-integration-test-group"
+	avroSchemaRegistryURL      = "http://127.0.0.1:8081"
 
 	// Base Avro schema
 	avroSchema = `{
@@ -63,6 +72,11 @@ const (
 )
 
 var (
+	// rebalance trigger
+	rebalanceTriggerCancel context.CancelFunc
+	rebalanceTriggerDone   chan struct{} // closed when the trigger goroutine has fully exited
+	kafkaJsonStatsPath     string        // set from TestConfig.HostStatsPath in kafka_test.go
+
 	// JSON
 	jsonKey          = []byte("json-key")
 	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
@@ -122,43 +136,174 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 		utils.UnmarshalFile("./testdata/source.json", &config, false)
 		kafkaJSONBroker = config.BootstrapServers
 	} else {
-		kafkaJSONBroker = "127.0.0.1:29092"
+		kafkaJSONBroker = kafkaJSONIntegrationBroker
 	}
 
-	// kafka writer
-	writer, err := kgo.NewClient(
+	// kafka client
+	client, err := kgo.NewClient(
 		kgo.SeedBrokers(kafkaJSONBroker),
 		kgo.DefaultProduceTopic(streams[0]),
 		kgo.RecordPartitioner(kgo.ManualPartitioner()),
 	)
 	require.NoError(t, err)
-	defer writer.Close()
+	defer client.Close()
 
 	switch operation {
 	case "create":
-		createKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
+		createKafkaTopic(ctx, t, client, streams[0])
 
 	case "clean":
-		deleteKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
-		createKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
+		deleteKafkaTopic(ctx, t, client, streams[0])
+		createKafkaTopic(ctx, t, client, streams[0])
 
 	case "drop":
-		deleteKafkaTopic(ctx, t, kafkaJSONBroker, streams[0])
+		deleteKafkaTopic(ctx, t, client, streams[0])
 
 	case "add":
 		// 5 messages inserted with different partitions
 		for partition := range partitionCount {
-			writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: int32(partition)})
+			writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: int32(partition)})
 		}
-		writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: jsonKey, Value: jsonFilterValue})
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonFilterValue})
 		t.Logf("Added 6 messages to topic '%s' (one per partition and one for filters)", streams[0])
 
 	case "update":
-		writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: jsonKey, Value: jsonUpdatedValue})
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonUpdatedValue})
 		t.Logf("Added 1 updated message to topic '%s'", streams[0])
+
+	case "insert_2pc":
+		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
+		commitConsumerGroupOffset(ctx, t, client, KafkaJsonConsumerGroupID, streams[0], 0, 1)
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
+		// add a new partition with one message to simulate evolution of schema map in destination metadata
+		addKafkaPartitions(ctx, t, client, streams[0], 1)
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 5})
+		t.Logf("Rolled back partition %d, added partition %d with 1 message, and added 1 message on partition %d for topic '%s'", 0, 5, 0, streams[0])
+
+	case "insert_rebalance":
+		for written := 0; written < rebalanceBulkMessageCount; written += rebalanceBulkBatchSize {
+			batchCount := min(rebalanceBulkBatchSize, rebalanceBulkMessageCount-written)
+			records := make([]*kgo.Record, batchCount)
+			for i := range records {
+				offset := int64(written + i)
+				records[i] = &kgo.Record{
+					Key:       jsonKey,
+					Value:     jsonValue,
+					Partition: rebalanceBulkPartition,
+					Offset:    offset,
+				}
+			}
+			for {
+				err := client.ProduceSync(ctx, records...).FirstErr()
+				if err == nil {
+					break
+				}
+				if ctx.Err() != nil {
+					require.NoError(t, err, "failed writing kafka rebalance bulk batch (batch_size=%d): %v", batchCount, err)
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+		t.Logf("Added %d messages to topic '%s' on partition %d", rebalanceBulkMessageCount, streams[0], rebalanceBulkPartition)
+
+		topic := streams[0]
+		rebalanceCtx, cancel := context.WithCancel(ctx)
+		rebalanceTriggerCancel = cancel
+		go func() {
+			waitForSyncProgress(rebalanceCtx, t, kafkaJsonStatsPath)
+			if rebalanceCtx.Err() != nil {
+				return
+			}
+			startRebalanceTrigger(rebalanceCtx, t, kafkaJSONIntegrationBroker, KafkaJsonConsumerGroupID, topic)
+			t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJsonConsumerGroupID, topic)
+		}()
+
+	case "stop_rebalance":
+		stopRebalanceTrigger()
+		t.Logf("stopped rebalance trigger consumer")
 
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
+	}
+}
+
+func waitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
+	t.Helper()
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := os.Stat(statsPath); err == nil {
+				var stats struct {
+					SyncedRecords int64 `json:"Synced Records"`
+				}
+				if err := utils.UnmarshalFile(statsPath, &stats, false); err == nil && stats.SyncedRecords > 0 {
+					t.Logf("sync started: %d records synced", stats.SyncedRecords)
+					return
+				}
+			}
+		}
+	}
+}
+
+func startRebalanceTrigger(ctx context.Context, t *testing.T, broker, groupID, topic string) {
+	t.Helper()
+
+	instanceID := fmt.Sprintf("rebalance-trigger-%d", time.Now().UnixNano())
+
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(broker),
+		kgo.ConsumerGroup(groupID),
+		kgo.ClientID(instanceID),
+		kgo.InstanceID(instanceID),
+		kgo.ConsumeTopics(topic),
+		kgo.Balancers(kafkapkg.NewCustomGroupBalancer(map[string]types.PartitionMetaData{
+			kafkapkg.PartitionMetadataKey(topic, rebalanceBulkPartition): {PartitionID: rebalanceBulkPartition},
+		})),
+		kgo.FetchMinBytes(1),
+		kgo.DisableAutoCommit(),
+	)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	rebalanceTriggerDone = done
+
+	go func() {
+		defer func() {
+			// kgo.InstanceID disables the automatic LeaveGroup in client.Close() for static members.
+			// Send an explicit LeaveGroup so the broker removes this member immediately instead of
+			// waiting for session.timeout.ms, which would cause a rebalance in the next sync.
+			client.LeaveGroup()
+			t.Logf("rebalance trigger consumer: sent LeaveGroup (group=%s instanceID=%s)", groupID, instanceID)
+			client.Close()
+			close(done)
+			t.Logf("rebalance trigger consumer: goroutine exited (group=%s instanceID=%s)", groupID, instanceID)
+		}()
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			client.PollFetches(ctx)
+		}
+	}()
+}
+
+func stopRebalanceTrigger() {
+	if rebalanceTriggerCancel != nil {
+		rebalanceTriggerCancel()
+		rebalanceTriggerCancel = nil
+	}
+	// Wait for the goroutine to fully exit and the explicit LeaveGroup to be sent.
+	// Without this, the static member lingers in the broker (kgo.InstanceID skips LeaveGroup
+	// on Close) and may still hold a partition assignment when the next sync starts.
+	if rebalanceTriggerDone != nil {
+		<-rebalanceTriggerDone
+		rebalanceTriggerDone = nil
 	}
 }
 
@@ -174,25 +319,25 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 	} else {
 		kafkaAvroBroker = "127.0.0.1:29192"
 	}
-	// kafka writer
-	writer, err := kgo.NewClient(
+	// kafka client
+	client, err := kgo.NewClient(
 		kgo.SeedBrokers(kafkaAvroBroker),
 		kgo.DefaultProduceTopic(streams[0]),
 		kgo.RecordPartitioner(kgo.RoundRobinPartitioner()),
 	)
 	require.NoError(t, err)
-	defer writer.Close()
+	defer client.Close()
 
 	switch operation {
 	case "create":
-		createKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
+		createKafkaTopic(ctx, t, client, streams[0])
 
 	case "clean":
-		deleteKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
-		createKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
+		deleteKafkaTopic(ctx, t, client, streams[0])
+		createKafkaTopic(ctx, t, client, streams[0])
 
 	case "drop":
-		deleteKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
+		deleteKafkaTopic(ctx, t, client, streams[0])
 
 	case "add":
 		// avro codec
@@ -201,8 +346,8 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, streams[0], avroSchema)
 
 		// avro messages written
-		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroValue, streams[0])
-		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroFilterValue, streams[0])
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroValue, streams[0])
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroFilterValue, streams[0])
 		t.Logf("Added 2 messages to topic '%s' (one valid for sync and one filtered out)", streams[0])
 
 	case "update":
@@ -211,7 +356,7 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, streams[0], updatedAvroSchema)
 
 		// avro message written with new schema
-		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroUpdatedValue, streams[0])
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroUpdatedValue, streams[0])
 		t.Logf("Added 1 updated message to topic '%s'", streams[0])
 
 	default:
@@ -220,35 +365,108 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 }
 
 // deleteTopic deletes the topic and waits briefly so the broker can settle (matches prior test harness behavior).
-func deleteKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
+func deleteKafkaTopic(ctx context.Context, t *testing.T, client *kgo.Client, topic string) {
 	t.Helper()
 
-	// connect to kafka cluster
-	client, err := kgo.NewClient(kgo.SeedBrokers(broker))
-	require.NoError(t, err, "failed to dial kafka broker")
-	defer client.Close()
-
-	// delete topic
-	_, err = kadm.NewClient(client).DeleteTopics(ctx, topic)
+	_, err := kadm.NewClient(client).DeleteTopics(ctx, topic)
 	require.NoError(t, err, "failed to delete topic '%s'", topic)
 	time.Sleep(5 * time.Second)
 }
 
 // createTopic creates the test topic with a fixed partition count and replication factor 1.
-func createKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
+func createKafkaTopic(ctx context.Context, t *testing.T, client *kgo.Client, topic string) {
 	t.Helper()
 
-	// connect to kafka cluster
-	client, err := kgo.NewClient(kgo.SeedBrokers(broker))
-	require.NoError(t, err, "failed to dial kafka broker")
-	defer client.Close()
-
-	// create topic
 	res, err := kadm.NewClient(client).CreateTopics(ctx, int32(partitionCount), 1, nil, topic)
 	if err == nil && res[topic].Err != nil && !errors.Is(res[topic].Err, kerr.TopicAlreadyExists) {
 		err = res[topic].Err
 	}
 	require.NoError(t, err, "failed to create topic '%s'", topic)
+}
+
+// addKafkaPartitions adds Kafka partitions to a topic for 2PC recovery tests.
+func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, topic string, add int) {
+	t.Helper()
+
+	res, err := kadm.NewClient(client).CreatePartitions(ctx, add, topic)
+	require.NoError(t, err, "failed to add partitions to topic '%s'", topic)
+	require.NoError(t, res.Error(), "partition expansion returned errors for topic '%s'", topic)
+	topicRes, topicErr := res.On(topic, nil)
+	require.NoError(t, topicErr, "no partition expansion response for topic '%s'", topic)
+	require.NoError(t, topicRes.Err, "failed to add %d partition(s) to topic '%s'", add, topic)
+	t.Logf("Added %d partition(s) to topic '%s'", add, topic)
+}
+
+// // commitConsumerGroupOffset rolls back a consumer group offset for 2PC recovery tests.
+// // nextOffset is the next consumable offset (e.g. 1 means re-read from offset 1).
+// func commitConsumerGroupOffset(ctx context.Context, t *testing.T, broker, consumerGroupID, topic string, partition int32, nextOffset int64) {
+// 	t.Helper()
+
+// 	seed, err := kgo.NewClient(kgo.SeedBrokers(broker))
+// 	require.NoError(t, err)
+// 	defer seed.Close()
+
+// 	adm := kadm.NewClient(seed)
+
+// 	// Olake uses multiple static group members; force-leave any lingering members, then wait until empty.
+// 	require.NoError(t, utils.RetryOnBackoff(ctx, 60, 2*time.Second, func(ctx context.Context) error {
+// 		groups, describeErr := adm.DescribeGroups(ctx, consumerGroupID)
+// 		if describeErr != nil {
+// 			return describeErr
+// 		}
+// 		group := groups[consumerGroupID]
+// 		if group.Err != nil && !errors.Is(group.Err, kerr.GroupIDNotFound) {
+// 			return group.Err
+// 		}
+// 		if len(group.Members) == 0 {
+// 			return nil
+// 		}
+
+// 		leaveReq := kmsg.NewPtrLeaveGroupRequest()
+// 		leaveReq.Group = consumerGroupID
+// 		for _, member := range group.Members {
+// 			leaveReq.Members = append(leaveReq.Members, kmsg.LeaveGroupRequestMember{
+// 				MemberID:   member.MemberID,
+// 				InstanceID: member.InstanceID,
+// 			})
+// 		}
+// 		leaveResp, leaveErr := leaveReq.RequestWith(ctx, seed)
+// 		if leaveErr != nil {
+// 			return fmt.Errorf("leave group %s: %w", consumerGroupID, leaveErr)
+// 		}
+// 		if leaveResp.ErrorCode != 0 {
+// 			return fmt.Errorf("leave group %s error code %d", consumerGroupID, leaveResp.ErrorCode)
+// 		}
+// 		return fmt.Errorf("consumer group %s still has %d active member(s)", consumerGroupID, len(group.Members))
+// 	}))
+
+// 	fetched, err := adm.FetchOffsets(ctx, consumerGroupID)
+// 	require.NoError(t, err)
+
+// 	toCommit := fetched.Offsets()
+// 	toCommit.Delete(topic, partition)
+// 	toCommit.AddOffset(topic, partition, nextOffset, -1)
+
+// 	// Delete and re-seed offsets admin-side; avoids joining Olake's multi-member consumer group.
+// 	_, err = adm.DeleteGroup(ctx, consumerGroupID)
+// 	require.NoError(t, err)
+
+// 	committed, err := adm.CommitOffsets(ctx, consumerGroupID, toCommit)
+// 	require.NoError(t, err)
+// 	require.NoError(t, committed.Error())
+// 	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, nextOffset)
+// }
+
+// commitConsumerGroupOffset commits a consumer group offset to a Kafka topic partition for 2PC recovery tests.
+func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Client, consumerGroupID, topic string, partition int32, offset int64) {
+	t.Helper()
+	time.Sleep(45 * time.Second)
+	toCommit := kadm.Offsets{}
+	toCommit.AddOffset(topic, partition, offset, -1)
+	committed, err := kadm.NewClient(client).CommitOffsets(ctx, consumerGroupID, toCommit)
+	require.NoError(t, err)
+	require.NoError(t, committed.Error())
+	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, offset)
 }
 
 // Writes a Kafka message with retries until success or context timeout.

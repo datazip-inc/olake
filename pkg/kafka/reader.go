@@ -130,7 +130,10 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 			continue
 		}
 
-		committedOffset := committedTopicOffsets[partitionDetail.Partition]
+		committedOffset, hasCommitted := committedTopicOffsets[partitionDetail.Partition]
+		if !hasCommitted {
+			committedOffset = -1
+		}
 
 		// if a committed offset is available and there are no new messages, skip
 		if committedOffset >= endOffsetDetail.Offset {
@@ -139,9 +142,10 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 		}
 
 		partitionsMetadata[PartitionMetadataKey(topic, partitionDetail.Partition)] = types.PartitionMetaData{
-			Stream:      stream,
-			PartitionID: partitionDetail.Partition,
-			EndOffset:   endOffsetDetail.Offset,
+			Stream:          stream,
+			PartitionID:     partitionDetail.Partition,
+			EndOffset:       endOffsetDetail.Offset,
+			CommittedOffset: committedOffset,
 		}
 	}
 	return partitionsMetadata, nil

@@ -29,13 +29,14 @@ import (
 
 const (
 	// golangTestImage must match the `go` version in go.mod / go.work (integration tests build via build.sh inside this container).
-	golangTestImage     = "golang:1.25.11-bookworm"
-	icebergCatalog      = "olake_iceberg"
-	sparkConnectAddress = "sc://localhost:15002"
-	installCmd          = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
-	SyncTimeout         = 10 * time.Minute
-	BenchmarkThreshold  = 0.9
-	maxRPSHistorySize   = 5
+	golangTestImage                = "golang:1.25.11-bookworm"
+	icebergCatalog                 = "olake_iceberg"
+	sparkConnectAddress            = "sc://localhost:15002"
+	installCmd                     = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
+	SyncTimeout                    = 10 * time.Minute
+	BenchmarkThreshold             = 0.9
+	maxRPSHistorySize              = 5
+	kafkaRebalanceBulkMessageCount = int64(100_000)
 )
 
 type IntegrationTest struct {
@@ -79,6 +80,7 @@ type TestConfig struct {
 	HostTestDataPath       string
 	HostCatalogPath        string
 	HostTestCatalogPath    string
+	HostStatsPath          string
 	DataFormat             string
 }
 
@@ -197,6 +199,7 @@ func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 		HostTestDataPath:       fmt.Sprintf(hostTestDataPath, driver, ""),
 		HostTestCatalogPath:    fmt.Sprintf(hostTestDataPath, driver, "test_streams.json"),
 		HostCatalogPath:        fmt.Sprintf(hostTestDataPath, driver, "streams.json"),
+		HostStatsPath:          fmt.Sprintf(hostTestDataPath, driver, "stats.json"),
 		BenchmarksPath:         fmt.Sprintf(hostTestDataPath, driver, "benchmarks.json"),
 		SourcePath:             fmt.Sprintf(containerTestDataPath, driver, "source.json"),
 		CatalogPath:            fmt.Sprintf(containerTestDataPath, driver, "streams.json"),
@@ -226,6 +229,13 @@ func syncCommand(config TestConfig, useState bool, destinationType string, flags
 		baseCmd = fmt.Sprintf("%s %s", baseCmd, strings.Join(flags, " "))
 	}
 	return baseCmd
+}
+
+func logSyncOutput(t *testing.T, out []byte) {
+	t.Helper()
+	if len(out) > 0 {
+		t.Logf("sync output:\n%s", out)
+	}
 }
 
 // pass flags as `--flag1, flag1 value, --flag2, flag2 value...`
@@ -412,6 +422,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	// Run sync command
 	code, out, err := utils.ExecCommand(ctx, c, cmd)
+	logSyncOutput(t, out)
 	if err != nil || code != 0 {
 		return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 	}
@@ -851,7 +862,7 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
-	twoPCCDCTestCases := []syncTestCase{
+	dbTwoPCCDCTestCases := []syncTestCase{
 		{
 			name:                     "Full-Refresh",
 			operation:                "",
@@ -900,7 +911,52 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 		},
 	}
 
-	for _, tc := range twoPCCDCTestCases {
+	kafkaTwoPCCDCTestCases := []syncTestCase{
+		{
+			name:                     "CDC - initial load",
+			operation:                "",
+			useState:                 false,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 5,
+		},
+		{
+			name:                     "CDC - insert",
+			operation:                "add",
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 10,
+		},
+		{
+			// Simulates a 2PC failure after the destination commit but before the source offset commit
+			// by rolling back the committed source offset for partition 0 before the recovery sync.
+			// Also adds a new partition with one message to validate new partition discovery.
+			name:                     "CDC - Recovery Sync",
+			operation:                "insert_2pc",
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 11,
+		},
+		{
+			// No new Kafka messages; sync picks up the lagging partition-0 message from recovery.
+			name:                     "CDC - Post Recovery Sync",
+			operation:                "",
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 12,
+		},
+	}
+
+	testCases := utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTwoPCCDCTestCases, dbTwoPCCDCTestCases).([]syncTestCase)
+
+	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, cmd := range tc.preSetupCommands {
 				if code, out, execErr := utils.ExecCommand(ctx, c, cmd); execErr != nil || code != 0 {
@@ -1150,6 +1206,124 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			t.Logf("%s 2PC sync test-container clean up", cfg.TestConfig.Driver)
+			return nil
+		})
+	})
+}
+
+// runRebalanceSync runs a sync command for the rebalance test.
+func (cfg *IntegrationTest) runRebalanceSync(
+	ctx context.Context,
+	t *testing.T,
+	c testcontainers.Container,
+	useState bool,
+) error {
+	t.Helper()
+
+	destDBPrefix := fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)
+	cmd := syncCommand(*cfg.TestConfig, useState, "iceberg", "--destination-database-prefix", destDBPrefix)
+
+	code, out, err := utils.ExecCommand(ctx, c, cmd)
+	logSyncOutput(t, out)
+	if err != nil {
+		return fmt.Errorf("sync exec error: %w\n%s", err, out)
+	}
+	if code != 0 {
+		return fmt.Errorf("sync failed (%d): %s", code, out)
+	}
+	t.Logf("sync completed successfully")
+	return nil
+}
+
+// testKafkaRebalance exercises consumer-group rebalance recovery while syncing a large bulk of messages.
+func (cfg *IntegrationTest) testKafkaRebalance(
+	ctx context.Context,
+	t *testing.T,
+	c testcontainers.Container,
+	testTable string,
+) error {
+	t.Log("Starting Kafka rebalance recovery test")
+
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	code, out, err := utils.ExecCommand(ctx, c, resetStateFileCommand(*cfg.TestConfig))
+	if err != nil || code != 0 {
+		return fmt.Errorf("failed to reset state file (%d): %s\n%s", code, err, out)
+	}
+
+	rebalanceTestCases := []syncTestCase{
+		{
+			name:      "CDC - first rebalance sync",
+			operation: "insert_rebalance",
+			useState:  true,
+		},
+		{
+			// Stop the trigger consumer before resuming so it cannot hold partition assignments.
+			name:      "CDC - second rebalance sync",
+			operation: "stop_rebalance",
+			useState:  true,
+		},
+	}
+
+	for _, tc := range rebalanceTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg.ExecuteQuery(ctx, t, []string{testTable}, tc.operation, false)
+
+			if err := cfg.runRebalanceSync(ctx, t, c, tc.useState); err != nil {
+				t.Fatalf("%s failed: %v", tc.name, err)
+			}
+		})
+	}
+
+	VerifyIcebergNoDuplicates(ctx, t, testTable, cfg.DestinationDB, "c", kafkaRebalanceBulkMessageCount)
+
+	t.Log("Kafka rebalance recovery test completed successfully")
+
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	t.Logf("Dropped Iceberg table: %s", testTable)
+
+	return nil
+}
+
+// TestRebalance runs the Kafka consumer-group rebalance recovery integration test in an isolated container.
+func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
+	ctx := context.Background()
+
+	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
+	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
+	currentTestTable := fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)
+
+	testStreamsData, err := os.ReadFile(cfg.TestConfig.HostTestCatalogPath)
+	require.NoError(t, err, "failed to read test_streams.json")
+	require.NoError(t, os.WriteFile(cfg.TestConfig.HostCatalogPath, testStreamsData, 0600), "failed to write streams.json")
+
+	t.Run("Sync", func(t *testing.T) {
+		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
+			// 1. Install required tools
+			if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
+				return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
+			}
+
+			// 2. Query on test table
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+
+			// 3. Enable normalization and partition regex in streams.json
+			streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true, cfg.ColumnToExclude)
+			if code, out, err := utils.ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
+				return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
+					code, err, out,
+				)
+			}
+			t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.CatalogPath)
+
+			// 4. Run Kafka rebalance recovery test (legacy Iceberg writer)
+			if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, false, cfg.testKafkaRebalance); err != nil {
+				t.Fatalf("Kafka rebalance test failed: %v", err)
+			}
+
+			// 5. Clean up
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+			t.Logf("%s rebalance test-container clean up", cfg.TestConfig.Driver)
 			return nil
 		})
 	})
