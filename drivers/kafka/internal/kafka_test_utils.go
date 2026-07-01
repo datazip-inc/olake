@@ -260,7 +260,6 @@ func startRebalanceTriggerConsumer(ctx context.Context, t *testing.T, broker, gr
 		kgo.SeedBrokers(broker),
 		kgo.ConsumerGroup(groupID),
 		kgo.ClientID(instanceID),
-		kgo.InstanceID(instanceID),
 		kgo.ConsumeTopics(topic),
 		kgo.Balancers(kafkapkg.NewCustomGroupBalancer(map[string]types.PartitionMetaData{
 			kafkapkg.PartitionMetadataKey(topic, rebalanceBulkPartition): {PartitionID: rebalanceBulkPartition},
