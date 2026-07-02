@@ -253,12 +253,13 @@ func waitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
 func startRebalanceTrigger(ctx context.Context, t *testing.T, broker, groupID, topic string) {
 	t.Helper()
 
-	clientID := fmt.Sprintf("rebalance-trigger-%d", time.Now().UnixNano())
+	instanceID := fmt.Sprintf("rebalance-trigger-%d", time.Now().UnixNano())
 
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(broker),
 		kgo.ConsumerGroup(groupID),
-		kgo.ClientID(clientID),
+		kgo.ClientID(instanceID),
+		kgo.InstanceID(instanceID),
 		kgo.ConsumeTopics(topic),
 		kgo.Balancers(kafkapkg.NewCustomGroupBalancer(map[string]types.PartitionMetaData{
 			kafkapkg.PartitionMetadataKey(topic, rebalanceBulkPartition): {PartitionID: rebalanceBulkPartition},
@@ -274,7 +275,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, broker, groupID, t
 		defer func() {
 			client.Close()
 			close(done)
-			t.Logf("rebalance trigger consumer: goroutine exited (group=%s clientID=%s)", groupID, clientID)
+			t.Logf("rebalance trigger consumer: goroutine exited (group=%s instanceID=%s)", groupID, instanceID)
 		}()
 		for {
 			if ctx.Err() != nil {
