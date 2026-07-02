@@ -355,7 +355,6 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 		parsedKey, err := parseData(message.Key)
 		if err != nil {
 			// standard fallback: raw key as string
-			logger.Warnf("failed to parse key for topic=%s partition=%d offset=%d: %s, using raw string", message.Topic, message.Partition, message.Offset, err)
 			keyValue = string(message.Key)
 		} else {
 			switch v := parsedKey.(type) {
