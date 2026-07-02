@@ -89,7 +89,6 @@ const (
 	ArrowPayload_REGISTER_AND_COMMIT ArrowPayload_PayloadType = 1
 	ArrowPayload_JSONSCHEMA          ArrowPayload_PayloadType = 2
 	ArrowPayload_FILEPATH            ArrowPayload_PayloadType = 3
-	ArrowPayload_CLOSE_SESSION       ArrowPayload_PayloadType = 4
 )
 
 // Enum value maps for ArrowPayload_PayloadType.
@@ -99,14 +98,12 @@ var (
 		1: "REGISTER_AND_COMMIT",
 		2: "JSONSCHEMA",
 		3: "FILEPATH",
-		4: "CLOSE_SESSION",
 	}
 	ArrowPayload_PayloadType_value = map[string]int32{
 		"UPLOAD_FILE":         0,
 		"REGISTER_AND_COMMIT": 1,
 		"JSONSCHEMA":          2,
 		"FILEPATH":            3,
-		"CLOSE_SESSION":       4,
 	}
 )
 
@@ -369,12 +366,11 @@ type IcebergPayload_Metadata struct {
 	Schema          []*IcebergPayload_SchemaField `protobuf:"bytes,4,rep,name=schema,proto3" json:"schema,omitempty"`
 	Payload         string                        `protobuf:"bytes,6,opt,name=payload,proto3" json:"payload,omitempty"`
 	// Per-stream context (previously baked into JVM CLI args)
-	Namespace              string                           `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Upsert                 bool                             `protobuf:"varint,8,opt,name=upsert,proto3" json:"upsert,omitempty"`
-	CreateIdentifierFields bool                             `protobuf:"varint,9,opt,name=create_identifier_fields,json=createIdentifierFields,proto3" json:"create_identifier_fields,omitempty"`
-	PartitionFields        []*IcebergPayload_PartitionField `protobuf:"bytes,10,rep,name=partition_fields,json=partitionFields,proto3" json:"partition_fields,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	Namespace       string                           `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
+	Upsert          bool                             `protobuf:"varint,8,opt,name=upsert,proto3" json:"upsert,omitempty"`
+	PartitionFields []*IcebergPayload_PartitionField `protobuf:"bytes,10,rep,name=partition_fields,json=partitionFields,proto3" json:"partition_fields,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *IcebergPayload_Metadata) Reset() {
@@ -452,13 +448,6 @@ func (x *IcebergPayload_Metadata) GetNamespace() string {
 func (x *IcebergPayload_Metadata) GetUpsert() bool {
 	if x != nil {
 		return x.Upsert
-	}
-	return false
-}
-
-func (x *IcebergPayload_Metadata) GetCreateIdentifierFields() bool {
-	if x != nil {
-		return x.CreateIdentifierFields
 	}
 	return false
 }
@@ -914,58 +903,6 @@ func (x *ArrowPayload_FileUploadRequest) GetFilePath() string {
 	return ""
 }
 
-type ArrowPayload_PartitionField struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Field         string                 `protobuf:"bytes,1,opt,name=field,proto3" json:"field,omitempty"`
-	Transform     string                 `protobuf:"bytes,2,opt,name=transform,proto3" json:"transform,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ArrowPayload_PartitionField) Reset() {
-	*x = ArrowPayload_PartitionField{}
-	mi := &file_records_ingest_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ArrowPayload_PartitionField) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ArrowPayload_PartitionField) ProtoMessage() {}
-
-func (x *ArrowPayload_PartitionField) ProtoReflect() protoreflect.Message {
-	mi := &file_records_ingest_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ArrowPayload_PartitionField.ProtoReflect.Descriptor instead.
-func (*ArrowPayload_PartitionField) Descriptor() ([]byte, []int) {
-	return file_records_ingest_proto_rawDescGZIP(), []int{2, 2}
-}
-
-func (x *ArrowPayload_PartitionField) GetField() string {
-	if x != nil {
-		return x.Field
-	}
-	return ""
-}
-
-func (x *ArrowPayload_PartitionField) GetTransform() string {
-	if x != nil {
-		return x.Transform
-	}
-	return ""
-}
-
 type ArrowPayload_Metadata struct {
 	state         protoimpl.MessageState          `protogen:"open.v1"`
 	DestTableName string                          `protobuf:"bytes,1,opt,name=dest_table_name,json=destTableName,proto3" json:"dest_table_name,omitempty"`
@@ -973,18 +910,13 @@ type ArrowPayload_Metadata struct {
 	FileMetadata  []*ArrowPayload_FileMetadata    `protobuf:"bytes,3,rep,name=file_metadata,json=fileMetadata,proto3" json:"file_metadata,omitempty"`
 	FileUpload    *ArrowPayload_FileUploadRequest `protobuf:"bytes,4,opt,name=file_upload,json=fileUpload,proto3,oneof" json:"file_upload,omitempty"`
 	Payload       string                          `protobuf:"bytes,6,opt,name=payload,proto3" json:"payload,omitempty"`
-	// Per-stream context (previously baked into JVM CLI args)
-	Namespace              string                         `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
-	Upsert                 bool                           `protobuf:"varint,8,opt,name=upsert,proto3" json:"upsert,omitempty"`
-	CreateIdentifierFields bool                           `protobuf:"varint,9,opt,name=create_identifier_fields,json=createIdentifierFields,proto3" json:"create_identifier_fields,omitempty"`
-	PartitionFields        []*ArrowPayload_PartitionField `protobuf:"bytes,10,rep,name=partition_fields,json=partitionFields,proto3" json:"partition_fields,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ArrowPayload_Metadata) Reset() {
 	*x = ArrowPayload_Metadata{}
-	mi := &file_records_ingest_proto_msgTypes[12]
+	mi := &file_records_ingest_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -996,7 +928,7 @@ func (x *ArrowPayload_Metadata) String() string {
 func (*ArrowPayload_Metadata) ProtoMessage() {}
 
 func (x *ArrowPayload_Metadata) ProtoReflect() protoreflect.Message {
-	mi := &file_records_ingest_proto_msgTypes[12]
+	mi := &file_records_ingest_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1009,7 +941,7 @@ func (x *ArrowPayload_Metadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArrowPayload_Metadata.ProtoReflect.Descriptor instead.
 func (*ArrowPayload_Metadata) Descriptor() ([]byte, []int) {
-	return file_records_ingest_proto_rawDescGZIP(), []int{2, 3}
+	return file_records_ingest_proto_rawDescGZIP(), []int{2, 2}
 }
 
 func (x *ArrowPayload_Metadata) GetDestTableName() string {
@@ -1047,34 +979,6 @@ func (x *ArrowPayload_Metadata) GetPayload() string {
 	return ""
 }
 
-func (x *ArrowPayload_Metadata) GetNamespace() string {
-	if x != nil {
-		return x.Namespace
-	}
-	return ""
-}
-
-func (x *ArrowPayload_Metadata) GetUpsert() bool {
-	if x != nil {
-		return x.Upsert
-	}
-	return false
-}
-
-func (x *ArrowPayload_Metadata) GetCreateIdentifierFields() bool {
-	if x != nil {
-		return x.CreateIdentifierFields
-	}
-	return false
-}
-
-func (x *ArrowPayload_Metadata) GetPartitionFields() []*ArrowPayload_PartitionField {
-	if x != nil {
-		return x.PartitionFields
-	}
-	return nil
-}
-
 type ArrowPayload_FileMetadata_PartitionValue struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Value:
@@ -1092,7 +996,7 @@ type ArrowPayload_FileMetadata_PartitionValue struct {
 
 func (x *ArrowPayload_FileMetadata_PartitionValue) Reset() {
 	*x = ArrowPayload_FileMetadata_PartitionValue{}
-	mi := &file_records_ingest_proto_msgTypes[13]
+	mi := &file_records_ingest_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1104,7 +1008,7 @@ func (x *ArrowPayload_FileMetadata_PartitionValue) String() string {
 func (*ArrowPayload_FileMetadata_PartitionValue) ProtoMessage() {}
 
 func (x *ArrowPayload_FileMetadata_PartitionValue) ProtoReflect() protoreflect.Message {
-	mi := &file_records_ingest_proto_msgTypes[13]
+	mi := &file_records_ingest_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1231,11 +1135,12 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\x91\v\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xd7\n" +
+	"\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
-	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xdc\x03\n" +
+	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xa2\x03\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
 	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12.\n" +
@@ -1243,8 +1148,7 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x06schema\x18\x04 \x03(\v2:.io.debezium.server.iceberg.rpc.IcebergPayload.SchemaFieldR\x06schema\x12\x18\n" +
 	"\apayload\x18\x06 \x01(\tR\apayload\x12\x1c\n" +
 	"\tnamespace\x18\a \x01(\tR\tnamespace\x12\x16\n" +
-	"\x06upsert\x18\b \x01(\bR\x06upsert\x128\n" +
-	"\x18create_identifier_fields\x18\t \x01(\bR\x16createIdentifierFields\x12h\n" +
+	"\x06upsert\x18\b \x01(\bR\x06upsert\x12h\n" +
 	"\x10partition_fields\x18\n" +
 	" \x03(\v2=.io.debezium.server.iceberg.rpc.IcebergPayload.PartitionFieldR\x0fpartitionFieldsB\x13\n" +
 	"\x11_identifier_field\x1a:\n" +
@@ -1285,7 +1189,7 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12&\n" +
-	"\x0folake_2pc_state\x18\x03 \x01(\tR\rolake2pcState\"\x95\v\n" +
+	"\x0folake_2pc_state\x18\x03 \x01(\tR\rolake2pcState\"\xe4\b\n" +
 	"\fArrowPayload\x12L\n" +
 	"\x04type\x18\x01 \x01(\x0e28.io.debezium.server.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12Q\n" +
 	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\xca\x03\n" +
@@ -1307,30 +1211,21 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x05value\x1aM\n" +
 	"\x11FileUploadRequest\x12\x1b\n" +
 	"\tfile_data\x18\x01 \x01(\fR\bfileData\x12\x1b\n" +
-	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x1aD\n" +
-	"\x0ePartitionField\x12\x14\n" +
-	"\x05field\x18\x01 \x01(\tR\x05field\x12\x1c\n" +
-	"\ttransform\x18\x02 \x01(\tR\ttransform\x1a\x97\x04\n" +
+	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x1a\xbf\x02\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
 	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12^\n" +
 	"\rfile_metadata\x18\x03 \x03(\v29.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadataR\ffileMetadata\x12d\n" +
 	"\vfile_upload\x18\x04 \x01(\v2>.io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequestH\x00R\n" +
 	"fileUpload\x88\x01\x01\x12\x18\n" +
-	"\apayload\x18\x06 \x01(\tR\apayload\x12\x1c\n" +
-	"\tnamespace\x18\a \x01(\tR\tnamespace\x12\x16\n" +
-	"\x06upsert\x18\b \x01(\bR\x06upsert\x128\n" +
-	"\x18create_identifier_fields\x18\t \x01(\bR\x16createIdentifierFields\x12f\n" +
-	"\x10partition_fields\x18\n" +
-	" \x03(\v2;.io.debezium.server.iceberg.rpc.ArrowPayload.PartitionFieldR\x0fpartitionFieldsB\x0e\n" +
-	"\f_file_upload\"h\n" +
+	"\apayload\x18\x06 \x01(\tR\apayloadB\x0e\n" +
+	"\f_file_upload\"U\n" +
 	"\vPayloadType\x12\x0f\n" +
 	"\vUPLOAD_FILE\x10\x00\x12\x17\n" +
 	"\x13REGISTER_AND_COMMIT\x10\x01\x12\x0e\n" +
 	"\n" +
 	"JSONSCHEMA\x10\x02\x12\f\n" +
-	"\bFILEPATH\x10\x03\x12\x11\n" +
-	"\rCLOSE_SESSION\x10\x04\"\xe1\x01\n" +
+	"\bFILEPATH\x10\x03\"\xe1\x01\n" +
 	"\x13ArrowIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12o\n" +
 	"\x0eicebergSchemas\x18\x02 \x03(\v2G.io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntryR\x0eicebergSchemas\x1aA\n" +
@@ -1356,7 +1251,7 @@ func file_records_ingest_proto_rawDescGZIP() []byte {
 }
 
 var file_records_ingest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_records_ingest_proto_goTypes = []any{
 	(IcebergPayload_PayloadType)(0),                  // 0: io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
 	(ArrowPayload_PayloadType)(0),                    // 1: io.debezium.server.iceberg.rpc.ArrowPayload.PayloadType
@@ -1371,34 +1266,32 @@ var file_records_ingest_proto_goTypes = []any{
 	(*IcebergPayload_IceRecord_FieldValue)(nil),      // 10: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
 	(*ArrowPayload_FileMetadata)(nil),                // 11: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
 	(*ArrowPayload_FileUploadRequest)(nil),           // 12: io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
-	(*ArrowPayload_PartitionField)(nil),              // 13: io.debezium.server.iceberg.rpc.ArrowPayload.PartitionField
-	(*ArrowPayload_Metadata)(nil),                    // 14: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
-	(*ArrowPayload_FileMetadata_PartitionValue)(nil), // 15: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
-	nil, // 16: io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
+	(*ArrowPayload_Metadata)(nil),                    // 13: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
+	(*ArrowPayload_FileMetadata_PartitionValue)(nil), // 14: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
+	nil, // 15: io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
 }
 var file_records_ingest_proto_depIdxs = []int32{
 	0,  // 0: io.debezium.server.iceberg.rpc.IcebergPayload.type:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
 	6,  // 1: io.debezium.server.iceberg.rpc.IcebergPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
 	9,  // 2: io.debezium.server.iceberg.rpc.IcebergPayload.records:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
 	1,  // 3: io.debezium.server.iceberg.rpc.ArrowPayload.type:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.PayloadType
-	14, // 4: io.debezium.server.iceberg.rpc.ArrowPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
-	16, // 5: io.debezium.server.iceberg.rpc.ArrowIngestResponse.icebergSchemas:type_name -> io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
+	13, // 4: io.debezium.server.iceberg.rpc.ArrowPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
+	15, // 5: io.debezium.server.iceberg.rpc.ArrowIngestResponse.icebergSchemas:type_name -> io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
 	7,  // 6: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
 	8,  // 7: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.partition_fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PartitionField
 	10, // 8: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
-	15, // 9: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.partition_values:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
+	14, // 9: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.partition_values:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
 	11, // 10: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
 	12, // 11: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_upload:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
-	13, // 12: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.partition_fields:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.PartitionField
-	2,  // 13: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
-	4,  // 14: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:input_type -> io.debezium.server.iceberg.rpc.ArrowPayload
-	3,  // 15: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
-	5,  // 16: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:output_type -> io.debezium.server.iceberg.rpc.ArrowIngestResponse
-	15, // [15:17] is the sub-list for method output_type
-	13, // [13:15] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	2,  // 12: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
+	4,  // 13: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:input_type -> io.debezium.server.iceberg.rpc.ArrowPayload
+	3,  // 14: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
+	5,  // 15: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:output_type -> io.debezium.server.iceberg.rpc.ArrowIngestResponse
+	14, // [14:16] is the sub-list for method output_type
+	12, // [12:14] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_records_ingest_proto_init() }
@@ -1416,8 +1309,8 @@ func file_records_ingest_proto_init() {
 		(*IcebergPayload_IceRecord_FieldValue_BoolValue)(nil),
 		(*IcebergPayload_IceRecord_FieldValue_BytesValue)(nil),
 	}
-	file_records_ingest_proto_msgTypes[12].OneofWrappers = []any{}
-	file_records_ingest_proto_msgTypes[13].OneofWrappers = []any{
+	file_records_ingest_proto_msgTypes[11].OneofWrappers = []any{}
+	file_records_ingest_proto_msgTypes[12].OneofWrappers = []any{
 		(*ArrowPayload_FileMetadata_PartitionValue_IntValue)(nil),
 		(*ArrowPayload_FileMetadata_PartitionValue_LongValue)(nil),
 		(*ArrowPayload_FileMetadata_PartitionValue_StringValue)(nil),
@@ -1431,7 +1324,7 @@ func file_records_ingest_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_records_ingest_proto_rawDesc), len(file_records_ingest_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   15,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
