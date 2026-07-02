@@ -495,9 +495,7 @@ public class IcebergTableOperator {
           ObjectNode storedStateValue = parseJSONObject(rootNode.get(incomingStateKey));
 
           if (incomingStateValue != null && storedStateValue != null) {
-              incomingStateValue.fields().forEachRemaining(field ->
-                  storedStateValue.set(field.getKey(), field.getValue())
-              );
+              storedStateValue.setAll(incomingStateValue);
               rootNode.put(incomingStateKey, storedStateValue.toString());
           } else {
               rootNode.set(incomingStateKey, entry.getValue());
