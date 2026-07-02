@@ -21,7 +21,7 @@ import io.grpc.stub.StreamObserver;
 import jakarta.enterprise.context.Dependent;
 
 /**
- * Multi-tenant gRPC service for the Arrow Iceberg write path.
+ * Multi-Thread-Session gRPC service for the Arrow Iceberg write path.
  *
  * Same isolation model as {@link OlakeRowsIngester}: one session per Go thread,
  * each owning its own Table handle + OutputFileFactory + IcebergTableOperator.
