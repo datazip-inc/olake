@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"testing"
@@ -13,8 +14,10 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/linkedin/goavro/v2"
-	"github.com/segmentio/kafka-go"
 	"github.com/stretchr/testify/require"
+	"github.com/twmb/franz-go/pkg/kadm"
+	"github.com/twmb/franz-go/pkg/kerr"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 const (
@@ -123,12 +126,12 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 	}
 
 	// kafka writer
-	writer := &kafka.Writer{
-		Addr:                   kafka.TCP(kafkaJSONBroker),
-		Topic:                  streams[0],
-		Balancer:               &kafka.RoundRobin{},
-		AllowAutoTopicCreation: false,
-	}
+	writer, err := kgo.NewClient(
+		kgo.SeedBrokers(kafkaJSONBroker),
+		kgo.DefaultProduceTopic(streams[0]),
+		kgo.RecordPartitioner(kgo.ManualPartitioner()),
+	)
+	require.NoError(t, err)
 	defer writer.Close()
 
 	switch operation {
@@ -145,13 +148,13 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 	case "add":
 		// 5 messages inserted with different partitions
 		for partition := range partitionCount {
-			writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: jsonValue, Partition: partition})
+			writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: int32(partition)})
 		}
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: jsonFilterValue})
+		writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: jsonKey, Value: jsonFilterValue})
 		t.Logf("Added 6 messages to topic '%s' (one per partition and one for filters)", streams[0])
 
 	case "update":
-		writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: jsonKey, Value: jsonUpdatedValue})
+		writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: jsonKey, Value: jsonUpdatedValue})
 		t.Logf("Added 1 updated message to topic '%s'", streams[0])
 
 	default:
@@ -172,13 +175,14 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 		kafkaAvroBroker = "127.0.0.1:29192"
 	}
 	// kafka writer
-	writer := &kafka.Writer{
-		Addr:                   kafka.TCP(kafkaAvroBroker),
-		Topic:                  streams[0],
-		Balancer:               &kafka.RoundRobin{},
-		AllowAutoTopicCreation: false,
-	}
+	writer, err := kgo.NewClient(
+		kgo.SeedBrokers(kafkaAvroBroker),
+		kgo.DefaultProduceTopic(streams[0]),
+		kgo.RecordPartitioner(kgo.RoundRobinPartitioner()),
+	)
+	require.NoError(t, err)
 	defer writer.Close()
+
 	switch operation {
 	case "create":
 		createKafkaTopic(ctx, t, kafkaAvroBroker, streams[0])
@@ -197,8 +201,8 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, streams[0], avroSchema)
 
 		// avro messages written
-		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroValue)
-		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroFilterValue)
+		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroValue, streams[0])
+		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroFilterValue, streams[0])
 		t.Logf("Added 2 messages to topic '%s' (one valid for sync and one filtered out)", streams[0])
 
 	case "update":
@@ -207,7 +211,7 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, streams[0], updatedAvroSchema)
 
 		// avro message written with new schema
-		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroUpdatedValue)
+		encodeAndWriteAvro(ctx, t, writer, codec, schemaID, avroKey, avroUpdatedValue, streams[0])
 		t.Logf("Added 1 updated message to topic '%s'", streams[0])
 
 	default:
@@ -219,13 +223,13 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 func deleteKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
 	t.Helper()
 
-	// conect to kafka cluster
-	conn, err := kafka.DialContext(ctx, "tcp", broker)
+	// connect to kafka cluster
+	client, err := kgo.NewClient(kgo.SeedBrokers(broker))
 	require.NoError(t, err, "failed to dial kafka broker")
-	defer conn.Close()
+	defer client.Close()
 
 	// delete topic
-	err = conn.DeleteTopics(topic)
+	_, err = kadm.NewClient(client).DeleteTopics(ctx, topic)
 	require.NoError(t, err, "failed to delete topic '%s'", topic)
 	time.Sleep(5 * time.Second)
 }
@@ -234,32 +238,33 @@ func deleteKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
 func createKafkaTopic(ctx context.Context, t *testing.T, broker, topic string) {
 	t.Helper()
 
-	// conect to kafka cluster
-	conn, err := kafka.DialContext(ctx, "tcp", broker)
+	// connect to kafka cluster
+	client, err := kgo.NewClient(kgo.SeedBrokers(broker))
 	require.NoError(t, err, "failed to dial kafka broker")
-	defer conn.Close()
+	defer client.Close()
 
 	// create topic
-	err = conn.CreateTopics(kafka.TopicConfig{Topic: topic, NumPartitions: partitionCount, ReplicationFactor: 1})
-	if err != nil && err != kafka.TopicAlreadyExists {
-		require.NoError(t, err, "failed to create topic '%s' explicitly", topic)
+	res, err := kadm.NewClient(client).CreateTopics(ctx, int32(partitionCount), 1, nil, topic)
+	if err == nil && res[topic].Err != nil && !errors.Is(res[topic].Err, kerr.TopicAlreadyExists) {
+		err = res[topic].Err
 	}
+	require.NoError(t, err, "failed to create topic '%s'", topic)
 }
 
 // Writes a Kafka message with retries until success or context timeout.
-func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kafka.Writer, msg kafka.Message) {
+func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kgo.Client, msg *kgo.Record) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	for {
 		// write message
-		err := writer.WriteMessages(ctx, msg)
+		err := writer.ProduceSync(ctx, msg).FirstErr()
 		if err == nil {
 			return
 		}
 		if ctx.Err() != nil {
-			require.NoError(t, err, "timed out writing kafka message after retries (topic=%q partition=%d): %v", writer.Topic, msg.Partition, err)
+			require.NoError(t, err, "timed out writing kafka message after retries (topic=%q partition=%d): %v", msg.Topic, msg.Partition, err)
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -309,10 +314,10 @@ func registerSchemaWithRetry(t *testing.T, url, topic, schema string) uint32 {
 }
 
 // encodeAndWriteAvro encodes the Avro value and writes it to the Kafka topic
-func encodeAndWriteAvro(ctx context.Context, t *testing.T, writer *kafka.Writer, codec *goavro.Codec, schemaID uint32, key []byte, value map[string]interface{}) {
+func encodeAndWriteAvro(ctx context.Context, t *testing.T, writer *kgo.Client, codec *goavro.Codec, schemaID uint32, key []byte, value map[string]interface{}, topic string) {
 	t.Helper()
 	binaryData, err := codec.BinaryFromNative(nil, value)
-	require.NoError(t, err, "encode Avro value to binary (topic=%q, schema_id=%d)", writer.Topic, schemaID)
+	require.NoError(t, err, "encode Avro value to binary (topic=%q, schema_id=%d)", topic, schemaID)
 
 	// Confluent wire format: 1-byte magic (0x00) + 4-byte big-endian schema ID + Avro binary payload.
 	msg := make([]byte, 5+len(binaryData))
@@ -321,7 +326,7 @@ func encodeAndWriteAvro(ctx context.Context, t *testing.T, writer *kafka.Writer,
 	copy(msg[5:], binaryData)
 
 	// write message
-	writeMessagesWithRetry(ctx, t, writer, kafka.Message{Key: key, Value: msg})
+	writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: key, Value: msg})
 }
 
 // JSON data format resources

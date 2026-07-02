@@ -7,6 +7,7 @@ import (
 
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/testutils"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -134,6 +135,101 @@ func TestConfig_Validate(t *testing.T) {
 				Password: "Password!123",
 			},
 			expectErr: true,
+		},
+		{
+			name: "valid config with primary_config",
+			config: &Config{
+				Host:     "replica-host",
+				Port:     1433,
+				Database: "testdb",
+				Username: "sa",
+				Password: "Password!123",
+				PrimaryConfig: &PrimaryConfig{
+					Host:     "primary-host",
+					Port:     1433,
+					Username: "sa",
+					Password: "PrimaryPass!123",
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name: "valid config with manage_capture_instances and no primary_config",
+			config: &Config{
+				Host:                   "replica-host",
+				Port:                   1433,
+				Database:               "testdb",
+				Username:               "sa",
+				Password:               "Password!123",
+				ManageCaptureInstances: true,
+			},
+			expectErr: false,
+		},
+		{
+			name: "invalid primary_config - bad port",
+			config: &Config{
+				Host:                   "replica-host",
+				Port:                   1433,
+				Database:               "testdb",
+				Username:               "sa",
+				Password:               "Password!123",
+				ManageCaptureInstances: true,
+				PrimaryConfig: &PrimaryConfig{
+					Host:     "primary-host",
+					Port:     -1,
+					Username: "sa",
+					Password: "PrimaryPass!123",
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid primary_config - missing password",
+			config: &Config{
+				Host:                   "replica-host",
+				Port:                   1433,
+				Database:               "testdb",
+				Username:               "sa",
+				Password:               "Password!123",
+				ManageCaptureInstances: true,
+				PrimaryConfig: &PrimaryConfig{
+					Host:     "primary-host",
+					Port:     1433,
+					Username: "sa",
+					Password: "",
+				},
+			},
+			expectErr: true,
+		},
+		{
+			name: "primary_config ignored when manage_capture_instances is false",
+			config: &Config{
+				Host:     "replica-host",
+				Port:     1433,
+				Database: "testdb",
+				Username: "sa",
+				Password: "Password!123",
+				PrimaryConfig: &PrimaryConfig{
+					Host:     "",
+					Port:     -1,
+					Username: "",
+					Password: "",
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name: "empty primary_config object ignored when manage_capture_instances is true",
+			config: &Config{
+				Host:                   "mssql-primary",
+				Port:                   1433,
+				Database:               "testdb",
+				Username:               "sa",
+				Password:               "Password!123",
+				ManageCaptureInstances: true,
+				PrimaryConfig:          &PrimaryConfig{},
+			},
+			expectErr: false,
 		},
 	}
 
@@ -272,6 +368,65 @@ func TestConfig_URI(t *testing.T) {
 	}
 }
 
+func TestConfig_PrimaryURI(t *testing.T) {
+	tests := []struct {
+		name             string
+		config           *Config
+		expectedContains []string
+		notExpected      []string
+	}{
+		{
+			name: "uses ssl from main config without primary jdbc params",
+			config: &Config{
+				Host:     "replica-host",
+				Port:     1433,
+				Database: "testdb",
+				Username: "replica_user",
+				Password: "ReplicaPass!123",
+				JDBCURLParams: map[string]string{
+					"ApplicationIntent": "ReadOnly",
+				},
+				SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeRequire},
+				PrimaryConfig: &PrimaryConfig{
+					Host:     "primary-host",
+					Port:     1433,
+					Username: "primary_user",
+					Password: "PrimaryPass!123",
+				},
+			},
+			expectedContains: []string{
+				"primary-host:1433",
+				"database=testdb",
+				"encrypt=true",
+				"TrustServerCertificate=true",
+			},
+			notExpected: []string{
+				"ApplicationIntent=ReadOnly",
+				"replica-host",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, tt.config.Validate())
+
+			connStr := tt.config.primaryURI()
+
+			for _, expected := range tt.expectedContains {
+				if !strings.Contains(connStr, expected) {
+					t.Errorf("expected primary URI to contain %q, got %s", expected, connStr)
+				}
+			}
+			for _, notExpected := range tt.notExpected {
+				if strings.Contains(connStr, notExpected) {
+					t.Errorf("expected primary URI to not contain %q, got %s", notExpected, connStr)
+				}
+			}
+		})
+	}
+}
+
 func TestConfig_SSHConfigDeserialization(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -312,6 +467,31 @@ func TestConfig_SSHConfigDeserialization(t *testing.T) {
 			}`,
 			wantSSH: false,
 		},
+		{
+			name: "with primary_config",
+			jsonData: `{
+				"host": "replica-host",
+				"port": 1433,
+				"database": "testdb",
+				"username": "sa",
+				"password": "Password!123",
+				"ssh_config": {
+					"host": "bastion",
+					"port": 22,
+					"username": "sshuser",
+					"password": "sshpass"
+				},
+				"primary_config": {
+					"host": "primary-host",
+					"port": 1433,
+					"username": "sa",
+					"password": "PrimaryPass!123"
+				}
+			}`,
+			wantSSH:  true,
+			wantHost: "bastion",
+			wantPort: 22,
+		},
 	}
 
 	for _, tt := range tests {
@@ -334,6 +514,16 @@ func TestConfig_SSHConfigDeserialization(t *testing.T) {
 			} else {
 				if config.SSHConfig != nil {
 					t.Error("Expected SSH config to be nil")
+				}
+			}
+
+			switch tt.name {
+			case "with primary_config":
+				if config.PrimaryConfig == nil {
+					t.Fatal("Expected primary_config to be present")
+				}
+				if config.PrimaryConfig.Host != "primary-host" {
+					t.Errorf("Expected primary host primary-host, got %q", config.PrimaryConfig.Host)
 				}
 			}
 		})

@@ -116,7 +116,7 @@ func (t *TypeSchema) AddTypes(column string, isOlakeColumn bool, types ...DataTy
 	if !found {
 		t.Properties.Store(column, &Property{
 			Type:                  NewSet(types...),
-			DestinationColumnName: utils.Reformat(column),
+			DestinationColumnName: utils.Reformat(column), // Used to render UI column names when source column names are disabled.
 			OlakeColumn:           isOlakeColumn,
 		})
 		return
@@ -148,11 +148,11 @@ func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *par
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
 		colName := key.(string)
-		if !isSelected(utils.Reformat(colName)) || (defaultColumns && !prop.OlakeColumn) {
+		outName := stream.ResolveColumnName(colName)
+		if !isSelected(outName) || (defaultColumns && !prop.OlakeColumn) {
 			return true
 		}
-		// Todo: check we can use field name instead of destination column name
-		groupNode[prop.getDestinationColumnName(colName)] = prop.DataType().ToNewParquet()
+		groupNode[outName] = prop.DataType().ToNewParquet()
 		return true
 	})
 
@@ -173,13 +173,14 @@ func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface, incl
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
 		colName := key.(string)
+		outName := stream.ResolveColumnName(colName)
 		// skip non-olake columns in defaultColumns mode unless explicitly included (e.g. partition columns)
-		if !isSelected(utils.Reformat(colName)) || (defaultColumns && !prop.OlakeColumn && !includeSet.Exists(colName)) {
+		if !isSelected(outName) || (defaultColumns && !prop.OlakeColumn && !includeSet.Exists(colName)) {
 			return true
 		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
 			IceType: prop.DataType().ToIceberg(),
-			Key:     prop.getDestinationColumnName(colName),
+			Key:     outName,
 		})
 		return true
 	})
@@ -240,10 +241,6 @@ func (p *Property) Nullable() bool {
 	})
 
 	return found
-}
-
-func (p *Property) getDestinationColumnName(key string) string {
-	return utils.Ternary(p.DestinationColumnName != "", p.DestinationColumnName, key).(string)
 }
 
 // Tree that is being used for typecasting

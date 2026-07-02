@@ -7,6 +7,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -53,7 +54,7 @@ func TestFilterRecords_LegacyFilter(t *testing.T) {
 	}
 	schema := makeIcebergSchema(map[string]string{"id": "long", "name": "string"})
 
-	result, err := FilterRecords(ctx, records, filter, true, schema)
+	result, err := FilterRecords(ctx, records, filter, true, schema, utils.Reformat)
 	require.NoError(t, err)
 	assert.Len(t, result, 2, "legacy filter should return all records unchanged")
 }
@@ -76,7 +77,7 @@ func TestFilterRecords_EmptyConditions(t *testing.T) {
 	}
 	schema := makeIcebergSchema(map[string]string{"id": "long"})
 
-	result, err := FilterRecords(ctx, records, filter, false, schema)
+	result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 	require.NoError(t, err)
 	assert.Len(t, result, 3, "empty conditions should return all records")
 }
@@ -97,7 +98,7 @@ func TestFilterRecords_EmptyRecords(t *testing.T) {
 	}
 	schema := makeIcebergSchema(map[string]string{"id": "long"})
 
-	result, err := FilterRecords(ctx, records, filter, false, schema)
+	result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 	require.NoError(t, err)
 	assert.Len(t, result, 0, "empty input should return empty output")
 }
@@ -182,7 +183,7 @@ func TestFilterRecords_ColumnNameCases_Iceberg(t *testing.T) {
 			}
 			schema := makeIcebergSchema(map[string]string{tt.schemaColumn: "long"})
 
-			result, err := FilterRecords(ctx, records, filter, false, schema)
+			result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 			require.NoError(t, err)
 			assert.Len(t, result, tt.expectedCount)
 		})
@@ -229,7 +230,7 @@ func TestFilterRecords_Operators_Integer_Iceberg(t *testing.T) {
 				},
 			}
 
-			result, err := FilterRecords(ctx, records, filter, false, schema)
+			result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 			require.NoError(t, err)
 			assert.Len(t, result, tt.expectedCount)
 		})
@@ -257,7 +258,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"active": "boolean"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -276,7 +277,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"count": "int"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -295,7 +296,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"bignum": "long"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -314,7 +315,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"price": "float"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -333,7 +334,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"amount": "double"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -352,7 +353,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"name": "string"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 		assert.Equal(t, "Bob", result[0].Data["name"])
@@ -376,7 +377,7 @@ func TestFilterRecords_AllIcebergTypes(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"created_at": "timestamptz"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -402,7 +403,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 		}
 		schema := makeParquetSchema(map[string]types.DataType{"is_active": types.Bool})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -421,7 +422,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 		}
 		schema := makeParquetSchema(map[string]types.DataType{"age": types.Int32})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -440,7 +441,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 		}
 		schema := makeParquetSchema(map[string]types.DataType{"id": types.Int64})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -459,7 +460,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 		}
 		schema := makeParquetSchema(map[string]types.DataType{"temp": types.Float32})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -478,7 +479,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 		}
 		schema := makeParquetSchema(map[string]types.DataType{"balance": types.Float64})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -497,7 +498,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 		}
 		schema := makeParquetSchema(map[string]types.DataType{"status": types.String})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -518,7 +519,7 @@ func TestFilterRecords_AllParquetTypes(t *testing.T) {
 		}
 		schema := makeParquetSchema(map[string]types.DataType{"updated_at": types.Timestamp})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -553,7 +554,7 @@ func TestFilterRecords_ANDLogic(t *testing.T) {
 			"active": "boolean",
 		})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2) // NYC + active: record 0 and 3
 	})
@@ -573,7 +574,7 @@ func TestFilterRecords_ANDLogic(t *testing.T) {
 			"active": "boolean",
 		})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1) // Only record 3 matches all three
 	})
@@ -592,7 +593,7 @@ func TestFilterRecords_ANDLogic(t *testing.T) {
 			"active": "boolean",
 		})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -626,7 +627,7 @@ func TestFilterRecords_ORLogic(t *testing.T) {
 			"level":      "long",
 		})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 3) // Engineering (2) + Sales level 4 (1, already unique)
 	})
@@ -644,7 +645,7 @@ func TestFilterRecords_ORLogic(t *testing.T) {
 			"level":      "long",
 		})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -662,7 +663,7 @@ func TestFilterRecords_ORLogic(t *testing.T) {
 			"level":      "long",
 		})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -691,7 +692,7 @@ func TestFilterRecords_NullValues(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"name": "string", "age": "long"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2) // records with nil name
 	})
@@ -705,7 +706,7 @@ func TestFilterRecords_NullValues(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"name": "string", "age": "long"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2) // records with non-nil name
 	})
@@ -719,7 +720,7 @@ func TestFilterRecords_NullValues(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"name": "string", "age": "long"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2) // only records with non-nil age that is > 20
 	})
@@ -753,7 +754,7 @@ func TestFilterRecords_CDCMissingColumns(t *testing.T) {
 			"status": "string",
 		})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		// Record 0: has status=active → matches
 		// Record 1: missing status → no match (missing column = false)
@@ -776,7 +777,7 @@ func TestFilterRecords_CDCMissingColumns(t *testing.T) {
 			"status": "string",
 		})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		// Record 0: name=Alice → matches OR
 		// Record 1: name=Bob (fails), status missing (false) → no match
@@ -806,7 +807,7 @@ func TestFilterRecords_UnknownColumnType(t *testing.T) {
 	// Schema doesn't have "unknown_column"
 	schema := makeIcebergSchema(map[string]string{"id": "long"})
 
-	_, err := FilterRecords(ctx, records, filter, false, schema)
+	_, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "filter column [unknown_column] missing from schema")
 }
@@ -850,7 +851,7 @@ func TestFilterRecords_StringComparison(t *testing.T) {
 				},
 			}
 
-			result, err := FilterRecords(ctx, records, filter, false, schema)
+			result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 			require.NoError(t, err)
 			assert.Len(t, result, tt.expectedCount)
 		})
@@ -881,7 +882,7 @@ func TestFilterRecords_BooleanComparison(t *testing.T) {
 			},
 		}
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -894,7 +895,7 @@ func TestFilterRecords_BooleanComparison(t *testing.T) {
 			},
 		}
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -907,7 +908,7 @@ func TestFilterRecords_BooleanComparison(t *testing.T) {
 			},
 		}
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2)
 	})
@@ -920,7 +921,7 @@ func TestFilterRecords_BooleanComparison(t *testing.T) {
 			},
 		}
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 2) // true > false
 	})
@@ -946,7 +947,7 @@ func TestFilterRecords_TypeCoercion(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"id": "long"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -964,7 +965,7 @@ func TestFilterRecords_TypeCoercion(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"count": "int"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -982,7 +983,7 @@ func TestFilterRecords_TypeCoercion(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"price": "double"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -1000,7 +1001,7 @@ func TestFilterRecords_TypeCoercion(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"active": "boolean"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -1026,7 +1027,7 @@ func TestFilterRecords_UnsupportedOperator(t *testing.T) {
 	}
 	schema := makeIcebergSchema(map[string]string{"name": "string"})
 
-	result, err := FilterRecords(ctx, records, filter, false, schema)
+	result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 	require.NoError(t, err)
 	assert.Len(t, result, 0) // unsupported operator returns false for all
 }
@@ -1100,7 +1101,7 @@ func TestFilterRecords_ComplexScenario(t *testing.T) {
 			},
 		}
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 3) // orders 1001, 1003, 1005
 	})
@@ -1114,7 +1115,7 @@ func TestFilterRecords_ComplexScenario(t *testing.T) {
 			},
 		}
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 3) // orders 1001, 1003, 1004
 	})
@@ -1128,7 +1129,7 @@ func TestFilterRecords_ComplexScenario(t *testing.T) {
 			},
 		}
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 3) // orders 1001, 1003, 1005
 	})
@@ -1365,7 +1366,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"user_account_id": "long"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -1383,7 +1384,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"userid": "long"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -1401,7 +1402,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 		}
 		schema := makeIcebergSchema(map[string]string{"customer_name": "string"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -1420,7 +1421,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 		// After Reformat: [Order Date] → _order_date_
 		schema := makeIcebergSchema(map[string]string{"_order_date_": "string"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -1439,7 +1440,7 @@ func TestFilterRecords_DatabaseColumnPatterns(t *testing.T) {
 		// After Reformat: address.city → address_city
 		schema := makeIcebergSchema(map[string]string{"address_city": "string"})
 
-		result, err := FilterRecords(ctx, records, filter, false, schema)
+		result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 		require.NoError(t, err)
 		assert.Len(t, result, 1)
 	})
@@ -1475,7 +1476,7 @@ func TestFilterRecords_LargeDataset(t *testing.T) {
 		"value":    "double",
 	})
 
-	result, err := FilterRecords(ctx, records, filter, false, schema)
+	result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
 	require.NoError(t, err)
 
 	// Category A appears at indices 0, 5, 10, 15, ... (every 5th)
