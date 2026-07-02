@@ -173,7 +173,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_2pc":
 		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, client, KafkaJsonConsumerGroupID, streams[0], 0, 1)
+		commitConsumerGroupOffset(ctx, t, kafkaJSONBroker, KafkaJsonConsumerGroupID, streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
@@ -393,14 +393,16 @@ func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, t
 
 // commitConsumerGroupOffset rolls back a consumer group offset for 2PC recovery tests.
 // nextOffset is the next consumable offset (e.g. 1 means re-read from offset 1).
-func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Client, consumerGroupID, topic string, partition int32, nextOffset int64) {
+func commitConsumerGroupOffset(ctx context.Context, t *testing.T, kafkaJSONBroker string, consumerGroupID, topic string, partition int32, nextOffset int64) {
 	t.Helper()
 
-	adm := kadm.NewClient(client)
+	client, err := kgo.NewClient(kgo.SeedBrokers(kafkaJSONBroker))
+	require.NoError(t, err)
+	defer client.Close()
 
 	// Olake uses multiple static group members; force-leave any lingering members, then wait until empty.
 	require.NoError(t, utils.RetryOnBackoff(ctx, 60, 2*time.Second, func(ctx context.Context) error {
-		groups, describeErr := adm.DescribeGroups(ctx, consumerGroupID)
+		groups, describeErr := kadm.NewClient(client).DescribeGroups(ctx, consumerGroupID)
 		if describeErr != nil {
 			return describeErr
 		}
@@ -430,7 +432,7 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Cl
 		return fmt.Errorf("consumer group %s still has %d active member(s)", consumerGroupID, len(group.Members))
 	}))
 
-	fetched, err := adm.FetchOffsets(ctx, consumerGroupID)
+	fetched, err := kadm.NewClient(client).FetchOffsets(ctx, consumerGroupID)
 	require.NoError(t, err)
 
 	toCommit := fetched.Offsets()
@@ -438,10 +440,10 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Cl
 	toCommit.AddOffset(topic, partition, nextOffset, -1)
 
 	// Delete and re-seed offsets admin-side; avoids joining Olake's multi-member consumer group.
-	_, err = adm.DeleteGroup(ctx, consumerGroupID)
+	_, err = kadm.NewClient(client).DeleteGroup(ctx, consumerGroupID)
 	require.NoError(t, err)
 
-	committed, err := adm.CommitOffsets(ctx, consumerGroupID, toCommit)
+	committed, err := kadm.NewClient(client).CommitOffsets(ctx, consumerGroupID, toCommit)
 	require.NoError(t, err)
 	require.NoError(t, committed.Error())
 	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, nextOffset)
