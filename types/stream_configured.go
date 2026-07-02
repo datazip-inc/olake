@@ -118,8 +118,18 @@ func (s *ConfiguredStream) RetainSelectedColumns() func(map[string]interface{}) 
 	}
 }
 
-// IsSelectedColumn returns a predicate that tells whether a column should be emitted for this stream,
-// based on the stream's SelectedColumns configuration and compare against destination column names by normalizing selected source column names.
+// ResolveColumnName returns the output column name based on the stream naming strategy, preserving the source name when use_source_column_names is enabled, otherwise applying utils.Reformat().
+func (s *ConfiguredStream) ResolveColumnName(key string) string {
+	if s.StreamMetadata.UseSourceColumnNames {
+		return key
+	}
+	return utils.Reformat(key)
+}
+
+// IsSelectedColumn returns a predicate that tells whether a column should be
+// emitted for this stream, based on the stream's SelectedColumns configuration.
+// Both the configured column list and the incoming key are resolved via
+// ResolveColumnName so source vs destination naming is handled transparently.
 func (s *ConfiguredStream) IsSelectedColumn() func(string) bool {
 	selectedColsCfg := s.StreamMetadata.SelectedColumns
 	if selectedColsCfg == nil || len(selectedColsCfg.Columns) == 0 {
@@ -128,7 +138,7 @@ func (s *ConfiguredStream) IsSelectedColumn() func(string) bool {
 	reformatColumns := func(columnsSet *Set[string]) *Set[string] {
 		out := NewSet[string]()
 		for _, col := range columnsSet.Array() {
-			out.Insert(utils.Reformat(col))
+			out.Insert(s.ResolveColumnName(col))
 		}
 		return out
 	}

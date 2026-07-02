@@ -21,7 +21,7 @@ type parsedCondition struct {
 
 // FilterRecords applies filtering ONLY for new filters.
 // For legacy filters, records are returned unchanged.
-func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any) ([]types.RawRecord, error) {
+func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any, resolve func(string) string) ([]types.RawRecord, error) {
 	if len(filter.Conditions) == 0 {
 		return records, nil
 	}
@@ -33,7 +33,7 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 	logger.Infof("filtering records with filter: %+v", filter)
 	conditions := make([]parsedCondition, len(filter.Conditions))
 	for i, cond := range filter.Conditions {
-		cond.Column = utils.Reformat(cond.Column)
+		cond.Column = resolve(cond.Column)
 		dataType, err := getFilterColumnDataType(cond.Column, schema)
 		if err != nil {
 			return nil, err

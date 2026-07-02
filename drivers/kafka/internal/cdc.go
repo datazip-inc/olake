@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/types"
@@ -15,7 +17,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/linkedin/goavro/v2"
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // TODO: Add 2PC support for Kafka (difficulty: hard)
@@ -50,25 +52,34 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 
 	// create a reader manager for kafka
 	k.readerManager = kafkapkg.NewReaderManager(kafkapkg.ReaderConfig{
-		BootstrapServers:            k.config.BootstrapServers,
 		MaxThreads:                  k.config.MaxThreads,
 		ConsumerGroupID:             k.consumerGroupID,
 		Dialer:                      k.dialer,
 		AdminClient:                 k.adminClient,
 		ThreadsEqualTotalPartitions: k.config.ThreadsEqualTotalPartitions,
 	})
-	return k.readerManager.CreateReaders(ctx, streams, k.consumerGroupID)
+
+	// remove stale consumers before creating new readers
+	if err := k.readerManager.RemoveExistingConsumers(ctx, k.client); err != nil {
+		return fmt.Errorf("failed to remove existing consumers: %s", err)
+	}
+
+	// create new readers and wait for partition assignment
+	return k.readerManager.CreateReaders(ctx, streams)
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
-	// get reader
-	reader := k.readerManager.GetReader(readerID)
-	if reader == nil {
-		return nil, fmt.Errorf("reader not found for readerID %d", readerID)
+	// Restart the reader to create a fresh franz-go client for each StreamChanges attempt.
+	// franz-go keeps uncommitted offsets in memory, so restarting clears that state and
+	// ensures retries resume from the last committed offset.
+	// Note: Since a static instance ID is used, this restart does not trigger a consumer group rebalance.
+	reader, err := k.readerManager.RestartReader(readerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to restart reader %d: %s", readerID, err)
 	}
 
 	// track processing state
-	lastMessages := make(map[types.PartitionKey]kafka.Message)
+	lastMessages := make(map[types.PartitionKey]*kgo.Record)
 	// maintain completed partitions and observed partitions to track loop termination (for the current reader)
 	completedPartitions := make(map[types.PartitionKey]struct{}) // completed partitions by the current reader
 	observedPartitions := make(map[types.PartitionKey]struct{})  // cached partitions which are observed by the current reader
@@ -79,19 +90,19 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 	}()
 
-	err := k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
+	err = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
 		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
-		currentPartitionMeta, exists := k.readerManager.GetPartitionIndex(fmt.Sprintf("%s:%d", record.Message.Topic, record.Message.Partition))
+		currentPartitionMeta, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(record.Message.Topic, record.Message.Partition))
 		if !exists {
-			return false, fmt.Errorf("missing partition index for topic %s partition %d", record.Message.Topic, record.Message.Partition)
+			return false, fmt.Errorf("missing partition Metadata for topic %s partition %d", record.Message.Topic, record.Message.Partition)
 		}
 
 		// process the change if data is present
 		if record.Data != nil {
 			err := processFn(ctx, abstract.CDCChange{
 				Stream:    currentPartitionMeta.Stream,
-				Timestamp: record.Message.Time,
+				Timestamp: record.Message.Timestamp,
 				Kind:      "create",
 				Data:      record.Data,
 			})
@@ -133,22 +144,22 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 		}
 
 		// Type assert and validate messages
-		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]kafka.Message)
+		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]*kgo.Record)
 		if !isValid || len(lastMessages) == 0 {
 			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
 			return nil
 		}
 
 		// Prepare messages for commit and track affected streams
-		messages := make([]kafka.Message, 0, len(lastMessages))
+		messages := make([]*kgo.Record, 0, len(lastMessages))
 		syncedStreams := make(map[string]types.StreamInterface)
 
 		for partitionKey, message := range lastMessages {
 			messages = append(messages, message)
 
 			// Resolve stream for this partition
-			partitionID := fmt.Sprintf("%s:%d", partitionKey.Topic, partitionKey.Partition)
-			if partitionMeta, exists := k.readerManager.GetPartitionIndex(partitionID); exists && partitionMeta.Stream != nil {
+			partitionID := kafkapkg.PartitionMetadataKey(partitionKey.Topic, partitionKey.Partition)
+			if partitionMeta, exists := k.readerManager.GetPartitionMeta(partitionID); exists && partitionMeta.Stream != nil {
 				syncedStreams[partitionMeta.Stream.ID()] = partitionMeta.Stream
 			}
 		}
@@ -160,7 +171,10 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 				return fmt.Errorf("reader %s not found for commit", readerID)
 			}
 
-			if err := reader.CommitMessages(ctx, messages...); err != nil {
+			_, generationID := reader.GroupMetadata()
+			logger.Debugf("reader %s post cdc: generation id: %d", readerID, generationID)
+
+			if err := reader.CommitRecords(ctx, messages...); err != nil {
 				return fmt.Errorf("commit failed for reader %s: %s", readerID, err)
 			}
 
@@ -181,46 +195,75 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 	}
 }
 
-// for processing messages from a Kafka reader.
-func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kafka.Reader, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
+// processKafkaMessages processes messages from a Kafka reader
+// until stopProcessFn signals stop, a rebalance is detected, or the poll times out (reader caught up).
+func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
+	var iter *kgo.FetchesRecordIter
+
 	for {
-		message, err := reader.FetchMessage(ctx)
-		if err != nil {
-			return fmt.Errorf("error reading message in Kafka CDC sync: %s", err)
-		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			// checked before every poll and every record so a rebalance signal is never delayed by full batch processing.
+			if stopProcessing, err := k.readerManager.FetchExitState(); stopProcessing {
+				return err
+			}
 
-		var (
-			key  string
-			data map[string]interface{}
-		)
+			// iter being nil triggers first poll.
+			// iter.Done() being true triggers next polls when the current batch is fully consumed.
+			if iter == nil || iter.Done() {
+				pollCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				// poll for new messages
+				fetches := reader.PollFetches(pollCtx)
+				pollCtxErr := pollCtx.Err()
+				cancel()
 
-		// parse message value and key
-		data, key, err = k.parseKafkaData(message)
-		if err != nil {
-			logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
-		} else if data != nil {
-			// data map will be nil (in cases like null and unparseable message values) so nil check is required
-			data[Partition] = message.Partition
-			data[Offset] = message.Offset
-			data[Key] = key
-			data[KafkaTimestamp], err = typeutils.ReformatDate(message.Time, true)
+				// no new messages for 10s means reader has caught up; exit cleanly without error.
+				if errors.Is(pollCtxErr, context.DeadlineExceeded) {
+					logger.Warnf("poll context deadline exceeded: %s", pollCtxErr)
+					return nil
+				}
+
+				// any fetch error (including parent ctx cancellation) is non-retryable.
+				// For more info, go through the documentation: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#Fetches.Errors
+				if err := fetches.Err(); err != nil {
+					return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrNonRetryable, err)
+				}
+
+				// wrap batch into iterator
+				iter = fetches.RecordIter()
+				// check exit state again before processing the batch
+				continue
+			}
+
+			message := iter.Next()
+			data, key, err := k.parseKafkaData(message)
 			if err != nil {
-				return fmt.Errorf("failed to reformat date: %s", err)
+				logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
+			} else if data != nil {
+				// data map will be nil (in cases like null and unparseable message values) so nil check is required
+				data[Partition] = message.Partition
+				data[Offset] = message.Offset
+				data[Key] = key
+				data[KafkaTimestamp], err = typeutils.ReformatDate(message.Timestamp, true)
+				if err != nil {
+					return fmt.Errorf("failed to reformat date: %s", err)
+				}
+			}
+
+			stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
+			if err != nil {
+				return err
+			}
+			if stopProcessing {
+				return nil
 			}
 		}
-
-		stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
-		if err != nil {
-			return err
-		}
-		if stopProcessing {
-			break
-		}
 	}
-	return nil
 }
 
-func (k *Kafka) parseKafkaData(message kafka.Message) (map[string]interface{}, string, error) {
+func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, string, error) {
 	// helper to parse data bytes (value or key)
 	parseData := func(data []byte) (interface{}, error) {
 		// if data is not in confluent wire format, it is assumed to be standard json currently
@@ -272,7 +315,7 @@ func (k *Kafka) parseKafkaData(message kafka.Message) (map[string]interface{}, s
 		parsedKey, err := parseData(message.Key)
 		if err != nil {
 			// standard fallback: raw key as string
-			logger.Warnf("failed to parse key at offset %d: %s, using raw string", message.Offset, err)
+			logger.Warnf("failed to parse key for topic=%s partition=%d offset=%d: %s, using raw string", message.Topic, message.Partition, message.Offset, err)
 			keyValue = string(message.Key)
 		} else {
 			switch v := parsedKey.(type) {

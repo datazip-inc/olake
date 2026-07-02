@@ -32,7 +32,7 @@ jobs:
         with:
           go-version-file: "go.mod"
       - name: Install govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
       - name: Run vulnerability checks
         run: |
           govulncheck ./... >/tmp/govuln.txt 2>&1 || VULN_EXIT=$?
