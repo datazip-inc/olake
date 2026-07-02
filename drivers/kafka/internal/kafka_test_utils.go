@@ -362,7 +362,10 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 func deleteKafkaTopic(ctx context.Context, t *testing.T, client *kgo.Client, topic string) {
 	t.Helper()
 
-	_, err := kadm.NewClient(client).DeleteTopics(ctx, topic)
+	res, err := kadm.NewClient(client).DeleteTopics(ctx, topic)
+	if err == nil && res[topic].Err != nil && !errors.Is(res[topic].Err, kerr.UnknownTopicOrPartition) {
+		err = res[topic].Err
+	}
 	require.NoError(t, err, "failed to delete topic '%s'", topic)
 	time.Sleep(5 * time.Second)
 }
@@ -460,7 +463,7 @@ func writeMessagesWithRetry(ctx context.Context, t *testing.T, writer *kgo.Clien
 			return
 		}
 		if ctx.Err() != nil {
-			require.NoError(t, err, "timed out writing kafka message after retries (topic=%q partition=%d): %v", msg.Topic, msg.Partition, err)
+			require.NoError(t, err, "timed out writing kafka message after retries (topic=%q partition=%d)", msg.Topic, msg.Partition)
 			return
 		}
 		time.Sleep(200 * time.Millisecond)

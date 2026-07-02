@@ -7,7 +7,7 @@ on:
     paths:
       - 'pkg/kafka/**'
       - 'drivers/kafka/**'
-      - 'utils/testutils/**'
+      - 'utils/testutils/test_utils.go'
       - '.github/workflows/kafka-rebalance-tests.yml'
   pull_request:
     branches:
@@ -15,7 +15,7 @@ on:
     paths:
       - 'pkg/kafka/**'
       - 'drivers/kafka/**'
-      - 'utils/testutils/**'
+      - 'utils/testutils/test_utils.go'
       - '.github/workflows/kafka-rebalance-tests.yml'
 
 jobs:
