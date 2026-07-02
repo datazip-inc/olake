@@ -78,13 +78,13 @@ var (
 	kafkaJsonStatsPath     string        // set from TestConfig.HostStatsPath in kafka_test.go
 
 	// JSON
-	jsonKey          = []byte("json-key")
+	jsonKey          = []byte(`{"key":"json-key"}`)
 	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
 	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
 
 	// Avro
-	avroKey   = []byte("avro-key")
+	avroKey   = []byte(`{"key":"avro-key"}`)
 	avroValue = map[string]interface{}{
 		"int32_value":     int32(132),
 		"int64_value":     int64(6400000000),
