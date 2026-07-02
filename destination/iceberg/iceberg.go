@@ -191,7 +191,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:        i.server.serverID,
+			ThreadId:        i.server.defaultServerID,
 			DestTableName:   destinationDB,
 			Schema:          types.GetIcebergRawSchema(),
 			Namespace:       destinationDB,
@@ -206,7 +206,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	}
 
 	ingestResponse := res.(*proto.RecordIngestResponse)
-	logger.Infof("Thread[%s]: table created or loaded test olake: %s", i.server.serverID, ingestResponse.GetResult())
+	logger.Infof("Thread[%s]: table created or loaded test olake: %s", i.server.defaultServerID, ingestResponse.GetResult())
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
@@ -221,7 +221,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		Metadata: &proto.IcebergPayload_Metadata{
 			// Session already created by the GET_OR_CREATE_TABLE above; RECORDS
 			// carries only the routing thread_id plus the schema for this batch.
-			ThreadId: i.server.serverID,
+			ThreadId: i.server.defaultServerID,
 			Schema:   protoSchema,
 		},
 		Records: []*proto.IcebergPayload_IceRecord{{
@@ -236,7 +236,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	}
 
 	ingestResponse = resInsert.(*proto.RecordIngestResponse)
-	logger.Debugf("Thread[%s]: record inserted successfully: %s", i.server.serverID, ingestResponse.GetResult())
+	logger.Debugf("Thread[%s]: record inserted successfully: %s", i.server.defaultServerID, ingestResponse.GetResult())
 	return nil
 }
 

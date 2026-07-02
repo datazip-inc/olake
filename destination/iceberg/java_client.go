@@ -22,12 +22,12 @@ import (
 const defaultServerPort = 50051
 
 type serverInstance struct {
-	port        int
-	cmd         *exec.Cmd
-	client      proto.RecordIngestServiceClient
-	arrowClient proto.ArrowIngestServiceClient
-	conn        *grpc.ClientConn
-	serverID    string
+	port             int
+	cmd              *exec.Cmd
+	client           proto.RecordIngestServiceClient
+	arrowClient      proto.ArrowIngestServiceClient
+	conn             *grpc.ClientConn
+	defaultServerID string
 }
 
 // getServerConfigJSON builds the catalog/storage-level config the JVM consumes
@@ -188,7 +188,7 @@ func startServer(config *Config) (*serverInstance, error) {
 		client:      proto.NewRecordIngestServiceClient(conn),
 		arrowClient: proto.NewArrowIngestServiceClient(conn),
 		conn:        conn,
-		serverID:    serverID,
+		defaultServerID: serverID,
 	}, nil
 }
 
