@@ -78,7 +78,7 @@ var (
 	kafkaJsonStatsPath     string        // set from TestConfig.HostStatsPath in kafka_test.go
 
 	// JSON
-	jsonKey          = []byte("json-key")
+	jsonKey          = []byte(`{"key":"json-key"}`)
 	jsonValue        = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
 	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
@@ -173,14 +173,14 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_2pc":
 		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, kafkaJSONBroker, KafkaJsonConsumerGroupID, streams[0], 0, 1)
+		commitConsumerGroupOffset(ctx, t, client, KafkaJsonConsumerGroupID, streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 5})
 		t.Logf("Rolled back partition %d, added partition %d with 1 message, and added 1 message on partition %d for topic '%s'", 0, 5, 0, streams[0])
 
-	case "insert_rebalance":
+	case "rebalance":
 		for written := 0; written < rebalanceBulkMessageCount; written += rebalanceBulkBatchSize {
 			batchCount := min(rebalanceBulkBatchSize, rebalanceBulkMessageCount-written)
 			records := make([]*kgo.Record, batchCount)
@@ -393,16 +393,14 @@ func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, t
 
 // commitConsumerGroupOffset rolls back a consumer group offset for 2PC recovery tests.
 // nextOffset is the next consumable offset (e.g. 1 means re-read from offset 1).
-func commitConsumerGroupOffset(ctx context.Context, t *testing.T, kafkaJSONBroker string, consumerGroupID, topic string, partition int32, nextOffset int64) {
+func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Client, consumerGroupID, topic string, partition int32, nextOffset int64) {
 	t.Helper()
 
-	client, err := kgo.NewClient(kgo.SeedBrokers(kafkaJSONBroker))
-	require.NoError(t, err)
-	defer client.Close()
+	adm := kadm.NewClient(client)
 
 	// Olake uses multiple static group members; force-leave any lingering members, then wait until empty.
 	require.NoError(t, utils.RetryOnBackoff(ctx, 60, 2*time.Second, func(ctx context.Context) error {
-		groups, describeErr := kadm.NewClient(client).DescribeGroups(ctx, consumerGroupID)
+		groups, describeErr := adm.DescribeGroups(ctx, consumerGroupID)
 		if describeErr != nil {
 			return describeErr
 		}
@@ -432,7 +430,7 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, kafkaJSONBroke
 		return fmt.Errorf("consumer group %s still has %d active member(s)", consumerGroupID, len(group.Members))
 	}))
 
-	fetched, err := kadm.NewClient(client).FetchOffsets(ctx, consumerGroupID)
+	fetched, err := adm.FetchOffsets(ctx, consumerGroupID)
 	require.NoError(t, err)
 
 	toCommit := fetched.Offsets()
@@ -440,10 +438,10 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, kafkaJSONBroke
 	toCommit.AddOffset(topic, partition, nextOffset, -1)
 
 	// Delete and re-seed offsets admin-side; avoids joining Olake's multi-member consumer group.
-	_, err = kadm.NewClient(client).DeleteGroup(ctx, consumerGroupID)
+	_, err = adm.DeleteGroup(ctx, consumerGroupID)
 	require.NoError(t, err)
 
-	committed, err := kadm.NewClient(client).CommitOffsets(ctx, consumerGroupID, toCommit)
+	committed, err := adm.CommitOffsets(ctx, consumerGroupID, toCommit)
 	require.NoError(t, err)
 	require.NoError(t, committed.Error())
 	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, nextOffset)
