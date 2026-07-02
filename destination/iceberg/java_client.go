@@ -135,18 +135,14 @@ func startServer(config *Config) (*serverInstance, error) {
 	if os.Getenv("OLAKE_DEBUG_MODE") != "" {
 		serverCmd = exec.Command("java",
 			"-XX:+UseG1GC",
-			"-XX:InitialRAMPercentage=40.0",
-			"-XX:MaxRAMPercentage=60.0",
-			"-XX:MaxDirectMemorySize=8g",
+			"-XX:MaxRAMPercentage=75.0",
 			"-XX:+ExitOnOutOfMemoryError",
 			"-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
 			"-jar", config.JarPath, string(configJSON))
 	} else {
 		serverCmd = exec.Command("java",
 			"-XX:+UseG1GC",
-			"-XX:InitialRAMPercentage=40.0",
-			"-XX:MaxRAMPercentage=60.0",
-			"-XX:MaxDirectMemorySize=8g",
+			"-XX:MaxRAMPercentage=75.0",
 			"-XX:+ExitOnOutOfMemoryError",
 			"-jar", config.JarPath, string(configJSON))
 	}
