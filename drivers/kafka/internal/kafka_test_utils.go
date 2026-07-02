@@ -180,7 +180,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 5})
 		t.Logf("Rolled back partition %d, added partition %d with 1 message, and added 1 message on partition %d for topic '%s'", 0, 5, 0, streams[0])
 
-	case "rebalance":
+	case "insert_rebalance":
 		for written := 0; written < rebalanceBulkMessageCount; written += rebalanceBulkBatchSize {
 			batchCount := min(rebalanceBulkBatchSize, rebalanceBulkMessageCount-written)
 			records := make([]*kgo.Record, batchCount)
