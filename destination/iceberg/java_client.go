@@ -22,11 +22,11 @@ import (
 const defaultServerPort = 50051
 
 type serverInstance struct {
-	port             int
-	cmd              *exec.Cmd
-	client           proto.RecordIngestServiceClient
-	arrowClient      proto.ArrowIngestServiceClient
-	conn             *grpc.ClientConn
+	port            int
+	cmd             *exec.Cmd
+	client          proto.RecordIngestServiceClient
+	arrowClient     proto.ArrowIngestServiceClient
+	conn            *grpc.ClientConn
 	defaultServerID string
 }
 
@@ -183,11 +183,11 @@ func startServer(config *Config) (*serverInstance, error) {
 
 	logger.Infof("Started shared Iceberg JVM on port %d", port)
 	return &serverInstance{
-		port:        port,
-		cmd:         serverCmd,
-		client:      proto.NewRecordIngestServiceClient(conn),
-		arrowClient: proto.NewArrowIngestServiceClient(conn),
-		conn:        conn,
+		port:            port,
+		cmd:             serverCmd,
+		client:          proto.NewRecordIngestServiceClient(conn),
+		arrowClient:     proto.NewArrowIngestServiceClient(conn),
+		conn:            conn,
 		defaultServerID: serverID,
 	}, nil
 }
