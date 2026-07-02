@@ -254,18 +254,16 @@ func waitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
 func startRebalanceTrigger(ctx context.Context, t *testing.T, broker, groupID, topic string) {
 	t.Helper()
 
-	instanceID := fmt.Sprintf("rebalance-trigger-%d", time.Now().UnixNano())
+	clientID := fmt.Sprintf("rebalance-trigger-%d", time.Now().UnixNano())
 
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(broker),
 		kgo.ConsumerGroup(groupID),
-		kgo.ClientID(instanceID),
-		kgo.InstanceID(instanceID),
+		kgo.ClientID(clientID),
 		kgo.ConsumeTopics(topic),
 		kgo.Balancers(kafkapkg.NewCustomGroupBalancer(map[string]types.PartitionMetaData{
 			kafkapkg.PartitionMetadataKey(topic, rebalanceBulkPartition): {PartitionID: rebalanceBulkPartition},
 		})),
-		kgo.FetchMinBytes(1),
 		kgo.DisableAutoCommit(),
 	)
 	require.NoError(t, err)
@@ -275,14 +273,9 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, broker, groupID, t
 
 	go func() {
 		defer func() {
-			// kgo.InstanceID disables the automatic LeaveGroup in client.Close() for static members.
-			// Send an explicit LeaveGroup so the broker removes this member immediately instead of
-			// waiting for session.timeout.ms, which would cause a rebalance in the next sync.
-			client.LeaveGroup()
-			t.Logf("rebalance trigger consumer: sent LeaveGroup (group=%s instanceID=%s)", groupID, instanceID)
 			client.Close()
 			close(done)
-			t.Logf("rebalance trigger consumer: goroutine exited (group=%s instanceID=%s)", groupID, instanceID)
+			t.Logf("rebalance trigger consumer: goroutine exited (group=%s clientID=%s)", groupID, clientID)
 		}()
 		for {
 			if ctx.Err() != nil {
@@ -298,9 +291,7 @@ func stopRebalanceTrigger() {
 		rebalanceTriggerCancel()
 		rebalanceTriggerCancel = nil
 	}
-	// Wait for the goroutine to fully exit and the explicit LeaveGroup to be sent.
-	// Without this, the static member lingers in the broker (kgo.InstanceID skips LeaveGroup
-	// on Close) and may still hold a partition assignment when the next sync starts.
+	// Wait for the trigger goroutine to exit (Close sends LeaveGroup for dynamic members).
 	if rebalanceTriggerDone != nil {
 		<-rebalanceTriggerDone
 		rebalanceTriggerDone = nil
