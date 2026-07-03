@@ -705,7 +705,27 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 }
 
 func init() {
-	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
-		return new(Parquet)
+	var parquetConfig *Config
+	destination.RegisteredWriters[types.Parquet] = func(config any) (destination.Writer, func(ctx context.Context), error) {
+		if parquetConfig != nil {
+			// for already initialized writer, return the same config instance
+			return &Parquet{
+				config: parquetConfig,
+			}, nil, nil
+		}
+
+		parquetConfig = &Config{}
+		err := utils.Unmarshal(config, parquetConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal parquet config: %s", err)
+		}
+
+		if err := parquetConfig.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("failed to validate parquet config: %s", err)
+		}
+
+		return &Parquet{
+			config: parquetConfig,
+		}, nil, nil
 	}
 }

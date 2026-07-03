@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/datazip-inc/olake/destination"
@@ -37,8 +38,14 @@ var checkCmd = &cobra.Command{
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
-				_, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
-				return err
+				// NewWriterPool initializes destination resources and runs Check;
+				// close immediately since a check has no further work.
+				pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
+				if err != nil {
+					return err
+				}
+				pool.Shutdown(context.Background())
+				return nil
 			}
 
 			if configPath != "not-set" {

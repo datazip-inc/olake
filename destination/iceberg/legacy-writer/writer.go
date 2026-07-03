@@ -80,9 +80,8 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
-			Schema:        protoSchema,
+			ThreadId: w.options.ThreadID,
+			Schema:   protoSchema,
 		},
 		Records: protoRecords,
 	}
@@ -120,9 +119,8 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_COMMIT,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      w.server.ServerID(),
-			DestTableName: w.stream.GetDestinationTable(),
-			Payload:       payloadStr,
+			ThreadId: w.options.ThreadID,
+			Payload:  payloadStr,
 		},
 	}
 
