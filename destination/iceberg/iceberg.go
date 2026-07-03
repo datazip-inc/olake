@@ -477,10 +477,6 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 		return nil, fmt.Errorf("no matches found for partition regex: %s", pattern)
 	}
 
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("no matches found for partition regex: %s", pattern)
-	}
-
 	for _, match := range matches {
 		if len(match) < 3 {
 			continue // We need at least 3 matches: full match, column name, transform

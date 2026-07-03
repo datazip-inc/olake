@@ -129,7 +129,6 @@ func startServer(config *Config) (*serverInstance, error) {
 		return nil, fmt.Errorf("failed to create server config: %w", err)
 	}
 
-	// TODO: research the following flags in arrow writer and legacy writer
 	// need to do some research on the following flags
 	var serverCmd *exec.Cmd
 	if os.Getenv("OLAKE_DEBUG_MODE") != "" {
