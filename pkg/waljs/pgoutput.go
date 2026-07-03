@@ -9,6 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
@@ -16,6 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jmoiron/sqlx"
 )
+
+const olakeUnavailableValue = "__olake_unavailable_value__"
 
 // pgoutputReplicator implements Replicator for pgoutput
 type pgoutputReplicator struct {
@@ -151,14 +154,17 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		}
 		colName := rel.Columns[idx].Name
 		colType := rel.Columns[idx].DataType
+
+		isUnchangedToast := col.DataType == pglogrepl.TupleDataTypeToast
 		// On UPDATE, unchanged TOAST columns in the new tuple are marked TupleDataTypeToast.
 		// REPLICA IDENTITY FULL includes the complete old row and allows recovery of these values.
 		// DEFAULT, INDEX, and NOTHING do not provide old TOAST values, so recovery is not possible.
-		if col.DataType == pglogrepl.TupleDataTypeToast && oldTuple != nil && idx < len(oldTuple.Columns) {
+		if isUnchangedToast && oldTuple != nil && idx < len(oldTuple.Columns) {
 			col = oldTuple.Columns[idx]
 		}
 		if col.Data == nil {
-			data[colName] = nil
+			// If the column is a TOAST column, set the value to __olake_unavailable_value__ otherwise set it to nil
+			data[colName] = utils.Ternary(isUnchangedToast, olakeUnavailableValue, nil)
 			continue
 		}
 
