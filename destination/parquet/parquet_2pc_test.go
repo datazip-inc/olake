@@ -39,27 +39,32 @@ func TestLoad2PCState(t *testing.T) {
 				require.True(t, slices.Contains(state.FullRefreshCommittedIDs, "thread-2"))
 			},
 		},
-		// CDC/incremental markers can persist metadata state, so setup selects the newest marker
+		// CDC/incremental markers can persist metadata state, so setup returns the current thread marker
 		{
-			name: "returns latest metadata state",
+			name: "returns metadata state for current thread",
 			run: func(t *testing.T) {
 				p := testParquet2PC(t, "cdc-thread-old")
 				require.NoError(t, p.writeCompletedMarker(ctx, &types.MetadataState{
 					ID:    "cdc-thread-old",
 					State: `{"lsn":"1/1"}`,
 				}))
-				oldModTime := time.Now().Add(-time.Minute)
-				require.NoError(t, os.Chtimes(p.completedMarkerPath("cdc-thread-old"), oldModTime, oldModTime))
 
 				p.options.ThreadID = "cdc-thread-new"
 				require.NoError(t, p.writeCompletedMarker(ctx, &types.MetadataState{
 					ID:    "cdc-thread-new",
 					State: `{"lsn":"1/2"}`,
 				}))
-				newModTime := time.Now()
-				require.NoError(t, os.Chtimes(p.completedMarkerPath("cdc-thread-new"), newModTime, newModTime))
 
+				p.options.ThreadID = "cdc-thread-old"
 				state, err := p.load2PCState(ctx)
+				require.NoError(t, err)
+				require.NotNil(t, state)
+				require.Equal(t, "cdc-thread-old", state.ID)
+				require.Equal(t, `{"lsn":"1/1"}`, state.State)
+				require.Empty(t, state.FullRefreshCommittedIDs)
+
+				p.options.ThreadID = "cdc-thread-new"
+				state, err = p.load2PCState(ctx)
 				require.NoError(t, err)
 				require.NotNil(t, state)
 				require.Equal(t, "cdc-thread-new", state.ID)

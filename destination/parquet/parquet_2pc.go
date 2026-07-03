@@ -29,8 +29,6 @@ const (
 type parquet2PCCompletedMarker struct {
 	ThreadID      string
 	MetadataState *types.MetadataState
-	// completedAt selects the latest CDC/incremental metadata marker.
-	completedAt time.Time
 }
 
 type parquet2PCStagingEntry struct {
@@ -65,7 +63,7 @@ func (p *Parquet) load2PCState(ctx context.Context) (*types.MetadataState, error
 	}
 
 	fullRefreshCommittedIDs := make([]string, 0, len(markers))
-	var latestStateMarker *parquet2PCCompletedMarker
+	var state *types.MetadataState
 	for _, marker := range markers {
 		if marker.ThreadID == "" {
 			continue
@@ -74,17 +72,12 @@ func (p *Parquet) load2PCState(ctx context.Context) (*types.MetadataState, error
 			fullRefreshCommittedIDs = append(fullRefreshCommittedIDs, marker.ThreadID)
 			continue
 		}
-		if latestStateMarker == nil || marker.completedAt.After(latestStateMarker.completedAt) {
-			markerCopy := marker
-			latestStateMarker = &markerCopy
+		if marker.ThreadID == p.options.ThreadID {
+			stateCopy := *marker.MetadataState
+			state = &stateCopy
 		}
 	}
 
-	var state *types.MetadataState
-	if latestStateMarker != nil {
-		stateCopy := *latestStateMarker.MetadataState
-		state = &stateCopy
-	}
 	if state == nil && len(fullRefreshCommittedIDs) == 0 {
 		return state, nil
 	}
@@ -213,7 +206,7 @@ func (p *Parquet) listS3StagingEntries(ctx context.Context) (map[string]parquet2
 					stagingEntry.StagingDir = parts[0]
 				}
 				if parts[1] == parquet2PCCompletedFile {
-					marker, err := p.readS3CompletedMarker(ctx, parts[0], *obj.Key, obj.LastModified)
+					marker, err := p.readS3CompletedMarker(ctx, parts[0], *obj.Key)
 					if err != nil {
 						pageErr = err
 						return false
@@ -243,15 +236,11 @@ func (p *Parquet) readLocalCompletedMarker(stagingDir string) (parquet2PCComplet
 	if err != nil {
 		return parquet2PCCompletedMarker{}, err
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return parquet2PCCompletedMarker{}, err
-	}
-	return p.parseCompletedMarker(threadID, data, info.ModTime())
+	return p.parseCompletedMarker(threadID, data)
 }
 
 // readS3CompletedMarker reads and parses an S3 _completed.json marker.
-func (p *Parquet) readS3CompletedMarker(ctx context.Context, stagingDir, key string, lastModified *time.Time) (parquet2PCCompletedMarker, error) {
+func (p *Parquet) readS3CompletedMarker(ctx context.Context, stagingDir, key string) (parquet2PCCompletedMarker, error) {
 	threadID, err := threadIDFromStagingDir(stagingDir)
 	if err != nil {
 		return parquet2PCCompletedMarker{}, err
@@ -262,18 +251,13 @@ func (p *Parquet) readS3CompletedMarker(ctx context.Context, stagingDir, key str
 		return parquet2PCCompletedMarker{}, err
 	}
 
-	completedAt := time.Time{}
-	if lastModified != nil {
-		completedAt = *lastModified
-	}
-	return p.parseCompletedMarker(threadID, data, completedAt)
+	return p.parseCompletedMarker(threadID, data)
 }
 
 // parseCompletedMarker decodes optional metadata from a completed marker body.
-func (p *Parquet) parseCompletedMarker(threadID string, data []byte, completedAt time.Time) (parquet2PCCompletedMarker, error) {
+func (p *Parquet) parseCompletedMarker(threadID string, data []byte) (parquet2PCCompletedMarker, error) {
 	marker := parquet2PCCompletedMarker{
-		ThreadID:    threadID,
-		completedAt: completedAt,
+		ThreadID: threadID,
 	}
 
 	trimmedData := bytes.TrimSpace(data)
