@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httputil"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/rs/zerolog"
+	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -164,6 +166,9 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 					"Speed":                    fmt.Sprintf("%.2f rps", speed),
 					"Seconds Elapsed":          fmt.Sprintf("%.2f", timeElapsed),
 					"Estimated Remaining Time": estimatedSeconds,
+				}
+				if cpuPercent, err := cpu.Percent(0, false); err == nil && len(cpuPercent) > 0 {
+					stats["CPU Utilization"] = math.Round(cpuPercent[0]*100) / 10000
 				}
 				if err := FileLogger(stats, "stats", ".json"); err != nil {
 					Fatalf("failed to write stats in file: %s", err)
