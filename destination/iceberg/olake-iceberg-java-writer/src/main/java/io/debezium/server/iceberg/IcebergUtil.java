@@ -111,18 +111,25 @@ public class IcebergUtil {
     return instance.get();
   }
 
-  public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier, Schema schema) {
-
-    if (!((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
-      // multiple threads can try to create the namespace concurrently
-      // if table was already created, this will avoid the error of already exists
-      try {
-        ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
-        LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
-      } catch (AlreadyExistsException e) {
-        LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
-      }
+  /** Creates the namespace if it does not already exist, ignoring transient catalog conflicts. */
+  private static void ensureNamespace(Catalog icebergCatalog, TableIdentifier tableIdentifier) {
+    if (((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
+      return;
     }
+    // multiple threads can try to create the namespace concurrently;
+    // AlreadyExists means another thread won the race, which is fine.
+    try {
+      ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
+      LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
+    } catch (AlreadyExistsException e) {
+      LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
+    } catch (software.amazon.awssdk.services.glue.model.ConcurrentModificationException e) {
+      LOGGER.debug("Namespace '{}' is being created concurrently, proceeding", tableIdentifier.namespace());
+    }
+  }
+
+  public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier, Schema schema) {
+    ensureNamespace(icebergCatalog, tableIdentifier);
     return icebergCatalog.createTable(tableIdentifier, schema);
   }
 
@@ -137,23 +144,16 @@ public class IcebergUtil {
     LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}", tableIdentifier, schema,
         schema.identifierFieldNames());
 
-    if (!((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
-      try {
-        ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
-        LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
-      } catch (AlreadyExistsException e) {
-        LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
-      }
-    }
+    ensureNamespace(icebergCatalog, tableIdentifier);
 
     // If we have partition transforms, create a PartitionSpec
     if (partitionTransforms.isEmpty()) {
       // No partitioning - create a table as before
       return icebergCatalog.buildTable(tableIdentifier, schema)
-          .withProperty(FORMAT_VERSION, "2")
-          .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
-          .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
-          .create();
+              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
+              .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
+              .create();
     } else {
       // Create a table with partitioning
       LOGGER.info("Creating table with partitioning: {}", partitionTransforms);
@@ -210,11 +210,11 @@ public class IcebergUtil {
       
       // Create the table with the partition spec
       return icebergCatalog.buildTable(tableIdentifier, schema)
-          .withProperty(FORMAT_VERSION, "2")
-          .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
-          .withPartitionSpec(specBuilder.build())
-          .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
-          .create();
+              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
+              .withPartitionSpec(specBuilder.build())
+              .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
+              .create();
     }
   }
 
