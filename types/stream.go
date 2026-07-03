@@ -67,6 +67,7 @@ func NewStream(name, namespace string, sourceDatabase *string) *Stream {
 	}
 }
 
+// TODO: Refactor ID to return struct of namespace and name, similar to what is done in GetStreamNames
 func (s *Stream) ID() string {
 	return utils.StreamIdentifier(s.Name, s.Namespace)
 }

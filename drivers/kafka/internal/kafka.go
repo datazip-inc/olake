@@ -160,7 +160,7 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
 	streamName, streamNamespace := streamID.Name, streamID.Namespace
 	logger.Infof("producing schema for topic [%s]", streamName)
-	stream := types.NewStream(streamID.Name, streamNamespace, nil)
+	stream := types.NewStream(streamName, streamNamespace, nil)
 	stream.WithSyncMode(types.STRICTCDC)
 	stream.SyncMode = types.STRICTCDC
 
