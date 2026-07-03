@@ -143,7 +143,7 @@ func (s *S3) MaxRetries() int {
 }
 
 // GetStreamNames discovers all files in the S3 bucket matching the configuration
-func (s *S3) GetStreamNames(ctx context.Context) ([]string, error) {
+func (s *S3) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Discovering files in bucket: %s with prefix: %s", s.config.BucketName, s.config.PathPrefix)
 
 	// Initialize the map for grouped files
@@ -218,10 +218,10 @@ func (s *S3) GetStreamNames(ctx context.Context) ([]string, error) {
 	s.discoveredFiles = filesByStream
 
 	// Extract stream names
-	streamNames := make([]string, 0, len(filesByStream))
+	streamNames := make([]types.StreamID, 0, len(filesByStream))
 	totalFiles := 0
 	for streamName, files := range filesByStream {
-		streamNames = append(streamNames, streamName)
+		streamNames = append(streamNames, types.StreamID{Namespace: "s3", Name: streamName})
 		totalFiles += len(files)
 	}
 
@@ -279,17 +279,17 @@ func (s *S3) matchesFileFormat(key string) bool {
 }
 
 // ProduceSchema generates schema for a given stream (folder or file)
-func (s *S3) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	logger.Infof("Producing schema for stream: %s", streamName)
+func (s *S3) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
+	logger.Infof("Producing schema for stream: %s", streamID)
 
 	// Get files for this stream
-	files, exists := s.discoveredFiles[streamName]
+	files, exists := s.discoveredFiles[streamID.Name]
 	if !exists || len(files) == 0 {
-		return nil, fmt.Errorf("no files found for stream: %s", streamName)
+		return nil, fmt.Errorf("no files found for stream: %s", streamID.Name)
 	}
 
 	// Create stream
-	stream := types.NewStream(streamName, "s3", &s.config.BucketName)
+	stream := types.NewStream(streamID.Name, streamID.Namespace, &s.config.BucketName)
 
 	// Infer schema from the first file in the stream
 	firstFile := files[0]

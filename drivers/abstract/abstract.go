@@ -83,7 +83,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 
 	var streamMap sync.Map
 
-	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream string) error {
+	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream types.StreamID) error {
 		streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
 		if err != nil {
 			return fmt.Errorf("%w: failed to produce schema for stream %s: %s", constants.ErrNonRetryable, stream, err)

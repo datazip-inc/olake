@@ -9,6 +9,17 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+// StreamID is the fully qualified identity of a source stream, carried as separate fields for namespace and table name
+type StreamID struct {
+	Namespace string // schema / database / owner
+	Name      string // table / collection / topic
+}
+
+// String returns the canonical "namespace.name" identifier, matching Stream.ID(). It is used for logging only.
+func (s StreamID) String() string {
+	return utils.StreamIdentifier(s.Name, s.Namespace)
+}
+
 // Output Stream Object for dsynk
 type Stream struct {
 	// Name of the Stream
@@ -56,6 +67,7 @@ func NewStream(name, namespace string, sourceDatabase *string) *Stream {
 	}
 }
 
+// TODO: Refactor ID to return struct of namespace and name, similar to what is done in GetStreamNames
 func (s *Stream) ID() string {
 	return utils.StreamIdentifier(s.Name, s.Namespace)
 }
