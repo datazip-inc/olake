@@ -632,7 +632,7 @@ func TestHandleWriterCleanup_ExistingError_CancelsContext(t *testing.T) {
 	case <-ctx.Done():
 		// expected — cancel was called because err != nil
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("context should have been cancelled when an error exists")
+		t.Fatal("context should have been canceled when an error exists")
 	}
 }
 
@@ -727,7 +727,7 @@ func TestRead_MaxConnections_Applied(t *testing.T) {
 }
 
 func TestWaitForBackfillCompletion_GlobalConnGroupCancelled(t *testing.T) {
-	// If the driver's connection group is cancelled mid-backfill,
+	// If the driver's connection group is canceled mid-backfill,
 	// we should get ErrGlobalContextGroup back, not a context.Canceled.
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
@@ -766,7 +766,7 @@ func TestHandleWriterCleanup_PanicRecovery(t *testing.T) {
 }
 
 func TestHandleWriterCleanup_MtState_NonNil(t *testing.T) {
-	// String values go through SetMetadataState without JSON marshalling should be fine.
+	// String values go through SetMetadataState without JSON marshaling should be fine.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -779,7 +779,7 @@ func TestHandleWriterCleanup_MtState_NonNil(t *testing.T) {
 }
 
 func TestHandleWriterCleanup_MtState_UnmarshalableValue(t *testing.T) {
-	// Channels can't be JSON-marshalled, so SetMetadataState will error.
+	// Channels can't be JSON-marshaled, so SetMetadataState will error.
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var err error
@@ -794,6 +794,6 @@ func TestHandleWriterCleanup_MtState_UnmarshalableValue(t *testing.T) {
 	select {
 	case <-ctx.Done():
 	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected context to be cancelled after metadata state error")
+		t.Fatal("expected context to be canceled after metadata state error")
 	}
 }
