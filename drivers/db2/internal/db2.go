@@ -158,7 +158,7 @@ func (d *DB2) MaxRetries() int {
 	return d.config.RetryCount
 }
 
-func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
+func (d *DB2) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for DB2 database %s", d.config.Database)
 
 	rows, err := d.client.QueryContext(ctx, jdbc.DB2DiscoveryQuery())
@@ -167,13 +167,13 @@ func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var streamNames []string
+	var streamNames []types.StreamID
 	for rows.Next() {
 		var schema, name string
 		if err := rows.Scan(&schema, &name); err != nil {
 			return nil, fmt.Errorf("failed to scan table row: %s", err)
 		}
-		streamNames = append(streamNames, fmt.Sprintf("%s.%s", schema, name))
+		streamNames = append(streamNames, types.StreamID{Namespace: schema, Name: name})
 	}
 
 	if err := rows.Err(); err != nil {
@@ -183,16 +183,11 @@ func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
 	return streamNames, nil
 }
 
-func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	populateStreams := func(ctx context.Context, streamName string) (*types.Stream, error) {
+func (d *DB2) ProduceSchema(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
+	populateStreams := func(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
 
-		parts := strings.Split(streamName, ".")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-		}
-
-		schemaName, tableName := parts[0], parts[1]
+		schemaName, tableName := streamName.Namespace, streamName.Name
 		stream := types.NewStream(tableName, schemaName, &d.config.Database)
 
 		rows, err := d.client.QueryContext(ctx, jdbc.DB2TableSchemaAndPrimaryKeysQuery(), schemaName, tableName)
