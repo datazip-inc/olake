@@ -138,28 +138,29 @@ func (k *Kafka) Close() error {
 	return nil
 }
 
-func (k *Kafka) GetStreamNames(ctx context.Context) ([]string, error) {
+func (k *Kafka) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for Kafka")
 	metadata, err := k.adminClient.ListTopics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list topics: %s", err)
 	}
 
-	var topicNames []string
+	var topicNames []types.StreamID
 	for topicName := range metadata {
 		// skip internal topics
 		if slices.Contains(InternalKafkaTopics, topicName) {
 			continue
 		}
-		topicNames = append(topicNames, topicName)
+		topicNames = append(topicNames, types.StreamID{Namespace: "topics", Name: topicName})
 	}
 	return topicNames, nil
 }
 
 // TODO: for avro, we use decode messages to get stream properties similar to JSON, we should directly use the avro schema to get stream properties
-func (k *Kafka) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
+	streamName, streamNamespace := streamID.Name, streamID.Namespace
 	logger.Infof("producing schema for topic [%s]", streamName)
-	stream := types.NewStream(streamName, "topics", nil)
+	stream := types.NewStream(streamName, streamNamespace, nil)
 	stream.WithSyncMode(types.STRICTCDC)
 	stream.SyncMode = types.STRICTCDC
 
