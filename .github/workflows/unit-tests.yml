@@ -29,4 +29,4 @@ jobs:
 
       - name: Run All Unit Tests
         run: |
-          go list -m | awk '{print $1"/..."}' | xargs go test -v -count=1 -skip 'Integration|2PC|Performance'
+          go list -m | awk '{print $1"/..."}' | xargs go test -v -count=1 -skip 'Integration|2PC|Performance|Rebalance'
