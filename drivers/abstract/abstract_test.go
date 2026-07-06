@@ -15,8 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Implements DriverInterface entirely in memory.
-// Fields control what each method returns so individual tests can tune behavior.
+// mockDriver implements DriverInterface entirely in memory so we don't need a real
+// database connection to test AbstractDriver's own logic. Each field controls what
+// the corresponding method returns, so individual tests can tune behavior as needed.
 type mockDriver struct {
 	driverType     string
 	cdcSupported   bool
@@ -71,17 +72,16 @@ func (m *mockDriver) StreamIncrementalChanges(_ context.Context, _ types.StreamI
 func (m *mockDriver) ChangeStreamConfig() (bool, bool, bool)                    { return true, false, false }
 func (m *mockDriver) PreCDC(_ context.Context, _ []types.StreamInterface) error { return nil }
 func (m *mockDriver) StreamChanges(_ context.Context, _ int, _ map[string]any, _ CDCMsgFn) (any, error) {
-	return nil, nil //nolint:nilnil // mock stub: no data, no error by design
+	return nil, nil //nolint:nilnil // mock stub, there's genuinely nothing to return here
 }
 func (m *mockDriver) PostCDC(_ context.Context, _ int) error { return nil }
 
-// mockConfig satisfies the Config interface.
+// mockConfig just satisfies the Config interface, nothing to validate here.
 type mockConfig struct{}
 
 func (c *mockConfig) Validate() error { return nil }
 
-// mockConfiguredStream — minimal types.StreamInterface for tests.
-
+// mockConfiguredStream is a minimal types.StreamInterface stand-in for tests.
 type mockConfiguredStream struct {
 	name      string
 	namespace string
@@ -116,7 +116,7 @@ func (m *mockConfiguredStream) IsSelectedColumn() func(string) bool {
 }
 func (m *mockConfiguredStream) ResolveColumnName(key string) string { return key }
 
-// helpers
+// --- helpers ---
 
 func newTestDriver(driverType string, cdcSupported bool) (*AbstractDriver, *mockDriver) {
 	mock := &mockDriver{
@@ -128,15 +128,16 @@ func newTestDriver(driverType string, cdcSupported bool) (*AbstractDriver, *mock
 	return ad, mock
 }
 
-// newState creates a types.State with its embedded RWMutex properly initialized.
-// Without this, any method that called state.Lock() was panicking on a nil pointer.
+// newState builds a types.State with its embedded RWMutex initialized.
+// Skipping this made anything that called state.Lock() panic on a nil pointer,
+// took a while to figure out why.
 func newState() *types.State {
 	s := &types.State{}
 	s.RWMutex = &sync.RWMutex{}
 	return s
 }
 
-// compile-time check
+// compile-time check that mockDriver actually satisfies DriverInterface
 var _ DriverInterface = (*mockDriver)(nil)
 
 func TestDefaultColumns(t *testing.T) {
@@ -152,8 +153,6 @@ func TestDefaultColumns(t *testing.T) {
 	}
 }
 
-// TestNewAbstractDriver
-
 func TestNewAbstractDriver(t *testing.T) {
 	ad, mock := newTestDriver("postgres", true)
 	require.NotNil(t, ad)
@@ -162,8 +161,6 @@ func TestNewAbstractDriver(t *testing.T) {
 	assert.Equal(t, "postgres", ad.Type())
 	assert.Equal(t, mock, ad.driver)
 }
-
-// TestSetupState
 
 func TestSetupState(t *testing.T) {
 	ad, mock := newTestDriver("postgres", true)
@@ -178,8 +175,6 @@ func TestSetupState(t *testing.T) {
 	assert.Equal(t, state, received, "driver.SetupState must be forwarded with the same pointer")
 }
 
-// TestType
-
 func TestType(t *testing.T) {
 	for _, dt := range []string{"postgres", "mysql", "mongodb", "kafka", "oracle"} {
 		t.Run(dt, func(t *testing.T) {
@@ -188,8 +183,6 @@ func TestType(t *testing.T) {
 		})
 	}
 }
-
-// TestSetup
 
 func TestSetup_Success(t *testing.T) {
 	ad, _ := newTestDriver("postgres", true)
@@ -211,189 +204,250 @@ func TestSupportsCdcColumn(t *testing.T) {
 	}{
 		{"postgres CDC", "postgres", true, true},
 		{"mysql CDC", "mysql", true, true},
-		// Kafka supports CDC but intentionally excluded from cdc_timestamp column
+		// Kafka supports CDC but is intentionally excluded from the cdc_timestamp column
 		{"kafka CDC", string(constants.Kafka), true, false},
 		{"postgres non-CDC", "postgres", false, false},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ad, _ := newTestDriver(tt.driverType, tt.cdcSupported)
-			assert.Equal(t, tt.want, ad.supportsCdcColumn())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ad, _ := newTestDriver(tc.driverType, tc.cdcSupported)
+			assert.Equal(t, tc.want, ad.supportsCdcColumn())
 		})
 	}
 }
 
-// TestDiscover
-func TestDiscover_IsSync_ReturnsNil(t *testing.T) {
-	ad, mock := newTestDriver("postgres", true)
-	mock.streamNames = []string{"orders", "users"}
+// Discover has a lot of branching (sync modes, CDC vs non-CDC, default columns,
+// per-driver-type defaults), so it's tested as one table instead of a pile of
+// near-duplicate functions.
+func TestDiscover(t *testing.T) {
+	tests := []struct {
+		name           string
+		driverType     string
+		cdcSupported   bool
+		isSync         bool
+		maxThreads     int
+		streamNames    []string
+		streamNamesErr error
+		produceSchema  func(name string) (*types.Stream, error)
+		check          func(t *testing.T, streams []*types.Stream, err error)
+	}{
+		// isSync / basic paths
+		{
+			name:         "isSync returns nil",
+			driverType:   "postgres",
+			cdcSupported: true,
+			isSync:       true,
+			streamNames:  []string{"orders", "users"},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				assert.NoError(t, err)
+				assert.Nil(t, streams, "isSync=true should return nil so classifyStreams trusts the catalog")
+			},
+		},
+		{
+			name:           "GetStreamNames error",
+			driverType:     "postgres",
+			cdcSupported:   true,
+			streamNamesErr: errors.New("no connection"),
+			check: func(t *testing.T, _ []*types.Stream, err error) {
+				assert.ErrorContains(t, err, "failed to get stream names")
+			},
+		},
+		{
+			name:         "empty stream list",
+			driverType:   "postgres",
+			cdcSupported: true,
+			streamNames:  []string{},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				assert.NoError(t, err)
+				assert.Empty(t, streams)
+			},
+		},
+		{
+			name:         "produceSchema error",
+			driverType:   "postgres",
+			cdcSupported: true,
+			streamNames:  []string{"orders"},
+			produceSchema: func(_ string) (*types.Stream, error) {
+				return nil, fmt.Errorf("schema error")
+			},
+			check: func(t *testing.T, _ []*types.Stream, err error) {
+				assert.ErrorContains(t, err, "error occurred while waiting for connection group")
+			},
+		},
 
-	streams, err := ad.Discover(context.Background(), 0, true)
-	assert.NoError(t, err)
-	assert.Nil(t, streams, "isSync=true should return nil so classifyStreams trusts the catalog")
-}
+		// default columns
+		{
+			name:         "default columns added for CDC driver",
+			driverType:   "postgres",
+			cdcSupported: true,
+			streamNames:  []string{"orders"},
+			produceSchema: func(name string) (*types.Stream, error) {
+				s := types.NewStream(name, "public", nil)
+				s.SupportedSyncModes = types.NewSet(types.CDC)
+				return s, nil
+			},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				require.NoError(t, err)
+				require.Len(t, streams, 1)
+				for col := range DefaultColumns {
+					_, ok := streams[0].Schema.Properties.Load(col)
+					assert.True(t, ok, "expected default column %q in schema", col)
+				}
+			},
+		},
+		{
+			name:        "CdcTimestamp not added for non-CDC driver",
+			driverType:  "postgres",
+			streamNames: []string{"users"},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				require.NoError(t, err)
+				require.Len(t, streams, 1)
+				_, hasCdcTS := streams[0].Schema.Properties.Load(constants.CdcTimestamp)
+				assert.False(t, hasCdcTS, "non-CDC driver must not get CdcTimestamp column")
+			},
+		},
+		{
+			name:         "CdcTimestamp not added for Kafka driver",
+			driverType:   string(constants.Kafka),
+			cdcSupported: true,
+			streamNames:  []string{"topic1"},
+			produceSchema: func(name string) (*types.Stream, error) {
+				return types.NewStream(name, "kafka", nil), nil
+			},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				require.NoError(t, err)
+				require.Len(t, streams, 1)
+				_, hasCdcTS := streams[0].Schema.Properties.Load(constants.CdcTimestamp)
+				assert.False(t, hasCdcTS, "Kafka driver must not get CdcTimestamp column")
+			},
+		},
 
-func TestDiscover_GetStreamNamesError(t *testing.T) {
-	ad, mock := newTestDriver("postgres", true)
-	mock.streamNamesErr = errors.New("no connection")
+		// sync mode selection
+		{
+			name:         "sync mode CDC",
+			driverType:   "postgres",
+			cdcSupported: true,
+			streamNames:  []string{"orders"},
+			produceSchema: func(name string) (*types.Stream, error) {
+				s := types.NewStream(name, "public", nil)
+				s.SupportedSyncModes = types.NewSet(types.CDC, types.INCREMENTAL, types.FULLREFRESH)
+				return s, nil
+			},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				require.NoError(t, err)
+				require.Len(t, streams, 1)
+				assert.Equal(t, types.CDC, streams[0].SyncMode)
+			},
+		},
+		{
+			// driver supports CDC globally, but this particular stream only supports INCREMENTAL
+			name:         "sync mode incremental",
+			driverType:   "postgres",
+			cdcSupported: true,
+			streamNames:  []string{"logs"},
+			produceSchema: func(name string) (*types.Stream, error) {
+				s := types.NewStream(name, "public", nil)
+				s.SupportedSyncModes = types.NewSet(types.INCREMENTAL, types.FULLREFRESH)
+				return s, nil
+			},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				require.NoError(t, err)
+				require.Len(t, streams, 1)
+				assert.Equal(t, types.INCREMENTAL, streams[0].SyncMode)
+			},
+		},
+		{
+			name:        "sync mode full refresh fallback",
+			driverType:  "postgres",
+			streamNames: []string{"archive"},
+			produceSchema: func(name string) (*types.Stream, error) {
+				s := types.NewStream(name, "public", nil)
+				s.SupportedSyncModes = types.NewSet(types.FULLREFRESH)
+				return s, nil
+			},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				require.NoError(t, err)
+				require.Len(t, streams, 1)
+				assert.Equal(t, types.FULLREFRESH, streams[0].SyncMode)
+			},
+		},
+		{
+			// STRICTCDC sits between INCREMENTAL and FULLREFRESH in priority
+			name:        "sync mode strict CDC",
+			driverType:  "postgres",
+			streamNames: []string{"events"},
+			produceSchema: func(name string) (*types.Stream, error) {
+				s := types.NewStream(name, "public", nil)
+				s.SupportedSyncModes = types.NewSet(types.STRICTCDC, types.FULLREFRESH)
+				return s, nil
+			},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				require.NoError(t, err)
+				require.Len(t, streams, 1)
+				assert.Equal(t, types.STRICTCDC, streams[0].SyncMode)
+			},
+		},
 
-	_, err := ad.Discover(context.Background(), 0, false)
-	assert.ErrorContains(t, err, "failed to get stream names")
-}
+		// default stream properties
+		{
+			name:        "default properties for relational driver",
+			driverType:  "postgres",
+			streamNames: []string{"users"},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				require.NoError(t, err)
+				require.Len(t, streams, 1)
+				props := streams[0].DefaultStreamProperties
+				require.NotNil(t, props)
+				assert.True(t, props.Normalization)
+				assert.False(t, props.AppendMode)
+			},
+		},
+		{
+			name:         "default properties for Kafka driver",
+			driverType:   string(constants.Kafka),
+			cdcSupported: true,
+			streamNames:  []string{"topic1"},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				require.NoError(t, err)
+				require.Len(t, streams, 1)
+				props := streams[0].DefaultStreamProperties
+				require.NotNil(t, props)
+				assert.True(t, props.AppendMode)
+				assert.False(t, props.Normalization)
+			},
+		},
 
-func TestDiscover_EmptyStreamList(t *testing.T) {
-	ad, mock := newTestDriver("postgres", true)
-	mock.streamNames = []string{}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	assert.NoError(t, err)
-	assert.Empty(t, streams)
-}
-
-func TestDiscover_ProduceSchemaError(t *testing.T) {
-	ad, mock := newTestDriver("postgres", true)
-	mock.streamNames = []string{"orders"}
-	mock.produceSchemaFn = func(_ string) (*types.Stream, error) {
-		return nil, fmt.Errorf("schema error")
+		// concurrency
+		{
+			name:        "max discover threads respected",
+			driverType:  "postgres",
+			maxThreads:  2,
+			streamNames: []string{"s1", "s2", "s3"},
+			check: func(t *testing.T, streams []*types.Stream, err error) {
+				assert.NoError(t, err)
+				assert.Len(t, streams, 3)
+			},
+		},
 	}
 
-	_, err := ad.Discover(context.Background(), 0, false)
-	assert.ErrorContains(t, err, "error occurred while waiting for connection group")
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ad, mock := newTestDriver(tc.driverType, tc.cdcSupported)
+			mock.streamNames = tc.streamNames
+			mock.streamNamesErr = tc.streamNamesErr
+			if tc.produceSchema != nil {
+				mock.produceSchemaFn = tc.produceSchema
+			}
 
-func TestDiscover_DefaultColumnsAdded_CDCDriver(t *testing.T) {
-	ad, mock := newTestDriver("postgres", true)
-	mock.streamNames = []string{"orders"}
-	mock.produceSchemaFn = func(name string) (*types.Stream, error) {
-		s := types.NewStream(name, "public", nil)
-		s.SupportedSyncModes = types.NewSet(types.CDC)
-		return s, nil
-	}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-
-	for col := range DefaultColumns {
-		_, ok := streams[0].Schema.Properties.Load(col)
-		assert.True(t, ok, "expected default column %q in schema", col)
+			streams, err := ad.Discover(context.Background(), tc.maxThreads, tc.isSync)
+			tc.check(t, streams, err)
+		})
 	}
 }
 
-func TestDiscover_CdcTimestampColumn_NotAdded_NonCdcDriver(t *testing.T) {
-	ad, mock := newTestDriver("postgres", false)
-	mock.streamNames = []string{"users"}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-
-	_, hasCdcTS := streams[0].Schema.Properties.Load(constants.CdcTimestamp)
-	assert.False(t, hasCdcTS, "non-CDC driver must not get CdcTimestamp column")
-}
-
-func TestDiscover_CdcTimestampColumn_NotAdded_KafkaDriver(t *testing.T) {
-	ad, mock := newTestDriver(string(constants.Kafka), true)
-	mock.streamNames = []string{"topic1"}
-	mock.produceSchemaFn = func(name string) (*types.Stream, error) {
-		return types.NewStream(name, "kafka", nil), nil
-	}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-
-	_, hasCdcTS := streams[0].Schema.Properties.Load(constants.CdcTimestamp)
-	assert.False(t, hasCdcTS, "Kafka driver must not get CdcTimestamp column")
-}
-
-func TestDiscover_SyncModeSelection_CDC(t *testing.T) {
-	ad, mock := newTestDriver("postgres", true)
-	mock.streamNames = []string{"orders"}
-	mock.produceSchemaFn = func(name string) (*types.Stream, error) {
-		s := types.NewStream(name, "public", nil)
-		s.SupportedSyncModes = types.NewSet(types.CDC, types.INCREMENTAL, types.FULLREFRESH)
-		return s, nil
-	}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-	assert.Equal(t, types.CDC, streams[0].SyncMode)
-}
-
-func TestDiscover_SyncModeSelection_Incremental(t *testing.T) {
-	// Driver supports CDC globally but this stream only supports INCREMENTAL.
-	ad, mock := newTestDriver("postgres", true)
-	mock.streamNames = []string{"logs"}
-	mock.produceSchemaFn = func(name string) (*types.Stream, error) {
-		s := types.NewStream(name, "public", nil)
-		s.SupportedSyncModes = types.NewSet(types.INCREMENTAL, types.FULLREFRESH)
-		return s, nil
-	}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-	assert.Equal(t, types.INCREMENTAL, streams[0].SyncMode)
-}
-
-func TestDiscover_SyncModeSelection_FullRefresh_Fallback(t *testing.T) {
-	ad, mock := newTestDriver("postgres", false)
-	mock.streamNames = []string{"archive"}
-	mock.produceSchemaFn = func(name string) (*types.Stream, error) {
-		s := types.NewStream(name, "public", nil)
-		s.SupportedSyncModes = types.NewSet(types.FULLREFRESH)
-		return s, nil
-	}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-	assert.Equal(t, types.FULLREFRESH, streams[0].SyncMode)
-}
-
-func TestDiscover_DefaultStreamProperties_RelationalDriver(t *testing.T) {
-	ad, mock := newTestDriver("postgres", false)
-	mock.streamNames = []string{"users"}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-
-	props := streams[0].DefaultStreamProperties
-	require.NotNil(t, props)
-	assert.True(t, props.Normalization)
-	assert.False(t, props.AppendMode)
-}
-
-func TestDiscover_DefaultStreamProperties_KafkaDriver(t *testing.T) {
-	ad, mock := newTestDriver(string(constants.Kafka), true)
-	mock.streamNames = []string{"topic1"}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-
-	props := streams[0].DefaultStreamProperties
-	require.NotNil(t, props)
-	assert.True(t, props.AppendMode)
-	assert.False(t, props.Normalization)
-}
-
-func TestDiscover_MaxDiscoverThreadsRespected(t *testing.T) {
-	ad, mock := newTestDriver("postgres", false)
-	mock.streamNames = []string{"s1", "s2", "s3"}
-
-	streams, err := ad.Discover(context.Background(), 2, false)
-	assert.NoError(t, err)
-	assert.Len(t, streams, 3)
-}
-
-// TestClearState
 func TestClearState_NilState_ReturnsEmptyState(t *testing.T) {
 	ad, _ := newTestDriver("postgres", true)
-	// state is nil — ClearState must return empty State, not panic
+	// nil state shouldn't panic, it should just come back empty
 	result, err := ad.ClearState(nil)
 	assert.NoError(t, err)
 	assert.NotNil(t, result)
@@ -432,7 +486,7 @@ func TestClearState_EmptyStreamList_NoOp(t *testing.T) {
 }
 
 func TestClearState_ResetsPerStreamState(t *testing.T) {
-	// ClearState should reset HoldsValue and wipe the State sync.Map entries.
+	// clearing a stream should reset HoldsValue and wipe its sync.Map entries
 	ad, _ := newTestDriver("postgres", true)
 
 	ss := &types.StreamState{Namespace: "public", Stream: "events"}
@@ -477,8 +531,6 @@ func TestClearState_DoesNotTouchUnrelatedStream(t *testing.T) {
 	assert.True(t, cursorExists)
 }
 
-// TestGenerateThreadID
-
 func TestGenerateThreadID_WithHash(t *testing.T) {
 	assert.Equal(t, "public.orders_abc123", generateThreadID("public.orders", "abc123"))
 }
@@ -490,7 +542,7 @@ func TestGenerateThreadID_EmptyHash_UsesULID(t *testing.T) {
 }
 
 func TestGenerateThreadID_EmptyHash_IsUnique(t *testing.T) {
-	// Two calls with no hash should yield different IDs via ULID.
+	// two calls with no hash should still yield different IDs, via ULID
 	id1 := generateThreadID("public.orders", "")
 	id2 := generateThreadID("public.orders", "")
 	assert.NotEqual(t, id1, id2)
@@ -505,8 +557,6 @@ func TestGenerateThreadID_EmptyBoth(t *testing.T) {
 	assert.Contains(t, id, "_")
 	assert.Greater(t, len(id), 1)
 }
-
-// TestWaitForBackfillCompletion
 
 func TestWaitForBackfillCompletion_Success(t *testing.T) {
 	ad, _ := newTestDriver("postgres", false)
@@ -537,7 +587,7 @@ func TestWaitForBackfillCompletion_NilProcessFn(t *testing.T) {
 	ch := make(chan string, 1)
 	ch <- "public.orders"
 
-	// nil processStream must not panic
+	// a nil processStream must not panic
 	assert.NoError(t, ad.waitForBackfillCompletion(context.Background(), ch, streams, nil))
 }
 
@@ -582,8 +632,6 @@ func TestWaitForBackfillCompletion_ProcessFnError(t *testing.T) {
 	})
 	assert.ErrorContains(t, err, "processing failed")
 }
-
-// TestHandleWriterCleanup
 
 func TestHandleWriterCleanup_UnsupportedWriterType_SetsError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -630,7 +678,7 @@ func TestHandleWriterCleanup_ExistingError_CancelsContext(t *testing.T) {
 
 	select {
 	case <-ctx.Done():
-		// expected — cancel was called because err != nil
+		// good, cancel was called because err != nil
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("context should have been canceled when an error exists")
 	}
@@ -646,11 +694,9 @@ func TestHandleWriterCleanup_MapWriter_EmptyMap_NoPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
 		handleWriterCleanup(ctx, cancel, &err, writers, "t1", &state, nil)
 	})
-	// Empty map means no Close calls — no error expected.
+	// empty map means no Close calls, so no error expected
 	assert.NoError(t, err)
 }
-
-// TestRead
 
 func TestRead_NoStreams_NoError(t *testing.T) {
 	ad, _ := newTestDriver("postgres", false)
@@ -662,12 +708,10 @@ func TestRead_CDCStreams_DriverNotSupported(t *testing.T) {
 	ad, _ := newTestDriver("postgres", false)
 	stream := &mockConfiguredStream{name: "orders", namespace: "public"}
 
-	// Passing stream as cdcStreams — driver doesn't support CDC, must error
+	// passing a stream as cdcStreams when the driver doesn't support CDC should error out
 	err := ad.Read(context.Background(), nil, nil, []types.StreamInterface{stream}, nil)
 	assert.ErrorContains(t, err, "cdc configuration not provided")
 }
-
-// TestCDCChange — struct field sanity
 
 func TestCDCChange_ZeroValue(t *testing.T) {
 	var c CDCChange
@@ -702,24 +746,8 @@ func TestCDCChange_AllKinds(t *testing.T) {
 	}
 }
 
-func TestDiscover_SyncModeSelection_StrictCDC(t *testing.T) {
-	// STRICTCDC sits between INCREMENTAL and FULLREFRESH in priority.
-	ad, mock := newTestDriver("postgres", false)
-	mock.streamNames = []string{"events"}
-	mock.produceSchemaFn = func(name string) (*types.Stream, error) {
-		s := types.NewStream(name, "public", nil)
-		s.SupportedSyncModes = types.NewSet(types.STRICTCDC, types.FULLREFRESH)
-		return s, nil
-	}
-
-	streams, err := ad.Discover(context.Background(), 0, false)
-	require.NoError(t, err)
-	require.Len(t, streams, 1)
-	assert.Equal(t, types.STRICTCDC, streams[0].SyncMode)
-}
-
 func TestRead_MaxConnections_Applied(t *testing.T) {
-	// MaxConnections > 0 should update GlobalConnGroup before any sync runs.
+	// a positive MaxConnections should update GlobalConnGroup before any sync runs
 	mock := &mockDriver{driverType: "postgres", maxConnections: 5, maxRetries: 1}
 	ad := NewAbstractDriver(context.Background(), mock)
 
@@ -727,8 +755,8 @@ func TestRead_MaxConnections_Applied(t *testing.T) {
 }
 
 func TestWaitForBackfillCompletion_GlobalConnGroupCancelled(t *testing.T) {
-	// If the driver's connection group is canceled mid-backfill,
-	// we should get ErrGlobalContextGroup back, not a context.Canceled.
+	// if the driver's connection group gets canceled mid-backfill, we should
+	// get ErrGlobalContextGroup back, not a plain context.Canceled
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
 
@@ -738,7 +766,7 @@ func TestWaitForBackfillCompletion_GlobalConnGroupCancelled(t *testing.T) {
 	streams := []types.StreamInterface{
 		&mockConfiguredStream{name: "orders", namespace: "public"},
 	}
-	ch := make(chan string) // intentionally empty so the select blocks
+	ch := make(chan string) // deliberately empty so the select blocks
 
 	rootCancel()
 
@@ -747,7 +775,7 @@ func TestWaitForBackfillCompletion_GlobalConnGroupCancelled(t *testing.T) {
 }
 
 func TestHandleWriterCleanup_PanicRecovery(t *testing.T) {
-	// recover() only works inside a deferred call, so we wrap it properly here.
+	// recover() only works inside a deferred call, so it's wrapped properly here
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -766,7 +794,7 @@ func TestHandleWriterCleanup_PanicRecovery(t *testing.T) {
 }
 
 func TestHandleWriterCleanup_MtState_NonNil(t *testing.T) {
-	// String values go through SetMetadataState without JSON marshaling should be fine.
+	// plain strings go through SetMetadataState without any JSON marshaling issues
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -779,7 +807,7 @@ func TestHandleWriterCleanup_MtState_NonNil(t *testing.T) {
 }
 
 func TestHandleWriterCleanup_MtState_UnmarshalableValue(t *testing.T) {
-	// Channels can't be JSON-marshaled, so SetMetadataState will error.
+	// channels can't be JSON-marshaled, so SetMetadataState should error here
 	ctx, cancel := context.WithCancel(context.Background())
 
 	var err error
