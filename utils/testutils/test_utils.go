@@ -854,25 +854,25 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
-	dbTwoPCCDCTestCases := []syncTestCase{
+	twoPCCDCTestCases := []syncTestCase{
 		{
-			name:                     "Full-Refresh",
+			name:                     utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "CDC - initial load", "Full-Refresh").(string),
 			operation:                "",
 			useState:                 false,
-			opSymbol:                 "r",
+			opSymbol:                 utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "c", "r").(string),
 			expected:                 cfg.ExpectedData,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 5,
 		},
 		{
-			name:      "CDC - insert",
-			operation: "insert",
-			useState:  true,
-			opSymbol:  "c",
-			expected:  cfg.ExpectedData,
-			preSetupCommands: []string{
-				saveStateFileCommand(cfg.TestConfig),
-			},
+			name:                     "CDC - insert",
+			operation:                utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "add", "insert").(string),
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			preSetupCommands:         utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), []string{}, []string{saveStateFileCommand(cfg.TestConfig)}).([]string),
+			verifyNoDuplicates:       cfg.TestConfig.Driver == string(constants.Kafka),
+			expectedRowCountByOpType: 10,
 		},
 		{
 			// Simulate 2PC failure: restore state to pre-insert checkpoint, insert a
@@ -886,10 +886,8 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 			opSymbol:                 "c",
 			expected:                 cfg.ExpectedData,
 			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: 1,
-			preSetupCommands: []string{
-				restoreStateFileCommand(cfg.TestConfig),
-			},
+			expectedRowCountByOpType: int64(utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), 11, 1).(int)),
+			preSetupCommands:         utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), []string{}, []string{restoreStateFileCommand(cfg.TestConfig)}).([]string),
 		},
 		{
 			// After the recovery sync advanced state to the committed metadata LSN,
@@ -899,56 +897,11 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 			opSymbol:                 "c",
 			expected:                 cfg.ExpectedData,
 			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: 2, // insert row + insert_2pc row, both unique by _olake_id
+			expectedRowCountByOpType: int64(utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), 12, 2).(int)),
 		},
 	}
 
-	kafkaTwoPCCDCTestCases := []syncTestCase{
-		{
-			name:                     "CDC - initial load",
-			operation:                "",
-			useState:                 false,
-			opSymbol:                 "c",
-			expected:                 cfg.ExpectedData,
-			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: 5,
-		},
-		{
-			name:                     "CDC - insert",
-			operation:                "add",
-			useState:                 true,
-			opSymbol:                 "c",
-			expected:                 cfg.ExpectedData,
-			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: 10,
-		},
-		{
-			// Simulates a 2PC failure after the destination commit but before the source offset commit
-			// by rolling back the committed source offset for partition 0 before the recovery sync.
-			// Also adds a new partition with one message to validate new partition discovery.
-			name:                     "CDC - Recovery Sync",
-			operation:                "insert_2pc",
-			useState:                 true,
-			opSymbol:                 "c",
-			expected:                 cfg.ExpectedData,
-			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: 11,
-		},
-		{
-			// No new Kafka messages; sync picks up the lagging partition-0 message from recovery.
-			name:                     "CDC - Post Recovery Sync",
-			operation:                "",
-			useState:                 true,
-			opSymbol:                 "c",
-			expected:                 cfg.ExpectedData,
-			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: 12,
-		},
-	}
-
-	testCases := utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTwoPCCDCTestCases, dbTwoPCCDCTestCases).([]syncTestCase)
-
-	for _, tc := range testCases {
+	for _, tc := range twoPCCDCTestCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, cmd := range tc.preSetupCommands {
 				if code, out, execErr := utils.ExecCommand(ctx, c, cmd); execErr != nil || code != 0 {
