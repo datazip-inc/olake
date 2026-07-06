@@ -393,14 +393,8 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		delete(record, "__$update_mask")
 
 		// Emit one normalized CDC change event.
-		if err := processFn(ctx, abstract.CDCChange{
-			Stream:       stream,
-			Timestamp:    time.Now().UTC(),
-			Kind:         operationType,
-			Data:         record,
-			ExtraColumns: extraColumns,
-			Bytes:        rowBytes,
-		}); err != nil {
+		if err := processFn(ctx, abstract.NewCDCChange(stream, time.Now().UTC(), operationType, record,
+			extraColumns, rowBytes)); err != nil {
 			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}
 	}

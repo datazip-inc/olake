@@ -282,6 +282,9 @@ func (wt *WriterThread) rollbackStats() {
 func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
 	select {
 	case <-ctx.Done():
+		// Wait for in-flight flushes so rollback below can't race their stat updates.
+		// Block's error is ctx cancellation that brought us here, so ignored.
+		_ = wt.group.Block()
 		// Aborted before commit: writer.Close releases resources without committing,
 		// so nothing this thread pushed reaches the destination — roll its stats back.
 		wt.rollbackStats()

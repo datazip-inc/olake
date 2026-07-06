@@ -199,16 +199,8 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 	if err != nil {
 		return err
 	}
-	change := abstract.CDCChange{
-		Stream:    stream,
-		Timestamp: ts,
-		Data:      record.FullDocument,
-		Kind:      record.OperationType,
-		ExtraColumns: map[string]any{
-			CDCResumeToken: token,
-		},
-		Bytes: docBytes,
-	}
+	change := abstract.NewCDCChange(stream, ts, record.OperationType, record.FullDocument,
+		map[string]any{CDCResumeToken: token}, docBytes)
 
 	if err := OnMessage(ctx, change); err != nil {
 		return err

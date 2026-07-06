@@ -21,6 +21,17 @@ type CDCChange struct {
 	Bytes        int64
 }
 
+func NewCDCChange(stream types.StreamInterface, timestamp time.Time, kind string, data, extraColumns map[string]any, sourceBytes int64) CDCChange {
+	return CDCChange{
+		Stream:       stream,
+		Timestamp:    timestamp,
+		Kind:         kind,
+		Data:         data,
+		ExtraColumns: extraColumns,
+		Bytes:        sourceBytes,
+	}
+}
+
 type AbstractDriver struct { //nolint:gosec,revive
 	driver          DriverInterface
 	state           *types.State

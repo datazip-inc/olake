@@ -141,7 +141,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 						return fmt.Errorf("column %s: %s", colName, err)
 					}
 					record[colName] = conv
-					rowBytes += db2ColumnBytes(conv, colTypeNames[colIdx])
+					rowBytes += db2ColumnBytes(raw, colTypeNames[colIdx])
 				}
 				if err := onMessage(ctx, record, rowBytes); err != nil {
 					return err
