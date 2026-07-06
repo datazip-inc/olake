@@ -25,9 +25,9 @@ type mockDriver struct {
 	maxRetries     int
 
 	setupErr        error
-	streamNames     []string
+	streamNames     []types.StreamID
 	streamNamesErr  error
-	produceSchemaFn func(stream string) (*types.Stream, error)
+	produceSchemaFn func(stream types.StreamID) (*types.Stream, error)
 	setupStateFn    func(state *types.State)
 }
 
@@ -46,15 +46,15 @@ func (m *mockDriver) SetupState(state *types.State) {
 	}
 }
 
-func (m *mockDriver) GetStreamNames(_ context.Context) ([]string, error) {
+func (m *mockDriver) GetStreamNames(_ context.Context) ([]types.StreamID, error) {
 	return m.streamNames, m.streamNamesErr
 }
 
-func (m *mockDriver) ProduceSchema(_ context.Context, stream string) (*types.Stream, error) {
+func (m *mockDriver) ProduceSchema(_ context.Context, stream types.StreamID) (*types.Stream, error) {
 	if m.produceSchemaFn != nil {
 		return m.produceSchemaFn(stream)
 	}
-	return types.NewStream(stream, "public", nil), nil
+	return types.NewStream(stream.Name, "public", nil), nil
 }
 
 func (m *mockDriver) GetOrSplitChunks(_ context.Context, _ *destination.WriterPool, _ types.StreamInterface) (*types.Set[types.Chunk], error) {
@@ -108,6 +108,7 @@ func (m *mockConfiguredStream) Validate(_ *types.Stream) error                 {
 func (m *mockConfiguredStream) NormalizationEnabled() bool                     { return false }
 func (m *mockConfiguredStream) GetDestinationDatabase(_ *string) string        { return "" }
 func (m *mockConfiguredStream) GetDestinationTable() string                    { return "" }
+func (m *mockConfiguredStream) GetPartitionRegex() string                      { return "" }
 func (m *mockConfiguredStream) RetainSelectedColumns() func(map[string]interface{}) map[string]interface{} {
 	return func(r map[string]interface{}) map[string]interface{} { return r }
 }
@@ -138,6 +139,7 @@ func newState() *types.State {
 }
 
 var _ DriverInterface = (*mockDriver)(nil)
+var _ types.StreamInterface = (*mockConfiguredStream)(nil)
 
 func TestDefaultColumns(t *testing.T) {
 	expected := map[string]types.DataType{
@@ -225,9 +227,9 @@ func TestDiscover(t *testing.T) {
 		cdcSupported   bool
 		isSync         bool
 		maxThreads     int
-		streamNames    []string
+		streamNames    []types.StreamID
 		streamNamesErr error
-		produceSchema  func(name string) (*types.Stream, error)
+		produceSchema  func(id types.StreamID) (*types.Stream, error)
 		check          func(t *testing.T, streams []*types.Stream, err error)
 	}{
 		// isSync
@@ -236,7 +238,7 @@ func TestDiscover(t *testing.T) {
 			driverType:   "postgres",
 			cdcSupported: true,
 			isSync:       true,
-			streamNames:  []string{"orders", "users"},
+			streamNames:  []types.StreamID{{Name: "orders"}, {Name: "users"}},
 			check: func(t *testing.T, streams []*types.Stream, err error) {
 				assert.NoError(t, err)
 				assert.Nil(t, streams, "isSync=true should return nil so classifyStreams trusts the catalog")
@@ -255,7 +257,7 @@ func TestDiscover(t *testing.T) {
 			name:         "empty stream list",
 			driverType:   "postgres",
 			cdcSupported: true,
-			streamNames:  []string{},
+			streamNames:  []types.StreamID{},
 			check: func(t *testing.T, streams []*types.Stream, err error) {
 				assert.NoError(t, err)
 				assert.Empty(t, streams)
@@ -265,8 +267,8 @@ func TestDiscover(t *testing.T) {
 			name:         "produceSchema error",
 			driverType:   "postgres",
 			cdcSupported: true,
-			streamNames:  []string{"orders"},
-			produceSchema: func(_ string) (*types.Stream, error) {
+			streamNames:  []types.StreamID{{Name: "orders"}},
+			produceSchema: func(_ types.StreamID) (*types.Stream, error) {
 				return nil, fmt.Errorf("schema error")
 			},
 			check: func(t *testing.T, _ []*types.Stream, err error) {
@@ -279,9 +281,9 @@ func TestDiscover(t *testing.T) {
 			name:         "default columns added for CDC driver",
 			driverType:   "postgres",
 			cdcSupported: true,
-			streamNames:  []string{"orders"},
-			produceSchema: func(name string) (*types.Stream, error) {
-				s := types.NewStream(name, "public", nil)
+			streamNames:  []types.StreamID{{Name: "orders"}},
+			produceSchema: func(id types.StreamID) (*types.Stream, error) {
+				s := types.NewStream(id.Name, "public", nil)
 				s.SupportedSyncModes = types.NewSet(types.CDC)
 				return s, nil
 			},
@@ -297,7 +299,7 @@ func TestDiscover(t *testing.T) {
 		{
 			name:        "CdcTimestamp not added for non-CDC driver",
 			driverType:  "postgres",
-			streamNames: []string{"users"},
+			streamNames: []types.StreamID{{Name: "users"}},
 			check: func(t *testing.T, streams []*types.Stream, err error) {
 				require.NoError(t, err)
 				require.Len(t, streams, 1)
@@ -309,9 +311,9 @@ func TestDiscover(t *testing.T) {
 			name:         "CdcTimestamp not added for Kafka driver",
 			driverType:   string(constants.Kafka),
 			cdcSupported: true,
-			streamNames:  []string{"topic1"},
-			produceSchema: func(name string) (*types.Stream, error) {
-				return types.NewStream(name, "kafka", nil), nil
+			streamNames:  []types.StreamID{{Name: "topic1"}},
+			produceSchema: func(id types.StreamID) (*types.Stream, error) {
+				return types.NewStream(id.Name, "kafka", nil), nil
 			},
 			check: func(t *testing.T, streams []*types.Stream, err error) {
 				require.NoError(t, err)
@@ -326,9 +328,9 @@ func TestDiscover(t *testing.T) {
 			name:         "sync mode CDC",
 			driverType:   "postgres",
 			cdcSupported: true,
-			streamNames:  []string{"orders"},
-			produceSchema: func(name string) (*types.Stream, error) {
-				s := types.NewStream(name, "public", nil)
+			streamNames:  []types.StreamID{{Name: "orders"}},
+			produceSchema: func(id types.StreamID) (*types.Stream, error) {
+				s := types.NewStream(id.Name, "public", nil)
 				s.SupportedSyncModes = types.NewSet(types.CDC, types.INCREMENTAL, types.FULLREFRESH)
 				return s, nil
 			},
@@ -343,9 +345,9 @@ func TestDiscover(t *testing.T) {
 			name:         "sync mode incremental",
 			driverType:   "postgres",
 			cdcSupported: true,
-			streamNames:  []string{"logs"},
-			produceSchema: func(name string) (*types.Stream, error) {
-				s := types.NewStream(name, "public", nil)
+			streamNames:  []types.StreamID{{Name: "logs"}},
+			produceSchema: func(id types.StreamID) (*types.Stream, error) {
+				s := types.NewStream(id.Name, "public", nil)
 				s.SupportedSyncModes = types.NewSet(types.INCREMENTAL, types.FULLREFRESH)
 				return s, nil
 			},
@@ -358,9 +360,9 @@ func TestDiscover(t *testing.T) {
 		{
 			name:        "sync mode full refresh fallback",
 			driverType:  "postgres",
-			streamNames: []string{"archive"},
-			produceSchema: func(name string) (*types.Stream, error) {
-				s := types.NewStream(name, "public", nil)
+			streamNames: []types.StreamID{{Name: "archive"}},
+			produceSchema: func(id types.StreamID) (*types.Stream, error) {
+				s := types.NewStream(id.Name, "public", nil)
 				s.SupportedSyncModes = types.NewSet(types.FULLREFRESH)
 				return s, nil
 			},
@@ -374,9 +376,9 @@ func TestDiscover(t *testing.T) {
 			// STRICTCDC sits between INCREMENTAL and FULLREFRESH in priority
 			name:        "sync mode strict CDC",
 			driverType:  "postgres",
-			streamNames: []string{"events"},
-			produceSchema: func(name string) (*types.Stream, error) {
-				s := types.NewStream(name, "public", nil)
+			streamNames: []types.StreamID{{Name: "events"}},
+			produceSchema: func(id types.StreamID) (*types.Stream, error) {
+				s := types.NewStream(id.Name, "public", nil)
 				s.SupportedSyncModes = types.NewSet(types.STRICTCDC, types.FULLREFRESH)
 				return s, nil
 			},
@@ -391,7 +393,7 @@ func TestDiscover(t *testing.T) {
 		{
 			name:        "default properties for relational driver",
 			driverType:  "postgres",
-			streamNames: []string{"users"},
+			streamNames: []types.StreamID{{Name: "users"}},
 			check: func(t *testing.T, streams []*types.Stream, err error) {
 				require.NoError(t, err)
 				require.Len(t, streams, 1)
@@ -405,7 +407,7 @@ func TestDiscover(t *testing.T) {
 			name:         "default properties for Kafka driver",
 			driverType:   string(constants.Kafka),
 			cdcSupported: true,
-			streamNames:  []string{"topic1"},
+			streamNames:  []types.StreamID{{Name: "topic1"}},
 			check: func(t *testing.T, streams []*types.Stream, err error) {
 				require.NoError(t, err)
 				require.Len(t, streams, 1)
@@ -421,7 +423,7 @@ func TestDiscover(t *testing.T) {
 			name:        "max discover threads respected",
 			driverType:  "postgres",
 			maxThreads:  2,
-			streamNames: []string{"s1", "s2", "s3"},
+			streamNames: []types.StreamID{{Name: "s1"}, {Name: "s2"}, {Name: "s3"}},
 			check: func(t *testing.T, streams []*types.Stream, err error) {
 				assert.NoError(t, err)
 				assert.Len(t, streams, 3)
