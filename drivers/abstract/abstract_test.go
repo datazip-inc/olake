@@ -137,7 +137,6 @@ func newState() *types.State {
 	return s
 }
 
-// compile-time check that mockDriver actually satisfies DriverInterface
 var _ DriverInterface = (*mockDriver)(nil)
 
 func TestDefaultColumns(t *testing.T) {
@@ -231,7 +230,7 @@ func TestDiscover(t *testing.T) {
 		produceSchema  func(name string) (*types.Stream, error)
 		check          func(t *testing.T, streams []*types.Stream, err error)
 	}{
-		// isSync / basic paths
+		// isSync
 		{
 			name:         "isSync returns nil",
 			driverType:   "postgres",
@@ -587,7 +586,6 @@ func TestWaitForBackfillCompletion_NilProcessFn(t *testing.T) {
 	ch := make(chan string, 1)
 	ch <- "public.orders"
 
-	// a nil processStream must not panic
 	assert.NoError(t, ad.waitForBackfillCompletion(context.Background(), ch, streams, nil))
 }
 
@@ -678,7 +676,6 @@ func TestHandleWriterCleanup_ExistingError_CancelsContext(t *testing.T) {
 
 	select {
 	case <-ctx.Done():
-		// good, cancel was called because err != nil
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("context should have been canceled when an error exists")
 	}
@@ -694,7 +691,6 @@ func TestHandleWriterCleanup_MapWriter_EmptyMap_NoPanic(t *testing.T) {
 	assert.NotPanics(t, func() {
 		handleWriterCleanup(ctx, cancel, &err, writers, "t1", &state, nil)
 	})
-	// empty map means no Close calls, so no error expected
 	assert.NoError(t, err)
 }
 
