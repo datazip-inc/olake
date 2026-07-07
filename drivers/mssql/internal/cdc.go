@@ -88,6 +88,16 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
+func (m *MSSQL) PersistedCDCCheckpoint(stream types.StreamInterface) string {
+	if m.state == nil {
+		return ""
+	}
+	if lsn := m.state.GetCursor(stream.Self(), cdcCursorKey); lsn != nil {
+		return fmt.Sprint(lsn)
+	}
+	return ""
+}
+
 // StreamChanges fetches a bounded window of CDC changes for a specific stream.
 func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]

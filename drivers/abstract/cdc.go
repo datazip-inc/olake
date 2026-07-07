@@ -2,7 +2,6 @@ package abstract
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"maps"
 	"time"
@@ -22,8 +21,7 @@ import (
 //   - Parallel: Process all streams simultaneously after all backfills complete
 //   - Concurrent: Start each stream's CDC immediately after its backfill completes (can overlap)
 func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
-	// Hash the loaded source state before PreCDC mutates it, so CDC retries reuse the same destination thread.
-	cdcThreadHashes := a.cdcThreadHashes(streams)
+	cdcThreadSuffixes := a.cdcThreadSuffixes(streams)
 
 	// run pre cdc of drivers
 	if err := a.driver.PreCDC(mainCtx, streams); err != nil {
@@ -61,7 +59,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		if isConcurrentMode {
 			a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(connGroupCtx context.Context) error {
 				streamIndex, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				return a.streamChanges(connGroupCtx, pool, streamIndex, streams, cdcThreadHashes)
+				return a.streamChanges(connGroupCtx, pool, streamIndex, streams, cdcThreadSuffixes)
 			})
 		} else {
 			// In sequential/parallel modes, track completion but don't start CDC yet
@@ -84,12 +82,12 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		// reset the global connection group
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(mainCtx, a.driver.MaxConnections())
 		utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, make([]int, a.driver.MaxConnections()), a.driver.MaxRetries(), func(ctx context.Context, streamIndex int, _ int) error {
-			return a.streamChanges(ctx, pool, streamIndex, streams, cdcThreadHashes)
+			return a.streamChanges(ctx, pool, streamIndex, streams, cdcThreadSuffixes)
 		})
 		return nil
 	} else if isSequentialMode {
 		a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(connGroupCtx context.Context) error {
-			return a.streamChanges(connGroupCtx, pool, 0, streams, cdcThreadHashes)
+			return a.streamChanges(connGroupCtx, pool, 0, streams, cdcThreadSuffixes)
 		})
 	}
 	return nil
@@ -101,7 +99,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 //   - For MongoDB: index into the streams array
 //   - For Kafka: reader ID
 //   - For Postgres: ignored (uses global replication slot)
-func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int, streams []types.StreamInterface, cdcThreadHashes map[string]string) (err error) {
+func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int, streams []types.StreamInterface, cdcThreadSuffixes map[string]string) (err error) {
 	filterDataBySelectedColumnsFns := make(map[string]func(map[string]interface{}) map[string]interface{})
 
 	// create cdc context, so that main context not affected if cdc retries
@@ -123,7 +121,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	dedupInserts := make(map[string]bool, len(streams))
 
 	for _, stream := range streams {
-		threadID := generateThreadID(stream.ID(), cdcThreadHashes[stream.ID()])
+		threadID := generateThreadID(stream.ID(), cdcThreadSuffixes[stream.ID()])
 		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
 		if createErr != nil {
 			return fmt.Errorf("failed to create CDC writer for stream %s: %s", stream.ID(), createErr)
@@ -166,71 +164,29 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 	return err
 }
 
-func (a *AbstractDriver) cdcThreadHashes(streams []types.StreamInterface) map[string]string {
-	threadHashes := make(map[string]string, len(streams))
-	initialHash := cdcThreadHash(nil)
-	for _, stream := range streams {
-		threadHashes[stream.ID()] = initialHash
-	}
-	if a.state == nil {
-		return threadHashes
-	}
+type cdcCheckpointProvider interface {
+	PersistedCDCCheckpoint(stream types.StreamInterface) string
+}
 
-	if a.state.RWMutex != nil {
-		a.state.RLock()
-		defer a.state.RUnlock()
-	}
+func (a *AbstractDriver) cdcThreadSuffixes(streams []types.StreamInterface) map[string]string {
+	provider, _ := a.driver.(cdcCheckpointProvider)
+	return cdcThreadSuffixes(streams, provider)
+}
 
-	if a.state.Global != nil && a.state.Global.State != nil {
-		globalHash := cdcThreadHash(a.state.Global.State)
-		for _, stream := range streams {
-			threadHashes[stream.ID()] = globalHash
-		}
-		return threadHashes
+func cdcThreadSuffixes(streams []types.StreamInterface, provider cdcCheckpointProvider) map[string]string {
+	threadSuffixes := make(map[string]string, len(streams))
+	if provider == nil {
+		return threadSuffixes
 	}
 
 	for _, stream := range streams {
-		stateSnapshot := cdcStreamStateSnapshot(a.state.Streams, stream)
-		if len(stateSnapshot) > 0 {
-			threadHashes[stream.ID()] = cdcThreadHash(stateSnapshot)
+		checkpoint := provider.PersistedCDCCheckpoint(stream)
+		if checkpoint == "" {
+			checkpoint = "initial"
 		}
+		threadSuffixes[stream.ID()] = checkpoint
 	}
-	return threadHashes
-}
-
-func cdcStreamStateSnapshot(streamStates []*types.StreamState, stream types.StreamInterface) map[string]any {
-	for _, streamState := range streamStates {
-		if streamState.Namespace != stream.Namespace() || streamState.Stream != stream.Name() {
-			continue
-		}
-
-		stateSnapshot := make(map[string]any)
-		streamState.State.Range(func(key, value any) bool {
-			keyString, ok := key.(string)
-			if !ok || keyString == types.ChunksKey {
-				return true
-			}
-			stateSnapshot[keyString] = value
-			return true
-		})
-		return stateSnapshot
-	}
-	return nil
-}
-
-func cdcThreadHash(state any) string {
-	if state == nil {
-		state = "initial"
-	}
-
-	stateBytes, err := json.Marshal(state)
-	if err != nil {
-		stateBytes = []byte(fmt.Sprint(state))
-	}
-	return utils.GetKeysHash(map[string]interface{}{
-		"mode":  "cdc",
-		"state": string(stateBytes),
-	}, "mode", "state")
+	return threadSuffixes
 }
 
 // mapInsertOpType returns the _op_type string for a CDC change.

@@ -1,78 +1,74 @@
 package abstract
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/require"
 )
 
-func TestCDCThreadHashes(t *testing.T) {
+type testCDCCheckpointProvider map[string]string
+
+func (p testCDCCheckpointProvider) PersistedCDCCheckpoint(stream types.StreamInterface) string {
+	return p[stream.ID()]
+}
+
+func TestCDCThreadSuffixes(t *testing.T) {
 	tests := []struct {
 		name string
 		run  func(t *testing.T)
 	}{
 		{
-			name: "uses stable initial hash without source state",
+			name: "leaves suffix empty when driver has no checkpoint provider",
 			run: func(t *testing.T) {
 				stream := types.NewStream("users", "public", nil).Wrap(0)
-				driver := &AbstractDriver{state: &types.State{RWMutex: &sync.RWMutex{}}}
 
-				firstHash := driver.cdcThreadHashes([]types.StreamInterface{stream})[stream.ID()]
-				secondHash := driver.cdcThreadHashes([]types.StreamInterface{stream})[stream.ID()]
+				suffixes := cdcThreadSuffixes([]types.StreamInterface{stream}, nil)
 
-				require.NotEmpty(t, firstHash)
-				require.Equal(t, firstHash, secondHash)
-				require.Equal(t, generateThreadID(stream.ID(), firstHash), generateThreadID(stream.ID(), secondHash))
+				require.Empty(t, suffixes[stream.ID()])
 			},
 		},
 		{
-			name: "uses global source state for selected streams",
+			name: "uses stable initial suffix before source state exists",
+			run: func(t *testing.T) {
+				stream := types.NewStream("users", "public", nil).Wrap(0)
+
+				firstSuffix := cdcThreadSuffixes([]types.StreamInterface{stream}, testCDCCheckpointProvider{})[stream.ID()]
+				secondSuffix := cdcThreadSuffixes([]types.StreamInterface{stream}, testCDCCheckpointProvider{})[stream.ID()]
+
+				require.Equal(t, "initial", firstSuffix)
+				require.Equal(t, firstSuffix, secondSuffix)
+				require.Equal(t, generateThreadID(stream.ID(), firstSuffix), generateThreadID(stream.ID(), secondSuffix))
+			},
+		},
+		{
+			name: "uses persisted checkpoint from driver",
 			run: func(t *testing.T) {
 				users := types.NewStream("users", "public", nil).Wrap(0)
 				orders := types.NewStream("orders", "public", nil).Wrap(0)
-				globalState := map[string]any{"lsn": "1/1"}
-				driver := &AbstractDriver{
-					state: &types.State{
-						RWMutex: &sync.RWMutex{},
-						Global:  &types.GlobalState{State: globalState},
-					},
+				provider := testCDCCheckpointProvider{
+					users.ID():  "0-16B6C50",
+					orders.ID(): "0-16C0000",
 				}
 
-				hashes := driver.cdcThreadHashes([]types.StreamInterface{users, orders})
-				expectedHash := cdcThreadHash(globalState)
+				suffixes := cdcThreadSuffixes([]types.StreamInterface{users, orders}, provider)
 
-				require.Equal(t, expectedHash, hashes[users.ID()])
-				require.Equal(t, expectedHash, hashes[orders.ID()])
+				require.Equal(t, "0-16B6C50", suffixes[users.ID()])
+				require.Equal(t, "0-16C0000", suffixes[orders.ID()])
+				require.Equal(t, "public.users_0-16B6C50", generateThreadID(users.ID(), suffixes[users.ID()]))
 			},
 		},
 		{
-			name: "uses stream state without backfill chunks",
+			name: "changes thread id when persisted checkpoint changes",
 			run: func(t *testing.T) {
 				stream := types.NewStream("users", "public", nil).Wrap(0)
-				streamState := &types.StreamState{
-					Stream:    stream.Name(),
-					Namespace: stream.Namespace(),
-					State:     sync.Map{},
-				}
-				streamState.State.Store("resume_token", "token-1")
-				streamState.State.Store(types.ChunksKey, []types.Chunk{{Min: 1, Max: 10}})
-				driver := &AbstractDriver{
-					state: &types.State{
-						RWMutex: &sync.RWMutex{},
-						Streams: []*types.StreamState{streamState},
-					},
-				}
 
-				firstHash := driver.cdcThreadHashes([]types.StreamInterface{stream})[stream.ID()]
-				streamState.State.Store(types.ChunksKey, []types.Chunk{{Min: 11, Max: 20}})
-				secondHash := driver.cdcThreadHashes([]types.StreamInterface{stream})[stream.ID()]
-				streamState.State.Store("resume_token", "token-2")
-				thirdHash := driver.cdcThreadHashes([]types.StreamInterface{stream})[stream.ID()]
+				firstSuffix := cdcThreadSuffixes([]types.StreamInterface{stream}, testCDCCheckpointProvider{stream.ID(): "token-1"})[stream.ID()]
+				secondSuffix := cdcThreadSuffixes([]types.StreamInterface{stream}, testCDCCheckpointProvider{stream.ID(): "token-1"})[stream.ID()]
+				thirdSuffix := cdcThreadSuffixes([]types.StreamInterface{stream}, testCDCCheckpointProvider{stream.ID(): "token-2"})[stream.ID()]
 
-				require.Equal(t, firstHash, secondHash)
-				require.NotEqual(t, secondHash, thirdHash)
+				require.Equal(t, firstSuffix, secondSuffix)
+				require.NotEqual(t, secondSuffix, thirdSuffix)
 			},
 		},
 	}
