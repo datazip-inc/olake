@@ -14,6 +14,10 @@ func (o *Oracle) PreCDC(ctx context.Context, streams []types.StreamInterface) er
 	return nil
 }
 
+func (o *Oracle) PersistedCDCCheckpoint(_ types.StreamInterface) string {
+	return ""
+}
+
 // StreamChanges streams CDC changes for a given stream
 func (o *Oracle) StreamChanges(_ context.Context, _ int, _ map[string]any, _ abstract.CDCMsgFn) (any, error) {
 	return nil, nil

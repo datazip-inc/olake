@@ -68,6 +68,24 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return k.readerManager.CreateReaders(ctx, streams)
 }
 
+func (k *Kafka) PersistedCDCCheckpoint(_ types.StreamInterface) string {
+	if k.state != nil {
+		if globalState := k.state.GetGlobal(); globalState != nil && globalState.State != nil {
+			if stateMap, ok := globalState.State.(map[string]any); ok {
+				if consumerGroupID, exists := stateMap["consumer_group_id"]; exists {
+					if groupID, ok := consumerGroupID.(string); ok && groupID != "" {
+						return groupID
+					}
+				}
+			}
+		}
+	}
+	if k.config != nil {
+		return k.config.ConsumerGroupID
+	}
+	return ""
+}
+
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	// Restart the reader to create a fresh franz-go client for each StreamChanges attempt.
 	// franz-go keeps uncommitted offsets in memory, so restarting clears that state and
