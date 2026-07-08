@@ -22,7 +22,7 @@ func TestPersistedCDCCheckpoint(t *testing.T) {
 				state: &types.State{
 					RWMutex: &sync.RWMutex{},
 					Global: &types.GlobalState{State: map[string]any{
-						"consumer_group_id": "olake-group-state",
+						consumerGroupIDKey: "olake-group-state",
 					}},
 				},
 				config: &Config{ConsumerGroupID: "olake-group-config"},
