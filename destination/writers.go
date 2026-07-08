@@ -294,7 +294,11 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []
 	if err != nil {
 		return fmt.Errorf("failed to initialize destination: %s", err)
 	}
-	defer shutdown(context.Background())
+	defer func() {
+		if shutdown != nil {
+			shutdown(context.Background())
+		}
+	}()
 
 	if err := adapter.DropStreams(ctx, dropStreams); err != nil {
 		return fmt.Errorf("failed to drop streams: %s", err)
