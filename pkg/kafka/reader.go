@@ -302,9 +302,7 @@ func (r *ReaderManager) CreateReader(readerID, clientID string, enableRebalanceC
 		kgo.ClientID(clientID),
 		kgo.InstanceID(readerID),
 		kgo.ConsumeTopics(r.topics...),
-		kgo.Balancers(&CustomGroupBalancer{
-			partitionMeta: r.partitionMeta,
-		}),
+		kgo.Balancers(NewCustomGroupBalancer(r.partitionMeta)),
 		kgo.FetchMinBytes(1),
 		kgo.FetchMaxBytes(10e6),
 		kgo.DisableAutoCommit(),

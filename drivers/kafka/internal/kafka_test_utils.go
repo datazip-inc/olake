@@ -216,6 +216,53 @@ func addRebalanceBulkMessages(ctx context.Context, t *testing.T, client *kgo.Cli
 	t.Logf("Added %d messages to topic '%s' on partition %d", rebalanceBulkMessageCount, topic, rebalanceBulkPartition)
 }
 
+// startRebalanceTrigger waits for sync progress, then joins a competing consumer group member in the
+// background to force a rebalance while olake is still syncing.
+func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
+	t.Helper()
+
+	rebalanceCtx, cancel := context.WithCancel(ctx)
+	rebalanceTriggerCancel = cancel
+	instanceID := fmt.Sprintf("rebalance-trigger-%d", time.Now().UnixNano())
+	done := make(chan struct{})
+	rebalanceTriggerDone = done
+	go func() {
+		var client *kgo.Client
+		defer func() {
+			if client != nil {
+				client.Close()
+				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", KafkaJsonConsumerGroupID, instanceID)
+			}
+			close(done)
+		}()
+
+		waitForSyncProgress(rebalanceCtx, t, kafkaJsonStatsPath)
+		if rebalanceCtx.Err() != nil {
+			return
+		}
+
+		var err error
+		client, err = kgo.NewClient(
+			kgo.SeedBrokers(kafkaJSONIntegrationBroker),
+			kgo.ConsumerGroup(KafkaJsonConsumerGroupID),
+			kgo.ClientID(instanceID),
+			kgo.InstanceID(instanceID),
+			kgo.ConsumeTopics(topic),
+			kgo.Balancers(kafkapkg.NewCustomGroupBalancer(map[string]types.PartitionMetaData{
+				kafkapkg.PartitionMetadataKey(topic, rebalanceBulkPartition): {PartitionID: rebalanceBulkPartition},
+			})),
+			kgo.DisableAutoCommit(),
+		)
+		require.NoError(t, err)
+
+		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJsonConsumerGroupID, topic)
+		for rebalanceCtx.Err() == nil {
+			client.PollFetches(rebalanceCtx)
+		}
+	}()
+}
+
+// waitForSyncProgress waits for sync progress to start.
 func waitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
 	t.Helper()
 
@@ -238,49 +285,6 @@ func waitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
 			}
 		}
 	}
-}
-
-// startRebalanceTrigger waits for sync progress, then joins a competing consumer group member in the
-// background to force a rebalance while olake is still syncing.
-func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
-	t.Helper()
-
-	rebalanceCtx, cancel := context.WithCancel(ctx)
-	rebalanceTriggerCancel = cancel
-	go func() {
-		waitForSyncProgress(rebalanceCtx, t, kafkaJsonStatsPath)
-		if rebalanceCtx.Err() != nil {
-			return
-		}
-
-		instanceID := fmt.Sprintf("rebalance-trigger-%d", time.Now().UnixNano())
-
-		client, err := kgo.NewClient(
-			kgo.SeedBrokers(kafkaJSONIntegrationBroker),
-			kgo.ConsumerGroup(KafkaJsonConsumerGroupID),
-			kgo.ClientID(instanceID),
-			kgo.InstanceID(instanceID),
-			kgo.ConsumeTopics(topic),
-			kgo.Balancers(kafkapkg.NewCustomGroupBalancer(map[string]types.PartitionMetaData{
-				kafkapkg.PartitionMetadataKey(topic, rebalanceBulkPartition): {PartitionID: rebalanceBulkPartition},
-			})),
-			kgo.DisableAutoCommit(),
-		)
-		require.NoError(t, err)
-
-		done := make(chan struct{})
-		rebalanceTriggerDone = done
-		defer func() {
-			client.Close()
-			close(done)
-			t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", KafkaJsonConsumerGroupID, instanceID)
-		}()
-
-		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJsonConsumerGroupID, topic)
-		for rebalanceCtx.Err() == nil {
-			client.PollFetches(rebalanceCtx)
-		}
-	}()
 }
 
 // stopRebalanceTrigger stops the rebalance trigger consumer.
