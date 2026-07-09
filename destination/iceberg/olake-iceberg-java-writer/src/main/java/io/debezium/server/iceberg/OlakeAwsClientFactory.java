@@ -14,12 +14,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.glue.GlueClient;
 import software.amazon.awssdk.services.glue.GlueClientBuilder;
 import software.amazon.awssdk.services.kms.KmsClient;
-import software.amazon.awssdk.services.s3.DelegatingS3Client;
 import software.amazon.awssdk.services.s3.S3Client;
-import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
-import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-import software.amazon.awssdk.services.s3.model.S3Exception;
 
 // for custom glue endpoint credentials
 public class OlakeAwsClientFactory implements AwsClientFactory {
@@ -45,50 +40,13 @@ public class OlakeAwsClientFactory implements AwsClientFactory {
 
     @Override
     public S3Client s3() {
-        return new DeleteTolerantS3Client(delegate.s3());
-    }
-
-    /**
-     * Treats NoSuchKey-on-delete as success: AWS returns 204 for deletes of
-     * missing keys, GCS's S3-interop returns 404, and Iceberg expects the AWS
-     * behavior (e.g. its cleanup of empty writer files that were never uploaded) .
-     */
-    private static class DeleteTolerantS3Client extends DelegatingS3Client {
-        DeleteTolerantS3Client(S3Client delegate) {
-            super(delegate);
-        }
-
-        @Override
-        public DeleteObjectResponse deleteObject(DeleteObjectRequest request) {
-            try {
-                return super.deleteObject(request);
-            } catch (S3Exception e) {
-                if (isNoSuchKey(e)) {
-                    return DeleteObjectResponse.builder().build();
-                }
-                throw e;
-            }
-        }
-
-        private static boolean isNoSuchKey(S3Exception e) {
-            if (e instanceof NoSuchKeyException) {
-                return true;
-            }
-            return e.statusCode() == 404 && e.awsErrorDetails() != null && "NoSuchKey".equals(e.awsErrorDetails().errorCode());
-        }
+        return delegate.s3();
     }
 
     @Override
     public GlueClient glue() {
         String glueAccessKey = props.get("glue.access-key-id");
         String glueSecretKey = props.get("glue.secret-access-key");
-
-        // This factory can be registered purely for its S3 client (custom
-        // s3.endpoint). Without explicit glue.* overrides, keep Iceberg's default
-        // Glue client rather than building one from S3-oriented settings.
-        if (isBlank(glueAccessKey) && isBlank(glueSecretKey) && isBlank(props.get("glue.endpoint")) && isBlank(props.get("glue.region"))) {
-            return delegate.glue();
-        }
 
         GlueClientBuilder builder = GlueClient.builder();
         if (!isBlank(glueAccessKey) && !isBlank(glueSecretKey)) {

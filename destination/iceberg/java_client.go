@@ -21,8 +21,8 @@ import (
 // defaultServerPort is the port the single shared JVM listens on.
 const defaultServerPort = 50051
 
-// Java class implementing Iceberg's AwsClientFactory
-const olakeAwsClientFactoryClass = "io.debezium.server.iceberg.OlakeAwsClientFactory"
+// Java class implementing Iceberg's S3FileIOAwsClientFactory
+const olakeS3ClientFactoryClass = "io.debezium.server.iceberg.OlakeS3ClientFactory"
 
 type serverInstance struct {
 	port            int
@@ -58,7 +58,7 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 		serverConfig["catalog-impl"] = "org.apache.iceberg.aws.glue.GlueCatalog"
 		// if custom glue endpoint creds are passed
 		if config.UseGlueAdditionalConfig {
-			addMapKeyIfNotEmpty("client.factory", olakeAwsClientFactoryClass)
+			addMapKeyIfNotEmpty("client.factory", "io.debezium.server.iceberg.OlakeAwsClientFactory")
 			addMapKeyIfNotEmpty("glue.access-key-id", config.GlueAccessKey)
 			addMapKeyIfNotEmpty("glue.secret-access-key", config.GlueSecretKey)
 			addMapKeyIfNotEmpty("glue.endpoint", config.GlueEndpoint)
@@ -107,8 +107,8 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 	if config.S3Endpoint != "" {
 		serverConfig["s3.endpoint"] = config.S3Endpoint
 		// GCS's S3-interop returns 404 when deleting a missing key; AWS returns 204.
-		// Iceberg expects the AWS behavior, so use our factory, whose S3 client treats NoSuchKey-on-delete as success.
-		serverConfig["client.factory"] = olakeAwsClientFactoryClass
+		// Iceberg expects the AWS behavior, so use our S3-only factory, whose client treats NoSuchKey-on-delete as success.
+		serverConfig["s3.client-factory-impl"] = olakeS3ClientFactoryClass
 	}
 	serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
 	serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
