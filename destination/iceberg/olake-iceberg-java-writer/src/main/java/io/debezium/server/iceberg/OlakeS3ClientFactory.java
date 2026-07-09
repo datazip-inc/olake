@@ -14,17 +14,16 @@ import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
-/**
- * S3-only client factory, registered via the "s3.client-factory-impl" property.
- * Iceberg consults it exclusively for S3FileIO's client, so Glue/KMS/DynamoDB
- * client construction is never affected.
- *
- * It builds the standard S3 client and wraps it to treat NoSuchKey-on-delete as
- * success: AWS reports deletes of missing keys as successful, while GCS's
- * S3-interop returns 404 NoSuchKey, and Iceberg expects the AWS behaviour (e.g.
- * its cleanup of empty writer files that were never uploaded). Other errors,
- * including NoSuchBucket, still propagate.
- */
+// S3-only client factory, registered via the "s3.client-factory-impl" property.
+// Iceberg consults it exclusively for S3FileIO's client, so Glue/KMS/DynamoDB
+// client construction is never affected.
+
+// It builds the standard S3 client and wraps it to treat NoSuchKey-on-delete as
+// success: AWS reports deletes of missing keys as successful, while GCS's
+// S3-interop returns 404 NoSuchKey, and Iceberg expects the AWS behaviour (e.g.
+// its cleanup of empty writer files that were never uploaded). Other errors,
+// including NoSuchBucket, still propagate.
+
 public class OlakeS3ClientFactory implements S3FileIOAwsClientFactory {
 
     private AwsClientFactory delegate;
