@@ -761,6 +761,13 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	}
 
 	t.Log("Iceberg Full load + Incremental tests completed successfully")
+
+	// Drop the Iceberg table after all tests are finished, so the incremental
+	// cursor state left in the table's olake_2pc property is not read back as
+	// CDC state by a later run.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	t.Logf("Dropped Iceberg table: %s", testTable)
+
 	return nil
 }
 
