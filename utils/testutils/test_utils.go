@@ -407,9 +407,12 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
-		if cfg.TestConfig.Driver == "mssql" {
-			t.Log("Waiting 20 seconds for MSSQL CDC to process transactions...")
-			time.Sleep(20 * time.Second)
+		// SQL Server CDC is asynchronous: the capture job only picks up the DML above on its next
+		// transaction-log scan, and the sync's change window ends at the job's processed max LSN
+		// (sys.fn_cdc_get_max_lsn), so syncing too early would see no changes. Wait for the capture
+		// job to advance past the DML. Incremental runs read the table directly and need no wait.
+		if isCDC && cfg.TestConfig.Driver == "mssql" {
+			cfg.ExecuteQuery(ctx, t, []string{testTable}, "wait-cdc-catchup", false)
 		}
 	}
 
