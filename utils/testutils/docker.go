@@ -1,0 +1,65 @@
+package testutils
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+const (
+	goModCacheMount   = "go-mod:/go/pkg/mod"
+	goBuildCacheMount = "go-build:/root/.cache/go-build"
+)
+
+var (
+	buildBaseImageOnce sync.Once
+	buildBaseImageErr  error
+)
+
+// baseImageRef returns the integration-test base image ref (olakego/base:build-go<version>).
+// The version is read from the go directive in go.mod — the same line `make docker.base.build`
+// derives the tag (and the baked-in toolchain) from — so the image that gets built and the image
+// the harness looks up can never drift, with no separate tag file to bump.
+func baseImageRef(t *testing.T, rootPath string) string {
+	t.Helper()
+	workFile := filepath.Join(rootPath, "go.mod")
+	data, err := os.ReadFile(workFile)
+	require.NoError(t, err, "read go.mod to derive the base image tag")
+	for _, line := range strings.Split(string(data), "\n") {
+		if version, ok := strings.CutPrefix(strings.TrimSpace(line), "go "); ok {
+			return "olakego/base:build-go" + strings.TrimSpace(version)
+		}
+	}
+	require.FailNowf(t, "cannot derive base image tag", "no go directive found in %s", workFile)
+	return ""
+}
+
+// ensureTestBaseImage guarantees the prebaked integration-test base image exists in the local
+// docker daemon, building it via `make docker.base.build` if it is missing, and returns its ref.
+// The image is local-only and never pulled from a registry, so testcontainers reuses the local
+// build. Guarded by sync.Once so that parallel tests trigger the (slow) build at most once and
+// all share its result. rootPath is the olake repo root, where the Makefile, base.Dockerfile and
+// go.work live.
+func ensureTestBaseImage(t *testing.T, rootPath string) string {
+	t.Helper()
+	image := baseImageRef(t, rootPath)
+	buildBaseImageOnce.Do(func() {
+		t.Logf("Building test base image %s...", image)
+		// wall-clock via trackPhaseTiming, not build.ProcessState.SystemTime() (that reports make's
+		// kernel CPU time — a misleading ~87ms even when the docker build actually took far longer).
+		defer trackPhaseTiming(t, "base-image", image)()
+		build := exec.Command("make", "docker.base.build")
+		build.Dir = rootPath
+		if out, err := build.CombinedOutput(); err != nil {
+			buildBaseImageErr = fmt.Errorf("failed to build base image %s: %w\n%s", image, err, out)
+		}
+	})
+	require.NoError(t, buildBaseImageErr, "test base image unavailable")
+	return image
+}

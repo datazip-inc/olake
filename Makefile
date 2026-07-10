@@ -35,6 +35,27 @@ prepare.%:
 build.%:
 	CGO_ENABLED=0 go build -C drivers/$* -o $(OUTPUT) main.go
 
+BASE_NO_CACHE ?=
+BASE_CACHE_FLAG = $(if $(BASE_NO_CACHE),--no-cache --pull)
+GO_VERSION_NUM = $(shell echo $(GO_VERSION) | sed 's/go//')
+
+BASE_IMAGE_TAG ?= build-$(GO_VERSION)
+BASE_IMAGE ?= olakego/base:$(BASE_IMAGE_TAG)
+
+# Queried by CI (integration-tests-runner.yml) to run the bootstrap check in the base image.
+.PHONY: print.base-image
+print.base-image:
+	@echo $(BASE_IMAGE)
+
+.PHONY: docker.base.build
+docker.base.build:
+	@if [ -z "$(strip $(GO_VERSION_NUM))" ]; then \
+		echo "ERROR: could not read the go version from go.mod."; \
+		exit 1; \
+	fi
+	DOCKER_BUILDKIT=1 docker build --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t $(BASE_IMAGE) -f base.Dockerfile .
+
+
 # Build a driver image locally, e.g. `make docker.build.postgres IMAGE_TAG=v1.2.3`.
 # Drivers with an explicit entry in drivers/platforms.conf are pinned to it.
 # Concrete (non-pattern) targets so they are phony and shells can autocomplete them.
@@ -304,6 +325,7 @@ help:
 	@echo ""
 	@echo "Docker images:"
 	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "docker.build.$(d)" "build the $(d) driver image (olake/source-$(d):$(IMAGE_TAG))";)
+	@printf "  %-44s %s\n" "docker.base.build" "build the base toolchain image ($(BASE_IMAGE))"
 	@echo ""
 	@echo "Tests (auto-provision the databases they need):"
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.integration.$(d)" "integration suite for $(d)";)
