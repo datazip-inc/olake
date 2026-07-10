@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/s3
 
-go 1.25.11
+go 1.25.12
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.39.2

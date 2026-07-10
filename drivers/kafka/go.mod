@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/kafka
 
-go 1.25.11
+go 1.25.12
 
 replace github.com/datazip-inc/olake => ../../
 
