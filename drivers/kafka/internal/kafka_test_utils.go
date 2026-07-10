@@ -8,14 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"testing"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/constants"
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/testutils"
 	"github.com/linkedin/goavro/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -75,7 +76,6 @@ var (
 	// rebalance trigger
 	rebalanceTriggerCancel context.CancelFunc
 	rebalanceTriggerDone   chan struct{} // closed when the trigger goroutine has fully exited
-	kafkaJsonStatsPath     string        // set from TestConfig.HostStatsPath in kafka_test.go
 
 	// JSON
 	jsonKey          = []byte(`{"key":"json-key"}`)
@@ -123,6 +123,10 @@ var (
 		"float_value":     float64(64.6464),
 		"col_excluded":    int32(101),
 		"col_included":    int32(102),
+	}
+
+	stats struct {
+		SyncedRecords int64 `json:"Synced Records"`
 	}
 )
 
@@ -236,7 +240,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 			close(done)
 		}()
 
-		waitForSyncProgress(rebalanceCtx, t, kafkaJsonStatsPath)
+		waitForSyncProgress(rebalanceCtx, t)
 		if rebalanceCtx.Err() != nil {
 			return
 		}
@@ -263,28 +267,24 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 }
 
 // waitForSyncProgress waits for sync progress to start.
-func waitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
+func waitForSyncProgress(ctx context.Context, t *testing.T) {
 	t.Helper()
 
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if _, err := os.Stat(statsPath); err == nil {
-				var stats struct {
-					SyncedRecords int64 `json:"Synced Records"`
-				}
-				if err := utils.UnmarshalFile(statsPath, &stats, false); err == nil && stats.SyncedRecords > 0 {
-					t.Logf("sync started: %d records synced", stats.SyncedRecords)
-					return
-				}
-			}
+	statsPath := testutils.GetTestConfig(string(constants.Kafka), "json").HostStatsPath
+	require.Eventually(t, func() bool {
+		if ctx.Err() != nil {
+			return true
 		}
-	}
+
+		if err := utils.UnmarshalFile(statsPath, &stats, false); err != nil {
+			return false
+		}
+		if stats.SyncedRecords > 0 {
+			t.Logf("sync started: %d records synced", stats.SyncedRecords)
+			return true
+		}
+		return false
+	}, 20*time.Minute, time.Second)
 }
 
 // stopRebalanceTrigger stops the rebalance trigger consumer.

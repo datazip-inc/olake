@@ -8,10 +8,8 @@ import (
 )
 
 func kafkaJsonBaseConfig() *testutils.IntegrationTest {
-	testConfig := testutils.GetTestConfig(string(constants.Kafka), "json")
-	kafkaJsonStatsPath = testConfig.HostStatsPath
 	return &testutils.IntegrationTest{
-		TestConfig:                       testConfig,
+		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "json"),
 		Namespace:                        "topics",
 		ExpectedData:                     ExpectedKafkaJSONData,
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,

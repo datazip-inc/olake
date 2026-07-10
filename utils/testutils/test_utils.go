@@ -38,6 +38,7 @@ const (
 	maxRPSHistorySize              = 5
 	kafkaRebalanceBulkMessageCount = int64(100_000)
 )
+
 type IntegrationTest struct {
 	TestConfig                       *TestConfig
 	ExpectedData                     map[string]interface{}
