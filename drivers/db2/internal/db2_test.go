@@ -11,7 +11,7 @@ import (
 // between TestDB2Integration and TestDB22PC.
 func db2BaseConfig() *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
-		TestConfig:                testutils.GetTestConfig(string(constants.DB2)),
+		TestConfig:                testutils.GetTestConfig(string(constants.DB2)).WithImagePlatform("linux/amd64"),
 		Namespace:                 "DB2INST1",
 		ExpectedData:              ExpectedDB2Data,
 		DestinationDataTypeSchema: DB2ToDestinationSchema,
