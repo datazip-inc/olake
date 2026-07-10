@@ -462,8 +462,8 @@ public class IcebergTableOperator {
               JsonNode payloadNode = mapper.readTree(payload);
               rootNode.put(STATE_FIELD_LATEST_THREAD_ID, threadId);
               if (payloadNode.isObject()) {
-                  // Merge payload directly into root node
-                  payloadNode.fields().forEachRemaining(entry -> rootNode.set(entry.getKey(), entry.getValue()));
+                  // One-level merge payload into root node
+                  mergePayloadIntoRoot(rootNode, payloadNode);
               }
           } else {
               // No payload => backfill/snapshot style: append threadId to full_refresh_committed_ids
@@ -482,6 +482,33 @@ public class IcebergTableOperator {
       } catch (JsonProcessingException e) {
           LOGGER.error("Failed to update JSON state for key: " + STATE_KEY_2PC, e);
           throw new RuntimeException("Failed to update JSON state", e);
+      }
+  }
+
+  // Some drivers (e.g. Kafka) can have multiple writers updating metadata for the same stream.
+  // Perform a one-level merge to preserve fields written by other writers.
+  private void mergePayloadIntoRoot(ObjectNode rootNode, JsonNode payloadNode) {
+      payloadNode.fields().forEachRemaining(entry -> {
+          String incomingStateKey = entry.getKey();
+          ObjectNode incomingStateValue = parseJSONObject(entry.getValue());
+          ObjectNode storedStateValue = parseJSONObject(rootNode.get(incomingStateKey));
+
+          if (incomingStateValue != null && storedStateValue != null) {
+              storedStateValue.setAll(incomingStateValue);
+              rootNode.put(incomingStateKey, storedStateValue.toString());
+          } else {
+              rootNode.set(incomingStateKey, entry.getValue());
+          }
+      });
+  }
+
+  private ObjectNode parseJSONObject(JsonNode node) {
+      if (node == null || !node.isTextual()) return null;
+      try {
+          JsonNode parsedNode = mapper.readTree(node.asText());
+          return parsedNode.isObject() ? (ObjectNode) parsedNode : null;
+      } catch (JsonProcessingException ignored) {
+          return null;
       }
   }
 

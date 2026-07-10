@@ -20,8 +20,6 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// TODO: Add 2PC support for Kafka (difficulty: hard)
-
 func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
 	return false, true, false // parallel change streams supported
 }
@@ -69,6 +67,24 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
+	// Fetch partition assignment once per StreamChanges attempt than reused for recovery and completion checks.
+	assignedPartitions, err := k.getReaderAssignedPartitions(ctx, readerID)
+	if err != nil {
+		return nil, fmt.Errorf("reader[%d]: get assigned partitions failed: %s", readerID, err)
+	}
+
+	// Recover broker offsets from destination metadata if needed.
+	isRecoveryPerformed, err := k.syncCommittedOffsetsWithMetadata(ctx, readerID, k.readerManager.GetReader(readerID), metadataStates, assignedPartitions)
+	if err != nil {
+		return nil, fmt.Errorf("reader[%d]: sync committed offsets with metadata failed: %s", readerID, err)
+	}
+
+	// A successful recovery stops processing for this reader so the next run starts from the recovered offsets.
+	if isRecoveryPerformed {
+		logger.Infof("reader[%d]: recovery performed for this sync, skipping this reader", readerID)
+		return nil, nil
+	}
+
 	// Restart the reader to create a fresh franz-go client for each StreamChanges attempt.
 	// franz-go keeps uncommitted offsets in memory, so restarting clears that state and
 	// ensures retries resume from the last committed offset.
@@ -119,7 +135,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			completedPartitions[currentPartitionKey] = struct{}{}
 
 			// check for all other assigned partitions to see if they are also completed
-			shouldExit, err := k.checkPartitionCompletion(ctx, readerID, completedPartitions, observedPartitions)
+			shouldExit, err := k.checkPartitionCompletion(assignedPartitions, completedPartitions, observedPartitions)
 			if err != nil || shouldExit {
 				return shouldExit, err
 			}
@@ -127,7 +143,31 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		return false, nil
 	})
 
-	return nil, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Build per-stream recovery metadata.
+	// Returns map[streamID]map[string]any with consumer_group_id and partition_N -> next consumable offset
+	// (message.Offset + 1) for broker offset recovery.
+	metadataByStream := make(map[string]any)
+	for partitionKey, message := range lastMessages {
+		partitionMeta, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(partitionKey.Topic, partitionKey.Partition))
+		if !exists {
+			return nil, fmt.Errorf("missing partition metadata for topic %s partition %d", partitionKey.Topic, partitionKey.Partition)
+		}
+		streamID := partitionMeta.Stream.ID()
+		state, _ := metadataByStream[streamID].(map[string]any)
+		if state == nil {
+			state = map[string]any{
+				"consumer_group_id": k.consumerGroupID,
+			}
+			metadataByStream[streamID] = state
+		}
+
+		state[fmt.Sprintf("partition_%d", partitionKey.Partition)] = message.Offset + 1
+	}
+	return metadataByStream, nil
 }
 
 func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
@@ -315,7 +355,6 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 		parsedKey, err := parseData(message.Key)
 		if err != nil {
 			// standard fallback: raw key as string
-			logger.Warnf("failed to parse key for topic=%s partition=%d offset=%d: %s, using raw string", message.Topic, message.Partition, message.Offset, err)
 			keyValue = string(message.Key)
 		} else {
 			switch v := parsedKey.(type) {
@@ -363,4 +402,95 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 		return typeutils.ExtractAvroRecord(record), nil
 	}
 	return nativeDatum, nil
+}
+
+// syncCommittedOffsetsWithMetadata ensures consumer group offsets match destination metadata.
+// Returns true if a recovery sync was performed for this reader.
+func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID int, reader *kgo.Client, metadataStates map[string]any, assignedPartitions []types.PartitionKey) (bool, error) {
+	streamMetadata := make(map[string]map[string]any)
+	var recordsToCommit []*kgo.Record
+
+	// iterate over all assigned partitions for this reader
+	for _, assignedPartition := range assignedPartitions {
+		currentPartitionID := assignedPartition.Partition
+		currentTopic := assignedPartition.Topic
+
+		partitionMeta, ok := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(currentTopic, currentPartitionID))
+		if !ok {
+			return false, fmt.Errorf("%w: assigned partition %s:%d missing from partition metadata", constants.ErrNonRetryable, currentTopic, currentPartitionID)
+		}
+
+		streamID := partitionMeta.Stream.ID()
+		if _, loaded := streamMetadata[streamID]; !loaded {
+			// Load destination metadata for this stream once (unmarshal or empty default) and cache it.
+			rawMetadataStateValue := metadataStates[streamID]
+			if rawMetadataStateValue == nil {
+				// if metadata state is not present, create an empty metadata map.
+				streamMetadata[streamID] = map[string]any{}
+			} else {
+				// if metadata state is present, unmarshal it and cache it.
+				mtStateStr, ok := rawMetadataStateValue.(string)
+				if !ok {
+					return false, fmt.Errorf("stream[%s]: failed to typecast metadata state of type[%T] to string", streamID, rawMetadataStateValue)
+				}
+
+				var parsedMetadataStateValue map[string]any
+				decoder := json.NewDecoder(bytes.NewReader([]byte(mtStateStr)))
+				decoder.UseNumber()
+				if err := decoder.Decode(&parsedMetadataStateValue); err != nil {
+					return false, fmt.Errorf("stream[%s]: failed to unmarshal metadata state: %s", streamID, err)
+				}
+
+				// check if consumer group id mismatch
+				metaConsumerGroupID, _ := parsedMetadataStateValue["consumer_group_id"].(string)
+				if metaConsumerGroupID != "" && metaConsumerGroupID != k.consumerGroupID {
+					return false, fmt.Errorf("%w: stream[%s]: consumer_group_id mismatch (destination metadata=%q, current=%q), run clear destination and restart", constants.ErrNonRetryable, streamID, metaConsumerGroupID, k.consumerGroupID)
+				}
+
+				// cache the parsed metadata state for this stream
+				streamMetadata[streamID] = parsedMetadataStateValue
+			}
+		}
+
+		// kafkaCommittedOffset = broker next offset, metaCommittedOffset = destination next offset.
+		// partitionMeta is populated in PartitionsForStream only for partitions with unconsumed messages(committedOffset < EndOffset).
+		kafkaCommittedOffset := partitionMeta.CommittedOffset
+		partitionKey := fmt.Sprintf("partition_%d", currentPartitionID)
+		offsetValue, hasMeta := streamMetadata[streamID][partitionKey]
+		if !hasMeta {
+			// No destination cursor for this partition; skip recovery and let RestartReader consume from broker/default offset.
+			continue
+		}
+
+		metaCommittedOffset, err := typeutils.ReformatInt64(offsetValue)
+		if err != nil {
+			return false, fmt.Errorf("stream[%s] topic %s partition %d: invalid metadata offset: %s", streamID, currentTopic, currentPartitionID, err)
+		}
+
+		// destination metadata offset must not exceed the current partition end offset.
+		// this can happen when a topic is deleted and recreated with fewer messages.
+		if metaCommittedOffset > partitionMeta.EndOffset {
+			return false, fmt.Errorf("%w: stream[%s] topic %s partition %d metadata offset: %d exceeds partition end offset: %d, run clear destination and restart", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, metaCommittedOffset, partitionMeta.EndOffset)
+		}
+
+		// kafkaCommittedOffset must not exceed metaCommittedOffset.
+		if kafkaCommittedOffset >= 0 && kafkaCommittedOffset > metaCommittedOffset {
+			return false, fmt.Errorf("%w: stream[%s] topic %s partition %d broker committed offset: %d is ahead of destination metadata offset: %d, run clear destination and restart", constants.ErrNonRetryable, streamID, currentTopic, currentPartitionID, kafkaCommittedOffset, metaCommittedOffset)
+		}
+
+		// Broker is behind destination (or has no committed offset yet): align broker to destination before consuming.
+		if kafkaCommittedOffset < 0 || metaCommittedOffset > kafkaCommittedOffset {
+			recordsToCommit = append(recordsToCommit, &kgo.Record{Topic: currentTopic, Partition: currentPartitionID, Offset: metaCommittedOffset - 1, LeaderEpoch: -1})
+		}
+	}
+
+	if len(recordsToCommit) == 0 {
+		return false, nil
+	}
+
+	logger.Infof("reader[%d]: crash-recovery detected, committing %d partitions to broker", readerID, len(recordsToCommit))
+	if err := reader.CommitRecords(ctx, recordsToCommit...); err != nil {
+		return false, fmt.Errorf("recovery offset commit failed, cannot continue (would cause duplicates): %s", err)
+	}
+	return true, nil
 }

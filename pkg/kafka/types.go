@@ -47,6 +47,11 @@ type CustomGroupBalancer struct {
 	partitionMeta map[string]types.PartitionMetaData
 }
 
+// NewCustomGroupBalancer returns a balancer that assigns only partitions present in partitionMeta.
+func NewCustomGroupBalancer(partitionMeta map[string]types.PartitionMetaData) *CustomGroupBalancer {
+	return &CustomGroupBalancer{partitionMeta: partitionMeta}
+}
+
 // SchemaRegistryClient holds the schema registry client information
 type SchemaRegistryClient struct {
 	Endpoint string `json:"endpoint"`
