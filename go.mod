@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake
 
-go 1.25.11
+go 1.25.12
 
 require (
 	github.com/apache/spark-connect-go/v35 v35.0.0-20250317154112-ffd832059443
