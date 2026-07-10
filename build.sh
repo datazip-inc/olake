@@ -6,6 +6,27 @@ function fail() {
     exit 1
 }
 
+# Epoch milliseconds; prints nothing when date lacks %N (e.g. BSD/macOS date).
+function now_ms() {
+    local ms
+    ms=$(date +%s%3N 2>/dev/null)
+    [[ "$ms" =~ ^[0-9]+$ ]] && echo "$ms"
+}
+
+# timed <MARKER> <command...>: run the command, echo OLAKE_<MARKER>_MS=<elapsed>
+# (skipped when the clock is unusable) and preserve the command's exit code.
+# The markers are parsed by utils/testutils/timing.go; keep their format stable.
+function timed() {
+    local marker="$1" start end rc
+    shift
+    start=$(now_ms)
+    "$@"
+    rc=$?
+    end=$(now_ms)
+    [[ -n "$start" && -n "$end" ]] && echo "OLAKE_${marker}_MS=$((end - start))"
+    return $rc
+}
+
 joined_arguments=""
 
 # Function to download DB2 clidriver using curl as fallback
@@ -222,11 +243,12 @@ function build_and_run() {
     fi
 
     cd $path || fail "Failed to navigate to path: $path"
-    
-    go mod tidy
-    go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
+
+    [[ -n "$OLAKE_SKIP_MOD_TIDY" ]] || timed TIDY go mod tidy
+    timed BUILD go build -ldflags="-w -s -X constants/constants.version=${GIT_VERSION} -X constants/constants.commitsha=${GIT_COMMITSHA} -X constants/constants.releasechannel=${RELEASE_CHANNEL}" -o olake main.go || fail "build failed"
+
     echo "============================== Executing connector: $connector with args [$joined_arguments] =============================="
-    ./olake $joined_arguments
+    timed RUN ./olake $joined_arguments
 }
 
 if [ $# -gt 0 ]; then

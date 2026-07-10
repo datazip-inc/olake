@@ -10,6 +10,10 @@ on:
 
 env:
   MYSQL_ROOT_PASSWORD: root1234
+  # Single source of truth for the drivers the integration suite covers, in run order. The first
+  # package is the discover warm-up + iceberg bootstrap driver (the Bootstrap step strips it to the
+  # bare driver name).
+  INTEGRATION_TEST_PACKAGES: ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/mssql/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/kafka/internal/...
 
 jobs:
   run-tests:
@@ -117,6 +121,15 @@ jobs:
           command: |
             docker exec olake-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password!123' -C -Q "SELECT 1"
 
+      - name: Wait for Spark Connect
+        uses: nick-fields/retry@v2
+        with:
+          timeout_minutes: 5
+          max_attempts: 30
+          retry_wait_seconds: 5
+          command: |
+            docker exec spark-iceberg bash -c 'code=$(curl --http2-prior-knowledge -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:15002/ || true); echo "Spark Connect probe -> HTTP ${code:-000}"; [ -n "$code" ] && [ "$code" != "000" ]'
+
       - name: Initialize MSSQL Database
         run: |
           docker exec olake-mssql /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password!123' -C -d master -i /docker-entrypoint-initdb.d/01-init.sql
@@ -130,7 +143,7 @@ jobs:
           sudo chmod -R 777 /home/runner/work/olake/olake/destination/iceberg/local-test/data
 
       - name: Install Go Dependencies
-        run: go mod download
+        run: go work sync
 
       - name: Build Project
         run: go build -v ./...
@@ -148,15 +161,49 @@ jobs:
         working-directory: ./destination/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
 
+      - name: Build Test Base Image
+        run: make docker.base.build
+
+      # The sync suites run many olake processes concurrently, and the first to reach a freshly
+      # created iceberg JdbcCatalog race each other's CREATE TABLE on the shared catalog bookkeeping
+      # tables (iceberg_tables, iceberg_namespace_properties). Bootstrap it once, serially, before
+      # any tests run, so every later sync finds it initialized. The catalog is shared across all
+      # drivers, so one check (the first driver in the list) suffices.
+      - name: Bootstrap Iceberg Catalog
+        run: |
+          set -- $INTEGRATION_TEST_PACKAGES
+          driver=${1#./drivers/}; driver=${driver%%/*}
+          dest=/tmp/iceberg_destination.json
+          sed 's/host\.docker\.internal/127.0.0.1/g' \
+            "drivers/$driver/internal/testdata/iceberg_destination.json" > "$dest"
+          if ! out=$(cd "drivers/$driver" && TELEMETRY_DISABLED=true go run . check --destination "$dest" 2>&1); then
+            echo "$out"; echo "::error::iceberg destination check did not succeed"; exit 1
+          fi
+
+      # Discover one driver alone first: that single cold olake build compiles the shared
+      # framework once into the go-build cache, so the remaining drivers then discover in
+      # parallel reusing it instead of each rebuilding the framework at the same time.
+      # NOTE: This is a work around that will be removed in upcoming test framework revamp
+      - name: Run Discover Tests
+        if: inputs.test_type == 'integration'
+        run: |
+          set -- $INTEGRATION_TEST_PACKAGES
+          first=$1; shift
+          OLAKE_TEST_PHASE=discover go test -v -p 1 -parallel 1 "$first" -timeout 0 -run 'Integration'
+          # -p "$#": remaining drivers in parallel. -parallel 1: subtests within a package stay
+          # serial, so a driver with two formats (kafka's JSON+AVRO) doesn't race two build.sh runs
+          # on its single, bind-mounted ./olake binary ("Text file busy").
+          OLAKE_TEST_PHASE=discover go test -v -p "$#" -parallel 1 "$@" -timeout 0 -run 'Integration'
+
       - name: Run Integration Tests
         if: inputs.test_type == 'integration'
         run: |
-          go test -v -p 7 ./drivers/kafka/internal/... ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/mssql/internal/... -timeout 0 -run 'Integration'
+          OLAKE_TEST_PHASE=sync go test -v -p 7 $INTEGRATION_TEST_PACKAGES -timeout 0 -run 'Integration'
 
       - name: Run 2PC Integration Tests
         if: inputs.test_type == '2pc'
         run: |
-          go test -v -p 7 ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/mssql/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/kafka/internal/... -timeout 0 -run '2PC'
+          go test -v -p 7 $INTEGRATION_TEST_PACKAGES -timeout 0 -run '2PC'
 
       - name: Cleanup
         if: always()
