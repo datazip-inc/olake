@@ -124,10 +124,6 @@ var (
 		"col_excluded":    int32(101),
 		"col_included":    int32(102),
 	}
-
-	stats struct {
-		SyncedRecords int64 `json:"Synced Records"`
-	}
 )
 
 // ExecuteQueryJSON executes Kafka queries for testing based on the operation type
@@ -276,6 +272,9 @@ func waitForSyncProgress(ctx context.Context, t *testing.T) {
 			return true
 		}
 
+		var stats struct {
+			SyncedRecords int64 `json:"Synced Records"`
+		}
 		if err := utils.UnmarshalFile(statsPath, &stats, false); err != nil {
 			return false
 		}
