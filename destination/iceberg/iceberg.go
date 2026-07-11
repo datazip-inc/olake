@@ -88,7 +88,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	icebergPartFields := make([]*proto.IcebergPayload_PartitionField, 0, len(i.partitionInfo))
 	for _, p := range i.partitionInfo {
 		icebergPartFields = append(icebergPartFields, &proto.IcebergPayload_PartitionField{
-			Field:     p.Field,
+			Field:     p.SchemaField,
 			Transform: p.Transform,
 		})
 	}

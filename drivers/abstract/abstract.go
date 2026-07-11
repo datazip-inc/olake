@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -256,30 +257,49 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 		cancel()
 	}
 
-	var metadataState any
 	var closeErr error
-	if mtState != nil {
-		ms, setErr := types.SetMetadataState(*mtState, threadID)
-		if setErr != nil {
-			closeErr = fmt.Errorf("failed to set metadata state: %s", setErr)
-			cancel()
+
+	closeWriter := func(w *destination.WriterThread, metadataValue any) error {
+		var metadataState any
+		var setErr error
+
+		if metadataValue != nil {
+			ms, err := types.SetMetadataState(metadataValue, threadID)
+			if err != nil {
+				setErr = fmt.Errorf("failed to set metadata state: %s", err)
+				cancel()
+			}
+			types.SetDedupInserts(ms, dedupInserts)
+			metadataState = ms
 		}
-		types.SetDedupInserts(ms, dedupInserts)
-		metadataState = ms
+		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
+			setErr = errors.Join(setErr, fmt.Errorf("failed to close writer: %s", threadErr))
+		}
+
+		return setErr
 	}
 
 	switch w := writer.(type) {
 	case *destination.WriterThread:
-		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
-			closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
+		var mtStateValue any
+		if mtState != nil {
+			// Incremental stores cursor metadata as map[string]any; use *mtState directly (not per-stream lookup).
+			mtStateValue = *mtState
 		}
+		closeErr = closeWriter(w, mtStateValue)
 	case map[string]*destination.WriterThread:
 		// Multiple writers keyed by stream ID
 		for streamID, inserter := range w {
 			if inserter != nil {
-				if threadErr := inserter.Close(ctx, metadataState); threadErr != nil {
-					closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
+				var mtStateValue any
+				if mtState != nil {
+					if mtStateValueByStream, ok := (*mtState).(map[string]any); ok {
+						mtStateValue = mtStateValueByStream[streamID]
+					} else {
+						mtStateValue = *mtState
+					}
 				}
+				closeErr = errors.Join(closeErr, closeWriter(inserter, mtStateValue))
 			}
 		}
 	default:
