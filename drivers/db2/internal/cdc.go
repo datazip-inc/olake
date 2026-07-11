@@ -12,8 +12,6 @@ func (d *DB2) ChangeStreamConfig() (bool, bool, bool) { return false, false, fal
 
 func (d *DB2) PreCDC(ctx context.Context, streams []types.StreamInterface) error { return nil }
 
-func (d *DB2) PersistedCDCCheckpoint(_ types.StreamInterface) string { return "" }
-
 func (d *DB2) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	return nil, nil
 }

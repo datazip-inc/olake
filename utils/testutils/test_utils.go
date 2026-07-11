@@ -386,6 +386,12 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 		deletedCount++
 	}
 
+	metadataPath := parquetPath + "metadata.json"
+	if err := minioClient.RemoveObject(ctx, bucketName, metadataPath, minio.RemoveObjectOptions{}); err != nil {
+		return fmt.Errorf("failed to delete %s: %s", metadataPath, err)
+	}
+	deletedCount++
+
 	t.Logf("--- Cleanup Complete: Deleted %d files ---", deletedCount)
 	return nil
 }

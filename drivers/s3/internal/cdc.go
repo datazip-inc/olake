@@ -23,10 +23,6 @@ func (s *S3) PreCDC(ctx context.Context, streams []types.StreamInterface) error 
 	return fmt.Errorf("CDC is not supported for S3 source")
 }
 
-func (s *S3) PersistedCDCCheckpoint(_ types.StreamInterface) string {
-	return ""
-}
-
 // StreamChanges is not supported for S3
 func (s *S3) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
 	return nil, fmt.Errorf("CDC is not supported for S3 source")

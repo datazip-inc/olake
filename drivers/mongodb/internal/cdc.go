@@ -66,16 +66,6 @@ func (m *Mongo) PreCDC(cdcCtx context.Context, streams []types.StreamInterface) 
 	return nil
 }
 
-func (m *Mongo) PersistedCDCCheckpoint(stream types.StreamInterface) string {
-	if m.state == nil {
-		return ""
-	}
-	if token := m.state.GetCursor(stream.Self(), cdcCursorField); token != nil {
-		return fmt.Sprint(token)
-	}
-	return ""
-}
-
 func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	stream := m.streams[streamIndex]
 	mtState := metadataStates[stream.ID()]

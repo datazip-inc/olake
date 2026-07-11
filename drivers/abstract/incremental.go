@@ -99,7 +99,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				mtState = mtStateMap
 			}()
 
-			// prevMetadataState id will be same as thread id if the state file failed to update
+			// A matching thread identifies the same attempt; recovery is needed only when metadata is ahead.
 			if prevMetadataState != nil && threadID == prevMetadataState.ID && prevMetadataState.State != nil {
 				stateString, ok := prevMetadataState.State.(string)
 				if !ok {
@@ -116,12 +116,22 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 					return fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID)
 				}
 
-				logger.Infof("Stream[%s] cursor(s) mismatch, updating cursor(s) in state", stream.ID())
-				maxPrimaryCursorValue = mtState[primaryCursor]
-				if secondaryCursor != "" {
-					maxSecondaryCursorValue = mtState[secondaryCursor]
+				metadataPrimaryCursorValue, err := ReformatCursorValue(primaryCursor, mtState[primaryCursor], stream)
+				if err != nil {
+					return fmt.Errorf("failed to reformat metadata primary cursor value: %s", err)
 				}
-				return nil
+				metadataSecondaryCursorValue, err := ReformatCursorValue(secondaryCursor, mtState[secondaryCursor], stream)
+				if err != nil {
+					return fmt.Errorf("failed to reformat metadata secondary cursor value: %s", err)
+				}
+				if isMetadataCursorAhead(metadataPrimaryCursorValue, metadataSecondaryCursorValue, maxPrimaryCursorValue, maxSecondaryCursorValue, secondaryCursor != "") {
+					logger.Infof("Stream[%s] cursor(s) mismatch, updating cursor(s) in state", stream.ID())
+					maxPrimaryCursorValue = metadataPrimaryCursorValue
+					if secondaryCursor != "" {
+						maxSecondaryCursorValue = metadataSecondaryCursorValue
+					}
+					return nil
+				}
 			}
 
 			logger.Infof("Thread[%s]: created incremental writer for stream %s", threadID, streams[index].ID())
@@ -148,6 +158,11 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 	}
 
 	return err
+}
+
+func isMetadataCursorAhead(metadataPrimary, metadataSecondary, statePrimary, stateSecondary any, hasSecondary bool) bool {
+	primaryComparison := typeutils.Compare(metadataPrimary, statePrimary)
+	return primaryComparison > 0 || (primaryComparison == 0 && hasSecondary && typeutils.Compare(metadataSecondary, stateSecondary) > 0)
 }
 
 // RefomratCursorValue to parse the cursor value to the correct type

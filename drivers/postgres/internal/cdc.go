@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -58,23 +57,6 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 	}
 	p.streams = streams
 	return nil
-}
-
-func (p *Postgres) PersistedCDCCheckpoint(_ types.StreamInterface) string {
-	if p.state == nil {
-		return ""
-	}
-
-	globalState := p.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return ""
-	}
-
-	var walState waljs.WALState
-	if err := utils.Unmarshal(globalState.State, &walState); err != nil {
-		return ""
-	}
-	return strings.ReplaceAll(walState.LSN, "/", "-")
 }
 
 func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[string]any, callback abstract.CDCMsgFn) (any, error) {

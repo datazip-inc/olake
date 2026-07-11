@@ -32,8 +32,8 @@ import (
 )
 
 type parquetDataFile struct {
-	LocalPath        string
-	S3StagingKeyPath string
+	localPath        string
+	s3StagingKeyPath string
 }
 
 type FileMetadata struct {
@@ -144,7 +144,9 @@ func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schem
 		return nil, nil, err
 	}
 
-	prevMetadataState, err := p.load2PCState(ctx)
+	// Only the first writer can discard unfinished staging; later writers may still own it.
+	isFirstSetup := schema == nil
+	prevMetadataState, err := p.load2PCState(ctx, isFirstSetup)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -270,7 +272,6 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-// stagedDataFiles returns the current thread's parquet files using the paths used during 2PC close.
 func (p *Parquet) stagedDataFiles() []parquetDataFile {
 	var dataFiles []parquetDataFile
 	for basePath, parquetFiles := range p.partitionedFiles {
@@ -278,10 +279,10 @@ func (p *Parquet) stagedDataFiles() []parquetDataFile {
 			relativePath := filepath.Join(basePath, parquetFile.fileName)
 			stagingPath := p.stagingDataPath(relativePath)
 			dataFile := parquetDataFile{
-				LocalPath: filepath.Join(p.config.Path, stagingPath),
+				localPath: filepath.Join(p.config.Path, stagingPath),
 			}
 			if p.s3Client != nil {
-				dataFile.S3StagingKeyPath = p.s3ObjectPath(stagingPath)
+				dataFile.s3StagingKeyPath = p.s3ObjectPath(stagingPath)
 			}
 			dataFiles = append(dataFiles, dataFile)
 		}
@@ -289,7 +290,7 @@ func (p *Parquet) stagedDataFiles() []parquetDataFile {
 	return dataFiles
 }
 
-func (p *Parquet) closePqFiles(_ context.Context, closeOnError bool) error {
+func (p *Parquet) closePqFiles(closeOnError bool) error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -335,19 +336,19 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []parquetDataFile
 
 		err := utils.Concurrent(ctx, dataFiles, concurrency, func(_ context.Context, info parquetDataFile, _ int) error {
 			err := utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(ctx context.Context) error {
-				file, err := os.Open(info.LocalPath)
+				file, err := os.Open(info.localPath)
 				if err != nil {
-					return fmt.Errorf("failed to open file %s: %s", info.LocalPath, err)
+					return fmt.Errorf("failed to open file %s: %s", info.localPath, err)
 				}
 				defer file.Close()
 
 				_, err = p.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 					Bucket: aws.String(p.config.Bucket),
-					Key:    aws.String(info.S3StagingKeyPath),
+					Key:    aws.String(info.s3StagingKeyPath),
 					Body:   file,
 				})
 				if err != nil {
-					return fmt.Errorf("failed to put object into s3 (%s): %w", info.S3StagingKeyPath, err)
+					return fmt.Errorf("failed to put object into s3 (%s): %w", info.s3StagingKeyPath, err)
 				}
 				return nil
 			})
@@ -356,10 +357,10 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []parquetDataFile
 			}
 
 			// Remove local file after successful upload
-			if err := os.Remove(info.LocalPath); err != nil {
-				logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to S3): %s", p.options.ThreadID, info.LocalPath, err)
+			if err := os.Remove(info.localPath); err != nil {
+				logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to S3): %s", p.options.ThreadID, info.localPath, err)
 			}
-			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, info.S3StagingKeyPath)
+			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, info.s3StagingKeyPath)
 			return nil
 		})
 		if err != nil {
@@ -371,15 +372,33 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []parquetDataFile
 
 func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	dataFiles := p.stagedDataFiles()
-	metadataState, err := p.metadataState(finalMetadataState)
+	if finalMetadataState == nil && !p.options.Backfill {
+		if err := p.closePqFiles(true); err != nil {
+			return err
+		}
+		p.partitionedFiles = make(map[string][]*FileMetadata)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if len(dataFiles) > 0 {
+			metadataErr := fmt.Errorf("cannot commit parquet CDC or incremental files without metadata state")
+			if err := p.deleteStaging(ctx, p.options.ThreadID); err != nil {
+				return fmt.Errorf("%s: cleanup error: %w", metadataErr, err)
+			}
+			return metadataErr
+		}
+		return nil
+	}
+
+	finishData, metadataState, err := finishState(finalMetadataState)
 	if err != nil {
-		if closeErr := p.closePqFiles(ctx, true); closeErr != nil {
-			return closeErr
+		if closeErr := p.closePqFiles(true); closeErr != nil {
+			return fmt.Errorf("%w: failed to close parquet files: %s", err, closeErr)
 		}
 		return err
 	}
 
-	if err := p.closePqFiles(ctx, ctx.Err() != nil); err != nil {
+	if err := p.closePqFiles(ctx.Err() != nil); err != nil {
 		return err
 	}
 	p.partitionedFiles = make(map[string][]*FileMetadata)
@@ -390,14 +409,17 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	if err := p.uploadPqFiles(ctx, dataFiles); err != nil {
 		return err
 	}
-	if err := p.writeCompletedMarker(ctx, metadataState); err != nil {
+	if err := p.writeFinish(ctx, finishData); err != nil {
 		return err
 	}
 	if err := p.promoteStaging(ctx, p.options.ThreadID); err != nil {
 		return err
 	}
-	if err := p.cleanupCommittedStaging(p.options.ThreadID); err != nil {
-		logger.Warnf("Thread[%s]: failed to cleanup committed parquet 2pc staging dir: %s", p.options.ThreadID, err)
+	if _, err := p.commitMetadata(ctx, p.options.ThreadID, metadataState); err != nil {
+		return err
+	}
+	if err := p.deleteStaging(ctx, p.options.ThreadID); err != nil {
+		return err
 	}
 	return nil
 }

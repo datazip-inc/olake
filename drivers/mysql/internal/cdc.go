@@ -66,27 +66,6 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	return nil
 }
 
-func (m *MySQL) PersistedCDCCheckpoint(_ types.StreamInterface) string {
-	if m.state == nil {
-		return ""
-	}
-
-	globalState := m.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return ""
-	}
-
-	var mysqlState MySQLGlobalState
-	if err := utils.Unmarshal(globalState.State, &mysqlState); err != nil {
-		return ""
-	}
-	position := mysqlState.State.Position
-	if position.Name == "" && position.Pos == 0 {
-		return ""
-	}
-	return fmt.Sprintf("%s-%d", position.Name, position.Pos)
-}
-
 func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	savedState := m.state.GetGlobal()
 	if savedState == nil || savedState.State == nil {

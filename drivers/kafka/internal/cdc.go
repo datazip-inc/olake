@@ -13,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/linkedin/goavro/v2"
@@ -20,8 +21,6 @@ import (
 )
 
 // TODO: Add 2PC support for Kafka (difficulty: hard)
-
-const consumerGroupIDKey = "consumer_group_id"
 
 func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
 	return false, true, false // parallel change streams supported
@@ -32,11 +31,22 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("no valid streams found for CDC")
 	}
 
-	// Prefer persisted/configured group ID so retries keep the same Kafka checkpoint.
-	groupID := k.PersistedCDCCheckpoint(streams[0])
-	if groupID == "" {
-		groupID = fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix())
+	var groupID string
+
+	// NOTE: in kafka we are giving priority of available consumer group id from state over config
+	// get consumer group id from global state
+	if globalState := k.state.GetGlobal(); globalState != nil && globalState.State != nil {
+		if stateMap, ok := globalState.State.(map[string]any); ok {
+			if consumerGroupID, exists := stateMap["consumer_group_id"]; exists {
+				if gID, ok := consumerGroupID.(string); ok && gID != "" {
+					groupID = gID
+				}
+			}
+		}
 	}
+
+	// generate a new consumer group id if not present in state or config
+	groupID = utils.Ternary(groupID == "", utils.Ternary(k.config.ConsumerGroupID != "", k.config.ConsumerGroupID, fmt.Sprintf("olake-consumer-group-%d", time.Now().Unix())), groupID).(string)
 	k.consumerGroupID = groupID
 	logger.Infof("configured consumer group id: %s", k.consumerGroupID)
 
@@ -56,35 +66,6 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 
 	// create new readers and wait for partition assignment
 	return k.readerManager.CreateReaders(ctx, streams)
-}
-
-func (k *Kafka) PersistedCDCCheckpoint(_ types.StreamInterface) string {
-	if groupID := k.persistedConsumerGroupID(); groupID != "" {
-		return groupID
-	}
-	if k.config != nil {
-		return k.config.ConsumerGroupID
-	}
-	return ""
-}
-
-func (k *Kafka) persistedConsumerGroupID() string {
-	if k.state == nil {
-		return ""
-	}
-	globalState := k.state.GetGlobal()
-	if globalState == nil || globalState.State == nil {
-		return ""
-	}
-	stateMap, ok := globalState.State.(map[string]any)
-	if !ok {
-		return ""
-	}
-	groupID, ok := stateMap[consumerGroupIDKey].(string)
-	if !ok {
-		return ""
-	}
-	return groupID
 }
 
 func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates map[string]any, processFn abstract.CDCMsgFn) (any, error) {
@@ -206,7 +187,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 			streamIDs = append(streamIDs, streamID)
 		}
 
-		k.state.SetGlobal(map[string]any{consumerGroupIDKey: k.consumerGroupID}, streamIDs...)
+		k.state.SetGlobal(map[string]any{"consumer_group_id": k.consumerGroupID}, streamIDs...)
 		logger.Infof("updated global state with consumer_group_id: %s for %d streams", k.consumerGroupID, len(streamIDs))
 
 		k.checkpointMessage.Delete(readerIdx)
