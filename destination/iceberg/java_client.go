@@ -18,8 +18,12 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// defaultServerPort is the port the single shared JVM listens on.
-const defaultServerPort = 50051
+const (
+	// defaultServerPort is the port the single shared JVM listens on.
+	defaultServerPort = 50051
+	// Java class implementing Iceberg's S3FileIOAwsClientFactory
+	olakeS3ClientFactoryClass = "io.debezium.server.iceberg.OlakeS3ClientFactory"
+)
 
 type serverInstance struct {
 	port            int
@@ -104,6 +108,10 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 	if config.S3Endpoint != "" {
 		serverConfig["s3.endpoint"] = config.S3Endpoint
 	}
+	// Some s3-compatible stores (GCS's S3-interop) return 404 when deleting a
+	// missing key where AWS returns 204, and Iceberg expects the AWS behavior.
+	// The wrapper is a no-op on stores with AWS semantics.
+	serverConfig["s3.client-factory-impl"] = olakeS3ClientFactoryClass
 	serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
 	serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 	// Marshal the config to JSON
