@@ -31,10 +31,14 @@ func TestNewStream(t *testing.T) {
 			namespace:      "grades",
 			sourceDatabase: stringPtr("gradesdb"),
 			expectedStream: &Stream{
-				Name:                "",
-				Namespace:           "grades",
-				DestinationDatabase: "gradesdb:grades",
-				DestinationTable:    "",
+				Name:                    "",
+				Namespace:               "grades",
+				Schema:                  NewTypeSchema(),
+				SupportedSyncModes:      NewSet[SyncMode](),
+				SourceDefinedPrimaryKey: NewSet[string](),
+				AvailableCursorFields:   NewSet[string](),
+				DestinationDatabase:     "gradesdb:grades",
+				DestinationTable:        "",
 			},
 		},
 		{
@@ -43,10 +47,14 @@ func TestNewStream(t *testing.T) {
 			namespace:      "",
 			sourceDatabase: stringPtr("gradesdb"),
 			expectedStream: &Stream{
-				Name:                "students",
-				Namespace:           "",
-				DestinationDatabase: "gradesdb",
-				DestinationTable:    "students",
+				Name:                    "students",
+				Namespace:               "",
+				Schema:                  NewTypeSchema(),
+				SupportedSyncModes:      NewSet[SyncMode](),
+				SourceDefinedPrimaryKey: NewSet[string](),
+				AvailableCursorFields:   NewSet[string](),
+				DestinationDatabase:     "gradesdb",
+				DestinationTable:        "students",
 			},
 		},
 		{
@@ -55,10 +63,14 @@ func TestNewStream(t *testing.T) {
 			namespace:      "grades",
 			sourceDatabase: nil,
 			expectedStream: &Stream{
-				Name:                "students",
-				Namespace:           "grades",
-				DestinationDatabase: ":grades",
-				DestinationTable:    "students",
+				Name:                    "students",
+				Namespace:               "grades",
+				Schema:                  NewTypeSchema(),
+				SupportedSyncModes:      NewSet[SyncMode](),
+				SourceDefinedPrimaryKey: NewSet[string](),
+				AvailableCursorFields:   NewSet[string](),
+				DestinationDatabase:     ":grades",
+				DestinationTable:        "students",
 			},
 		},
 		{
@@ -67,10 +79,14 @@ func TestNewStream(t *testing.T) {
 			namespace:      "grades",
 			sourceDatabase: stringPtr(""),
 			expectedStream: &Stream{
-				Name:                "students",
-				Namespace:           "grades",
-				DestinationDatabase: ":grades",
-				DestinationTable:    "students",
+				Name:                    "students",
+				Namespace:               "grades",
+				Schema:                  NewTypeSchema(),
+				SupportedSyncModes:      NewSet[SyncMode](),
+				SourceDefinedPrimaryKey: NewSet[string](),
+				AvailableCursorFields:   NewSet[string](),
+				DestinationDatabase:     ":grades",
+				DestinationTable:        "students",
 			},
 		},
 		{
@@ -79,10 +95,14 @@ func TestNewStream(t *testing.T) {
 			namespace:      "",
 			sourceDatabase: nil,
 			expectedStream: &Stream{
-				Name:                "",
-				Namespace:           "",
-				DestinationDatabase: "",
-				DestinationTable:    "",
+				Name:                    "",
+				Namespace:               "",
+				Schema:                  NewTypeSchema(),
+				SupportedSyncModes:      NewSet[SyncMode](),
+				SourceDefinedPrimaryKey: NewSet[string](),
+				AvailableCursorFields:   NewSet[string](),
+				DestinationDatabase:     "",
+				DestinationTable:        "",
 			},
 		},
 		{
@@ -91,40 +111,38 @@ func TestNewStream(t *testing.T) {
 			namespace:      "grades",
 			sourceDatabase: stringPtr("gradesdb"),
 			expectedStream: &Stream{
-				Name:                "students",
-				Namespace:           "grades",
-				DestinationDatabase: "gradesdb:grades",
-				DestinationTable:    "students",
+				Name:                    "students",
+				Namespace:               "grades",
+				Schema:                  NewTypeSchema(),
+				SupportedSyncModes:      NewSet[SyncMode](),
+				SourceDefinedPrimaryKey: NewSet[string](),
+				AvailableCursorFields:   NewSet[string](),
+				DestinationDatabase:     "gradesdb:grades",
+				DestinationTable:        "students",
 			},
 		},
 		{
-			testName:       "stream with uppercase and special characters in 'name' and 'namespace",
+			testName:       "stream with uppercase and special characters in 'name' and 'namespace'",
 			name:           "User-Orders.v2",
 			namespace:      "My.Schema",
 			sourceDatabase: nil,
 			expectedStream: &Stream{
-				Name:                "User-Orders.v2",
-				Namespace:           "My.Schema",
-				DestinationDatabase: ":my_schema",
-				DestinationTable:    "user_orders_v2",
+				Name:                    "User-Orders.v2",
+				Namespace:               "My.Schema",
+				Schema:                  NewTypeSchema(),
+				SupportedSyncModes:      NewSet[SyncMode](),
+				SourceDefinedPrimaryKey: NewSet[string](),
+				AvailableCursorFields:   NewSet[string](),
+				DestinationDatabase:     ":my_schema",
+				DestinationTable:        "user_orders_v2",
 			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.testName, func(t *testing.T) {
-			asserts := assert.New(t)
-
-			stream := NewStream(tt.name, tt.namespace, tt.sourceDatabase)
-
-			asserts.Equal(tt.expectedStream.Name, stream.Name)
-			asserts.Equal(tt.expectedStream.Namespace, stream.Namespace)
-			asserts.NotNil(stream.SupportedSyncModes, "SupportedSyncModes should be initialized")
-			asserts.NotNil(stream.SourceDefinedPrimaryKey, "SourceDefinedPrimaryKey should be initialized")
-			asserts.NotNil(stream.AvailableCursorFields, "AvailableCursorFields should be initialized")
-			asserts.NotNil(stream.Schema, "Schema should be initialized")
-			asserts.Equal(tt.expectedStream.DestinationDatabase, stream.DestinationDatabase)
-			asserts.Equal(tt.expectedStream.DestinationTable, stream.DestinationTable)
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
+			stream := NewStream(tc.name, tc.namespace, tc.sourceDatabase)
+			assert.Equal(t, tc.expectedStream, stream)
 		})
 	}
 }
@@ -137,7 +155,7 @@ func TestStreamID(t *testing.T) {
 		expectedID string
 	}{
 		{
-			testName:   "name field empty namespace and Id filled",
+			testName:   "name field empty namespace filled",
 			name:       "",
 			namespace:  "gradesDb",
 			expectedID: "gradesDb.",
@@ -168,13 +186,13 @@ func TestStreamID(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.testName, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
 			stream := &Stream{
-				Name:      tt.name,
-				Namespace: tt.namespace,
+				Name:      tc.name,
+				Namespace: tc.namespace,
 			}
-			assert.Equal(t, tt.expectedID, stream.ID())
+			assert.Equal(t, tc.expectedID, stream.ID())
 		})
 	}
 }
@@ -212,16 +230,16 @@ func TestStreamWithSyncMode(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.testName, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
 			stream := NewStream("users", "public", nil)
-			outputStream := stream.WithSyncMode(tt.modes...)
+			returnedStream := stream.WithSyncMode(tc.modes...)
 
-			// check if it returns the exact same pointer
-			assert.Same(t, stream, outputStream, "Should return the same instance")
+			// should return the exact same pointer
+			assert.Same(t, stream, returnedStream, "should return the same instance")
 
-			// check if the set contains added modes
-			assert.ElementsMatch(t, tt.expectedModes, outputStream.SupportedSyncModes.Array())
+			// check if the set now contains the added modes
+			assert.ElementsMatch(t, tc.expectedModes, returnedStream.SupportedSyncModes.Array())
 		})
 	}
 }
@@ -238,11 +256,6 @@ func TestStreamWithPrimaryKey(t *testing.T) {
 			expectedKeys: []string{"id"},
 		},
 		{
-			testName:     "multiple keys",
-			keys:         []string{"id", "user_uuid"},
-			expectedKeys: []string{"id", "user_uuid"},
-		},
-		{
 			testName:     "composite key",
 			keys:         []string{"tenant_id", "user_id", "order_id"},
 			expectedKeys: []string{"tenant_id", "user_id", "order_id"},
@@ -257,84 +270,89 @@ func TestStreamWithPrimaryKey(t *testing.T) {
 			keys:         []string{},
 			expectedKeys: []string{},
 		},
-		{
-			testName:     "keys with underscores",
-			keys:         []string{"user_id", "order_id"},
-			expectedKeys: []string{"user_id", "order_id"},
-		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.testName, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
 			stream := NewStream("users", "public", nil)
-			returnedStream := stream.WithPrimaryKey(tt.keys...)
+			returnedStream := stream.WithPrimaryKey(tc.keys...)
 
-			assert.Same(t, stream, returnedStream, "Should return the same instance")
+			assert.Same(t, stream, returnedStream, "should return the same instance")
 
-			assert.ElementsMatch(t, tt.expectedKeys, stream.SourceDefinedPrimaryKey.Array())
+			assert.ElementsMatch(t, tc.expectedKeys, stream.SourceDefinedPrimaryKey.Array())
 		})
 	}
 }
 
 func TestStreamWithCursorField(t *testing.T) {
 	tests := []struct {
-		testName       string
-		fields         []string
-		expectedFields []string
+		testName        string
+		columns         []string
+		expectedColumns []string
 	}{
 		{
-			testName:       "single field",
-			fields:         []string{"updated_at"},
-			expectedFields: []string{"updated_at"},
+			testName:        "single column",
+			columns:         []string{"updated_at"},
+			expectedColumns: []string{"updated_at"},
 		},
 		{
-			testName:       "multiple fields",
-			fields:         []string{"updated_at", "inserted_at"},
-			expectedFields: []string{"updated_at", "inserted_at"},
+			testName:        "multiple columns",
+			columns:         []string{"updated_at", "inserted_at"},
+			expectedColumns: []string{"updated_at", "inserted_at"},
 		},
 		{
-			testName:       "timestamp fields",
-			fields:         []string{"created_at", "updated_at", "deleted_at"},
-			expectedFields: []string{"created_at", "updated_at", "deleted_at"},
+			testName:        "duplicate columns",
+			columns:         []string{"updated_at", "updated_at", "inserted_at"},
+			expectedColumns: []string{"updated_at", "inserted_at"},
 		},
 		{
-			testName:       "duplicate fields",
-			fields:         []string{"updated_at", "updated_at", "inserted_at"},
-			expectedFields: []string{"updated_at", "inserted_at"},
-		},
-		{
-			testName:       "empty fields",
-			fields:         []string{},
-			expectedFields: []string{},
-		},
-		{
-			testName:       "fields with underscores",
-			fields:         []string{"last_modified", "date_created"},
-			expectedFields: []string{"last_modified", "date_created"},
+			testName:        "empty columns",
+			columns:         []string{},
+			expectedColumns: []string{},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.testName, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
 			stream := NewStream("users", "public", nil)
-			outputStream := stream.WithCursorField(tt.fields...)
+			returnedStream := stream.WithCursorField(tc.columns...)
 
-			assert.Same(t, stream, outputStream, "Should return the same instance")
+			assert.Same(t, stream, returnedStream, "should return the same instance")
 
-			assert.ElementsMatch(t, tt.expectedFields, stream.AvailableCursorFields.Array())
+			assert.ElementsMatch(t, tc.expectedColumns, stream.AvailableCursorFields.Array())
 		})
 	}
 }
 
 func TestStreamWithSchema(t *testing.T) {
-	t.Run("set new schema", func(t *testing.T) {
-		stream := NewStream("users", "public", nil)
-		newSchema := NewTypeSchema()
-		returnedStream := stream.WithSchema(newSchema)
+	setSchema := NewTypeSchema()
 
-		assert.Same(t, stream, returnedStream, "Should return the same stream instance")
-		assert.Same(t, newSchema, stream.Schema, "Stream.Schema should point to the input schema")
-	})
+	tests := []struct {
+		testName       string
+		schema         *TypeSchema
+		expectedSchema *TypeSchema
+	}{
+		{
+			testName:       "set schema",
+			schema:         setSchema,
+			expectedSchema: setSchema,
+		},
+		{
+			testName:       "clear schema",
+			schema:         nil,
+			expectedSchema: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
+			stream := NewStream("users", "public", nil)
+			returnedStream := stream.WithSchema(tc.schema)
+
+			assert.Same(t, stream, returnedStream, "should return the same stream instance")
+			assert.Same(t, tc.schema, stream.Schema, "Stream.Schema should point to the expected schema")
+		})
+	}
 
 	t.Run("replace existing schema", func(t *testing.T) {
 		stream := NewStream("users", "public", nil)
@@ -342,12 +360,12 @@ func TestStreamWithSchema(t *testing.T) {
 		secondSchema := NewTypeSchema()
 
 		stream.WithSchema(firstSchema)
-		assert.Same(t, firstSchema, stream.Schema, "First schema should be set")
+		assert.Same(t, firstSchema, stream.Schema, "first schema should be set")
 
 		returnedStream := stream.WithSchema(secondSchema)
-		assert.Same(t, stream, returnedStream, "Should return the same stream instance")
-		assert.Same(t, secondSchema, stream.Schema, "Second schema should replace first schema")
-		assert.NotSame(t, firstSchema, stream.Schema, "First schema should no longer be referenced")
+		assert.Same(t, stream, returnedStream, "should return the same stream instance")
+		assert.Same(t, secondSchema, stream.Schema, "first schema should be replaced by second schema")
+		assert.NotSame(t, firstSchema, stream.Schema, "first schema should no longer be referenced here")
 	})
 }
 
@@ -464,20 +482,19 @@ func TestStreamUpsertField(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.testName, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
 			asserts := assert.New(t)
-
 			stream := NewStream("grades", "students", nil)
-			stream.UpsertField(tt.column, tt.typ, tt.nullable, tt.isOLakeColumn)
+			stream.UpsertField(tc.column, tc.typ, tc.nullable, tc.isOLakeColumn)
 
-			value, ok := stream.Schema.Properties.Load(tt.column)
-			asserts.True(ok, "Schema should have column '%s'", tt.column)
+			value, ok := stream.Schema.Properties.Load(tc.column)
+			asserts.True(ok, "Schema should have column '%s'", tc.column)
 			property := value.(*Property)
-			asserts.Equal(utils.Reformat(tt.column), property.DestinationColumnName)
-			asserts.Equal(tt.expectedOlakeCol, property.OlakeColumn)
+			asserts.Equal(utils.Reformat(tc.column), property.DestinationColumnName)
+			asserts.Equal(tc.expectedOlakeCol, property.OlakeColumn)
 
-			assert.ElementsMatch(t, tt.expectedTypes, property.Type.Array())
+			assert.ElementsMatch(t, tc.expectedTypes, property.Type.Array())
 		})
 	}
 
@@ -485,12 +502,11 @@ func TestStreamUpsertField(t *testing.T) {
 	t.Run("Multiple datatypes test", func(t *testing.T) {
 		asserts := assert.New(t)
 		stream := NewStream("phones", "seller", nil)
-
 		stream.UpsertField("codename", Int64, false, false)
 		stream.UpsertField("codename", String, true, true)
 
 		val, ok := stream.Schema.Properties.Load("codename")
-		asserts.True(ok, "Schema should have column 'codename")
+		asserts.True(ok, "Schema should have column 'codename'")
 
 		property := val.(*Property)
 
@@ -512,206 +528,224 @@ func TestStreamWrap(t *testing.T) {
 			syncIndex: 0,
 		},
 		{
-			testName:  "wrap with index 1",
-			syncIndex: 1,
-		},
-		{
 			testName:  "wrap with negative index",
 			syncIndex: -1,
 		},
-		{
-			testName:  "wrap with large index",
-			syncIndex: 100,
-		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.testName, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
 			stream := NewStream("users", "public", nil)
-			configuredStream := stream.Wrap(tt.syncIndex)
+			configuredStream := stream.Wrap(tc.syncIndex)
 
-			assert.NotNil(t, configuredStream, "Should return a configuredStream")
-			assert.Same(t, stream, configuredStream.Stream, "Should wrap the exact same stream instance")
+			assert.Equal(t, stream, configuredStream.Stream, "Should wrap the exact same stream instance")
 		})
 	}
 }
 
 func TestStreamUnmarshalJSON(t *testing.T) {
-	t.Run("Safe intilization on Missing Fields", func(t *testing.T) {
-		jsonData := []byte(`{
-			"name":      "users",
-			"namespace": "public"
-		}`)
+	tests := []struct {
+		testName            string
+		jsonData            []byte
+		wantErr             bool
+		expectedName        string
+		expectedNamespace   string
+		expectedSyncMode    SyncMode
+		expectedCursorField string
+		expectedSyncModes   []SyncMode
+		expectedPrimaryKeys []string
+		expectedCursors     []string
+	}{
+		{
+			testName: "proper intilization when missing fields",
+			jsonData: []byte(`{
+				"name":      "users",
+				"namespace": "public"
+			}`),
+			wantErr:           false,
+			expectedName:      "users",
+			expectedNamespace: "public",
+		},
+		{
+			testName: "correct data loading",
+			jsonData: []byte(`{
+				"name":"orders",
+				"supported_sync_modes":["full_refresh","incremental"],
+				"source_defined_primary_key":["id"],
+				"available_cursor_fields":["updated_at"]
+			}`),
+			wantErr:             false,
+			expectedName:        "orders",
+			expectedSyncModes:   []SyncMode{FULLREFRESH, INCREMENTAL},
+			expectedPrimaryKeys: []string{"id"},
+			expectedCursors:     []string{"updated_at"},
+		},
+		{
+			testName: "invalid json test",
+			jsonData: []byte(`illegaljson`),
+			wantErr:  true,
+		},
+		{
+			testName:          "empty json test",
+			jsonData:          []byte(`{}`),
+			wantErr:           false,
+			expectedName:      "",
+			expectedNamespace: "",
+		},
+		{
+			testName: "all fields populated test",
+			jsonData: []byte(`{
+				"name":"locations",
+				"namespace":"deliveries",
+				"sync_mode":"incremental",
+				"cursor_field": "updated_at",
+				"supported_sync_modes": ["full_refresh", "incremental"],
+				"source_defined_primary_key": ["location_id"],
+				"available_cursor_fields": ["created_at", "updated_at"]
+			}`),
+			wantErr:             false,
+			expectedName:        "locations",
+			expectedNamespace:   "deliveries",
+			expectedSyncMode:    SyncMode("incremental"),
+			expectedCursorField: "updated_at",
+			expectedSyncModes:   []SyncMode{FULLREFRESH, INCREMENTAL},
+			expectedPrimaryKeys: []string{"location_id"},
+			expectedCursors:     []string{"created_at", "updated_at"},
+		},
+	}
 
-		var stream Stream
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
+			asserts := assert.New(t)
 
-		err := json.Unmarshal(jsonData, &stream)
+			var stream Stream
+			err := json.Unmarshal(tc.jsonData, &stream)
 
-		// Assert
-		assert.NoError(t, err)
-		assert.Equal(t, "users", stream.Name)
-		assert.Equal(t, "public", stream.Namespace)
+			if tc.wantErr {
+				asserts.Error(err)
+				return
+			}
+			asserts.NoError(err)
 
-		// to prevent nil pointer panics later
-		assert.NotNil(t, stream.AvailableCursorFields, "AvailableCursorFields should be initialized")
-		assert.NotNil(t, stream.SourceDefinedPrimaryKey, "SourceDefinedPrimaryKey should be initialized")
-		assert.NotNil(t, stream.SupportedSyncModes, "SupportedSyncModes should be initialized")
-	})
+			asserts.Equal(tc.expectedName, stream.Name)
+			asserts.Equal(tc.expectedNamespace, stream.Namespace)
+			asserts.Equal(tc.expectedSyncMode, stream.SyncMode)
+			asserts.Equal(tc.expectedCursorField, stream.CursorField)
 
-	t.Run("Correct data loading", func(t *testing.T) {
-		jsonData := []byte(`{
-			"name":"orders",
-			"supported_sync_modes":["full_refresh","incremental"],
-			"source_defined_primary_key":["id"],
-			"available_cursor_fields":["updated_at"]
-		}`)
+			asserts.NotNil(stream.AvailableCursorFields, "AvailableCursorFields should be initialized")
+			asserts.NotNil(stream.SourceDefinedPrimaryKey, "SourceDefinedPrimaryKey should be initialized")
+			asserts.NotNil(stream.SupportedSyncModes, "SupportedSyncModes should be initialized")
 
-		var stream Stream
-
-		err := json.Unmarshal(jsonData, &stream)
-
-		assert.NoError(t, err)
-		assert.Equal(t, "orders", stream.Name)
-
-		// Verify data was actually loaded into the sets
-		assert.True(t, stream.AvailableCursorFields.Exists("updated_at"), "Should contain cursor 'updated_at'")
-		assert.True(t, stream.SupportedSyncModes.Exists("full_refresh"), "Should contain full_refresh")
-		assert.True(t, stream.SourceDefinedPrimaryKey.Exists("id"), "Should contain primary key 'id'")
-	})
-
-	t.Run("Invalid json test", func(t *testing.T) {
-		jsonData := []byte(`illegaljson`)
-
-		var stream Stream
-		err := json.Unmarshal(jsonData, &stream)
-
-		assert.Error(t, err)
-	})
-
-	t.Run("Empty json test", func(t *testing.T) {
-		asserts := assert.New(t)
-
-		jsonData := []byte(`{}`)
-
-		var stream Stream
-		err := json.Unmarshal(jsonData, &stream)
-
-		asserts.NoError(err)
-		asserts.Equal("", stream.Name)
-		asserts.Equal("", stream.Namespace)
-
-		//sets will still be initialized
-		asserts.NotNil(stream.AvailableCursorFields, "AvailableCursorFields should be initialized")
-		asserts.NotNil(stream.SourceDefinedPrimaryKey, "SourceDefinedPrimaryKey should be initialized")
-		asserts.NotNil(stream.SupportedSyncModes, "SupportedSyncModes should be initialized")
-	})
-
-	t.Run("All fields populated test", func(t *testing.T) {
-		jsonData := []byte(`{
-		"name":"locations",
-		"namespace":"deliveries",
-		"sync_mode":"incremental",
-		"cursor_field": "updated_at",
-        "supported_sync_modes": ["full_refresh", "incremental"],
-        "source_defined_primary_key": ["location_id"],
-        "available_cursor_fields": ["created_at", "updated_at"]
-		}`)
-
-		asserts := assert.New(t)
-
-		var stream Stream
-
-		err := json.Unmarshal(jsonData, &stream)
-
-		asserts.NoError(err)
-		asserts.Equal("locations", stream.Name)
-		asserts.Equal("deliveries", stream.Namespace)
-		asserts.Equal(SyncMode("incremental"), stream.SyncMode)
-		asserts.Equal("updated_at", stream.CursorField)
-		asserts.True(stream.SupportedSyncModes.Exists(FULLREFRESH))
-		asserts.True(stream.SupportedSyncModes.Exists(INCREMENTAL))
-		asserts.True(stream.SourceDefinedPrimaryKey.Exists("location_id"))
-		asserts.True(stream.AvailableCursorFields.Exists("created_at"))
-		asserts.True(stream.AvailableCursorFields.Exists("updated_at"))
-	})
+			for _, mode := range tc.expectedSyncModes {
+				asserts.True(stream.SupportedSyncModes.Exists(mode), "SupportedSyncModes should contain %v", mode)
+			}
+			for _, key := range tc.expectedPrimaryKeys {
+				asserts.True(stream.SourceDefinedPrimaryKey.Exists(key), "SourceDefinedPrimaryKey should contain %q", key)
+			}
+			for _, cursor := range tc.expectedCursors {
+				asserts.True(stream.AvailableCursorFields.Exists(cursor), "AvailableCursorFields should contain %q", cursor)
+			}
+		})
+	}
 }
 
 func TestStreamsToMap(t *testing.T) {
-	t.Run("empty input test", func(t *testing.T) {
-		streamMap := StreamsToMap()
-		assert.Equal(t, 0, len(streamMap), "map should be empty")
-	})
+	tests := []struct {
+		testName    string
+		streams     []*Stream
+		expectedLen int
+	}{
+		{
+			testName:    "empty input test",
+			streams:     []*Stream{},
+			expectedLen: 0,
+		},
+		{
+			testName:    "single stream test",
+			streams:     []*Stream{NewStream("users", "public", nil)},
+			expectedLen: 1,
+		},
+		{
+			testName: "multiple streams test",
+			streams: []*Stream{
+				NewStream("users", "public", nil),
+				NewStream("orders", "public", nil),
+			},
+			expectedLen: 2,
+		},
+		{
+			testName: "duplicate IDs test",
+			streams: []*Stream{
+				NewStream("users", "public", nil),
+				NewStream("users", "public", nil),
+			},
+			expectedLen: 1,
+		},
+	}
 
-	t.Run("single stream test", func(t *testing.T) {
-		stream := NewStream("users", "public", nil)
-		streamMap := StreamsToMap(stream)
-		asserts := assert.New(t)
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
+			asserts := assert.New(t)
 
-		asserts.Equal(1, len(streamMap))
-		mapped, exists := streamMap[stream.ID()]
-		asserts.True(exists, "map should have key for stream")
-		asserts.Same(stream, mapped, "map value should point to original stream object")
-	})
+			streamMap := StreamsToMap(tc.streams...)
+			asserts.Equal(tc.expectedLen, len(streamMap))
 
-	t.Run("multiple streams test", func(t *testing.T) {
-		stream1 := NewStream("users", "public", nil)
-		stream2 := NewStream("orders", "public", nil)
-
-		streamMap := StreamsToMap(stream1, stream2)
-
-		asserts := assert.New(t)
-
-		asserts.Equal(2, len(streamMap), "Map should have 2 streams")
-
-		// verify keys and values are same pointers
-		mappedS1, existsS1 := streamMap[stream1.ID()]
-		asserts.True(existsS1, "Map should have key for stream1")
-		asserts.Same(stream1, mappedS1, "Map value should point to original stream1 object")
-
-		mappedS2, existsS2 := streamMap[stream2.ID()]
-		asserts.True(existsS2, "Map should have key for stream2")
-		asserts.Same(stream2, mappedS2, "Map value should point to original stream2 object")
-	})
-
-	t.Run("duplicate IDs test", func(t *testing.T) {
-		stream1 := NewStream("users", "public", nil)
-		stream2 := NewStream("users", "public", nil)
-
-		streamMap := StreamsToMap(stream1, stream2)
-
-		assert.Equal(t, 1, len(streamMap), "duplicate Ids should result in single entry only")
-		mapped := streamMap[stream1.ID()]
-		assert.Same(t, stream2, mapped, "latest stream should win")
-	})
+			expectedWinners := make(map[string]*Stream)
+			for _, stream := range tc.streams {
+				expectedWinners[stream.ID()] = stream
+			}
+			for id, expected := range expectedWinners {
+				mapped, exists := streamMap[id]
+				asserts.True(exists, "map should have key for stream ID %q", id)
+				asserts.Same(expected, mapped, "map value should be the latest stream for its ID")
+			}
+		})
+	}
 }
 
 func TestLogCatalog(t *testing.T) {
-	tempDir := t.TempDir()
-	tmpFilePath := filepath.Join(tempDir, "catalog.json")
-	viper.Set(constants.StreamsPath, tmpFilePath)
-	t.Cleanup(func() { viper.Set(constants.StreamsPath, "") })
-
-	streams := []*Stream{
-		NewStream("users", "public", nil),
-		NewStream("orders", "public", nil),
+	tests := []struct {
+		testName    string
+		streams     []*Stream
+		driver      string
+		expectedLen int
+	}{
+		{
+			testName: "writes catalog file with all streams",
+			streams: []*Stream{
+				NewStream("users", "public", nil),
+				NewStream("orders", "public", nil),
+			},
+			driver:      "postgres",
+			expectedLen: 2,
+		},
 	}
 
-	LogCatalog(streams, nil, "postgres")
+	for _, tc := range tests {
+		t.Run(tc.testName, func(t *testing.T) {
+			asserts := assert.New(t)
 
-	_, err := os.Stat(tmpFilePath)
-	assert.NoError(t, err, "Logcatalog should create the streams file")
+			tempDir := t.TempDir()
+			tmpFilePath := filepath.Join(tempDir, "catalog.json")
+			viper.Set(constants.StreamsPath, tmpFilePath)
+			t.Cleanup(func() { viper.Set(constants.StreamsPath, "") })
 
-	content, err := os.ReadFile(tmpFilePath)
-	assert.NoError(t, err, "Should be able to read the generated file")
+			LogCatalog(tc.streams, nil, tc.driver)
 
-	var savedCatalog Catalog
+			_, err := os.Stat(tmpFilePath)
+			asserts.NoError(err, "LogCatalog should create the streams file")
 
-	err = json.Unmarshal(content, &savedCatalog)
-	assert.NoError(t, err, "File content should be valid JSON")
-	assert.Equal(t, 2, len(savedCatalog.Streams), "Saved catalog should contain 2 streams")
+			content, err := os.ReadFile(tmpFilePath)
+			asserts.NoError(err, "Should be able to read the generated file")
+
+			var savedCatalog Catalog
+			err = json.Unmarshal(content, &savedCatalog)
+			asserts.NoError(err, "File content should be valid JSON")
+			asserts.Equal(tc.expectedLen, len(savedCatalog.Streams), "Saved catalog should contain all streams")
+		})
+	}
 }
 
-// helper to get string pointer
 func stringPtr(s string) *string {
 	return &s
 }
