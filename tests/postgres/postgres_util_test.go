@@ -1,0 +1,469 @@
+package postgres
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/jmoiron/sqlx"
+	"github.com/stretchr/testify/require"
+)
+
+const (
+	replicationSlot    = "performance_slot"
+	cdcPublicationName = "performance_publication"
+)
+
+// sourceConfig mirrors the connection fields of the driver's source.json.
+type sourceConfig struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Database string `json:"database"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+	t.Helper()
+
+	var connStr string
+	if fileConfig {
+		var config sourceConfig
+		testutils.UnmarshalFile("./testdata/source.json", &config)
+		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
+			config.Username,
+			config.Password,
+			config.Host,
+			config.Port,
+			config.Database,
+		)
+	} else {
+		connStr = "postgres://postgres@localhost:5433/postgres?sslmode=disable"
+	}
+	db, ok := sqlx.ConnectContext(ctx, "postgres", connStr)
+	require.NoError(t, ok, "failed to connect to postgres")
+	defer func() {
+		require.NoError(t, db.Close(), "failed to close postgres connection")
+	}()
+
+	// integration test uses only one stream for testing
+	integrationTestTable := streams[0]
+	var query string
+
+	switch operation {
+	case "create":
+		query = fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				col_bigint BIGINT,
+				col_cursor INT,
+				col_bigserial BIGSERIAL PRIMARY KEY,
+				col_bool BOOLEAN,
+				col_char CHAR(1),
+				col_character CHAR(10),
+				col_character_varying VARCHAR(50),
+				col_date DATE,
+				col_decimal NUMERIC,
+				col_double_precision DOUBLE PRECISION,
+				col_float4 REAL,
+				col_int INT,
+				col_int2 SMALLINT,
+				col_integer INTEGER,
+				col_interval INTERVAL,
+				col_json JSON,
+				col_jsonb JSONB,
+				col_name NAME,
+				col_numeric NUMERIC,
+				col_real REAL,
+				col_text TEXT,
+				col_timestamp TIMESTAMP,
+				col_timestamptz TIMESTAMPTZ,
+				col_uuid UUID,
+				col_varbit VARBIT(20),
+				col_xml XML,
+				col_point POINT,
+				col_polygon POLYGON,
+				col_circle CIRCLE,
+				CONSTRAINT unique_custom_key UNIQUE (col_bigserial),
+				excludedColumn INT NULL
+			)`, integrationTestTable)
+
+	case "drop":
+		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
+
+	case "clean":
+		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
+
+	case "add":
+		insertTestData(t, ctx, db, integrationTestTable)
+		return // Early return since we handle all inserts in the helper function
+
+	case "insert":
+		query = fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_bool, col_char, col_character,
+				col_character_varying, col_date, col_decimal,
+				col_double_precision, col_float4, col_int, col_int2,
+				col_integer, col_interval, col_json, col_jsonb,
+				col_name, col_numeric, col_real, col_text,
+				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
+				col_point, col_polygon, col_circle,
+				excludedColumn
+			) VALUES (
+				6, 123456789012345, TRUE, 'c', 'charac_val',
+				'varchar_val', '2023-01-01', 123.45,
+				123.456789, 123.45, 123, 123, 12345,
+				'1 hour', '{"key": "value"}', '{"key": "value"}',
+				'test_name', 123.45, 123.45, 'sample text',
+				'2023-01-01 12:00:00', '2023-01-01 12:00:00+00',
+				'123e4567-e89b-12d3-a456-426614174000', B'101010',
+				'<tag>value</tag>',
+				'(10.5,20.5)'::point,
+				'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
+				'<(5,5),3.5>'::circle,
+				101
+			)`, integrationTestTable)
+		_, err := db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
+		filteredQuery := fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_bool, col_char, col_character,
+				col_character_varying, col_date, col_decimal,
+				col_double_precision, col_float4, col_int, col_int2,
+				col_integer, col_interval, col_json, col_jsonb,
+				col_name, col_numeric, col_real, col_text,
+				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
+				col_point, col_polygon, col_circle,
+				excludedColumn
+			) VALUES (
+				-1, 111111111111111, FALSE, 'x', 'filtered',
+				'filtered_val', '2021-06-15', 50.123,
+				50.123, 50.0, 0, 0, 0,
+				'0 hours', '{"filtered": true}', '{"filtered": true}',
+				'filtered_name', 50.123, 50.0, 'filtered text',
+				'2021-06-15 10:00:00', '2021-06-15 10:00:00+00',
+				'00000000-0000-0000-0000-000000000000', B'000000',
+				'<filtered>value</filtered>',
+				'(0.0,0.0)'::point,
+				'((0,0),(0,0),(0,0),(0,0),(0,0))'::polygon,
+				'<(0,0),0.0>'::circle,
+				200
+			)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, filteredQuery)
+		require.NoError(t, err, "Failed to insert filtered test data row")
+		return
+
+	case "insert_2pc":
+		query = fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_bool, col_char, col_character,
+				col_character_varying, col_date, col_decimal,
+				col_double_precision, col_float4, col_int, col_int2,
+				col_integer, col_interval, col_json, col_jsonb,
+				col_name, col_numeric, col_real, col_text,
+				col_timestamp, col_timestamptz, col_uuid, col_varbit, col_xml,
+				col_point, col_polygon, col_circle
+			) VALUES (
+				7, 123456789012345, TRUE, 'c', 'charac_val',
+				'varchar_val', '2023-01-01', 123.45,
+				123.456789, 123.45, 123, 123, 12345,
+				'1 hour', '{"key": "value"}', '{"key": "value"}',
+				'test_name', 123.45, 123.45, 'sample text',
+				'2023-01-01 12:00:00', '2023-01-01 12:00:00+00',
+				'123e4567-e89b-12d3-a456-426614174000', B'101010',
+				'<tag>value</tag>',
+				'(10.5,20.5)'::point,
+				'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
+				'<(5,5),3.5>'::circle
+			)`, integrationTestTable)
+
+	case "update":
+		query = fmt.Sprintf(`
+			UPDATE %s SET
+				col_bigint = 123456789012340,
+				col_bool = FALSE,
+				col_char = 'd',
+				col_character = 'update_val',
+				col_character_varying = 'updated val',
+				col_date = '2024-07-01',
+				col_decimal = 543.21,
+				col_double_precision = 987.654321,
+				col_float4 = 543.21,
+				col_int = 321,
+				col_cursor = NULL,
+				col_int2 = 321,
+				col_integer = 54321,
+				col_interval = '2 hours',
+				col_json = '{"new": "json"}',
+				col_jsonb = '{"new": "jsonb"}',
+				col_name = 'updated_name',
+				col_numeric = 321.00,
+				col_real = 321.00,
+				col_text = 'updated text',
+				col_timestamp = '2024-07-01 15:30:00',
+				col_timestamptz = '2024-07-01 15:30:00+00',
+				col_uuid = '00000000-0000-0000-0000-000000000000',
+				col_varbit = B'111000',
+				col_xml = '<updated>value</updated>',
+				col_point = '(15.5,25.5)'::point,
+				col_polygon = '((5,5),(15,5),(15,15),(5,15),(5,5))'::polygon,
+				col_circle = '<(10,10),5.5>'::circle,
+				excludedColumn = 102,
+				includedColumn = 202
+			WHERE col_bigserial = 1`, integrationTestTable)
+
+	case "delete":
+		query = fmt.Sprintf("DELETE FROM %s WHERE col_bigserial = 1", integrationTestTable)
+
+	case "reset_cdc_config":
+		dropQuery := fmt.Sprintf(`SELECT pg_drop_replication_slot('%s')
+						WHERE EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = '%s');`, replicationSlot, replicationSlot)
+		_, err := db.ExecContext(ctx, dropQuery)
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+
+		createQuery := fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput');`, replicationSlot)
+		_, err = db.ExecContext(ctx, createQuery)
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+
+		_, err = db.ExecContext(ctx, fmt.Sprintf("DROP PUBLICATION IF EXISTS %s;", cdcPublicationName))
+		require.NoError(t, err, fmt.Sprintf("failed to drop publication %s", cdcPublicationName))
+
+		_, err = db.ExecContext(ctx, fmt.Sprintf("CREATE PUBLICATION %s FOR ALL TABLES;", cdcPublicationName))
+		require.NoError(t, err, fmt.Sprintf("failed to create publication %s", cdcPublicationName))
+		return
+
+	case "setup_cdc":
+		for _, cdcStream := range streams {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		}
+		return
+
+	case "bulk_cdc_data_insert":
+		// insert records in batches
+		batchSize := 300_000
+		totalRows := 15_000_000
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+
+		err := testutils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+			for offset := 0; offset < totalRows; offset += batchSize {
+				query := fmt.Sprintf(
+					`INSERT INTO %s
+					 SELECT * FROM %s
+					 ORDER BY id
+					 LIMIT %d OFFSET %d`,
+					cdcStream, backfillStreams[executionNumber], batchSize, offset,
+				)
+				if _, err := db.ExecContext(ctx, query); err != nil {
+					return fmt.Errorf("stream: %s, offset: %d, error: %s", cdcStream, offset, err)
+				}
+			}
+			return nil
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		return
+
+	case "evolve-schema":
+		query = fmt.Sprintf(`ALTER TABLE %s ALTER COLUMN col_int TYPE BIGINT, ALTER COLUMN col_float4 TYPE FLOAT, ADD COLUMN includedColumn INTEGER`, integrationTestTable)
+
+	default:
+		t.Fatalf("Unsupported operation: %s", operation)
+	}
+
+	_, err := db.ExecContext(ctx, query)
+	require.NoError(t, err, "Failed to execute %s operation", operation)
+}
+
+// insertTestData inserts test data into the specified table
+func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName string) {
+	t.Helper()
+
+	for i := 1; i <= 5; i++ {
+		query := fmt.Sprintf(`
+		INSERT INTO %s (
+			col_cursor, col_bigint, col_bigserial, col_bool, col_char, col_character,
+			col_character_varying, col_date, col_decimal,
+			col_double_precision, col_float4, col_int, col_int2, col_integer,
+			col_interval, col_json, col_jsonb, col_name, col_numeric,
+			col_real, col_text, col_timestamp, col_timestamptz,
+			col_uuid, col_varbit, col_xml,
+			col_point, col_polygon, col_circle,
+			excludedColumn
+		) VALUES (
+			%d, 123456789012345, DEFAULT, TRUE, 'c', 'charac_val',
+			'varchar_val', '2023-01-01', 123.45,
+			123.456789, 123.45, 123, 123, 12345, '1 hour', '{"key": "value"}',
+			'{"key": "value"}', 'test_name', 123.45, 123.45,
+			'sample text', '2023-01-01 12:00:00',
+			'2023-01-01 12:00:00+00',
+			'123e4567-e89b-12d3-a456-426614174000', B'101010',
+			'<tag>value</tag>',
+			'(10.5,20.5)'::point,
+			'((0,0),(10,0),(10,10),(0,10),(0,0))'::polygon,
+			'<(5,5),3.5>'::circle,
+			100
+		)`, tableName, i)
+
+		_, err := db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to insert test data")
+	}
+	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
+	filteredQuery := fmt.Sprintf(`
+		INSERT INTO %s (
+			col_cursor, col_bigint, col_bigserial, col_bool, col_char, col_character,
+			col_character_varying, col_date, col_decimal,
+			col_double_precision, col_float4, col_int, col_int2, col_integer,
+			col_interval, col_json, col_jsonb, col_name, col_numeric,
+			col_real, col_text, col_timestamp, col_timestamptz,
+			col_uuid, col_varbit, col_xml,
+			col_point, col_polygon, col_circle,
+			excludedColumn
+		) VALUES (
+			-1, 111111111111111, DEFAULT, FALSE, 'x', 'filtered',
+			'filtered_val', '2021-06-15', 500234.123,
+			500234.123, 500234.0, 0, 0, 0, '0 hours', '{"filtered": true}',
+			'{"filtered": true}', 'filtered_name', 500234.123, 500234.0,
+			'filtered text', '2021-06-15 10:00:00',
+			'2021-06-15 10:00:00+00',
+			'00000000-0000-0000-0000-000000000000', B'000000',
+			'<filtered>value</filtered>',
+			'(0.0,0.0)'::point,
+			'((0,0),(0,0),(0,0),(0,0),(0,0))'::polygon,
+			'<(0,0),0.0>'::circle,
+			200
+		)`, tableName)
+	_, err := db.ExecContext(ctx, filteredQuery)
+	require.NoError(t, err, "Failed to insert filtered test data row")
+}
+
+var ExpectedPostgresData = map[string]interface{}{
+	"col_bigint":            int64(123456789012345),
+	"col_bool":              true,
+	"col_char":              "c",
+	"col_character":         "charac_val",
+	"col_character_varying": "varchar_val",
+	"col_date":              arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_decimal":           float64(123.45),
+	"col_double_precision":  123.456789,
+	"col_float4":            float32(123.45),
+	"col_int":               int32(123),
+	"col_int2":              int32(123),
+	"col_integer":           int32(12345),
+	"col_interval":          "01:00:00",
+	"col_json":              `{"key": "value"}`,
+	"col_jsonb":             `{"key": "value"}`,
+	"col_name":              "test_name",
+	"col_numeric":           float64(123.45),
+	"col_real":              float32(123.45),
+	"col_text":              "sample text",
+	"col_timestamp":         arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamptz":       arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_uuid":              "123e4567-e89b-12d3-a456-426614174000",
+	"col_varbit":            "101010",
+	"col_xml":               "<tag>value</tag>",
+	"col_point":             "(10.5,20.5)",
+	"col_polygon":           "((0,0),(10,0),(10,10),(0,10),(0,0))",
+	"col_circle":            "<(5,5),3.5>",
+}
+
+var ExpectedUpdatedData = map[string]interface{}{
+	"col_bigint":            int64(123456789012340),
+	"col_bool":              false,
+	"col_char":              "d",
+	"col_character":         "update_val",
+	"col_character_varying": "updated val",
+	"col_date":              arrow.Timestamp(time.Date(2024, 7, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_decimal":           float64(543.21),
+	"col_double_precision":  987.654321,
+	"col_float4":            float64(543.21),
+	"col_int":               int64(321),
+	"col_int2":              int32(321),
+	"col_integer":           int32(54321),
+	"col_interval":          "02:00:00",
+	"col_json":              `{"new": "json"}`,
+	"col_jsonb":             `{"new": "jsonb"}`,
+	"col_name":              "updated_name",
+	"col_numeric":           float64(321.00),
+	"col_real":              float32(321.00),
+	"col_text":              "updated text",
+	"col_timestamp":         arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_timestamptz":       arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_uuid":              "00000000-0000-0000-0000-000000000000",
+	"col_varbit":            "111000",
+	"col_xml":               "<updated>value</updated>",
+	"col_point":             "(15.5,25.5)",
+	"col_polygon":           "((5,5),(15,5),(15,15),(5,15),(5,5))",
+	"col_circle":            "<(10,10),5.5>",
+	"includedcolumn":        int32(202),
+}
+
+var PostgresToDestinationSchema = map[string]string{
+	"col_bigint":            "bigint",
+	"col_bigserial":         "bigserial",
+	"col_bool":              "boolean",
+	"col_char":              "char",
+	"col_character":         "character",
+	"col_character_varying": "varchar",
+	"col_date":              "date",
+	"col_decimal":           "double",
+	"col_double_precision":  "double precision",
+	"col_float4":            "real",
+	"col_int":               "int",
+	"col_int2":              "smallint",
+	"col_integer":           "integer",
+	"col_interval":          "interval",
+	"col_json":              "json",
+	"col_jsonb":             "jsonb",
+	"col_name":              "name",
+	"col_numeric":           "double",
+	"col_real":              "real",
+	"col_text":              "text",
+	"col_timestamp":         "timestamp",
+	"col_timestamptz":       "timestamptz",
+	"col_uuid":              "uuid",
+	"col_varbit":            "varbit",
+	"col_xml":               "xml",
+	"col_point":             "point",
+	"col_polygon":           "polygon",
+	"col_circle":            "circle",
+}
+
+var UpdatedPostgresToDestinationSchema = map[string]string{
+	"col_bigint":            "bigint",
+	"col_bigserial":         "bigserial",
+	"col_bool":              "boolean",
+	"col_char":              "char",
+	"col_character":         "character",
+	"col_character_varying": "varchar",
+	"col_date":              "date",
+	"col_decimal":           "double",
+	"col_double_precision":  "double precision",
+	"col_float4":            "double",
+	"col_int":               "bigint",
+	"col_int2":              "smallint",
+	"col_integer":           "integer",
+	"col_interval":          "interval",
+	"col_json":              "json",
+	"col_jsonb":             "jsonb",
+	"col_name":              "name",
+	"col_numeric":           "double",
+	"col_real":              "real",
+	"col_text":              "text",
+	"col_timestamp":         "timestamp",
+	"col_timestamptz":       "timestamptz",
+	"col_uuid":              "uuid",
+	"col_varbit":            "varbit",
+	"col_xml":               "xml",
+	"col_point":             "point",
+	"col_polygon":           "polygon",
+	"col_circle":            "circle",
+	"includedcolumn":        "integer",
+}
+
+var ExpectedPostgresDefaultCDCColumnsSchema = map[string]string{
+	"_cdc_timestamp": "timestamp",
+	"_cdc_lsn":       "string",
+}

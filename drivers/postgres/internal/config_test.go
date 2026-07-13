@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/testutils"
+	"github.com/datazip-inc/olake/utils/testcerts"
 )
 
 func TestConfig_Validate(t *testing.T) {
@@ -139,7 +139,7 @@ func TestConfig_Validate(t *testing.T) {
 }
 
 func TestConfig_buildTLSConfig(t *testing.T) {
-	certs := testutils.GenerateTestCerts()
+	certs := testcerts.GenerateTestCerts()
 
 	tests := []struct {
 		name       string

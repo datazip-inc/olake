@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/testutils"
+	"github.com/datazip-inc/olake/utils/testcerts"
 	"github.com/stretchr/testify/require"
 )
 
@@ -257,7 +257,7 @@ func TestConfig_URI(t *testing.T) {
 		{
 			name: "with jdbc url params",
 			config: func() *Config {
-				certs := testutils.GenerateTestCerts()
+				certs := testcerts.GenerateTestCerts()
 				return &Config{
 					Host:     "mssql-host",
 					Port:     1433,

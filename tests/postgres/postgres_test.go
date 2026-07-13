@@ -1,0 +1,67 @@
+package postgres
+
+import (
+	"testing"
+
+	"github.com/datazip-inc/olake/tests/testutils"
+	_ "github.com/lib/pq"
+)
+
+// postgresBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// between the postgres integration tests.
+func postgresBaseConfig() *testutils.IntegrationTest {
+	return &testutils.IntegrationTest{
+		TestConfig:                testutils.GetTestConfig("postgres"),
+		Namespace:                 "public",
+		ExpectedData:              ExpectedPostgresData,
+		DestinationDataTypeSchema: PostgresToDestinationSchema,
+		DefaultCDCColumnsSchema:   ExpectedPostgresDefaultCDCColumnsSchema,
+		ExecuteQuery:              ExecuteQuery,
+		DestinationDB:             "postgres_postgres_public",
+		CursorField:               "col_cursor:col_int",
+		PartitionRegex:            "/{col_bigserial,identity}",
+		ColumnToExclude:           "excludedcolumn",
+		FilterConfig: `{
+                    "logical_operator": "And",
+                    "conditions": [
+                        {
+                            "column": "col_double_precision",
+                            "operator": "<",
+                            "value": 239834.89
+                        },
+                        {
+                            "column": "col_timestamp",
+                            "operator": ">=",
+                            "value": "2022-07-01T15:30:00.000+00:00"
+                        }
+                    ]
+                }`,
+	}
+}
+
+func TestDiscover(t *testing.T) {
+	postgresBaseConfig().TestDiscover(t)
+}
+
+func TestSync(t *testing.T) {
+	cfg := postgresBaseConfig()
+	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+	cfg.TestSync(t)
+}
+
+func Test2PC(t *testing.T) {
+	postgresBaseConfig().Test2PCIntegration(t)
+}
+
+func TestPerformance(t *testing.T) {
+	config := &testutils.PerformanceTest{
+		TestConfig:      testutils.GetTestConfig("postgres"),
+		Namespace:       "public",
+		BackfillStreams: []string{"trips", "fhv_trips"},
+		CDCStreams:      []string{"trips_cdc", "fhv_trips_cdc"},
+		ExecuteQuery:    ExecuteQuery,
+	}
+
+	config.TestPerformance(t)
+}
