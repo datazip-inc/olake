@@ -15,6 +15,10 @@ parse_platforms_conf = $(shell awk -F' *= *' -v d=$(1) -v use_def=$(2) '/^[[:spa
 driver_platforms = $(or $(PLATFORMS),$(call parse_platforms_conf,$(1),1))
 local_driver_platforms = $(or $(PLATFORMS),$(call parse_platforms_conf,$(1)))
 
+# Queried by release-tool.sh; PLATFORMS env/arg forces the list.
+print.platforms.%:
+	@echo $(call driver_platforms,$*)
+
 .PHONY: gomod golangci trivy gofmt pre-commit
 
 # Build a driver image locally, e.g. `make docker.postgres.build IMAGE_TAG=v1.2.3`.
@@ -149,7 +153,10 @@ wait_ready = echo "Waiting for $(1) (up to $(or $(WAIT_RETRIES.$(1)),$(WAIT_RETR
 #   POST_SETUP.<d>                     one-time init after the stack is ready (idempotent)
 #   prepare.<d>                        override of the no-op default below: provision
 #                                      host build deps (every build/test target that
-#                                      compiles <d> already depends on it)
+#                                      compiles <d> already depends on it). The driver
+#                                      image build sets OVERLAY_DIR, a dir the
+#                                      Dockerfile copies onto / of the runtime image,
+#                                      for deps that must ship with the binary
 #   GO_ENV.<d>                         `export VAR=...;` recipe-line prefix stitched
 #                                      into every go command that compiles <d> (must
 #                                      be shell `export`s so the env survives SIP and
@@ -169,13 +176,15 @@ CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
 INTEGRATION_PKGS := $(addsuffix /internal/...,$(addprefix ./drivers/,$(SOURCE_DRIVERS)))
 CDC_PKGS := $(addsuffix /internal/...,$(addprefix ./drivers/,$(CDC_DRIVERS)))
 
-# --- host prepare -------------------------------------------------------------
-# prepare.<d> provisions whatever driver d needs before it can compile on this
-# host; the default is a no-op. Every build/test target below that compiles a
-# driver depends on its prepare.<d>, so a fragment override (db2: the IBM
-# clidriver) makes those targets work on a fresh machine of any OS/arch.
+# --- prepare ------------------------------------------------------------------
+# prepare.<d> provisions whatever driver d needs before it can compile; the
+# default is a no-op. Every build/test target below that compiles a driver
+# depends on its prepare.<d>, so a fragment override (db2: the IBM clidriver)
+# makes those targets work on a fresh machine of any OS/arch. Passing
+# OVERLAY_DIR (what the driver image build does) provisions into that dir
+# instead of onto the host, for deps that must ship next to the binary.
 prepare.%:
-	@true
+	@$(if $(OVERLAY_DIR),mkdir -p $(OVERLAY_DIR),true)
 prepare.all: $(addprefix prepare.,$(DRIVERS))
 .PHONY: prepare.all
 
@@ -262,7 +271,7 @@ $(ICEBERG_JAR): $(ICEBERG_JAR_SRCS)
 define DEV_BUILD_template
 .PHONY: dev.$(1).build
 dev.$(1).build: prepare.$(1)
-	$$(GO_ENV.$(1)) cd drivers/$(1) && go mod tidy && go build -ldflags="-w -s -X constants/constants.version=$$(GIT_VERSION) -X constants/constants.commitsha=$$(GIT_COMMITSHA) -X constants/constants.releasechannel=$$(RELEASE_CHANNEL)" -o olake main.go
+	export CGO_ENABLED=0; $$(GO_ENV.$(1)) cd drivers/$(1) && go mod tidy && go build -ldflags="-w -s -X constants/constants.version=$$(GIT_VERSION) -X constants/constants.commitsha=$$(GIT_COMMITSHA) -X constants/constants.releasechannel=$$(RELEASE_CHANNEL)" -o olake main.go
 	@echo "Built drivers/$(1)/olake (version $$(GIT_VERSION), commit $$(GIT_COMMITSHA))"
 endef
 $(foreach d,$(DRIVERS),$(eval $(call DEV_BUILD_template,$(d))))
