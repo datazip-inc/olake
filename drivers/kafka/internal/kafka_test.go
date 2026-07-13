@@ -7,6 +7,68 @@ import (
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
+func kafkaJsonBaseConfig() *testutils.IntegrationTest {
+	return &testutils.IntegrationTest{
+		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "json"),
+		Namespace:                        "topics",
+		ExpectedData:                     ExpectedKafkaJSONData,
+		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
+		DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
+		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationJSONSchema,
+		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
+		ExecuteQuery:                     ExecuteQueryJSON,
+		DestinationDB:                    "kafka_topics",
+		PartitionRegex:                   "/{int_value,identity}",
+		ColumnToExclude:                  "col_excluded",
+		FilterConfig: `{
+			"logical_operator": "And",
+			"conditions": [
+				{
+					"column": "string_value",
+					"operator": "!=",
+					"value": ""
+				},
+				{
+					"column": "float_value",
+					"operator": "<",
+					"value": 100.00
+				}
+			]
+		}`,
+	}
+}
+
+func kafkaAvroBaseConfig() *testutils.IntegrationTest {
+	return &testutils.IntegrationTest{
+		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "avro"),
+		Namespace:                        "topics",
+		ExpectedData:                     ExpectedKafkaAvroData,
+		ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
+		DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
+		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationAvroSchema,
+		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
+		ExecuteQuery:                     ExecuteQueryAvro,
+		DestinationDB:                    "kafka_topics",
+		PartitionRegex:                   "/{int64_value,identity}",
+		ColumnToExclude:                  "col_excluded",
+		FilterConfig: `{
+			"logical_operator": "And",
+			"conditions": [
+				{
+					"column": "string_value",
+					"operator": "!=",
+					"value": ""
+				},
+				{
+					"column": "float64_value",
+					"operator": "<",
+					"value": 100.00
+				}
+			]
+		}`,
+	}
+}
+
 func TestKafkaIntegration(t *testing.T) {
 	t.Parallel()
 
@@ -16,65 +78,11 @@ func TestKafkaIntegration(t *testing.T) {
 	}{
 		{
 			name: "JSON-Format",
-			cfg: &testutils.IntegrationTest{
-				TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "json"),
-				Namespace:                        "topics",
-				ExpectedData:                     ExpectedKafkaJSONData,
-				ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
-				DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
-				UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationJSONSchema,
-				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
-				ExecuteQuery:                     ExecuteQueryJSON,
-				DestinationDB:                    "kafka_topics",
-				PartitionRegex:                   "/{int_value,identity}",
-				ColumnToExclude:                  "col_excluded",
-				FilterConfig: `{
-					"logical_operator": "And",
-					"conditions": [
-						{
-							"column": "string_value",
-							"operator": "!=",
-							"value": ""
-						},
-						{
-							"column": "float_value",
-							"operator": "<",
-							"value": 100.00
-						}
-					]
-				}`,
-			},
+			cfg:  kafkaJsonBaseConfig(),
 		},
 		{
 			name: "AVRO-Format",
-			cfg: &testutils.IntegrationTest{
-				TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "avro"),
-				Namespace:                        "topics",
-				ExpectedData:                     ExpectedKafkaAvroData,
-				ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
-				DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
-				UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationAvroSchema,
-				DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
-				ExecuteQuery:                     ExecuteQueryAvro,
-				DestinationDB:                    "kafka_topics",
-				PartitionRegex:                   "/{int64_value,identity}",
-				ColumnToExclude:                  "col_excluded",
-				FilterConfig: `{
-					"logical_operator": "And",
-					"conditions": [
-						{
-							"column": "string_value",
-							"operator": "!=",
-							"value": ""
-						},
-						{
-							"column": "float64_value",
-							"operator": "<",
-							"value": 100.00
-						}
-					]
-				}`,
-			},
+			cfg:  kafkaAvroBaseConfig(),
 		},
 	}
 	for _, test := range tests {
@@ -83,4 +91,13 @@ func TestKafkaIntegration(t *testing.T) {
 			test.cfg.TestIntegration(t)
 		})
 	}
+}
+
+func TestKafka2PC(t *testing.T) {
+	t.Parallel()
+	kafkaJsonBaseConfig().Test2PCIntegration(t)
+}
+
+func TestKafkaRebalance(t *testing.T) {
+	kafkaJsonBaseConfig().TestRebalance(t)
 }
