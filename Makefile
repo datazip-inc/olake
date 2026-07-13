@@ -3,6 +3,49 @@ SHELL := /bin/bash
 
 GOPATH = $(shell go env GOPATH)
 GO_VERSION = $(shell awk '/^go / {print "go"$$2; exit}' go.mod)
+# A driver is any drivers/ subdir with its own go.mod (excludes util folders like abstract).
+DRIVERS = $(notdir $(patsubst %/go.mod,%,$(wildcard drivers/*/go.mod)))
+
+# Platform resolution from drivers/platforms.conf; PLATFORMS=... overrides it.
+# parse_platforms_conf: driver $(1)'s entry; falls back to the '*' default when $(2) is non-empty.
+# driver_platforms: driver entry, else the '*' default (what releases use).
+# local_driver_platforms: explicit driver entry only; empty builds for the host arch.
+PLATFORMS ?=
+parse_platforms_conf = $(shell awk -F' *= *' -v d=$(1) -v use_def=$(2) '/^[[:space:]]*(\#|$$)/ {next} $$1==d {v=$$2} $$1=="*" {def=$$2} END {print (v != "" ? v : (use_def ? def : ""))}' drivers/platforms.conf)
+driver_platforms = $(or $(PLATFORMS),$(call parse_platforms_conf,$(1),1))
+local_driver_platforms = $(or $(PLATFORMS),$(call parse_platforms_conf,$(1)))
+
+# Queried by release-tool.sh; PLATFORMS env/arg forces the list.
+print.platforms.%:
+	@echo $(call driver_platforms,$*)
+
+.PHONY: gomod golangci trivy gofmt pre-commit
+
+OUTPUT ?= ./olake
+# Driver-specific runtime files are staged here by prepare.<driver>; the
+# Dockerfile copies the whole dir onto / of the runtime image and runs ldconfig.
+OVERLAY_DIR ?= /runtime-overlay
+
+# Driver-specific pre-build setup (called by the Dockerfile builder stage).
+# Default: nothing to stage.
+prepare.%:
+	mkdir -p $(OVERLAY_DIR)
+
+# Build a driver binary. Default: pure-Go static build.
+build.%:
+	CGO_ENABLED=0 go build -C drivers/$* -o $(OUTPUT) main.go
+
+# Drivers needing more than the defaults override prepare.<driver>/build.<driver>
+# in drivers/<driver>/driver.mk; recipes there run from the repo root.
+-include drivers/*/driver.mk
+
+# Build a driver image locally, e.g. `make docker.build.postgres IMAGE_TAG=v1.2.3`.
+# Drivers with an explicit entry in drivers/platforms.conf are pinned to it.
+# Concrete (non-pattern) targets so they are phony and shells can autocomplete them.
+IMAGE_TAG ?= local
+.PHONY: $(addprefix docker.build.,$(DRIVERS))
+$(addprefix docker.build.,$(DRIVERS)): docker.build.%:
+	docker build $(addprefix --platform ,$(call local_driver_platforms,$*)) --build-arg DRIVER_NAME=$* -t olake/source-$*:$(IMAGE_TAG) .
 
 gomod:
 	find . -name go.mod -execdir go mod tidy \;

@@ -1,38 +1,34 @@
+# Collect the root Makefile and per-driver fragments (drivers/*/driver.mk) so
+# the prepare layer below is cache-keyed on just the make files, not the whole
+# source tree.
+FROM golang:1.25.12-bookworm AS makefiles
+WORKDIR /home/app
+COPY . .
+RUN mkdir /out && cp --parents Makefile $(find drivers -maxdepth 2 -name driver.mk) /out
+
 # Build Stage
 FROM golang:1.25.12-bookworm AS builder
 
 WORKDIR /home/app
-COPY . .
 
 ARG DRIVER_NAME=olake
 
-# DB2 conditional setup
-RUN if [ "$DRIVER_NAME" = "db2" ]; then \
-  mkdir -p /go/pkg/mod/github.com/ibmdb && \
-  go run -C drivers/db2 github.com/ibmdb/go_ibm_db/installer@v0.4.5 /go/pkg/mod/github.com/ibmdb; \
-else \
-  # for other drivers, create empty clidriver directory to avoid build failure
-  mkdir -p /go/pkg/mod/github.com/ibmdb/clidriver; \
-fi
+# Driver-specific setup and build live in make (prepare.<driver> / build.<driver>,
+# per-driver logic in drivers/<driver>/driver.mk). prepare runs before the source
+# COPY so slow downloads (e.g. the db2 clidriver) stay layer-cached across source
+# changes.
+COPY --from=makefiles /out/ .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    make prepare.${DRIVER_NAME}
 
-# Build the Go binary
-WORKDIR /home/app/drivers/${DRIVER_NAME}
-RUN if [ "$DRIVER_NAME" = "db2" ] && [ "$(uname -m)" != "x86_64" ]; then \
-  echo "DB2 driver is only supported on x86_64 (amd64) architecture." && \
-  echo "IBM does not provide ARM64 clidriver." && \
-  exit 1; \
-elif [ "$DRIVER_NAME" = "db2" ]; then \
-  export IBM_DB_HOME=/go/pkg/mod/github.com/ibmdb/clidriver && \
-  export CGO_CFLAGS="-I$IBM_DB_HOME/include" && \
-  export CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib" && \
-  export LD_LIBRARY_PATH=$IBM_DB_HOME/lib && \
-  go build -o /olake main.go; \
-else \
-  CGO_ENABLED=0 go build -o /olake main.go; \
-fi
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    make build.${DRIVER_NAME} OUTPUT=/olake
 
-# Final Runtime Stage Base
-FROM debian:bookworm-slim AS runtime-base-stage
+# Runtime Stage (common to all drivers)
+FROM debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && \
@@ -51,7 +47,7 @@ ARG DRIVER_NAME=olake
 # Copy the binary from the build stage
 COPY --from=builder /olake /home/olake
 
-# Sets the version of olake in ENV 
+# Sets the version of olake in ENV
 ENV DRIVER_VERSION=${DRIVER_VERSION}
 
 # Copy the pre-built JAR file from Maven
@@ -63,6 +59,10 @@ COPY --from=builder /home/app/drivers/${DRIVER_NAME}/resources/spec.json /driver
 COPY --from=builder /home/app/destination/iceberg/resources/spec.json /destination/iceberg/resources/spec.json
 COPY --from=builder /home/app/destination/parquet/resources/spec.json /destination/parquet/resources/spec.json
 
+# Driver-specific runtime files staged by `make prepare.<driver>` (empty for most drivers)
+COPY --from=builder /runtime-overlay/ /
+RUN ldconfig
+
 # Metadata labels
 LABEL io.eggwhite.version=${DRIVER_VERSION}
 LABEL io.eggwhite.name=olake/source-${DRIVER_NAME}
@@ -72,19 +72,3 @@ WORKDIR /home
 
 # Entrypoint
 ENTRYPOINT ["./olake"]
-
-# DB2 Specific Stage
-FROM runtime-base-stage AS db2-stage
-
-# Copy DB2 CLI Driver
-COPY --from=builder /go/pkg/mod/github.com/ibmdb/clidriver /opt/clidriver
-
-# Set DB2 CLI environment variables
-ENV IBM_DB_HOME=/opt/clidriver
-ENV PATH=$IBM_DB_HOME/bin:$PATH
-ENV CGO_CFLAGS="-I$IBM_DB_HOME/include"
-ENV CGO_LDFLAGS="-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib"
-ENV LD_LIBRARY_PATH=$IBM_DB_HOME/lib
-
-# Default Stage (for all other drivers)
-FROM runtime-base-stage AS driver-stage
