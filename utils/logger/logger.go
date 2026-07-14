@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httputil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +21,9 @@ import (
 )
 
 var logger zerolog.Logger
+var javaErrorLinePattern = regexp.MustCompile(`(?i)(ERROR|FATAL|Exception|Error:|Failed to|java\.lang\.\w+Exception|^\s*Caused by:)`)
+var javaStackTraceLinePattern = regexp.MustCompile(`^\s*at\s+[\w$.]+\([\w$]+\.java:\d+\)`)
+var startupCausePattern = regexp.MustCompile(`(?i)(failed to bind|address already in use|bindexception|eaddrinuse|caused by:|exception|error)`)
 
 // Info writes record into os.stdout with log level INFO
 func Info(v ...interface{}) {
@@ -78,24 +79,6 @@ func Warn(v ...interface{}) {
 // Warn writes record into os.stdout with log level WARN
 func Warnf(format string, v ...interface{}) {
 	logger.Warn().Msgf(format, v...)
-}
-
-func LogResponse(response *http.Response) {
-	respDump, err := httputil.DumpResponse(response, true)
-	if err != nil {
-		Fatal(err)
-	}
-
-	fmt.Println(string(respDump))
-}
-
-func LogRequest(req *http.Request) {
-	requestDump, err := httputil.DumpRequest(req, true)
-	if err != nil {
-		Fatal(err)
-	}
-
-	fmt.Println(string(requestDump))
 }
 
 // CreateFile creates a new file or overwrites an existing one with the specified filename, path, extension,
@@ -244,12 +227,83 @@ type ProcessOutputReader struct {
 	reader    *bufio.Scanner
 	closeFn   func() error
 	closeOnce sync.Once
+	mu        sync.Mutex
 
 	// readiness detection only (do not fail on error logs)
 	readinessPattern *regexp.Regexp
 	readinessCh      chan struct{}
 	readinessOnce    sync.Once
-	errorLines       sync.Map // map[string]string → procKey -> first error line
+	tailLines        []string // rolling output lines for startup diagnostics
+	startupCauseLine string   // first meaningful startup failure line
+}
+
+func isJavaErrorLine(line string) bool {
+	return javaErrorLinePattern.MatchString(line) || javaStackTraceLinePattern.MatchString(line)
+}
+
+func (p *ProcessOutputReader) appendTail(line string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.tailLines = append(p.tailLines, line)
+	if len(p.tailLines) > 20 {
+		p.tailLines = p.tailLines[len(p.tailLines)-20:]
+	}
+}
+
+func (p *ProcessOutputReader) maybeSetStartupCauseLine(line string) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return
+	}
+
+	// skip Java stacktrace frame lines like:
+	// "at io.grpc.internal...."
+	if strings.HasPrefix(trimmed, "at ") {
+		return
+	}
+
+	if !startupCausePattern.MatchString(trimmed) {
+		return
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.startupCauseLine == "" {
+		p.startupCauseLine = trimmed
+	}
+}
+
+func (p *ProcessOutputReader) tailSummary() string {
+	p.mu.Lock()
+	lines := append([]string(nil), p.tailLines...) // new copy of tailLines
+	p.mu.Unlock()
+	if len(lines) == 0 {
+		return ""
+	}
+
+	filtered := make([]string, 0, len(lines))
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if trimmed == "" {
+			continue
+		}
+		filtered = append(filtered, trimmed)
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+
+	const tailSize = 5
+	if len(filtered) > tailSize {
+		filtered = filtered[len(filtered)-tailSize:]
+	}
+	return strings.Join(filtered, " | ")
+}
+
+func (p *ProcessOutputReader) startupCause() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.startupCauseLine
 }
 
 // NewProcessOutputReader creates a new ProcessOutputReader for a given process
@@ -275,10 +329,6 @@ func NewProcessLogger(name string, isError bool) (*ProcessOutputReader, *os.File
 // StartReading starts reading from the process output in a goroutine
 // and logging each line with the appropriate log level
 func (p *ProcessOutputReader) StartReading() {
-	// Compile regex patterns for Java error detection
-	errorLinePattern := regexp.MustCompile(`(?i)(ERROR|FATAL|Exception|Error:|Failed to|java\.lang\.\w+Exception|^\s*Caused by:)`)
-	stackTraceLinePattern := regexp.MustCompile(`^\s*at\s+[\w$.]+\([\w$]+\.java:\d+\)`)
-
 	go func() {
 		defer p.Close()
 		// Track if we're in an error stack trace
@@ -287,12 +337,10 @@ func (p *ProcessOutputReader) StartReading() {
 		for p.reader.Scan() {
 			line := p.reader.Text()
 
-			// Check if this is an error line
-			isErrorLine := p.IsError || errorLinePattern.MatchString(line)
-			isStackTraceLine := stackTraceLinePattern.MatchString(line)
+			isErrorLine := isJavaErrorLine(line)
 
 			// Determine if we're starting or continuing an error
-			if isErrorLine || isStackTraceLine {
+			if isErrorLine {
 				inStackTrace = true
 			} else if inStackTrace && !strings.HasPrefix(strings.TrimSpace(line), "at ") {
 				// If this is not a stack trace line and doesn't start with "at ",
@@ -310,12 +358,18 @@ func (p *ProcessOutputReader) StartReading() {
 				})
 			}
 
-			if isErrorLine || isStackTraceLine || inStackTrace {
+			if isErrorLine || inStackTrace {
 				Error(fmt.Sprintf("%s %s", p.Name, line))
-				p.errorLines.LoadOrStore(p.Name, line)
+			} else if p.IsError {
+				// Stderr can contain informational runtime messages (e.g. JVM startup notes),
+				// so don't automatically mark all stderr lines as errors.
+				Warn(fmt.Sprintf("%s %s", p.Name, line))
 			} else {
 				Info(fmt.Sprintf("%s %s", p.Name, line))
 			}
+
+			p.maybeSetStartupCauseLine(line)
+			p.appendTail(line)
 		}
 	}()
 }
@@ -395,13 +449,6 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	// since they're only needed by the child process
 	stdoutWriter.Close()
 	stderrWriter.Close()
-	getFirstErrorLine := func(procKey string) string {
-		if v, ok := stderrReader.errorLines.Load(procKey); ok {
-			return v.(string)
-		}
-		return ""
-	}
-
 	timeoutSec := 600
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSec)*time.Second)
@@ -432,6 +479,35 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	}()
 
 	// Block until ready, error, or timeout
+	getStartupOutput := func() string {
+		const maxWait = 500 * time.Millisecond
+		const step = 25 * time.Millisecond
+		deadline := time.Now().Add(maxWait)
+
+		for {
+			stderrCause := stderrReader.startupCause()
+			if stderrCause != "" {
+				return stderrCause
+			}
+			stdoutCause := stdoutReader.startupCause()
+			if stdoutCause != "" {
+				return stdoutCause
+			}
+			stderrTail := stderrReader.tailSummary()
+			if stderrTail != "" {
+				return stderrTail
+			}
+			stdoutTail := stdoutReader.tailSummary()
+			if stdoutTail != "" {
+				return stdoutTail
+			}
+			if time.Now().After(deadline) {
+				return ""
+			}
+			time.Sleep(step)
+		}
+	}
+
 	select {
 	case <-readyCh:
 		close(done)
@@ -445,21 +521,20 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		// Include captured error tail from stderr only
-		stderrTail := getFirstErrorLine(processName)
-		if stderrTail == "" {
-			return fmt.Errorf("failed to start iceberg writer: %s", e)
+		startupOutput := getStartupOutput()
+		if startupOutput == "" {
+			return fmt.Errorf("failed to start %s: %s", processName, e)
 		}
-		return fmt.Errorf("failed to start iceberg writer: %s: %s", e, stderrTail)
+		return fmt.Errorf("failed to start %s: %s: %s", processName, e, startupOutput)
 	case <-ctx.Done():
 		close(done)
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()
 		}
-		stderrTail := getFirstErrorLine(processName)
-		if stderrTail == "" {
-			return fmt.Errorf("iceberg writer %s did not become ready within %d seconds", processName, timeoutSec)
+		startupOutput := getStartupOutput()
+		if startupOutput == "" {
+			return fmt.Errorf("%s did not become ready within %d seconds", processName, timeoutSec)
 		}
-		return fmt.Errorf("iceberg writer %s did not become ready within %d seconds: %s", processName, timeoutSec, stderrTail)
+		return fmt.Errorf("%s did not become ready within %d seconds: %s", processName, timeoutSec, startupOutput)
 	}
 }
