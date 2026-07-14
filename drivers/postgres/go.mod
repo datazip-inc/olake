@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/postgres
 
-go 1.25.11
+go 1.25.12
 
 require (
 	github.com/apache/arrow-go/v18 v18.2.0

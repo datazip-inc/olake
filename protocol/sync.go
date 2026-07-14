@@ -14,6 +14,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/datazip-inc/olake/utils/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -78,6 +79,10 @@ var syncCmd = &cobra.Command{
 		constants.LoadedStateVersion = state.Version
 
 		state.RWMutex = &sync.RWMutex{}
+
+		//version
+		logger.Infof("Ruuning OLake sync with version %s", version.GetOlakeCLIVersion())
+
 		stateBytes, _ := state.MarshalJSON()
 		logger.Infof("Running sync with state: %s", stateBytes)
 		return nil
