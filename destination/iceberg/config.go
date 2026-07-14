@@ -77,6 +77,10 @@ type Config struct {
 	RestScope         string `json:"scope,omitempty"`
 	RestCredential    string `json:"credential,omitempty"`
 
+	// GCP auth for GoogleAuthManager (e.g. BigLake). Inline SA key JSON;
+	GCPCredentialsJSON string `json:"gcp_credentials_json,omitempty"`
+	GCPAuthScopes      string `json:"gcp_auth_scopes,omitempty"`
+
 	UseArrowWrites bool `json:"arrow_writes,omitempty"`
 }
 
