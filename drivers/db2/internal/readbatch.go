@@ -127,7 +127,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 			for rowIdx := range batch.rowCount {
 				record := make(map[string]interface{}, nCols)
 				// rowBytes accumulates the DB2 on-disk source size of the row,
-				// reported to OnMessage so the writer can track committed bytes.
+				// reported to OnMessage so the writer can track bytes read.
 				var rowBytes int64
 				for colIdx, colName := range colNames {
 					// SQL NULL is reported via the driver's null mask

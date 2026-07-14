@@ -131,7 +131,7 @@ var syncCmd = &cobra.Command{
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64, int64) {
 			stats := pool.GetStats()
-			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load(), stats.BytesCommitted.Load()
+			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load(), stats.BytesRead.Load()
 		})
 
 		// Setup State for Connector
@@ -154,10 +154,10 @@ var syncCmd = &cobra.Command{
 		// chunks (see WriterThread.Close), so this reflects committed rows only.
 		stats := pool.GetStats()
 		readRecordsCount := max(int64(0), stats.ReadCount.Load()-stats.RecordsFiltered.Load())
-		bytesCommitted := stats.BytesCommitted.Load()
-		logger.Infof("Total records read: %d | Total bytes committed: %s",
+		bytesRead := stats.BytesRead.Load()
+		logger.Infof("Total records read: %d | Total bytes read: %s",
 			readRecordsCount,
-			logger.FormatBytes(bytesCommitted))
+			logger.FormatBytes(bytesRead))
 		return nil
 	},
 }

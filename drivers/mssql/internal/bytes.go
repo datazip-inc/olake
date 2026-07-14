@@ -6,83 +6,130 @@ import (
 	"strings"
 )
 
-// mssqlColumnBytes returns the SQL Server on-disk byte count for a single column value.
+// Sizing classes for a SQL Server column, precomputed by mssqlClassifyCol so
+// the hot per-row path never re-dispatches on the type name.
+const (
+	mssqlColFixed uint8 = iota
+	mssqlColNText
+	mssqlColVariable
+)
+
+// mssqlClassifyCol maps a SQL Server type name to a sizing class and, for
+// fixed-width types, their documented SQL Server storage sizes.
 //
-// Fixed-width types use their documented SQL Server storage sizes.
-// Variable-width types (varchar, nvarchar, binary, etc.) use actual byte length.
-// NCHAR/NVARCHAR are stored as UTF-16 in SQL Server: len([]rune)*2 bytes per rune.
-// NULL values return 0 — SQL Server stores no data bytes for NULL columns.
+// NCHAR/NVARCHAR/NTEXT are stored as UTF-16 in SQL Server: len([]rune)*2 bytes per rune.
+// Variable-width types (varchar, binary, etc.) use actual byte length.
 //
 // DatabaseTypeName() from go-mssqldb returns uppercase names (BIGINT, INT, etc.).
-func mssqlColumnBytes(rawVal any, typeName string) int64 {
-	if rawVal == nil {
-		return 0
-	}
+func mssqlClassifyCol(typeName string) (uint8, int64) {
 	t := strings.ToUpper(strings.TrimSpace(typeName))
 	switch t {
 	case "TINYINT":
-		return 1
-	case "SMALLINT", "SMALLMONEY":
-		return 2
+		return mssqlColFixed, 1
+	case "SMALLINT":
+		return mssqlColFixed, 2
+	case "SMALLMONEY":
+		return mssqlColFixed, 4
 	case "INT":
-		return 4
+		return mssqlColFixed, 4
 	case "BIGINT", "MONEY", "FLOAT", "DATETIME", "DATETIME2":
-		return 8
+		return mssqlColFixed, 8
 	case "REAL":
-		return 4
+		return mssqlColFixed, 4
 	case "BIT":
-		return 1
+		return mssqlColFixed, 1
 	case "DATE":
-		return 3
+		return mssqlColFixed, 3
 	case "TIME":
-		return 5 // TIME(7) max
+		return mssqlColFixed, 5 // TIME(7) max
 	case "SMALLDATETIME":
-		return 4
+		return mssqlColFixed, 4
 	case "DATETIMEOFFSET":
-		return 10 // DATETIMEOFFSET(7) max
+		return mssqlColFixed, 10 // DATETIMEOFFSET(7) max
 	case "UNIQUEIDENTIFIER":
-		return 16
+		return mssqlColFixed, 16
 	case "ROWVERSION", "TIMESTAMP": // TIMESTAMP is rowversion synonym in SQL Server
-		return 8
+		return mssqlColFixed, 8
 	case "NCHAR", "NVARCHAR", "NTEXT":
-		// SQL Server stores N-types as UTF-16LE: 2 bytes per BMP rune.
-		if s, ok := rawVal.(string); ok {
-			return int64(len([]rune(s))) * 2
-		}
-		return int64(len(fmt.Sprintf("%v", rawVal)))
+		return mssqlColNText, 0
 	default:
 		// CHAR, VARCHAR, TEXT, BINARY, VARBINARY, IMAGE,
 		// DECIMAL, NUMERIC, XML, SQL_VARIANT, GEOMETRY, GEOGRAPHY,
 		// HIERARCHYID, SYSNAME, JSON and any unknown types.
-		switch v := rawVal.(type) {
-		case string:
-			return int64(len(v))
-		case []byte:
-			return int64(len(v))
+		return mssqlColVariable, 0
+	}
+}
+
+// mssqlNTextBytes sizes an N-type value: SQL Server stores N-types as UTF-16LE,
+// 2 bytes per BMP rune.
+func mssqlNTextBytes(rawVal any) int64 {
+	if s, ok := rawVal.(string); ok {
+		return int64(len([]rune(s))) * 2
+	}
+	return int64(len(fmt.Sprintf("%v", rawVal)))
+}
+
+// mssqlVariableBytes sizes a variable-width value by its actual byte length.
+func mssqlVariableBytes(rawVal any) int64 {
+	switch v := rawVal.(type) {
+	case string:
+		return int64(len(v))
+	case []byte:
+		return int64(len(v))
+	default:
+		return int64(len(fmt.Sprintf("%v", v)))
+	}
+}
+
+// mssqlRowBytes returns the SQL Server on-disk byte size of a single column value
+// scanned via database/sql; NULL returns 0. It is the per-column entry point used by
+// incremental via MapScan, which re-derives column types on every row so no per-query
+// cache can apply.
+func mssqlRowBytes(colType *sql.ColumnType, v any) int64 {
+	if v == nil {
+		return 0
+	}
+	kind, width := mssqlClassifyCol(colType.DatabaseTypeName())
+	switch kind {
+	case mssqlColFixed:
+		return width
+	case mssqlColNText:
+		return mssqlNTextBytes(v)
+	default:
+		return mssqlVariableBytes(v)
+	}
+}
+
+// mssqlRowSizer classifies every column once and returns a per-column sizing function.
+// Backfill passes it to MapScanConcurrent, where column types are constant for
+// the whole result set, so the hot loop is an index + int-switch per column.
+func mssqlRowSizer(colTypes []*sql.ColumnType) func(i int, v any) int64 {
+	kinds := make([]uint8, len(colTypes))
+	widths := make([]int64, len(colTypes))
+	for i, ct := range colTypes {
+		kinds[i], widths[i] = mssqlClassifyCol(ct.DatabaseTypeName())
+	}
+	return func(i int, v any) int64 {
+		if v == nil {
+			return 0
+		}
+		switch kinds[i] {
+		case mssqlColFixed:
+			return widths[i]
+		case mssqlColNText:
+			return mssqlNTextBytes(v)
 		default:
-			return int64(len(fmt.Sprintf("%v", v)))
+			return mssqlVariableBytes(v)
 		}
 	}
 }
 
-// mssqlRowBytes sums column bytes for a complete row scanned via database/sql.
-func mssqlRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
-	var total int64
-	for i, v := range vals {
-		total += mssqlColumnBytes(v, colTypes[i].DatabaseTypeName())
+// mssqlCDCRowBytes returns the on-disk bytes of a single CDC data column, returning 0
+// for the CDC metadata columns (__$operation, __$start_lsn, __$seqval, __$update_mask)
+// so they are excluded from the row total.
+func mssqlCDCRowBytes(colType *sql.ColumnType, v any) int64 {
+	if strings.HasPrefix(colType.Name(), "__$") {
+		return 0
 	}
-	return total
-}
-
-// mssqlCDCRowBytes sums the on-disk bytes of a CDC row's actual data columns,
-// excluding the four CDC metadata columns (__$operation, __$start_lsn, __$seqval, __$update_mask).
-func mssqlCDCRowBytes(vals []any, colTypes []*sql.ColumnType) int64 {
-	var total int64
-	for i, v := range vals {
-		if strings.HasPrefix(colTypes[i].Name(), "__$") {
-			continue
-		}
-		total += mssqlColumnBytes(v, colTypes[i].DatabaseTypeName())
-	}
-	return total
+	return mssqlRowBytes(colType, v)
 }

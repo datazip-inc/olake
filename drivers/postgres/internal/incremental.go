@@ -29,7 +29,7 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 
 	for rows.Next() {
 		record := make(types.Record)
-		rowBytes, err := jdbc.MapScan(rows, record, p.dataTypeConverter, pgCompositeRowBytes)
+		rowBytes, err := jdbc.MapScan(rows, record, p.dataTypeConverter, pgRowBytes)
 		if err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}

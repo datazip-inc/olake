@@ -31,7 +31,7 @@ type (
 		ReadCount          atomic.Int64 // records that got read
 		RecordsFiltered    atomic.Int64 // records that got filtered
 		ThreadCount        atomic.Int64 // total number of writer threads
-		BytesCommitted     atomic.Int64 // source bytes committed to destination (updated in writer.Close on success)
+		BytesRead          atomic.Int64 // source bytes read (added live per record via Push, rolled back on chunk/run failure)
 	}
 
 	WriterPool struct {
@@ -52,7 +52,7 @@ type (
 		streamArtifact *writerSchema
 		group          *utils.CxGroup
 		// recordsPushed / recordsFiltered / bytesPushed track this thread's own
-		// contribution to the pool-wide ReadCount / RecordsFiltered / BytesCommitted
+		// contribution to the pool-wide ReadCount / RecordsFiltered / BytesRead
 		// stats. The stats are updated live as records are read; if the chunk/run
 		// fails (or is retried), Close rolls these contributions back so the stats —
 		// and the RPS derived from them — reflect only committed data.
@@ -193,9 +193,8 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 }
 
 // Push appends a record to the thread buffer and updates the live stats. sourceBytes
-// is the record's source-DB storage size (0 for drivers that account bytes at commit
-// time). Both the read count and the byte count are added live and rolled back by
-// Close if the chunk/run fails to commit (see rollbackStats).
+// is the record's source read size (0 if the driver does not report it). Both the read
+// count and the bytes-read count are added live and rolled back by Close if the chunk/run fails (see rollbackStats).
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, sourceBytes int64) error {
 	select {
 	case <-ctx.Done():
@@ -207,7 +206,7 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, source
 		wt.stats.ReadCount.Add(1)
 		wt.recordsPushed.Add(1)
 		if sourceBytes != 0 {
-			wt.stats.BytesCommitted.Add(sourceBytes)
+			wt.stats.BytesRead.Add(sourceBytes)
 			wt.bytesPushed.Add(sourceBytes)
 		}
 		wt.buffer = append(wt.buffer, record)
@@ -276,7 +275,7 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 func (wt *WriterThread) rollbackStats() {
 	wt.stats.ReadCount.Add(-wt.recordsPushed.Load())
 	wt.stats.RecordsFiltered.Add(-wt.recordsFiltered.Load())
-	wt.stats.BytesCommitted.Add(-wt.bytesPushed.Load())
+	wt.stats.BytesRead.Add(-wt.bytesPushed.Load())
 }
 
 func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {

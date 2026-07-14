@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +19,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/rs/zerolog"
 	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -148,9 +148,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 				Info("Monitoring stopped")
 				return
 			case <-ticker.C:
-				runningThreads, recordsToSync, syncedRecords, bytesCommitted := statsFunc()
-				memStats := new(runtime.MemStats)
-				runtime.ReadMemStats(memStats)
+				runningThreads, recordsToSync, syncedRecords, bytesRead := statsFunc()
 				speed := float64(syncedRecords) / time.Since(startTime).Seconds()
 				timeElapsed := time.Since(startTime).Seconds()
 				remainingRecords := recordsToSync - syncedRecords
@@ -161,11 +159,13 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 				stats := map[string]interface{}{
 					"Writer Threads":           runningThreads,
 					"Synced Records":           syncedRecords,
-					"Bytes Committed":          bytesCommitted,
-					"Memory":                   fmt.Sprintf("%d mb", memStats.HeapInuse/(1024*1024)),
+					"Bytes Read":               bytesRead,
 					"Speed":                    fmt.Sprintf("%.2f rps", speed),
 					"Seconds Elapsed":          fmt.Sprintf("%.2f", timeElapsed),
 					"Estimated Remaining Time": estimatedSeconds,
+				}
+				if memInfo, err := mem.VirtualMemory(); err == nil {
+					stats["Memory"] = fmt.Sprintf("%d mb", memInfo.Used/(1024*1024))
 				}
 				if cpuPercent, err := cpu.Percent(0, false); err == nil && len(cpuPercent) > 0 {
 					stats["CPU Utilization"] = math.Round(cpuPercent[0]*100) / 10000

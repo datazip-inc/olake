@@ -90,9 +90,10 @@ func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter
 // TODO: Use MapScanConcurrent instead of MapScan for incremental as well
 //
 // MapScan scans the current row into dest and returns the row's source-DB byte
-// size. The optional rowBytesFn is invoked once with all raw (pre-conversion)
-// column values and their SQL column types, allowing callers to compute the per-row byte count.
-func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error), rowBytesFn ...func(rawVals []any, colTypes []*sql.ColumnType) int64) (int64, error) {
+// size. The optional colBytesFn sizes a single raw (pre-conversion) column value
+// by its SQL column type; it is summed inline in the scan loop so the row is
+// walked only once.
+func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error), colBytesFn ...func(colType *sql.ColumnType, v any) int64) (int64, error) {
 	columns, colTypes, err := getColumnMetadata(rows)
 	if err != nil {
 		return 0, err
@@ -107,25 +108,25 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 		return 0, err
 	}
 
-	rawVals := make([]any, len(columns))
-	for i := range scanValues {
-		rawVals[i] = *(scanValues[i].(*any)) // Dereference pointer before storing
+	var colSizer func(*sql.ColumnType, any) int64
+	if len(colBytesFn) > 0 && colBytesFn[0] != nil {
+		colSizer = colBytesFn[0]
 	}
 
 	var rowBytes int64
-	if len(rowBytesFn) > 0 && rowBytesFn[0] != nil {
-		rowBytes = rowBytesFn[0](rawVals, colTypes)
-	}
-
 	for i, col := range columns {
+		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
+		if colSizer != nil {
+			rowBytes += colSizer(colTypes[i], rawData)
+		}
 		if converter != nil {
-			conv, err := normalizeDataTypeAndConvert(rawVals[i], colTypes[i], converter)
+			conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
 			if err != nil {
 				return 0, err
 			}
 			dest[col] = conv
 		} else {
-			dest[col] = rawVals[i]
+			dest[col] = rawData
 		}
 	}
 
@@ -133,9 +134,12 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 }
 
 // MapScanConcurrent scans rows concurrently using a producer/consumer pattern.
-// The optional rowBytesFn is invoked in the consumer goroutine once per complete
-// row with all raw (pre-conversion) column values and their SQL column types.
-func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn, rowBytesFn ...func(rawVals []any, colTypes []*sql.ColumnType) int64) error {
+// The optional rowBytesFn is a factory invoked once (with the result set's SQL
+// column types) to build a per-column sizing function; column types are constant
+// for the whole result set, so classification work is done once instead of per row.
+// The returned sizer runs in the consumer goroutine on each raw (pre-conversion)
+// column value, and is summed inline in the conversion loop to avoid a second pass.
+func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn, rowBytesFn ...func(colTypes []*sql.ColumnType) func(i int, v any) int64) error {
 	valuesCh := make(chan []any)
 
 	var (
@@ -144,7 +148,7 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 		scanDests []any // reused pointers for rows.Scan
 	)
 
-	var bytesFn func([]any, []*sql.ColumnType) int64
+	var bytesFn func([]*sql.ColumnType) func(i int, v any) int64
 	if len(rowBytesFn) > 0 && rowBytesFn[0] != nil {
 		bytesFn = rowBytesFn[0]
 	}
@@ -188,15 +192,21 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 
 	// Consumer: convert + emit records.
 	consumer := func(ctx context.Context) error {
+		var colSizer func(i int, v any) int64
 		for vals := range valuesCh {
-			var rowBytes int64
-			if bytesFn != nil {
-				rowBytes = bytesFn(vals, colTypes)
+			// colTypes is safely visible here: the producer sets it before the
+			// first channel send. Build the sizer once for the whole result set.
+			if bytesFn != nil && colSizer == nil {
+				colSizer = bytesFn(colTypes)
 			}
 
+			var rowBytes int64
 			record := make(map[string]any, len(columns))
 			for i, col := range columns {
 				rawData := vals[i]
+				if colSizer != nil {
+					rowBytes += colSizer(i, rawData)
+				}
 				if converter == nil {
 					record[col] = rawData
 					continue
