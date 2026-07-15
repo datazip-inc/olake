@@ -368,7 +368,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		// TODO: check if we can use MapScanConcurrent for mssql
 		// rowBytes is the after-image data-column byte sum (excludes __$* metadata columns), attached to the emitted change below.
 		record := make(map[string]interface{})
-		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mssqlCDCRowBytes)
+		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mssqlCDCColumnSizer)
 		if err != nil {
 			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
 		}

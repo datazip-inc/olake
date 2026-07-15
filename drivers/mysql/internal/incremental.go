@@ -32,7 +32,7 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	// Scan rows and process
 	for rows.Next() {
 		record := make(types.Record)
-		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mysqlRowBytes)
+		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mysqlColumnSizer)
 		if err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}

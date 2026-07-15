@@ -90,9 +90,10 @@ func normalizeDataTypeAndConvert(rawData any, colType *sql.ColumnType, converter
 // TODO: Use MapScanConcurrent instead of MapScan for incremental as well
 //
 // MapScan scans the current row into dest and returns the row's source-DB byte
-// size. sizeOf sizes a single raw (pre-conversion) column value by its SQL column
-// type; it is summed inline in the scan loop.
-func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error), sizeOf func(colType *sql.ColumnType, v any) int64) (int64, error) {
+// size. columnSizer maps a SQL column type to a function that sizes one raw
+// (pre-conversion) value of that column; the size is summed inline in the scan
+// loop. NULL values carry no data and are skipped (0 bytes).
+func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface{}, columnType string) (interface{}, error), columnSizer func(colType *sql.ColumnType) func(v any) int64) (int64, error) {
 	columns, colTypes, err := getColumnMetadata(rows)
 	if err != nil {
 		return 0, err
@@ -110,7 +111,10 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 	var rowBytes int64
 	for i, col := range columns {
 		rawData := *(scanValues[i].(*any)) // Dereference pointer before storing
-		rowBytes += sizeOf(colTypes[i], rawData)
+		// If rawData is nil, no byte is added
+		if rawData != nil {
+			rowBytes += columnSizer(colTypes[i])(rawData)
+		}
 		if converter != nil {
 			conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
 			if err != nil {
@@ -126,10 +130,11 @@ func MapScan(rows *sql.Rows, dest map[string]any, converter func(value interface
 }
 
 // MapScanConcurrent scans rows concurrently using a producer/consumer pattern.
-// bytesCalculatorFunction is a factory invoked once (with the result set's SQL column
-// types) to build a per-column sizing function. The returned sizer
-// runs in the consumer goroutine on each raw (pre-conversion) column value, and is summed inline in the conversion loop
-func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn, bytesCalculatorFn func(colTypes []*sql.ColumnType) func(i int, v any) int64) error {
+// columnSizer maps a SQL column type to a function that sizes one raw
+// (pre-conversion) value of that column. Since column types are constant for the
+// whole result set, the per-column sizers are built once (in the consumer goroutine)
+// and reused for every row; the size is summed inline in the conversion loop.
+func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface{}, columnType string) (interface{}, error), OnMessage abstract.BackfillMsgFn, columnSizer func(colType *sql.ColumnType) func(v any) int64) error {
 	valuesCh := make(chan []any)
 
 	var (
@@ -177,19 +182,26 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 
 	// Consumer: convert + emit records.
 	consumer := func(ctx context.Context) error {
-		var sizeOf func(i int, v any) int64
+		var sizeOf map[string]func(v any) int64
 		for vals := range valuesCh {
-			// colTypes is safely visible here: the producer sets it before the
-			// first channel send. Build the sizer once for the whole result set.
+			// colTypes is safely visible here: the producer sets it before the first
+			// channel send. Build the per-column sizers once for the result set, keyed
+			// by column name (unique for a single-table scan).
 			if sizeOf == nil {
-				sizeOf = bytesCalculatorFn(colTypes)
+				sizeOf = make(map[string]func(v any) int64, len(columns))
+				for i, col := range columns {
+					sizeOf[col] = columnSizer(colTypes[i])
+				}
 			}
 
 			var rowBytes int64
 			record := make(map[string]any, len(columns))
 			for i, col := range columns {
 				rawData := vals[i]
-				rowBytes += sizeOf(i, rawData)
+				// If rawData is nil, no byte is added
+				if rawData != nil {
+					rowBytes += sizeOf[col](rawData)
+				}
 				if converter == nil {
 					record[col] = rawData
 					continue

@@ -7,34 +7,40 @@ import (
 	"time"
 )
 
-// oracleFixedWidth returns the Oracle storage width for fixed-width type names
-// and ok=false for NUMBER and variable-length types.
-func oracleFixedWidth(typeName string) (int64, bool) {
-	t := strings.ToUpper(strings.TrimSpace(typeName))
+// oracleColumnSizer returns a function that sizes a single non-NULL value of the given
+// column, using the Oracle on-disk data size. Fixed-width types return a constant
+// (DATE=7, TIMESTAMP=11 max, INTERVAL YEAR=5, INTERVAL DAY=11, BINARY_FLOAT=4,
+// BINARY_DOUBLE/FLOAT=8); NUMBER and variable types (VARCHAR2, CLOB, RAW, BLOB, …) use
+// the Go value's type/length. The type is classified once per column and the returned
+// function is reused for every row.
+func oracleColumnSizer(colType *sql.ColumnType) func(v any) int64 {
+	t := strings.ToUpper(strings.TrimSpace(colType.DatabaseTypeName()))
 	// Strip precision/scale suffix: "NUMBER(10,2)" → "NUMBER", "TIMESTAMP(6)" → "TIMESTAMP"
 	if idx := strings.IndexByte(t, '('); idx >= 0 {
 		t = strings.TrimSpace(t[:idx])
 	}
-
 	switch {
 	case t == "DATE":
-		return 7, true
+		return func(any) int64 { return 7 }
 	case strings.HasPrefix(t, "TIMESTAMP"):
-		return 11, true // TIMESTAMP(9) max = 7 date + 4 nanosecond bytes
+		return func(any) int64 { return 11 } // TIMESTAMP(9) max = 7 date + 4 nanosecond bytes
 	case strings.HasPrefix(t, "INTERVAL YEAR") || t == "INTERVALYM_DTY":
-		return 5, true // INTERVAL YEAR TO MONTH = 5 bytes
+		return func(any) int64 { return 5 } // INTERVAL YEAR TO MONTH
 	case strings.HasPrefix(t, "INTERVAL DAY") || t == "INTERVALDS_DTY":
-		return 11, true // INTERVAL DAY TO SECOND = 11 bytes
+		return func(any) int64 { return 11 } // INTERVAL DAY TO SECOND
 	case t == "BINARY_FLOAT":
-		return 4, true
+		return func(any) int64 { return 4 }
 	case t == "BINARY_DOUBLE", t == "FLOAT":
-		return 8, true
+		return func(any) int64 { return 8 }
+	default:
+		// NUMBER and variable-length types (VARCHAR2, CHAR, CLOB, RAW, BLOB, XMLTYPE, …).
+		return oracleValueBytes
 	}
-	return 0, false
 }
 
 // oracleValueBytes sizes NUMBER and all variable-length types by the Go value type/length.
-// go-ora returns:
+// NUMBER shares a single type name but go-ora resolves its precision/scale to a concrete
+// Go type at scan time, so we size the value that actually came back.
 //
 //	NUMBER(p,0) p≤9  → int32  (4 bytes)
 //	NUMBER(p,0) p≤18 → int64  (8 bytes)
@@ -61,40 +67,5 @@ func oracleValueBytes(rawVal any) int64 {
 		return 7
 	default:
 		return int64(len(fmt.Sprintf("%v", v)))
-	}
-}
-
-// oracleRowBytes returns the Oracle on-disk byte size of a single column value scanned
-// via database/sql; NULL returns 0. Fixed-width types use their Oracle storage size
-// (DATE=7, TIMESTAMP=11 max, BINARY_FLOAT=4, BINARY_DOUBLE/FLOAT=8); NUMBER and
-// variable types (VARCHAR2, CLOB, RAW, BLOB, …) use the Go value's byte length. It is
-// the per-column entry point used by incremental via MapScan, which re-derives column types on every row.
-func oracleRowBytes(colType *sql.ColumnType, v any) int64 {
-	if v == nil {
-		return 0
-	}
-	if width, ok := oracleFixedWidth(colType.DatabaseTypeName()); ok {
-		return width
-	}
-	return oracleValueBytes(v)
-}
-
-// oracleRowSizer classifies every column once and returns a per-column sizing function.
-// Backfill passes it to MapScanConcurrent, where column types are constant for
-// the whole result set, so the hot loop avoids re-dispatching on type names.
-func oracleRowSizer(colTypes []*sql.ColumnType) func(i int, v any) int64 {
-	widths := make([]int64, len(colTypes))
-	fixed := make([]bool, len(colTypes))
-	for i, ct := range colTypes {
-		widths[i], fixed[i] = oracleFixedWidth(ct.DatabaseTypeName())
-	}
-	return func(i int, v any) int64 {
-		if v == nil {
-			return 0
-		}
-		if fixed[i] {
-			return widths[i]
-		}
-		return oracleValueBytes(v)
 	}
 }

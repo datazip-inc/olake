@@ -34,7 +34,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 
 	for rows.Next() {
 		record := make(types.Record)
-		rowBytes, err := jdbc.MapScan(rows, record, o.dataTypeConverter, oracleRowBytes)
+		rowBytes, err := jdbc.MapScan(rows, record, o.dataTypeConverter, oracleColumnSizer)
 		if err != nil {
 			return fmt.Errorf("failed to scan record: %s", err)
 		}
