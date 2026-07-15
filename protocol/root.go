@@ -35,9 +35,9 @@ var (
 	timeout                   int64 // timeout in seconds
 	destinationConfig         *types.WriterConfig
 	differencePath            string
-
-	commands  = []*cobra.Command{}
-	connector *abstract.AbstractDriver
+	deleteType                string
+	commands                  = []*cobra.Command{}
+	connector                 *abstract.AbstractDriver
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -148,6 +148,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
 	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
+	RootCmd.PersistentFlags().StringVarP(&deleteType, "delete-type", "", "", "iceberg delete type that sync job should write to iceberg table")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
