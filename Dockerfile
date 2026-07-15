@@ -8,6 +8,11 @@ FROM golang:1.25.12-bookworm AS builder
 
 WORKDIR /home/app
 
+# No workspace in here: go.work lists the tests/ modules, which .dockerignore keeps out of the
+# build context, and a `use` entry with no directory is a hard error.
+# Building each driver from its own go.mod is optimal here
+ENV GOWORK=off
+
 ARG DRIVER_NAME=olake
 
 # prepare the driver

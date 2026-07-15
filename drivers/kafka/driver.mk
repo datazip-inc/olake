@@ -5,7 +5,7 @@ PROBE.kafka = docker exec kafkaJson kafka-topics --bootstrap-server localhost:90
 # Kafka-only: consumer-group rebalance recovery (CI: kafka-rebalance-tests.yml).
 .PHONY: test.kafka.rebalance
 test.kafka.rebalance: db.kafka.start db.destination.all.start $(ICEBERG_JAR)
-	go test -v ./drivers/kafka/internal/... -timeout 0 -count=1 -run 'Rebalance'
+	cd tests && go test -v ./kafka/... -timeout 0 -count=1 -run 'Rebalance'
 
 HELP_TARGETS += test.kafka.rebalance
 HELP.test.kafka.rebalance = Kafka consumer-group rebalance recovery tests

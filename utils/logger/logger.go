@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	liblogger "github.com/datazip-inc/olake/lib/utils/logger"
 	"github.com/rs/zerolog"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -111,30 +112,7 @@ func FileLogger(content any, fileName, fileExtension string) error {
 }
 
 func FileLoggerWithPath(content any, path string) error {
-	if path == "" {
-		return fmt.Errorf("path is not set")
-	}
-
-	// Marshal content to JSON
-	contentBytes, err := json.Marshal(content)
-	if err != nil {
-		return fmt.Errorf("failed to marshal content: %s", err)
-	}
-
-	// Create or truncate the file
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to create or open file: %s", err)
-	}
-	defer file.Close()
-
-	// Write data to the file
-	_, err = file.Write(contentBytes)
-	if err != nil {
-		return fmt.Errorf("failed to write data to file: %s", err)
-	}
-
-	return nil
+	return liblogger.FileLoggerWithPath(content, path)
 }
 
 func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int64)) {

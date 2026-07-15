@@ -3,6 +3,8 @@ package constants
 import (
 	"fmt"
 	"time"
+
+	libconstants "github.com/datazip-inc/olake/lib/constants"
 )
 
 const (
@@ -19,7 +21,6 @@ const (
 	OlakeID                = "_olake_id"
 	OlakeTimestamp         = "_olake_timestamp"
 	OpType                 = "_op_type"
-	CdcTimestamp           = "_cdc_timestamp"
 	StringifiedData        = "data"
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
@@ -51,20 +52,30 @@ const (
 	// ~10 sample points to pick a boundary from, producing even spacing even when
 	// blocks/pages are clustered (e.g. freshly inserted rows land on adjacent pages).
 	SampleRowsPerChunkMultiplier = int64(10)
+
+	CdcTimestamp = libconstants.CdcTimestamp
 )
 
-type DriverType string
+// The following identifiers live in lib/constants so the decoupled test modules under tests/
+// and olake share a single definition, without re-pathing every call site in the repo. They are
+// re-exported here so existing constants.<Name> usages in olake stay unchanged.
+//
+// TODO: unify these onto lib/constants directly in a later refactor. Deferred for now because the
+// change spans most of the codebase.
+type DriverType = libconstants.DriverType
 
 const (
-	MongoDB  DriverType = "mongodb"
-	Postgres DriverType = "postgres"
-	MySQL    DriverType = "mysql"
-	Oracle   DriverType = "oracle"
-	DB2      DriverType = "db2"
-	S3       DriverType = "s3"
-	Kafka    DriverType = "kafka"
-	MSSQL    DriverType = "mssql"
+	MongoDB  = libconstants.MongoDB
+	Postgres = libconstants.Postgres
+	MySQL    = libconstants.MySQL
+	Oracle   = libconstants.Oracle
+	DB2      = libconstants.DB2
+	S3       = libconstants.S3
+	Kafka    = libconstants.Kafka
+	MSSQL    = libconstants.MSSQL
 )
+
+var SkipCDCDrivers = libconstants.SkipCDCDrivers
 
 // Drivers where filters are applied in memory after full refresh data is read.
 var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
@@ -73,7 +84,6 @@ var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
 var ErrGlobalContextGroup = fmt.Errorf("global context group error")
-var SkipCDCDrivers = []DriverType{Oracle, DB2}
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}

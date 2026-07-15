@@ -1,0 +1,508 @@
+package mysql
+
+import (
+	"context"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/lib/utils"
+	"github.com/datazip-inc/olake/tests/testutils"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/jmoiron/sqlx"
+	"github.com/stretchr/testify/require"
+)
+
+// ExecuteQuery executes MySQL queries for testing based on the operation type
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+	t.Helper()
+
+	var connStr string
+	if fileConfig {
+		var config Config
+		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
+			config.Username,
+			config.Password,
+			config.Host,
+			config.Port,
+			config.Database)
+	} else {
+		connStr = "mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true"
+	}
+	db, err := sqlx.ConnectContext(ctx, "mysql", connStr)
+	require.NoError(t, err, "failed to connect to  mysql")
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	// integration test uses only one stream for testing
+	integrationTestTable := streams[0]
+	var query string
+
+	switch operation {
+	case "create":
+		query = fmt.Sprintf(`
+			CREATE TABLE IF NOT EXISTS %s (
+				id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+				id_bigint BIGINT,
+				id_int INT,
+				id_cursor INT,
+				id_int_unsigned INT UNSIGNED,
+				id_integer INT,
+				id_integer_unsigned INT UNSIGNED,
+				id_mediumint MEDIUMINT,
+				id_mediumint_unsigned MEDIUMINT UNSIGNED,
+				id_smallint SMALLINT,
+				id_smallint_unsigned SMALLINT UNSIGNED,
+				id_tinyint TINYINT,
+				id_tinyint_unsigned TINYINT UNSIGNED,
+				price_decimal DECIMAL(10,2),
+				amount_decimal_9_2 DECIMAL(9,2),
+				price_double DOUBLE,
+				price_double_precision DOUBLE,
+				price_float FLOAT,
+				price_numeric DECIMAL(10,2),
+				price_real DOUBLE,
+				name_char CHAR(50),
+				name_varchar VARCHAR(100),
+				name_text TEXT,
+				name_tinytext TINYTEXT,
+				name_mediumtext MEDIUMTEXT,
+				name_longtext LONGTEXT,
+				created_date DATETIME,
+				created_timestamp TIMESTAMP NULL,
+				is_active TINYINT(1),
+				long_varchar MEDIUMTEXT,
+		name_bool TINYINT(1) DEFAULT '1',
+		status ENUM('active','inactive','pending') DEFAULT NULL,
+		priority ENUM('low','medium','high') DEFAULT 'low',
+		name_latin1 VARCHAR(100) CHARACTER SET latin1,
+		name_ucs2 VARCHAR(100) CHARACTER SET ucs2,
+		name_utf16le VARCHAR(100) CHARACTER SET utf16le,
+		grade ENUM('naïve','café','résumé') CHARACTER SET latin1,
+		tags SET('sports','music','gaming','reading') DEFAULT NULL,
+		permissions SET('read','write','execute') CHARACTER SET latin1 DEFAULT NULL,
+		PRIMARY KEY (id),
+		excludedColumn INT
+	)`, integrationTestTable)
+
+	case "drop":
+		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
+
+	case "clean":
+		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
+
+	case "add":
+		insertTestData(t, ctx, db, integrationTestTable)
+		return // Early return since we handle all inserts in the helper function
+
+	case "insert":
+		query = fmt.Sprintf(`
+			INSERT INTO %s (
+			id_cursor, id, id_bigint,
+			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
+			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			price_double_precision, price_float, price_numeric, price_real,
+			name_char, name_varchar, name_text, name_tinytext,
+			name_mediumtext, name_longtext, created_date,
+			created_timestamp, is_active,
+			long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions,
+			excludedColumn
+		) VALUES (
+			6, 6, 123456789012345,
+			100, 101, 102, 103,
+			5001, 5002, 101, 102,
+			50, 51,
+			123.45, 5330197.27, 123.456,
+			123.456,  123.45, 123.45, 123.456,
+			'c', 'varchar_val', 'text_val', 'tinytext_val',
+			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
+			'2023-01-01 12:00:00', 1,
+			'long_varchar_val', 1, 'active', 'high',
+			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'sports,reading', 'read,write',
+			101
+		)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
+		filteredQuery := fmt.Sprintf(`
+			INSERT INTO %s (
+			id_cursor, id, id_bigint,
+			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
+			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			price_double_precision, price_float, price_numeric, price_real,
+			name_char, name_varchar, name_text, name_tinytext,
+			name_mediumtext, name_longtext, created_date,
+			created_timestamp, is_active,
+			long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions,
+			excludedColumn
+		) VALUES (
+			-1, 999, 111111111111111,
+			0, 0, 0, 0,
+			0, 0, 0, 0,
+			0, 0,
+			50.123, 50.12, 50.123,
+			50.123, 50.0, 50.123, 50.123,
+			'x', 'filtered_val', 'filtered text', 'filtered tiny',
+			'filtered medium', 'filtered long', '2022-06-15 10:00:00',
+			'2021-06-15 10:00:00', 0,
+			'filtered long varchar', 0, 'inactive', 'low',
+			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
+			'music', 'execute',
+			200
+		)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, filteredQuery)
+		require.NoError(t, err, "Failed to insert filtered test data row")
+		return
+
+	case "insert_2pc":
+		query = fmt.Sprintf(`
+			INSERT INTO %s (
+			id_cursor, id, id_bigint,
+			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
+			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			price_double_precision, price_float, price_numeric, price_real,
+			name_char, name_varchar, name_text, name_tinytext,
+			name_mediumtext, name_longtext, created_date,
+			created_timestamp, is_active,
+			long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions
+		) VALUES (
+			7, 7, 123456789012345,
+			100, 101, 102, 103,
+			5001, 5002, 101, 102,
+			50, 51,
+			123.45, 5330197.27, 123.456,
+			123.456,  123.45, 123.45, 123.456,
+			'c', 'varchar_val', 'text_val', 'tinytext_val',
+			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
+			'2023-01-01 12:00:00', 1,
+			'long_varchar_val', 1, 'active', 'high',
+			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'sports,reading', 'read,write'
+		)`, integrationTestTable)
+
+	case "update":
+		query = fmt.Sprintf(`
+			UPDATE %s SET
+				id_cursor = NULL,
+				id_bigint = 987654321098765,
+				id_int = 200, id_int_unsigned = 201,
+				id_integer = 202, id_integer_unsigned = 203,
+				id_mediumint = 6001, id_mediumint_unsigned = 6002,
+				id_smallint = 201, id_smallint_unsigned = 202,
+				id_tinyint = 60, id_tinyint_unsigned = 61,
+				price_decimal = 543.21, amount_decimal_9_2 = 1234567.89, price_double = 654.321,
+				price_double_precision = 654.321, price_float = 543.21,
+				price_numeric = 543.21, price_real = 654.321,
+				name_char = 'X', name_varchar = 'updated varchar',
+				name_text = 'updated text', name_tinytext = 'upd tiny',
+				name_mediumtext = 'upd medium', name_longtext = 'upd long',
+				created_date = '2024-07-01 15:30:00',
+				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
+				long_varchar = 'updated long...', name_bool = 0,
+			status = 'pending', priority = 'low',
+			name_latin1 = 'updated latin1', name_ucs2 = 'updated ucs2',
+			name_utf16le = 'updated utf16le', grade = 'café',
+			tags = 'gaming,reading', permissions = 'read,write,execute',
+			excludedColumn = 102,
+			includedColumn = 202
+		WHERE id = 1`, integrationTestTable)
+
+	case "delete":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
+
+	case "setup_cdc":
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		// truncate the cdc tables
+		for idx, cdcStream := range streams {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+			// mysql chunking strategy does not support 0 record sync
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s WHERE id > 15000000 LIMIT 1", cdcStream, backfillStreams[idx]))
+			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		}
+		return
+
+	case "reset_cdc_config":
+		cdcSettings := map[string]string{
+			"binlog_format":       "ROW",
+			"binlog_row_image":    "FULL",
+			"binlog_row_metadata": "FULL",
+		}
+		for variable, value := range cdcSettings {
+			_, err := db.ExecContext(ctx, fmt.Sprintf("SET GLOBAL %s = '%s'", variable, value))
+			require.NoError(t, err, fmt.Sprintf("failed to SET GLOBAL %s = %s", variable, value))
+		}
+		return
+
+	case "bulk_cdc_data_insert":
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		// insert the data into the cdc tables concurrently
+		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s LIMIT 15000000", cdcStream, backfillStreams[executionNumber]))
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		return
+
+	case "evolve-schema":
+		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
+
+	default:
+		t.Fatalf("Unsupported operation: %s", operation)
+	}
+
+	_, err = db.ExecContext(ctx, query)
+	require.NoError(t, err, "Failed to execute %s operation", operation)
+}
+
+// insertTestData inserts test data into the specified table
+func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName string) {
+	t.Helper()
+
+	for i := 1; i <= 5; i++ {
+		query := fmt.Sprintf(`
+		INSERT INTO %s (
+			id_cursor, id, id_bigint,
+			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
+			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			price_double_precision, price_float, price_numeric, price_real,
+			name_char, name_varchar, name_text, name_tinytext,
+			name_mediumtext, name_longtext, created_date,
+			created_timestamp, is_active, long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions,
+			excludedColumn
+		) VALUES (
+			%d, %d, 123456789012345,
+			100, 101, 102, 103,
+			5001, 5002, 101, 102,
+			50, 51,
+			123.45, 5330197.27, 123.456,
+			123.456,  123.45, 123.45, 123.456,
+			'c', 'varchar_val', 'text_val', 'tinytext_val',
+			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
+			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high',
+			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'sports,reading', 'read,write',
+			100
+		)`, tableName, i, i)
+
+		_, err := db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to insert test data row %d", i)
+	}
+	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
+	filteredQuery := fmt.Sprintf(`
+		INSERT INTO %s (
+			id_cursor, id, id_bigint,
+			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
+			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
+			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			price_double_precision, price_float, price_numeric, price_real,
+			name_char, name_varchar, name_text, name_tinytext,
+			name_mediumtext, name_longtext, created_date,
+			created_timestamp, is_active, long_varchar, name_bool, status, priority,
+			name_latin1, name_ucs2, name_utf16le, grade,
+			tags, permissions,
+			excludedColumn
+		) VALUES (
+			-1, 998, 111111111111111,
+			0, 0, 0, 0,
+			0, 0, 0, 0,
+			0, 0,
+			500234.123, 500234.12, 500234.123,
+			500234.123, 500234.0, 500234.123, 500234.123,
+			'x', 'filtered_val', 'filtered text', 'filtered tiny',
+			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
+			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low',
+			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
+			'music', 'execute',
+			200
+		)`, tableName)
+	_, err := db.ExecContext(ctx, filteredQuery)
+	require.NoError(t, err, "Failed to insert filtered test data row")
+}
+
+var ExpectedMySQLData = map[string]interface{}{
+	"id_bigint":              int64(123456789012345),
+	"id_int":                 int32(100),
+	"id_int_unsigned":        int64(101),
+	"id_integer":             int32(102),
+	"id_integer_unsigned":    int64(103),
+	"id_mediumint":           int32(5001),
+	"id_mediumint_unsigned":  int32(5002),
+	"id_smallint":            int32(101),
+	"id_smallint_unsigned":   int32(102),
+	"id_tinyint":             int32(50),
+	"id_tinyint_unsigned":    int32(51),
+	"price_decimal":          float64(123.45),
+	"amount_decimal_9_2":     float64(5330197.27),
+	"price_double":           float64(123.456),
+	"price_double_precision": float64(123.456),
+	"price_float":            float32(123.45),
+	"price_numeric":          float64(123.45),
+	"price_real":             float64(123.456),
+	"name_char":              "c",
+	"name_varchar":           "varchar_val",
+	"name_text":              "text_val",
+	"name_tinytext":          "tinytext_val",
+	"name_mediumtext":        "mediumtext_val",
+	"name_longtext":          "longtext_val",
+	"created_date":           arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_timestamp":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"is_active":              int32(1),
+	"long_varchar":           "long_varchar_val",
+	"name_bool":              int32(1),
+	"status":                 "active",
+	"priority":               "high",
+	"name_latin1":            "latin1_val",
+	"name_ucs2":              "ucs2_val",
+	"name_utf16le":           "utf16le_val",
+	"grade":                  "naïve",
+	"tags":                   "sports,reading",
+	"permissions":            "read,write",
+}
+
+var ExpectedUpdatedData = map[string]interface{}{
+	"id_bigint":              int64(987654321098765),
+	"id_int":                 int64(200),
+	"id_int_unsigned":        int64(201),
+	"id_integer":             int32(202),
+	"id_integer_unsigned":    int64(203),
+	"id_mediumint":           int32(6001),
+	"id_mediumint_unsigned":  int32(6002),
+	"id_smallint":            int32(201),
+	"id_smallint_unsigned":   int32(202),
+	"id_tinyint":             int32(60),
+	"id_tinyint_unsigned":    int32(61),
+	"price_decimal":          float64(543.21),
+	"amount_decimal_9_2":     float64(1234567.89),
+	"price_double":           float64(654.321),
+	"price_double_precision": float64(654.321),
+	"price_float":            float64(543.21),
+	"price_numeric":          float64(543.21),
+	"price_real":             float64(654.321),
+	"name_char":              "X",
+	"name_varchar":           "updated varchar",
+	"name_text":              "updated text",
+	"name_tinytext":          "upd tiny",
+	"name_mediumtext":        "upd medium",
+	"name_longtext":          "upd long",
+	"created_date":           arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_timestamp":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"is_active":              int32(0),
+	"long_varchar":           "updated long...",
+	"name_bool":              int32(0),
+	"status":                 "pending",
+	"priority":               "low",
+	"name_latin1":            "updated latin1",
+	"name_ucs2":              "updated ucs2",
+	"name_utf16le":           "updated utf16le",
+	"grade":                  "café",
+	"tags":                   "gaming,reading",
+	"permissions":            "read,write,execute",
+	"includedcolumn":         int32(202),
+}
+
+var MySQLToDestinationSchema = map[string]string{
+	"id":                     "bigint",
+	"id_bigint":              "bigint",
+	"id_int":                 "int",
+	"id_int_unsigned":        "bigint",
+	"id_integer":             "int",
+	"id_integer_unsigned":    "bigint",
+	"id_mediumint":           "mediumint",
+	"id_mediumint_unsigned":  "unsigned mediumint",
+	"id_smallint":            "smallint",
+	"id_smallint_unsigned":   "unsigned smallint",
+	"id_tinyint":             "tinyint",
+	"id_tinyint_unsigned":    "unsigned tinyint",
+	"price_decimal":          "decimal",
+	"price_double":           "double",
+	"price_double_precision": "double",
+	"price_float":            "float",
+	"price_numeric":          "decimal",
+	"price_real":             "double",
+	"name_char":              "char",
+	"name_varchar":           "varchar",
+	"name_text":              "text",
+	"name_tinytext":          "tinytext",
+	"name_mediumtext":        "mediumtext",
+	"name_longtext":          "longtext",
+	"created_date":           "datetime",
+	"created_timestamp":      "timestamp",
+	"is_active":              "tinyint",
+	"long_varchar":           "mediumtext",
+	"name_bool":              "tinyint",
+	"status":                 "enum",
+	"priority":               "enum",
+	"name_latin1":            "varchar",
+	"name_ucs2":              "varchar",
+	"name_utf16le":           "varchar",
+	"grade":                  "enum",
+	"tags":                   "set",
+	"permissions":            "set",
+}
+
+var EvolvedMySQLToDestinationSchema = map[string]string{
+	"id":                     "bigint",
+	"id_bigint":              "bigint",
+	"id_int":                 "bigint",
+	"id_int_unsigned":        "bigint",
+	"id_integer":             "int",
+	"id_integer_unsigned":    "bigint",
+	"id_mediumint":           "mediumint",
+	"id_mediumint_unsigned":  "unsigned mediumint",
+	"id_smallint":            "smallint",
+	"id_smallint_unsigned":   "unsigned smallint",
+	"id_tinyint":             "tinyint",
+	"id_tinyint_unsigned":    "unsigned tinyint",
+	"price_decimal":          "decimal",
+	"amount_decimal_9_2":     "decimal",
+	"price_double":           "double",
+	"price_double_precision": "double",
+	"price_float":            "double",
+	"price_numeric":          "decimal",
+	"price_real":             "double",
+	"name_char":              "char",
+	"name_varchar":           "varchar",
+	"name_text":              "text",
+	"name_tinytext":          "tinytext",
+	"name_mediumtext":        "mediumtext",
+	"name_longtext":          "longtext",
+	"created_date":           "datetime",
+	"created_timestamp":      "timestamp",
+	"is_active":              "tinyint",
+	"long_varchar":           "mediumtext",
+	"name_bool":              "tinyint",
+	"status":                 "enum",
+	"priority":               "enum",
+	"name_latin1":            "varchar",
+	"name_ucs2":              "varchar",
+	"name_utf16le":           "varchar",
+	"grade":                  "enum",
+	"tags":                   "set",
+	"permissions":            "set",
+	"includedcolumn":         "int",
+}
+var ExpectedMySQLDefaultCDCColumnsSchema = map[string]string{
+	"_cdc_timestamp":        "timestamp",
+	"_cdc_binlog_file_name": "string",
+	"_cdc_binlog_file_pos":  "bigint",
+}

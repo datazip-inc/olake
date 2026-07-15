@@ -54,6 +54,12 @@ BASE_CACHE_FLAG = $(if $(BASE_NO_CACHE),--no-cache --pull)
 GO_VERSION_NUM = $(shell echo $(GO_VERSION) | sed 's/go//')
 
 BASE_IMAGE_TAG ?= build-$(GO_VERSION)
+BASE_IMAGE ?= olakego/base:$(BASE_IMAGE_TAG)
+
+# Queried by CI (integration-tests-runner.yml) to run the bootstrap check in the base image.
+.PHONY: print.base-image
+print.base-image:
+	@echo $(BASE_IMAGE)
 
 # The integration-test base image. Unlike the driver images this one is never pushed, so it takes
 # the host platform by default rather than the release set in drivers/platforms.conf: a build for
@@ -67,7 +73,7 @@ docker.base.build:
 		echo "ERROR: could not read the go version from go.mod."; \
 		exit 1; \
 	fi
-	docker build $(addprefix --platform ,$(PLATFORMS)) --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t olakego/base:$(BASE_IMAGE_TAG) -f base.Dockerfile .
+	docker build $(addprefix --platform ,$(PLATFORMS)) --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t $(BASE_IMAGE) -f base.Dockerfile .
 
 # Mirrors CI's "Go Build and Lint" workflow (.github/workflows/golang-ci.yml):
 # its lint job installs golangci-lint via `go install ...@latest` and runs it
@@ -173,8 +179,8 @@ HELP_TARGETS :=
 # a docker-compose.yml get db.* stacks and test targets (s3 has no local stack).
 SOURCE_DRIVERS := $(filter $(DRIVERS),$(notdir $(patsubst %/docker-compose.yml,%,$(wildcard drivers/*/docker-compose.yml))))
 CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
-INTEGRATION_PKGS := $(addsuffix /internal/...,$(addprefix ./drivers/,$(SOURCE_DRIVERS)))
-CDC_PKGS := $(addsuffix /internal/...,$(addprefix ./drivers/,$(CDC_DRIVERS)))
+INTEGRATION_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
+CDC_PKGS := $(addsuffix /...,$(addprefix ./,$(CDC_DRIVERS)))
 
 # --- prepare ------------------------------------------------------------------
 # prepare.<d> provisions whatever driver d needs before it can compile; the
@@ -189,12 +195,24 @@ prepare.all: $(addprefix prepare.,$(DRIVERS))
 .PHONY: prepare.all
 
 # --- source databases (generated per driver) ---------------------------------
+# start is split into up (create the containers) + wait (block until the stack
+# answers, then run its one-time init): `make -j db.all.up` pulls every image
+# at once, and `make -j db.all.wait` collapses all the probes into one parallel
+# step, so slow boots (db2, spark) overlap with each other and with whatever
+# runs between the two -- what CI does.
 define SOURCE_DB_template
-.PHONY: db.$(1).start db.$(1).stop db.$(1).teardown db.$(1).restart db.$(1).refresh
-db.$(1).start:
+.PHONY: db.$(1).up db.$(1).wait db.$(1).start db.$(1).stop db.$(1).teardown db.$(1).restart db.$(1).refresh
+db.$(1).up:
 	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml up -d
+
+db.$(1).wait:
 	@$$(call wait_ready,$(1))
 	@$$(POST_SETUP.$(1))
+
+# Sequenced via sub-make so `make -j` cannot probe a stack that is not up yet.
+db.$(1).start:
+	@$$(MAKE) --no-print-directory db.$(1).up
+	@$$(MAKE) --no-print-directory db.$(1).wait
 
 db.$(1).stop:
 	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml down --remove-orphans
@@ -214,6 +232,8 @@ db.$(1).refresh:
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call SOURCE_DB_template,$(d))))
 
+db.source.all.up: $(addprefix db.,$(addsuffix .up,$(SOURCE_DRIVERS)))
+db.source.all.wait: $(addprefix db.,$(addsuffix .wait,$(SOURCE_DRIVERS)))
 db.source.all.start: $(addprefix db.,$(addsuffix .start,$(SOURCE_DRIVERS)))
 db.source.all.stop: $(addprefix db.,$(addsuffix .stop,$(SOURCE_DRIVERS)))
 db.source.all.teardown: $(addprefix db.,$(addsuffix .teardown,$(SOURCE_DRIVERS)))
@@ -225,11 +245,17 @@ db.source.all.refresh:
 	@$(MAKE) --no-print-directory db.source.all.start
 
 # --- destination stack --------------------------------------------------------
-db.destination.all.start:
+db.destination.all.up:
 	mkdir -p $(DEST_DATA_DIR)/minio-data $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
 	$(COMPOSE) -f $(DEST_COMPOSE) up -d $(DEST_SERVICES)
+
+db.destination.all.wait:
 	@$(call wait_ready,minio)
 	@$(call wait_ready,spark)
+
+db.destination.all.start:
+	@$(MAKE) --no-print-directory db.destination.all.up
+	@$(MAKE) --no-print-directory db.destination.all.wait
 
 db.destination.all.stop:
 	$(COMPOSE) -f $(DEST_COMPOSE) down --remove-orphans
@@ -245,6 +271,8 @@ db.destination.all.refresh:
 	@$(MAKE) --no-print-directory db.destination.all.teardown
 	@$(MAKE) --no-print-directory db.destination.all.start
 
+db.all.up: db.source.all.up db.destination.all.up
+db.all.wait: db.source.all.wait db.destination.all.wait
 db.all.start: db.source.all.start db.destination.all.start
 db.all.stop: db.source.all.stop db.destination.all.stop
 db.all.teardown: db.source.all.teardown db.destination.all.teardown
@@ -280,22 +308,22 @@ $(foreach d,$(DRIVERS),$(eval $(call DEV_BUILD_template,$(d))))
 define INTEGRATION_TEST_template
 .PHONY: test.integration.$(1)
 test.integration.$(1): prepare.$(1) db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
-	$$(GO_ENV.$(1)) go test -v ./drivers/$(1)/internal/... -timeout 0 -count=1 -run 'Integration'
+	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run 'Integration'
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call INTEGRATION_TEST_template,$(d))))
 
 define TWO_PC_TEST_template
 .PHONY: test.2pc.$(1)
 test.2pc.$(1): prepare.$(1) db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
-	$$(GO_ENV.$(1)) go test -v ./drivers/$(1)/internal/... -timeout 0 -count=1 -run '2PC'
+	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run '2PC'
 endef
 $(foreach d,$(CDC_DRIVERS),$(eval $(call TWO_PC_TEST_template,$(d))))
 
 test.integration: $(addprefix prepare.,$(SOURCE_DRIVERS)) db.all.start $(ICEBERG_JAR)
-	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) go test -v -p $(words $(SOURCE_DRIVERS)) $(INTEGRATION_PKGS) -timeout 0 -count=1 -run 'Integration'
+	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(INTEGRATION_PKGS) -timeout 0 -count=1 -run 'Integration'
 
 test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix db.,$(addsuffix .start,$(CDC_DRIVERS))) db.destination.all.start $(ICEBERG_JAR)
-	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
+	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
 
 # Unit tests across every module in the go.work workspace. Directory patterns
 # ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
@@ -318,12 +346,13 @@ help:
 	@printf "  %-44s %s\n" "gomod / golangci / trivy / gofmt / pre-commit" "tidy, lint, format and git-hook targets"
 	@echo ""
 	@echo "Source databases (compose up + wait until ready; stop keeps volumes):"
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).start" "start + wait for $(d)";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).start" "start + wait for $(d) (= db.$(d).up then db.$(d).wait)";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).stop" "stop $(d) (keep volumes + data)";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).teardown" "stop $(d) + remove volumes";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).restart" "stop then start $(d) (keep data)";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).refresh" "teardown then start $(d) (wipe data)";)
 	@printf "  %-44s %s\n" "db.source.all.<verb>" "verb = start|stop|teardown|restart|refresh, all source DBs (make -j8)"
+	@printf "  %-44s %s\n" "db.<driver>.up | db.<driver>.wait" "the two halves of start, for running each in parallel"
 	@echo ""
 	@echo "Destination stack (minio + mc + iceberg catalog + spark-connect):"
 	@printf "  %-44s %s\n" "db.destination.all.start|stop" "the iceberg/parquet test stack"
@@ -331,6 +360,7 @@ help:
 	@printf "  %-44s %s\n" "db.destination.all.teardown" "down --volumes + DELETE $(DEST_DATA_DIR)"
 	@printf "  %-44s %s\n" "db.destination.all.refresh" "teardown then start (fresh stack)"
 	@printf "  %-44s %s\n" "db.all.<verb>" "same verbs, sources + destination together"
+	@printf "  %-44s %s\n" "db.all.up | db.all.wait" "boot everything, then block on every probe (make -j)"
 	@echo ""
 	@echo "Dev builds:"
 	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "dev.$(d).build" "host binary at drivers/$(d)/olake";)

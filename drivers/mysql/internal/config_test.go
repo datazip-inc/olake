@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/datazip-inc/olake/lib"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/testutils"
 )
 
 func TestConfig_URI(t *testing.T) {
@@ -137,7 +137,7 @@ func TestConfig_URI(t *testing.T) {
 		{
 			name: "with verify-ca and valid CA certificate",
 			config: func() *Config {
-				certs := testutils.GenerateTestCerts()
+				certs := lib.GenerateTestCerts()
 				return &Config{
 					Host:     "db.internal",
 					Port:     3306,
@@ -163,7 +163,7 @@ func TestConfig_URI(t *testing.T) {
 		{
 			name: "with verify-full and valid certificates",
 			config: func() *Config {
-				certs := testutils.GenerateTestCerts()
+				certs := lib.GenerateTestCerts()
 				return &Config{
 					Host:     "db.internal",
 					Port:     3306,
@@ -356,7 +356,7 @@ func TestConfig_Validate(t *testing.T) {
 }
 
 func TestConfig_buildTLSConfig(t *testing.T) {
-	certs := testutils.GenerateTestCerts()
+	certs := lib.GenerateTestCerts()
 
 	tests := []struct {
 		name        string
