@@ -68,6 +68,7 @@ var RootCmd = &cobra.Command{
 			viper.Set(constants.EncryptionKey, encryptionKey)
 		}
 
+		// by default, LOG_FORMAT is console
 		viper.SetDefault(constants.LogFormat, "console")
 
 		// logger uses CONFIG_FOLDER
