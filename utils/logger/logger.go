@@ -165,7 +165,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 					"Estimated Remaining Time": estimatedSeconds,
 				}
 				if memInfo, err := mem.VirtualMemory(); err == nil {
-					stats["Memory"] = fmt.Sprintf("%d mb", memInfo.Used/(1024*1024))
+					stats["Memory Usage Bytes"] = memInfo.Used
 				}
 				// perCPU is being passed as false, so the cpu utilization is aggregated over all cores
 				if cpuPercent, err := cpu.Percent(0, false); err == nil && len(cpuPercent) > 0 {
