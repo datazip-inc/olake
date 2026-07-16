@@ -56,7 +56,7 @@ type LocationInfo struct {
 func Init() {
 	go func() {
 		// check for disable
-		disabled, _ := strconv.ParseBool(os.Getenv("TELEMETRY_DISABLED"))
+		disabled, _ := strconv.ParseBool(viper.GetString("TELEMETRY_DISABLED"))
 		if disabled {
 			return
 		}
