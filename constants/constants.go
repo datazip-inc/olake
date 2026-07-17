@@ -33,6 +33,24 @@ const (
 	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
 	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
 	DefaultStateTimestampFormat = "2006-01-02T15:04:05.000000000Z"
+	// DistributionLower and DistributionUpper define the acceptable range
+	// of the distribution factor for validating evenly distributed numeric PKs.
+	DistributionLower = 0.05
+	DistributionUpper = 1000.0
+	// MysqlChunkAcceptanceRatio defines the minimum ratio of expected chunks that must be generated
+	// for the split to be considered valid.
+	MysqlChunkAcceptanceRatio = float64(0.8)
+	// SamplePercentMin / SamplePercentMax define the clamped range for TABLESAMPLE /
+	// SAMPLE BLOCK percentage used by physloc and ROWID chunk boundary estimation.
+	// 0.01 is the practical floor below which page-level sampling may return zero
+	// rows; 50 caps worst-case I/O so a bad row-count estimate cannot escalate to a
+	// near-full scan.
+	SamplePercentMin = float64(0.01)
+	SamplePercentMax = float64(50.0)
+	// SampleRowsPerChunkMultiplier controls sample density: each target chunk gets
+	// ~10 sample points to pick a boundary from, producing even spacing even when
+	// blocks/pages are clustered (e.g. freshly inserted rows land on adjacent pages).
+	SampleRowsPerChunkMultiplier = int64(10)
 )
 
 type DriverType string
@@ -48,6 +66,8 @@ const (
 	MSSQL    DriverType = "mssql"
 )
 
+// Drivers where filters are applied in memory after full refresh data is read.
+var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}

@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/jmoiron/sqlx"
+	"github.com/lib/pq"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -31,11 +32,34 @@ const (
 		AND has_schema_privilege(current_user, nspname, 'USAGE')
 		AND relkind IN ('r', 'm', 't', 'f', 'p')
 		AND nspname NOT LIKE 'pg_%'  -- Exclude default system schemas
-		AND nspname != 'information_schema';  -- Exclude information_schema`
+		AND nspname != 'information_schema'` // Exclude information_schema
+
+	// extends getPrivilegedTablesTmpl to restrict to user-specified schemas
+	getPrivilegedTablesFilteredTmpl = getPrivilegedTablesTmpl + `
+		AND nspname = ANY($1)`
 	// get table schema
 	getTableSchemaTmpl = `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
-	// get primary key columns
-	getTablePrimaryKey = `SELECT column_name FROM information_schema.key_column_usage WHERE table_schema = $1 AND table_name = $2 ORDER BY ordinal_position`
+	// get primary key columns, query copied from pgjdbc's PgDatabaseMetaData.getPrimaryKeys() with the always-NULL TABLE_CAT column omitted
+	// ref: https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java#L2134
+	getTablePrimaryKey = `SELECT result.column_name
+		FROM (
+			SELECT n.nspname AS table_schema,
+				ct.relname AS table_name,
+				a.attname  AS column_name,
+				(information_schema._pg_expandarray(i.indkey)).n AS key_seq,
+				information_schema._pg_expandarray(i.indkey)     AS keys,
+				a.attnum AS a_attnum
+			FROM pg_catalog.pg_class ct
+			JOIN pg_catalog.pg_attribute a ON (ct.oid = a.attrelid)
+			JOIN pg_catalog.pg_namespace n ON (ct.relnamespace = n.oid)
+			JOIN pg_catalog.pg_index i     ON (a.attrelid = i.indrelid)
+			JOIN pg_catalog.pg_class ci    ON (ci.oid = i.indexrelid)
+			WHERE i.indisprimary
+		) result
+		WHERE result.table_schema = $1
+		  AND result.table_name   = $2
+		  AND result.a_attnum     = (result.keys).x
+		ORDER BY result.key_seq`
 )
 
 type Postgres struct {
@@ -68,25 +92,28 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	}
 
 	var db *sql.DB
+	pgCfg, err := pgx.ParseConfig(p.config.Connection.String())
+	if err != nil {
+		return fmt.Errorf("failed to parse postgres connection string: %s", err)
+	}
+	tlsConfig, err := p.config.buildTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build tls config: %s", err)
+	}
+	if tlsConfig != nil {
+		pgCfg.TLSConfig = tlsConfig
+	}
+
 	if p.sshClient != nil {
 		logger.Info("Connecting to Postgres via SSH tunnel")
-		pgCfg, err := pgx.ParseConfig(p.config.Connection.String())
-		if err != nil {
-			return fmt.Errorf("failed to parse postgres connection string: %s", err)
-		}
-
 		// Allows pgx to use the SSH client to connect to the database
 		pgCfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
 			return p.sshClient.Dial("tcp", addr)
 		}
-		db = stdlib.OpenDB(*pgCfg)
-	} else {
-		db, err = sql.Open("pgx", p.config.Connection.String())
-		if err != nil {
-			return fmt.Errorf("failed to open database connection: %s", err)
-		}
+
 	}
 
+	db = stdlib.OpenDB(*pgCfg)
 	sqlxDB := sqlx.NewDb(db, "pgx")
 	sqlxDB.SetMaxOpenConns(p.config.MaxThreads)
 	pgClient := sqlxDB.Unsafe()
@@ -172,24 +199,35 @@ func (p *Postgres) CloseConnection() {
 	}
 }
 
-func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
+func (p *Postgres) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
-	var tableNamesOutput []Table
-	err := p.client.SelectContext(ctx, &tableNamesOutput, getPrivilegedTablesTmpl)
+
+	var (
+		tableNamesOutput []Table
+		err              error
+	)
+
+	if len(p.config.Schemas) > 0 {
+		logger.Infof("Schema filter applied, discovering only schemas: %v", p.config.Schemas)
+		err = p.client.SelectContext(ctx, &tableNamesOutput, getPrivilegedTablesFilteredTmpl, pq.Array(p.config.Schemas))
+	} else {
+		err = p.client.SelectContext(ctx, &tableNamesOutput, getPrivilegedTablesTmpl)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve table names: %s", err)
 	}
-	tablesNames := []string{}
+
+	tablesNames := make([]types.StreamID, 0, len(tableNamesOutput))
 	for _, table := range tableNamesOutput {
-		tablesNames = append(tablesNames, fmt.Sprintf("%s.%s", table.Schema, table.Name))
+		tablesNames = append(tablesNames, types.StreamID{Namespace: table.Schema, Name: table.Name})
 	}
 	return tablesNames, nil
 }
 
-func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	populateStream := func(streamName string) (*types.Stream, error) {
-		streamParts := strings.Split(streamName, ".")
-		schemaName, streamName := streamParts[0], streamParts[1]
+func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
+	populateStream := func(streamID types.StreamID) (*types.Stream, error) {
+		schemaName, streamName := streamID.Namespace, streamID.Name
 		stream := types.NewStream(streamName, schemaName, &p.config.Database)
 		var columnSchemaOutput []ColumnDetails
 		err := p.client.SelectContext(ctx, &columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
@@ -235,7 +273,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		return stream, nil
 	}
 
-	stream, err := populateStream(streamName)
+	stream, err := populateStream(streamID)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())

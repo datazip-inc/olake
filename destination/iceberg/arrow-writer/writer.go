@@ -3,6 +3,7 @@ package arrowwriter
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/arrow-go/v18/parquet/metadata"
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
@@ -19,6 +21,7 @@ import (
 )
 
 type ArrowWriter struct {
+	options        *destination.Options
 	fileschemajson map[string]string // file type -> iceberg schema JSON
 	schema         map[string]string
 	arrowSchema    map[string]*arrow.Schema // file type -> arrow schema
@@ -63,8 +66,9 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
+func New(ctx context.Context, options *destination.Options, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
+		options:       options,
 		partitionInfo: partitionInfo,
 		schema:        schema,
 		stream:        stream,
@@ -92,12 +96,14 @@ func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp 
 	values := make([]any, 0, len(w.partitionInfo))
 
 	for _, pInfo := range w.partitionInfo {
-		colType, ok := w.schema[pInfo.Field]
+		// SchemaField is the reformatted destination column name — matches w.schema keys
+		// and record.Data keys after FlattenAndCleanData pre-shaping.
+		colType, ok := w.schema[pInfo.SchemaField]
 		if !ok {
-			return "", nil, fmt.Errorf("partition field %q not in schema", pInfo.Field)
+			return "", nil, fmt.Errorf("partition field %q not in schema", pInfo.SchemaField)
 		}
 
-		fieldValue := utils.Ternary(pInfo.Field == constants.OlakeTimestamp, olakeTimestamp, record.Data[pInfo.Field])
+		fieldValue := utils.Ternary(pInfo.Field == constants.OlakeTimestamp, olakeTimestamp, record.Data[pInfo.SchemaField])
 		if colType == "timestamptz" {
 			if ts, err := typeutils.ReformatDate(fieldValue, true); err == nil {
 				fieldValue = ts
@@ -109,7 +115,7 @@ func (w *ArrowWriter) getRecordPartition(record types.RawRecord, olakeTimestamp 
 			return "", nil, fmt.Errorf("failed to get transformed value: %s", err)
 		}
 
-		paths = append(paths, ConstructColPath(pathStr, pInfo.Field, pInfo.Transform))
+		paths = append(paths, ConstructColPath(pathStr, pInfo.SchemaField, pInfo.Transform))
 		values = append(values, typedVal)
 	}
 
@@ -149,7 +155,7 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 	return writer, nil
 }
 
-// extract partitions records and tracks deletes for upsert mode.
+// extract partitions records and tracks deletes for upsert mode ("d"/"u"/"i" only; "c"/"r" skip dedup).
 func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) error {
 	for _, rec := range records {
 		pKey, values, err := w.getRecordPartition(rec, rec.OlakeColumns[constants.OlakeTimestamp].(time.Time))
@@ -165,8 +171,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		writer.data = append(writer.data, rec)
 		recordOpType := rec.OlakeColumns[constants.OpType].(string)
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
-		// Track deletes for upsert operations (d, u, c all need delete handling)
-		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "c") {
+		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i") {
 			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
 			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
@@ -189,6 +194,11 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 					Position: filePosition,
 				}
 			}
+		}
+
+		// Normalise "i" → "c" in the data file so downstream consumers see a consistent op type.
+		if recordOpType == "i" {
+			rec.OlakeColumns[constants.OpType] = "c"
 		}
 	}
 
@@ -237,7 +247,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 			}
 		}
 
-		record, err := createArrowRecord(writer.data, w.allocator, w.arrowSchema[fileTypeData], w.stream.NormalizationEnabled())
+		record, err := createArrowRecord(writer.data, w.allocator, w.arrowSchema[fileTypeData])
 		if err != nil {
 			return fmt.Errorf("failed to create arrow record: %s", err)
 		}
@@ -323,7 +333,7 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 }
 
 // Close flushes all writers and commits files to Iceberg.
-func (w *ArrowWriter) Close(ctx context.Context) error {
+func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}
@@ -339,10 +349,15 @@ func (w *ArrowWriter) Close(ctx context.Context) error {
 	commitRequest := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_REGISTER_AND_COMMIT,
 		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId:      w.server.ServerID(),
-			DestTableName: w.stream.GetDestinationTable(),
-			FileMetadata:  orderedFiles,
+			ThreadId:     w.options.ThreadID,
+			FileMetadata: orderedFiles,
 		},
+	}
+
+	// Commit payload from CDC/driver only: e.g. {"captured_cdc_pos":"0/123ABC"}
+	if finalMetadataState != nil {
+		payloadBytes, _ := json.Marshal(finalMetadataState)
+		commitRequest.Metadata.Payload = string(payloadBytes)
 	}
 
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -510,8 +525,7 @@ func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string)
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_FILEPATH,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
+			ThreadId: w.options.ThreadID,
 		},
 	}
 
@@ -538,8 +552,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_UPLOAD_FILE,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
+			ThreadId: w.options.ThreadID,
 			FileUpload: &proto.ArrowPayload_FileUploadRequest{
 				FileData: rw.currentBuffer.Bytes(),
 				FilePath: rw.filePath,
@@ -584,12 +597,12 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	return nil
 }
 
+// fetchFileSchemaJSON retrieves the Iceberg schemas for Arrow serialization.
 func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_JSONSCHEMA,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
+			ThreadId: w.options.ThreadID,
 		},
 	}
 

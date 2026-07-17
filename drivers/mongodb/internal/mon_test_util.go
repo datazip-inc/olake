@@ -101,9 +101,41 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			"id_minkey":         primitive.MinKey{},
 			"id_maxkey":         primitive.MaxKey{},
 			"name_varchar":      "varchar_val",
+			"excludedColumn":    101,
 		}
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert document")
+		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
+		filteredDoc := bson.M{
+			"id":             999,
+			"id_cursor":      -1,
+			"id_bigint":      int64(111111111111111),
+			"id_int":         int32(0),
+			"id_timestamp":   time.Date(2022, 6, 15, 10, 0, 0, 0, time.UTC),
+			"id_double":      float64(50.123),
+			"excludedColumn": 200,
+		}
+		_, err = collection.InsertOne(ctx, filteredDoc)
+		require.NoError(t, err, "Failed to insert filtered test data row")
+
+	case "insert_2pc":
+		doc2 := bson.M{
+			"id_bigint":         int64(123456789012345),
+			"id_int":            int32(100),
+			"id_timestamp":      time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
+			"id_double":         float64(123.456),
+			"id_bool":           true,
+			"id_cursor":         int32(7),
+			"created_timestamp": primitive.Timestamp{T: uint32(1754905992), I: 1},
+			"id_nil":            nil,
+			"id_regex":          primitive.Regex{Pattern: "test.*", Options: "i"},
+			"id_nested":         nestedDoc,
+			"id_minkey":         primitive.MinKey{},
+			"id_maxkey":         primitive.MaxKey{},
+			"name_varchar":      "varchar_val",
+		}
+		_, err2 := collection.InsertOne(ctx, doc2)
+		require.NoError(t, err2, "Failed to insert document (insert_2pc)")
 
 	case "update":
 		filter := bson.M{"id": int32(1)}
@@ -122,6 +154,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				"id_minkey":         primitive.MinKey{},
 				"id_maxkey":         primitive.MaxKey{},
 				"name_varchar":      "updated varchar",
+				"excludedColumn":    102,
+				"includedColumn":    int32(202),
 			},
 		}
 		_, err := collection.UpdateOne(ctx, filter, update)
@@ -199,11 +233,24 @@ func insertTestData(t *testing.T, ctx context.Context, collection *mongo.Collect
 			"id_minkey":         primitive.MinKey{},
 			"id_maxkey":         primitive.MaxKey{},
 			"name_varchar":      "varchar_val",
+			"excludedColumn":    100,
 		}
 
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
 	}
+	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
+	filteredDoc := bson.M{
+		"id":             999,
+		"id_cursor":      -1,
+		"id_bigint":      int64(111111111111111),
+		"id_int":         int32(0),
+		"id_timestamp":   time.Date(2021, 6, 15, 10, 0, 0, 0, time.UTC),
+		"id_double":      float64(500234.123),
+		"excludedColumn": 200,
+	}
+	_, err := collection.InsertOne(ctx, filteredDoc)
+	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
 var ExpectedMongoData = map[string]interface{}{
@@ -232,6 +279,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "updated varchar",
+	"includedcolumn":    int32(202),
 }
 
 var MongoToDestinationSchema = map[string]string{
@@ -260,6 +308,7 @@ var UpdatedMongoToDestinationSchema = map[string]string{
 	"id_minkey":         "string",
 	"id_maxkey":         "string",
 	"name_varchar":      "string",
+	"includedcolumn":    "int",
 }
 
 var ExpectedMongoDbDefaultCDCColumnsSchema = map[string]string{

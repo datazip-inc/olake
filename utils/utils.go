@@ -3,7 +3,7 @@ package utils
 import (
 	"context"
 
-	//nolint:gosec,G115
+	//nolint:gosec // G401: md5 used for non-crypto hashing
 	"crypto/md5"
 	"crypto/rand"
 	"crypto/sha256"
@@ -281,7 +281,7 @@ func GetKeysHash(m map[string]interface{}, keys ...string) string {
 		str.WriteString(fmt.Sprint(m[k]))
 		str.WriteRune('|')
 	}
-	//nolint:gosec,G115
+	//nolint:gosec // G115: overflow not applicable for md5.Sum input size
 	return fmt.Sprintf("%x", md5.Sum([]byte(str.String())))
 }
 
@@ -455,6 +455,38 @@ func SplitAndTrim(s string) []string {
 	return result
 }
 
+// RetryWithSkip calls f once and retries up to maxRetries more times on error,
+// using linear backoff ((retry+1)*sleep) between each attempt.
+// shouldRetry is called on each non-nil error: return true to keep retrying, false to surface the
+// error immediately without waiting. A nil shouldRetry retries all errors.
+func RetryWithSkip(ctx context.Context, maxRetries int, sleep time.Duration, shouldRetry func(error) bool, f func(ctx context.Context) error) (err error) {
+	for cur := range maxRetries + 1 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			if err = f(ctx); err == nil {
+				return nil
+			}
+		}
+
+		if shouldRetry != nil && !shouldRetry(err) {
+			return err
+		}
+
+		if cur != maxRetries {
+			backoff := time.Duration(cur+1) * sleep
+			logger.Infof("retry attempt[%d/%d], retrying after %.2f seconds due to err: %s", cur+1, maxRetries, backoff.Seconds(), err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+		}
+	}
+	return err
+}
+
 // RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
 func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
 	for cur := range attempts {
@@ -510,4 +542,15 @@ func ExtractColumnName(groups ...string) string {
 		}
 	}
 	return ""
+}
+
+// ComputeSamplePercent returns the TABLESAMPLE / SAMPLE BLOCK percentage to use
+// for chunk boundary estimation. The result is clamped to
+// [constants.SamplePercentMin, constants.SamplePercentMax] so callers never
+// request a near-zero or near-full scan regardless of row-count estimates.
+// TODO: Improve the sampling percentage formula for huge tables and near to consistent chunks.
+func ComputeSamplePercent(approxRowCount, numberOfChunks int64) float64 {
+	minSampleRows := numberOfChunks * constants.SampleRowsPerChunkMultiplier
+	samplingPercentage := float64(minSampleRows) / float64(approxRowCount) * 100.0
+	return max(constants.SamplePercentMin, min(constants.SamplePercentMax, samplingPercentage))
 }

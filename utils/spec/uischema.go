@@ -61,15 +61,46 @@ const MongoDBUISchema = `{
 const PostgresUISchema = `{
       "ui:grid": [
         { "host": 12, "database": 12 },
-        { "username": 12, "password": 12 },
-        { "port": 12, "jdbc_url_params": 12 },
-        { "ssl": 12, "max_threads": 12 },
-        { "update_method": 12, "retry_count": 12 },
-        { "ssh_config": 12 }
+        { "schemas": 12, "username": 12 },
+        { "password": 12, "port": 12 },
+        { "jdbc_url_params": 12, "ssl": 12 },
+        { "max_threads": 12, "update_method": 12 },
+        { "retry_count": 12, "ssh_config": 12 }
       ],
+      "schemas": {
+        "ui:options": {
+          "label": false
+        }
+      },
       "ssl": {
         "ui:options": {
           "title": false
+        },
+        "ui:grid": [
+          { "mode": 24 },
+          { "server_ca": 24 },
+          { "client_cert": 12, "client_key": 12 }
+        ],
+        "mode": {
+          "ui:widget": "select"
+        },
+        "server_ca": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_cert": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
+        },
+        "client_key": {
+          "ui:widget": "textarea",
+          "ui:options": {
+            "rows": 1
+          }
         }
       },
       "update_method": {
@@ -165,8 +196,10 @@ const MSSQLUISchema = `{
     { "host": 12, "database": 12 },
     { "username": 12, "password": 12 },
     { "port": 12, "max_threads": 12 },
-    { "retry_count": 12, "ssl": 12 },
-    { "update_method": 12 }
+    { "retry_count": 12, "jdbc_url_params": 12 },
+    { "ssl": 12, "manage_capture_instances": 12 },
+    { "primary_config": 24 },
+    { "update_method": 12, "ssh_config": 12 }
   ],
   "ssl": {
     "ui:options": {
@@ -179,6 +212,39 @@ const MSSQLUISchema = `{
     "ui:options": {
       "title": false,
       "description": false
+    }
+  },
+  "manage_capture_instances": {
+    "ui:widget": "boolean"
+  },
+  "primary_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "password": 12 }
+    ],
+    "password": {
+      "ui:widget": "password"
+    }
+  },
+  "ssh_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "private_key": 12 },
+      { "passphrase": 12, "password": 12 }
+    ],
+    "private_key": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
     }
   }
 }`

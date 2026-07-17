@@ -131,7 +131,7 @@ func (o *Oracle) MaxRetries() int {
 }
 
 // GetStreamNames returns a list of available tables/streams
-func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
+func (o *Oracle) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for Oracle database")
 	// TODO: Add support for custom schema names
 	query := jdbc.OracleTableDiscoveryQuery()
@@ -141,13 +141,13 @@ func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var streamNames []string
+	var streamNames []types.StreamID
 	for rows.Next() {
 		var owner, table_name string
 		if err := rows.Scan(&owner, &table_name); err != nil {
 			return nil, fmt.Errorf("failed to scan table: %s", err)
 		}
-		streamNames = append(streamNames, fmt.Sprintf("%s.%s", owner, table_name))
+		streamNames = append(streamNames, types.StreamID{Namespace: owner, Name: table_name})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating tables: %s", err)
@@ -157,13 +157,9 @@ func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
 }
 
 // ProduceSchema generates the schema for a given stream
-func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+func (o *Oracle) ProduceSchema(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
 	logger.Infof("producing type schema for stream [%s]", streamName)
-	parts := strings.Split(streamName, ".")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-	}
-	schemaName, tableName := parts[0], parts[1]
+	schemaName, tableName := streamName.Namespace, streamName.Name
 	stream := types.NewStream(tableName, schemaName, nil)
 
 	// Get column information
@@ -211,10 +207,33 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 	return stream, pkRows.Err()
 }
 
+// tzNaiveOracleTypes are Oracle column types that store only wall-clock time with no timezone.
+// go-ora attaches dbServerTimeZone when decoding all three via the same code path:
+//
+//	DATE (12)          → "DATE"         — Oracle DATE columns
+//	TimeStampDTY (180) → "TimeStampDTY" — TIMESTAMP columns in regular SELECT results
+//	TODO: Add support for TIMESTAMP (187)    → "TIMESTAMP"    — TIMESTAMP in RETURNING INTO / PL/SQL OUT params
+//
+// Strip the attached offset to preserve wall-clock digits consistently as UTC.
+var tzNaiveOracleTypes = map[string]bool{
+	"date":         true,
+	"timestampdty": true,
+}
+
 func (o *Oracle) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
 	if value == nil {
 		return nil, typeutils.ErrNullValue
 	}
 	olakeType := typeutils.ExtractAndMapColumnType(columnType, oracleTypeToDataTypes)
-	return typeutils.ReformatValue(olakeType, value)
+	result, err := typeutils.ReformatValue(olakeType, value)
+	if err != nil {
+		return result, err
+	}
+	// Strip the session-timezone offset that go-ora attaches to timezone-naive columns.
+	if tzNaiveOracleTypes[strings.ToLower(columnType)] {
+		if t, ok := result.(time.Time); ok {
+			result = time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second(), t.Nanosecond(), time.UTC)
+		}
+	}
+	return result, nil
 }

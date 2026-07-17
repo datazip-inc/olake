@@ -58,6 +58,166 @@
             "required": [
                 "mode"
             ]
+        },
+        "jdbc_url_params": {
+            "type": "object",
+            "title": "JDBC URL Parameters",
+            "description": "Additional connection parameters for the Go MSSQL driver",
+            "additionalProperties": true,
+            "default": {}
+        },
+        "manage_capture_instances": {
+            "type": "boolean",
+            "title": "Manage Capture Instances",
+            "description": "Automatically manage MSSQL CDC capture instances for schema evolution",
+            "default": false
+        },
+        "ssh_config": {
+            "title": "SSH Config",
+            "description": "OLake uses SSH to connect to the database.",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "title": "No Tunnel",
+                    "properties": {
+                        "type": {
+                            "const": "no_tunnel"
+                        }
+                    },
+                    "required": [
+                        "type"
+                    ]
+                },
+                {
+                    "type": "object",
+                    "title": "SSH Key Authentication",
+                    "properties": {
+                        "type": {
+                            "const": "ssh_key_authentication"
+                        },
+                        "host": {
+                            "type": "string",
+                            "title": "SSH Host",
+                            "description": "SSH host address"
+                        },
+                        "port": {
+                            "type": "integer",
+                            "title": "SSH Port",
+                            "description": "Port number to connect to the SSH server"
+                        },
+                        "username": {
+                            "type": "string",
+                            "title": "SSH Username",
+                            "description": "Username to authenticate with the SSH server"
+                        },
+                        "private_key": {
+                            "type": "string",
+                            "title": "SSH Private Key",
+                            "description": "SSH private key to authenticate with the SSH server"
+                        },
+                        "passphrase": {
+                            "type": "string",
+                            "title": "SSH Passphrase",
+                            "description": "Passphrase to decrypt the encrypted SSH private key",
+                            "format": "password"
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "host",
+                        "port",
+                        "username",
+                        "private_key"
+                    ]
+                },
+                {
+                    "type": "object",
+                    "title": "SSH Password Authentication",
+                    "properties": {
+                        "type": {
+                            "const": "ssh_password_authentication"
+                        },
+                        "host": {
+                            "type": "string",
+                            "title": "SSH Host",
+                            "description": "SSH host address"
+                        },
+                        "port": {
+                            "type": "integer",
+                            "title": "SSH Port",
+                            "description": "Port number to connect to the SSH server"
+                        },
+                        "username": {
+                            "type": "string",
+                            "title": "SSH Username",
+                            "description": "Username to authenticate with the SSH server"
+                        },
+                        "password": {
+                            "type": "string",
+                            "title": "SSH Password",
+                            "description": "Password to authenticate with the SSH server",
+                            "format": "password",
+                            "minLength": 1
+                        }
+                    },
+                    "required": [
+                        "type",
+                        "host",
+                        "port",
+                        "username",
+                        "password"
+                    ]
+                }
+            ]
+        }
+    },
+    "dependencies": {
+        "manage_capture_instances": {
+            "oneOf": [
+                {
+                    "properties": {
+                        "manage_capture_instances": {
+                            "const": true
+                        },
+                        "primary_config": {
+                            "type": "object",
+                            "title": "Primary Configuration",
+                            "description": "Connection details for the Always On primary replica. Required when the main connection targets a read-only secondary and capture instance management is enabled. Uses the same SSH tunnel as the main connection.",
+                            "properties": {
+                                "host": {
+                                    "type": "string",
+                                    "title": "Primary Host",
+                                    "description": "Host address of the primary replica"
+                                },
+                                "port": {
+                                    "type": "integer",
+                                    "title": "Primary Port",
+                                    "description": "Port number of the primary replica"
+                                },
+                                "username": {
+                                    "type": "string",
+                                    "title": "Primary Username",
+                                    "description": "Username for connecting to the primary replica"
+                                },
+                                "password": {
+                                    "type": "string",
+                                    "title": "Primary Password",
+                                    "description": "Password for connecting to the primary replica",
+                                    "format": "password",
+                                    "minLength": 1
+                                }
+                            }
+                        }
+                    }
+                },
+                {
+                    "properties": {
+                        "manage_capture_instances": {
+                            "const": false
+                        }
+                    }
+                }
+            ]
         }
     },
     "required": [

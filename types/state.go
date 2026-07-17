@@ -37,7 +37,7 @@ type GlobalState struct {
 	Streams *Set[string] `json:"streams"`
 }
 
-// Chunk struct that holds status, min, and max values
+// Chunk struct that holds min, and max values
 type Chunk struct {
 	Min any `json:"min"`
 	Max any `json:"max"`

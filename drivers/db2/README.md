@@ -34,7 +34,13 @@ Add DB2 LUW credentials in following format in `config.json` file. [More details
     },
     "max_threads": 30,
     "jdbc_url_params": {},
-    "retry_count": 3
+    "retry_count": 3,
+    "ssh_config":{
+         "host": "ssh_host",
+         "port": 22,
+         "username": "ssh_user",
+         "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nssh_passkey\n-----END OPENSSH PRIVATE KEY-----"
+    }
   }
 ```
 

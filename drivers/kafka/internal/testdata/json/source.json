@@ -1,0 +1,9 @@
+{
+  "bootstrap_servers": "host.docker.internal:39092",
+  "protocol": {
+    "security_protocol": "PLAINTEXT"
+  },
+  "consumer_group_id": "kafka-Json-integration-test-group",
+  "threads_equal_total_partitions": true,
+  "backoff_retry_count": 3
+}

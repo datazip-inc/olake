@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
-	"net/url"
+	"net"
 	"strings"
 	"sync"
 	"time"
 
-	_ "github.com/microsoft/go-mssqldb"
+	mssql "github.com/microsoft/go-mssqldb"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -20,16 +20,20 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/ssh"
 )
 
 type MSSQL struct {
-	client       *sqlx.DB
-	config       *Config
-	state        *types.State
-	capturesMap  map[string][]captureInstance
-	lsnMap       sync.Map
-	streams      []types.StreamInterface
-	cdcSupported bool
+	client        *sqlx.DB
+	config        *Config
+	state         *types.State
+	capturesMap   map[string][]captureInstance
+	lsnMap        sync.Map
+	streams       []types.StreamInterface
+	cdcSupported  bool
+	isReadReplica bool
+	sshClient     *ssh.Client
+	primaryClient *sqlx.DB
 }
 
 // GetConfigRef implements abstract.DriverInterface.
@@ -53,31 +57,25 @@ func (m *MSSQL) CDCSupported() bool {
 }
 
 // Setup establishes the database connection and initialises CDC settings.
-// TODO: Add support for SSH Connection (bastion/jump node)
 func (m *MSSQL) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	var client *sqlx.DB
-	connStr := m.buildConnectionString()
-	db, err := sql.Open("sqlserver", connStr)
+	var err error
+	m.sshClient, err = setupSSH(m.config.SSHConfig)
 	if err != nil {
-		return fmt.Errorf("failed to open MSSQL connection: %s", err)
+		return fmt.Errorf("failed to setup SSH connection: %s", err)
+	}
+	if m.sshClient != nil {
+		logger.Info("Connecting to MSSQL via SSH tunnel")
 	}
 
-	client = sqlx.NewDb(db, "sqlserver").Unsafe()
-	// Set connection pool size
-	client.SetMaxOpenConns(m.config.MaxThreads)
-
-	// Test connection
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %s", err)
+	m.client, err = setupDBConnection(ctx, m.config.URI(), m.sshClient, m.config.Host, m.config.MaxThreads)
+	if err != nil {
+		return fmt.Errorf("failed to connect to MSSQL: %s", err)
 	}
 
-	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if database-level CDC is enabled
 	cdcSupported, err := m.isDatabaseCDCEnabled(ctx)
@@ -88,44 +86,39 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		logger.Warnf("CDC is not supported")
 	}
 	m.cdcSupported = cdcSupported
+
+	m.isReadReplica = m.detectReadReplica(ctx)
+	if m.isReadReplica {
+		logger.Info("Connected to a read-only MSSQL replica; agent catch-up wait will be skipped")
+	}
+
+	if m.config.ManageCaptureInstances && m.config.PrimaryConfig != nil && m.config.PrimaryConfig.Host != "" {
+		m.primaryClient, err = setupDBConnection(
+			ctx,
+			m.config.primaryURI(),
+			m.sshClient,
+			m.config.PrimaryConfig.Host,
+			1,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to connect to primary for capture instance management: %s", err)
+		}
+		logger.Info("connected to primary node successfully for capture instance management")
+	}
 	return nil
 }
 
-func (m *MSSQL) buildConnectionString() string {
-	host := m.config.Host
-	if !strings.Contains(host, ":") {
-		host = fmt.Sprintf("%s:%d", host, m.config.Port)
+// detectReadReplica reports whether this connection targets a read-only
+// secondary replica. If detection fails, it logs a warning and returns false
+// so the driver still behaves as on a primary.
+func (m *MSSQL) detectReadReplica(ctx context.Context) bool {
+	var isReadReplica bool
+	err := m.client.QueryRowContext(ctx, jdbc.MSSQLIsReadReplicaQuery()).Scan(&isReadReplica)
+	if err != nil {
+		logger.Warnf("could not determine read replica status - assuming primary: %s", err)
+		return false
 	}
-
-	query := url.Values{}
-	query.Add("database", m.config.Database)
-
-	// Set encrypt parameter based on SSL configuration.
-	if m.config.SSLConfiguration == nil {
-		query.Add("encrypt", "disable")
-	} else {
-		sslmode := string(m.config.SSLConfiguration.Mode)
-		switch sslmode {
-		case utils.SSLModeDisable:
-			query.Add("encrypt", "disable")
-		case utils.SSLModeRequire:
-			query.Add("encrypt", "true")
-			// For "require" we trust the server certificate by default.
-			query.Add("TrustServerCertificate", "true")
-		default:
-			// Fallback to disable for unsupported modes (e.g., verify-ca, verify-full).
-			query.Add("encrypt", "disable")
-		}
-	}
-
-	u := &url.URL{
-		Scheme:   "sqlserver",
-		User:     url.UserPassword(m.config.Username, m.config.Password),
-		Host:     host,
-		RawQuery: query.Encode(),
-	}
-
-	return u.String()
+	return isReadReplica
 }
 
 // Close ensures proper cleanup
@@ -136,7 +129,69 @@ func (m *MSSQL) Close() error {
 			logger.Errorf("failed to close connection with MSSQL: %s", err)
 		}
 	}
+
+	if m.primaryClient != nil {
+		if err := m.primaryClient.Close(); err != nil {
+			logger.Errorf("failed to close primary MSSQL connection: %s", err)
+		}
+	}
+
+	if m.sshClient != nil {
+		if err := m.sshClient.Close(); err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+		}
+	}
+
 	return nil
+}
+
+func setupSSH(sshCfg *utils.SSHConfig) (*ssh.Client, error) {
+	if sshCfg == nil || sshCfg.Host == "" {
+		return nil, nil
+	}
+
+	sshClient, err := sshCfg.SetupSSHConnection()
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("established SSH tunnel connection successfully")
+	return sshClient, nil
+}
+
+func setupDBConnection(ctx context.Context, uri string, sshClient *ssh.Client, host string, maxConns int) (*sqlx.DB, error) {
+	connector, err := mssql.NewConnector(uri)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MSSQL connector: %s", err)
+	}
+	if sshClient != nil {
+		connector.Dialer = &mssqlSSHDialer{sshClient: sshClient, host: host}
+	}
+
+	client := sqlx.NewDb(sql.OpenDB(connector), "sqlserver")
+	client.SetMaxOpenConns(maxConns)
+
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := client.PingContext(pingCtx); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %s", err)
+	}
+
+	return client, nil
+}
+
+type mssqlSSHDialer struct {
+	sshClient *ssh.Client
+	host      string
+}
+
+func (d *mssqlSSHDialer) DialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	return d.sshClient.DialContext(ctx, network, addr)
+}
+
+// HostName implements go-mssqldb's HostDialer interface, signalling that DNS
+// resolution should happen on the remote (SSH) side rather than locally.
+func (d *mssqlSSHDialer) HostName() string {
+	return d.host
 }
 
 // SetupState wires global state reference.
@@ -152,7 +207,7 @@ func (m *MSSQL) MaxRetries() int {
 	return m.config.RetryCount
 }
 
-func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m *MSSQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for MSSQL database %s", m.config.Database)
 
 	query := jdbc.MSSQLDiscoverTablesQuery()
@@ -162,13 +217,13 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var tableNames []string
+	var tableNames []types.StreamID
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&schemaName, &tableName); err != nil {
 			return nil, fmt.Errorf("failed to scan table: %s", err)
 		}
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
+		tableNames = append(tableNames, types.StreamID{Namespace: schemaName, Name: tableName})
 	}
 
 	// Check for any errors that occurred while iterating over the rows
@@ -179,14 +234,10 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	return tableNames, nil
 }
 
-func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	produceTableSchema := func(ctx context.Context, streamName string) (*types.Stream, error) {
+func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
+	produceTableSchema := func(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
-		parts := strings.Split(streamName, ".")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-		}
-		schemaName, tableName := parts[0], parts[1]
+		schemaName, tableName := streamName.Namespace, streamName.Name
 		stream := types.NewStream(tableName, schemaName, &m.config.Database)
 
 		columnQuery := jdbc.MSSQLTableSchemaQuery()
@@ -265,12 +316,9 @@ func (m *MSSQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	// reconstruct a proper RFC4122 UUID string (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
 	case "uniqueidentifier":
 		if v, ok := value.([]byte); ok {
-			return fmt.Sprintf("%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
-				v[3], v[2], v[1], v[0], // first 4 bytes (little-endian)
-				v[5], v[4], // next 2 bytes
-				v[7], v[6], // next 2 bytes
-				v[8], v[9], // next 2 bytes
-				v[10], v[11], v[12], v[13], v[14], v[15]), nil // last 6 bytes
+			if uuid, converted := formatUniqueIdentifierBytes(v); converted {
+				return uuid, nil
+			}
 		}
 		return fmt.Sprintf("%v", value), nil
 
@@ -297,20 +345,4 @@ func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 	}
 
 	return isEnabled, nil
-}
-
-// validateCDCStream verifies if the stream is CDC enabled in mssql.
-func (m *MSSQL) validateCDCStream(ctx context.Context, namespace, name string) (bool, error) {
-	if !m.cdcSupported {
-		return false, nil
-	}
-	var captureInstance string
-	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCTableEnabledQuery(), namespace, name).Scan(&captureInstance)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to check table CDC enablement for %s.%s: %s", namespace, name, err)
-	}
-	return true, nil
 }

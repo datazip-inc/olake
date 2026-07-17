@@ -14,17 +14,15 @@ type ConfiguredStream struct {
 	Stream         *Stream        `json:"stream,omitempty"`
 }
 
-// Condition represents a single condition in a filter
-type Condition struct {
-	Column   string
-	Operator string
-	Value    string
+type FilterConfig struct {
+	LogicalOperator string            `json:"logical_operator,omitempty"`
+	Conditions      []FilterCondition `json:"conditions,omitempty"`
 }
 
-// Filter represents the parsed filter
-type Filter struct {
-	Conditions      []Condition // a > b, a < b
-	LogicalOperator string      // condition[0] and/or condition[1], single and/or supported
+type FilterCondition struct {
+	Column   string `json:"column,omitempty"`
+	Operator string `json:"operator,omitempty"`
+	Value    any    `json:"value"`
 }
 
 func (s *ConfiguredStream) ID() string {
@@ -120,8 +118,18 @@ func (s *ConfiguredStream) RetainSelectedColumns() func(map[string]interface{}) 
 	}
 }
 
-// IsSelectedColumn returns a predicate that tells whether a column should be emitted for this stream,
-// based on the stream's SelectedColumns configuration and compare against destination column names by normalizing selected source column names.
+// ResolveColumnName returns the output column name based on the stream naming strategy, preserving the source name when use_source_column_names is enabled, otherwise applying utils.Reformat().
+func (s *ConfiguredStream) ResolveColumnName(key string) string {
+	if s.StreamMetadata.UseSourceColumnNames {
+		return key
+	}
+	return utils.Reformat(key)
+}
+
+// IsSelectedColumn returns a predicate that tells whether a column should be
+// emitted for this stream, based on the stream's SelectedColumns configuration.
+// Both the configured column list and the incoming key are resolved via
+// ResolveColumnName so source vs destination naming is handled transparently.
 func (s *ConfiguredStream) IsSelectedColumn() func(string) bool {
 	selectedColsCfg := s.StreamMetadata.SelectedColumns
 	if selectedColsCfg == nil || len(selectedColsCfg.Columns) == 0 {
@@ -130,7 +138,7 @@ func (s *ConfiguredStream) IsSelectedColumn() func(string) bool {
 	reformatColumns := func(columnsSet *Set[string]) *Set[string] {
 		out := NewSet[string]()
 		for _, col := range columnsSet.Array() {
-			out.Insert(utils.Reformat(col))
+			out.Insert(s.ResolveColumnName(col))
 		}
 		return out
 	}
@@ -172,6 +180,10 @@ func (s *ConfiguredStream) GetDestinationTable() string {
 	return utils.Ternary(s.Stream.DestinationTable == "", s.Stream.Name, s.Stream.DestinationTable).(string)
 }
 
+func (s *ConfiguredStream) GetPartitionRegex() string {
+	return s.StreamMetadata.PartitionRegex
+}
+
 // returns primary and secondary cursor
 func (s *ConfiguredStream) Cursor() (string, string) {
 	cursorFields := strings.Split(s.Stream.CursorField, ":")
@@ -183,10 +195,35 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 	return primaryCursor, secondaryCursor
 }
 
-func (s *ConfiguredStream) GetFilter() (Filter, error) {
+// GetFilter returns the configured filter for this stream in a normalized form.
+//
+// The returned FilterConfig is always the parsed representation of the filter:
+//   - If StreamMetadata.FilterConfig is set and has at least one condition,
+//     that value is returned as-is (after normalizing the logical operator),
+//     and isLegacy is false.
+//   - Otherwise, the legacy string-based StreamMetadata.Filter is parsed into
+//     a FilterConfig using the legacy regex parser. In this case isLegacy is true.
+//
+// Return values:
+//   - FilterConfig: parsed filter definition (may be empty if no filter is configured)
+//   - isLegacy:   true if the filter came from the legacy string field, false if it
+//     came from the new structured FilterConfig field
+//   - error:      non-nil only if the legacy string filter is non-empty and fails
+//     to parse; new structured filters do not return parse errors here.
+func (s *ConfiguredStream) GetFilter() (FilterConfig, bool, error) {
+	//new filter input — only apply structured filter_config when normalization is enabled
+	if s.StreamMetadata.Normalization && s.StreamMetadata.FilterConfig != nil && len(s.StreamMetadata.FilterConfig.Conditions) > 0 {
+		// Copy before normalizing to avoid a data race: GetFilter is called concurrently
+		// from multiple chunk goroutines that share the same ConfiguredStream pointer.
+		fc := *s.StreamMetadata.FilterConfig
+		fc.LogicalOperator = utils.Reformat(fc.LogicalOperator)
+		return fc, false, nil
+	}
+
+	// legacy filter input
 	filter := strings.TrimSpace(s.StreamMetadata.Filter)
 	if filter == "" {
-		return Filter{}, nil
+		return FilterConfig{}, true, nil
 	}
 	// FilterRegex supports the following filter patterns:
 	// Single condition:
@@ -206,11 +243,11 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	var FilterRegex = regexp.MustCompile(`^(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+))\s*(?:((?i:and|or))\s*(?:"([^"]*)"|(\w+))\s*(>=|<=|!=|>|<|=)\s*((?:"[^"]*"|-?\d+\.\d+|-?\d+|\.\d+|\w+)))?\s*$`)
 	matches := FilterRegex.FindStringSubmatch(filter)
 	if len(matches) == 0 {
-		return Filter{}, fmt.Errorf("invalid filter format: %s", filter)
+		return FilterConfig{}, true, fmt.Errorf("invalid filter format: %s", filter)
 	}
 
-	var conditions []Condition
-	conditions = append(conditions, Condition{
+	var conditions []FilterCondition
+	conditions = append(conditions, FilterCondition{
 		Column:   utils.ExtractColumnName(matches[1], matches[2]),
 		Operator: matches[3],
 		Value:    matches[4],
@@ -219,17 +256,17 @@ func (s *ConfiguredStream) GetFilter() (Filter, error) {
 	// Check if there's a logical operator (and/or)
 	logicalOp := matches[5]
 	if logicalOp != "" {
-		conditions = append(conditions, Condition{
+		conditions = append(conditions, FilterCondition{
 			Column:   utils.ExtractColumnName(matches[6], matches[7]),
 			Operator: matches[8],
 			Value:    matches[9],
 		})
 	}
 
-	return Filter{
+	return FilterConfig{
 		Conditions:      conditions,
 		LogicalOperator: logicalOp,
-	}, nil
+	}, true, nil
 }
 
 // Validate Configured Stream with Source Stream
@@ -251,11 +288,6 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 
 	if source.SourceDefinedPrimaryKey.ProperSubsetOf(s.Stream.SourceDefinedPrimaryKey) {
 		return fmt.Errorf("differnce found with primary keys: %v", source.SourceDefinedPrimaryKey.Difference(s.Stream.SourceDefinedPrimaryKey).Array())
-	}
-
-	_, err := s.GetFilter()
-	if err != nil {
-		return fmt.Errorf("failed to parse filter %s: %s", s.StreamMetadata.Filter, err)
 	}
 
 	return nil

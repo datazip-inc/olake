@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -59,21 +60,31 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int) ([]*types.Stream, error) {
-	// set max connections, uses maxDiscoverThreads if discover command is used
+func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, isSync bool) ([]*types.Stream, error) {
+	streams, err := a.driver.GetStreamNames(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get stream names: %s", err)
+	}
+
+	// During sync, skip ProduceSchema entirely streams.json already holds
+	// the full schema from discover run. GetStreamNames still runs
+	// above because S3 uses it to populate discoveredFiles (needed for chunking
+	// and incremental sync). Returning nil signals classifyStreams to skip
+	// source-side validation and trust the catalog directly.
+	if isSync {
+		return nil, nil
+	}
+
+	// Set max connections for the ProduceSchema
 	if maxDiscoverThreads > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
 	} else if a.driver.MaxConnections() > 0 {
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
-	streams, err := a.driver.GetStreamNames(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get stream names: %s", err)
-	}
 	var streamMap sync.Map
 
-	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream string) error {
+	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream types.StreamID) error {
 		streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
 		if err != nil {
 			return fmt.Errorf("%w: failed to produce schema for stream %s: %s", constants.ErrNonRetryable, stream, err)
@@ -225,10 +236,9 @@ func (a *AbstractDriver) waitForBackfillCompletion(mainCtx context.Context, back
 }
 
 // generateThreadID creates a unique thread ID for a stream
-func generateThreadID(streamID string, suffix string) string {
-	withSuffix := fmt.Sprintf("%s_%s_%s", streamID, utils.ULID(), suffix)
-	withoutSuffix := fmt.Sprintf("%s_%s", streamID, utils.ULID())
-	return utils.Ternary(suffix != "", withSuffix, withoutSuffix).(string)
+func generateThreadID(streamID, hash string) string {
+	suffix := utils.Ternary(hash != "", hash, utils.ULID())
+	return fmt.Sprintf("%s_%s", streamID, suffix)
 }
 
 // handleWriterCleanup is a helper that creates a defer function for common writer cleanup operations
@@ -238,57 +248,73 @@ func generateThreadID(streamID string, suffix string) string {
 // The writer parameter can be either:
 //   - *destination.WriterThread for a single writer
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
-//
-// The threadID and closeMessage parameters are optional (empty string means not used) and only apply to single writer cases
-func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, postProcess func(ctx context.Context) error) func() {
-	return func() {
-		// Cancel context if there's an error, so other threads using this context can detect the failure
-		if *err != nil {
-			cancel()
+func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any, dedupInserts *bool) {
+	if r := recover(); r != nil {
+		*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: panic recovered: %v", *err, r)).(error)
+	}
+
+	if *err != nil {
+		cancel()
+	}
+
+	var closeErr error
+
+	closeWriter := func(w *destination.WriterThread, metadataValue any) error {
+		var metadataState any
+		var setErr error
+
+		if metadataValue != nil {
+			ms, err := types.SetMetadataState(metadataValue, threadID)
+			if err != nil {
+				setErr = fmt.Errorf("failed to set metadata state: %s", err)
+				cancel()
+			}
+			types.SetDedupInserts(ms, dedupInserts)
+			metadataState = ms
+		}
+		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
+			setErr = errors.Join(setErr, fmt.Errorf("failed to close writer: %s", threadErr))
 		}
 
-		// Close writer(s)
-		var closeErr error
-		switch w := writer.(type) {
-		case *destination.WriterThread:
-			if threadErr := w.Close(ctx); threadErr != nil {
-				closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
-			}
-		case map[string]*destination.WriterThread:
-			// Multiple writers keyed by stream ID
-			for streamID, inserter := range w {
-				if inserter != nil {
-					if threadErr := inserter.Close(ctx); threadErr != nil {
-						closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
+		return setErr
+	}
+
+	switch w := writer.(type) {
+	case *destination.WriterThread:
+		var mtStateValue any
+		if mtState != nil {
+			// Incremental stores cursor metadata as map[string]any; use *mtState directly (not per-stream lookup).
+			mtStateValue = *mtState
+		}
+		closeErr = closeWriter(w, mtStateValue)
+	case map[string]*destination.WriterThread:
+		// Multiple writers keyed by stream ID
+		for streamID, inserter := range w {
+			if inserter != nil {
+				var mtStateValue any
+				if mtState != nil {
+					if mtStateValueByStream, ok := (*mtState).(map[string]any); ok {
+						mtStateValue = mtStateValueByStream[streamID]
+					} else {
+						mtStateValue = *mtState
 					}
 				}
+				closeErr = errors.Join(closeErr, closeWriter(inserter, mtStateValue))
 			}
-		default:
-			closeErr = fmt.Errorf("unsupported writer type")
 		}
+	default:
+		closeErr = fmt.Errorf("unsupported writer type")
+	}
 
-		if closeErr != nil {
-			*err = utils.Ternary(*err == nil, closeErr, fmt.Errorf("%s: prev error: %w", closeErr, *err)).(error)
-		}
+	if closeErr != nil {
+		*err = utils.Ternary(*err == nil, closeErr, fmt.Errorf("%s: prev error: %w", closeErr, *err)).(error)
+	}
+	if *err != nil {
+		cancel()
+	}
 
-		// check for panics before post-processing
-		if r := recover(); r != nil {
-			*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: prev error: %w", r, *err)).(error)
-		}
-
-		// cancel context if error occurred after closing writers
-		if *err != nil {
-			cancel()
-		}
-
-		postErr := postProcess(ctx)
-		if postErr != nil {
-			*err = utils.Ternary(*err == nil, postErr, fmt.Errorf("%s: prev error: %w", postErr, *err)).(error)
-		}
-
-		if *err != nil && threadID != "" {
-			*err = fmt.Errorf("thread[%s]: %s", threadID, *err)
-		}
+	if *err != nil && threadID != "" {
+		*err = fmt.Errorf("thread[%s]: %s", threadID, *err)
 	}
 }
 

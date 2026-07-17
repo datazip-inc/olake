@@ -3,6 +3,7 @@ package parquet
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -120,7 +122,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
-func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, error) {
+func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema any, options *destination.Options) (any, *types.MetadataState, error) {
 	p.options = options
 	p.stream = stream
 	p.partitionedFiles = make(map[string][]*FileMetadata)
@@ -134,32 +136,42 @@ func (p *Parquet) Setup(_ context.Context, stream types.StreamInterface, schema 
 
 	err := p.initS3Writer()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if !p.stream.NormalizationEnabled() {
-		return p.schema, nil
+		return p.schema, nil, nil
 	}
 
 	if schema != nil {
 		fields, ok := schema.(typeutils.Fields)
 		if !ok {
-			return nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
+			return nil, nil, fmt.Errorf("failed to typecast schema[%T] into typeutils.Fields", schema)
 		}
 		p.schema = fields.Clone()
-		return fields, nil
+		return fields, nil, nil
 	}
 
 	fields := make(typeutils.Fields)
-	fields.FromSchema(stream.Schema())
+	fields.FromSchema(stream.Schema(), stream.ResolveColumnName)
 	p.schema = fields.Clone() // update schema
-	return fields, nil
+	return fields, nil, nil
 }
 
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
 	for _, record := range records {
+		// Normalise "i" -? "c": Parquet has no equality-delete concept; downstream
+		// consumers must see a consistent "c" for all CDC inserts.
+		// OlakeColumns covers the non-normalized path; Data covers the normalized path
+		// where FlattenAndCleanData has already merged OlakeColumns into Data.
+		if opType, ok := record.OlakeColumns[constants.OpType].(string); ok && opType == "i" {
+			record.OlakeColumns[constants.OpType] = "c"
+			if _, exists := record.Data[constants.OpType]; exists {
+				record.Data[constants.OpType] = "c"
+			}
+		}
 		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeColumns[constants.OlakeTimestamp].(time.Time))
 		partitionFiles, exists := p.partitionedFiles[partitionedPath]
 		if !exists {
@@ -213,7 +225,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	}
 	// test for s3 permissions
 	if p.s3Client != nil {
-		testKey := fmt.Sprintf("olake_writer_test/%s", utils.TimestampedFileName(".txt"))
+		testKey := filepath.Join(p.config.Prefix, "olake_writer_test", utils.TimestampedFileName(".txt"))
 		// Try to upload a small test file
 		_, err = p.s3Client.PutObject(&s3.PutObjectInput{
 			Bucket: aws.String(p.config.Bucket),
@@ -248,7 +260,7 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) closePqFiles(ctx context.Context, closeOnError bool) error {
+func (p *Parquet) closePqFiles(ctx context.Context, _ any, closeOnError bool) error {
 	removeLocalFile := func(filePath, reason string) {
 		err := os.Remove(filePath)
 		if err != nil {
@@ -342,8 +354,9 @@ func (p *Parquet) closePqFiles(ctx context.Context, closeOnError bool) error {
 	return nil
 }
 
-func (p *Parquet) Close(ctx context.Context) error {
-	return p.closePqFiles(ctx, ctx.Err() != nil)
+func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
+	// TODO: implement 2pc in parquet writer (difficulty: hard)
+	return p.closePqFiles(ctx, finalMetadataState, ctx.Err() != nil)
 }
 
 // validate schema change & evolution and removes null records
@@ -358,10 +371,13 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 	diffFound := atomic.Bool{} // to process records concurrently and detect schema difference
 
+	// One flattener per batch: the internal cache amortizes resolve calls
+	// across all records so each column name is resolved only once.
+	batchFlattener := typeutils.NewFlattener(p.stream.ResolveColumnName)
 	err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 		// Add common fields
 		maps.Copy(records[idx].Data, record.OlakeColumns)
-		flattenedRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+		flattenedRecord, err := batchFlattener.Flatten(record.Data)
 		if err != nil {
 			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
 		}
@@ -402,9 +418,22 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 	}
 
-	return schemaChange, records, p.schema, utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
+	if err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
 		return typeutils.ReformatRecord(p.schema, record.Data)
-	})
+	}); err != nil {
+		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
+	}
+	if p.options.ApplyFilter {
+		filter, isLegacy, filterErr := p.stream.GetFilter()
+		if filterErr != nil {
+			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
+		}
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, p.schema, p.stream.ResolveColumnName)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+		}
+	}
+	return schemaChange, records, p.schema, nil
 }
 
 // EvolveSchema updates the schema based on changes. Need to pass olakeTimestamp to get the correct partition path based on record ingestion time.
@@ -453,7 +482,6 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 		colName := strings.TrimSpace(strings.Trim(regexVarBlock[0], `'`))
 		defaultValue := strings.TrimSpace(strings.Trim(regexVarBlock[1], `'`))
 		granularity := strings.TrimSpace(strings.Trim(regexVarBlock[2], `'`))
-
 		if defaultValue == "" {
 			defaultValue = fmt.Sprintf("default_%s", colName)
 		}
@@ -487,7 +515,16 @@ func (p *Parquet) getPartitionedFilePath(values map[string]any, olakeTimestamp t
 		if colName == "now()" {
 			return granularityFunction(olakeTimestamp)
 		}
-		value, exists := values[colName]
+		// Resolve the regex column name using the stream's naming strategy so that the
+		// key matches record.Data keys after FlattenAndCleanData (resolved when
+		// normalization=true, raw source name when normalization=false).
+		// Try the resolved key first; fall back to the raw source name so that
+		// normalization=false + use_source_column_names=false still works.
+		resolvedColName := p.stream.ResolveColumnName(colName)
+		value, exists := values[resolvedColName]
+		if !exists {
+			value, exists = values[colName]
+		}
 		if exists && value != nil {
 			return granularityFunction(value)
 		}
@@ -555,15 +592,87 @@ func (p *Parquet) clearLocalFiles(paths []string) error {
 	return nil
 }
 
+// isRateLimitError checks if the error is a rate-limit/throttle response from S3 or GCP.
+// AWS S3 returns HTTP 503 for throttling (SlowDown / ServiceUnavailable).
+// GCP Cloud Storage returns HTTP 429 (Too Many Requests).
+//
+// For batch delete operations, errors are wrapped in s3manager.BatchError which does NOT
+// implement awserr.RequestFailure directly. The actual RequestFailure is nested inside
+// BatchError.Errors[].OrigErr, so we must inspect those inner errors as well.
+func isRateLimitError(err error) bool {
+	isThrottled := func(target error) bool {
+		var rf awserr.RequestFailure
+		return errors.As(target, &rf) && (rf.StatusCode() == 429 || rf.StatusCode() == 503)
+	}
+	if isThrottled(err) {
+		return true
+	}
+	// AWS SDK v1 batch errors don't implement Unwrap(), so we peel one layer manually.
+	var batchErr awserr.Error
+	if errors.As(err, &batchErr) {
+		return isThrottled(batchErr.OrigErr())
+	}
+	return false
+}
+
 func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
+	deleteS3PrefixIndividually := func(filtPath string) error {
+		var pageErr error
+		listErr := utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(_ context.Context) error {
+			pageErr = nil
+			return p.s3Client.ListObjectsPagesWithContext(ctx, &s3.ListObjectsInput{
+				Bucket: aws.String(p.config.Bucket),
+				Prefix: aws.String(filtPath),
+			}, func(page *s3.ListObjectsOutput, _ bool) bool {
+				pageKeys := make([]string, 0, len(page.Contents))
+				for _, obj := range page.Contents {
+					pageKeys = append(pageKeys, *obj.Key)
+				}
+				if len(pageKeys) == 0 {
+					return true
+				}
+
+				logger.Debugf("individual delete: found %d objects under %s, deleting", len(pageKeys), filtPath)
+
+				// GCP allows 5000 mutations per second per bucket
+				concurrency := min(runtime.GOMAXPROCS(0)*4, len(pageKeys))
+				if pageErr = utils.Concurrent(ctx, pageKeys, concurrency, func(_ context.Context, key string, _ int) error {
+					return utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(_ context.Context) error {
+						_, err := p.s3Client.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
+							Bucket: aws.String(p.config.Bucket),
+							Key:    aws.String(key),
+						})
+						if err != nil {
+							return err
+						}
+						return nil
+					})
+				}); pageErr != nil {
+					return false
+				}
+				return true
+			})
+		})
+		if listErr != nil {
+			return fmt.Errorf("failed to list objects for prefix %s: %v", filtPath, listErr)
+		}
+		return pageErr
+	}
+
 	deleteS3PrefixStandard := func(filtPath string) error {
-		iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
-			Bucket: aws.String(p.config.Bucket),
-			Prefix: aws.String(filtPath),
+		err := utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(_ context.Context) error {
+			iter := s3manager.NewDeleteListIterator(p.s3Client, &s3.ListObjectsInput{
+				Bucket: aws.String(p.config.Bucket),
+				Prefix: aws.String(filtPath),
+			})
+			return s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter)
 		})
 
-		if err := s3manager.NewBatchDeleteWithClient(p.s3Client).Delete(ctx, iter); err != nil {
-			return fmt.Errorf("batch delete failed for filtPath %s: %s", filtPath, err)
+		if err != nil {
+			logger.Warnf("batch delete failed for filtPath %s, falling back to individual deletes: %v", filtPath, err)
+			if fallbackErr := deleteS3PrefixIndividually(filtPath); fallbackErr != nil {
+				return fmt.Errorf("batch delete failed: %v, fallback individual delete also failed: %s", err, fallbackErr)
+			}
 		}
 		return nil
 	}
@@ -578,7 +687,15 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 		s3TablePath := filepath.Join(prefix, namespace, tableName, "/")
 
 		logger.Debugf("clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
-		if err := deleteS3PrefixStandard(s3TablePath); err != nil {
+
+		var err error
+		if strings.Contains(p.config.S3Endpoint, "googleapis.com") {
+			err = deleteS3PrefixIndividually(s3TablePath)
+		} else {
+			err = deleteS3PrefixStandard(s3TablePath)
+		}
+
+		if err != nil {
 			return fmt.Errorf("failed to clear S3 prefix %s: %s", s3TablePath, err)
 		}
 
@@ -588,7 +705,27 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 }
 
 func init() {
-	destination.RegisteredWriters[types.Parquet] = func() destination.Writer {
-		return new(Parquet)
+	var parquetConfig *Config
+	destination.RegisteredWriters[types.Parquet] = func(config any) (destination.Writer, func(ctx context.Context), error) {
+		if parquetConfig != nil {
+			// for already initialized writer, return the same config instance
+			return &Parquet{
+				config: parquetConfig,
+			}, nil, nil
+		}
+
+		parquetConfig = &Config{}
+		err := utils.Unmarshal(config, parquetConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal parquet config: %s", err)
+		}
+
+		if err := parquetConfig.Validate(); err != nil {
+			return nil, nil, fmt.Errorf("failed to validate parquet config: %s", err)
+		}
+
+		return &Parquet{
+			config: parquetConfig,
+		}, nil, nil
 	}
 }

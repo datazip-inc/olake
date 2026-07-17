@@ -25,8 +25,8 @@ type DriverInterface interface {
 	MaxConnections() int
 	MaxRetries() int
 	// specific to discover
-	GetStreamNames(ctx context.Context) ([]string, error)
-	ProduceSchema(ctx context.Context, stream string) (*types.Stream, error)
+	GetStreamNames(ctx context.Context) ([]types.StreamID, error)
+	ProduceSchema(ctx context.Context, stream types.StreamID) (*types.Stream, error)
 	// specific to backfill
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
 	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
@@ -37,6 +37,6 @@ type DriverInterface interface {
 	CDCSupported() bool
 	ChangeStreamConfig() (sequential bool, parallel bool, concurrent bool)
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
-	StreamChanges(ctx context.Context, identifier int, processFn CDCMsgFn) error
+	StreamChanges(ctx context.Context, identifier int, metadataState map[string]any, processFn CDCMsgFn) (any, error)
 	PostCDC(ctx context.Context, identifier int) error // to save state
 }

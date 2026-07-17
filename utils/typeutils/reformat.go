@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -15,10 +16,6 @@ import (
 	"github.com/paulmach/orb/encoding/wkt"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
-
-type StringInterface interface {
-	String() string
-}
 
 var (
 	ErrNullValue = fmt.Errorf("null value")
@@ -43,16 +40,6 @@ var DateTimeFormats = []string{
 
 var GeospatialTypes = []string{"geometry", "point", "polygon", "linestring", "multi"}
 
-func getFirstNotNullType(datatypes []types.DataType) types.DataType {
-	for _, datatype := range datatypes {
-		if datatype != types.Null {
-			return datatype
-		}
-	}
-
-	return types.Null
-}
-
 func ReformatRecord(fields Fields, record types.Record) error {
 	for key, val := range record {
 		field, found := fields[key]
@@ -67,10 +54,6 @@ func ReformatRecord(fields Fields, record types.Record) error {
 	}
 
 	return nil
-}
-
-func ReformatValueOnDataTypes(datatypes []types.DataType, v any) (any, error) {
-	return ReformatValue(getFirstNotNullType(datatypes), v)
 }
 
 func ReformatValue(dataType types.DataType, v any) (any, error) {
@@ -95,7 +78,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		case uint, uint8, uint16, uint32, uint64:
 			return fmt.Sprintf("%d", v), nil
 		case float32, float64:
-			return fmt.Sprintf("%d", v), nil
+			return fmt.Sprintf("%v", v), nil
 		case string:
 			return v, nil
 		case bool:
@@ -120,6 +103,18 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	}
 }
 
+// ParseFilterValue parses v into dataType strictly and returns the typed value.
+// For timestamp types, an unparseable string always returns an error
+// ReformatValue which silently falls back to epoch when isTimestampInDB=true).
+func ParseFilterValue(dataType types.DataType, v any) (any, error) {
+	switch dataType {
+	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
+		return ReformatDate(v, false)
+	default:
+		return ReformatValue(dataType, v)
+	}
+}
+
 func ReformatBool(v interface{}) (bool, error) {
 	switch booleanValue := v.(type) {
 	case bool:
@@ -132,7 +127,7 @@ func ReformatBool(v interface{}) (bool, error) {
 			return false, nil
 		}
 	case int, int16, int32, int64, int8:
-		switch booleanValue {
+		switch reflect.ValueOf(booleanValue).Int() {
 		case 1:
 			return true, nil
 		case 0:
@@ -187,6 +182,9 @@ func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 				return time.Time{}, fmt.Errorf("invalid null time")
 			}
 		case *sql.NullTime:
+			if v == nil {
+				return time.Time{}, fmt.Errorf("null time passed")
+			}
 			switch v.Valid {
 			case true:
 				return v.Time, nil
@@ -253,7 +251,6 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 				}
 			}
 		}
-
 		return true
 	}
 
@@ -276,11 +273,11 @@ func parseStringTimestamp(value string, isTimestampInDB bool) (time.Time, error)
 	if !isTimestampInDB && constants.LoadedStateVersion != 0 {
 		return time.Time{}, fmt.Errorf("failed to parse datetime from available formats: %s", err)
 	}
-
+	logger.Debugf("Failed to parse datetime from available formats: %s", err)
 	return time.Unix(0, 0).UTC(), nil
 }
 
-// TODO: Add bytes array handling of int64 and other datatypes. Also add unit test cases for it.
+// TODO: Add byte array handling for other datatypes as well.
 func ReformatInt64(v any) (int64, error) {
 	switch v := v.(type) {
 	case json.Number:
@@ -300,7 +297,7 @@ func ReformatInt64(v any) (int64, error) {
 	case int64:
 		return int64(v), nil
 	case uint:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint to int64 is safe for expected ranges
 		return int64(v), nil
 	case uint8:
 		return int64(v), nil
@@ -309,7 +306,7 @@ func ReformatInt64(v any) (int64, error) {
 	case uint32:
 		return int64(v), nil
 	case uint64:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint64 to int64 is safe for expected ranges
 		return int64(v), nil
 	case bool:
 		if v {
@@ -324,6 +321,19 @@ func ReformatInt64(v any) (int64, error) {
 		return intValue, nil
 	case *any:
 		return ReformatInt64(*v)
+	case []uint8:
+		if constants.LoadedStateVersion > 5 {
+			strVal := string(v)
+			intValue, err := strconv.ParseInt(strVal, 10, 64)
+			if err == nil {
+				return intValue, nil
+			}
+			uintValue, err := strconv.ParseUint(strVal, 10, 64)
+			if err == nil {
+				//nolint:gosec // G115: converting []uint8 to int64 is safe and required for backward compatibility
+				return int64(uintValue), nil
+			}
+		}
 	}
 
 	return int64(0), fmt.Errorf("failed to change %v (type:%T) to int64", v, v)
@@ -336,7 +346,7 @@ func ReformatInt32(v any) (int32, error) {
 	case float64:
 		return int32(v), nil
 	case int:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting int to int32 is safe for expected ranges
 		return int32(v), nil
 	case int8:
 		return int32(v), nil
@@ -345,20 +355,20 @@ func ReformatInt32(v any) (int32, error) {
 	case int32:
 		return v, nil
 	case int64:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting int64 to int32 is safe for expected ranges
 		return int32(v), nil
 	case uint:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint to int32 is safe for expected ranges
 		return int32(v), nil
 	case uint8:
 		return int32(v), nil
 	case uint16:
 		return int32(v), nil
 	case uint32:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint32 to int32 is safe for expected ranges
 		return int32(v), nil
 	case uint64:
-		//nolint:gosec,G115
+		//nolint:gosec // G115: converting uint64 to int32 is safe for expected ranges
 		return int32(v), nil
 	case bool:
 		if v {
@@ -376,7 +386,7 @@ func ReformatInt32(v any) (int32, error) {
 		if err != nil {
 			return 0, err
 		}
-		//nolint:gosec,G115
+		//nolint:gosec // G115: value range checked by parse and conversion
 		return int32(intValue), nil
 	case []uint8:
 		if len(v) == 1 {
@@ -497,39 +507,6 @@ func ReformatFloat32(v interface{}) (float32, error) {
 	}
 
 	return float32(0), fmt.Errorf("failed to change %v (type:%T) to float32", v, v)
-}
-
-func ReformatByteArraysToString(data map[string]any) map[string]any {
-	for key, value := range data {
-		switch value := value.(type) {
-		case map[string]any:
-			data[key] = ReformatByteArraysToString(value)
-		case []byte:
-			data[key] = string(value)
-		case []map[string]any:
-			decryptedArray := []map[string]any{}
-			for _, element := range value {
-				decryptedArray = append(decryptedArray, ReformatByteArraysToString(element))
-			}
-
-			data[key] = decryptedArray
-		case []any:
-			decryptedArray := []any{}
-			for _, element := range value {
-				switch element := element.(type) {
-				case map[string]any:
-					decryptedArray = append(decryptedArray, ReformatByteArraysToString(element))
-				case []byte:
-					decryptedArray = append(decryptedArray, string(element))
-				default:
-					decryptedArray = append(decryptedArray, element)
-				}
-			}
-
-			data[key] = decryptedArray
-		}
-	}
-	return data
 }
 
 func ReformatGeoType(v any) (any, error) {

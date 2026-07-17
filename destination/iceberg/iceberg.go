@@ -2,6 +2,7 @@ package iceberg
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"regexp"
@@ -28,10 +29,9 @@ type Iceberg struct {
 	config        *Config
 	stream        types.StreamInterface
 	partitionInfo []internal.PartitionInfo // ordered slice to preserve partition column order
-	server        *serverInstance          // Java server instance
+	server        *serverInstance          // shared Java server instance (per-process singleton)
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
-
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
 	// It defines when to complete the Java writer and when schema evolution is required.
@@ -54,94 +54,93 @@ var promotionTransitions = map[string]map[string]bool{
 	"float": {"double": true},
 }
 
-func (i *Iceberg) GetConfigRef() destination.Config {
-	i.config = &Config{}
-	return i.config
+func (i *Iceberg) Type() string {
+	return string(types.Iceberg)
 }
 
 func (i *Iceberg) Spec() any {
 	return Config{}
 }
 
-func (i *Iceberg) NewWriter(ctx context.Context) (Writer, error) {
-	if i.config.UseArrowWrites {
-		return arrowwriter.New(ctx, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
-	}
-
-	// default: legacy writer
-	return legacywriter.New(i.options, i.schema, i.stream, i.server), nil
-}
-
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, globalSchema any, options *destination.Options) (any, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any, options *destination.Options) (any, *types.MetadataState, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]internal.PartitionInfo, 0)
 	i.schema = make(map[string]string)
-	// Parse partition regex from stream metadata
-	partitionRegex := i.stream.Self().StreamMetadata.PartitionRegex
-	if partitionRegex != "" {
-		err := i.parsePartitionRegex(partitionRegex)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse partition regex: %s", err)
-		}
-	}
 
-	server, err := newIcebergClient(i.config, i.partitionInfo, options.ThreadID, false, isUpsertMode(stream, options.Backfill), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase))
+	// parse partition regex
+	var err error
+	i.partitionInfo, err = parsePartitionRegex(stream.GetPartitionRegex(), stream.ResolveColumnName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to start iceberg server: %s", err)
+		return nil, nil, fmt.Errorf("failed to parse partition regex: %s", err)
+	}
+	logger.Debugf("Thread[%s]: setting up iceberg writer for table[%s.%s]", i.options.ThreadID, stream.GetDestinationDatabase(&i.config.IcebergDatabase), stream.GetDestinationTable())
+
+	// when normalization=false, include partition columns in the Iceberg schema so
+	// the Java server can build the partition spec (spec references columns by field ID)
+	partitionFields := make([]string, 0, len(i.partitionInfo))
+	if !stream.NormalizationEnabled() {
+		for _, p := range i.partitionInfo {
+			partitionFields = append(partitionFields, p.Field)
+		}
 	}
 
-	// persist server details
-	i.server = server
+	icebergPartFields := make([]*proto.IcebergPayload_PartitionField, 0, len(i.partitionInfo))
+	for _, p := range i.partitionInfo {
+		icebergPartFields = append(icebergPartFields, &proto.IcebergPayload_PartitionField{
+			Field:     p.SchemaField,
+			Transform: p.Transform,
+		})
+	}
 
-	// check for identifier fields setting
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
-	var schema map[string]string
+	iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
+	requestPayload := proto.IcebergPayload{
+		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
+		Metadata: &proto.IcebergPayload_Metadata{
+			Schema:          iceSchema,
+			DestTableName:   stream.GetDestinationTable(),
+			ThreadId:        options.ThreadID,
+			IdentifierField: &identifierField,
+			Namespace:       stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+			Upsert:          isUpsertMode(stream, options.Backfill),
+			PartitionFields: icebergPartFields,
+		},
+	}
 
-	if globalSchema == nil {
-		logger.Infof("Creating destination table [%s] in Iceberg database [%s] for stream [%s]", i.stream.GetDestinationTable(), i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.Name())
+	response, err := i.server.SendClientRequest(ctx, &requestPayload)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
+	}
 
-		var requestPayload proto.IcebergPayload
-		iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream)
-		requestPayload = proto.IcebergPayload{
-			Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
-			Metadata: &proto.IcebergPayload_Metadata{
-				Schema:          iceSchema,
-				DestTableName:   i.stream.GetDestinationTable(),
-				ThreadId:        i.server.serverID,
-				IdentifierField: &identifierField,
-			},
-		}
+	// get schema from response
+	ingestResponse := response.(*proto.RecordIngestResponse)
+	schema, err := parseSchema(ingestResponse.GetResult())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
+	}
 
-		response, err := i.server.SendClientRequest(ctx, &requestPayload)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load or create table: %s", err)
-		}
-
-		ingestResponse := response.(*proto.RecordIngestResponse)
-		schema, err = parseSchema(ingestResponse.GetResult())
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
-		}
-	} else {
-		// set global schema for current thread
-		var ok bool
-		schema, ok = globalSchema.(map[string]string)
-		if !ok {
-			return nil, fmt.Errorf("failed to convert globalSchema of type[%T] to map[string]string", globalSchema)
+	// get metadata state from response
+	var metadataState types.MetadataState
+	if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
+		if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
+			return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
 		}
 	}
 
 	// set schema for current thread
 	i.schema = copySchema(schema)
 
-	writer, err := i.NewWriter(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create iceberg writer: %v", err)
+	if i.config.UseArrowWrites {
+		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create arrow writer: %s", err)
+		}
+	} else {
+		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server)
 	}
-	i.writer = writer
 
-	return schema, nil
+	return schema, &metadataState, nil
 }
 
 // note: java server parses time from long value which will in milliseconds
@@ -149,73 +148,65 @@ func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
 }
 
-func (i *Iceberg) Close(ctx context.Context) error {
-	// skip flushing on error
+func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error) {
 	defer func() {
-		if i.server == nil {
-			return
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		req := &proto.IcebergPayload{
+			Type: proto.IcebergPayload_CLOSE_SESSION,
+			Metadata: &proto.IcebergPayload_Metadata{
+				ThreadId: i.options.ThreadID,
+			},
 		}
-		err := i.server.closeIcebergClient()
-		if err != nil {
-			logger.Errorf("Thread[%s]: error closing Iceberg client: %s", i.options.ThreadID, err)
+
+		if _, cleanupErr := i.server.SendClientRequest(cleanupCtx, req); cleanupErr != nil {
+			if err == nil {
+				err = cleanupErr
+			} else {
+				err = fmt.Errorf("%s: cleanup error: %w", err, cleanupErr)
+			}
 		}
 	}()
-
-	if i.stream == nil {
-		// for check connection no commit will happen
-		return nil
-	}
 
 	select {
 	case <-ctx.Done():
 		// skip commit in case of context cancellation
 		return ctx.Err()
 	default:
-		return i.writer.Close(ctx)
+		return i.writer.Close(ctx, finalMetadataState)
 	}
 }
 
 func (i *Iceberg) Check(ctx context.Context) error {
-	i.options = &destination.Options{
-		ThreadID: "test_iceberg_destination",
-	}
-
 	destinationDB := "test_olake"
 	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
 		destinationDB = fmt.Sprintf("%s_%s", utils.Reformat(prefix), destinationDB)
 	}
-	// Create a temporary setup for checking
-	server, err := newIcebergClient(i.config, []internal.PartitionInfo{}, i.options.ThreadID, true, false, destinationDB)
-	if err != nil {
-		return fmt.Errorf("failed to setup iceberg server: %s", err)
-	}
-
-	// to close client properly
-	i.server = server
-	defer func() {
-		i.Close(ctx)
-	}()
 
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-	// try to create table
+	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      server.serverID,
-			DestTableName: destinationDB,
-			Schema:        types.GetIcebergRawSchema(),
+			ThreadId:        i.server.defaultServerID,
+			DestTableName:   destinationDB,
+			Schema:          types.GetIcebergRawSchema(),
+			Namespace:       destinationDB,
+			Upsert:          false,
+			IdentifierField: &identifierField,
 		},
 	}
 
-	res, err := server.SendClientRequest(ctx, request)
+	res, err := i.server.SendClientRequest(ctx, request)
 	if err != nil {
 		return fmt.Errorf("failed to create or get table: %s", err)
 	}
 
 	ingestResponse := res.(*proto.RecordIngestResponse)
-	logger.Infof("Thread[%s]: table created or loaded test olake: %s", i.options.ThreadID, ingestResponse.GetResult())
+	logger.Infof("Thread[%s]: table created or loaded test olake: %s", i.server.defaultServerID, ingestResponse.GetResult())
 
 	// try writing record in dest table
 	currentTime := time.Now().UTC()
@@ -228,9 +219,10 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	recrodInsertRequest := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
 		Metadata: &proto.IcebergPayload_Metadata{
-			ThreadId:      server.serverID,
-			DestTableName: destinationDB,
-			Schema:        protoSchema,
+			// Session already created by the GET_OR_CREATE_TABLE above; RECORDS
+			// carries only the routing thread_id plus the schema for this batch.
+			ThreadId: i.server.defaultServerID,
+			Schema:   protoSchema,
 		},
 		Records: []*proto.IcebergPayload_IceRecord{{
 			Fields:     protoColumns,
@@ -238,18 +230,14 @@ func (i *Iceberg) Check(ctx context.Context) error {
 		}},
 	}
 
-	resInsert, err := server.SendClientRequest(ctx, recrodInsertRequest)
+	resInsert, err := i.server.SendClientRequest(ctx, recrodInsertRequest)
 	if err != nil {
 		return fmt.Errorf("failed to insert request: %s", err)
 	}
 
 	ingestResponse = resInsert.(*proto.RecordIngestResponse)
-	logger.Debugf("Thread[%s]: record inserted successfully: %s", i.options.ThreadID, ingestResponse.GetResult())
+	logger.Debugf("Thread[%s]: record inserted successfully: %s", i.server.defaultServerID, ingestResponse.GetResult())
 	return nil
-}
-
-func (i *Iceberg) Type() string {
-	return string(types.Iceberg)
 }
 
 // validate schema change & evolution and removes null records
@@ -306,9 +294,12 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		}
 
 		// parallel flatten data and detect schema difference
+		// One flattener per batch: the internal cache amortizes resolve calls
+		// across all records so each column name is resolved only once.
+		batchFlattener := typeutils.NewFlattener(i.stream.ResolveColumnName)
 		diffThreadSchema := atomic.Bool{}
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
-			flattenRecord, err := typeutils.NewFlattener().Flatten(record.Data)
+			flattenRecord, err := batchFlattener.Flatten(record.Data)
 			if err != nil {
 				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
 			}
@@ -345,6 +336,32 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	}
 
 	if !i.stream.NormalizationEnabled() {
+		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
+			// JSON-encode original source data before overwriting the map
+			dataBytes, err := json.Marshal(record.Data)
+			if err != nil {
+				return fmt.Errorf("failed to marshal raw data: %s", err)
+			}
+			records[idx].Data = make(map[string]any, len(record.OlakeColumns)+1+len(i.partitionInfo))
+			records[idx].Data[constants.StringifiedData] = string(dataBytes)
+			maps.Copy(records[idx].Data, record.OlakeColumns)
+			// include partition column values from the original source data so writers
+			// can apply the Iceberg partition spec without a separate data buffer.
+			// Read with Field (original source key), write with SchemaField (reformatted
+			// destination key) so downstream lookups against the Iceberg schema succeed.
+			for _, pInfo := range i.partitionInfo {
+				if pInfo.Field == constants.OlakeTimestamp {
+					continue // _olake_timestamp is already copied via OlakeColumns above
+				}
+				if v, ok := record.Data[pInfo.Field]; ok {
+					records[idx].Data[pInfo.SchemaField] = v
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to pre-shape raw records: %s", err)
+		}
 		return false, records, i.schema, nil
 	}
 
@@ -353,7 +370,18 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
 	}
 
-	return schemaDifference, records, recordsSchema, err
+	if i.options.ApplyFilter {
+		filter, isLegacy, filterErr := i.stream.GetFilter()
+		if filterErr != nil {
+			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
+		}
+		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema, i.stream.ResolveColumnName)
+		if err != nil {
+			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+		}
+	}
+
+	return schemaDifference, records, recordsSchema, nil
 }
 
 // compares with global schema and update schema in destination accordingly
@@ -393,14 +421,10 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		return false
 	}
 
-	// check for identifier fields setting
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	request := proto.IcebergPayload{
 		Type: proto.IcebergPayload_EVOLVE_SCHEMA,
 		Metadata: &proto.IcebergPayload_Metadata{
-			IdentifierField: &identifierField,
-			DestTableName:   i.stream.GetDestinationTable(),
-			ThreadId:        i.server.serverID,
+			ThreadId: i.options.ThreadID,
 		},
 	}
 
@@ -439,11 +463,20 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 }
 
 // parsePartitionRegex parses the partition regex and populates the partitionInfo slice
-func (i *Iceberg) parsePartitionRegex(pattern string) error {
+func parsePartitionRegex(pattern string, resolveColumnName func(string) string) ([]internal.PartitionInfo, error) {
 	// path pattern example: /{col_name, partition_transform}/{col_name, partition_transform}
 	// This strictly identifies column name and partition transform entries
+	var partitionInfo []internal.PartitionInfo
+	if pattern == "" {
+		return partitionInfo, nil
+	}
+
 	patternRegex := regexp.MustCompile(constants.PartitionRegexIceberg)
 	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no matches found for partition regex: %s", pattern)
+	}
+
 	for _, match := range matches {
 		if len(match) < 3 {
 			continue // We need at least 3 matches: full match, column name, transform
@@ -452,14 +485,17 @@ func (i *Iceberg) parsePartitionRegex(pattern string) error {
 		colName := strings.Replace(strings.TrimSpace(strings.Trim(match[1], `'"`)), "now()", constants.OlakeTimestamp, 1)
 		transform := strings.TrimSpace(strings.Trim(match[2], `'"`))
 
-		// Append to ordered slice to preserve partition order
-		i.partitionInfo = append(i.partitionInfo, internal.PartitionInfo{
-			Field:     colName,
-			Transform: transform,
+		// Append to ordered slice to preserve partition order.
+		// SchemaField is reformatted once here so all consumers use the consistent
+		// destination column name without scattering utils.Reformat() calls.
+		partitionInfo = append(partitionInfo, internal.PartitionInfo{
+			Field:       colName,
+			SchemaField: resolveColumnName(colName),
+			Transform:   transform,
 		})
 	}
 
-	return nil
+	return partitionInfo, nil
 }
 
 // isValidTransition checks if type transition is valid using lookup table
@@ -486,31 +522,15 @@ func isPromotionRequired(oldType, newType string) bool {
 }
 
 // drop streams required for clear destination
-func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInterface) error {
-	i.options = &destination.Options{
-		ThreadID: "iceberg_destination_drop",
-	}
-	if len(dropStreams) == 0 {
+func (i *Iceberg) DropStreams(ctx context.Context, tables []types.StreamInterface) error {
+	if len(tables) == 0 {
 		logger.Info("No streams selected for clearing Iceberg destination, skipping operation")
 		return nil
 	}
+	logger.Infof("Starting Clear Iceberg destination for %d selected tables", len(tables))
 
-	// server setup for dropping tables
-	server, err := newIcebergClient(i.config, []internal.PartitionInfo{}, i.options.ThreadID, false, false, "")
-	if err != nil {
-		return fmt.Errorf("failed to setup iceberg server for dropping streams: %s", err)
-	}
-
-	// to close client properly
-	i.server = server
-	defer func() {
-		i.Close(ctx)
-	}()
-
-	logger.Infof("Starting Clear Iceberg destination for %d selected streams", len(dropStreams))
-
-	// process each stream
-	for _, stream := range dropStreams {
+	threadID := "iceberg_destination_drop"
+	for _, stream := range tables {
 		destDB := stream.GetDestinationDatabase(&i.config.IcebergDatabase)
 		destTable := stream.GetDestinationTable()
 		dropTable := fmt.Sprintf("%s.%s", destDB, destTable)
@@ -521,7 +541,8 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 			Type: proto.IcebergPayload_DROP_TABLE,
 			Metadata: &proto.IcebergPayload_Metadata{
 				DestTableName: dropTable,
-				ThreadId:      i.server.serverID,
+				ThreadId:      threadID,
+				// Namespace is encoded inside DropTable (db.table) and parsed Java-side.
 			},
 		}
 		_, err := i.server.SendClientRequest(ctx, &request)
@@ -536,11 +557,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, dropStreams []types.StreamInt
 
 // returns a new copy of schema
 func copySchema(schema map[string]string) map[string]string {
-	copySchema := make(map[string]string)
-	for key, value := range schema {
-		copySchema[key] = value
-	}
-	return copySchema
+	return maps.Clone(schema)
 }
 
 func parseSchema(schemaStr string) (map[string]string, error) {
@@ -591,7 +608,36 @@ func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 }
 
 func init() {
-	destination.RegisteredWriters[types.Iceberg] = func() destination.Writer {
-		return new(Iceberg)
+	var server *serverInstance
+	var icebergConfig *Config
+	destination.RegisteredWriters[types.Iceberg] = func(config any) (destination.Writer, func(ctx context.Context), error) {
+		if icebergConfig != nil || server != nil {
+			// for already initialized writer, return the same server and config instance
+			return &Iceberg{
+				config: icebergConfig,
+				server: server,
+			}, nil, nil
+		}
+
+		icebergConfig = &Config{}
+		// unmarshal config according to iceberg config struct
+		err := utils.Unmarshal(config, icebergConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal iceberg config: %w", err)
+		}
+
+		server, err = startServer(icebergConfig)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to start iceberg server: %w", err)
+		}
+
+		return &Iceberg{
+				config: icebergConfig,
+				server: server,
+			}, func(ctx context.Context) {
+				server.Shutdown(ctx)
+				icebergConfig = nil
+				server = nil
+			}, nil
 	}
 }

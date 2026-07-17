@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"strings"
@@ -22,6 +23,7 @@ type Config struct {
 	MaxThreads       int               `json:"max_threads"`
 	RetryCount       int               `json:"retry_count"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
+	Schemas          []string          `json:"schemas,omitempty"`
 }
 
 // Capture Write Ahead Logs
@@ -83,21 +85,20 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %s", err)
 	}
 
-	if c.SSLConfiguration.ServerCA != "" {
-		query.Add("sslrootcert", c.SSLConfiguration.ServerCA)
-	}
-
-	if c.SSLConfiguration.ClientCert != "" {
-		query.Add("sslcert", c.SSLConfiguration.ClientCert)
-	}
-
-	if c.SSLConfiguration.ClientKey != "" {
-		query.Add("sslkey", c.SSLConfiguration.ClientKey)
-	}
 	parsed.RawQuery = query.Encode()
 	c.Connection = parsed
 
+	for i, s := range c.Schemas {
+		if strings.TrimSpace(s) == "" {
+			return fmt.Errorf("schemas[%d] must not be blank", i)
+		}
+	}
+
 	return nil
+}
+
+func (c *Config) buildTLSConfig() (*tls.Config, error) {
+	return utils.BuildTLSConfig(c.Host, c.SSLConfiguration)
 }
 
 type Table struct {

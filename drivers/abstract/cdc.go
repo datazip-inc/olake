@@ -57,7 +57,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		if isConcurrentMode {
 			a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(connGroupCtx context.Context) error {
 				streamIndex, _ := utils.ArrayContains(streams, func(s types.StreamInterface) bool { return s.ID() == streamID })
-				return a.streamChanges(connGroupCtx, pool, streamIndex)
+				return a.streamChanges(connGroupCtx, pool, streamIndex, streams)
 			})
 		} else {
 			// In sequential/parallel modes, track completion but don't start CDC yet
@@ -80,12 +80,12 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		// reset the global connection group
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(mainCtx, a.driver.MaxConnections())
 		utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, make([]int, a.driver.MaxConnections()), a.driver.MaxRetries(), func(ctx context.Context, streamIndex int, _ int) error {
-			return a.streamChanges(ctx, pool, streamIndex)
+			return a.streamChanges(ctx, pool, streamIndex, streams)
 		})
 		return nil
 	} else if isSequentialMode {
 		a.GlobalConnGroup.AddWithRetry(a.driver.MaxRetries(), func(connGroupCtx context.Context) error {
-			return a.streamChanges(connGroupCtx, pool, 0)
+			return a.streamChanges(connGroupCtx, pool, 0, streams)
 		})
 	}
 	return nil
@@ -97,37 +97,53 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 //   - For MongoDB: index into the streams array
 //   - For Kafka: reader ID
 //   - For Postgres: ignored (uses global replication slot)
-func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int) (err error) {
-	writers := make(map[string]*destination.WriterThread)
+func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destination.WriterPool, streamIndex int, streams []types.StreamInterface) (err error) {
 	filterDataBySelectedColumnsFns := make(map[string]func(map[string]interface{}) map[string]interface{})
 
 	// create cdc context, so that main context not affected if cdc retries
 	cdcCtx, cdcCtxCancel := context.WithCancel(mainCtx)
 	defer cdcCtxCancel()
 
-	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "",
-		func(ctx context.Context) error {
-			postCDCErr := a.driver.PostCDC(ctx, streamIndex)
-			if postCDCErr != nil {
-				return fmt.Errorf("post cdc error: %s", postCDCErr)
-			}
-			return nil
-		})()
-
-	return a.driver.StreamChanges(cdcCtx, streamIndex, func(ctx context.Context, change CDCChange) error {
-		writer := writers[change.Stream.ID()]
-		if writer == nil {
-			threadID := generateThreadID(change.Stream.ID(), "")
-			writer, err = pool.NewWriter(ctx, change.Stream, destination.WithThreadID(threadID))
-			if err != nil {
-				return fmt.Errorf("failed to create writer for stream %s: %s", change.Stream.ID(), err)
-			}
-			writers[change.Stream.ID()] = writer
-			logger.Infof("Thread[%s]: created cdc writer for stream %s", threadID, change.Stream.ID())
+	defer func() {
+		if postCDCErr := a.driver.PostCDC(cdcCtx, streamIndex); postCDCErr != nil {
+			err = utils.Ternary(err == nil, fmt.Errorf("post cdc error: %s", postCDCErr), fmt.Errorf("%s: post cdc error: %s", err, postCDCErr)).(error)
 		}
+	}()
+
+	var finalMetadataState any
+	clearDedup := false
+	writers := make(map[string]*destination.WriterThread)
+	metadataStates := make(map[string]any)
+	// true (default) → overlap window open, inserts emit "i" (equality delete + write).
+	// false          → steady-state, inserts emit "c" (write only).
+	dedupInserts := make(map[string]bool, len(streams))
+
+	for _, stream := range streams {
+		threadID := generateThreadID(stream.ID(), "")
+		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
+		if createErr != nil {
+			return fmt.Errorf("failed to create CDC writer for stream %s: %s", stream.ID(), createErr)
+		}
+		writers[stream.ID()] = w
+		var writerMetaState any
+
+		dedupInserts[stream.ID()] = true
+		if writerMeta != nil {
+			writerMetaState = writerMeta.State
+			if writerMeta.DedupInserts != nil {
+				dedupInserts[stream.ID()] = *writerMeta.DedupInserts
+			}
+		}
+		metadataStates[stream.ID()] = writerMetaState
+	}
+
+	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", &finalMetadataState, &clearDedup)
+
+	finalMetadataState, err = a.driver.StreamChanges(cdcCtx, streamIndex, metadataStates, func(ctx context.Context, change CDCChange) error {
+		writer := writers[change.Stream.ID()]
 		olakeColumns := map[string]any{
 			constants.OlakeID:        utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
-			constants.OpType:         mapChangeKindToOperationType(change.Kind),
+			constants.OpType:         mapChangeKindToOperationType(change.Kind, dedupInserts[change.Stream.ID()]),
 			constants.CdcTimestamp:   change.Timestamp,
 			constants.OlakeTimestamp: time.Now().UTC(),
 		}
@@ -142,17 +158,22 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns))
 	})
+
+	return err
 }
 
-// mapChangeKindToOperationType converts CDC change kind to operation type code.
-// "delete" -> "d", "update" -> "u", "insert"/"create" -> "c"
-func mapChangeKindToOperationType(kind string) string {
+// mapInsertOpType returns the _op_type string for a CDC change.
+// Inserts emit "i" during the backfill overlap window (dedupInserts=true) and "c" otherwise.
+func mapChangeKindToOperationType(kind string, dedupInserts bool) string {
 	switch kind {
 	case "delete":
 		return "d"
 	case "update":
 		return "u"
-	default: // "insert", "create", etc.
+	default:
+		if dedupInserts {
+			return "i"
+		}
 		return "c"
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,11 +17,64 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/bsoncodec"
+	"go.mongodb.org/mongo-driver/bson/bsonrw"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"golang.org/x/crypto/ssh"
 )
+
+// safeDecodeRegistry is a BSON decode registry registered on the MongoDB client.
+// It intercepts two problem cases for interface{} slots (every value in bson.M):
+//
+//  1. BSON Double (float64) — NaN and ±Inf are not valid JSON; they crash
+//     encoding/json.  These are coerced to nil for all state versions.
+//
+//  2. BSON DateTime — primitive.DateTime.MarshalJSON calls time.Time.MarshalJSON
+//     which panics for years outside [0, 9999].  For state version > 4, DateTime
+//     is decoded as a clamped UTC time.Time so downstream json.Marshal is always
+//     safe.  For state version ≤ 4 the fallback (primitive.DateTime) is used to
+//     preserve the pre-existing local-timezone output format.
+var safeDecodeRegistry = func() *bsoncodec.Registry {
+	tEmpty := reflect.TypeOf((*interface{})(nil)).Elem()
+	reg := bson.NewRegistry()
+	// Capture the stock interface{} decoder before replacing it.
+	fallback, _ := reg.LookupDecoder(tEmpty)
+	reg.RegisterTypeDecoder(
+		tEmpty,
+		bsoncodec.ValueDecoderFunc(func(dc bsoncodec.DecodeContext, vr bsonrw.ValueReader, val reflect.Value) error {
+			switch vr.Type() {
+			case bson.TypeDouble:
+				f, err := vr.ReadDouble()
+				if err != nil {
+					return err
+				}
+				if math.IsNaN(f) || math.IsInf(f, 0) {
+					val.Set(reflect.Zero(val.Type()))
+				} else {
+					val.Set(reflect.ValueOf(f))
+				}
+				return nil
+			case bson.TypeDateTime:
+				if constants.LoadedStateVersion > 4 {
+					ms, err := vr.ReadDateTime()
+					if err != nil {
+						return err
+					}
+					t, err := typeutils.ReformatDate(primitive.DateTime(ms).Time().UTC(), true)
+					if err != nil {
+						return err
+					}
+					val.Set(reflect.ValueOf(t))
+					return nil
+				}
+			}
+			return fallback.DecodeValue(dc, vr, val)
+		}),
+	)
+	return reg
+}()
 
 const (
 	cdcCursorField = "_data"
@@ -83,6 +138,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	opts.ApplyURI(m.config.URI())
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
+	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}
@@ -143,7 +199,7 @@ func (m *Mongo) MaxRetries() int {
 	return m.config.RetryCount
 }
 
-func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m *Mongo) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
 	database := m.client.Database(m.config.Database)
 	collections, err := database.ListCollections(ctx, bson.M{})
@@ -151,7 +207,7 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	var streamNames []string
+	var streamNames []types.StreamID
 	// Iterate through collections and check if they are views
 	for collections.Next(ctx) {
 		var collectionInfo bson.M
@@ -163,35 +219,27 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 		if collectionType, ok := collectionInfo["type"].(string); ok && collectionType == "view" {
 			continue
 		}
-		streamNames = append(streamNames, collectionInfo["name"].(string))
+
+		// Skip if collection is system.*
+		if name, ok := collectionInfo["name"].(string); ok && strings.HasPrefix(name, "system.") {
+			continue
+		}
+
+		streamNames = append(streamNames, types.StreamID{Namespace: m.config.Database, Name: collectionInfo["name"].(string)})
 	}
 	return streamNames, collections.Err()
 }
 
-// TODO: omit usage of ProduceSchema when sync command is used
-func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+// TODO: Add support for time series mongodb collections
+func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
 	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name(), nil)
-		// find primary keys
-		indexesCursor, err := collection.Indexes().List(ctx, options.ListIndexes())
-		if err != nil {
-			return nil, err
-		}
-		defer indexesCursor.Close(ctx)
-
-		for indexesCursor.Next(ctx) {
-			var indexes bson.M
-			if err := indexesCursor.Decode(&indexes); err != nil {
-				return nil, err
-			}
-			for key := range indexes["key"].(bson.M) {
-				stream.WithPrimaryKey(key)
-			}
-		}
+		stream := types.NewStream(streamName, streamID.Namespace, nil)
+		// _id is the guaranteed unique, mandatory field in every MongoDB collection.
+		stream.WithPrimaryKey(constants.MongoPrimaryID)
 
 		// Define find options for fetching documents in ascending and descending order.
 		findOpts := []*options.FindOptions{
@@ -224,12 +272,12 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	database := m.client.Database(m.config.Database)
 	// Either wait for covering 100k records from both sides for all streams
 	// Or wait till discoverCtx exits
-	stream, err := produceCollectionSchema(ctx, database, streamName)
+	stream, err := produceCollectionSchema(ctx, database, streamID.Name)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
+		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamID.Name, err)
 	}
 	// Add all discovered fields as potential cursor fields
 	stream.Schema.Properties.Range(func(key, value interface{}) bool {
@@ -256,7 +304,12 @@ func filterMongoObject(doc bson.M) {
 		case primitive.Timestamp:
 			doc[key] = value.T
 		case primitive.DateTime:
-			doc[key] = value.Time()
+			t := value.Time()
+			var err error
+			doc[key], err = typeutils.ReformatDate(t, true)
+			if err != nil {
+				doc[key] = time.Unix(0, 0).UTC()
+			}
 		case primitive.Null:
 			doc[key] = nil
 		case primitive.Binary:
@@ -265,12 +318,6 @@ func filterMongoObject(doc bson.M) {
 			doc[key] = value.String()
 		case primitive.ObjectID:
 			doc[key] = value.Hex()
-		case float64:
-			if math.IsNaN(value) || math.IsInf(value, 0) {
-				doc[key] = nil
-			} else {
-				doc[key] = value
-			}
 		default:
 			doc[key] = value
 		}

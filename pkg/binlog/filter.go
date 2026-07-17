@@ -3,6 +3,8 @@ package binlog
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -11,6 +13,9 @@ import (
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/pingcap/tidb/pkg/parser/charset"
+	"golang.org/x/text/encoding/charmap"
+	"golang.org/x/text/encoding/unicode"
 )
 
 const (
@@ -18,6 +23,11 @@ const (
 	CDCBinlogFilePos  = "_cdc_binlog_file_pos"  // MySQL binlog file position
 
 )
+
+// TableMapEvent wraps replication.TableMapEvent so we can define receiver methods (unsignedMap, isNumericColumn).
+type TableMapEvent struct {
+	*replication.TableMapEvent
+}
 
 // ChangeFilter filters binlog events based on the specified streams.
 type ChangeFilter struct {
@@ -59,7 +69,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		return nil
 	}
 
-	unsignedMap := e.Table.UnsignedMap()
+	unsignedMap := (&TableMapEvent{e.Table}).unsignedMap()
 	columnTypes := make([]string, len(e.Table.ColumnType))
 	for i, ct := range e.Table.ColumnType {
 		columnTypes[i] = mysqlTypeName(ct, unsignedMap != nil && unsignedMap[i])
@@ -113,21 +123,71 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(columns), len(row))
 	}
 
-	enumMap := tableMap.EnumStrValueMap()
+	enumRaw := tableMap.EnumStrValue                      // [][][]byte: one entry per ENUM column
+	setRaw := tableMap.SetStrValue                        // [][][]byte: one entry per SET column
+	enumSetCollationMap := tableMap.EnumSetCollationMap() // col idx -> collation ID for ENUM/SET
+	collationMap := tableMap.CollationMap()
+	enumP := 0 // index into enumRaw; advances only for ENUM columns
+	setP := 0  // index into setRaw; advances only for SET columns
 
 	// NOTE: For MySQL CDC (binlog-based), FLOAT values are read directly from the binlog and may
 	// differ from SELECT output due to SQL-layer formatting/rounding.
 	record := make(map[string]interface{})
 	for i, val := range row {
-		if tableMap.IsEnumColumn(i) && val != nil {
-			if enumValues, ok := enumMap[i]; ok {
+		if tableMap.IsEnumColumn(i) {
+			if val != nil && enumP < len(enumRaw) {
 				// for an update CDC event, the key of enum value is passed in binlog events which is always in int64
 				// during such a case, we need to find out the enum value of it from the index
 				if idx, isInt64 := val.(int64); isInt64 {
-					if idx == 0 {
-						return nil, fmt.Errorf("invalid ENUM value detected for column %s: index 0 indicates an error value (empty string) from MySQL", columns[i])
+					// MySQL stores invalid ENUM inserts as index 0 (special error value), which maps to empty string.
+					val = ""
+					if idx > 0 {
+						raw := enumRaw[enumP][idx-1]
+						if s, decErr := decodeBytesToString(raw, enumSetCollationMap[i]); decErr == nil {
+							val = s
+						} else {
+							val = string(raw) // fallback
+						}
 					}
-					val = enumValues[idx-1]
+				}
+			}
+			enumP++ // always advance, even for NULL values, to keep p in sync with EnumStrValue
+		} else if tableMap.IsSetColumn(i) {
+			if val != nil && setP < len(setRaw) {
+				// MySQL SET columns are stored in the binlog as an int64 bitmask:
+				// bit 0 = first member, bit 1 = second member, etc.
+				// e.g. SET('sports','music','gaming','reading') with value 'sports,reading' -> bitmask = 0b1001 = 9
+				if bitmask, isInt64 := val.(int64); isInt64 {
+					members := setRaw[setP]
+					selected := make([]string, 0, len(members))
+					for bit := 0; bit < len(members); bit++ {
+						if bitmask&(1<<bit) != 0 {
+							raw := members[bit]
+							if s, decErr := decodeBytesToString(raw, enumSetCollationMap[i]); decErr == nil {
+								selected = append(selected, s)
+							} else {
+								selected = append(selected, string(raw)) // fallback
+							}
+						}
+					}
+					val = strings.Join(selected, ",")
+				}
+			}
+			setP++ // always advance, even for NULL values, to keep p in sync with SetStrValue
+		} else if collID, exists := collationMap[i]; exists {
+			// go-mysql blindly casts VARCHAR/CHAR bytes to string via ByteSliceToString;
+			// BLOBs arrive as []byte. In both cases, cast back to bytes to recover the
+			// original charset bytes, then decode properly.
+			var raw []byte
+			switch v := val.(type) {
+			case string:
+				raw = []byte(v)
+			case []byte:
+				raw = v
+			}
+			if raw != nil {
+				if decoded, decErr := decodeBytesToString(raw, collID); decErr == nil {
+					val = decoded
 				}
 			}
 		}
@@ -208,10 +268,106 @@ func mysqlTypeName(t byte, unsigned bool) string {
 	case mysql.MYSQL_TYPE_LONG_BLOB:
 		return "LONGBLOB"
 	case mysql.MYSQL_TYPE_STRING:
-		return "STRING"
+		return "CHAR" // for mysql, string type is char type
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		return "GEOMETRY"
 	default:
 		return fmt.Sprintf("UNKNOWN_TYPE: %d", t)
 	}
+}
+
+// unsignedMap returns a map: column index -> unsigned.
+// Note that only columns with signedness information will be returned.
+// nil is returned if not available or no signedness columns at all.
+func (e *TableMapEvent) unsignedMap() map[int]bool {
+	if len(e.SignednessBitmap) == 0 {
+		return nil
+	}
+	ret := make(map[int]bool)
+	i := 0
+	for _, field := range e.SignednessBitmap {
+		for c := 0x80; c != 0; {
+			if e.isNumericColumn(i) {
+				ret[i] = field&byte(c) != 0
+				c >>= 1
+			}
+			i++
+			if i >= len(e.ColumnType) {
+				return ret
+			}
+		}
+	}
+	return ret
+}
+
+func (e *TableMapEvent) isNumericColumn(i int) bool {
+	switch e.ColumnType[i] {
+	case mysql.MYSQL_TYPE_TINY,
+		mysql.MYSQL_TYPE_SHORT,
+		mysql.MYSQL_TYPE_INT24,
+		mysql.MYSQL_TYPE_LONG,
+		mysql.MYSQL_TYPE_LONGLONG,
+		mysql.MYSQL_TYPE_YEAR,
+		mysql.MYSQL_TYPE_FLOAT,
+		mysql.MYSQL_TYPE_DOUBLE,
+		mysql.MYSQL_TYPE_DECIMAL,
+		mysql.MYSQL_TYPE_NEWDECIMAL:
+		return true
+	default:
+		return false
+	}
+}
+
+// mysqlStringDecoders maps MySQL charset names to their byte-to-UTF-8 decoder functions.
+// Charsets not listed here fall back to a raw string cast (passthrough), which is correct
+// for utf8/utf8mb4/ascii since their bytes are already valid UTF-8.
+var mysqlStringDecoders = map[string]func([]byte) (string, error){
+	"utf8":    decodeRawString,
+	"utf8mb3": decodeRawString,
+	"utf8mb4": decodeRawString,
+	"ascii":   decodeRawString,
+	"latin1":  decodeLatin1,
+	"ucs2":    decodeUTF16BE, // UCS-2 is Big Endian, BMP-only subset of UTF-16
+	"utf16":   decodeUTF16BE,
+	"utf16le": decodeUTF16LE,
+}
+
+func decodeRawString(b []byte) (string, error) {
+	return string(b), nil
+}
+
+func decodeLatin1(b []byte) (string, error) {
+	out, err := charmap.ISO8859_1.NewDecoder().Bytes(b)
+	return string(out), err
+}
+
+func decodeUTF16BE(b []byte) (string, error) {
+	out, err := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM).NewDecoder().Bytes(b)
+	return string(out), err
+}
+
+func decodeUTF16LE(b []byte) (string, error) {
+	out, err := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder().Bytes(b)
+	return string(out), err
+}
+
+// decodeBytesToString converts raw binlog bytes to a UTF-8 string using the MySQL collation ID.
+// Falls back to a raw string cast for unknown collations or charsets.
+func decodeBytesToString(b []byte, collationID uint64) (string, error) {
+	if len(b) == 0 {
+		return "", nil
+	}
+	// MySQL collation IDs are small integers; guard against overflow before casting.
+	if collationID > math.MaxInt32 {
+		return string(b), nil
+	}
+	coll, _ := charset.GetCollationByID(int(collationID)) //nolint:gosec // bounds checked above
+	if coll == nil {
+		return string(b), nil
+	}
+	decoder, ok := mysqlStringDecoders[coll.CharsetName]
+	if !ok {
+		return string(b), nil
+	}
+	return decoder(b)
 }

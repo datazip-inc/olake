@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
@@ -46,14 +47,20 @@ type SelectedColumns struct {
 }
 
 type StreamMetadata struct {
-	ChunkColumn     string           `json:"chunk_column,omitempty"`
-	PartitionRegex  string           `json:"partition_regex"`
-	StreamName      string           `json:"stream_name"`
-	AppendMode      bool             `json:"append_mode,omitempty"`
-	Normalization   bool             `json:"normalization"`
-	Filter          string           `json:"filter,omitempty"`
+	ChunkColumn    string `json:"chunk_column,omitempty"`
+	PartitionRegex string `json:"partition_regex"`
+	StreamName     string `json:"stream_name"`
+	AppendMode     bool   `json:"append_mode,omitempty"`
+	Normalization  bool   `json:"normalization"`
+	// When enabled, source column names are preserved as-is; otherwise utils.Reformat() is applied to generate destination-safe lowercase column names.
+	UseSourceColumnNames bool `json:"use_source_column_names"`
+	//legacy filter input
+	Filter string `json:"filter,omitempty"`
+	//new filter input
+	FilterConfig    *FilterConfig    `json:"filter_config,omitempty"`
 	SelectedColumns *SelectedColumns `json:"selected_columns"`
 }
+
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
@@ -143,6 +150,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 			newStream.Stream.CursorField = oldStream.Stream.CursorField
 			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
 			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
+			newStream.Stream.SourceDefinedPrimaryKey = oldStream.Stream.SourceDefinedPrimaryKey
 			return nil
 		}
 
@@ -232,7 +240,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 
 // GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 // Only selected streams are compared.
-// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode
+// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, use_source_column_names
 // 2. Compares properties from streams: destination_database, destination_table, cursor_field, sync_mode
 // 3. For now, any new stream present in new catalog is added to the difference. Later collision detection will happen.
 //
@@ -307,6 +315,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
+					(oldMetadata.UseSourceColumnNames != newMetadata.UseSourceColumnNames) ||
+					!reflect.DeepEqual(oldMetadata.FilterConfig, newMetadata.FilterConfig) ||
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
 					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||

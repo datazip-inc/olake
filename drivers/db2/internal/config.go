@@ -45,6 +45,23 @@ func (c *Config) BuildDSN() string {
 	return dsn
 }
 
+func (c *Config) BuildTunnelDSN(localPort int) string {
+	dsn := fmt.Sprintf(
+		"HOSTNAME=%s;PORT=%d;DATABASE=%s;UID=%s;PWD=%s;",
+		"localhost",
+		localPort,
+		c.Database,
+		c.Username,
+		c.Password,
+	)
+
+	for k, v := range c.JDBCURLParams {
+		dsn += fmt.Sprintf(";%s=%s", k, v)
+	}
+
+	return dsn
+}
+
 func (c *Config) Validate() error {
 	if c.Host == "" {
 		return fmt.Errorf("empty host name")

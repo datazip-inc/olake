@@ -19,6 +19,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/version"
 	"github.com/spf13/viper"
 )
 
@@ -66,7 +67,7 @@ func Init() {
 			platform: platformInfo{
 				OS:           runtime.GOOS,
 				Arch:         runtime.GOARCH,
-				OlakeVersion: getOlakeCLIVersion(),
+				OlakeVersion: version.GetOlakeCLIVersion(),
 				DeviceCPU:    fmt.Sprintf("%d cores", runtime.NumCPU()),
 			},
 			ipAddress: ip,
@@ -105,7 +106,7 @@ func TrackDiscover(streamCount int, sourceType string) {
 	}()
 }
 
-func TrackSyncStarted(syncID string, streams []*types.Stream, selectedStreams []string, fullLoadStreams, cdcStreams []types.StreamInterface, sourceType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
+func TrackSyncStarted(syncID string, selectedStreams []string, fullLoadStreams, cdcStreams []types.StreamInterface, sourceType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
 	go func() {
 		if telemetry == nil {
 			return
@@ -117,7 +118,7 @@ func TrackSyncStarted(syncID string, streams []*types.Stream, selectedStreams []
 		props := map[string]interface{}{
 			"sync_start":          time.Now(),
 			"sync_id":             syncID,
-			"stream_count":        len(streams),
+			"stream_count":        len(catalog.Streams),
 			"selected_count":      len(selectedStreams),
 			"full_load_streams":   len(fullLoadStreams),
 			"cdc_streams":         len(cdcStreams),
@@ -294,13 +295,4 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 		return nil
 	})
 	return count
-}
-
-// getOlakeCLIVersion() extracts the olake version from the ENV embedded in the olake image
-func getOlakeCLIVersion() string {
-	version := os.Getenv("DRIVER_VERSION")
-	if version == "" {
-		return "Not Available"
-	}
-	return version
 }

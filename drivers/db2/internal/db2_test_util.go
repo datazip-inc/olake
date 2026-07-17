@@ -47,6 +47,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_varchar VARCHAR(50),
 				col_date DATE,
 				col_decimal DECIMAL(10, 2),
+				col_decfloat DECFLOAT,
 				col_double DOUBLE,
 				col_real REAL,
 				col_int INTEGER,
@@ -57,7 +58,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_timestamp TIMESTAMP,
 				col_time TIME,
 				col_graphic GRAPHIC(11),
-				col_vargraphic VARGRAPHIC(14)
+				col_vargraphic VARGRAPHIC(14),
+				excludedColumn INT NULL
 			)`, integrationTestTable)
 
 	case "drop":
@@ -76,13 +78,59 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`
 			INSERT INTO %s (
 				col_cursor, col_bigint, col_char, col_character,
-				col_varchar, col_date, col_decimal,
+				col_varchar, col_date, col_decimal, col_decfloat,
+				col_double, col_real, col_int, col_smallint,
+				col_clob, col_blob, col_timestamp, col_time,
+				col_graphic, col_vargraphic, col_bool, excludedColumn
+			) VALUES (
+				6, 12345678901234, 'c', 'char_val',
+				'varchar_val', DATE('2023-01-01'), 123.45, 123.45,
+				123.456789, 123.5, 123, 123,
+				CLOB('sample text'), BLOB(X'424C4F422044415441204F4E45'),
+				TIMESTAMP('2023-01-01-12.00.00.000000'),
+				TIME('12.00.00'),
+				GRAPHIC('graphic_val'),
+				VARGRAPHIC('vargraphic_val'),
+				TRUE,
+				101
+			)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, query)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		// insert a filtered row — timestamp is before the filter threshold, so it won't be synced
+		filteredQuery := fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_char, col_character,
+				col_varchar, col_date, col_decimal, col_decfloat,
+				col_double, col_real, col_int, col_smallint,
+				col_clob, col_blob, col_timestamp, col_time,
+				col_graphic, col_vargraphic, col_bool, excludedColumn
+			) VALUES (
+				-1, 111111111111111, 'x', 'filtered',
+				'filtered_val', DATE('2022-06-15'), 50.123, 50.123,
+				50.123, 50.0, 0, 0,
+				CLOB('filtered text'), BLOB(X'00'),
+				TIMESTAMP('2022-06-15-10.00.00.000000'),
+				TIME('10.00.00'),
+				GRAPHIC('filtered'),
+				VARGRAPHIC('filtered'),
+				FALSE,
+				200
+			)`, integrationTestTable)
+		_, err = db.ExecContext(ctx, filteredQuery)
+		require.NoError(t, err, "Failed to insert filtered test data row")
+		return
+
+	case "insert_2pc":
+		query = fmt.Sprintf(`
+			INSERT INTO %s (
+				col_cursor, col_bigint, col_char, col_character,
+				col_varchar, col_date, col_decimal, col_decfloat,
 				col_double, col_real, col_int, col_smallint,
 				col_clob, col_blob, col_timestamp, col_time,
 				col_graphic, col_vargraphic, col_bool
 			) VALUES (
-				6, 12345678901234, 'c', 'char_val',
-				'varchar_val', DATE('2023-01-01'), 123.45,
+				7, 12345678901234, 'c', 'char_val',
+				'varchar_val', DATE('2023-01-01'), 123.45, 123.45,
 				123.456789, 123.5, 123, 123,
 				CLOB('sample text'), BLOB(X'424C4F422044415441204F4E45'),
 				TIMESTAMP('2023-01-01-12.00.00.000000'),
@@ -97,7 +145,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
         UPDATE %s SET
             col_cursor = NULL,
             col_smallint = 321,
-			col_timestamp = TIMESTAMP('2024-01-01-12.00.00.000000')
+			col_timestamp = TIMESTAMP('2024-01-01-12.00.00.000000'),
+			excludedColumn = 102,
+			includedColumn = 202
         WHERE id = 1`, integrationTestTable)
 
 	case "delete":
@@ -106,6 +156,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "evolve-schema":
 		evolveQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_SMALLINT SET DATA TYPE BIGINT`, integrationTestTable)
 		_, err = db.ExecContext(ctx, evolveQuery)
+		require.NoError(t, err, "Failed to execute %s operation", operation)
+		// Add new column
+		addColumnQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ADD COLUMN includedColumn INTEGER`, integrationTestTable)
+		_, err = db.ExecContext(ctx, addColumnQuery)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 		// to clear REORG pending state of DB2 after schema evolution
@@ -130,25 +184,48 @@ func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName st
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
 			col_cursor, col_bigint, col_char, col_character,
-			col_varchar, col_date, col_decimal,
+			col_varchar, col_date, col_decimal, col_decfloat,
 			col_double, col_real, col_int, col_smallint,
 			col_clob, col_blob, col_timestamp, col_time,
-			col_graphic, col_vargraphic, col_bool
+			col_graphic, col_vargraphic, col_bool, excludedColumn
 		) VALUES (
 			%d, 12345678901234, 'c', 'char_val',
-			'varchar_val', DATE('2023-01-01'), 123.45,
+			'varchar_val', DATE('2023-01-01'), 123.45, 123.45,
 			123.456789, 123.5, 123, 123,
 			CLOB('sample text'), BLOB(X'424C4F422044415441204F4E45'),
 			TIMESTAMP('2023-01-01-12.00.00.000000'),
 			TIME('12.00.00'),
 			GRAPHIC('graphic_val'),
 			VARGRAPHIC('vargraphic_val'),
-			TRUE
+			TRUE,
+			100
 		)`, tableName, i)
 
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data")
 	}
+	// insert a filtered row — timestamp is before the filter threshold, so it won't be synced
+	filteredQuery := fmt.Sprintf(`
+		INSERT INTO %s (
+			col_cursor, col_bigint, col_char, col_character,
+			col_varchar, col_date, col_decimal, col_decfloat,
+			col_double, col_real, col_int, col_smallint,
+			col_clob, col_blob, col_timestamp, col_time,
+			col_graphic, col_vargraphic, col_bool, excludedColumn
+		) VALUES (
+			-1, 111111111111111, 'x', 'filtered',
+			'filtered_val', DATE('2021-06-15'), 500234.123, 500234.123,
+			500234.123, 500234.0, 0, 0,
+			CLOB('filtered text'), BLOB(X'00'),
+			TIMESTAMP('2021-06-15-10.00.00.000000'),
+			TIME('10.00.00'),
+			GRAPHIC('filtered'),
+			VARGRAPHIC('filtered'),
+			FALSE,
+			200
+		)`, tableName)
+	_, err := db.ExecContext(ctx, filteredQuery)
+	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
 var ExpectedDB2Data = map[string]interface{}{
@@ -159,6 +236,7 @@ var ExpectedDB2Data = map[string]interface{}{
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":    float64(123.45),
+	"col_decfloat":   "123.45",
 	"col_double":     123.456789,
 	"col_real":       float32(123.5),
 	"col_int":        int32(123),
@@ -179,6 +257,7 @@ var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_varchar":    "varchar_val",
 	"col_date":       arrow.Timestamp(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_decimal":    float64(123.45),
+	"col_decfloat":   "123.45",
 	"col_double":     123.456789,
 	"col_real":       float32(123.5),
 	"col_int":        int32(123),
@@ -189,6 +268,7 @@ var ExpectedUpdatedDB2Data = map[string]interface{}{
 	"col_time":       "12:00:00",
 	"col_graphic":    "graphic_val",
 	"col_vargraphic": "vargraphic_val",
+	"includedcolumn": int32(202),
 }
 
 var DB2ToDestinationSchema = map[string]string{
@@ -201,6 +281,7 @@ var DB2ToDestinationSchema = map[string]string{
 	"col_varchar":    "string",
 	"col_date":       "timestamp",
 	"col_decimal":    "double",
+	"col_decfloat":   "string",
 	"col_double":     "double",
 	"col_real":       "float",
 	"col_int":        "integer",
@@ -223,6 +304,7 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 	"col_varchar":    "string",
 	"col_date":       "timestamp",
 	"col_decimal":    "double",
+	"col_decfloat":   "string",
 	"col_double":     "double",
 	"col_real":       "float",
 	"col_int":        "integer",
@@ -233,4 +315,5 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 	"col_time":       "string",
 	"col_graphic":    "string",
 	"col_vargraphic": "string",
+	"includedcolumn": "integer",
 }

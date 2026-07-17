@@ -37,6 +37,12 @@ Add SQL Server credentials in following format in `config.json` file. [More deta
     "retry_count": 3,
     "ssl": {
         "mode": "disable"
+    },
+    "ssh_config":{
+         "host": "ssh_host",
+         "port": 22,
+         "username": "ssh_user",
+         "private_key": "-----BEGIN OPENSSH PRIVATE KEY-----\nssh_passkey\n-----END OPENSSH PRIVATE KEY-----"
     }
   }
 ```

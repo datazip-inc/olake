@@ -2,7 +2,6 @@ package waljs
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"strings"
@@ -48,7 +47,7 @@ type Replicator interface {
 	StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error
 }
 
-func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
+func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, recoveryLSN *pglogrepl.LSN, typeConverter func(value interface{}, columnType string) (interface{}, error)) (Replicator, error) {
 	// Build PostgreSQL connection config
 	connURL := config.Connection
 	q := connURL.Query()
@@ -80,8 +79,7 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, ty
 		return false
 	}
 	if config.TLSConfig != nil {
-		// TODO: use proper TLS Configurations
-		cfg.TLSConfig = &tls.Config{InsecureSkipVerify: false, MinVersion: tls.VersionTLS12}
+		cfg.TLSConfig = config.TLSConfig
 	}
 
 	// Establish PostgreSQL connection
@@ -98,13 +96,21 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, ty
 	logger.Infof("SystemID:%s Timeline:%d XLogPos:%s Database:%s",
 		sysident.SystemID, sysident.Timeline, sysident.XLogPos, sysident.DBName)
 
+	// Use the XLogPos from IdentifySystem as the target WAL position.
+	targetWalPos := sysident.XLogPos
+
+	// For recovery syncs the caller supplies an explicit target LSN; use that instead.
+	if recoveryLSN != nil {
+		targetWalPos = *recoveryLSN
+	}
+
 	// Create and return final connection object
 	socket := &Socket{
 		pgConn:             pgConn,
 		changeFilter:       NewChangeFilter(typeConverter, config.Tables.Array()...),
 		ConfirmedFlushLSN:  slot.LSN,
 		ClientXLogPos:      slot.LSN,
-		CurrentWalPosition: slot.CurrentLSN,
+		CurrentWalPosition: targetWalPos,
 		ReplicationSlot:    config.ReplicationSlotName,
 		initialWaitTime:    config.InitialWaitTime,
 	}

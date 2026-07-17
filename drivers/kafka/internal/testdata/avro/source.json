@@ -1,0 +1,12 @@
+{
+  "bootstrap_servers": "host.docker.internal:39192",
+  "protocol": {
+    "security_protocol": "PLAINTEXT"
+  },
+  "consumer_group_id": "kafka-Avro-integration-test-group",
+  "threads_equal_total_partitions": true,
+  "backoff_retry_count": 3,
+  "schema_registry": {
+    "endpoint": "http://host.docker.internal:8081"
+  }
+}

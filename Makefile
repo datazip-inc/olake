@@ -1,10 +1,11 @@
 GOPATH = $(shell go env GOPATH)
+GO_VERSION = $(shell awk '/^go / {print "go"$$2; exit}' go.mod)
 
 gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
 golangci:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest;
+	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest;
 	$(GOPATH)/bin/golangci-lint run
 
 trivy:

@@ -3,6 +3,8 @@ package driver
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
 	"strings"
 	"time"
 
@@ -12,15 +14,17 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/datazip-inc/olake/utils/typeutils"
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
+	"golang.org/x/crypto/ssh"
 )
 
 type DB2 struct {
-	client *sqlx.DB
-	config *Config
-	state  *types.State
+	client      *sqlx.DB
+	config      *Config
+	state       *types.State
+	sshClient   *ssh.Client
+	sshListener net.Listener
 }
 
 func (d *DB2) CDCSupported() bool {
@@ -32,8 +36,34 @@ func (d *DB2) Setup(ctx context.Context) error {
 		return err
 	}
 
-	// Build DSN
-	dsn := d.config.BuildDSN()
+	if d.config.SSHConfig != nil && d.config.SSHConfig.Host != "" {
+		logger.Info("Found SSH Configuration")
+		var err error
+		d.sshClient, err = d.config.SSHConfig.SetupSSHConnection()
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
+	}
+
+	var dsn string
+	if d.sshClient != nil {
+		logger.Info("Connecting to DB2 via SSH tunnel")
+
+		listener, err := net.Listen("tcp", "localhost:0")
+		if err != nil {
+			return fmt.Errorf("failed to create local listener for SSH tunnel: %s", err)
+		}
+		d.sshListener = listener
+
+		remoteAddr := fmt.Sprintf("%s:%d", d.config.Host, d.config.Port)
+		go d.forwardConnections(listener, remoteAddr)
+
+		localAddr := listener.Addr().(*net.TCPAddr)
+		dsn = d.config.BuildTunnelDSN(localAddr.Port)
+	} else {
+		dsn = d.config.BuildDSN()
+	}
+
 	client, err := sqlx.Open("go_ibm_db", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open db2 connection: %s", err)
@@ -76,6 +106,44 @@ func (d *DB2) CloseConnection() {
 			logger.Error("failed to close db2 connection: %s", err)
 		}
 	}
+
+	if d.sshListener != nil {
+		if err := d.sshListener.Close(); err != nil {
+			logger.Errorf("failed to close SSH tunnel listener: %s", err)
+		}
+	}
+
+	if d.sshClient != nil {
+		if err := d.sshClient.Close(); err != nil {
+			logger.Errorf("failed to close SSH client: %s", err)
+		}
+	}
+}
+
+func (d *DB2) forwardConnections(listener net.Listener, remoteAddr string) {
+	for {
+		localConn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+
+		remoteConn, err := d.sshClient.Dial("tcp", remoteAddr)
+		if err != nil {
+			logger.Warnf("failed to dial DB2 target %s through SSH tunnel: %s", remoteAddr, err)
+			localConn.Close()
+			continue
+		}
+
+		go func() {
+			defer localConn.Close()
+			defer remoteConn.Close()
+
+			done := make(chan struct{}, 2)
+			go func() { io.Copy(localConn, remoteConn); done <- struct{}{} }()
+			go func() { io.Copy(remoteConn, localConn); done <- struct{}{} }()
+			<-done
+		}()
+	}
 }
 
 func (d *DB2) Type() string {
@@ -90,7 +158,7 @@ func (d *DB2) MaxRetries() int {
 	return d.config.RetryCount
 }
 
-func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
+func (d *DB2) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for DB2 database %s", d.config.Database)
 
 	rows, err := d.client.QueryContext(ctx, jdbc.DB2DiscoveryQuery())
@@ -99,13 +167,13 @@ func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var streamNames []string
+	var streamNames []types.StreamID
 	for rows.Next() {
 		var schema, name string
 		if err := rows.Scan(&schema, &name); err != nil {
 			return nil, fmt.Errorf("failed to scan table row: %s", err)
 		}
-		streamNames = append(streamNames, fmt.Sprintf("%s.%s", schema, name))
+		streamNames = append(streamNames, types.StreamID{Namespace: schema, Name: name})
 	}
 
 	if err := rows.Err(); err != nil {
@@ -115,16 +183,11 @@ func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
 	return streamNames, nil
 }
 
-func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	populateStreams := func(ctx context.Context, streamName string) (*types.Stream, error) {
+func (d *DB2) ProduceSchema(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
+	populateStreams := func(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
 
-		parts := strings.Split(streamName, ".")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-		}
-
-		schemaName, tableName := parts[0], parts[1]
+		schemaName, tableName := streamName.Namespace, streamName.Name
 		stream := types.NewStream(tableName, schemaName, &d.config.Database)
 
 		rows, err := d.client.QueryContext(ctx, jdbc.DB2TableSchemaAndPrimaryKeysQuery(), schemaName, tableName)
@@ -177,25 +240,4 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 	}
 
 	return stream, nil
-}
-
-func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
-	if value == nil {
-		return nil, typeutils.ErrNullValue
-	}
-
-	if columnType == "TIME" {
-		return typeutils.ReformatTimeValue(value)
-	}
-
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, db2TypeToDataTypes)
-
-	// in db2, string based types come in byte format
-	if olakeType == types.String {
-		if v, ok := value.([]byte); ok {
-			return strings.TrimSpace(string(v)), nil
-		}
-	}
-
-	return typeutils.ReformatValue(olakeType, value)
 }
