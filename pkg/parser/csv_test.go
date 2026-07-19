@@ -429,3 +429,34 @@ func TestCSVParser_StreamRecords_TypeConversion(t *testing.T) {
 	assert.IsType(t, float32(0), firstRecord["score"], "score should be float32")
 	assert.IsType(t, false, firstRecord["is_active"], "is_active should be bool")
 }
+
+func TestCSVParser_StreamRecords_ColumnMissingFromSchema(t *testing.T) {
+	csvData := `id,name,new_col
+1,Alice,hello
+2,Bob,`
+
+	config := CSVConfig{
+		Delimiter: ",",
+		HasHeader: true,
+		SkipRows:  0,
+	}
+
+	// new_col is deliberately absent: a column that appeared in the file after discover
+	// built the schema.
+	stream := types.NewStream("test", "test", nil)
+	stream.UpsertField("id", types.Int64, true, false)
+	stream.UpsertField("name", types.String, true, false)
+
+	parser := NewCSVParser(config, stream)
+
+	records := []map[string]any{}
+	err := parser.StreamRecords(context.Background(), strings.NewReader(csvData), func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+
+	assert.Equal(t, "hello", records[0]["new_col"], "unknown column should stream through as string")
+	assert.Nil(t, records[1]["new_col"], "empty cell of an unknown column should still be null")
+}

@@ -136,11 +136,7 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 		record := make(map[string]any)
 		for i, value := range firstRow {
 			if i < len(headers) {
-				fieldType, err := p.stream.Schema.GetType(headers[i])
-				if err != nil {
-					return fmt.Errorf("failed to get type for field %s: %s", headers[i], err)
-				}
-				convertedValue, err := convertValue(value, fieldType)
+				convertedValue, err := convertValue(value, p.fieldType(headers[i]))
 				if err != nil {
 					if errors.Is(err, errNullValue) {
 						// errNullValue indicates a valid null/empty value
@@ -181,11 +177,7 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 		for i, value := range row {
 			if i < len(headers) {
 				// Convert value based on schema type
-				fieldType, err := p.stream.Schema.GetType(headers[i])
-				if err != nil {
-					return fmt.Errorf("failed to get type for field %s: %s", headers[i], err)
-				}
-				convertedValue, err := convertValue(value, fieldType)
+				convertedValue, err := convertValue(value, p.fieldType(headers[i]))
 				if err != nil {
 					if errors.Is(err, errNullValue) {
 						// errNullValue indicates a valid null/empty value
@@ -207,6 +199,17 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 
 	logger.Infof("Processed %d records from CSV file", recordCount)
 	return nil
+}
+
+// fieldType resolves a header's type from the stream schema. A header the schema does not
+// carry is a column that appeared after discover: hand its cells through as strings, the
+// way the JSON parser hands through unknown fields, so the destination can evolve.
+func (p *CSVParser) fieldType(header string) types.DataType {
+	fieldType, err := p.stream.Schema.GetType(header)
+	if err != nil {
+		return types.String
+	}
+	return fieldType
 }
 
 // inferColumnType infers the data type of a CSV column from sample values
