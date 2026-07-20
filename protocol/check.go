@@ -34,7 +34,7 @@ var checkCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(cmd *cobra.Command, _ []string) {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
@@ -55,7 +55,9 @@ var checkCmd = &cobra.Command{
 			return nil
 		}()
 
-		// log success
+		// Report the outcome as a connection-status message, then surface any failure through
+		// the exit code: returning a non-nil error makes RootCmd.Execute() call logger.Fatal,
+		// so `check` exits non-zero on a failed connection instead of always exiting 0.
 		message := types.Message{
 			Type: types.ConnectionStatusMessage,
 			ConnectionStatus: &types.StatusRow{
@@ -67,5 +69,6 @@ var checkCmd = &cobra.Command{
 			message.ConnectionStatus.Status = types.ConnectionFailed
 		}
 		logger.Info(message)
+		return err
 	},
 }
