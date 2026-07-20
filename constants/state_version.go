@@ -38,7 +38,7 @@ package constants
 //     * Now these byte slices are parsed and converted into int64
 
 const (
-	LatestStateVersion = 6
+	LatestStateVersion = 7
 )
 
 // Used as the current version of the state when the program is running
