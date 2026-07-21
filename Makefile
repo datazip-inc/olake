@@ -141,7 +141,13 @@ wait_ready = echo "Waiting for $(1) (up to $(or $(WAIT_RETRIES.$(1)),$(WAIT_RETR
 #   WAIT_RETRIES.<d> / WAIT_SLEEP.<d>  probe retry overrides
 #   RECOVER.<d>                        nudge hook run after each failed probe
 #   POST_SETUP.<d>                     one-time init after the stack is ready (idempotent)
-#   BUILD_GUARD.<d>                    precondition check for dev.<d>.build
+#   prepare.<d>                        override of the no-op default below: provision
+#                                      host build deps (every build/test target that
+#                                      compiles <d> already depends on it)
+#   GO_ENV.<d>                         `export VAR=...;` recipe-line prefix stitched
+#                                      into every go command that compiles <d> (must
+#                                      be shell `export`s so the env survives SIP and
+#                                      reaches all commands of a pipeline)
 #   NON_CDC_DRIVERS += <d>             opt out of the 2PC suites
 # plus driver-only targets. Recipes run from the repo root. Fragments are
 # included before the driver lists below are derived and before the templates
@@ -156,6 +162,16 @@ SOURCE_DRIVERS := $(filter $(DRIVERS),$(notdir $(patsubst %/docker-compose.yml,%
 CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
 INTEGRATION_PKGS := $(addsuffix /internal/...,$(addprefix ./drivers/,$(SOURCE_DRIVERS)))
 CDC_PKGS := $(addsuffix /internal/...,$(addprefix ./drivers/,$(CDC_DRIVERS)))
+
+# --- host prepare -------------------------------------------------------------
+# prepare.<d> provisions whatever driver d needs before it can compile on this
+# host; the default is a no-op. Every build/test target below that compiles a
+# driver depends on its prepare.<d>, so a fragment override (db2: the IBM
+# clidriver) makes those targets work on a fresh machine of any OS/arch.
+prepare.%:
+	@true
+prepare.all: $(addprefix prepare.,$(DRIVERS))
+.PHONY: prepare.all
 
 # --- source databases (generated per driver) ---------------------------------
 define SOURCE_DB_template
@@ -239,9 +255,8 @@ $(ICEBERG_JAR): $(ICEBERG_JAR_SRCS)
 # --- dev builds (generated per driver, incl. s3) ------------------------------
 define DEV_BUILD_template
 .PHONY: dev.$(1).build
-dev.$(1).build:
-	@$$(BUILD_GUARD.$(1))
-	cd drivers/$(1) && go mod tidy && go build -ldflags="-w -s -X constants/constants.version=$$(GIT_VERSION) -X constants/constants.commitsha=$$(GIT_COMMITSHA) -X constants/constants.releasechannel=$$(RELEASE_CHANNEL)" -o olake main.go
+dev.$(1).build: prepare.$(1)
+	$$(GO_ENV.$(1)) cd drivers/$(1) && go mod tidy && go build -ldflags="-w -s -X constants/constants.version=$$(GIT_VERSION) -X constants/constants.commitsha=$$(GIT_COMMITSHA) -X constants/constants.releasechannel=$$(RELEASE_CHANNEL)" -o olake main.go
 	@echo "Built drivers/$(1)/olake (version $$(GIT_VERSION), commit $$(GIT_COMMITSHA))"
 endef
 $(foreach d,$(DRIVERS),$(eval $(call DEV_BUILD_template,$(d))))
@@ -249,29 +264,29 @@ $(foreach d,$(DRIVERS),$(eval $(call DEV_BUILD_template,$(d))))
 # --- tests --------------------------------------------------------------------
 define INTEGRATION_TEST_template
 .PHONY: test.integration.$(1)
-test.integration.$(1): db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
-	go test -v ./drivers/$(1)/internal/... -timeout 0 -count=1 -run 'Integration'
+test.integration.$(1): prepare.$(1) db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
+	$$(GO_ENV.$(1)) go test -v ./drivers/$(1)/internal/... -timeout 0 -count=1 -run 'Integration'
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call INTEGRATION_TEST_template,$(d))))
 
 define TWO_PC_TEST_template
 .PHONY: test.2pc.$(1)
-test.2pc.$(1): db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
-	go test -v ./drivers/$(1)/internal/... -timeout 0 -count=1 -run '2PC'
+test.2pc.$(1): prepare.$(1) db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
+	$$(GO_ENV.$(1)) go test -v ./drivers/$(1)/internal/... -timeout 0 -count=1 -run '2PC'
 endef
 $(foreach d,$(CDC_DRIVERS),$(eval $(call TWO_PC_TEST_template,$(d))))
 
-test.integration: db.all.start $(ICEBERG_JAR)
-	go test -v -p $(words $(SOURCE_DRIVERS)) $(INTEGRATION_PKGS) -timeout 0 -count=1 -run 'Integration'
+test.integration: $(addprefix prepare.,$(SOURCE_DRIVERS)) db.all.start $(ICEBERG_JAR)
+	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) go test -v -p $(words $(SOURCE_DRIVERS)) $(INTEGRATION_PKGS) -timeout 0 -count=1 -run 'Integration'
 
-test.2pc: $(addprefix db.,$(addsuffix .start,$(CDC_DRIVERS))) db.destination.all.start $(ICEBERG_JAR)
-	go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
+test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix db.,$(addsuffix .start,$(CDC_DRIVERS))) db.destination.all.start $(ICEBERG_JAR)
+	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
 
 # Unit tests across every module in the go.work workspace. Directory patterns
 # ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
 # like <module>/... prefix-matches into sibling modules.
-test.unit:
-	go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -skip 'Integration|2PC|Performance|Rebalance'
+test.unit: $(addprefix prepare.,$(DRIVERS))
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -skip 'Integration|2PC|Performance|Rebalance'
 
 define print_help_targets
 $(foreach t,$(HELP_TARGETS), \
@@ -304,6 +319,7 @@ help:
 	@echo ""
 	@echo "Dev builds:"
 	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "dev.$(d).build" "host binary at drivers/$(d)/olake";)
+	@printf "  %-44s %s\n" "prepare.<driver> | prepare.all" "provision host build deps (db2: IBM clidriver; else no-op)"
 	@echo ""
 	@echo "Docker images:"
 	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "docker.$(d).build" "build the $(d) driver image (olake/source-$(d):$(IMAGE_TAG))";)
