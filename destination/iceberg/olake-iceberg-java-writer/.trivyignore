@@ -1,0 +1,120 @@
+# Trivy ignore list for olake-iceberg-java-writer
+#
+# These CVEs live in OLD dependency versions that are SHADED (re-packaged)
+# inside third-party fat/bundle jars we pull transitively — mainly the
+# hadoop3 gcs-connector and the iceberg-*-bundle artifacts. We cannot bump
+# these directly from our pom.xml because they are baked inside the bundle
+# jar, not resolved as normal dependencies.
+#
+# NOTE: our pom.xml already pins CURRENT versions of jackson-databind (2.16.1),
+# protobuf-java (3.25.5) and netty (4.1.118) for the DIRECTLY-resolved graph.
+# The entries below are the stale copies bundled inside those fat jars.
+#
+# Fix path (do not just leave forever): bump the offending bundle/iceberg
+# version when upstream re-shades fixed deps, or exclude the bundle and pull
+# the unbundled artifact. Re-review this file every release.
+#
+# Directly-fixable CVEs (zookeeper, jose4j, jetty, quarkus) are intentionally
+# NOT listed here — those are handled via pom bumps / Dependabot.
+
+# --- com.cedarsoftware:json-io @ 2.5.1 (shaded) ---
+CVE-2023-34610
+
+# --- com.fasterxml.jackson.core:jackson-databind @ 2.4.0 (shaded; pom pins 2.16.1) ---
+CVE-2017-15095
+CVE-2017-17485
+CVE-2017-7525
+CVE-2018-11307
+CVE-2018-12022
+CVE-2018-14718
+CVE-2018-14719
+CVE-2018-19362
+CVE-2018-5968
+CVE-2018-7489
+CVE-2019-12086
+CVE-2019-14379
+CVE-2019-14439
+CVE-2019-14540
+CVE-2019-14892
+CVE-2019-16335
+CVE-2019-16942
+CVE-2019-16943
+CVE-2019-17267
+CVE-2019-17531
+CVE-2019-20330
+CVE-2020-10650
+CVE-2020-10673
+CVE-2020-24616
+CVE-2020-24750
+CVE-2020-35490
+CVE-2020-35491
+CVE-2020-35728
+CVE-2020-36179
+CVE-2020-36180
+CVE-2020-36181
+CVE-2020-36182
+CVE-2020-36183
+CVE-2020-36184
+CVE-2020-36185
+CVE-2020-36186
+CVE-2020-36187
+CVE-2020-36188
+CVE-2020-36189
+CVE-2020-36518
+CVE-2020-8840
+CVE-2020-9547
+CVE-2020-9548
+CVE-2021-20190
+CVE-2022-42003
+CVE-2022-42004
+
+# --- com.google.protobuf:protobuf-java @ 3.3.1 (shaded; pom pins 3.25.5) ---
+CVE-2021-22569
+CVE-2022-3509
+CVE-2022-3510
+CVE-2024-7254
+
+# --- io.airlift:aircompressor @ 0.27 (shaded) ---
+CVE-2025-67721
+
+# --- io.netty:netty-all @ 4.1.12.Final (shaded) ---
+CVE-2019-16869
+
+# --- io.netty:netty-codec @ 4.1.114.Final (shaded; pom pins 4.1.118) ---
+CVE-2026-42583
+
+# --- io.netty:netty-codec-dns @ 4.1.109.Final (shaded) ---
+CVE-2026-42579
+
+# --- io.netty:netty-codec-haproxy @ 4.1.94.Final (shaded) ---
+CVE-2026-44893
+CVE-2026-48059
+
+# --- io.netty:netty-codec-http @ 4.1.114.Final (shaded) ---
+CVE-2026-33870
+CVE-2026-42584
+CVE-2026-42587
+
+# --- io.netty:netty-codec-http2 @ 4.1.114.Final (shaded) ---
+CVE-2025-55163
+CVE-2026-33871
+
+# --- io.netty:netty-handler @ 4.1.114.Final (shaded) ---
+CVE-2025-24970
+CVE-2026-44249
+CVE-2026-45416
+CVE-2026-50010
+
+# --- io.netty:netty-resolver-dns @ 4.1.109.Final (shaded) ---
+CVE-2026-45674
+CVE-2026-47691
+
+# --- net.minidev:json-smart @ 2.5.1 (shaded) ---
+CVE-2024-57699
+
+# --- org.codehaus.plexus:plexus-utils @ 3.5.1 (shaded; build-time) ---
+CVE-2025-67030
+
+# --- org.jline:jline-remote-telnet @ 3.9.0 (shaded) ---
+GHSA-2r2c-cx56-8933
+GHSA-47qp-hqvx-6r3f
