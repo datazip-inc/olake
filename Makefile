@@ -15,21 +15,7 @@ parse_platforms_conf = $(shell awk -F' *= *' -v d=$(1) -v use_def=$(2) '/^[[:spa
 driver_platforms = $(or $(PLATFORMS),$(call parse_platforms_conf,$(1),1))
 local_driver_platforms = $(or $(PLATFORMS),$(call parse_platforms_conf,$(1)))
 
-# Queried by release-tool.sh; PLATFORMS env/arg forces the list.
-print.platforms.%:
-	@echo $(call driver_platforms,$*)
-
 .PHONY: gomod golangci trivy gofmt pre-commit
-
-OUTPUT ?= ./olake
-# Driver-specific runtime files are staged here by prepare.<driver>; the
-# Dockerfile copies the whole dir onto / of the runtime image and runs ldconfig.
-OVERLAY_DIR ?= /runtime-overlay
-
-# Driver-specific pre-build setup (called by the Dockerfile builder stage).
-# Default: nothing to stage.
-prepare.%:
-	mkdir -p $(OVERLAY_DIR)
 
 # Build a driver image locally, e.g. `make docker.postgres.build IMAGE_TAG=v1.2.3`.
 # Drivers with an explicit entry in drivers/platforms.conf are pinned to it.
