@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -122,17 +121,6 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 	return json.Marshal(serverConfig)
 }
 
-// sweepStaleGCPCredsTempFiles clears creds temp files orphaned by a killed prior run (SIGKILL or reclaimPort); safe since only one shared JVM/temp file exists at a time.
-func sweepStaleGCPCredsTempFiles() {
-	matches, err := filepath.Glob(filepath.Join(os.TempDir(), "olake-gcp-creds-*.json"))
-	if err != nil {
-		return
-	}
-	for _, m := range matches {
-		os.Remove(m)
-	}
-}
-
 // writeGCPCredsTempFile materializes inline gcp_credentials_json content to a
 // temp file, since GoogleAuthManager only reads credentials from a file path.
 // Returns "" if credsJSON is empty.
@@ -150,10 +138,6 @@ func writeGCPCredsTempFile(credsJSON string) (string, error) {
 		return "", fmt.Errorf("failed to write gcp_credentials_json to temp file: %w", err)
 	}
 	f.Close()
-	if err := os.Chmod(f.Name(), 0o600); err != nil {
-		os.Remove(f.Name())
-		return "", fmt.Errorf("failed to set permissions on gcp credentials temp file: %w", err)
-	}
 	return f.Name(), nil
 }
 
@@ -170,8 +154,6 @@ func startServer(config *Config) (*serverInstance, error) {
 
 	// Forcefully kill any existing process on this port before starting
 	reclaimPort(port)
-	// Clean up any creds temp file orphaned by a killed prior run.
-	sweepStaleGCPCredsTempFiles()
 
 	// GoogleAuthManager only reads credentials from a file path (gcp.auth.credentials-path);
 	// materialize inline JSON content to a temp file so the property has something to point at.
