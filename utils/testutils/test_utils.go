@@ -1334,7 +1334,10 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Run("Discover", func(t *testing.T) {
 		skipOutsideTestPhase(t, "discover")
 		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
-			// 1. Query on test table
+			// 1. Query on test table; drop first so leftover state from a previous
+			// aborted run (e.g. evolve-schema mutations) cannot survive the
+			// CREATE IF NOT EXISTS
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
@@ -1371,7 +1374,10 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Run("Sync", func(t *testing.T) {
 		skipOutsideTestPhase(t, "sync")
 		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
-			// 1. Query on test table
+			// 1. Query on test table; drop first so leftover state from a previous
+			// aborted run (e.g. evolve-schema mutations) cannot survive the
+			// CREATE IF NOT EXISTS
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
