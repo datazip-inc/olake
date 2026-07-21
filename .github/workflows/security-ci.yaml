@@ -125,6 +125,3 @@ jobs:
           scanners: 'vuln'
           severity: 'HIGH,CRITICAL'
           ignore-unfixed: true
-          # Suppress CVEs from stale deps shaded inside third-party bundle jars
-          # (cannot be fixed from our pom). See file header for rationale.
-          trivyignores: './destination/iceberg/olake-iceberg-java-writer/.trivyignore'
