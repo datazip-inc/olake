@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Java writer — direct pom.xml dependencies. Security updates fire regardless
+  # of schedule; weekly window covers routine version bumps.
+  - package-ecosystem: "maven"
+    directory: "/destination/iceberg/olake-iceberg-java-writer"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    ignore:
+      # Skip risky major bumps; keep security + minor/patch. Security advisories
+      # still open PRs even for majors.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Keep GitHub Actions pinned versions current + patched.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
