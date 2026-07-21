@@ -875,6 +875,14 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
+	// Drop the Iceberg table and reset state before the first sync, so stale rows and the
+	// olake_2pc table property left by a previous run can't leak into this run's recovery timeline.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	resetState := resetStateFileCommand(*cfg.TestConfig)
+	if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
+		return fmt.Errorf("failed to reset state (%d): %s\n%s", code, err, out)
+	}
+
 	twoPCCDCTestCases := []syncTestCase{
 		{
 			name:                     utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "CDC - initial load", "Full-Refresh").(string),
@@ -967,6 +975,10 @@ func (cfg *IntegrationTest) testIceberg2PCIncrementalRecovery(
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
+
+	// Drop the Iceberg table before the first sync, so stale rows and the olake_2pc table
+	// property left by a previous run can't leak into this run's recovery timeline.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field
 	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
