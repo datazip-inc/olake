@@ -1079,7 +1079,7 @@ func (cfg *IntegrationTest) runInTestContainer(
 	testFn func(ctx context.Context, c testcontainers.Container) error,
 ) {
 	t.Helper()
-	baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath)
+	baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath, cfg.TestConfig.ImagePlatform)
 	containerReady := trackPhaseTiming(t, cfg.TestConfig.Driver, "container ready")
 
 	req := testcontainers.ContainerRequest{
@@ -1952,9 +1952,10 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	}
 
 	t.Run("performance", func(t *testing.T) {
-		baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath)
+		baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath, cfg.TestConfig.ImagePlatform)
 		req := testcontainers.ContainerRequest{
-			Image: baseImage,
+			Image:         baseImage,
+			ImagePlatform: cfg.TestConfig.ImagePlatform,
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),

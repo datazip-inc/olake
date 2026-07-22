@@ -8,4 +8,7 @@ services:
     ports:
       - "50000:50000"
     volumes:
-      - /data/db2:/database
+      - db2-data:/database
+
+volumes:
+  db2-data:

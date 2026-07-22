@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -20,6 +21,9 @@ const (
 var (
 	buildBaseImageOnce sync.Once
 	buildBaseImageErr  error
+
+	pinBaseImageOnce sync.Once
+	pinBaseImageErr  error
 )
 
 // baseImageRef returns the integration-test base image ref (olakego/base:build-go<version>).
@@ -42,8 +46,9 @@ func baseImageRef(t *testing.T, rootPath string) string {
 // The image is local-only and never pulled from a registry, so testcontainers reuses the local
 // build. Guarded by sync.Once so that parallel tests trigger the (slow) build at most once and
 // all share its result. rootPath is the olake repo root, where the Makefile, base.Dockerfile and
-// go.work live.
-func ensureTestBaseImage(t *testing.T, rootPath string) string {
+// go.work live. A non-empty platform ("linux/amd64") returns a ref pinned to that platform
+// instead — see pinBaseImagePlatform.
+func ensureTestBaseImage(t *testing.T, rootPath, platform string) string {
 	t.Helper()
 	image := baseImageRef(t, rootPath)
 	buildBaseImageOnce.Do(func() {
@@ -58,5 +63,31 @@ func ensureTestBaseImage(t *testing.T, rootPath string) string {
 		}
 	})
 	require.NoError(t, buildBaseImageErr, "test base image unavailable")
-	return image
+	if platform == "" {
+		return image
+	}
+	return pinBaseImagePlatform(t, image, platform)
+}
+
+// pinBaseImagePlatform re-tags a single platform of the multi-platform base image under its own
+// ref and returns it, so that a ContainerRequest.ImagePlatform pinned to a non-host platform is
+// actually honoured.
+// The derived build is a bare `FROM <base>`: it re-exports the existing layers under a new tag, so
+// it costs a fraction of a second and touches the network not at all.
+func pinBaseImagePlatform(t *testing.T, baseImage, platform string) string {
+	t.Helper()
+	pinned := fmt.Sprintf("%s-%s", baseImage, strings.ReplaceAll(platform, "/", "-"))
+	pinBaseImageOnce.Do(func() {
+		t.Logf("Pinning test base image %s to %s as %s...", baseImage, platform, pinned)
+		defer trackPhaseTiming(t, "base-image", pinned)()
+		// --provenance=false keeps the result a plain single-platform image rather than an index
+		// carrying an extra attestation manifest.
+		build := exec.Command("docker", "build", "--platform", platform, "--provenance=false", "-t", pinned, "-")
+		build.Stdin = strings.NewReader("FROM " + baseImage + "\n")
+		if out, err := build.CombinedOutput(); err != nil {
+			pinBaseImageErr = fmt.Errorf("failed to pin base image %s to platform %s: %w\n%s", baseImage, platform, err, out)
+		}
+	})
+	require.NoError(t, pinBaseImageErr, "platform-pinned test base image unavailable")
+	return pinned
 }

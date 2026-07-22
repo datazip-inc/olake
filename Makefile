@@ -57,7 +57,7 @@ docker.base.build:
 		echo "ERROR: could not read the go version from go.mod."; \
 		exit 1; \
 	fi
-	docker build --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t olakego/base:$(BASE_IMAGE_TAG) -f base.Dockerfile .
+	docker build $(addprefix --platform ,$(call driver_platforms,*)) --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t olakego/base:$(BASE_IMAGE_TAG) -f base.Dockerfile .
 
 # Mirrors CI's "Go Build and Lint" workflow (.github/workflows/golang-ci.yml):
 # its lint job installs golangci-lint via `go install ...@latest` and runs it
