@@ -32,7 +32,7 @@ type serverInstance struct {
 	arrowClient        proto.ArrowIngestServiceClient
 	conn               *grpc.ClientConn
 	defaultServerID    string
-	gcpCredentialsTemp string // temp file holding gcp_credentials_json content, if used; cleaned up on Shutdown
+	gcpCredentialsTemp string // temp file holding gcp_service_account_json content, if used; cleaned up on Shutdown
 }
 
 // getServerConfigJSON builds the catalog/storage-level config the JVM consumes
@@ -121,7 +121,7 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 	return json.Marshal(serverConfig)
 }
 
-// writeGCPCredsTempFile materializes inline gcp_credentials_json content to a
+// writeGCPCredsTempFile materializes inline gcp_service_account_json content to a
 // temp file, since GoogleAuthManager only reads credentials from a file path.
 // Returns "" if credsJSON is empty.
 func writeGCPCredsTempFile(credsJSON string) (string, error) {
@@ -130,12 +130,12 @@ func writeGCPCredsTempFile(credsJSON string) (string, error) {
 	}
 	f, err := os.CreateTemp("", "olake-gcp-creds-*.json")
 	if err != nil {
-		return "", fmt.Errorf("failed to create temp file for gcp_credentials_json: %w", err)
+		return "", fmt.Errorf("failed to create temp file for gcp_service_account_json: %w", err)
 	}
 	if _, err := f.WriteString(credsJSON); err != nil {
 		f.Close()
 		os.Remove(f.Name())
-		return "", fmt.Errorf("failed to write gcp_credentials_json to temp file: %w", err)
+		return "", fmt.Errorf("failed to write gcp_service_account_json to temp file: %w", err)
 	}
 	f.Close()
 	return f.Name(), nil
@@ -157,7 +157,7 @@ func startServer(config *Config) (*serverInstance, error) {
 
 	// GoogleAuthManager only reads credentials from a file path (gcp.auth.credentials-path);
 	// materialize inline JSON content to a temp file so the property has something to point at.
-	gcpCredsTemp, err := writeGCPCredsTempFile(config.GCPCredentialsJSON)
+	gcpCredsTemp, err := writeGCPCredsTempFile(config.GCPServiceAccountJSON)
 	if err != nil {
 		return nil, err
 	}
