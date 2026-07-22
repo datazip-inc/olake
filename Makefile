@@ -51,13 +51,19 @@ GO_VERSION_NUM = $(shell echo $(GO_VERSION) | sed 's/go//')
 
 BASE_IMAGE_TAG ?= build-$(GO_VERSION)
 
+# The integration-test base image. Unlike the driver images this one is never pushed, so it takes
+# the host platform by default rather than the release set in drivers/platforms.conf: a build for
+# two platforms at once produces an image index, which only the containerd image store can hold,
+# and the GitHub runners still use the classic one. Pass PLATFORMS=<single platform> to cross-build
+# it -- what the harness does for drivers that pin ContainerRequest.ImagePlatform (see
+# ensureTestBaseImage).
 .PHONY: docker.base.build
 docker.base.build:
 	@if [ -z "$(strip $(GO_VERSION_NUM))" ]; then \
 		echo "ERROR: could not read the go version from go.mod."; \
 		exit 1; \
 	fi
-	docker build $(addprefix --platform ,$(call driver_platforms,*)) --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t olakego/base:$(BASE_IMAGE_TAG) -f base.Dockerfile .
+	docker build $(addprefix --platform ,$(PLATFORMS)) --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t olakego/base:$(BASE_IMAGE_TAG) -f base.Dockerfile .
 
 # Mirrors CI's "Go Build and Lint" workflow (.github/workflows/golang-ci.yml):
 # its lint job installs golangci-lint via `go install ...@latest` and runs it

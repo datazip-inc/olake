@@ -44,13 +44,12 @@ func baseImageRef(t *testing.T, rootPath string) string {
 // all share its result. rootPath is the olake repo root, where the Makefile, base.Dockerfile and
 // go.work live.
 //
-// A non-empty platform ("linux/amd64") is passed through as PLATFORMS, overriding the default set
-// docker.base.build reads from drivers/platforms.conf so that the ref holds that platform alone.
-// It has to be settled at build time: testcontainers decides whether an image needs (re)pulling by
-// inspecting it *without* a platform, which always resolves the host's variant, so against the
-// default multi-platform index an arm64 host reports arm64 and a request pinned to linux/amd64
-// looks stale. The image is local-only, so the pull that follows fails and the container is never
-// created.
+// A non-empty platform ("linux/amd64") is passed through as PLATFORMS, so docker.base.build
+// cross-builds the image instead of taking the host's platform. It has to be settled at build
+// time: testcontainers decides whether an image needs (re)pulling by inspecting it *without* a
+// platform, which always resolves the host's variant, so on an arm64 host an image built for
+// anything else looks stale. This one is local-only, so the pull that follows fails and the
+// container is never created.
 func ensureTestBaseImage(t *testing.T, rootPath, platform string) string {
 	t.Helper()
 	image := baseImageRef(t, rootPath)
