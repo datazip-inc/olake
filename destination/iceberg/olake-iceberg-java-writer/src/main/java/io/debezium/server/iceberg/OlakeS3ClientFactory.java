@@ -8,6 +8,7 @@ import org.apache.iceberg.aws.AwsClientFactory;
 import org.apache.iceberg.aws.s3.S3FileIOAwsClientFactory;
 
 import software.amazon.awssdk.services.s3.DelegatingS3Client;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
@@ -36,6 +37,11 @@ public class OlakeS3ClientFactory implements S3FileIOAwsClientFactory {
     @Override
     public S3Client s3() {
         return new DeleteTolerantS3Client(delegate.s3());
+    }
+
+    @Override
+    public S3AsyncClient s3Async() {
+        return delegate.s3Async();
     }
 
     private static class DeleteTolerantS3Client extends DelegatingS3Client {

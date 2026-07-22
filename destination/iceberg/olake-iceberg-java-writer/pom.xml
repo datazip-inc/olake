@@ -28,12 +28,7 @@
         <skipITs>true</skipITs>
         
         <!-- Iceberg -->
-        <version.iceberg>1.7.2</version.iceberg>
-        <!-- Following two properties defines which version of iceberg-spark-runtime is used -->
-        <version.spark.major>4.0</version.spark.major>
-        <version.spark.major.iceebrgtemp>3.5</version.spark.major.iceebrgtemp>
-        <version.spark.scala>2.13</version.spark.scala>
-        <version.spark>${version.spark.major}.0-preview1</version.spark>
+        <version.iceberg>1.10.2</version.iceberg>
         <version.hadoop>3.3.6</version.hadoop>
         <version.hive>3.1.3</version.hive>
         <version.googlebigdataoss>2.2.20</version.googlebigdataoss>
@@ -43,7 +38,7 @@
         <version.log4j2>2.21.1</version.log4j2>
         <version.quarkus>3.19.1</version.quarkus>
         <version.commons.io>2.14.0</version.commons.io>
-        <version.avro>1.11.4</version.avro>
+        <version.avro>1.12.1</version.avro>
         <version.snappy>1.1.10.4</version.snappy>
         <version.jackson>2.16.1</version.jackson>
         <version.commons.compress>1.26.0</version.commons.compress>
@@ -421,76 +416,10 @@
         </dependency>
 
         <!-- Testing -->
-        <!-- spark for tests -->
-        <!-- jakarta version compatible with spark, for testing only -->
-        <dependency>
-            <groupId>jakarta.servlet</groupId>
-            <artifactId>jakarta.servlet-api</artifactId>
-            <version>5.0.0</version>
-<!--            <scope>test</scope>-->
-        </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>${version.jackson}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.spark</groupId>
-            <artifactId>spark-core_${version.spark.scala}</artifactId>
-            <version>${version.spark}</version>
-            <scope>test</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>slf4j-log4j12</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>log4j</groupId>
-                    <artifactId>log4j</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.slf4j</groupId>
-                    <artifactId>jul-to-slf4j</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.apache.logging.log4j</groupId>
-                    <artifactId>log4j-slf4j-impl</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.spark</groupId>
-            <artifactId>spark-sql_${version.spark.scala}</artifactId>
-            <version>${version.spark}</version>
-            <scope>test</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-classic</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>ch.qos.logback</groupId>
-                    <artifactId>logback-core</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-spark-${version.spark.major.iceebrgtemp}_${version.spark.scala}</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.iceberg</groupId>
-            <artifactId>iceberg-spark-extensions-${version.spark.major.iceebrgtemp}_${version.spark.scala}</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
