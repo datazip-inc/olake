@@ -142,6 +142,7 @@ func TestCloseCommits2PCState(t *testing.T) {
 		threadID      string
 		backfill      bool
 		writeRecord   bool
+		existingState *types.MetadataState
 		metadataState *types.MetadataState
 		expectedError string
 		verify        func(t *testing.T, p *Parquet, state *types.MetadataState)
@@ -169,13 +170,24 @@ func TestCloseCommits2PCState(t *testing.T) {
 				require.Equal(t, 1, testFinalParquetFiles(t, p))
 			},
 		},
-		// A no-op CDC sync still commits destination-side progress without a data file.
+		// A full-refresh chunk is committed even when it produces no data file.
 		{
-			name:          "metadata only",
+			name:     "empty full refresh",
+			threadID: "empty-full-refresh-thread",
+			backfill: true,
+			verify: func(t *testing.T, p *Parquet, state *types.MetadataState) {
+				require.Equal(t, []string{"empty-full-refresh-thread"}, state.FullRefreshCommittedIDs)
+				require.Equal(t, 0, testFinalParquetFiles(t, p))
+			},
+		},
+		// A no-op CDC/incremental sync does not replace the last data-backed commit.
+		{
+			name:          "no data",
 			threadID:      "cdc-thread",
+			existingState: &types.MetadataState{State: `{"lsn":"1/1"}`},
 			metadataState: &types.MetadataState{State: `{"lsn":"1/2"}`},
 			verify: func(t *testing.T, p *Parquet, state *types.MetadataState) {
-				require.Equal(t, `{"lsn":"1/2"}`, state.State)
+				require.Equal(t, `{"lsn":"1/1"}`, state.State)
 				require.Equal(t, 0, testFinalParquetFiles(t, p))
 			},
 		},
@@ -199,6 +211,9 @@ func TestCloseCommits2PCState(t *testing.T) {
 			_, state, err := p.Setup(ctx, testConfiguredStream(), nil, &destination.Options{ThreadID: tt.threadID, Backfill: tt.backfill})
 			require.NoError(t, err)
 			require.Nil(t, state)
+			if tt.existingState != nil {
+				testWriteMetadata(t, p, tt.existingState)
+			}
 
 			if tt.writeRecord {
 				require.NoError(t, p.Write(ctx, []types.RawRecord{testRawRecord()}))

@@ -372,7 +372,7 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []parquetDataFile
 
 func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	dataFiles := p.stagedDataFiles()
-	if finalMetadataState == nil && !p.options.Backfill {
+	if !p.options.Backfill && (len(dataFiles) == 0 || finalMetadataState == nil) {
 		if err := p.closePqFiles(true); err != nil {
 			return err
 		}
@@ -380,14 +380,15 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if len(dataFiles) > 0 {
-			metadataErr := fmt.Errorf("cannot commit parquet CDC or incremental files without metadata state")
-			if err := p.deleteStaging(ctx, p.options.ThreadID); err != nil {
-				return fmt.Errorf("%s: cleanup error: %w", metadataErr, err)
-			}
-			return metadataErr
+		if len(dataFiles) == 0 {
+			return nil
 		}
-		return nil
+
+		metadataErr := fmt.Errorf("cannot commit parquet CDC or incremental files without metadata state")
+		if err := p.deleteStaging(ctx, p.options.ThreadID); err != nil {
+			return fmt.Errorf("%s: cleanup error: %w", metadataErr, err)
+		}
+		return metadataErr
 	}
 
 	finishData, metadataState, err := finishState(finalMetadataState)
