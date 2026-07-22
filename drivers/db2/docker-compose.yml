@@ -1,6 +1,7 @@
 services:
   db2:
     image: icr.io/db2_community/db2
+    platform: linux/amd64
     container_name: db2-test
     restart: always
     privileged: true
