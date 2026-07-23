@@ -43,15 +43,26 @@ func baseImageRef(t *testing.T, rootPath string) string {
 // build. Guarded by sync.Once so that parallel tests trigger the (slow) build at most once and
 // all share its result. rootPath is the olake repo root, where the Makefile, base.Dockerfile and
 // go.work live.
-func ensureTestBaseImage(t *testing.T, rootPath string) string {
+//
+// A non-empty platform ("linux/amd64") is passed through as PLATFORMS, so docker.base.build
+// cross-builds the image instead of taking the host's platform. It has to be settled at build
+// time: testcontainers decides whether an image needs (re)pulling by inspecting it *without* a
+// platform, which always resolves the host's variant, so on an arm64 host an image built for
+// anything else looks stale. This one is local-only, so the pull that follows fails and the
+// container is never created.
+func ensureTestBaseImage(t *testing.T, rootPath, platform string) string {
 	t.Helper()
 	image := baseImageRef(t, rootPath)
 	buildBaseImageOnce.Do(func() {
-		t.Logf("Building test base image %s...", image)
+		t.Logf("Building test base image %s (platform: %s)...", image, platform)
 		// wall-clock via trackPhaseTiming, not build.ProcessState.SystemTime() (that reports make's
 		// kernel CPU time — a misleading ~87ms even when the docker build actually took far longer).
 		defer trackPhaseTiming(t, "base-image", image)()
-		build := exec.Command("make", "docker.base.build")
+		args := []string{"docker.base.build"}
+		if platform != "" {
+			args = append(args, "PLATFORMS="+platform)
+		}
+		build := exec.Command("make", args...)
 		build.Dir = rootPath
 		if out, err := build.CombinedOutput(); err != nil {
 			buildBaseImageErr = fmt.Errorf("failed to build base image %s: %w\n%s", image, err, out)
