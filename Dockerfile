@@ -48,6 +48,14 @@ ENV DRIVER_VERSION=${DRIVER_VERSION}
 # First try to copy from the source location (works after Maven build)
 COPY destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar /home/olake-iceberg-java-writer.jar
 
+# Pre-load the Iceberg writer's startup classes into an AppCDS archive.
+RUN out=$(java -XX:+UseG1GC -XX:ArchiveClassesAtExit=/home/olake-iceberg-java-writer.jsa \
+      -jar /home/olake-iceberg-java-writer.jar '{' 2>&1 || true); \
+    echo "$out" | grep -q 'OlakeRpcServer.main' || { \
+      echo 'AppCDS dump never reached OlakeRpcServer.main - is the jar shaded?' >&2; \
+      echo "$out" | head -20 >&2; exit 1; }; \
+    test -s /home/olake-iceberg-java-writer.jsa
+
 # Copy driver and destination spec files
 COPY --from=builder /home/app/drivers/${DRIVER_NAME}/resources/spec.json /drivers/${DRIVER_NAME}/resources/spec.json
 COPY --from=builder /home/app/destination/iceberg/resources/spec.json /destination/iceberg/resources/spec.json

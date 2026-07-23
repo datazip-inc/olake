@@ -20,3 +20,20 @@ RUN apt-get update && apt-get install -y \
         openjdk-17-jre-headless maven nodejs npm jq iproute2 lsof \
     && npm install -g chalk-cli \
     && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------------------
+# runtime: the slim base the shipped driver images sit on. docker.base.build
+# builds this stage too, so `make docker.build.<driver>` runs that follow on
+# the same daemon hit the (expensive) apt-get layer from cache instead of
+# re-running it. KEEP IN SYNC with the runtime stage of ./Dockerfile, or the
+# cache key won't match.
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    openjdk-17-jre-headless \
+    libxml2 \
+    ca-certificates \
+    libpam-modules \
+    libcrypt1 \
+    && rm -rf /var/lib/apt/lists/*

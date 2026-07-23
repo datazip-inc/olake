@@ -19,3 +19,7 @@ tests/*/testdata/**/logs
 tests/*/testdata/**/state.json
 tests/*/testdata/**/stats.json
 tests/*/testdata/**/streams.json
+# applySuite gives each concurrent suite its own testdata subdirectory (its whole working set:
+# source.json, streams.json, state.json, stats.json), so ignore those wholesale.
+tests/*/testdata/**/2pc/
+tests/*/testdata/**/rebalance/

@@ -3,6 +3,7 @@ package destination
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -10,6 +11,11 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
+
+// SkipDestinationCheckEnvVar makes NewWriterPool skip the destination's pre-sync check when
+// set to any non-empty value. Unset — the default — runs the check, so nothing changes for a
+// normal sync.
+const SkipDestinationCheckEnvVar = "OLAKE_SKIP_DESTINATION_CHECK"
 
 type (
 	initWriter func(config any) (Writer, func(ctx context.Context), error)
@@ -105,8 +111,22 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 		batchSize:  batchSize,
 	}
 
-	if err := adapter.Check(ctx); err != nil {
-		return nil, fmt.Errorf("failed to test destination: %s", err)
+	// Iceberg's check is not free: it creates a scratch table and commits a record into it
+	// before any real data moves, and concurrent syncs contend for that one scratch table on
+	// the shared catalog.
+	//
+	// It stays on by default: a user pointing olake at a misconfigured destination should hear
+	// about it up front, not partway through a sync. SkipDestinationCheckEnvVar is for callers
+	// that already checked the destination out of band.
+	if os.Getenv(SkipDestinationCheckEnvVar) != "" {
+		logger.Debugf("skipping destination check (%s set)", SkipDestinationCheckEnvVar)
+	} else {
+		stopCheck := logger.TrackTiming("destination", "check")
+		err = adapter.Check(ctx)
+		stopCheck()
+		if err != nil {
+			return nil, fmt.Errorf("failed to test destination: %s", err)
+		}
 	}
 
 	for _, stream := range syncStreams {

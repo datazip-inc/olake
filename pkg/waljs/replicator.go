@@ -9,6 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	libutils "github.com/datazip-inc/olake/lib/utils"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
@@ -159,7 +160,7 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := libutils.NewTicker(100*time.Millisecond, 3*time.Second)
 	defer ticker.Stop()
 
 	for {

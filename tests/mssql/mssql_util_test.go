@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +15,36 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/stretchr/testify/require"
 )
+
+// cdcMetadataMu serialises the CDC enable/disable calls. sp_cdc_enable_table adds the capture job
+// via sp_cdc_add_job, which writes the server-wide msdb.dbo.cdc_jobs -- so two suites enabling CDC
+// on their own tables at the same time deadlock there, and SQL Server picks one as the victim
+// (error 1205). Concurrent suites live in one test binary, so a mutex removes that contention
+// outright; execCDCMetadata still retries, for the deadlocks SQL Server's own capture/cleanup jobs
+// can cause.
+var cdcMetadataMu sync.Mutex
+
+// execCDCMetadata runs a CDC metadata statement, retrying while SQL Server reports it as the
+// deadlock victim -- which is exactly what error 1205 asks the caller to do ("Rerun the
+// transaction"). Returns the last error if it never succeeds.
+func execCDCMetadata(ctx context.Context, t *testing.T, db *sqlx.DB, query string) error {
+	t.Helper()
+	cdcMetadataMu.Lock()
+	defer cdcMetadataMu.Unlock()
+
+	var err error
+	for attempt := 1; attempt <= 5; attempt++ {
+		if _, err = db.ExecContext(ctx, query); err == nil {
+			return nil
+		}
+		if !strings.Contains(err.Error(), "was deadlocked on lock resources") {
+			return err
+		}
+		t.Logf("CDC metadata statement lost a deadlock (attempt %d/5), retrying: %s", attempt, err)
+		time.Sleep(time.Duration(attempt) * time.Second)
+	}
+	return err
+}
 
 func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
@@ -114,7 +146,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 					@capture_instance = N'%s';
 			END;
 		`, captureInstance, integrationTestTable, captureInstance)
-		_, _ = db.ExecContext(ctx, dropExistingCDC)
+		_ = execCDCMetadata(ctx, t, db, dropExistingCDC)
 
 		// Enable CDC for table - always create fresh capture instance
 		enableTableCDC := fmt.Sprintf(`
@@ -124,8 +156,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				@capture_instance = N'%s',
 				@role_name     = NULL
 		`, integrationTestTable, captureInstance)
-		_, err = db.ExecContext(ctx, enableTableCDC)
-		require.NoError(t, err, "failed to enable CDC on integration test table")
+		require.NoError(t, execCDCMetadata(ctx, t, db, enableTableCDC), "failed to enable CDC on integration test table")
 
 		// Wait until current_max_lsn >= start_lsn of the capture instance so CDC is ready for sync
 		verifyCDCEnabled(t, ctx, db, captureInstance)
