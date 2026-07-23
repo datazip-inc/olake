@@ -7,7 +7,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-type BackfillMsgFn func(ctx context.Context, message map[string]any) error
+type BackfillMsgFn func(ctx context.Context, message map[string]any, sourceBytes int64) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 
 type Config interface {
