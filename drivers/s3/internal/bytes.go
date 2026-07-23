@@ -39,6 +39,8 @@ func valueBytes(v any) int64 {
 		return 8
 	case time.Time:
 		return 8
+	// TODO: make this bytes calculation non recursive
+	// That will help in reducing the performance drop which can occur when deeply nested maps/slices are encountered.
 	case map[string]any:
 		var total int64
 		for _, e := range x {
