@@ -366,8 +366,10 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 	for rows.Next() {
 		// Use MapScan to properly convert data types including binary types
 		// TODO: check if we can use MapScanConcurrent for mssql
+		// rowBytes is the after-image data-column byte sum (excludes __$* metadata columns), attached to the emitted change below.
 		record := make(map[string]interface{})
-		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
+		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mssqlCDCColumnSizer)
+		if err != nil {
 			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
 		}
 
@@ -391,13 +393,8 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		delete(record, "__$update_mask")
 
 		// Emit one normalized CDC change event.
-		if err := processFn(ctx, abstract.CDCChange{
-			Stream:       stream,
-			Timestamp:    time.Now().UTC(),
-			Kind:         operationType,
-			Data:         record,
-			ExtraColumns: extraColumns,
-		}); err != nil {
+		if err := processFn(ctx, abstract.NewCDCChange(stream, time.Now().UTC(), operationType, record,
+			extraColumns, rowBytes)); err != nil {
 			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}
 	}

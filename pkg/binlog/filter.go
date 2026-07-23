@@ -99,16 +99,13 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		// otherwise fall back to second-precision header timestamp
 		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
 
-		change := abstract.CDCChange{
-			Stream:    stream,
-			Timestamp: timestamp,
-			Kind:      operationType,
-			Data:      record,
-			ExtraColumns: map[string]any{
+		// Bytes: InnoDB on-disk byte sum for this row, carried on the change and added per record by the writer.
+		change := abstract.NewCDCChange(stream, timestamp, operationType, record,
+			map[string]any{
 				CDCBinlogFileName: pos.Name,
 				CDCBinlogFilePos:  pos.Pos, // Use the event position
 			},
-		}
+			mysqlCDCRowBytes(row, columnTypes))
 		if err := callback(ctx, change); err != nil {
 			return err
 		}

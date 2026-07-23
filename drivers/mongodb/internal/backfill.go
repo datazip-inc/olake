@@ -50,9 +50,11 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		} else if err = cursor.Decode(&doc); err != nil {
 			return fmt.Errorf("backfill decoding document: %s", err)
 		}
+		// BSON wire-format size of this document, read before the cursor advances.
+		docBytes := int64(len(cursor.Current))
 		// filter mongo object
 		filterMongoObject(doc)
-		if err := OnMessage(ctx, doc); err != nil {
+		if err := OnMessage(ctx, doc, docBytes); err != nil {
 			return fmt.Errorf("failed to send message to writer: %s", err)
 		}
 	}

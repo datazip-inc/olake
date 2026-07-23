@@ -19,6 +19,18 @@ type CDCChange struct {
 	Kind         string
 	Data         map[string]any
 	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
+	Bytes        int64
+}
+
+func NewCDCChange(stream types.StreamInterface, timestamp time.Time, kind string, data, extraColumns map[string]any, sourceBytes int64) CDCChange {
+	return CDCChange{
+		Stream:       stream,
+		Timestamp:    timestamp,
+		Kind:         kind,
+		Data:         data,
+		ExtraColumns: extraColumns,
+		Bytes:        sourceBytes,
+	}
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
