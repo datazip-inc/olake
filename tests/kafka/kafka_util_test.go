@@ -168,8 +168,12 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 		t.Logf("Added 1 updated message to topic '%s'", streams[0])
 
 	case "insert_2pc":
-		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, client, KafkaJSONConsumerGroupID, streams[0], 0, 1)
+		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1.
+		// Each suite reads under its own consumer group, whose id is its topic (applySuite's source
+		// override sets consumer_group_id = <table>), so roll back THAT group -- the shared
+		// KafkaJsonConsumerGroupID constant is one this suite's sync never joined, and targeting it
+		// fails with GROUP_ID_NOT_FOUND, silently skipping the rollback.
+		commitConsumerGroupOffset(ctx, t, client, streams[0], streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
@@ -227,7 +231,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		defer func() {
 			if client != nil {
 				client.Close()
-				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", KafkaJSONConsumerGroupID, instanceID)
+				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", topic, instanceID)
 			}
 			close(done)
 		}()
@@ -240,7 +244,9 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		var err error
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(kafkaJSONIntegrationBroker),
-			kgo.ConsumerGroup(KafkaJSONConsumerGroupID),
+			// Same group the suite's sync joined (consumer_group_id = its topic), which is what
+			// makes this consumer's arrival trigger a rebalance for it.
+			kgo.ConsumerGroup(topic),
 			kgo.ClientID(instanceID),
 			kgo.InstanceID(instanceID),
 			kgo.ConsumeTopics(topic),
@@ -249,7 +255,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		)
 		require.NoError(t, err)
 
-		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJSONConsumerGroupID, topic)
+		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", topic, topic)
 		for rebalanceCtx.Err() == nil {
 			client.PollFetches(rebalanceCtx)
 		}
@@ -360,7 +366,8 @@ func deleteKafkaTopic(ctx context.Context, t *testing.T, client *kgo.Client, top
 		err = res[topic].Err
 	}
 	require.NoError(t, err, "failed to delete topic '%s'", topic)
-	time.Sleep(5 * time.Second)
+
+	ensureTopicDeletion(ctx, t, client, topic)
 }
 
 // createTopic creates the test topic with a fixed partition count and replication factor 1.
@@ -384,7 +391,15 @@ func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, t
 	topicRes, topicErr := res.On(topic, nil)
 	require.NoError(t, topicErr, "no partition expansion response for topic '%s'", topic)
 	require.NoError(t, topicRes.Err, "failed to add %d partition(s) to topic '%s'", add, topic)
-	t.Logf("Added %d partition(s) to topic '%s'", add, topic)
+
+	// The client's cached metadata still predates the expansion, and new partitions are otherwise
+	// only rediscovered on the periodic metadata refresh (franz-go MetadataMaxAge default = 5 min),
+	// so the very next manual-partition produce to a new partition blocks up to that long inside
+	// ProduceSync waiting for metadata to catch up -- the ~5 min this test used to spend.
+	// ForceMetadataRefresh is documented for exactly this CreatePartitions case; trigger it now.
+	client.ForceMetadataRefresh()
+
+	t.Logf("Added %d partition(s) to topic '%s' (forced metadata refresh)", add, topic)
 }
 
 // commitConsumerGroupOffset rolls back a consumer group offset for 2PC recovery tests.
@@ -519,6 +534,40 @@ func encodeAndWriteAvro(ctx context.Context, t *testing.T, writer *kgo.Client, c
 
 	// write message
 	writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: key, Value: msg})
+}
+
+func ensureTopicDeletion(ctx context.Context, t *testing.T, client *kgo.Client, topic string) {
+	t.Helper()
+
+	topicAdminTimeout := 30 * time.Second
+	topicPollInterval := 200 * time.Millisecond
+
+	// waitCtx bounds the whole wait — every probe RPC and every pause runs under it, so
+	// the loop cannot outlive topicAdminTimeout no matter where it blocks.
+	waitCtx, cancel := context.WithTimeout(ctx, topicAdminTimeout)
+	defer cancel()
+	adm := kadm.NewClient(client)
+	start := time.Now()
+	for {
+		vres, verr := adm.ValidateCreateTopics(waitCtx, int32(partitionCount), 1, nil, topic)
+		if verr == nil {
+			if vres[topic].Err == nil {
+				t.Logf("topic %q deletion completed after %s", topic, time.Since(start).Round(time.Millisecond))
+				return
+			}
+			require.ErrorIs(t, vres[topic].Err, kerr.TopicAlreadyExists,
+				"unexpected validation error while waiting for topic '%s' deletion", topic)
+		}
+		if waitCtx.Err() != nil {
+			t.Fatalf("topic %q deletion did not complete within %s (last error: %v)", topic, topicAdminTimeout, verr)
+		}
+		require.NoError(t, verr, "failed to validate-create while waiting for topic '%s' deletion", topic)
+		select {
+		case <-waitCtx.Done():
+			t.Fatalf("topic %q deletion did not complete within %s", topic, topicAdminTimeout)
+		case <-time.After(topicPollInterval):
+		}
+	}
 }
 
 // JSON data format resources

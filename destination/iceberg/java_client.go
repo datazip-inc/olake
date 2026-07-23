@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -91,8 +92,6 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 		addMapKeyIfNotEmpty("scope", config.RestScope)
 		addMapKeyIfNotEmpty("gcp.auth.credentials-path", gcpCredsTemp)
 		addMapKeyIfNotEmpty("gcp.auth.scopes", config.GCPAuthScopes)
-		// BigLake requires this header for request routing/billing.
-		addMapKeyIfNotEmpty("header.x-goog-user-project", config.GCPProjectID)
 	default:
 		return nil, fmt.Errorf("unsupported catalog type: %s", config.CatalogType)
 	}
@@ -143,6 +142,27 @@ func writeGCPCredsTempFile(credsJSON string) (string, error) {
 	return f.Name(), nil
 }
 
+// sharedArchivePath returns the AppCDS class archive sitting next to jarPath, or "" when
+// there is none. The driver image bakes one in (see Dockerfile); a checkout running against
+// a Maven target/ jar has none and simply starts without it.
+//
+// Every sync spawns a fresh JVM that loads ~3.4k classes out of the shaded jar before main()
+// is even entered, and that set is identical every time. Mapping it from an archive instead
+// of resolving it from the jar is the one startup cost that can be removed outright.
+//
+// Callers pair the archive with -Xshare:on rather than the more forgiving :auto on purpose.
+// A stale or foreign archive makes :auto fall back to ordinary classloading silently — the
+// JVM starts fine and just quietly gives back the saving — whereas :on refuses to start and
+// says why. Since the archive ships in the same image layer as the jar it describes, a
+// mismatch means something is wrong and should be heard about.
+func sharedArchivePath(jarPath string) string {
+	archive := strings.TrimSuffix(jarPath, filepath.Ext(jarPath)) + ".jsa"
+	if info, err := os.Stat(archive); err != nil || info.Size() == 0 {
+		return ""
+	}
+	return archive
+}
+
 // startServer launches the JVM and returns the running instance. Invoked once
 // from Iceberg.Initialize (via WriterPool.NewWriterPool) before any
 // sync/check/clear work begins.
@@ -173,21 +193,19 @@ func startServer(config *Config) (*serverInstance, error) {
 	}
 
 	// need to do some research on the following flags
-	var serverCmd *exec.Cmd
-	if os.Getenv("OLAKE_DEBUG_MODE") != "" {
-		serverCmd = exec.Command("java",
-			"-XX:+UseG1GC",
-			"-XX:MaxRAMPercentage=75.0",
-			"-XX:+ExitOnOutOfMemoryError",
-			"-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
-			"-jar", config.JarPath, string(configJSON))
-	} else {
-		serverCmd = exec.Command("java",
-			"-XX:+UseG1GC",
-			"-XX:MaxRAMPercentage=75.0",
-			"-XX:+ExitOnOutOfMemoryError",
-			"-jar", config.JarPath, string(configJSON))
+	javaArgs := []string{
+		"-XX:+UseG1GC",
+		"-XX:MaxRAMPercentage=75.0",
+		"-XX:+ExitOnOutOfMemoryError",
 	}
+	if archive := sharedArchivePath(config.JarPath); archive != "" {
+		javaArgs = append(javaArgs, "-XX:SharedArchiveFile="+archive, "-Xshare:on")
+	}
+	if os.Getenv("OLAKE_DEBUG_MODE") != "" {
+		javaArgs = append(javaArgs, "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005")
+	}
+	javaArgs = append(javaArgs, "-jar", config.JarPath, string(configJSON))
+	serverCmd := exec.Command("java", javaArgs...)
 
 	serverCmd.Env = os.Environ()
 	appendEnv := func(key, value string) {
@@ -211,7 +229,13 @@ func startServer(config *Config) (*serverInstance, error) {
 	// GCSFileIO auths separately from GoogleAuthManager; only via ADC env var. No-op if empty.
 	appendEnv("GOOGLE_APPLICATION_CREDENTIALS", gcpCredsTemp)
 
-	if err := logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd); err != nil {
+	// Fork-to-ready for the shared JVM: exec, ~3.4k classes loaded out of the shaded jar,
+	// catalog built, gRPC port bound. Paid once per olake process before a single record
+	// moves, so on a short sync it is a large share of the total.
+	stopBoot := logger.TrackTiming("iceberg", "jvm boot")
+	err = logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd)
+	stopBoot()
+	if err != nil {
 		if gcpCredsTemp != "" {
 			os.Remove(gcpCredsTemp)
 		}

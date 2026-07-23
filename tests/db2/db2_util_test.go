@@ -3,6 +3,8 @@ package db2
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +13,11 @@ import (
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	dbConnsMu sync.Mutex
+	dbConns   = map[string]*sqlx.DB{}
 )
 
 // buildDSN builds the go_ibm_db DSN from source.json. It mirrors the db2 driver's own DSN
@@ -38,7 +45,20 @@ func buildDSN(config testutils.SourceConfig) string {
 	return dsn
 }
 
-// TODO: need to perfect db2 integration testing on local environment. recommended cpu architecture to be used is amd64.
+func getDB(ctx context.Context, t *testing.T, dsn string) *sqlx.DB {
+	t.Helper()
+
+	dbConnsMu.Lock()
+	defer dbConnsMu.Unlock()
+	if db, ok := dbConns[dsn]; ok {
+		return db
+	}
+	db, err := sqlx.ConnectContext(ctx, "go_ibm_db", dsn)
+	require.NoError(t, err, "failed to connect to db2")
+	dbConns[dsn] = db
+	return db
+}
+
 func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
@@ -49,11 +69,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		dsn = "HOSTNAME=localhost;PORT=50000;DATABASE=testdb;UID=db2inst1;PWD=secret1234;"
 	}
 
-	db, err := sqlx.ConnectContext(ctx, "go_ibm_db", dsn)
-	require.NoError(t, err, "failed to connect to db2")
-	defer func() {
-		require.NoError(t, db.Close())
-	}()
+	db := getDB(ctx, t, dsn)
+	var err error
 
 	integrationTestTable := streams[0]
 	var query string
@@ -84,6 +101,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_vargraphic VARGRAPHIC(14),
 				excludedColumn INT NULL
 			)`, integrationTestTable)
+		// DB2 has no CREATE TABLE IF NOT EXISTS; tolerate an existing table (SQL0601N,
+		// SQLSTATE 42710) to match the other drivers' create semantics.
+		if _, cerr := db.ExecContext(ctx, query); cerr != nil && !strings.Contains(cerr.Error(), "SQL0601N") {
+			require.NoError(t, cerr, "Failed to execute create operation")
+		}
+		return
 
 	case "drop":
 		query = fmt.Sprintf(`DROP TABLE %s`, integrationTestTable)
