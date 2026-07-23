@@ -761,6 +761,13 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	}
 
 	t.Log("Iceberg Full load + Incremental tests completed successfully")
+
+	// Drop the Iceberg table after all tests are finished, so the incremental
+	// cursor state left in the table's olake_2pc property is not read back as
+	// CDC state by a later run.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	t.Logf("Dropped Iceberg table: %s", testTable)
+
 	return nil
 }
 
@@ -868,6 +875,14 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
+	// Drop the Iceberg table and reset state before the first sync, so stale rows and the
+	// olake_2pc table property left by a previous run can't leak into this run's recovery timeline.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	resetState := resetStateFileCommand(*cfg.TestConfig)
+	if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
+		return fmt.Errorf("failed to reset state (%d): %s\n%s", code, err, out)
+	}
+
 	twoPCCDCTestCases := []syncTestCase{
 		{
 			name:                     utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "CDC - initial load", "Full-Refresh").(string),
@@ -960,6 +975,10 @@ func (cfg *IntegrationTest) testIceberg2PCIncrementalRecovery(
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
+
+	// Drop the Iceberg table before the first sync, so stale rows and the olake_2pc table
+	// property left by a previous run can't leak into this run's recovery timeline.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field
 	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
@@ -1060,7 +1079,7 @@ func (cfg *IntegrationTest) runInTestContainer(
 	testFn func(ctx context.Context, c testcontainers.Container) error,
 ) {
 	t.Helper()
-	baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath)
+	baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath, cfg.TestConfig.ImagePlatform)
 	containerReady := trackPhaseTiming(t, cfg.TestConfig.Driver, "container ready")
 
 	req := testcontainers.ContainerRequest{
@@ -1315,7 +1334,10 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Run("Discover", func(t *testing.T) {
 		skipOutsideTestPhase(t, "discover")
 		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
-			// 1. Query on test table
+			// 1. Query on test table; drop first so leftover state from a previous
+			// aborted run (e.g. evolve-schema mutations) cannot survive the
+			// CREATE IF NOT EXISTS
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
@@ -1352,7 +1374,10 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Run("Sync", func(t *testing.T) {
 		skipOutsideTestPhase(t, "sync")
 		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
-			// 1. Query on test table
+			// 1. Query on test table; drop first so leftover state from a previous
+			// aborted run (e.g. evolve-schema mutations) cannot survive the
+			// CREATE IF NOT EXISTS
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
@@ -1927,9 +1952,10 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	}
 
 	t.Run("performance", func(t *testing.T) {
-		baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath)
+		baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath, cfg.TestConfig.ImagePlatform)
 		req := testcontainers.ContainerRequest{
-			Image: baseImage,
+			Image:         baseImage,
+			ImagePlatform: cfg.TestConfig.ImagePlatform,
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
