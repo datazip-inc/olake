@@ -1,8 +1,8 @@
 package driver
 
 import (
+	"bytes"
 	"context"
-	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -301,6 +301,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		_, err := db.ExecContext(ctx, stmt)
 		require.NoError(t, err, "failed to evolve schema")
 
+	case "wait-cdc-catchup":
+		// The caller just committed DML it expects the next CDC sync to pick up; wait for the
+		// asynchronous capture job to scan it.
+		waitForCDCCapture(t, ctx, db)
+
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
@@ -332,15 +337,44 @@ func verifyCDCEnabled(t *testing.T, ctx context.Context, db *sqlx.DB, captureIns
 			time.Sleep(pollInterval)
 			continue
 		}
-		startLSNHex := hex.EncodeToString(startLSN)
-		currentMaxLSNHex := hex.EncodeToString(currentMaxLSN)
-		if currentMaxLSNHex >= startLSNHex {
+		if bytes.Compare(currentMaxLSN, startLSN) >= 0 {
 			return
 		}
 		time.Sleep(pollInterval)
 	}
 
 	t.Fatalf("CDC capture instance %s not ready within %v (current_max_lsn never reached start_lsn)", captureInstance, timeout)
+}
+
+// waitForCDCCapture blocks until the capture job's processed high-water mark
+// (sys.fn_cdc_get_max_lsn()) advances past its current value, i.e. until the job has completed a
+// transaction-log scan that includes the DML the caller just committed (this test database has no
+// other writers). A CDC sync only reads changes up to that mark, so syncing earlier would see no
+// rows. Timing out is not an error: if the capture job processed the DML before the baseline was
+// read, the mark only moves on future activity — proceeding then costs no more than the blind
+// 20-second sleep this wait replaced.
+func waitForCDCCapture(t *testing.T, ctx context.Context, db *sqlx.DB) {
+	t.Helper()
+	const (
+		pollInterval = 500 * time.Millisecond
+		timeout      = 20 * time.Second
+	)
+
+	var baseline []byte
+	err := db.QueryRowContext(ctx, "SELECT sys.fn_cdc_get_max_lsn()").Scan(&baseline)
+	require.NoError(t, err, "failed to read CDC max LSN baseline")
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var current []byte
+		if err := db.QueryRowContext(ctx, "SELECT sys.fn_cdc_get_max_lsn()").Scan(&current); err != nil {
+			t.Logf("waitForCDCCapture: get max_lsn: %v", err)
+		} else if bytes.Compare(current, baseline) > 0 {
+			return
+		}
+		time.Sleep(pollInterval)
+	}
+	t.Logf("waitForCDCCapture: max LSN did not advance within %v (capture job may have already scanned the change); proceeding", timeout)
 }
 
 func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName string) {

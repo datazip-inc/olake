@@ -205,9 +205,11 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterface, key string, reader io.Reader, lastModified string, processFn abstract.BackfillMsgFn) error {
 	// Create callback adapter - add _last_modified_time field to each record
 	callback := func(ctx context.Context, record map[string]any) error {
+		// Per-record uncompressed source-data size (computed on the source data, before injecting the _last_modified_time metadata column).
+		recBytes := recordDataBytes(record)
 		// Inject LastModified timestamp into each record
 		record[lastModifiedField] = lastModified
-		return processFn(ctx, record)
+		return processFn(ctx, record, recBytes)
 	}
 
 	// Convert StreamInterface to underlying Stream for parser

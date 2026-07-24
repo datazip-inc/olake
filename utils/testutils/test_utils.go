@@ -28,9 +28,8 @@ import (
 )
 
 const (
-	// golangTestImage must match the `go` version in go.mod / go.work (integration tests build via build.sh inside this container).
-	golangTestImage                = "golang:1.25.12-bookworm"
 	icebergCatalog                 = "olake_iceberg"
+	parquetTestBucket              = "warehouse"
 	sparkConnectAddress            = "sc://localhost:15002"
 	installCmd                     = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
 	SyncTimeout                    = 10 * time.Minute
@@ -68,6 +67,7 @@ type SyncSpeed struct {
 }
 type TestConfig struct {
 	Driver                 string
+	ImagePlatform          string
 	HostRootPath           string
 	SourcePath             string
 	CatalogPath            string
@@ -82,6 +82,13 @@ type TestConfig struct {
 	HostTestCatalogPath    string
 	HostStatsPath          string
 	DataFormat             string
+}
+
+// WithImagePlatform is used to override the platform for the test container image.
+// This is useful for testing on different architectures (e.g., arm64 vs amd64).
+func (t *TestConfig) WithImagePlatform(platform string) *TestConfig {
+	t.ImagePlatform = platform
+	return t
 }
 
 // history stores the RPS values and the last updated time for a given mode.
@@ -330,49 +337,68 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T, testTa
 	return nil
 }
 
-// DeleteParquetFiles deletes only .parquet files directly in the table folder in MinIO
-func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
-	t.Helper()
-	bucketName := "warehouse"
-	parquetPath := fmt.Sprintf("%s/%s/", parquetDB, tableName)
-
-	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", bucketName, parquetPath)
-
-	minioClient, err := minio.New("localhost:9000", &minio.Options{
+// newMinIOClient returns a client for the MinIO instance backing the parquet destination in tests.
+func newMinIOClient() (*minio.Client, error) {
+	client, err := minio.New("localhost:9000", &minio.Options{
 		Creds:  credentials.NewStaticV4("admin", "password", ""),
 		Secure: false,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create MinIO client: %s", err)
+		return nil, fmt.Errorf("failed to create MinIO client: %s", err)
+	}
+	return client, nil
+}
+
+// listParquetObjects lists the .parquet objects lying directly in a table's folder in MinIO.
+func listParquetObjects(ctx context.Context, client *minio.Client, parquetDB, tableName string) ([]minio.ObjectInfo, error) {
+	objects := []minio.ObjectInfo{}
+	for object := range client.ListObjects(ctx, parquetTestBucket, minio.ListObjectsOptions{
+		Prefix:    parquetTablePath(parquetDB, tableName),
+		Recursive: false,
+	}) {
+		if object.Err != nil {
+			return nil, fmt.Errorf("error listing objects: %s", object.Err)
+		}
+		if strings.HasSuffix(object.Key, ".parquet") {
+			objects = append(objects, object)
+		}
+	}
+	return objects, nil
+}
+
+// parquetTablePath is the MinIO key prefix a stream's parquet files are written under.
+func parquetTablePath(parquetDB, tableName string) string {
+	return fmt.Sprintf("%s/%s/", parquetDB, tableName)
+}
+
+// DeleteParquetFiles deletes only .parquet files directly in the table folder in MinIO
+func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
+	t.Helper()
+	parquetPath := parquetTablePath(parquetDB, tableName)
+
+	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", parquetTestBucket, parquetPath)
+
+	minioClient, err := newMinIOClient()
+	if err != nil {
+		return err
 	}
 
 	ctx := context.Background()
 
-	objectsCh := minioClient.ListObjects(ctx, bucketName, minio.ListObjectsOptions{
-		Prefix:    parquetPath,
-		Recursive: false,
-	})
+	objects, err := listParquetObjects(ctx, minioClient, parquetDB, tableName)
+	if err != nil {
+		return err
+	}
 
-	deletedCount := 0
+	for _, object := range objects {
+		t.Logf("Deleting: %s", strings.TrimPrefix(object.Key, parquetPath))
 
-	for object := range objectsCh {
-		if object.Err != nil {
-			return fmt.Errorf("error listing objects: %s", object.Err)
-		}
-
-		if strings.HasSuffix(object.Key, ".parquet") {
-			fileName := strings.TrimPrefix(object.Key, parquetPath)
-			t.Logf("Deleting: %s", fileName)
-
-			err := minioClient.RemoveObject(ctx, bucketName, object.Key, minio.RemoveObjectOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to delete %s: %s", object.Key, err)
-			}
-			deletedCount++
+		if err := minioClient.RemoveObject(ctx, parquetTestBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
 		}
 	}
 
-	t.Logf("--- Cleanup Complete: Deleted %d files ---", deletedCount)
+	t.Logf("--- Cleanup Complete: Deleted %d files ---", len(objects))
 	return nil
 }
 
@@ -407,9 +433,12 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
-		if cfg.TestConfig.Driver == "mssql" {
-			t.Log("Waiting 20 seconds for MSSQL CDC to process transactions...")
-			time.Sleep(20 * time.Second)
+		// SQL Server CDC is asynchronous: the capture job only picks up the DML above on its next
+		// transaction-log scan, and the sync's change window ends at the job's processed max LSN
+		// (sys.fn_cdc_get_max_lsn), so syncing too early would see no changes. Wait for the capture
+		// job to advance past the DML. Incremental runs read the table directly and need no wait.
+		if isCDC && cfg.TestConfig.Driver == "mssql" {
+			cfg.ExecuteQuery(ctx, t, []string{testTable}, "wait-cdc-catchup", false)
 		}
 	}
 
@@ -419,11 +448,16 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 		return fmt.Errorf("sync failed (%d): %s\n%s", code, err, out)
 	}
 
+	logBuildRunTimings(t, cfg.TestConfig.Driver, destinationType+" sync", out)
 	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
 
 	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
 	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
 	evolvedSchema := operation == "update"
+
+	// Verification reads the destination back through Spark Connect (with retries), a real slice of
+	// sync wall-clock; time it as its own phase.
+	defer trackPhaseTiming(t, cfg.TestConfig.Driver, destinationType+" verify")()
 
 	switch destinationType {
 	case "iceberg":
@@ -747,6 +781,13 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	}
 
 	t.Log("Iceberg Full load + Incremental tests completed successfully")
+
+	// Drop the Iceberg table after all tests are finished, so the incremental
+	// cursor state left in the table's olake_2pc property is not read back as
+	// CDC state by a later run.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	t.Logf("Dropped Iceberg table: %s", testTable)
+
 	return nil
 }
 
@@ -854,6 +895,14 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
+	// Drop the Iceberg table and reset state before the first sync, so stale rows and the
+	// olake_2pc table property left by a previous run can't leak into this run's recovery timeline.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	resetState := resetStateFileCommand(*cfg.TestConfig)
+	if code, out, err := utils.ExecCommand(ctx, c, resetState); err != nil || code != 0 {
+		return fmt.Errorf("failed to reset state (%d): %s\n%s", code, err, out)
+	}
+
 	twoPCCDCTestCases := []syncTestCase{
 		{
 			name:                     utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "CDC - initial load", "Full-Refresh").(string),
@@ -946,6 +995,10 @@ func (cfg *IntegrationTest) testIceberg2PCIncrementalRecovery(
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
+
+	// Drop the Iceberg table before the first sync, so stale rows and the olake_2pc table
+	// property left by a previous run can't leak into this run's recovery timeline.
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field
 	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
@@ -1046,13 +1099,18 @@ func (cfg *IntegrationTest) runInTestContainer(
 	testFn func(ctx context.Context, c testcontainers.Container) error,
 ) {
 	t.Helper()
+	baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath, cfg.TestConfig.ImagePlatform)
+	containerReady := trackPhaseTiming(t, cfg.TestConfig.Driver, "container ready")
+
 	req := testcontainers.ContainerRequest{
-		Image:         golangTestImage,
-		ImagePlatform: "linux/amd64",
+		Image:         baseImage,
+		ImagePlatform: cfg.TestConfig.ImagePlatform,
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.Binds = []string{
 				fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
 				fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
+				goModCacheMount,
+				goBuildCacheMount,
 			}
 			hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 		},
@@ -1060,12 +1118,15 @@ func (cfg *IntegrationTest) runInTestContainer(
 			config.WorkingDir = "/test-olake"
 		},
 		Env: map[string]string{
-			"TELEMETRY_DISABLED": "true",
+			"TELEMETRY_DISABLED":  "true",
+			"OLAKE_SKIP_MOD_TIDY": "true",
 		},
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
 				PostReadies: []testcontainers.ContainerHook{
 					func(ctx context.Context, c testcontainers.Container) error {
+						containerReady()
+						defer trackPhaseTiming(t, cfg.TestConfig.Driver, "in-container work")()
 						return testFn(ctx, c)
 					},
 				},
@@ -1078,9 +1139,14 @@ func (cfg *IntegrationTest) runInTestContainer(
 		ContainerRequest: req,
 		Started:          true,
 	})
-	require.NoError(t, err, "Container startup failed")
+
+	require.NoError(t, err, "test container run failed")
 	defer func() {
-		if err := container.Terminate(ctx); err != nil {
+		// PID 1 here is `tail -f /dev/null` (req.Cmd), which never exits on SIGTERM — the
+		// kernel skips default signal handling for PID 1 — so a graceful stop just burns
+		// Terminate's default 10s grace period before the SIGKILL. All in-container work is
+		// already done by the time this deferred call runs, so kill immediately.
+		if err := container.Terminate(ctx, testcontainers.StopTimeout(0)); err != nil {
 			t.Logf("warning: failed to terminate container: %v", err)
 		}
 	}()
@@ -1092,6 +1158,7 @@ func (cfg *IntegrationTest) runInTestContainer(
 // reported separately.
 func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 	ctx := context.Background()
+	cfg.ExecuteQuery = timedExecuteQuery(cfg.TestConfig.Driver, cfg.ExecuteQuery)
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
@@ -1104,10 +1171,6 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 
 	t.Run("Sync", func(t *testing.T) {
 		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
-			if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-				return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
-			}
-
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
@@ -1273,32 +1336,41 @@ func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
 	})
 }
 
+func skipOutsideTestPhase(t *testing.T, phase string) {
+	t.Helper()
+	if v := os.Getenv("OLAKE_TEST_PHASE"); v != "" && v != phase {
+		t.Skipf("OLAKE_TEST_PHASE=%s: skipping %s subtest", v, phase)
+	}
+}
+
 func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	ctx := context.Background()
+	cfg.ExecuteQuery = timedExecuteQuery(cfg.TestConfig.Driver, cfg.ExecuteQuery)
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
 	currentTestTable := utils.Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
 
 	t.Run("Discover", func(t *testing.T) {
+		skipOutsideTestPhase(t, "discover")
 		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
-			// 1. Install required tools
-			if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-				return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
-			}
-
-			// 2. Query on test table
+			// 1. Query on test table; drop first so leftover state from a previous
+			// aborted run (e.g. evolve-schema mutations) cannot survive the
+			// CREATE IF NOT EXISTS
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
-			// 3. Run discover command
+			// 2. Run discover command (build.sh compiles the driver in-container, then discovers)
 			discoverCmd := discoverCommand(*cfg.TestConfig)
-			if code, out, err := utils.ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
+			code, out, err := utils.ExecCommand(ctx, c, discoverCmd)
+			if err != nil || code != 0 {
 				return fmt.Errorf("discover failed (%d): %s\n%s", code, err, string(out))
 			}
+			logBuildRunTimings(t, cfg.TestConfig.Driver, "discover", out)
 
-			// 4. Verify streams.json file
+			// 3. Verify streams.json file
 			streamsJSON, err := os.ReadFile(cfg.TestConfig.HostTestCatalogPath)
 			if err != nil {
 				return fmt.Errorf("failed to read expected streams JSON: %s", err)
@@ -1312,7 +1384,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			}
 			t.Logf("Generated streams validated with test streams")
 
-			// 5. Clean up
+			// 4. Clean up
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			t.Logf("%s discover test-container clean up", cfg.TestConfig.Driver)
 			return nil
@@ -1320,13 +1392,12 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	})
 
 	t.Run("Sync", func(t *testing.T) {
+		skipOutsideTestPhase(t, "sync")
 		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
-			// 1. Install required tools
-			if code, out, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-				return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
-			}
-
-			// 2. Query on test table
+			// 1. Query on test table; drop first so leftover state from a previous
+			// aborted run (e.g. evolve-schema mutations) cannot survive the
+			// CREATE IF NOT EXISTS
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
@@ -1386,7 +1457,20 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 				})
 			}
 
-			// 5. Clean up
+			// Parquet file rolling: bulk-seeds the test table and asserts the writer splits the
+			// output into multiple size-bounded files without losing rows. Gated to the drivers
+			// wired with a rolling seed case + a max_file_size_mb in their parquet destination
+			// config (see parquetRollingTestDrivers). Runs last: it replaces the table contents
+			// and clears the partition regex/filter config from streams.json.
+			if hasParquetRollingTest(cfg.TestConfig.Driver) {
+				t.Run("Parquet Rolling", func(t *testing.T) {
+					if err := cfg.testParquetRolling(ctx, t, c, currentTestTable); err != nil {
+						t.Fatalf("Parquet Rolling test failed: %v", err)
+					}
+				})
+			}
+
+			// 2. Clean up
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			t.Logf("%s sync test-container clean up", cfg.TestConfig.Driver)
 			return nil
@@ -1901,11 +1985,15 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	}
 
 	t.Run("performance", func(t *testing.T) {
+		baseImage := ensureTestBaseImage(t, cfg.TestConfig.HostRootPath, cfg.TestConfig.ImagePlatform)
 		req := testcontainers.ContainerRequest{
-			Image: golangTestImage,
+			Image:         baseImage,
+			ImagePlatform: cfg.TestConfig.ImagePlatform,
 			HostConfigModifier: func(hc *container.HostConfig) {
 				hc.Binds = []string{
 					fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
+					goModCacheMount,
+					goBuildCacheMount,
 				}
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
 				hc.NetworkMode = "host"
@@ -1914,16 +2002,13 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 				c.WorkingDir = "/test-olake"
 			},
 			Env: map[string]string{
-				"TELEMETRY_DISABLED": "true",
+				"TELEMETRY_DISABLED":  "true",
+				"OLAKE_SKIP_MOD_TIDY": "true",
 			},
 			LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 				{
 					PostReadies: []testcontainers.ContainerHook{
 						func(ctx context.Context, c testcontainers.Container) error {
-							if code, output, err := utils.ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
-								return fmt.Errorf("failed to install dependencies:\n%s", string(output))
-							}
-
 							// reset CDC config
 							if cfg.TestConfig.Driver == string(constants.Postgres) || cfg.TestConfig.Driver == string(constants.MySQL) {
 								cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "reset_cdc_config", true)
@@ -2028,7 +2113,9 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		})
 		require.NoError(t, err, "performance test failed: ", err)
 		defer func() {
-			if err := container.Terminate(ctx); err != nil {
+			// Same as runInTestContainer: PID 1 is `tail -f /dev/null`, which ignores
+			// SIGTERM, so skip the default 10s grace period and kill immediately.
+			if err := container.Terminate(ctx, testcontainers.StopTimeout(0)); err != nil {
 				t.Logf("warning: failed to terminate container: %v", err)
 			}
 		}()
