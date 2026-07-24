@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"math/big"
 	"testing"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	pq "github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/deprecated"
@@ -1319,4 +1321,171 @@ func TestParquetParser_NestedLogicalTypes(t *testing.T) {
 		"map values must carry timestamps, not raw micros")
 	require.Equal(t, []any{ts, ts.Add(time.Minute)}, record["rep_ts"],
 		"repeated leaf elements must carry timestamps, not raw micros")
+}
+
+// TestParquetValueToInterfaceWithType_Int96StateGate pins the backward-compatibility gate:
+// state created before version 7 keeps the legacy raw-integer string so an existing
+// destination column does not change type on upgrade, while newer state gets the time.Time.
+func TestParquetValueToInterfaceWithType_Int96StateGate(t *testing.T) {
+	defer func(v int) { constants.LoadedStateVersion = v }(constants.LoadedStateVersion)
+
+	i96 := deprecated.Int64ToInt96(49530123456789)
+	i96[2] = 2460477 // 2024-06-15
+
+	constants.LoadedStateVersion = parquetTimestampStateVersion - 1
+	legacy := parquetValueToInterfaceWithType(pq.Int96Value(i96), pq.Int96Type)
+	_, isString := legacy.(string)
+	require.True(t, isString, "state < 7 must emit the raw Int96 string, got %T", legacy)
+	assert.Equal(t, pq.Int96Value(i96).String(), legacy, "must match the pre-gate string output")
+
+	constants.LoadedStateVersion = parquetTimestampStateVersion
+	gated := parquetValueToInterfaceWithType(pq.Int96Value(i96), pq.Int96Type)
+	_, isTime := gated.(time.Time)
+	require.True(t, isTime, "state >= 7 must emit time.Time, got %T", gated)
+}
+
+// TestParquetParser_FlatNullableColumns exercises the columnar read path (used for flat
+// schemas) with nulls interleaved through nullable columns. That path reconstructs rows by
+// column index and relies on parquet-go emitting null values inline; a misalignment would shift
+// a column's values off their rows, which the interleaved nulls below would surface.
+func TestParquetParser_FlatNullableColumns(t *testing.T) {
+	type row struct {
+		ID  int64   `parquet:"id"`
+		Opt *int64  `parquet:"opt,optional"`
+		Str *string `parquet:"str,optional"`
+	}
+	i64 := func(v int64) *int64 { return &v }
+	str := func(v string) *string { return &v }
+	rows := []row{
+		{ID: 0, Opt: i64(100), Str: str("a")},
+		{ID: 1, Opt: nil, Str: nil},
+		{ID: 2, Opt: i64(300), Str: nil},
+		{ID: 3, Opt: nil, Str: str("d")},
+		{ID: 4, Opt: i64(500), Str: str("e")},
+	}
+
+	var buf bytes.Buffer
+	writer := pq.NewGenericWriter[row](&buf)
+	_, err := writer.Write(rows)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	parser := NewParquetParser(ParquetConfig{}, types.NewStream("flatnull", "flatnull", nil))
+	var got []map[string]any
+	require.NoError(t, parser.StreamRecords(context.Background(), bytes.NewReader(buf.Bytes()),
+		func(_ context.Context, rec map[string]any) error {
+			got = append(got, rec)
+			return nil
+		}))
+
+	require.Len(t, got, 5)
+	want := []struct {
+		id  int64
+		opt interface{}
+		str interface{}
+	}{
+		{0, int64(100), "a"},
+		{1, nil, nil},
+		{2, int64(300), nil},
+		{3, nil, "d"},
+		{4, int64(500), "e"},
+	}
+	for i, w := range want {
+		assert.Equal(t, w.id, got[i]["id"], "row %d id", i)
+		assert.Equal(t, w.opt, got[i]["opt"], "row %d opt (null alignment)", i)
+		assert.Equal(t, w.str, got[i]["str"], "row %d str (null alignment)", i)
+	}
+}
+
+// BenchmarkStreamRecords measures decode throughput of the batched reader at several read
+// batch sizes, plus a "legacy" baseline that replicates the pre-batching parser (whole row
+// group materialized column-major, rows reconstructed by index). The batch sizes climb past a
+// single row group's row count, so the largest reads the whole group in one ReadRows call —
+// the closest in-algorithm equivalent to the old unbounded read. rowReadBatchSize is currently
+// 256; run this to check whether it costs throughput versus reading larger or the whole group:
+//
+//	go test ./pkg/parser/ -run=^$ -bench=BenchmarkStreamRecords -benchmem
+func BenchmarkStreamRecords(b *testing.B) {
+	type benchRow struct {
+		ID    int64     `parquet:"id"`
+		Name  string    `parquet:"name"`
+		Price float64   `parquet:"price"`
+		Flag  bool      `parquet:"flag"`
+		TS    time.Time `parquet:"ts,timestamp(microsecond)"`
+	}
+
+	const numRows = 50000
+	rows := make([]benchRow, numRows)
+	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range rows {
+		rows[i] = benchRow{
+			ID:    int64(i),
+			Name:  "record",
+			Price: float64(i) * 1.5,
+			Flag:  i%2 == 0,
+			TS:    base.Add(time.Duration(i) * time.Second),
+		}
+	}
+
+	var buf bytes.Buffer
+	writer := pq.NewGenericWriter[benchRow](&buf)
+	if _, err := writer.Write(rows); err != nil {
+		b.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		b.Fatal(err)
+	}
+	fileBytes := buf.Bytes()
+
+	parser := NewParquetParser(ParquetConfig{}, types.NewStream("bench", "bench", nil))
+	discard := func(_ context.Context, _ map[string]any) error { return nil }
+
+	// Report how the file was split so a batch >= the per-group row count means "whole group".
+	if pqFile, err := pq.OpenFile(bytes.NewReader(fileBytes), int64(len(fileBytes))); err == nil {
+		groups := pqFile.RowGroups()
+		if len(groups) > 0 {
+			b.Logf("%d rows across %d row group(s), ~%d rows/group", numRows, len(groups), groups[0].NumRows())
+		}
+	}
+
+	// columnar is the production path for this flat schema (StreamRecords picks it when the
+	// schema has no group/repeated fields); the batch=N cases drive the row-at-a-time path that
+	// nested schemas fall back to, to show why flat schemas read column by column instead.
+	b.Run("columnar", func(b *testing.B) {
+		b.ReportAllocs()
+		for n := 0; n < b.N; n++ {
+			pqFile, err := pq.OpenFile(bytes.NewReader(fileBytes), int64(len(fileBytes)))
+			if err != nil {
+				b.Fatal(err)
+			}
+			decoder := newRowDecoder(pqFile.Schema())
+			count := 0
+			for _, rg := range pqFile.RowGroups() {
+				if err := parser.streamRowGroupColumns(context.Background(), rg, decoder, discard, &count); err != nil {
+					b.Fatal(err)
+				}
+			}
+		}
+		b.ReportMetric(float64(numRows)*float64(b.N)/b.Elapsed().Seconds(), "rows/s")
+	})
+
+	for _, batchSize := range []int{256, 1024} {
+		b.Run(fmt.Sprintf("batch=%d", batchSize), func(b *testing.B) {
+			b.ReportAllocs()
+			for n := 0; n < b.N; n++ {
+				pqFile, err := pq.OpenFile(bytes.NewReader(fileBytes), int64(len(fileBytes)))
+				if err != nil {
+					b.Fatal(err)
+				}
+				decoder := newRowDecoder(pqFile.Schema())
+				count := 0
+				for _, rg := range pqFile.RowGroups() {
+					if err := parser.streamRowGroupRows(context.Background(), rg, decoder, batchSize, discard, &count); err != nil {
+						b.Fatal(err)
+					}
+				}
+			}
+			b.ReportMetric(float64(numRows)*float64(b.N)/b.Elapsed().Seconds(), "rows/s")
+		})
+	}
 }

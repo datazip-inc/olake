@@ -202,12 +202,12 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 }
 
 // fieldType resolves a header's type from the stream schema. A header the schema does not
-// carry is a column that appeared after discover: hand its cells through as strings, the
-// way the JSON parser hands through unknown fields, so the destination can evolve.
+// carry is a column that appeared after sampling; it maps to types.Unknown so convertValue
+// infers the type from the cell instead of forcing a type onto it and losing the real one.
 func (p *CSVParser) fieldType(header string) types.DataType {
 	fieldType, err := p.stream.Schema.GetType(header)
 	if err != nil {
-		return types.String
+		return types.Unknown
 	}
 	return fieldType
 }
@@ -367,10 +367,31 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 		}
 		return arr, nil
 	case types.Unknown:
-		// Unknown type defaults to string
-		return trimmed, nil
+		// Column missing from the sampled schema: infer the cell's type so a late-arriving
+		// column is not flattened to string, letting the destination evolve the real type.
+		return inferAndConvert(trimmed), nil
 	}
 
 	// Default to string (including types.String, types.Null)
 	return trimmed, nil
+}
+
+// inferAndConvert types a single CSV cell whose column was not seen during sampling. It mirrors
+// inferColumnType's precedence (Bool > numeric > Timestamp > String) and its choice of Float64
+// for numbers, so a late-arriving column reads the same way a sampled one would. The value is
+// already trimmed and known non-empty by convertValue.
+func inferAndConvert(value string) interface{} {
+	if lower := strings.ToLower(value); lower == "true" || lower == "false" {
+		return lower == "true"
+	}
+	// Sampled numeric columns infer to Float64 (see inferColumnType), so integers land there
+	// too rather than splitting a late column into int vs float. NaN/Inf are not JSON-safe and
+	// stay as their raw text.
+	if f, err := strconv.ParseFloat(value, 64); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
+		return f
+	}
+	if t, err := typeutils.ReformatDate(value, true); err == nil {
+		return t
+	}
+	return value
 }
