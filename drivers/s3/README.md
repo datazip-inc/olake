@@ -138,12 +138,16 @@ Use this file when re-running syncs to resume from the last `_last_modified_time
 
 Each stream is seeded with a plain file and, for CSV and JSON, a gzipped one: the driver detects compression from each file's own extension, so one stream mixes both. Incremental sync then re-reads only files newer than the `_last_modified_time` cursor, which is what the `insert` and `update` operations upload.
 
-The test needs the Iceberg destination stack running (`docker compose -f destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d`) and reuses its MinIO (`localhost:9000`) as the source: all formats share the `olake-s3-test` bucket, isolated by per-format folder prefixes, and everything lands in the `s3_olake_s3_test_s3` database as one table per format.
+Source and destination share one MinIO (`localhost:9000`): it is defined in this driver's `docker-compose.yml` (the s3 source reads from it) and `include`d by the Iceberg destination stack (which uses it as the warehouse store), so there is a single instance. The s3 formats share the `olake-s3-test` source bucket, isolated by per-format folder prefixes, and everything lands in the `s3_olake_s3_test_s3` database as one table per format.
 
 `testdata/<format>/` holds the committed `source.json`, `iceberg_destination.json`, `parquet_destination.json` and `test_streams.json` (the expected discover output). Note the sync flips `arrow_writes` in `iceberg_destination.json` to cover both writers, leaving the file modified after a run.
 
 ```sh
-# all formats (heavy locally: one amd64 test container per phase per format; throttle with -parallel)
+# simplest: auto-provisions the destination stack + Iceberg JAR, then runs the suite (from repo root)
+make test.integration.s3
+
+# or iterate directly against an already-up stack (heavy locally: one amd64 test container per phase
+# per format; throttle with -parallel)
 go test -v -timeout 0 -parallel 2 -run 'TestS3Integration' ./internal/
 
 # one format, or only its sync phase (reuses testdata/<format>/streams.json from a prior discover)
