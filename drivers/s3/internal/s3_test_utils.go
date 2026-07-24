@@ -647,6 +647,9 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 
 		case "clean", "drop":
 			for obj := range client.ListObjects(ctx, s3TestBucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+				if minio.ToErrorResponse(obj.Err).Code == "NoSuchBucket" {
+					break
+				}
 				require.NoError(t, obj.Err, "failed to list objects under %s", prefix)
 				require.NoError(t, client.RemoveObject(ctx, s3TestBucket, obj.Key, minio.RemoveObjectOptions{}), "failed to remove %s", obj.Key)
 			}
