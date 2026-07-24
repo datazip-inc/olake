@@ -133,4 +133,26 @@ The `state.json` structure mirrors the catalog streams and records the latest `_
 ```
 Use this file when re-running syncs to resume from the last `_last_modified_time` per stream.
 
+## Integration tests
+`TestS3Integration` runs one variant per source format (CSV, JSON, Parquet), each doing a discover plus a full-refresh and incremental sync into both the Iceberg and Parquet destinations, verifying rows, datatypes and the partition column. S3 exposes no CDC, so those subtests are skipped as they are for Oracle and DB2 (`constants.SkipCDCDrivers`).
+
+Each stream is seeded with a plain file and, for CSV and JSON, a gzipped one: the driver detects compression from each file's own extension, so one stream mixes both. Incremental sync then re-reads only files newer than the `_last_modified_time` cursor, which is what the `insert` and `update` operations upload.
+
+The test needs the Iceberg destination stack running (`docker compose -f destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d`) and reuses its MinIO (`localhost:9000`) as the source: all formats share the `olake-s3-test` bucket, isolated by per-format folder prefixes, and everything lands in the `s3_olake_s3_test_s3` database as one table per format.
+
+`testdata/<format>/` holds the committed `source.json`, `iceberg_destination.json`, `parquet_destination.json` and `test_streams.json` (the expected discover output). Note the sync flips `arrow_writes` in `iceberg_destination.json` to cover both writers, leaving the file modified after a run.
+
+```sh
+# all formats (heavy locally: one amd64 test container per phase per format; throttle with -parallel)
+go test -v -timeout 0 -parallel 2 -run 'TestS3Integration' ./internal/
+
+# one format, or only its sync phase (reuses testdata/<format>/streams.json from a prior discover)
+go test -v -timeout 0 -run 'TestS3Integration/Variants/Parquet' ./internal/
+go test -v -timeout 0 -run 'TestS3Integration/Variants/CSV/Sync' ./internal/
+
+# inspect what landed, e.g.
+#   docker exec spark-iceberg /opt/spark/bin/spark-sql \
+#     -e "SELECT * FROM olake_iceberg.s3_olake_s3_test_s3.s3_csv_test_table_olake"
+```
+
 Find more at [S3 Docs](https://olake.io/docs/category/s3)

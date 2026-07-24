@@ -1,0 +1,324 @@
+{
+    "selected_streams": {
+        "s3": [
+            {
+                "normalization": false,
+                "partition_regex": "",
+                "selected_columns": {
+                    "columns": [
+                        "int64_col",
+                        "float32_col",
+                        "ts_ns_col",
+                        "ts_far_col",
+                        "time_ns_col",
+                        "dec_bytes_col",
+                        "map_col",
+                        "struct_col",
+                        "int8_col",
+                        "int32_col",
+                        "int96_col",
+                        "_op_type",
+                        "str_col",
+                        "time_us_col",
+                        "list_col",
+                        "bool_col",
+                        "ts_col",
+                        "_olake_timestamp",
+                        "unicode_col",
+                        "null_col",
+                        "uint32_col",
+                        "dec32_col",
+                        "float_col",
+                        "id",
+                        "int16_col",
+                        "_olake_id",
+                        "uuid_col",
+                        "ts_ms_col",
+                        "uint16_col",
+                        "json_col",
+                        "time_ms_col",
+                        "dec64_col",
+                        "uint8_col",
+                        "empty_col",
+                        "date_col",
+                        "bytes_col",
+                        "enum_col",
+                        "uint64_col",
+                        "_last_modified_time"
+                    ],
+                    "sync_new_columns": true
+                },
+                "stream_name": "s3_parquet_test_table_olake",
+                "use_source_column_names": false
+            }
+        ]
+    },
+    "streams": [
+        {
+            "stream": {
+                "available_cursor_fields": [
+                    "_last_modified_time"
+                ],
+                "default_stream_properties": {
+                    "append_mode": false,
+                    "normalization": false
+                },
+                "destination_database": "s3_olake_s3_test:s3",
+                "destination_table": "s3_parquet_test_table_olake",
+                "name": "s3_parquet_test_table_olake",
+                "namespace": "s3",
+                "source_defined_primary_key": [],
+                "supported_sync_modes": [
+                    "full_refresh",
+                    "incremental"
+                ],
+                "sync_mode": "incremental",
+                "type_schema": {
+                    "properties": {
+                        "_last_modified_time": {
+                            "destination_column_name": "_last_modified_time",
+                            "type": [
+                                "string"
+                            ]
+                        },
+                        "_olake_id": {
+                            "destination_column_name": "_olake_id",
+                            "olake_column": true,
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "_olake_timestamp": {
+                            "destination_column_name": "_olake_timestamp",
+                            "olake_column": true,
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ]
+                        },
+                        "_op_type": {
+                            "destination_column_name": "_op_type",
+                            "olake_column": true,
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "bool_col": {
+                            "destination_column_name": "bool_col",
+                            "type": [
+                                "boolean"
+                            ]
+                        },
+                        "bytes_col": {
+                            "destination_column_name": "bytes_col",
+                            "type": [
+                                "string"
+                            ]
+                        },
+                        "date_col": {
+                            "destination_column_name": "date_col",
+                            "type": [
+                                "timestamp"
+                            ]
+                        },
+                        "dec32_col": {
+                            "destination_column_name": "dec32_col",
+                            "type": [
+                                "number"
+                            ]
+                        },
+                        "dec64_col": {
+                            "destination_column_name": "dec64_col",
+                            "type": [
+                                "number"
+                            ]
+                        },
+                        "dec_bytes_col": {
+                            "destination_column_name": "dec_bytes_col",
+                            "type": [
+                                "number"
+                            ]
+                        },
+                        "empty_col": {
+                            "destination_column_name": "empty_col",
+                            "type": [
+                                "string"
+                            ]
+                        },
+                        "enum_col": {
+                            "destination_column_name": "enum_col",
+                            "type": [
+                                "string"
+                            ]
+                        },
+                        "float32_col": {
+                            "destination_column_name": "float32_col",
+                            "type": [
+                                "number_small"
+                            ]
+                        },
+                        "float_col": {
+                            "destination_column_name": "float_col",
+                            "type": [
+                                "number"
+                            ]
+                        },
+                        "id": {
+                            "destination_column_name": "id",
+                            "type": [
+                                "integer"
+                            ]
+                        },
+                        "int16_col": {
+                            "destination_column_name": "int16_col",
+                            "type": [
+                                "integer_small"
+                            ]
+                        },
+                        "int32_col": {
+                            "destination_column_name": "int32_col",
+                            "type": [
+                                "integer_small"
+                            ]
+                        },
+                        "int64_col": {
+                            "destination_column_name": "int64_col",
+                            "type": [
+                                "integer"
+                            ]
+                        },
+                        "int8_col": {
+                            "destination_column_name": "int8_col",
+                            "type": [
+                                "integer_small"
+                            ]
+                        },
+                        "int96_col": {
+                            "destination_column_name": "int96_col",
+                            "type": [
+                                "timestamp"
+                            ]
+                        },
+                        "json_col": {
+                            "destination_column_name": "json_col",
+                            "type": [
+                                "string"
+                            ]
+                        },
+                        "list_col": {
+                            "destination_column_name": "list_col",
+                            "type": [
+                                "array"
+                            ]
+                        },
+                        "map_col": {
+                            "destination_column_name": "map_col",
+                            "type": [
+                                "object"
+                            ]
+                        },
+                        "null_col": {
+                            "destination_column_name": "null_col",
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        },
+                        "str_col": {
+                            "destination_column_name": "str_col",
+                            "type": [
+                                "string"
+                            ]
+                        },
+                        "struct_col": {
+                            "destination_column_name": "struct_col",
+                            "type": [
+                                "object"
+                            ]
+                        },
+                        "time_ms_col": {
+                            "destination_column_name": "time_ms_col",
+                            "type": [
+                                "integer"
+                            ]
+                        },
+                        "time_ns_col": {
+                            "destination_column_name": "time_ns_col",
+                            "type": [
+                                "integer"
+                            ]
+                        },
+                        "time_us_col": {
+                            "destination_column_name": "time_us_col",
+                            "type": [
+                                "integer"
+                            ]
+                        },
+                        "ts_col": {
+                            "destination_column_name": "ts_col",
+                            "type": [
+                                "timestamp_micro"
+                            ]
+                        },
+                        "ts_far_col": {
+                            "destination_column_name": "ts_far_col",
+                            "type": [
+                                "timestamp_micro"
+                            ]
+                        },
+                        "ts_ms_col": {
+                            "destination_column_name": "ts_ms_col",
+                            "type": [
+                                "timestamp_milli"
+                            ]
+                        },
+                        "ts_ns_col": {
+                            "destination_column_name": "ts_ns_col",
+                            "type": [
+                                "timestamp_nano"
+                            ]
+                        },
+                        "uint16_col": {
+                            "destination_column_name": "uint16_col",
+                            "type": [
+                                "integer_small"
+                            ]
+                        },
+                        "uint32_col": {
+                            "destination_column_name": "uint32_col",
+                            "type": [
+                                "integer"
+                            ]
+                        },
+                        "uint64_col": {
+                            "destination_column_name": "uint64_col",
+                            "type": [
+                                "integer"
+                            ]
+                        },
+                        "uint8_col": {
+                            "destination_column_name": "uint8_col",
+                            "type": [
+                                "integer_small"
+                            ]
+                        },
+                        "unicode_col": {
+                            "destination_column_name": "unicode_col",
+                            "type": [
+                                "string"
+                            ]
+                        },
+                        "uuid_col": {
+                            "destination_column_name": "uuid_col",
+                            "type": [
+                                "string"
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    ]
+}
