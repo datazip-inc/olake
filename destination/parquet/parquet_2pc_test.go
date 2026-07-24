@@ -268,6 +268,26 @@ func TestCloseCommits2PCState(t *testing.T) {
 	}
 }
 
+func TestCloseCommitsRolledFiles(t *testing.T) {
+	ctx := context.Background()
+	p, store := testS3Parquet(t, "incremental-thread", false)
+	p.maxFileBytes = 1
+	p.checkIntervalForRoll = 1
+
+	records := []types.RawRecord{testRawRecord(), testRawRecord(), testRawRecord()}
+	require.NoError(t, p.Write(ctx, records))
+	require.Len(t, p.pendingDataFiles(), len(records))
+
+	state := &types.MetadataState{ID: "incremental-thread", State: `{"cursor":30}`}
+	require.NoError(t, p.Close(ctx, state))
+
+	require.Equal(t, len(records), testFinalParquetObjects(p, store))
+	require.Empty(t, store.keys(p.stagingRootPrefix()))
+	metadata, err := p.readMetadata(ctx)
+	require.NoError(t, err)
+	require.Equal(t, state, metadata)
+}
+
 func TestCloseRecoversSharedStagingBeforeUpload(t *testing.T) {
 	ctx := context.Background()
 	p, store := testS3Parquet(t, "next-cdc-thread", false)
@@ -355,7 +375,10 @@ func TestCloseRecoveryBoundaries(t *testing.T) {
 // TestCloseCancellationDoesNotStageFiles verifies canceled writers remain private to local temp storage.
 func TestCloseCancellationDoesNotStageFiles(t *testing.T) {
 	p, store := testS3Parquet(t, "canceled-thread", false)
-	require.NoError(t, p.Write(context.Background(), []types.RawRecord{testRawRecord()}))
+	p.maxFileBytes = 1
+	p.checkIntervalForRoll = 1
+	require.NoError(t, p.Write(context.Background(), []types.RawRecord{testRawRecord(), testRawRecord(), testRawRecord()}))
+	require.Len(t, p.pendingDataFiles(), 3)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

@@ -34,10 +34,10 @@ import (
 )
 
 type FileMetadata struct {
-	filePath     string
-	relativePath string
-	writer       any
+	writer       *pqgo.GenericWriter[any]
 	file         source.ParquetFile
+	path         string
+	relativePath string
 }
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
@@ -51,6 +51,9 @@ type Parquet struct {
 	s3Uploader       s3manageriface.UploaderAPI
 	tempDir          string
 	schema           typeutils.Fields
+
+	maxFileBytes         int64 // roll a partition into a new file once its on-disk size reaches this
+	checkIntervalForRoll int   // number of []RawRecord written between on-disk size checks within a batch
 }
 
 // GetConfigRef returns the config reference for the parquet writer.
@@ -124,7 +127,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 		return fmt.Errorf("failed to create parquet file writer: %s", err)
 	}
 
-	writer := func() any {
+	writer := func() *pqgo.GenericWriter[any] {
 		if p.stream.NormalizationEnabled() {
 			return pqgo.NewGenericWriter[any](pqFile, p.schema.ToTypeSchema().ToParquet(false, p.stream), pqgo.Compression(&pqgo.Snappy))
 		}
@@ -132,14 +135,28 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 	}()
 
 	p.partitionedFiles[basePath] = append(p.partitionedFiles[basePath], &FileMetadata{
-		filePath:     filePath,
-		relativePath: filepath.ToSlash(filepath.Join(relativeDir, fileName)),
-		file:         pqFile,
 		writer:       writer,
+		file:         pqFile,
+		path:         filePath,
+		relativePath: filepath.ToSlash(filepath.Join(relativeDir, fileName)),
 	})
 
 	logger.Infof("Thread[%s]: created new partition file[%s]", p.options.ThreadID, filePath)
 	return nil
+}
+
+// getOrCreatePartitionFile returns the partition's active (open) file, creating a fresh one when
+// the partition has no file yet or its most recent file was just sealed by a roll (file == nil).
+// Sealed files stay in the partition slice and are uploaded only in Close.
+func (p *Parquet) getOrCreatePartitionFile(basePath string) (*FileMetadata, error) {
+	files := p.partitionedFiles[basePath]
+	if len(files) == 0 || files[len(files)-1].file == nil {
+		if err := p.createNewPartitionFile(basePath); err != nil {
+			return nil, fmt.Errorf("failed to create partition file: %s", err)
+		}
+		files = p.partitionedFiles[basePath]
+	}
+	return files[len(files)-1], nil
 }
 
 // Setup configures the parquet writer, including local paths, file names, and optional S3 setup.
@@ -149,6 +166,16 @@ func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schem
 	p.partitionedFiles = make(map[string][]*FileMetadata)
 	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
 	p.schema = make(typeutils.Fields)
+
+	maxFileSizeMB := float64(defaultMaxFileSizeMB)
+	if p.config.MaxFileSizeMB > 0 {
+		maxFileSizeMB = p.config.MaxFileSizeMB
+	}
+	p.maxFileBytes = int64(maxFileSizeMB * 1024 * 1024)
+
+	if p.checkIntervalForRoll == 0 {
+		p.checkIntervalForRoll = defaultRollCheckInterval
+	}
 
 	// for s3 p.config.path may not be provided
 	if p.config.Path == "" {
@@ -190,7 +217,7 @@ func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schem
 // Write writes a record to the Parquet file.
 func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 	// TODO: use batch writing feature of pq writer
-	for _, record := range records {
+	for i, record := range records {
 		// Normalise "i" -? "c": Parquet has no equality-delete concept; downstream
 		// consumers must see a consistent "c" for all CDC inserts.
 		// OlakeColumns covers the non-normalized path; Data covers the normalized path
@@ -202,39 +229,72 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 			}
 		}
 		partitionedPath := p.getPartitionedFilePath(record.Data, record.OlakeColumns[constants.OlakeTimestamp].(time.Time))
-		partitionFiles, exists := p.partitionedFiles[partitionedPath]
-		if !exists {
-			err := p.createNewPartitionFile(partitionedPath)
-			if err != nil {
-				return fmt.Errorf("failed to create partition file: %s", err)
-			}
-			partitionFiles = p.partitionedFiles[partitionedPath]
+		partitionFile, err := p.getOrCreatePartitionFile(partitionedPath)
+		if err != nil {
+			return err
 		}
 
-		if len(partitionFiles) == 0 {
-			return fmt.Errorf("failed to create partition file for path[%s]", partitionedPath)
-		}
-
-		partitionFile := partitionFiles[len(partitionFiles)-1]
-
-		var err error
 		if p.stream.NormalizationEnabled() {
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{record.Data})
+			_, err = partitionFile.writer.Write([]any{record.Data})
 		} else {
 			dataBytes, merr := json.Marshal(record.Data)
 			if merr != nil {
-				return fmt.Errorf("failed to marshal data: %s", err)
+				return fmt.Errorf("failed to marshal data: %s", merr)
 			}
 			recordsMap := map[string]any{constants.StringifiedData: string(dataBytes)}
 			maps.Copy(recordsMap, record.OlakeColumns)
 
-			_, err = partitionFile.writer.(*pqgo.GenericWriter[any]).Write([]any{recordsMap})
+			_, err = partitionFile.writer.Write([]any{recordsMap})
 		}
 		if err != nil {
 			return fmt.Errorf("failed to write in parquet file: %s", err)
 		}
+
+		if p.checkForRoll(i, len(records)) {
+			if err := p.rollPartitionFile(partitionFile); err != nil {
+				return fmt.Errorf("failed to roll partition file: %s", err)
+			}
+		}
 	}
 
+	return nil
+}
+
+// roll gives true when we need to check for rolling based on the current index of record
+func (p *Parquet) checkForRoll(index, total int) bool {
+	interval := p.checkIntervalForRoll
+	if interval == 0 {
+		return false
+	}
+
+	n := index + 1
+	return (n%interval == 0) || n == total
+}
+
+// rollPartitionFile flushes the partition's active writer so its buffered rows hit disk, then—
+// if the on-disk file has reached maxFileBytes—seals it (writing the footer) and leaves it in
+// the partition. The next Write opens a fresh file (it sees the sealed file has file == nil).
+// Flushing on every check also caps the writer's in-memory row-group buffer, keeping memory
+// bounded as the file grows.
+//
+// Sealed files are intentionally NOT uploaded here — every file is uploaded in Close, after the
+// whole partition has rolled successfully, so a mid-sync failure never leaves partial objects in
+// S3 (files exist only on local disk until then).
+func (p *Parquet) rollPartitionFile(pf *FileMetadata) error {
+	if pf.writer.Size() < p.maxFileBytes {
+		return nil
+	}
+
+	// Threshold reached: write the footer to seal the file. It stays in partitionedFiles (with
+	// file == nil marking it finalized) to be uploaded in Close.
+	if err := pf.writer.Close(); err != nil {
+		return fmt.Errorf("failed to close parquet writer on roll[%s]: %s", pf.path, err)
+	}
+	if err := pf.file.Close(); err != nil {
+		return fmt.Errorf("failed to close parquet file on roll[%s]: %s", pf.path, err)
+	}
+	pf.file = nil // mark finalized; kept for upload at Close
+	logger.Infof("Thread[%s]: rolled partition file[%s] at %d bytes", p.options.ThreadID, pf.path, pf.writer.Size())
 	return nil
 }
 
@@ -310,22 +370,20 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 
 	for _, parquetFiles := range p.partitionedFiles {
 		for _, parquetFile := range parquetFiles {
-			// Close writers
-			err := parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
-			if err != nil {
-				return fmt.Errorf("failed to close writer: %s", err)
+			if parquetFile.file != nil {
+				if err := parquetFile.writer.Close(); err != nil {
+					return fmt.Errorf("failed to close writer: %s", err)
+				}
+				if err := parquetFile.file.Close(); err != nil {
+					return fmt.Errorf("failed to close file: %s", err)
+				}
+				parquetFile.file = nil
 			}
 
-			// Close file
-			if err := parquetFile.file.Close(); err != nil {
-				return fmt.Errorf("failed to close file: %s", err)
-			}
+			logger.Infof("Thread[%s]: Finished writing file [%s].", p.options.ThreadID, parquetFile.path)
 
-			logger.Infof("Thread[%s]: Finished writing file [%s].", p.options.ThreadID, parquetFile.filePath)
-
-			// close after closing writers
 			if closeOnError {
-				removeLocalFile(parquetFile.filePath, "closing parquet files due to retry attempt")
+				removeLocalFile(parquetFile.path, "closing parquet files due to retry attempt")
 				continue
 			}
 		}
@@ -343,9 +401,9 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []*FileMetadata) 
 	return utils.Concurrent(ctx, dataFiles, concurrency, func(uploadCtx context.Context, info *FileMetadata, _ int) error {
 		stagingKey := p.stagingObjectKey(info.relativePath)
 		err := p.retryS3(uploadCtx, func(retryCtx context.Context) error {
-			file, err := os.Open(info.filePath)
+			file, err := os.Open(info.path)
 			if err != nil {
-				return fmt.Errorf("failed to open file %s: %s", info.filePath, err)
+				return fmt.Errorf("failed to open file %s: %s", info.path, err)
 			}
 			defer file.Close()
 
@@ -363,9 +421,8 @@ func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []*FileMetadata) 
 			return err
 		}
 
-		// Remove local file after successful upload
-		if err := os.Remove(info.filePath); err != nil {
-			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to S3): %s", p.options.ThreadID, info.filePath, err)
+		if err := os.Remove(info.path); err != nil {
+			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to S3): %s", p.options.ThreadID, info.path, err)
 		}
 		logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, stagingKey)
 		return nil

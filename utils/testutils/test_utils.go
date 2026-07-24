@@ -29,6 +29,7 @@ import (
 
 const (
 	icebergCatalog                 = "olake_iceberg"
+	parquetTestBucket              = "warehouse"
 	sparkConnectAddress            = "sc://localhost:15002"
 	installCmd                     = "apt-get update && apt-get install -y openjdk-17-jre-headless maven default-mysql-client postgresql postgresql-client wget gnupg iproute2 dnsutils iputils-ping netcat-openbsd nodejs npm jq && wget -qO - https://www.mongodb.org/static/pgp/server-8.0.asc | gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg && echo 'deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/debian bookworm/mongodb-org/8.0 main' | tee /etc/apt/sources.list.d/mongodb-org-8.0.list && apt-get update && apt-get install -y mongodb-mongosh && npm install -g chalk-cli"
 	SyncTimeout                    = 10 * time.Minute
@@ -336,72 +337,96 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T, testTa
 	return nil
 }
 
-// DeleteParquetFiles deletes parquet data and table-local metadata in MinIO.
-func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
-	t.Helper()
-	bucketName := "warehouse"
-	parquetPath := fmt.Sprintf("%s/%s/", parquetDB, tableName)
-
-	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", bucketName, parquetPath)
-
-	minioClient, err := minio.New("localhost:9000", &minio.Options{
+// newMinIOClient returns a client for the MinIO instance backing the parquet destination in tests.
+func newMinIOClient() (*minio.Client, error) {
+	client, err := minio.New("localhost:9000", &minio.Options{
 		Creds:  credentials.NewStaticV4("admin", "password", ""),
 		Secure: false,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to create MinIO client: %s", err)
+		return nil, fmt.Errorf("failed to create MinIO client: %s", err)
+	}
+	return client, nil
+}
+
+// listParquetObjects lists the .parquet objects lying directly in a table's folder in MinIO.
+func listParquetObjects(ctx context.Context, client *minio.Client, parquetDB, tableName string) ([]minio.ObjectInfo, error) {
+	objects := []minio.ObjectInfo{}
+	for object := range client.ListObjects(ctx, parquetTestBucket, minio.ListObjectsOptions{
+		Prefix:    parquetTablePath(parquetDB, tableName),
+		Recursive: false,
+	}) {
+		if object.Err != nil {
+			return nil, fmt.Errorf("error listing objects: %s", object.Err)
+		}
+		if strings.HasSuffix(object.Key, ".parquet") {
+			objects = append(objects, object)
+		}
+	}
+	return objects, nil
+}
+
+// parquetTablePath is the MinIO key prefix a stream's parquet files are written under.
+func parquetTablePath(parquetDB, tableName string) string {
+	return fmt.Sprintf("%s/%s/", parquetDB, tableName)
+}
+
+// DeleteParquetFiles deletes only .parquet files directly in the table folder in MinIO
+func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
+	t.Helper()
+	parquetPath := parquetTablePath(parquetDB, tableName)
+
+	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", parquetTestBucket, parquetPath)
+
+	minioClient, err := newMinIOClient()
+	if err != nil {
+		return err
 	}
 
 	ctx := context.Background()
 
-	objectsCh := minioClient.ListObjects(ctx, bucketName, minio.ListObjectsOptions{
-		Prefix:    parquetPath,
-		Recursive: false,
-	})
+	objects, err := listParquetObjects(ctx, minioClient, parquetDB, tableName)
+	if err != nil {
+		return err
+	}
 
-	deletedCount := 0
+	for _, object := range objects {
+		t.Logf("Deleting: %s", strings.TrimPrefix(object.Key, parquetPath))
 
-	for object := range objectsCh {
-		if object.Err != nil {
-			return fmt.Errorf("error listing objects: %s", object.Err)
-		}
-
-		if strings.HasSuffix(object.Key, ".parquet") {
-			fileName := strings.TrimPrefix(object.Key, parquetPath)
-			t.Logf("Deleting: %s", fileName)
-
-			err := minioClient.RemoveObject(ctx, bucketName, object.Key, minio.RemoveObjectOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to delete %s: %s", object.Key, err)
-			}
-			deletedCount++
+		if err := minioClient.RemoveObject(ctx, parquetTestBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
 		}
 	}
 
-	metadataCh := minioClient.ListObjects(ctx, bucketName, minio.ListObjectsOptions{
-		Prefix:    parquetPath + "_olake_2pc/",
+	t.Logf("--- Cleanup Complete: Deleted %d files ---", len(objects))
+	return nil
+}
+
+func deleteParquetTable(t *testing.T, parquetDB, tableName string) error {
+	t.Helper()
+	parquetPath := parquetTablePath(parquetDB, tableName)
+
+	minioClient, err := newMinIOClient()
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	deletedCount := 0
+	for object := range minioClient.ListObjects(ctx, parquetTestBucket, minio.ListObjectsOptions{
+		Prefix:    parquetPath,
 		Recursive: true,
-	})
-
-	for object := range metadataCh {
+	}) {
 		if object.Err != nil {
-			return fmt.Errorf("error listing parquet metadata objects: %s", object.Err)
+			return fmt.Errorf("error listing objects: %s", object.Err)
 		}
-
-		err := minioClient.RemoveObject(ctx, bucketName, object.Key, minio.RemoveObjectOptions{})
-		if err != nil {
+		if err := minioClient.RemoveObject(ctx, parquetTestBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
 			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
 		}
 		deletedCount++
 	}
 
-	metadataPath := parquetPath + "metadata.json"
-	if err := minioClient.RemoveObject(ctx, bucketName, metadataPath, minio.RemoveObjectOptions{}); err != nil {
-		return fmt.Errorf("failed to delete %s: %s", metadataPath, err)
-	}
-	deletedCount++
-
-	t.Logf("--- Cleanup Complete: Deleted %d files ---", deletedCount)
+	t.Logf("--- Parquet Table Cleanup Complete: Deleted %d objects ---", deletedCount)
 	return nil
 }
 
@@ -612,6 +637,9 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
 	}
+	if err := deleteParquetTable(t, cfg.DestinationDB, testTable); err != nil {
+		return fmt.Errorf("failed to reset parquet table: %s", err)
+	}
 
 	dbTestCases := []syncTestCase{
 		{
@@ -805,6 +833,9 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 
 	if err := cfg.resetTable(ctx, t, testTable); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
+	}
+	if err := deleteParquetTable(t, cfg.DestinationDB, testTable); err != nil {
+		return fmt.Errorf("failed to reset parquet table: %s", err)
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
@@ -1456,6 +1487,19 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 				t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
 					if err := cfg.testParquetFullLoadAndIncremental(ctx, t, c, currentTestTable); err != nil {
 						t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
+					}
+				})
+			}
+
+			// Parquet file rolling: bulk-seeds the test table and asserts the writer splits the
+			// output into multiple size-bounded files without losing rows. Gated to the drivers
+			// wired with a rolling seed case + a max_file_size_mb in their parquet destination
+			// config (see parquetRollingTestDrivers). Runs last: it replaces the table contents
+			// and clears the partition regex/filter config from streams.json.
+			if hasParquetRollingTest(cfg.TestConfig.Driver) {
+				t.Run("Parquet Rolling", func(t *testing.T) {
+					if err := cfg.testParquetRolling(ctx, t, c, currentTestTable); err != nil {
+						t.Fatalf("Parquet Rolling test failed: %v", err)
 					}
 				})
 			}
