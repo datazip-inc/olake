@@ -19,7 +19,9 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go/service/s3/s3iface"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go/service/s3/s3manager/s3manageriface"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -31,15 +33,11 @@ import (
 	"github.com/xitongsys/parquet-go/source"
 )
 
-type parquetDataFile struct {
-	localPath        string
-	s3StagingKeyPath string
-}
-
 type FileMetadata struct {
-	fileName string
-	writer   any
-	file     source.ParquetFile
+	filePath     string
+	relativePath string
+	writer       any
+	file         source.ParquetFile
 }
 
 // Parquet destination writes Parquet files to a local path and optionally uploads them to S3.
@@ -49,8 +47,9 @@ type Parquet struct {
 	stream           types.StreamInterface
 	basePath         string                     // construct with streamNamespace/streamName
 	partitionedFiles map[string][]*FileMetadata // mapping of basePath/{regex} -> pqFiles
-	s3Client         *s3.S3
-	s3Uploader       *s3manager.Uploader
+	s3Client         s3iface.S3API
+	s3Uploader       s3manageriface.UploaderAPI
+	tempDir          string
 	schema           typeutils.Fields
 }
 
@@ -94,8 +93,24 @@ func (p *Parquet) initS3Writer() error {
 }
 
 func (p *Parquet) createNewPartitionFile(basePath string) error {
-	// construct directory path
-	directoryPath := filepath.Join(p.config.Path, p.stagingDataDir(basePath))
+	relativeDir, err := filepath.Rel(p.basePath, basePath)
+	if err != nil {
+		return fmt.Errorf("failed to get relative parquet partition path: %s", err)
+	}
+
+	directoryPath := filepath.Join(p.config.Path, basePath)
+	if p.s3Client != nil {
+		if p.tempDir == "" {
+			if err := os.MkdirAll(p.config.Path, os.ModePerm); err != nil {
+				return fmt.Errorf("failed to create parquet temp path[%s]: %s", p.config.Path, err)
+			}
+			p.tempDir, err = os.MkdirTemp(p.config.Path, "olake-parquet-*")
+			if err != nil {
+				return fmt.Errorf("failed to create parquet temp directory: %s", err)
+			}
+		}
+		directoryPath = filepath.Join(p.tempDir, relativeDir)
+	}
 
 	if err := os.MkdirAll(directoryPath, os.ModePerm); err != nil {
 		return fmt.Errorf("failed to create directories[%s]: %s", directoryPath, err)
@@ -117,9 +132,10 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 	}()
 
 	p.partitionedFiles[basePath] = append(p.partitionedFiles[basePath], &FileMetadata{
-		fileName: fileName,
-		file:     pqFile,
-		writer:   writer,
+		filePath:     filePath,
+		relativePath: filepath.ToSlash(filepath.Join(relativeDir, fileName)),
+		file:         pqFile,
+		writer:       writer,
 	})
 
 	logger.Infof("Thread[%s]: created new partition file[%s]", p.options.ThreadID, filePath)
@@ -144,11 +160,12 @@ func (p *Parquet) Setup(ctx context.Context, stream types.StreamInterface, schem
 		return nil, nil, err
 	}
 
-	// Only the first writer can discard unfinished staging; later writers may still own it.
-	isFirstSetup := schema == nil
-	prevMetadataState, err := p.load2PCState(ctx, isFirstSetup)
-	if err != nil {
-		return nil, nil, err
+	var prevMetadataState *types.MetadataState
+	if p.s3Client != nil {
+		prevMetadataState, err = p.load2PCState(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	if !p.stream.NormalizationEnabled() {
@@ -272,20 +289,11 @@ func (p *Parquet) Check(_ context.Context) error {
 	return nil
 }
 
-func (p *Parquet) stagedDataFiles() []parquetDataFile {
-	var dataFiles []parquetDataFile
-	for basePath, parquetFiles := range p.partitionedFiles {
-		for _, parquetFile := range parquetFiles {
-			relativePath := filepath.Join(basePath, parquetFile.fileName)
-			stagingPath := p.stagingDataPath(relativePath)
-			dataFile := parquetDataFile{
-				localPath: filepath.Join(p.config.Path, stagingPath),
-			}
-			if p.s3Client != nil {
-				dataFile.s3StagingKeyPath = p.s3ObjectPath(stagingPath)
-			}
-			dataFiles = append(dataFiles, dataFile)
-		}
+// pendingDataFiles returns files awaiting close and S3 staging for this writer.
+func (p *Parquet) pendingDataFiles() []*FileMetadata {
+	var dataFiles []*FileMetadata
+	for _, parquetFiles := range p.partitionedFiles {
+		dataFiles = append(dataFiles, parquetFiles...)
 	}
 	return dataFiles
 }
@@ -300,12 +308,8 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 		logger.Debugf("Thread[%s]: Deleted file [%s], reason (%s).", p.options.ThreadID, filePath, reason)
 	}
 
-	for basePath, parquetFiles := range p.partitionedFiles {
+	for _, parquetFiles := range p.partitionedFiles {
 		for _, parquetFile := range parquetFiles {
-			// construct full file path
-			relativePath := filepath.Join(basePath, parquetFile.fileName)
-			filePath := filepath.Join(p.config.Path, p.stagingDataPath(relativePath))
-
 			// Close writers
 			err := parquetFile.writer.(*pqgo.GenericWriter[any]).Close()
 			if err != nil {
@@ -317,11 +321,11 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 				return fmt.Errorf("failed to close file: %s", err)
 			}
 
-			logger.Infof("Thread[%s]: Finished writing file [%s].", p.options.ThreadID, filePath)
+			logger.Infof("Thread[%s]: Finished writing file [%s].", p.options.ThreadID, parquetFile.filePath)
 
 			// close after closing writers
 			if closeOnError {
-				removeLocalFile(filePath, "closing parquet files due to retry attempt")
+				removeLocalFile(parquetFile.filePath, "closing parquet files due to retry attempt")
 				continue
 			}
 		}
@@ -330,48 +334,64 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 	return nil
 }
 
-func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []parquetDataFile) error {
-	if len(dataFiles) > 0 && p.s3Client != nil {
-		concurrency := min(runtime.GOMAXPROCS(0)*2, len(dataFiles))
+func (p *Parquet) uploadPqFiles(ctx context.Context, dataFiles []*FileMetadata) error {
+	if len(dataFiles) == 0 {
+		return nil
+	}
 
-		err := utils.Concurrent(ctx, dataFiles, concurrency, func(_ context.Context, info parquetDataFile, _ int) error {
-			err := utils.RetryWithSkip(ctx, 3, time.Minute, isRateLimitError, func(ctx context.Context) error {
-				file, err := os.Open(info.localPath)
-				if err != nil {
-					return fmt.Errorf("failed to open file %s: %s", info.localPath, err)
-				}
-				defer file.Close()
+	concurrency := min(runtime.GOMAXPROCS(0)*2, len(dataFiles))
+	return utils.Concurrent(ctx, dataFiles, concurrency, func(uploadCtx context.Context, info *FileMetadata, _ int) error {
+		stagingKey := p.stagingObjectKey(info.relativePath)
+		err := p.retryS3(uploadCtx, func(retryCtx context.Context) error {
+			file, err := os.Open(info.filePath)
+			if err != nil {
+				return fmt.Errorf("failed to open file %s: %s", info.filePath, err)
+			}
+			defer file.Close()
 
-				_, err = p.s3Uploader.UploadWithContext(ctx, &s3manager.UploadInput{
-					Bucket: aws.String(p.config.Bucket),
-					Key:    aws.String(info.s3StagingKeyPath),
-					Body:   file,
-				})
-				if err != nil {
-					return fmt.Errorf("failed to put object into s3 (%s): %w", info.s3StagingKeyPath, err)
-				}
-				return nil
+			_, err = p.s3Uploader.UploadWithContext(retryCtx, &s3manager.UploadInput{
+				Bucket: aws.String(p.config.Bucket),
+				Key:    aws.String(stagingKey),
+				Body:   file,
 			})
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to put object into s3 (%s): %w", stagingKey, err)
 			}
-
-			// Remove local file after successful upload
-			if err := os.Remove(info.localPath); err != nil {
-				logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to S3): %s", p.options.ThreadID, info.localPath, err)
-			}
-			logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, info.s3StagingKeyPath)
 			return nil
 		})
 		if err != nil {
 			return err
 		}
-	}
-	return nil
+
+		// Remove local file after successful upload
+		if err := os.Remove(info.filePath); err != nil {
+			logger.Warnf("Thread[%s]: Failed to delete file [%s], reason (uploaded to S3): %s", p.options.ThreadID, info.filePath, err)
+		}
+		logger.Infof("Thread[%s]: successfully uploaded file to S3: s3://%s/%s", p.options.ThreadID, p.config.Bucket, stagingKey)
+		return nil
+	})
 }
 
 func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
-	dataFiles := p.stagedDataFiles()
+	if p.s3Client == nil {
+		// TODO: add 2PC support for local Parquet destinations.
+		if err := p.closePqFiles(ctx.Err() != nil); err != nil {
+			return err
+		}
+		p.partitionedFiles = make(map[string][]*FileMetadata)
+		return nil
+	}
+
+	defer func() {
+		if p.tempDir == "" {
+			return
+		}
+		if err := os.RemoveAll(p.tempDir); err != nil {
+			logger.Warnf("Thread[%s]: failed to delete parquet temp directory[%s]: %s", p.options.ThreadID, p.tempDir, err)
+		}
+	}()
+
+	dataFiles := p.pendingDataFiles()
 	if !p.options.Backfill && (len(dataFiles) == 0 || finalMetadataState == nil) {
 		if err := p.closePqFiles(true); err != nil {
 			return err
@@ -384,11 +404,7 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 			return nil
 		}
 
-		metadataErr := fmt.Errorf("cannot commit parquet CDC or incremental files without metadata state")
-		if err := p.deleteStaging(ctx, p.options.ThreadID); err != nil {
-			return fmt.Errorf("%s: cleanup error: %w", metadataErr, err)
-		}
-		return metadataErr
+		return fmt.Errorf("cannot commit parquet CDC or incremental files without metadata state")
 	}
 
 	finishData, metadataState, err := finishState(finalMetadataState)
@@ -407,19 +423,22 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 		return err
 	}
 
+	if err := p.recoverStaging(ctx); err != nil {
+		return err
+	}
 	if err := p.uploadPqFiles(ctx, dataFiles); err != nil {
 		return err
 	}
 	if err := p.writeFinish(ctx, finishData); err != nil {
 		return err
 	}
-	if err := p.promoteStaging(ctx, p.options.ThreadID); err != nil {
+	if err := p.promoteStaging(ctx); err != nil {
 		return err
 	}
-	if _, err := p.commitMetadata(ctx, p.options.ThreadID, metadataState); err != nil {
+	if err := p.commitMetadata(ctx, p.options.ThreadID, metadataState); err != nil {
 		return err
 	}
-	if err := p.deleteStaging(ctx, p.options.ThreadID); err != nil {
+	if err := p.deleteStaging(ctx); err != nil {
 		return err
 	}
 	return nil
