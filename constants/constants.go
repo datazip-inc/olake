@@ -51,7 +51,6 @@ const (
 	// ~10 sample points to pick a boundary from, producing even spacing even when
 	// blocks/pages are clustered (e.g. freshly inserted rows land on adjacent pages).
 	SampleRowsPerChunkMultiplier = int64(10)
-	temp                         = "temp"
 )
 
 type DriverType string
