@@ -73,7 +73,7 @@ func (cfg *IntegrationTest) testParquetRolling(ctx context.Context, t *testing.T
 	}()
 
 	// Full load (no --state) with a small buffer so rolled files hug the threshold.
-	syncCmd := syncCommand(*cfg.TestConfig, false, "parquet", "--destination-buffer-size", "1000")
+	syncCmd := syncCommand(*cfg.TestConfig, false, "parquet")
 	if code, out, err := utils.ExecCommand(ctx, c, syncCmd); err != nil || code != 0 {
 		return fmt.Errorf("rolling sync failed (%d): %v\n%s", code, err, out)
 	}
