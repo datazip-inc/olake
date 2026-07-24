@@ -42,6 +42,13 @@
           "type": "string",
           "title": "S3 Endpoint",
           "description": "Specifies the endpoint URL for S3 compatible services (e.g., MinIO)"
+        },
+        "max_file_size_mb": {
+          "type": "number",
+          "title": "Max File Size (MB)",
+          "description": "Rolls a partition into a new parquet file once the current file reaches this size in MB. Fractional values are allowed. Defaults to 512 when unset",
+          "default": 512,
+          "exclusiveMinimum": 0
         }
       },
       "required": [

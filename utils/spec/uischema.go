@@ -435,7 +435,8 @@ const ParquetUISchema = `{
     "ui:grid": [
       { "s3_bucket": 12, "s3_region": 12 },
       { "s3_endpoint": 12, "s3_access_key": 12 },
-      { "s3_secret_key": 12, "s3_path": 12 }
+      { "s3_secret_key": 12, "s3_path": 12 },
+      { "max_file_size_mb": 12 }
     ],
     "ui:options": {
       "label": false
