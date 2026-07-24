@@ -13,7 +13,7 @@ env:
   # Single source of truth for the drivers the integration suite covers, in run order. The first
   # package is the discover warm-up + iceberg bootstrap driver (the Bootstrap step strips it to the
   # bare driver name).
-  INTEGRATION_TEST_PACKAGES: ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/mssql/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/kafka/internal/...
+  INTEGRATION_TEST_PACKAGES: ./drivers/mysql/internal/... ./drivers/postgres/internal/... ./drivers/mongodb/internal/... ./drivers/mssql/internal/... ./drivers/oracle/internal/... ./drivers/db2/internal/... ./drivers/kafka/internal/... ./drivers/s3/internal/...
 
 jobs:
   run-tests:

@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	pq "github.com/parquet-go/parquet-go"
@@ -24,6 +25,11 @@ const (
 	// rowReadBatchSize is how many rows are read from a row group at a time, bounding how
 	// much of a row group is held in memory while still amortizing reads over the network.
 	rowReadBatchSize = 256
+
+	// parquetTimestampStateVersion is the first state version that surfaces Int96 columns as
+	// timestamps. Builds before it emitted the raw 96-bit integer as a string, so older state
+	// keeps that behavior to avoid changing an existing destination column's type on upgrade.
+	parquetTimestampStateVersion = 7
 )
 
 // ParquetParser implements the Parser interface for Parquet files
@@ -88,22 +94,8 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 		return fmt.Errorf("failed to open parquet file: %s", err)
 	}
 
-	// Get schema to know column names
-	schema := pqFile.Schema()
-	fields := schema.Fields()
-
-	// Leaf column index each top-level field starts at. A field spans more than one leaf
-	// when it is a list, map or nested struct, so this is not the field's own index.
-	leafOffsets := make([]int, len(fields))
-	hasGroupField := false
-	for i, field := range fields {
-		if i > 0 {
-			leafOffsets[i] = leafOffsets[i-1] + leafCount(fields[i-1])
-		}
-		if isMultiValued(field) {
-			hasGroupField = true
-		}
-	}
+	// Decoder holds the per-file schema state and the leaf-column index used to decode rows.
+	decoder := newRowDecoder(pqFile.Schema())
 
 	recordCount := 0
 	totalRowGroups := len(pqFile.RowGroups())
@@ -120,8 +112,18 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 		logger.Debugf("Processing row group %d/%d (approx %d rows)",
 			rgIdx+1, totalRowGroups, rowGroup.NumRows())
 
-		if err := p.streamRowGroup(ctx, rowGroup, schema, fields, leafOffsets, hasGroupField, callback, &recordCount); err != nil {
-			return fmt.Errorf("failed to read row group %d: %s", rgIdx, err)
+		// A flat schema is read column by column, materializing the whole row group at once,
+		// which is faster than assembling rows a batch at a time. Nested and repeated columns
+		// contribute a variable number of values per row, so they cannot be indexed by row and
+		// take the row-at-a-time path instead.
+		var streamErr error
+		if decoder.hasGroupField {
+			streamErr = p.streamRowGroupRows(ctx, rowGroup, decoder, rowReadBatchSize, callback, &recordCount)
+		} else {
+			streamErr = p.streamRowGroupColumns(ctx, rowGroup, decoder, callback, &recordCount)
+		}
+		if streamErr != nil {
+			return fmt.Errorf("failed to read row group %d: %s", rgIdx, streamErr)
 		}
 
 		logger.Debugf("Completed row group %d/%d (%d total records so far)",
@@ -132,16 +134,17 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 	return nil
 }
 
-// streamRowGroup reads one row group a batch of rows at a time. Rows are read whole rather
-// than column by column so that repeated and nested columns, whose value count per row
-// varies, stay attributable to the row they came from.
-func (p *ParquetParser) streamRowGroup(ctx context.Context, rowGroup pq.RowGroup, schema *pq.Schema,
-	fields []pq.Field, leafOffsets []int, hasGroupField bool, callback RecordCallback, recordCount *int,
+// streamRowGroupRows reads one row group a batch of rows at a time. Rows are read whole rather
+// than column by column so that repeated and nested columns, whose value count per row varies,
+// stay attributable to the row they came from. This is the path for schemas with group or
+// repeated fields; flat schemas use the faster streamRowGroupColumns.
+func (p *ParquetParser) streamRowGroupRows(ctx context.Context, rowGroup pq.RowGroup,
+	decoder *rowDecoder, batchSize int, callback RecordCallback, recordCount *int,
 ) error {
 	rows := rowGroup.Rows()
 	defer rows.Close()
 
-	rowBuf := make([]pq.Row, rowReadBatchSize)
+	rowBuf := make([]pq.Row, batchSize)
 	for {
 		n, readErr := rows.ReadRows(rowBuf)
 		for i := 0; i < n; i++ {
@@ -153,7 +156,7 @@ func (p *ParquetParser) streamRowGroup(ctx context.Context, rowGroup pq.RowGroup
 				}
 			}
 
-			record, err := buildRecord(schema, fields, leafOffsets, hasGroupField, rowBuf[i])
+			record, err := decoder.decode(rowBuf[i])
 			if err != nil {
 				return err
 			}
@@ -171,49 +174,172 @@ func (p *ParquetParser) streamRowGroup(ctx context.Context, rowGroup pq.RowGroup
 	}
 }
 
-// buildRecord turns one parquet row into a record. Leaf fields are converted from their own
-// parquet value so that logical types (dates, decimals, timestamps) keep their meaning;
-// group fields are assembled by parquet-go, which resolves the repetition and definition
-// levels that describe nested structure.
-func buildRecord(schema *pq.Schema, fields []pq.Field, leafOffsets []int, hasGroupField bool, row pq.Row) (map[string]any, error) {
+// streamRowGroupColumns reads a flat row group column by column, materializing every column's
+// values and then reconstructing rows by index. parquet-go emits null values inline (one value
+// per row position, with the nulls carrying no data), so a column's values stay aligned to the
+// row index even when the column is nullable. It must not be used when the schema has group or
+// repeated fields: those contribute a variable number of values per row, so a value's position
+// no longer identifies its row. The whole row group is held in memory, as it was before the
+// parser batched reads, which is why the caller processes row groups one at a time.
+func (p *ParquetParser) streamRowGroupColumns(ctx context.Context, rowGroup pq.RowGroup,
+	decoder *rowDecoder, callback RecordCallback, recordCount *int,
+) error {
+	numRows := rowGroup.NumRows()
+	columnChunks := rowGroup.ColumnChunks()
+	columnData := make([][]pq.Value, len(columnChunks))
+	for colIdx, columnChunk := range columnChunks {
+		values, err := readColumnValues(columnChunk, numRows)
+		if err != nil {
+			return err
+		}
+		columnData[colIdx] = values
+	}
+
+	fields := decoder.fields
+	for rowIdx := int64(0); rowIdx < numRows; rowIdx++ {
+		if *recordCount%1000 == 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+		}
+
+		record := make(map[string]any, len(fields))
+		for colIdx, field := range fields {
+			// A flat field owns exactly one leaf column, in order, so colIdx indexes both.
+			var value any
+			if colIdx < len(columnData) && rowIdx < int64(len(columnData[colIdx])) {
+				value = parquetValueToInterfaceWithType(columnData[colIdx][rowIdx], field.Type())
+			}
+			record[field.Name()] = value
+		}
+
+		if err := callback(ctx, record); err != nil {
+			return fmt.Errorf("failed to process record: %s", err)
+		}
+		*recordCount++
+	}
+	return nil
+}
+
+// readColumnValues reads every value of a column chunk, page by page. Null values are included
+// inline, so the returned slice has one entry per row in the row group.
+func readColumnValues(columnChunk pq.ColumnChunk, numRows int64) ([]pq.Value, error) {
+	pages := columnChunk.Pages()
+	defer pages.Close()
+
+	values := make([]pq.Value, 0, numRows)
+	for {
+		page, err := pages.ReadPage()
+		if err == io.EOF {
+			return values, nil
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to read page: %s", err)
+		}
+
+		buf := make([]pq.Value, page.NumValues())
+		n, err := page.Values().ReadValues(buf)
+		if err != nil && err != io.EOF {
+			return nil, fmt.Errorf("failed to read page values: %s", err)
+		}
+		values = append(values, buf[:n]...)
+	}
+}
+
+// rowDecoder converts the rows of one parquet file into records. It holds the per-file schema
+// state that used to be threaded through every call and precomputes colToField so a row can
+// be decoded in a single pass instead of rescanning the row per leaf field.
+type rowDecoder struct {
+	schema        *pq.Schema
+	fields        []pq.Field
+	hasGroupField bool
+	// colToField maps a leaf column index to the index of the plain (single-valued) top-level
+	// field that owns it, or -1 for columns that are reconstructed rather than read by column.
+	colToField []int
+}
+
+// newRowDecoder precomputes the schema state a row decode needs. leafOffsets is the leaf
+// column index each top-level field starts at; a field spans more than one leaf when it is a
+// list, map or nested struct, so this is not the field's own index.
+func newRowDecoder(schema *pq.Schema) *rowDecoder {
+	fields := schema.Fields()
+	leafOffsets := make([]int, len(fields))
+	hasGroupField := false
+	totalLeaves := 0
+	for i, field := range fields {
+		leafOffsets[i] = totalLeaves
+		totalLeaves += leafCount(field)
+		if isMultiValued(field) {
+			hasGroupField = true
+		}
+	}
+
+	colToField := make([]int, totalLeaves)
+	for i := range colToField {
+		colToField[i] = -1
+	}
+	for i, field := range fields {
+		// Multivalued fields (groups and repeated leaves) span several leaves and are
+		// assembled by Reconstruct, so they are not indexed for the single-value column walk.
+		if !isMultiValued(field) {
+			colToField[leafOffsets[i]] = i
+		}
+	}
+
+	return &rowDecoder{
+		schema:        schema,
+		fields:        fields,
+		hasGroupField: hasGroupField,
+		colToField:    colToField,
+	}
+}
+
+// decode turns one parquet row into a record. Leaf fields are converted from their own
+// parquet value so that logical types (dates, decimals, timestamps) keep their meaning; group
+// fields are assembled by parquet-go, which resolves the repetition and definition levels that
+// describe nested structure.
+func (d *rowDecoder) decode(row pq.Row) (map[string]any, error) {
 	var groups map[string]any
-	if hasGroupField {
+	if d.hasGroupField {
 		groups = map[string]any{}
-		if err := schema.Reconstruct(&groups, row); err != nil {
+		if err := d.schema.Reconstruct(&groups, row); err != nil {
 			return nil, fmt.Errorf("failed to reconstruct row: %s", err)
 		}
 	}
 
-	record := make(map[string]any, len(fields))
-	for i, field := range fields {
+	record := make(map[string]any, len(d.fields))
+	for _, field := range d.fields {
 		if isMultiValued(field) {
-			// Reconstruct yields the logical shape ([]any for lists, map[string]any for
-			// maps and structs) but strips the leaves' logical types: parquet-go assigns
-			// raw physical values into any-typed destinations. convertReconstructed walks
-			// the value alongside the schema to give every nested leaf the same conversion
-			// a plain leaf column gets.
+			// Reconstruct yields the logical shape ([]any for lists, map[string]any for maps
+			// and structs) but strips the leaves' logical types: parquet-go assigns raw
+			// physical values into any-typed destinations. convertReconstructed walks the
+			// value alongside the schema to give every nested leaf the same conversion a plain
+			// leaf column gets.
 			record[field.Name()] = convertReconstructed(groups[field.Name()], field)
 			continue
 		}
-		value, found := leafValue(row, leafOffsets[i])
-		if !found {
-			record[field.Name()] = nil
+		// Plain leaves default to nil so a column absent from the row still yields its key;
+		// the single row pass below overwrites the ones that carry a value.
+		record[field.Name()] = nil
+	}
+
+	// Row values are ordered by column. A single pass assigns each plain leaf its value rather
+	// than scanning the whole row per field, which made row decode O(fields x row_len).
+	for i := range row {
+		col := int(row[i].Column())
+		if col < 0 || col >= len(d.colToField) {
 			continue
 		}
-		record[field.Name()] = parquetValueToInterfaceWithType(value, field.Type())
+		fieldIdx := d.colToField[col]
+		if fieldIdx < 0 {
+			continue
+		}
+		field := d.fields[fieldIdx]
+		record[field.Name()] = parquetValueToInterfaceWithType(row[i], field.Type())
 	}
 	return record, nil
-}
-
-// leafValue finds the value a non-repeated leaf column contributed to a row. Row values are
-// ordered by column but the index is not the column number once groups are present.
-func leafValue(row pq.Row, column int) (pq.Value, bool) {
-	for _, value := range row {
-		if int(value.Column()) == column {
-			return value, true
-		}
-	}
-	return pq.Value{}, false
 }
 
 // isMultiValued reports whether a field can contribute more than one value to a row, which
@@ -245,47 +371,68 @@ func convertReconstructed(value any, node pq.Node) any {
 	if value == nil {
 		return nil
 	}
-
 	if node.Leaf() {
-		// A repeated leaf reconstructs into a slice of its leaf values.
-		if elements, ok := value.([]any); ok {
-			for i, element := range elements {
-				elements[i] = convertReconstructed(element, node)
-			}
-			return elements
-		}
-		// Rewrapping the reconstructed Go value as a parquet value of the column's own
-		// type routes it through the exact conversion plain leaf columns get.
-		return parquetValueToInterfaceWithType(pq.ValueOf(value), node.Type())
+		return convertLeafNode(value, node)
 	}
-
 	if logicalType := node.Type().LogicalType(); logicalType != nil {
 		switch {
 		case logicalType.List != nil:
-			if element := listElementNode(node); element != nil {
-				if elements, ok := value.([]any); ok {
-					for i, entry := range elements {
-						elements[i] = convertReconstructed(entry, element)
-					}
-					return elements
-				}
-			}
-			return normalizeReconstructed(value)
+			return convertListNode(value, node)
 		case logicalType.Map != nil:
-			if valueNode := mapValueNode(node); valueNode != nil {
-				if entries, ok := value.(map[string]any); ok {
-					for key, entry := range entries {
-						entries[key] = convertReconstructed(entry, valueNode)
-					}
-					return entries
-				}
-			}
-			return normalizeReconstructed(value)
+			return convertMapNode(value, node)
 		}
 	}
+	// A group with no List/Map annotation is a nested struct.
+	return convertStructNode(value, node)
+}
 
-	// A group with no List/Map annotation is a nested struct; a repeated one reconstructs
-	// into a slice of struct values.
+// convertLeafNode converts a reconstructed leaf value. A repeated leaf reconstructs into a
+// slice of its leaf values; a single leaf is rewrapped as a parquet value of the column's own
+// type so it routes through the exact conversion plain leaf columns get.
+func convertLeafNode(value any, node pq.Node) any {
+	if elements, ok := value.([]any); ok {
+		for i, element := range elements {
+			elements[i] = convertReconstructed(element, node)
+		}
+		return elements
+	}
+	return parquetValueToInterfaceWithType(pq.ValueOf(value), node.Type())
+}
+
+// convertListNode converts the elements of a LIST-annotated group, resolving the element node
+// so each entry gets its leaf conversion. A value whose shape does not match falls back to
+// normalizeReconstructed rather than guessing.
+func convertListNode(value any, node pq.Node) any {
+	if element := listElementNode(node); element != nil {
+		if elements, ok := value.([]any); ok {
+			for i, entry := range elements {
+				elements[i] = convertReconstructed(entry, element)
+			}
+			return elements
+		}
+	}
+	return normalizeReconstructed(value)
+}
+
+// convertMapNode converts the values of a MAP-annotated group, resolving the value node so
+// each entry gets its leaf conversion. A value whose shape does not match falls back to
+// normalizeReconstructed rather than guessing.
+func convertMapNode(value any, node pq.Node) any {
+	if valueNode := mapValueNode(node); valueNode != nil {
+		if entries, ok := value.(map[string]any); ok {
+			for key, entry := range entries {
+				entries[key] = convertReconstructed(entry, valueNode)
+			}
+			return entries
+		}
+	}
+	return normalizeReconstructed(value)
+}
+
+// convertStructNode converts a nested struct group. A repeated struct reconstructs into a
+// slice of struct values; a single struct into a map keyed by field name. A value whose shape
+// does not match falls back to normalizeReconstructed rather than guessing.
+func convertStructNode(value any, node pq.Node) any {
 	if elements, ok := value.([]any); ok && node.Repeated() {
 		for i, element := range elements {
 			elements[i] = convertReconstructed(element, node)
@@ -387,82 +534,73 @@ func mapParquetNodeToOlake(node pq.Node) types.DataType {
 	return types.Object
 }
 
-// mapParquetTypeToOlake maps Parquet data types to Olake data types
+// mapParquetTypeToOlake maps Parquet data types to Olake data types. Logical type annotations
+// carry semantic meaning and take priority; a column with none falls back to its physical type.
 func mapParquetTypeToOlake(pqType pq.Type) types.DataType {
-	// First, check for logical type annotations which provide semantic meaning
-	if logicalType := pqType.LogicalType(); logicalType != nil {
-		// Integer logical types (INT_8, INT_16, INT_32, INT_64)
-		if logicalType.Integer != nil {
-			// Unsigned values use the full width of their physical type, so they are
-			// widened one step to avoid wrapping negative (matching how the MySQL driver
-			// maps "unsigned int" to Int64). Unsigned 64-bit has no wider signed type to
-			// widen into and stays Int64, as "unsigned bigint" does there.
-			if !logicalType.Integer.IsSigned {
-				switch logicalType.Integer.BitWidth {
-				case 8, 16:
-					return types.Int32
-				case 32, 64:
-					return types.Int64
-				}
-			}
-			switch logicalType.Integer.BitWidth {
-			case 8, 16, 32:
-				return types.Int32
-			case 64:
-				return types.Int64
-			default:
-				logger.Warnf("Unexpected integer bit width %d, defaulting to Int32", logicalType.Integer.BitWidth)
-				return types.Int32
-			}
-		}
-
-		// Timestamp with precision (stored as INT64), mapped at the precision the unit
-		// declares; the value conversion keeps the full precision as a time.Time.
-		if logicalType.Timestamp != nil {
-			if logicalType.Timestamp.Unit.Nanos != nil {
-				return types.TimestampNano
-			} else if logicalType.Timestamp.Unit.Micros != nil {
-				return types.TimestampMicro
-			} else if logicalType.Timestamp.Unit.Millis != nil {
-				return types.TimestampMilli
-			}
+	logicalType := pqType.LogicalType()
+	switch {
+	case logicalType == nil:
+		// no annotation; fall through to the physical mapping below
+	case logicalType.Integer != nil:
+		return mapParquetIntegerType(logicalType.Integer.BitWidth, logicalType.Integer.IsSigned)
+	case logicalType.Timestamp != nil:
+		// Mapped at the precision the unit declares; the value conversion keeps the full
+		// precision as a time.Time.
+		switch {
+		case logicalType.Timestamp.Unit.Nanos != nil:
+			return types.TimestampNano
+		case logicalType.Timestamp.Unit.Micros != nil:
+			return types.TimestampMicro
+		case logicalType.Timestamp.Unit.Millis != nil:
+			return types.TimestampMilli
+		default:
 			return types.Timestamp
 		}
+	case logicalType.Time != nil:
+		// Time is converted to seconds, so it maps to Int64.
+		return types.Int64
+	case logicalType.Date != nil:
+		return types.Timestamp
+	case logicalType.Decimal != nil:
+		return types.Float64
+	case logicalType.UTF8 != nil, logicalType.Json != nil, logicalType.UUID != nil,
+		logicalType.Enum != nil, logicalType.Bson != nil:
+		return types.String
+	case logicalType.List != nil:
+		return types.Array
+	case logicalType.Map != nil:
+		return types.Object
+	}
+	return mapParquetPhysicalType(pqType)
+}
 
-		// Time with precision (stored as INT32 or INT64)
-		// We convert to seconds, so map to Int64
-		if logicalType.Time != nil {
+// mapParquetIntegerType widens integer logical types the way the SQL drivers do: unsigned
+// values step up one width so the top of the range does not wrap negative (8/16 -> Int32,
+// 32/64 -> Int64, matching how the MySQL driver maps "unsigned int" to Int64). Unsigned 64-bit
+// has no wider signed type to widen into and stays Int64, as "unsigned bigint" does there.
+func mapParquetIntegerType(bitWidth int8, signed bool) types.DataType {
+	if !signed {
+		switch bitWidth {
+		case 8, 16:
+			return types.Int32
+		case 32, 64:
 			return types.Int64
 		}
-
-		// Date
-		if logicalType.Date != nil {
-			return types.Timestamp
-		}
-
-		// Decimal (stored as INT32/INT64/BYTE_ARRAY)
-		if logicalType.Decimal != nil {
-			return types.Float64
-		}
-
-		// String-based types: UTF8, JSON, UUID, Enum, BSON
-		if logicalType.UTF8 != nil || logicalType.Json != nil || logicalType.UUID != nil ||
-			logicalType.Enum != nil || logicalType.Bson != nil {
-			return types.String
-		}
-
-		// List (arrays)
-		if logicalType.List != nil {
-			return types.Array
-		}
-
-		// Map (objects)
-		if logicalType.Map != nil {
-			return types.Object
-		}
 	}
+	switch bitWidth {
+	case 8, 16, 32:
+		return types.Int32
+	case 64:
+		return types.Int64
+	default:
+		logger.Warnf("Unexpected integer bit width %d, defaulting to Int32", bitWidth)
+		return types.Int32
+	}
+}
 
-	// Physical type mapping (no logical type annotation)
+// mapParquetPhysicalType maps a Parquet physical type to an Olake type for columns without a
+// logical annotation.
+func mapParquetPhysicalType(pqType pq.Type) types.DataType {
 	switch pqType.Kind() {
 	case pq.Boolean:
 		return types.Bool
@@ -471,116 +609,122 @@ func mapParquetTypeToOlake(pqType pq.Type) types.DataType {
 	case pq.Int64:
 		return types.Int64
 	case pq.Int96:
-		// Int96 is typically used for timestamps in legacy Parquet files
+		// Int96 is a legacy timestamp. The value conversion returns a time.Time to match (or,
+		// before state version 7, the raw integer string; see parquetValueToInterfaceWithType).
 		return types.Timestamp
 	case pq.Float:
 		return types.Float32
 	case pq.Double:
 		return types.Float64
 	case pq.ByteArray, pq.FixedLenByteArray:
-		// Byte arrays without logical type annotation default to string
+		// Byte arrays without logical type annotation default to string.
 		return types.String
 	default:
-		// Unknown types default to string for safety
+		// Unknown types default to string for safety.
 		logger.Warnf("Unknown Parquet type %v, defaulting to string", pqType.Kind())
 		return types.String
 	}
 }
 
-// parquetValueToInterface converts a parquet.Value to a Go interface{}
+// parquetValueToInterfaceWithType converts a parquet.Value to a Go interface{}. A logical type
+// annotation gives the value its semantic meaning; a value with none (or one the logical
+// handling leaves through) is converted from its physical type.
 func parquetValueToInterfaceWithType(val pq.Value, fieldType pq.Type) interface{} {
 	if val.IsNull() {
 		return nil
 	}
+	if v, handled := convertLogicalValue(val, fieldType); handled {
+		return v
+	}
+	return convertPhysicalValue(val)
+}
 
+// convertLogicalValue converts a value carrying a logical type annotation, returning handled
+// false when the column has no annotation or one it does not own (UUID with an unexpected byte
+// count, unsigned widths other than 32) so the caller applies the physical conversion instead.
+func convertLogicalValue(val pq.Value, fieldType pq.Type) (interface{}, bool) {
 	logicalType := fieldType.LogicalType()
-
-	// Handle temporal types with logical type annotations
-	if logicalType != nil {
-		// Date (days since Unix epoch, stored as INT32). Returned as a time.Time rather
-		// than a formatted string so no precision is lost to a format and reparse, and so
-		// the value matches what the database drivers emit for a date.
-		if logicalType.Date != nil {
-			days := val.Int32()
-			seconds := int64(days) * 86400
-			return time.Unix(seconds, 0).UTC()
-		}
-
-		// Timestamp (stored as INT64 with different precision).
-		// Millis and micros must not be scaled up into nanoseconds: int64 nanoseconds only
-		// span about 1678-2262, so a timestamp like 9999-12-31 overflows and wraps back to
-		// 1816. time.UnixMilli and time.UnixMicro carry the full range.
-		if logicalType.Timestamp != nil {
-			rawValue := val.Int64()
-			var t time.Time
-			if logicalType.Timestamp.Unit.Nanos != nil {
-				t = time.Unix(0, rawValue).UTC()
-			} else if logicalType.Timestamp.Unit.Micros != nil {
-				t = time.UnixMicro(rawValue).UTC()
-			} else if logicalType.Timestamp.Unit.Millis != nil {
-				t = time.UnixMilli(rawValue).UTC()
-			} else {
-				t = time.Unix(rawValue, 0).UTC()
-			}
-			return t
-		}
-
-		// Time (stored as INT32 or INT64 with different precision)
-		if logicalType.Time != nil {
-			var rawValue int64
-			if val.Kind() == pq.Int32 {
-				rawValue = int64(val.Int32())
-			} else {
-				rawValue = val.Int64()
-			}
-
-			var seconds int64
-			if logicalType.Time.Unit.Nanos != nil {
-				seconds = rawValue / 1_000_000_000
-			} else if logicalType.Time.Unit.Micros != nil {
-				seconds = rawValue / 1_000_000
-			} else if logicalType.Time.Unit.Millis != nil {
-				seconds = rawValue / 1_000
-			} else {
-				seconds = rawValue
-			}
-			return seconds
-		}
-
-		// Decimal stored as INT32/INT64/BYTE_ARRAY/FIXED_LEN_BYTE_ARRAY
-		if logicalType.Decimal != nil {
-			dec, err := decodeParquetDecimal(val, logicalType.Decimal.Scale)
-			if err != nil {
-				logger.Warnf("decimal decode failed: %v", err)
-				return nil
-			}
-			v, _ := dec.Float64()
-			return v
-		}
-
-		// UUID (stored as a 16 byte FIXED_LEN_BYTE_ARRAY) as the canonical 8-4-4-4-12 hex
-		// string, matching what the database drivers emit. Without this the bytes fall
-		// through to the byte array handling below and surface as an opaque blob.
-		if logicalType.UUID != nil {
-			if b := val.ByteArray(); len(b) == 16 {
-				return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-			}
-			logger.Warnf("uuid column carried %d bytes, expected 16", len(val.ByteArray()))
-		}
-
-		// Unsigned 32 bit integers live in an INT32 physical column, so the top half of the
-		// range reads back negative unless the bits are reinterpreted and widened. The
-		// narrower widths need no help (they fit in an int32 already) and unsigned 64 has
-		// nothing wider to widen into, so both take the physical path below.
-		if logicalType.Integer != nil && !logicalType.Integer.IsSigned && logicalType.Integer.BitWidth == 32 {
-			//nolint:gosec // G115: reinterpreting the physical bits as unsigned is the intent
-			return int64(uint32(val.Int32()))
-		}
+	if logicalType == nil {
+		return nil, false
 	}
 
-	// Handle non-decimal types. Int32 and Float keep their native Go width so the value
-	// matches the Int32/Float32 the schema infers for the column; widening them here would
-	// have the destination promote the column to long/double.
+	switch {
+	// Date (days since Unix epoch, stored as INT32). Returned as a time.Time rather than a
+	// formatted string so no precision is lost to a format and reparse, and so the value
+	// matches what the database drivers emit for a date.
+	case logicalType.Date != nil:
+		seconds := int64(val.Int32()) * 86400
+		return time.Unix(seconds, 0).UTC(), true
+
+	// Timestamp (stored as INT64 with different precision). Millis and micros must not be
+	// scaled up into nanoseconds: int64 nanoseconds only span about 1678-2262, so a timestamp
+	// like 9999-12-31 overflows and wraps back to 1816. time.UnixMilli and time.UnixMicro
+	// carry the full range.
+	case logicalType.Timestamp != nil:
+		rawValue := val.Int64()
+		switch {
+		case logicalType.Timestamp.Unit.Nanos != nil:
+			return time.Unix(0, rawValue).UTC(), true
+		case logicalType.Timestamp.Unit.Micros != nil:
+			return time.UnixMicro(rawValue).UTC(), true
+		case logicalType.Timestamp.Unit.Millis != nil:
+			return time.UnixMilli(rawValue).UTC(), true
+		default:
+			return time.Unix(rawValue, 0).UTC(), true
+		}
+
+	// Time (stored as INT32 or INT64 with different precision), converted to seconds.
+	case logicalType.Time != nil:
+		rawValue := val.Int64()
+		if val.Kind() == pq.Int32 {
+			rawValue = int64(val.Int32())
+		}
+		switch {
+		case logicalType.Time.Unit.Nanos != nil:
+			return rawValue / 1_000_000_000, true
+		case logicalType.Time.Unit.Micros != nil:
+			return rawValue / 1_000_000, true
+		case logicalType.Time.Unit.Millis != nil:
+			return rawValue / 1_000, true
+		default:
+			return rawValue, true
+		}
+
+	// Decimal stored as INT32/INT64/BYTE_ARRAY/FIXED_LEN_BYTE_ARRAY.
+	case logicalType.Decimal != nil:
+		dec, err := decodeParquetDecimal(val, logicalType.Decimal.Scale)
+		if err != nil {
+			logger.Warnf("decimal decode failed: %v", err)
+			return nil, true
+		}
+		v, _ := dec.Float64()
+		return v, true
+
+	// UUID (stored as a 16 byte FIXED_LEN_BYTE_ARRAY) as the canonical 8-4-4-4-12 hex string,
+	// matching what the database drivers emit. An unexpected byte count falls through to the
+	// physical byte-array handling rather than surface an opaque blob under a UUID label.
+	case logicalType.UUID != nil:
+		if b := val.ByteArray(); len(b) == 16 {
+			return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), true
+		}
+		logger.Warnf("uuid column carried %d bytes, expected 16", len(val.ByteArray()))
+
+	// Unsigned 32 bit integers live in an INT32 physical column, so the top half of the range
+	// reads back negative unless the bits are reinterpreted and widened. The narrower widths
+	// fit in an int32 already and unsigned 64 has nothing wider to widen into, so both take
+	// the physical path.
+	case logicalType.Integer != nil && !logicalType.Integer.IsSigned && logicalType.Integer.BitWidth == 32:
+		//nolint:gosec // G115: reinterpreting the physical bits as unsigned is the intent
+		return int64(uint32(val.Int32())), true
+	}
+
+	return nil, false
+}
+
+// convertPhysicalValue converts a value from its physical type. Int32 and Float keep their
+// native Go width so the value matches the Int32/Float32 the schema infers for the column;
+// widening them here would have the destination promote the column to long/double.
+func convertPhysicalValue(val pq.Value) interface{} {
 	switch val.Kind() {
 	case pq.Boolean:
 		return val.Boolean()
@@ -599,14 +743,17 @@ func parquetValueToInterfaceWithType(val pq.Value, fieldType pq.Type) interface{
 		}
 		return base64.StdEncoding.EncodeToString(byteData)
 	case pq.Int96:
-		// Int96 is a legacy timestamp, and the schema maps it to Timestamp, so return a
-		// time.Time. String() emitted the raw 96 bit integer in decimal, which disagreed
-		// with the schema and collapsed the column to a string.
-		return int96ToTime(val.Int96())
+		// Int96 is a legacy timestamp. From state version 7 it returns a time.Time so the
+		// value agrees with the Timestamp schema; older state emits the raw 96-bit integer as
+		// a string, as pre-gate builds did, so an existing destination column stays String
+		// across the upgrade instead of changing type.
+		if constants.LoadedStateVersion >= parquetTimestampStateVersion {
+			return int96ToTime(val.Int96())
+		}
+		return val.String()
 	default:
-
-		// For Group types (nested structures, maps, lists) and unknown types,
-		// use the string representation which serializes the nested structure
+		// For Group types (nested structures, maps, lists) and unknown types, use the string
+		// representation which serializes the nested structure.
 		return val.String()
 	}
 }
