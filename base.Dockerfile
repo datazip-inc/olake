@@ -17,6 +17,6 @@ ARG GO_VERSION=1
 FROM golang:${GO_VERSION}-bookworm AS build
 
 RUN apt-get update && apt-get install -y \
-        openjdk-17-jre-headless maven nodejs npm jq \
+        openjdk-17-jre-headless maven nodejs npm jq iproute2 lsof \
     && npm install -g chalk-cli \
     && rm -rf /var/lib/apt/lists/*
