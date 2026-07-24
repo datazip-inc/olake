@@ -4,6 +4,7 @@ on:
   push:
     branches:
     - "staging"
+    - "fix/iceberg-port-reclaim-missing-ss"
     paths:
     - '**/*.go'
     - '**/*.java'
