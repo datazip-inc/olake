@@ -199,7 +199,7 @@ func (m *Mongo) MaxRetries() int {
 	return m.config.RetryCount
 }
 
-func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m *Mongo) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
 	database := m.client.Database(m.config.Database)
 	collections, err := database.ListCollections(ctx, bson.M{})
@@ -207,7 +207,7 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	var streamNames []string
+	var streamNames []types.StreamID
 	// Iterate through collections and check if they are views
 	for collections.Next(ctx) {
 		var collectionInfo bson.M
@@ -225,19 +225,19 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 			continue
 		}
 
-		streamNames = append(streamNames, collectionInfo["name"].(string))
+		streamNames = append(streamNames, types.StreamID{Namespace: m.config.Database, Name: collectionInfo["name"].(string)})
 	}
 	return streamNames, collections.Err()
 }
 
 // TODO: Add support for time series mongodb collections
-func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
 	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name(), nil)
+		stream := types.NewStream(streamName, streamID.Namespace, nil)
 		// _id is the guaranteed unique, mandatory field in every MongoDB collection.
 		stream.WithPrimaryKey(constants.MongoPrimaryID)
 
@@ -272,12 +272,12 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	database := m.client.Database(m.config.Database)
 	// Either wait for covering 100k records from both sides for all streams
 	// Or wait till discoverCtx exits
-	stream, err := produceCollectionSchema(ctx, database, streamName)
+	stream, err := produceCollectionSchema(ctx, database, streamID.Name)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
+		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamID.Name, err)
 	}
 	// Add all discovered fields as potential cursor fields
 	stream.Schema.Properties.Range(func(key, value interface{}) bool {

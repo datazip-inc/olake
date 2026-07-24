@@ -114,10 +114,8 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 // before that commit and must treat a canceled context as a reason to avoid
 // advancing only one side of the source/destination boundary.
 //
-// The Kafka driver has a separate `TODO: Add 2PC support for Kafka` for a
-// future stricter contract. Other drivers may have similar source-specific
-// checkpointing constraints, so this helper should not be used as a substitute
-// for driver-level cancellation safety.
+// Drivers may have source-specific checkpointing constraints, so this helper
+// should not be used as a substitute for driver-level cancellation safety.
 func signalAwareRootContext(parent context.Context) context.Context {
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	// signal.NotifyContext keeps the signal handler installed until stop() is

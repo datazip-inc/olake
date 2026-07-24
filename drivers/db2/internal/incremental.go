@@ -30,22 +30,5 @@ func (d *DB2) StreamIncrementalChanges(ctx context.Context, stream types.StreamI
 	if err != nil {
 		return fmt.Errorf("failed to build incremental query: %s", err)
 	}
-
-	rows, err := d.client.QueryContext(ctx, incrementalQuery, queryArgs...)
-	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %s", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, d.dataTypeConverter); err != nil {
-			return fmt.Errorf("failed to scan record: %s", err)
-		}
-
-		if err := processFn(ctx, record); err != nil {
-			return fmt.Errorf("process error: %s", err)
-		}
-	}
-	return rows.Err()
+	return d.readBatchConcurrent(ctx, incrementalQuery, queryArgs, processFn)
 }
