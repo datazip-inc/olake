@@ -628,6 +628,7 @@ func init() {
 
 		server, err = startServer(icebergConfig)
 		if err != nil {
+			icebergConfig = nil
 			return nil, nil, fmt.Errorf("failed to start iceberg server: %w", err)
 		}
 
