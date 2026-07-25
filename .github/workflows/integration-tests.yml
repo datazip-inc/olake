@@ -240,11 +240,13 @@ jobs:
     # this too -- so gate on "not failed" rather than on success. go-cache is exempt entirely: its
     # cache warm and db2 clidriver download must not block seven drivers, and its lint and gosec
     # failures already surface as their own check.
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/master')) && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
     runs-on: 16gb-runner
     # The whole workflow's approval, deliberately on the only job that spends a 16gb runner: one
     # prompt releases every driver, and "Re-run failed jobs" re-enters it so a replay costs another.
-    environment: integration_tests
+    # integration_tests_master has no required reviewers; used for master pushes and PRs into master.
+    environment:
+      name: ${{ ((github.event_name == 'push' && github.ref == 'refs/heads/master') || (github.event_name == 'pull_request' && github.base_ref == 'master')) && 'integration_tests_master' || 'integration_tests' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
