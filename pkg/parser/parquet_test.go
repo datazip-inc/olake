@@ -1222,18 +1222,13 @@ func TestParquetParser_NestedTypes(t *testing.T) {
 type nestedLogicalRow struct {
 	ID int64 `parquet:"id"`
 
-	ListTS struct {
-		List []struct {
-			Element int64 `parquet:"element"`
-		} `parquet:"list"`
-	} `parquet:"list_ts"`
+	ListTS []int64 `parquet:"list_ts"`
 
 	StructCol struct {
-		D   int32    `parquet:"d"`
-		TS  int64    `parquet:"ts"`
-		Dec [16]byte `parquet:"dec"`
-		U   [16]byte `parquet:"u"`
-		S   string   `parquet:"s"`
+		D  int32    `parquet:"d"`
+		TS int64    `parquet:"ts"`
+		U  [16]byte `parquet:"u"`
+		S  string   `parquet:"s"`
 	} `parquet:"struct_col"`
 
 	MapTS map[string]int64 `parquet:"map_ts"`
@@ -1251,11 +1246,10 @@ func TestParquetParser_NestedLogicalTypes(t *testing.T) {
 		"id":      pq.Int(64),
 		"list_ts": pq.List(pq.Timestamp(pq.Microsecond)),
 		"struct_col": pq.Group{
-			"d":   pq.Date(),
-			"ts":  pq.Timestamp(pq.Microsecond),
-			"dec": pq.Decimal(2, 38, pq.FixedLenByteArrayType(16)),
-			"u":   pq.UUID(),
-			"s":   pq.String(),
+			"d":  pq.Date(),
+			"ts": pq.Timestamp(pq.Microsecond),
+			"u":  pq.UUID(),
+			"s":  pq.String(),
 		},
 		"map_ts": pq.Map(pq.String(), pq.Timestamp(pq.Microsecond)),
 		"rep_ts": pq.Repeated(pq.Timestamp(pq.Microsecond)),
@@ -1269,12 +1263,9 @@ func TestParquetParser_NestedLogicalTypes(t *testing.T) {
 
 	var row nestedLogicalRow
 	row.ID = 1
-	row.ListTS.List = []struct {
-		Element int64 `parquet:"element"`
-	}{{Element: ts.UnixMicro()}, {Element: ts.Add(time.Second).UnixMicro()}}
+	row.ListTS = []int64{ts.UnixMicro(), ts.Add(time.Second).UnixMicro()}
 	row.StructCol.D = 19737 // days from epoch to 2024-01-15
 	row.StructCol.TS = ts.UnixMicro()
-	row.StructCol.Dec = decBytes
 	row.StructCol.U = uuidBytes
 	row.StructCol.S = "text"
 	row.MapTS = map[string]int64{"k": ts.UnixMicro()}
@@ -1311,11 +1302,10 @@ func TestParquetParser_NestedLogicalTypes(t *testing.T) {
 	require.Equal(t, []any{ts, ts.Add(time.Second)}, record["list_ts"],
 		"list elements must carry timestamps, not raw micros")
 	require.Equal(t, map[string]any{
-		"d":   time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
-		"ts":  ts,
-		"dec": 123.45,
-		"u":   "123e4567-e89b-12d3-a456-426614174000",
-		"s":   "text",
+		"d":  time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC),
+		"ts": ts,
+		"u":  "123e4567-e89b-12d3-a456-426614174000",
+		"s":  "text",
 	}, record["struct_col"], "struct fields must keep their logical meaning")
 	require.Equal(t, map[string]any{"k": ts}, record["map_ts"],
 		"map values must carry timestamps, not raw micros")

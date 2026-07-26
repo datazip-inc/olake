@@ -868,20 +868,16 @@ type parquetRow struct {
 		B int64  `parquet:"b"`
 	} `parquet:"struct_col"`
 
-	// Spelled out as the three level LIST structure parquet-go's List() node describes,
-	// rather than a plain []string: an explicit schema binds to the Go shape by path, and a
-	// slice would have to bind to list_col itself rather than to list_col.list.element.
-	ListCol struct {
-		List []struct {
-			Element string `parquet:"element"`
-		} `parquet:"list"`
-	} `parquet:"list_col"`
-}
+	// A plain slice rather than the three level LIST structure List() describes: rows are
+	// deconstructed by the schema (see writeParquetRows), and Deconstruct collapses a LIST
+	// node to its repeated element, so list_col binds to the slice itself.
+	ListCol []string `parquet:"list_col"`
 
-// evolvedParquetRow is parquetRow plus evolvedColumn: the embedded fields flatten into the
-// same paths, so the row binds against evolvedParquetTestSchema.
-type evolvedParquetRow struct {
-	parquetRow
+	// NewCol carries evolvedColumn, which only evolvedParquetTestSchema declares. Rows are
+	// deconstructed against a schema, so a field no column names is never looked up: the
+	// base file ignores this one, and the evolved file picks it up. It lives here rather
+	// than on a wrapper type embedding parquetRow because field lookup does not descend
+	// into embedded structs, which would leave every promoted column empty.
 	NewCol string `parquet:"new_col"`
 }
 
@@ -996,15 +992,11 @@ func makeParquetRow(id int64, vals rowValues) parquetRow {
 		TsFarCol: farFutureTs.UnixMicro(),
 		Int96Col: timeToInt96(vals.TsNano),
 
-		MapCol: map[string]string{"k": vals.Str},
+		MapCol:  map[string]string{"k": vals.Str},
+		ListCol: vals.List,
 	}
 	row.StructCol.A = vals.Str
 	row.StructCol.B = vals.Int64
-	for _, element := range vals.List {
-		row.ListCol.List = append(row.ListCol.List, struct {
-			Element string `parquet:"element"`
-		}{Element: element})
-	}
 	return row
 }
 
@@ -1015,9 +1007,20 @@ func buildParquetFile(t *testing.T, startID int64, vals rowValues) []byte {
 		rows = append(rows, makeParquetRow(startID+i, vals))
 	}
 
+	return writeParquetRows(t, parquetTestSchema, rows)
+}
+
+func writeParquetRows(t *testing.T, schema *pq.Schema, rows []parquetRow) []byte {
+	t.Helper()
+
+	deconstructed := make([]pq.Row, 0, len(rows))
+	for i := range rows {
+		deconstructed = append(deconstructed, schema.Deconstruct(nil, &rows[i]))
+	}
+
 	var buf bytes.Buffer
-	writer := pq.NewGenericWriter[parquetRow](&buf, parquetTestSchema)
-	_, err := writer.Write(rows)
+	writer := pq.NewGenericWriter[parquetRow](&buf, schema)
+	_, err := writer.WriteRows(deconstructed)
 	require.NoError(t, err, "failed to write parquet rows")
 	require.NoError(t, writer.Close(), "failed to close parquet writer")
 	return buf.Bytes()
@@ -1027,20 +1030,14 @@ func buildParquetFile(t *testing.T, startID int64, vals rowValues) []byte {
 // the discovered schema lacks, which the parser hands through for the destination to evolve.
 func buildEvolvedParquetFile(t *testing.T, startID int64, vals rowValues) []byte {
 	t.Helper()
-	rows := make([]evolvedParquetRow, 0, rowsPerFile)
+	rows := make([]parquetRow, 0, rowsPerFile)
 	for i := int64(0); i < rowsPerFile; i++ {
-		rows = append(rows, evolvedParquetRow{
-			parquetRow: makeParquetRow(startID+i, vals),
-			NewCol:     evolvedColumnValue,
-		})
+		row := makeParquetRow(startID+i, vals)
+		row.NewCol = evolvedColumnValue
+		rows = append(rows, row)
 	}
 
-	var buf bytes.Buffer
-	writer := pq.NewGenericWriter[evolvedParquetRow](&buf, evolvedParquetTestSchema)
-	_, err := writer.Write(rows)
-	require.NoError(t, err, "failed to write evolved parquet rows")
-	require.NoError(t, writer.Close(), "failed to close evolved parquet writer")
-	return buf.Bytes()
+	return writeParquetRows(t, evolvedParquetTestSchema, rows)
 }
 
 // decimalToFixedBytes renders the unscaled integer as the 16 byte big-endian two's
