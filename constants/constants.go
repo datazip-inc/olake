@@ -73,7 +73,11 @@ var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
 var ErrGlobalContextGroup = fmt.Errorf("global context group error")
-var SkipCDCDrivers = []DriverType{Oracle, DB2}
+var SkipCDCDrivers = []DriverType{Oracle, DB2, S3}
+
+// UppercaseStreamDrivers are drivers that fold unquoted identifiers to uppercase, so their
+// discovered stream names are uppercase in streams.json.
+var UppercaseStreamDrivers = []DriverType{Oracle, DB2}
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
