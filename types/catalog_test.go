@@ -226,10 +226,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							SupportedSyncModes:      NewSet(SyncMode("full_refresh"), SyncMode("incremental")),
 							SourceDefinedPrimaryKey: NewSet("id"),
 							AvailableCursorFields:   NewSet("updated_at", "created_at"),
-							SyncMode:                SyncMode("incremental"),
-							CursorField:             "updated_at",
-							DestinationDatabase:     "analytics",
-							DestinationTable:        "dim_users",
 						},
 					},
 					{
@@ -240,27 +236,31 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							SupportedSyncModes:      NewSet(SyncMode("full_refresh"), SyncMode("cdc")),
 							SourceDefinedPrimaryKey: NewSet("order_id"),
 							AvailableCursorFields:   NewSet("order_date"),
-							SyncMode:                SyncMode("cdc"),
-							DestinationDatabase:     "analytics",
-							DestinationTable:        "fact_orders",
 						},
 					},
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"public": {
 						{
-							StreamName:      "users",
-							PartitionRegex:  "",
-							AppendMode:      false,
-							Normalization:   true,
-							SelectedColumns: createSelectedColumns(nil, true),
+							StreamName:          "users",
+							PartitionRegex:      "",
+							AppendMode:          false,
+							Normalization:       true,
+							SelectedColumns:     createSelectedColumns(nil, true),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "updated_at",
+							DestinationDatabase: "analytics",
+							DestinationTable:    "dim_users",
 						},
 						{
-							StreamName:      "orders",
-							PartitionRegex:  "",
-							AppendMode:      false,
-							Normalization:   true,
-							SelectedColumns: createSelectedColumns(nil, true),
+							StreamName:          "orders",
+							PartitionRegex:      "",
+							AppendMode:          false,
+							Normalization:       true,
+							SelectedColumns:     createSelectedColumns(nil, true),
+							SyncMode:            SyncMode("cdc"),
+							DestinationDatabase: "analytics",
+							DestinationTable:    "fact_orders",
 						},
 					},
 				},
@@ -385,24 +385,24 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Namespace:               "namespace1",
 							Schema:                  newSchema(),
 							SupportedSyncModes:      NewSet(SyncMode("incremental"), SyncMode("full_refresh")),
-							SyncMode:                SyncMode("cdc"),
 							SourceDefinedPrimaryKey: NewSet("id"),
 							AvailableCursorFields:   NewSet("created_at"),
-							CursorField:             "updated_at",
-							DestinationDatabase:     "db:namespace1",
-							DestinationTable:        "stream1",
 						},
 					},
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
 						{
-							StreamName:      "stream1",
-							PartitionRegex:  "user_partition",
-							Filter:          "test_filter > 10",
-							AppendMode:      true,
-							Normalization:   true,
-							SelectedColumns: createSelectedColumns([]string{"id"}, false),
+							StreamName:          "stream1",
+							PartitionRegex:      "user_partition",
+							Filter:              "test_filter > 10",
+							AppendMode:          true,
+							Normalization:       true,
+							SelectedColumns:     createSelectedColumns([]string{"id"}, false),
+							SyncMode:            SyncMode("cdc"),
+							CursorField:         "updated_at",
+							DestinationDatabase: "db:namespace1",
+							DestinationTable:    "stream1",
 						},
 					},
 				},
@@ -471,35 +471,35 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				Streams: []*ConfiguredStream{
 					{
 						Stream: &Stream{
-							Name:                "stream1",
-							Namespace:           "namespace1",
-							Schema:              oldSchema(),
-							SyncMode:            SyncMode("incremental"),
-							CursorField:         "updated_at",
-							DestinationDatabase: "db:namespace1",
-							DestinationTable:    "stream1",
+							Name:                    "stream1",
+							Namespace:               "namespace1",
+							Schema:                  oldSchema(),
+							SourceDefinedPrimaryKey: NewSet("id"),
 						},
 					},
 					{
 						Stream: &Stream{
-							Name:                "stream2",
-							Namespace:           "namespace2",
-							Schema:              newSchema(),
-							SyncMode:            SyncMode("full_refresh"),
-							DestinationDatabase: "db:namespace2",
-							DestinationTable:    "stream2",
+							Name:                    "stream2",
+							Namespace:               "namespace2",
+							Schema:                  newSchema(),
+							SourceDefinedPrimaryKey: NewSet("id"),
+							DestinationDatabase:     "db:namespace2",
 						},
 					},
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
 						{
-							StreamName:      "stream1",
-							PartitionRegex:  "old_partition",
-							Filter:          "test_filter > 10",
-							AppendMode:      true,
-							Normalization:   true,
-							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
+							StreamName:          "stream1",
+							PartitionRegex:      "old_partition",
+							Filter:              "test_filter > 10",
+							AppendMode:          true,
+							Normalization:       true,
+							SelectedColumns:     createSelectedColumns([]string{"id", "name"}, false),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "updated_at",
+							DestinationDatabase: "db:namespace1",
+							DestinationTable:    "stream1",
 						},
 					},
 				},
@@ -575,22 +575,22 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Schema:                  oldSchema(),
 							SourceDefinedPrimaryKey: NewSet("id"),
 							SupportedSyncModes:      NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
-							SyncMode:                SyncMode("incremental"),
-							CursorField:             "id",
-							DestinationDatabase:     "db:newNamespace1",
-							DestinationTable:        "newStream1",
 						},
 					},
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
 						{
-							StreamName:      "stream1",
-							PartitionRegex:  "user_partition",
-							Filter:          "test_filter > 10",
-							AppendMode:      true,
-							Normalization:   true,
-							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
+							StreamName:          "stream1",
+							PartitionRegex:      "user_partition",
+							Filter:              "test_filter > 10",
+							AppendMode:          true,
+							Normalization:       true,
+							SelectedColumns:     createSelectedColumns([]string{"id", "name"}, false),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "id",
+							DestinationDatabase: "db:newNamespace1",
+							DestinationTable:    "newStream1",
 						},
 					},
 				},
@@ -666,11 +666,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Namespace:               "namespace1",
 							Schema:                  oldSchema(),
 							SupportedSyncModes:      NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
-							SyncMode:                SyncMode("incremental"),
-							CursorField:             "id",
 							SourceDefinedPrimaryKey: NewSet("id"),
-							DestinationDatabase:     "",
-							DestinationTable:        "stream1",
 						},
 					},
 					{
@@ -679,21 +675,23 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Namespace:               "namespace2",
 							Schema:                  newSchema(),
 							SupportedSyncModes:      NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
-							SyncMode:                SyncMode("full_refresh"),
 							SourceDefinedPrimaryKey: NewSet("id"),
-							DestinationDatabase:     "",
-							DestinationTable:        "newStream2",
+							DestinationDatabase:     "db:namespace2",
 						},
 					},
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
 						{
-							StreamName:      "stream1",
-							PartitionRegex:  "user_partition",
-							Filter:          "test_filter > 10",
-							Normalization:   true,
-							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
+							StreamName:          "stream1",
+							PartitionRegex:      "user_partition",
+							Filter:              "test_filter > 10",
+							Normalization:       true,
+							SelectedColumns:     createSelectedColumns([]string{"id", "name"}, false),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "id",
+							DestinationDatabase: "",
+							DestinationTable:    "stream1",
 						},
 					},
 				},
@@ -976,7 +974,7 @@ func TestCatalogGetDestDBPrefix(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			constantValue, prefix := getDestDBPrefix(tc.streams)
+			constantValue, prefix := getDestDBPrefix(&Catalog{Streams: tc.streams})
 			assert.Equal(t, tc.expectedConst, constantValue, "Constant value flag should match")
 			assert.Equal(t, tc.expectedPref, prefix, "Prefix should match")
 		})
@@ -1028,4 +1026,165 @@ func validateBasicSchemas(t *testing.T, expected, actual *TypeSchema, testName s
 				testName, key, expectedProp.Type.Len(), actualProp.Type.Len())
 		}
 	}
+}
+
+func TestApplyStreamMetadataToStreamBackwardCompat(t *testing.T) {
+	stream := &Stream{
+		SyncMode:            SyncMode("cdc"),
+		CursorField:         "updated_at",
+		DestinationDatabase: "legacy_db",
+		DestinationTable:    "legacy_table",
+	}
+
+	ApplyStreamMetadataToStream(StreamMetadata{}, stream)
+	assert.Equal(t, SyncMode("cdc"), stream.SyncMode)
+	assert.Equal(t, "updated_at", stream.CursorField)
+	assert.Equal(t, "legacy_db", stream.DestinationDatabase)
+	assert.Equal(t, "legacy_table", stream.DestinationTable)
+
+	stream = &Stream{
+		SyncMode:            SyncMode("full_refresh"),
+		CursorField:         "created_at",
+		DestinationDatabase: "legacy_db",
+		DestinationTable:    "legacy_table",
+	}
+	ApplyStreamMetadataToStream(StreamMetadata{
+		SyncMode:            SyncMode("cdc"),
+		CursorField:         "updated_at",
+		DestinationDatabase: "new_db",
+		DestinationTable:    "new_table",
+	}, stream)
+	assert.Equal(t, SyncMode("cdc"), stream.SyncMode)
+	assert.Equal(t, "updated_at", stream.CursorField)
+	assert.Equal(t, "new_db", stream.DestinationDatabase)
+	assert.Equal(t, "new_table", stream.DestinationTable)
+}
+
+func TestMigrateConfigurableFieldsFromStream(t *testing.T) {
+	metadata := StreamMetadata{StreamName: "users"}
+	oldStream := &Stream{
+		SyncMode:            SyncMode("incremental"),
+		CursorField:         "updated_at",
+		DestinationDatabase: "analytics",
+		DestinationTable:    "users",
+	}
+
+	migrateConfigurableFieldsFromStream(&metadata, oldStream)
+	assert.Equal(t, SyncMode("incremental"), metadata.SyncMode)
+	assert.Equal(t, "updated_at", metadata.CursorField)
+	assert.Equal(t, "analytics", metadata.DestinationDatabase)
+	assert.Equal(t, "users", metadata.DestinationTable)
+
+	metadata = StreamMetadata{
+		StreamName: "users",
+		SyncMode:   SyncMode("cdc"),
+	}
+	migrateConfigurableFieldsFromStream(&metadata, oldStream)
+	assert.Equal(t, SyncMode("cdc"), metadata.SyncMode)
+}
+
+func TestGetStreamsDeltaUsesMetadataFields(t *testing.T) {
+	oldCatalog := &Catalog{
+		Streams: []*ConfiguredStream{
+			{
+				Stream: &Stream{
+					Name:      "users",
+					Namespace: "public",
+				},
+			},
+		},
+		SelectedStreams: map[string][]StreamMetadata{
+			"public": {
+				{
+					StreamName:          "users",
+					SyncMode:            SyncMode("cdc"),
+					DestinationDatabase: "old_db",
+				},
+			},
+		},
+	}
+	newCatalog := &Catalog{
+		Streams: []*ConfiguredStream{
+			{
+				Stream: &Stream{
+					Name:      "users",
+					Namespace: "public",
+				},
+			},
+		},
+		SelectedStreams: map[string][]StreamMetadata{
+			"public": {
+				{
+					StreamName:          "users",
+					SyncMode:            SyncMode("incremental"),
+					DestinationDatabase: "new_db",
+				},
+			},
+		},
+	}
+
+	delta := GetStreamsDelta(oldCatalog, newCatalog)
+	assert.Len(t, delta.Streams, 1)
+	assert.Len(t, delta.SelectedStreams["public"], 1)
+	assert.Equal(t, SyncMode("incremental"), delta.SelectedStreams["public"][0].SyncMode)
+}
+
+func TestGetStreamsDeltaOldFormatFallback(t *testing.T) {
+	oldCatalog := &Catalog{
+		Streams: []*ConfiguredStream{
+			{
+				Stream: &Stream{
+					Name:                "users",
+					Namespace:           "public",
+					SyncMode:            SyncMode("cdc"),
+					DestinationDatabase: "old_db",
+				},
+			},
+		},
+		SelectedStreams: map[string][]StreamMetadata{
+			"public": {
+				{StreamName: "users"},
+			},
+		},
+	}
+	newCatalog := &Catalog{
+		Streams: []*ConfiguredStream{
+			{
+				Stream: &Stream{
+					Name:                "users",
+					Namespace:           "public",
+					SyncMode:            SyncMode("incremental"),
+					DestinationDatabase: "new_db",
+				},
+			},
+		},
+		SelectedStreams: map[string][]StreamMetadata{
+			"public": {
+				{StreamName: "users"},
+			},
+		},
+	}
+
+	delta := GetStreamsDelta(oldCatalog, newCatalog)
+	assert.Len(t, delta.Streams, 1)
+	assert.Equal(t, "old_db", delta.Streams[0].Stream.DestinationDatabase)
+}
+
+func TestGetDestDBPrefixFromSelectedStreams(t *testing.T) {
+	catalog := &Catalog{
+		Streams: []*ConfiguredStream{
+			{Stream: &Stream{Name: "users", Namespace: "public"}},
+			{Stream: &Stream{Name: "orders", Namespace: "public"}},
+		},
+		SelectedStreams: map[string][]StreamMetadata{
+			"public": {
+				{StreamName: "users", DestinationDatabase: "prefix:public"},
+				{StreamName: "orders", DestinationDatabase: "prefix:public"},
+			},
+		},
+	}
+
+	constantValue, prefix := getDestDBPrefix(catalog)
+	assert.False(t, constantValue)
+	assert.Equal(t, "prefix", prefix)
 }

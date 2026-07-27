@@ -57,8 +57,42 @@ type StreamMetadata struct {
 	//legacy filter input
 	Filter string `json:"filter,omitempty"`
 	//new filter input
-	FilterConfig    *FilterConfig    `json:"filter_config,omitempty"`
-	SelectedColumns *SelectedColumns `json:"selected_columns"`
+	FilterConfig        *FilterConfig    `json:"filter_config,omitempty"`
+	SelectedColumns     *SelectedColumns `json:"selected_columns"`
+	SyncMode            SyncMode         `json:"sync_mode,omitempty"`
+	CursorField         string           `json:"cursor_field,omitempty"`
+	DestinationDatabase string           `json:"destination_database,omitempty"`
+	DestinationTable    string           `json:"destination_table,omitempty"`
+}
+
+// resolveConfigurableField returns metadata value when set, otherwise stream value.
+func resolveConfigurableField[T comparable](metadataValue, streamValue T) T {
+	var zero T
+	if metadataValue != zero {
+		return metadataValue
+	}
+	return streamValue
+}
+
+func migrateConfigurableFieldsFromStream(metadata *StreamMetadata, stream *Stream) {
+	metadata.SyncMode = resolveConfigurableField(metadata.SyncMode, stream.SyncMode)
+	metadata.CursorField = resolveConfigurableField(metadata.CursorField, stream.CursorField)
+	metadata.DestinationDatabase = resolveConfigurableField(metadata.DestinationDatabase, stream.DestinationDatabase)
+	metadata.DestinationTable = resolveConfigurableField(metadata.DestinationTable, stream.DestinationTable)
+}
+
+func clearStreamConfigurableFields(stream *Stream) {
+	stream.SyncMode = ""
+	stream.CursorField = ""
+	stream.DestinationDatabase = ""
+	stream.DestinationTable = ""
+}
+
+func ApplyStreamMetadataToStream(metadata StreamMetadata, stream *Stream) {
+	stream.SyncMode = resolveConfigurableField(metadata.SyncMode, stream.SyncMode)
+	stream.CursorField = resolveConfigurableField(metadata.CursorField, stream.CursorField)
+	stream.DestinationDatabase = resolveConfigurableField(metadata.DestinationDatabase, stream.DestinationDatabase)
+	stream.DestinationTable = resolveConfigurableField(metadata.DestinationTable, stream.DestinationTable)
 }
 
 type Catalog struct {
@@ -86,11 +120,16 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 		}
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:      stream.Name,
-			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization:   IsDriverRelational(driver),
-			SelectedColumns: selectedCols,
+			StreamName:          stream.Name,
+			AppendMode:          utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+			Normalization:       IsDriverRelational(driver),
+			SelectedColumns:     selectedCols,
+			SyncMode:            stream.SyncMode,
+			CursorField:         stream.CursorField,
+			DestinationDatabase: stream.DestinationDatabase,
+			DestinationTable:    stream.DestinationTable,
 		})
+		clearStreamConfigurableFields(stream)
 	}
 
 	return catalog
@@ -130,6 +169,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					oldStream := oldStreams[streamID].Stream
 					newStream := newStreams[streamID].Stream
 					MergeSelectedColumns(&metadata, oldStream, newStream)
+					migrateConfigurableFieldsFromStream(&metadata, oldStream)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -139,31 +179,36 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		newCatalog.SelectedStreams = selectedStreams
 	}
 
-	constantValue, prefix := getDestDBPrefix(oldCatalog.Streams)
+	constantValue, prefix := getDestDBPrefix(oldCatalog)
 
 	// merge streams metadata
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
 		if exists {
-			// preserve metadata from old
-			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
-			newStream.Stream.CursorField = oldStream.Stream.CursorField
-			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
-			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 			newStream.Stream.SourceDefinedPrimaryKey = oldStream.Stream.SourceDefinedPrimaryKey
+			clearStreamConfigurableFields(newStream.Stream)
 			return nil
 		}
 
 		// NOTE: new streams are not added to selected_streams, user needs to manually enable them
 		// manipulate destination db in new streams according to old streams
 
-		// prefix == "" means old stream when db normalization feature not introduced
+		// prefix == "" means old stream when db normalization feature not introduced.
+		// getDestDBPrefix already resolves dest db via metadata (new format) with Stream fallback,
+		// so `prefix` holds the constant value directly when constantValue is true.
+		destinationDatabase := ""
 		if constantValue {
-			newStream.Stream.DestinationDatabase = oldCatalog.Streams[0].Stream.DestinationDatabase
+			destinationDatabase = prefix
 		} else if prefix != "" {
-			newStream.Stream.DestinationDatabase = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
+			destinationDatabase = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
+		}
+		if destinationDatabase != "" {
+			newStream.Stream.DestinationDatabase = destinationDatabase
 		}
 
+		newStream.Stream.SyncMode = ""
+		newStream.Stream.CursorField = ""
+		newStream.Stream.DestinationTable = ""
 		return nil
 	})
 
@@ -221,14 +266,29 @@ func MergeSelectedColumns(metadata *StreamMetadata, oldStream *Stream, newStream
 //	bool: true if the common value is a constant (no colon present),
 //	      false if it's a prefix (colon present in original string)
 //	string: the common prefix or constant value, or empty string if no common value exists
-func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix string) {
-	if len(streams) == 0 {
+func getDestDBPrefix(catalog *Catalog) (constantValue bool, prefix string) {
+	if catalog == nil || len(catalog.Streams) == 0 {
 		return false, ""
 	}
 
-	prefixOrConstValue := strings.Split(streams[0].Stream.DestinationDatabase, ":")
-	for _, s := range streams {
-		streamDBPrefixOrConstValue := strings.Split(s.Stream.DestinationDatabase, ":")
+	selectedMetadataMap := make(map[string]StreamMetadata)
+	for namespace, metadataList := range catalog.SelectedStreams {
+		for _, metadata := range metadataList {
+			selectedMetadataMap[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)] = metadata
+		}
+	}
+
+	resolveDestDB := func(stream *ConfiguredStream) string {
+		metadata, ok := selectedMetadataMap[stream.Stream.ID()]
+		if !ok {
+			metadata = StreamMetadata{}
+		}
+		return resolveConfigurableField(metadata.DestinationDatabase, stream.Stream.DestinationDatabase)
+	}
+
+	prefixOrConstValue := strings.Split(resolveDestDB(catalog.Streams[0]), ":")
+	for _, s := range catalog.Streams {
+		streamDBPrefixOrConstValue := strings.Split(resolveDestDB(s), ":")
 		if streamDBPrefixOrConstValue[0] != prefixOrConstValue[0] {
 			// Not all same → bail out
 			return false, ""
@@ -309,8 +369,17 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// destination table change
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
+				oldSyncMode := resolveConfigurableField(oldMetadata.SyncMode, oldStream.Stream.SyncMode)
+				newSyncMode := resolveConfigurableField(newMetadata.SyncMode, newStream.Stream.SyncMode)
+				oldCursorField := resolveConfigurableField(oldMetadata.CursorField, oldStream.Stream.CursorField)
+				newCursorField := resolveConfigurableField(newMetadata.CursorField, newStream.Stream.CursorField)
+				oldDestinationDatabase := resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
+				newDestinationDatabase := resolveConfigurableField(newMetadata.DestinationDatabase, newStream.Stream.DestinationDatabase)
+				oldDestinationTable := resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
+				newDestinationTable := resolveConfigurableField(newMetadata.DestinationTable, newStream.Stream.DestinationTable)
+
 				// check cursor field if SyncMode is incremental
-				cursorDelta := utils.Ternary(newStream.Stream.SyncMode == INCREMENTAL, oldStream.Stream.CursorField != newStream.Stream.CursorField, false).(bool)
+				cursorDelta := utils.Ternary(newSyncMode == INCREMENTAL, oldCursorField != newCursorField, false).(bool)
 
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
@@ -318,9 +387,9 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldMetadata.UseSourceColumnNames != newMetadata.UseSourceColumnNames) ||
 					!reflect.DeepEqual(oldMetadata.FilterConfig, newMetadata.FilterConfig) ||
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
-					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
-					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
-					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable) ||
+					(oldSyncMode != newSyncMode) ||
+					(oldDestinationDatabase != newDestinationDatabase) ||
+					(oldDestinationTable != newDestinationTable) ||
 					cursorDelta
 			}()
 
@@ -333,8 +402,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				}
 
 				// safely change for destination database and table if difference present
-				deltaStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
-				deltaStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
+				deltaStream.Stream.DestinationDatabase = resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
+				deltaStream.Stream.DestinationTable = resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
 
 				diffStreams.Streams = append(diffStreams.Streams, deltaStream)
 				diffStreams.SelectedStreams[namespace] = append(

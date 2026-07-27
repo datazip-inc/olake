@@ -199,6 +199,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		}
 
 		elem.StreamMetadata = sMetadata
+		types.ApplyStreamMetadataToStream(sMetadata, elem.Stream)
 
 		if streams != nil {
 			source, found := types.StreamsToMap(streams...)[elem.ID()]
