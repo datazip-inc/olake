@@ -4,9 +4,14 @@ on:
   push:
     branches:
     - "staging"
+    # TEMPORARY (PR #1033): run the perf suite from this PR's branch. Revert before merge.
+    - "temp-pf"
     paths:
     - '**/*.go'
     - '**/*.java'
+    # TEMPORARY (PR #1033): without this a push touching only the workflow does not
+    # match the filter above, so the run never starts. Revert before merge.
+    - '.github/workflows/performance-test.yml'
 
 permissions:
   actions: read
