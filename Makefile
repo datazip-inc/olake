@@ -87,12 +87,12 @@ build:
 	go build -v ./...
 
 # ============================================================================
-# Database, dev-build and test targets
+# Infrastructure, dev-build and test targets
 #
 # `make help` lists every target.
-# db.* targets manage the database stacks and nothing else; test.* targets
-# only run tests and expect the databases they need to already be up
-# (e.g. `make db.all.start` once, then iterate on test runs). The start
+# olake.* targets manage the olake infrastructure stacks and nothing else; test.* targets
+# only run tests and expect the infrastructure they need to already be up
+# (e.g. `make olake.all.start` once, then iterate on test runs). The start
 # targets are idempotent: compose up + wait-until-ready + one-time init.
 # ============================================================================
 
@@ -176,7 +176,7 @@ HELP_TARGETS :=
 
 # --- driver lists -------------------------------------------------------------
 # A driver is any drivers/ subdir with its own go.mod; the ones that also have
-# a docker-compose.yml get db.* stacks and test targets (s3 has no local stack).
+# a docker-compose.yml get olake.* stacks and test targets (s3 has no local stack).
 SOURCE_DRIVERS := $(filter $(DRIVERS),$(notdir $(patsubst %/docker-compose.yml,%,$(wildcard drivers/*/docker-compose.yml))))
 CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
 INTEGRATION_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
@@ -196,92 +196,92 @@ prepare.all: $(addprefix prepare.,$(DRIVERS))
 
 # --- source databases (generated per driver) ---------------------------------
 # start is split into up (create the containers) + wait (block until the stack
-# answers, then run its one-time init): `make -j db.all.up` pulls every image
-# at once, and `make -j db.all.wait` collapses all the probes into one parallel
+# answers, then run its one-time init): `make -j olake.all.up` pulls every image
+# at once, and `make -j olake.all.wait` collapses all the probes into one parallel
 # step, so slow boots (db2, spark) overlap with each other and with whatever
 # runs between the two -- what CI does.
 define SOURCE_DB_template
-.PHONY: db.$(1).up db.$(1).wait db.$(1).start db.$(1).stop db.$(1).teardown db.$(1).restart db.$(1).refresh
-db.$(1).up:
+.PHONY: olake.$(1).up olake.$(1).wait olake.$(1).start olake.$(1).stop olake.$(1).teardown olake.$(1).restart olake.$(1).refresh
+olake.$(1).up:
 	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml up -d
 
-db.$(1).wait:
+olake.$(1).wait:
 	@$$(call wait_ready,$(1))
 	@$$(POST_SETUP.$(1))
 
 # Sequenced via sub-make so `make -j` cannot probe a stack that is not up yet.
-db.$(1).start:
-	@$$(MAKE) --no-print-directory db.$(1).up
-	@$$(MAKE) --no-print-directory db.$(1).wait
+olake.$(1).start:
+	@$$(MAKE) --no-print-directory olake.$(1).up
+	@$$(MAKE) --no-print-directory olake.$(1).wait
 
-db.$(1).stop:
+olake.$(1).stop:
 	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml down --remove-orphans
 
-db.$(1).teardown:
+olake.$(1).teardown:
 	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml down --volumes --remove-orphans
 
 # restart = stop then start (keeps volumes + data); refresh = teardown then start
 # (wipes them). Both sequenced via sub-make so `make -j` can't start the stack
 # before the down completes.
-db.$(1).restart:
-	@$$(MAKE) --no-print-directory db.$(1).stop
-	@$$(MAKE) --no-print-directory db.$(1).start
-db.$(1).refresh:
-	@$$(MAKE) --no-print-directory db.$(1).teardown
-	@$$(MAKE) --no-print-directory db.$(1).start
+olake.$(1).restart:
+	@$$(MAKE) --no-print-directory olake.$(1).stop
+	@$$(MAKE) --no-print-directory olake.$(1).start
+olake.$(1).refresh:
+	@$$(MAKE) --no-print-directory olake.$(1).teardown
+	@$$(MAKE) --no-print-directory olake.$(1).start
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call SOURCE_DB_template,$(d))))
 
-db.source.all.up: $(addprefix db.,$(addsuffix .up,$(SOURCE_DRIVERS)))
-db.source.all.wait: $(addprefix db.,$(addsuffix .wait,$(SOURCE_DRIVERS)))
-db.source.all.start: $(addprefix db.,$(addsuffix .start,$(SOURCE_DRIVERS)))
-db.source.all.stop: $(addprefix db.,$(addsuffix .stop,$(SOURCE_DRIVERS)))
-db.source.all.teardown: $(addprefix db.,$(addsuffix .teardown,$(SOURCE_DRIVERS)))
-db.source.all.restart:
-	@$(MAKE) --no-print-directory db.source.all.stop
-	@$(MAKE) --no-print-directory db.source.all.start
-db.source.all.refresh:
-	@$(MAKE) --no-print-directory db.source.all.teardown
-	@$(MAKE) --no-print-directory db.source.all.start
+olake.source.all.up: $(addprefix olake.,$(addsuffix .up,$(SOURCE_DRIVERS)))
+olake.source.all.wait: $(addprefix olake.,$(addsuffix .wait,$(SOURCE_DRIVERS)))
+olake.source.all.start: $(addprefix olake.,$(addsuffix .start,$(SOURCE_DRIVERS)))
+olake.source.all.stop: $(addprefix olake.,$(addsuffix .stop,$(SOURCE_DRIVERS)))
+olake.source.all.teardown: $(addprefix olake.,$(addsuffix .teardown,$(SOURCE_DRIVERS)))
+olake.source.all.restart:
+	@$(MAKE) --no-print-directory olake.source.all.stop
+	@$(MAKE) --no-print-directory olake.source.all.start
+olake.source.all.refresh:
+	@$(MAKE) --no-print-directory olake.source.all.teardown
+	@$(MAKE) --no-print-directory olake.source.all.start
 
 # --- destination stack --------------------------------------------------------
-db.destination.all.up:
+olake.destination.all.up:
 	mkdir -p $(DEST_DATA_DIR)/minio-data $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
 	$(COMPOSE) -f $(DEST_COMPOSE) up -d $(DEST_SERVICES)
 
-db.destination.all.wait:
+olake.destination.all.wait:
 	@$(call wait_ready,minio)
 	@$(call wait_ready,spark)
 
-db.destination.all.start:
-	@$(MAKE) --no-print-directory db.destination.all.up
-	@$(MAKE) --no-print-directory db.destination.all.wait
+olake.destination.all.start:
+	@$(MAKE) --no-print-directory olake.destination.all.up
+	@$(MAKE) --no-print-directory olake.destination.all.wait
 
-db.destination.all.stop:
+olake.destination.all.stop:
 	$(COMPOSE) -f $(DEST_COMPOSE) down --remove-orphans
 
-db.destination.all.teardown:
+olake.destination.all.teardown:
 	$(COMPOSE) -f $(DEST_COMPOSE) down --volumes --remove-orphans
 	@rm -rf $(DEST_DATA_DIR) || { echo "Could not remove $(DEST_DATA_DIR) (root-owned files on Linux?). Try: sudo rm -rf $(DEST_DATA_DIR)"; exit 1; }
 	@echo "Removed docker volumes and $(DEST_DATA_DIR) (minio/postgres data and the hive-metastore ivy cache)"
-db.destination.all.restart:
-	@$(MAKE) --no-print-directory db.destination.all.stop
-	@$(MAKE) --no-print-directory db.destination.all.start
-db.destination.all.refresh:
-	@$(MAKE) --no-print-directory db.destination.all.teardown
-	@$(MAKE) --no-print-directory db.destination.all.start
+olake.destination.all.restart:
+	@$(MAKE) --no-print-directory olake.destination.all.stop
+	@$(MAKE) --no-print-directory olake.destination.all.start
+olake.destination.all.refresh:
+	@$(MAKE) --no-print-directory olake.destination.all.teardown
+	@$(MAKE) --no-print-directory olake.destination.all.start
 
-db.all.up: db.source.all.up db.destination.all.up
-db.all.wait: db.source.all.wait db.destination.all.wait
-db.all.start: db.source.all.start db.destination.all.start
-db.all.stop: db.source.all.stop db.destination.all.stop
-db.all.teardown: db.source.all.teardown db.destination.all.teardown
-db.all.restart:
-	@$(MAKE) --no-print-directory db.all.stop
-	@$(MAKE) --no-print-directory db.all.start
-db.all.refresh:
-	@$(MAKE) --no-print-directory db.all.teardown
-	@$(MAKE) --no-print-directory db.all.start
+olake.all.up: olake.source.all.up olake.destination.all.up
+olake.all.wait: olake.source.all.wait olake.destination.all.wait
+olake.all.start: olake.source.all.start olake.destination.all.start
+olake.all.stop: olake.source.all.stop olake.destination.all.stop
+olake.all.teardown: olake.source.all.teardown olake.destination.all.teardown
+olake.all.restart:
+	@$(MAKE) --no-print-directory olake.all.stop
+	@$(MAKE) --no-print-directory olake.all.start
+olake.all.refresh:
+	@$(MAKE) --no-print-directory olake.all.teardown
+	@$(MAKE) --no-print-directory olake.all.start
 
 # --- iceberg writer JAR (file rule: skips maven when up to date) --------------
 # Refreshes the repo-root copy too: build.sh and the iceberg writer prefer it,
@@ -295,7 +295,15 @@ $(ICEBERG_JAR): $(ICEBERG_JAR_SRCS)
 	fi
 	cp $(ICEBERG_JAR) $(ROOT_JAR)
 
+# Phony alias so CI (and humans) can `make iceberg.jar` without knowing the file path.
+.PHONY: iceberg.jar
+iceberg.jar: $(ICEBERG_JAR)
+
 # --- dev builds (generated per driver, incl. s3) ------------------------------
+# CGO_ENABLED=0 is set here, not left to the environment: db2 is the one driver that needs cgo
+# and GO_ENV.db2 turns it back on right after (it is appended to this same recipe line). Without
+# the explicit default, a db2 build -- or a cancelled one -- leaves CGO_ENABLED=1 in the caller's
+# shell and the next driver silently links against libc.
 define DEV_BUILD_template
 .PHONY: dev.$(1).build
 dev.$(1).build: prepare.$(1)
@@ -307,22 +315,32 @@ $(foreach d,$(DRIVERS),$(eval $(call DEV_BUILD_template,$(d))))
 # --- tests --------------------------------------------------------------------
 define INTEGRATION_TEST_template
 .PHONY: test.integration.$(1)
-test.integration.$(1): prepare.$(1) db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
+test.integration.$(1): prepare.$(1) olake.$(1).start olake.destination.all.start $$(ICEBERG_JAR)
 	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run 'Integration'
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call INTEGRATION_TEST_template,$(d))))
 
 define TWO_PC_TEST_template
 .PHONY: test.2pc.$(1)
-test.2pc.$(1): prepare.$(1) db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
+test.2pc.$(1): prepare.$(1) olake.$(1).start olake.destination.all.start $$(ICEBERG_JAR)
 	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run '2PC'
 endef
 $(foreach d,$(CDC_DRIVERS),$(eval $(call TWO_PC_TEST_template,$(d))))
 
-test.integration: $(addprefix prepare.,$(SOURCE_DRIVERS)) db.all.start $(ICEBERG_JAR)
+# Benchmarks. Deliberately no stack prerequisites: these run against the remote instances named
+# in the driver's testdata/source.json (CI reaches them over a VPN), never the local compose
+# stacks, so depending on olake.$(1).start would boot containers the suite never touches.
+define PERFORMANCE_TEST_template
+.PHONY: test.performance.$(1)
+test.performance.$(1): prepare.$(1) $$(ICEBERG_JAR)
+	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run 'Performance'
+endef
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call PERFORMANCE_TEST_template,$(d))))
+
+test.integration: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(ICEBERG_JAR)
 	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(INTEGRATION_PKGS) -timeout 0 -count=1 -run 'Integration'
 
-test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix db.,$(addsuffix .start,$(CDC_DRIVERS))) db.destination.all.start $(ICEBERG_JAR)
+test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .start,$(CDC_DRIVERS))) olake.destination.all.start $(ICEBERG_JAR)
 	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
 
 # Unit tests across every module in the go.work workspace. Directory patterns
@@ -345,22 +363,22 @@ help:
 	@printf "  %-44s %s\n" "build" "compile the root module (CI build-check)"
 	@printf "  %-44s %s\n" "gomod / golangci / trivy / gofmt / pre-commit" "tidy, lint, format and git-hook targets"
 	@echo ""
-	@echo "Source databases (compose up + wait until ready; stop keeps volumes):"
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).start" "start + wait for $(d) (= db.$(d).up then db.$(d).wait)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).stop" "stop $(d) (keep volumes + data)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).teardown" "stop $(d) + remove volumes";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).restart" "stop then start $(d) (keep data)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "db.$(d).refresh" "teardown then start $(d) (wipe data)";)
-	@printf "  %-44s %s\n" "db.source.all.<verb>" "verb = start|stop|teardown|restart|refresh, all source DBs (make -j8)"
-	@printf "  %-44s %s\n" "db.<driver>.up | db.<driver>.wait" "the two halves of start, for running each in parallel"
+	@echo "Source stacks (compose up + wait until ready; stop keeps volumes):"
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).start" "start + wait for $(d) (= olake.$(d).up then olake.$(d).wait)";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).stop" "stop $(d) (keep volumes + data)";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).teardown" "stop $(d) + remove volumes";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).restart" "stop then start $(d) (keep data)";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).refresh" "teardown then start $(d) (wipe data)";)
+	@printf "  %-44s %s\n" "olake.source.all.<verb>" "verb = start|stop|teardown|restart|refresh, all source stacks (make -j8)"
+	@printf "  %-44s %s\n" "olake.<driver>.up | olake.<driver>.wait" "the two halves of start, for running each in parallel"
 	@echo ""
 	@echo "Destination stack (minio + mc + iceberg catalog + spark-connect):"
-	@printf "  %-44s %s\n" "db.destination.all.start|stop" "the iceberg/parquet test stack"
-	@printf "  %-44s %s\n" "db.destination.all.restart" "stop then start (keep data)"
-	@printf "  %-44s %s\n" "db.destination.all.teardown" "down --volumes + DELETE $(DEST_DATA_DIR)"
-	@printf "  %-44s %s\n" "db.destination.all.refresh" "teardown then start (fresh stack)"
-	@printf "  %-44s %s\n" "db.all.<verb>" "same verbs, sources + destination together"
-	@printf "  %-44s %s\n" "db.all.up | db.all.wait" "boot everything, then block on every probe (make -j)"
+	@printf "  %-44s %s\n" "olake.destination.all.start|stop" "the iceberg/parquet test stack"
+	@printf "  %-44s %s\n" "olake.destination.all.restart" "stop then start (keep data)"
+	@printf "  %-44s %s\n" "olake.destination.all.teardown" "down --volumes + DELETE $(DEST_DATA_DIR)"
+	@printf "  %-44s %s\n" "olake.destination.all.refresh" "teardown then start (fresh stack)"
+	@printf "  %-44s %s\n" "olake.all.<verb>" "same verbs, sources + destination together"
+	@printf "  %-44s %s\n" "olake.all.up | olake.all.wait" "boot everything, then block on every probe (make -j)"
 	@echo ""
 	@echo "Dev builds:"
 	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "dev.$(d).build" "host binary at drivers/$(d)/olake";)
@@ -369,9 +387,10 @@ help:
 	@echo "Docker images:"
 	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "docker.$(d).build" "build the $(d) driver image (olake/source-$(d):$(IMAGE_TAG))";)
 	@echo ""
-	@echo "Tests (auto-provision the databases they need):"
+	@echo "Tests (auto-provision the stacks they need):"
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.integration.$(d)" "integration suite for $(d)";)
 	@$(foreach d,$(CDC_DRIVERS),printf "  %-44s %s\n" "test.2pc.$(d)" "2PC recovery suite for $(d)";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.performance.$(d)" "benchmark suite for $(d) (remote instances, no local stack)";)
 	@printf "  %-44s %s\n" "test.integration | test.2pc | test.unit" "aggregate runs (CI-equivalent)"
 	@if [ -n "$(strip $(HELP_TARGETS))" ]; then \
 		echo ""; \
@@ -382,7 +401,7 @@ help:
 	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG"
 
 .PHONY: lint build \
-	db.source.all.start db.source.all.stop db.source.all.teardown db.source.all.restart db.source.all.refresh \
-	db.destination.all.start db.destination.all.stop db.destination.all.teardown db.destination.all.restart db.destination.all.refresh \
-	db.all.start db.all.stop db.all.teardown db.all.restart db.all.refresh \
+	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \
+	olake.destination.all.start olake.destination.all.stop olake.destination.all.teardown olake.destination.all.restart olake.destination.all.refresh \
+	olake.all.start olake.all.stop olake.all.teardown olake.all.restart olake.all.refresh \
 	test.integration test.2pc test.unit help

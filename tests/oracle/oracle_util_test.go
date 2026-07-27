@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/datazip-inc/olake/lib/utils"
+	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +18,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	var connStr string
 	if fileConfig {
 		var config Config
-		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		testutils.UnmarshalFile("./testdata/source.json", &config, false)
 		connStr = config.connectionString()
 	} else {
 		connStr = "oracle://myuser:secret1234@localhost:1521/orcl"

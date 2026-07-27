@@ -1,3 +1,5 @@
+// TODO: unify these onto lib/constants directly in a later refactor. Deferred for now because the
+// change spans most of the codebase.
 package constants
 
 import (
@@ -56,12 +58,6 @@ const (
 	CdcTimestamp = libconstants.CdcTimestamp
 )
 
-// The following identifiers live in lib/constants so the decoupled test modules under tests/
-// and olake share a single definition, without re-pathing every call site in the repo. They are
-// re-exported here so existing constants.<Name> usages in olake stay unchanged.
-//
-// TODO: unify these onto lib/constants directly in a later refactor. Deferred for now because the
-// change spans most of the codebase.
 type DriverType = libconstants.DriverType
 
 const (

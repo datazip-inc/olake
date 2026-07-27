@@ -10,6 +10,7 @@ require (
 	github.com/parquet-go/parquet-go v0.29.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0
+	golang.org/x/sync v0.21.0
 )
 
 require (
@@ -18,7 +19,6 @@ require (
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
-	golang.org/x/sync v0.21.0 // indirect
 )
 
 require (

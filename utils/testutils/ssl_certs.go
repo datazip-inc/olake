@@ -1,4 +1,4 @@
-package lib
+package testutils
 
 import (
 	"crypto/rand"

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/datazip-inc/olake/lib/utils"
+	"github.com/datazip-inc/olake/tests/testutils"
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
@@ -20,7 +20,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	var dsn string
 	if fileConfig {
 		var config Config
-		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		testutils.UnmarshalFile("./testdata/source.json", &config, false)
 		dsn = config.BuildDSN()
 	} else {
 		dsn = "HOSTNAME=localhost;PORT=50000;DATABASE=testdb;UID=db2inst1;PWD=secret1234;"

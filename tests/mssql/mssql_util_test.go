@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/datazip-inc/olake/lib/utils"
+	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/stretchr/testify/require"
@@ -20,7 +20,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	var connStr string
 	if fileConfig {
 		var config Config
-		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		testutils.UnmarshalFile("./testdata/source.json", &config, false)
 
 		config.Host = fmt.Sprintf("%s:%d", config.Host, config.Port)
 

@@ -13,7 +13,6 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/lib/constants"
-	"github.com/datazip-inc/olake/lib/utils"
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/types"
@@ -133,7 +132,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 	var kafkaJSONBroker string
 	if fileConfig {
 		var config Config
-		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		testutils.UnmarshalFile("./testdata/source.json", &config, false)
 		kafkaJSONBroker = config.BootstrapServers
 	} else {
 		kafkaJSONBroker = kafkaJSONIntegrationBroker
@@ -275,7 +274,7 @@ func waitForSyncProgress(ctx context.Context, t *testing.T) {
 		var stats struct {
 			SyncedRecords int64 `json:"Synced Records"`
 		}
-		if err := utils.UnmarshalFile(statsPath, &stats, false); err != nil {
+		if err := testutils.UnmarshalFile(statsPath, &stats, false); err != nil {
 			return false
 		}
 		if stats.SyncedRecords > 0 {
@@ -308,7 +307,7 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 	var kafkaAvroBroker string
 	if fileConfig {
 		var config Config
-		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		testutils.UnmarshalFile("./testdata/source.json", &config, false)
 		kafkaAvroBroker = config.BootstrapServers
 	} else {
 		kafkaAvroBroker = "127.0.0.1:29192"
@@ -402,7 +401,7 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Cl
 	adm := kadm.NewClient(client)
 
 	// Olake uses multiple static group members; force-leave any lingering members, then wait until empty.
-	require.NoError(t, utils.RetryOnBackoff(ctx, 60, 2*time.Second, func(ctx context.Context) error {
+	require.NoError(t, testutils.RetryOnBackoff(ctx, 60, 2*time.Second, func(ctx context.Context) error {
 		groups, describeErr := adm.DescribeGroups(ctx, consumerGroupID)
 		if describeErr != nil {
 			return describeErr
@@ -481,7 +480,7 @@ func registerSchemaWithRetry(t *testing.T, url, topic, schema string) uint32 {
 	var schemaID uint32
 
 	// retry for schema registration
-	err = utils.RetryOnBackoff(context.Background(), 5, 2*time.Second, func(_ context.Context) error {
+	err = testutils.RetryOnBackoff(context.Background(), 5, 2*time.Second, func(_ context.Context) error {
 		// get schema response
 		response, err := client.Post(
 			fmt.Sprintf("%s/subjects/%s-value/versions", url, topic),

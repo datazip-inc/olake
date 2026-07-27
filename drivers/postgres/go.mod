@@ -112,7 +112,7 @@ require (
 )
 
 require (
-	github.com/datazip-inc/olake/lib v0.0.0-00010101000000-000000000000
+	github.com/datazip-inc/olake/lib v0.0.0-00010101000000-000000000000 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jackc/pgx/v4 v4.18.3
 	github.com/jmoiron/sqlx v1.4.0

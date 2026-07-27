@@ -5,14 +5,25 @@ import (
 	"sync/atomic"
 
 	"github.com/datazip-inc/olake/constants"
-	libutils "github.com/datazip-inc/olake/lib/utils"
 	"golang.org/x/sync/errgroup"
 )
 
 type CtxFunc = func(ctx context.Context) error
 
 func Concurrent[T any](ctx context.Context, array []T, concurrency int, execute func(ctx context.Context, one T, executionNumber int) error) error {
-	return libutils.Concurrent(ctx, array, concurrency, execute)
+	executor, ctx := errgroup.WithContext(ctx)
+	executor.SetLimit(concurrency)
+
+	for idx, one := range array {
+		// schedule an execution
+		// hold loop till a slot is available
+		executor.Go(func() error {
+			return execute(ctx, one, idx)
+		})
+	}
+
+	// block the execution
+	return executor.Wait()
 }
 
 func ConcurrentF(ctx context.Context, functions ...CtxFunc) error {

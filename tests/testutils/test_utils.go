@@ -14,9 +14,6 @@ import (
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/datazip-inc/olake/lib/constants"
-	"github.com/datazip-inc/olake/lib/utils"
-	"github.com/datazip-inc/olake/lib/utils/logger"
-	"github.com/datazip-inc/olake/lib/utils/typeutils"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/moby/moby/api/types/container"
@@ -122,7 +119,7 @@ func loadBenchmarks(path string) (*benchmarkStore, error) {
 
 // load loads the stored benchmarks data from the file.
 func (s *benchmarkStore) load() error {
-	if err := utils.UnmarshalFile(s.FilePath, s, false); err != nil {
+	if err := UnmarshalFile(s.FilePath, s, false); err != nil {
 		if _, statErr := os.Stat(s.FilePath); os.IsNotExist(statErr) {
 			// Missing file is acceptable, it will be created when the first RPS is recorded.
 			return nil
@@ -138,7 +135,7 @@ func (s *benchmarkStore) record(
 	isBackfill bool,
 	rps float64,
 ) error {
-	rpsValues := utils.Ternary(
+	rpsValues := Ternary(
 		isBackfill,
 		s.Backfill.RPS,
 		s.CDC.RPS,
@@ -159,7 +156,7 @@ func (s *benchmarkStore) record(
 		s.CDC.UpdatedAt = time.Now().UTC()
 	}
 
-	return logger.FileLoggerWithPath(s, s.FilePath)
+	return FileLoggerWithPath(s, s.FilePath)
 }
 
 // stats returns the average RPS and count of past RPS values for the given driver and mode.
@@ -167,7 +164,7 @@ func (s *benchmarkStore) record(
 func (s *benchmarkStore) stats(
 	isBackfill bool,
 ) (averageRPS float64, observations int) {
-	rpsValues := utils.Ternary(
+	rpsValues := Ternary(
 		isBackfill,
 		s.Backfill.RPS,
 		s.CDC.RPS,
@@ -178,7 +175,7 @@ func (s *benchmarkStore) stats(
 		return 0, 0
 	}
 
-	return utils.Average(rpsValues), len(rpsValues)
+	return Average(rpsValues), len(rpsValues)
 }
 
 // GetTestConfig returns the test config for the given driver
@@ -251,11 +248,11 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 	}
 	streamConditions := make([]string, len(stream))
 	for i, s := range stream {
-		s = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(s), s).(string)
+		s = Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(s), s).(string)
 		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 	}
 	condition := strings.Join(streamConditions, " or ")
-	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
+	tmpCatalog := fmt.Sprintf("/tmp/%s_%s_streams.json", config.Driver, Ternary(isBackfill, "backfill", "cdc").(string))
 
 	if filterConfig == "" {
 		filterConfig = "{}"
@@ -279,7 +276,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
 func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
 	// in case of Oracle, the stream names are in uppercase in stream.json
-	streamName = utils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(streamName), streamName).(string)
+	streamName = Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
 	// map/select pattern updates nested array members
 	return fmt.Sprintf(
@@ -291,8 +288,11 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 
 // reset state file so incremental can perform initial load (equivalent to full load on first run)
 func resetStateFileCommand(config TestConfig) string {
-	// Ensure the state is clean irrespective of previous CDC run
-	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
+	// Ensure the state is clean irrespective of previous CDC run. The version has to be stamped:
+	// an empty state reads back as version 0, which puts olake in legacy type-mapping mode for the
+	// whole run, so the sub-tests using a reset state would assert against different types than
+	// every other sub-test.
+	return fmt.Sprintf(`rm -f %[1]s; echo '{"version": %[2]d}' > %[1]s`, config.StatePath, constants.LatestStateVersion)
 }
 
 // saveStateFileCommand copies state.json to the checkpoint state file.
@@ -424,7 +424,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	schema map[string]interface{},
 	isCDC bool,
 ) error {
-	destDBPrefix := utils.Ternary(cfg.TestConfig.DataFormat != "", fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat), fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
+	destDBPrefix := Ternary(cfg.TestConfig.DataFormat != "", fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat), fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
 	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 
 	// Execute operation before sync if needed
@@ -556,7 +556,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 		},
 	}
 
-	testCases := utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
+	testCases := Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
 
 	// Run each test case
 	for _, tc := range testCases {
@@ -655,7 +655,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 		},
 	}
 
-	testCases := utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
+	testCases := Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
 
 	// Run each test case
 	for _, tc := range testCases {
@@ -902,21 +902,21 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 
 	twoPCCDCTestCases := []syncTestCase{
 		{
-			name:                     utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "CDC - initial load", "Full-Refresh").(string),
+			name:                     Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "CDC - initial load", "Full-Refresh").(string),
 			operation:                "",
 			useState:                 false,
-			opSymbol:                 utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "c", "r").(string),
+			opSymbol:                 Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "c", "r").(string),
 			expected:                 cfg.ExpectedData,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 5,
 		},
 		{
 			name:                     "CDC - insert",
-			operation:                utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "add", "insert").(string),
+			operation:                Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "add", "insert").(string),
 			useState:                 true,
 			opSymbol:                 "c",
 			expected:                 cfg.ExpectedData,
-			preSetupCommands:         utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), []string{}, []string{saveStateFileCommand(cfg.TestConfig)}).([]string),
+			preSetupCommands:         Ternary(cfg.TestConfig.Driver == string(constants.Kafka), []string{}, []string{saveStateFileCommand(cfg.TestConfig)}).([]string),
 			verifyNoDuplicates:       cfg.TestConfig.Driver == string(constants.Kafka),
 			expectedRowCountByOpType: 10,
 		},
@@ -932,8 +932,8 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 			opSymbol:                 "c",
 			expected:                 cfg.ExpectedData,
 			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: int64(utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), 11, 1).(int)),
-			preSetupCommands:         utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), []string{}, []string{restoreStateFileCommand(cfg.TestConfig)}).([]string),
+			expectedRowCountByOpType: int64(Ternary(cfg.TestConfig.Driver == string(constants.Kafka), 11, 1).(int)),
+			preSetupCommands:         Ternary(cfg.TestConfig.Driver == string(constants.Kafka), []string{}, []string{restoreStateFileCommand(cfg.TestConfig)}).([]string),
 		},
 		{
 			// After the recovery sync advanced state to the committed metadata LSN,
@@ -943,7 +943,7 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 			opSymbol:                 "c",
 			expected:                 cfg.ExpectedData,
 			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: int64(utils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), 12, 2).(int)),
+			expectedRowCountByOpType: int64(Ternary(cfg.TestConfig.Driver == string(constants.Kafka), 12, 2).(int)),
 		},
 	}
 
@@ -1159,7 +1159,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
-	currentTestTable := utils.Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
+	currentTestTable := Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
 
 	// 2PC tests don't need schema discovery — the schema is already validated by the regular integration test.
 	testStreamsData, err := os.ReadFile(cfg.TestConfig.HostTestCatalogPath)
@@ -1346,7 +1346,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
-	currentTestTable := utils.Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
+	currentTestTable := Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
 
 	t.Run("Discover", func(t *testing.T) {
 		skipOutsideTestPhase(t, "discover")
@@ -1376,7 +1376,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			if err != nil {
 				return fmt.Errorf("failed to read actual streams JSON: %s", err)
 			}
-			if !utils.NormalizedEqual(string(streamsJSON), string(testStreamsJSON)) {
+			if !NormalizedEqual(string(streamsJSON), string(testStreamsJSON)) {
 				return fmt.Errorf("streams.json does not match expected test_streams.json\nExpected:\n%s\nGot:\n%s", string(streamsJSON), string(testStreamsJSON))
 			}
 			t.Logf("Generated streams validated with test streams")
@@ -1640,7 +1640,7 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	}
 
 	if excludedColumn != "" {
-		_, ok := icebergSchema[utils.Reformat(excludedColumn)]
+		_, ok := icebergSchema[Reformat(excludedColumn)]
 		require.Falsef(t, ok, "Excluded column %q should not exist in Iceberg schema", excludedColumn)
 	}
 
@@ -1893,7 +1893,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		}
 	}
 	if excludedColumn != "" {
-		_, ok := parquetSchema[utils.Reformat(excludedColumn)]
+		_, ok := parquetSchema[Reformat(excludedColumn)]
 		require.Falsef(t, ok, "Excluded column %q should not exist in Parquet schema", excludedColumn)
 	}
 
@@ -1928,10 +1928,10 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	checkBenchmarkRPS := func(config TestConfig, isBackfill bool) (bool, float64, error) {
 		// get current RPS
 		var stats SyncSpeed
-		if err := utils.UnmarshalFile(filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "stats.json")), &stats, false); err != nil {
+		if err := UnmarshalFile(filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "stats.json")), &stats, false); err != nil {
 			return false, 0, err
 		}
-		rps, err := typeutils.ReformatFloat64(strings.Split(stats.Speed, " ")[0])
+		rps, err := ParseFloat64(strings.Split(stats.Speed, " ")[0])
 		if err != nil {
 			return false, 0, fmt.Errorf("failed to get RPS from stats: %s", err)
 		}
@@ -1948,7 +1948,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		// No benchmarks exist yet for this driver/mode
 		// Skip validation to allow initial benchmarking.
 		if observations == 0 {
-			t.Logf("No benchmarks exist yet for %s %s mode, skipping validation", config.Driver, utils.Ternary(isBackfill, "backfill", "cdc").(string))
+			t.Logf("No benchmarks exist yet for %s %s mode, skipping validation", config.Driver, Ternary(isBackfill, "backfill", "cdc").(string))
 			return true, rps, nil
 		}
 		if rps < BenchmarkThreshold*averageRPS {

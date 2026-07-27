@@ -40,19 +40,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # Before anything starts: the iceberg catalog's postgres runs as uid 999 and
-      # needs to own its bind mount. db.destination.all.up only mkdir -p's these,
-      # so pre-creating them here settles the ownership.
       - name: Set up Data Directories
         run: |
           sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
           sudo chown -R 999:999 destination/iceberg/local-test/data
           sudo chmod -R 777 destination/iceberg/local-test/data
 
-      # Before the stacks start: hashFiles walks whatever is in the workspace, and
-      # the catalog postgres locks its data dir to 0700 uid 999 the moment it boots,
-      # which the runner user cannot read. Keyed on the one pom.xml by path rather
-      # than **/pom.xml for the same reason -- no full-workspace walk.
+      # Building the iceberg java writer needs its maven dependencies, which the pom.xml pins.
       - name: Cache Maven dependencies
         uses: actions/cache@v4
         with:
@@ -65,7 +59,7 @@ jobs:
       # Kafka and the destination stack boot together; nothing blocks until the
       # wait step, so they come up while the steps below run.
       - name: Start Test Infrastructure
-        run: make -j --output-sync=target db.kafka.up db.destination.all.up
+        run: make -j --output-sync=target olake.kafka.up olake.destination.all.up
 
       - name: Install Go Dependencies
         working-directory: ./tests/testutils
@@ -84,4 +78,4 @@ jobs:
       # stop, not teardown: teardown also deletes the root-owned data dir above.
       - name: Cleanup
         if: always()
-        run: make -j db.kafka.stop db.destination.all.stop
+        run: make -j olake.kafka.stop olake.destination.all.stop

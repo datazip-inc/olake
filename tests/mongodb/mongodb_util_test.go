@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/datazip-inc/olake/lib/utils"
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
@@ -39,7 +38,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	var connStr string
 	var config Config
 	if fileConfig {
-		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		testutils.UnmarshalFile("./testdata/source.json", &config, false)
 		connStr = fmt.Sprintf(
 			"mongodb://%s:%s@%s/?authSource=%s&readPreference=%s",
 			config.Username,
@@ -180,7 +179,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 		// TODO: insert data in batch
 		// insert the data into the cdc tables concurrently
-		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+		err := testutils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			srcColl := client.Database(config.Database).Collection(backfillStreams[executionNumber])
 			destColl := client.Database(config.Database).Collection(cdcStream)
 

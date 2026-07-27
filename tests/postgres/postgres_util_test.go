@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/datazip-inc/olake/lib/utils"
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
@@ -24,7 +23,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	var connStr string
 	if fileConfig {
 		var config Config
-		utils.UnmarshalFile("./testdata/source.json", &config, false)
+		testutils.UnmarshalFile("./testdata/source.json", &config, false)
 		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
 			config.Username,
 			config.Password,
@@ -240,7 +239,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		totalRows := 15_000_000
 		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
 
-		err := utils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+		err := testutils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			for offset := 0; offset < totalRows; offset += batchSize {
 				query := fmt.Sprintf(
 					`INSERT INTO %s

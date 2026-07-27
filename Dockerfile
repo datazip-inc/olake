@@ -58,7 +58,8 @@ COPY --from=builder /home/app/drivers/${DRIVER_NAME}/resources/spec.json /driver
 COPY --from=builder /home/app/destination/iceberg/resources/spec.json /destination/iceberg/resources/spec.json
 COPY --from=builder /home/app/destination/parquet/resources/spec.json /destination/parquet/resources/spec.json
 
-# Driver-specific runtime files staged by `make prepare.<driver>` (empty for most drivers)
+# Driver-specific runtime files staged by `make prepare.<driver>`. Empty for every driver except
+# db2, which stages the IBM clidriver its cgo build links against.
 COPY --from=builder /runtime-overlay/ /
 RUN ldconfig
 

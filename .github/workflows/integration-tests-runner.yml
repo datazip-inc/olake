@@ -29,19 +29,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      # Before anything starts: the iceberg catalog's postgres runs as uid 999 and
-      # needs to own its bind mount. db.destination.all.up only mkdir -p's these,
-      # so pre-creating them here settles the ownership.
       - name: Set up Data Directories
         run: |
           sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
           sudo chown -R 999:999 destination/iceberg/local-test/data
           sudo chmod -R 777 destination/iceberg/local-test/data
 
-      # Before the stacks start: hashFiles walks whatever is in the workspace, and
-      # the catalog postgres locks its data dir to 0700 uid 999 the moment it boots,
-      # which the runner user cannot read. Keyed on the one pom.xml by path rather
-      # than **/pom.xml for the same reason -- no full-workspace walk.
+      # Building the iceberg java writer needs its maven dependencies, which the pom.xml pins.
       - name: Cache Maven dependencies
         uses: actions/cache@v4
         with:
@@ -55,11 +49,10 @@ jobs:
       # so the image pulls overlap instead of queueing. Containers boot in the
       # background while the steps below run; nothing blocks until the wait step.
       - name: Start Test Infrastructure
-        run: make -j --output-sync=target db.all.up
+        run: make -j --output-sync=target olake.all.up
 
-      # Host build deps per driver (db2: the IBM clidriver; a no-op for the rest).
-      # The cgo env for it comes from GO_ENV.db2 in the test targets, so nothing
-      # needs exporting into $GITHUB_ENV here.
+      # NOTE: only db2 does any work here (it installs the IBM clidriver); a no-op for every
+      # other driver.
       - name: Provision Build Dependencies
         run: make prepare.all
 
@@ -73,6 +66,9 @@ jobs:
 
       - name: Build Test Base Image
         run: make docker.base.build
+
+      - name: Wait for Destination Stack
+        run: make olake.destination.all.wait
 
       # The sync suites run many olake processes concurrently, and the first to reach a freshly
       # created iceberg JdbcCatalog race each other's CREATE TABLE on the shared catalog bookkeeping
@@ -105,4 +101,4 @@ jobs:
       # stop, not teardown: teardown also deletes the root-owned data dir above.
       - name: Cleanup
         if: always()
-        run: make -j db.all.stop
+        run: make -j olake.all.stop

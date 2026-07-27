@@ -127,8 +127,7 @@ jobs:
         github-token: ${{ github.token }}
 
     - name: Run Performance Tests
-      working-directory: ./tests
-      run: go test -v ./${{ matrix.driver }}/... -timeout 0 -run 'Performance'
+      run: make test.performance.${{ matrix.driver }}
 
     - name: Upload Benchmarks History
       uses: actions/upload-artifact@v4
