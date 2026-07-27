@@ -172,8 +172,12 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 		t.Logf("Added 1 updated message to topic '%s'", streams[0])
 
 	case "insert_2pc":
-		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, client, KafkaJsonConsumerGroupID, streams[0], 0, 1)
+		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1.
+		// Each suite reads under its own consumer group, whose id is its topic (applySuite's source
+		// override sets consumer_group_id = <table>), so roll back THAT group -- the shared
+		// KafkaJsonConsumerGroupID constant is one this suite's sync never joined, and targeting it
+		// fails with GROUP_ID_NOT_FOUND, silently skipping the rollback.
+		commitConsumerGroupOffset(ctx, t, client, streams[0], streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
@@ -231,7 +235,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		defer func() {
 			if client != nil {
 				client.Close()
-				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", KafkaJsonConsumerGroupID, instanceID)
+				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", topic, instanceID)
 			}
 			close(done)
 		}()
@@ -244,7 +248,9 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		var err error
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(kafkaJSONIntegrationBroker),
-			kgo.ConsumerGroup(KafkaJsonConsumerGroupID),
+			// Same group the suite's sync joined (consumer_group_id = its topic), which is what
+			// makes this consumer's arrival trigger a rebalance for it.
+			kgo.ConsumerGroup(topic),
 			kgo.ClientID(instanceID),
 			kgo.InstanceID(instanceID),
 			kgo.ConsumeTopics(topic),
@@ -255,7 +261,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		)
 		require.NoError(t, err)
 
-		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJsonConsumerGroupID, topic)
+		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", topic, topic)
 		for rebalanceCtx.Err() == nil {
 			client.PollFetches(rebalanceCtx)
 		}

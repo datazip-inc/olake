@@ -3,6 +3,7 @@ package destination
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 
@@ -10,6 +11,12 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
+
+// SkipDestinationCheckEnvVar makes NewWriterPool skip the destination's pre-sync check when
+// set to any non-empty value. Unset — the default — runs the check, so nothing changes for a
+// normal sync. It exists for callers (the integration harness) that already validated the
+// destination out of band and want to avoid repeating the ~1.9s catalog round-trip per sync.
+const SkipDestinationCheckEnvVar = "OLAKE_SKIP_DESTINATION_CHECK"
 
 type (
 	initWriter func(config any) (Writer, func(ctx context.Context), error)
@@ -105,7 +112,12 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 		batchSize:  batchSize,
 	}
 
-	if err := adapter.Check(ctx); err != nil {
+	// Stays on by default: a user pointing olake at a misconfigured destination should hear about
+	// it up front, not partway through a sync. SkipDestinationCheckEnvVar is for callers that
+	// already checked the destination out of band (see the integration harness).
+	if os.Getenv(SkipDestinationCheckEnvVar) != "" {
+		logger.Debugf("skipping destination check (%s set)", SkipDestinationCheckEnvVar)
+	} else if err := adapter.Check(ctx); err != nil {
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 

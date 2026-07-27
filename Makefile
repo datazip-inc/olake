@@ -20,12 +20,21 @@ local_driver_platforms = $(or $(PLATFORMS),$(call parse_platforms_conf,$(1)))
 # Build a driver image locally, e.g. `make docker.postgres.build IMAGE_TAG=v1.2.3`.
 # Drivers with an explicit entry in drivers/platforms.conf are pinned to it.
 # Concrete (non-pattern) targets so they are phony and shells can autocomplete them.
+# DOCKER_BUILD lets CI add buildx + a shared layer cache without changing local behaviour:
+# the default plain `docker build` loads into the local daemon exactly as before.
 IMAGE_TAG ?= local
+DOCKER_BUILD ?= docker build
 .PHONY: $(addsuffix .build,$(addprefix docker.,$(DRIVERS)))
 $(addsuffix .build,$(addprefix docker.,$(DRIVERS))): docker.%.build:
-	docker build $(addprefix --platform ,$(call local_driver_platforms,$*)) \
+	$(DOCKER_BUILD) $(addprefix --platform ,$(call local_driver_platforms,$*)) \
+		$(addprefix --target ,$(DOCKER_TARGET.$*)) \
 		--build-arg DRIVER_NAME=$* \
 		-t olake/source-$*:$(IMAGE_TAG) .
+
+# Queried by CI to enumerate the driver matrix without hard-coding it.
+.PHONY: print.source-drivers
+print.source-drivers:
+	@echo $(SOURCE_DRIVERS)
 
 gomod:
 	find . -name go.mod -execdir go mod tidy \;
@@ -181,11 +190,18 @@ prepare.all: $(addprefix prepare.,$(DRIVERS))
 
 # --- source databases (generated per driver) ---------------------------------
 define SOURCE_DB_template
-.PHONY: db.$(1).start db.$(1).stop db.$(1).teardown db.$(1).restart db.$(1).refresh
-db.$(1).start:
+.PHONY: db.$(1).up db.$(1).wait db.$(1).start db.$(1).stop db.$(1).teardown db.$(1).restart db.$(1).refresh
+db.$(1).up:
 	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml up -d
+
+db.$(1).wait:
 	@$$(call wait_ready,$(1))
 	@$$(POST_SETUP.$(1))
+
+# Sequenced via sub-make so `make -j` cannot probe a stack that is not up yet.
+db.$(1).start:
+	@$$(MAKE) --no-print-directory db.$(1).up
+	@$$(MAKE) --no-print-directory db.$(1).wait
 
 db.$(1).stop:
 	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml down --remove-orphans
@@ -205,6 +221,8 @@ db.$(1).refresh:
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call SOURCE_DB_template,$(d))))
 
+db.source.all.up: $(addprefix db.,$(addsuffix .up,$(SOURCE_DRIVERS)))
+db.source.all.wait: $(addprefix db.,$(addsuffix .wait,$(SOURCE_DRIVERS)))
 db.source.all.start: $(addprefix db.,$(addsuffix .start,$(SOURCE_DRIVERS)))
 db.source.all.stop: $(addprefix db.,$(addsuffix .stop,$(SOURCE_DRIVERS)))
 db.source.all.teardown: $(addprefix db.,$(addsuffix .teardown,$(SOURCE_DRIVERS)))
@@ -216,11 +234,17 @@ db.source.all.refresh:
 	@$(MAKE) --no-print-directory db.source.all.start
 
 # --- destination stack --------------------------------------------------------
-db.destination.all.start:
+db.destination.all.up:
 	mkdir -p $(DEST_DATA_DIR)/minio-data $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
 	$(COMPOSE) -f $(DEST_COMPOSE) up -d $(DEST_SERVICES)
+
+db.destination.all.wait:
 	@$(call wait_ready,minio)
 	@$(call wait_ready,spark)
+
+db.destination.all.start:
+	@$(MAKE) --no-print-directory db.destination.all.up
+	@$(MAKE) --no-print-directory db.destination.all.wait
 
 db.destination.all.stop:
 	$(COMPOSE) -f $(DEST_COMPOSE) down --remove-orphans
@@ -236,6 +260,8 @@ db.destination.all.refresh:
 	@$(MAKE) --no-print-directory db.destination.all.teardown
 	@$(MAKE) --no-print-directory db.destination.all.start
 
+db.all.up: db.source.all.up db.destination.all.up
+db.all.wait: db.source.all.wait db.destination.all.wait
 db.all.start: db.source.all.start db.destination.all.start
 db.all.stop: db.source.all.stop db.destination.all.stop
 db.all.teardown: db.source.all.teardown db.destination.all.teardown
@@ -258,6 +284,10 @@ $(ICEBERG_JAR): $(ICEBERG_JAR_SRCS)
 	fi
 	cp $(ICEBERG_JAR) $(ROOT_JAR)
 
+# Phony alias so CI (and humans) can `make iceberg.jar` without knowing the file path.
+.PHONY: iceberg.jar
+iceberg.jar: $(ICEBERG_JAR)
+
 # --- dev builds (generated per driver, incl. s3) ------------------------------
 define DEV_BUILD_template
 .PHONY: dev.$(1).build
@@ -268,16 +298,50 @@ endef
 $(foreach d,$(DRIVERS),$(eval $(call DEV_BUILD_template,$(d))))
 
 # --- tests --------------------------------------------------------------------
+# Bounds go test's -p across a package's parallel top-level tests. CI overrides it.
+TEST_JOBS ?=
+
+# Everything one driver's suites need, brought up CONCURRENTLY: its source stack and the shared
+# destination stack. A recursive -j sub-make (not plain prerequisites) so the two compose pulls
+# overlap even without the caller passing -j. Every goal is idempotent (compose up -d + a readiness
+# poll). The iceberg JAR is only an input to the driver IMAGE build (the Dockerfile COPYs it); when
+# OLAKE_DRIVER_IMAGE pins a pre-built image (CI), the harness skips the image build, so the JAR is
+# not needed and is dropped from the prerequisites.
+driver_test_setup = $(MAKE) --no-print-directory -j3 db.$(1).start db.destination.all.start $(if $(OLAKE_DRIVER_IMAGE),,$(ICEBERG_JAR))
+
+# Compile a driver's test binary without running it, so the (cold) build overlaps CI's container
+# pulls and image build instead of running inside the test step. Through make (not a bare
+# `go test -c`) for db2's cgo env (GO_ENV.db2) + clidriver (prepare.db2).
+define TEST_BUILD_template
+.PHONY: test.build.$(1)
+test.build.$(1): prepare.$(1)
+	$$(GO_ENV.$(1)) go test -c -o /dev/null ./drivers/$(1)/internal/...
+endef
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call TEST_BUILD_template,$(d))))
+
+# test.driver.<d> is the whole CI surface for one driver -- Integration, 2PC and (kafka) Rebalance
+# in a single `go test`, which is what the per-driver matrix job runs. Performance is excluded
+# (external infra, own workflow). The focused test.integration.<d>/test.2pc.<d> remain below.
+define DRIVER_TEST_template
+.PHONY: test.driver.$(1)
+test.driver.$(1): prepare.$(1)
+	@$$(call driver_test_setup,$(1))
+	$$(GO_ENV.$(1)) go test -v ./drivers/$(1)/internal/... -timeout 0 -count=1 -skip 'Performance'
+endef
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_TEST_template,$(d))))
+
 define INTEGRATION_TEST_template
 .PHONY: test.integration.$(1)
-test.integration.$(1): prepare.$(1) db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
+test.integration.$(1): prepare.$(1)
+	@$$(call driver_test_setup,$(1))
 	$$(GO_ENV.$(1)) go test -v ./drivers/$(1)/internal/... -timeout 0 -count=1 -run 'Integration'
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call INTEGRATION_TEST_template,$(d))))
 
 define TWO_PC_TEST_template
 .PHONY: test.2pc.$(1)
-test.2pc.$(1): prepare.$(1) db.$(1).start db.destination.all.start $$(ICEBERG_JAR)
+test.2pc.$(1): prepare.$(1)
+	@$$(call driver_test_setup,$(1))
 	$$(GO_ENV.$(1)) go test -v ./drivers/$(1)/internal/... -timeout 0 -count=1 -run '2PC'
 endef
 $(foreach d,$(CDC_DRIVERS),$(eval $(call TWO_PC_TEST_template,$(d))))

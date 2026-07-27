@@ -268,6 +268,19 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			SELECT md5(random()::text) || md5(random()::text) || md5(random()::text)
 			FROM generate_series(1, %d)`, integrationTestTable, testutils.RollingSeedRows)
 
+	case "create-slot":
+		// streams[0] is the suite's private replication slot (named after the test table by
+		// applySuite/variantSourceOverride). Drop a stale inactive slot left by a local rerun
+		// (fresh CI containers have none), then create it; falls through to the exec below.
+		_, _ = db.ExecContext(ctx, fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, integrationTestTable))
+		query = fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput')`, integrationTestTable)
+
+	case "drop-slot":
+		// Best-effort cleanup: never fail the suite on slot teardown (the CI container is discarded
+		// anyway). Skips a still-active slot; the next run's create-slot drops it once inactive.
+		_, _ = db.ExecContext(ctx, fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, integrationTestTable))
+		return
+
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
