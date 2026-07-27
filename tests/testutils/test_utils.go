@@ -288,11 +288,8 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 
 // reset state file so incremental can perform initial load (equivalent to full load on first run)
 func resetStateFileCommand(config TestConfig) string {
-	// Ensure the state is clean irrespective of previous CDC run. The version has to be stamped:
-	// an empty state reads back as version 0, which puts olake in legacy type-mapping mode for the
-	// whole run, so the sub-tests using a reset state would assert against different types than
-	// every other sub-test.
-	return fmt.Sprintf(`rm -f %[1]s; echo '{"version": %[2]d}' > %[1]s`, config.StatePath, constants.LatestStateVersion)
+	// Ensure the state is clean irrespective of previous CDC run
+	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
 }
 
 // saveStateFileCommand copies state.json to the checkpoint state file.
