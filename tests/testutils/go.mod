@@ -7,12 +7,17 @@ require (
 	github.com/apache/spark-connect-go/v35 v35.0.0-20250317154112-ffd832059443
 	github.com/minio/minio-go/v7 v7.0.34
 	github.com/moby/moby/api v1.54.1
+	github.com/parquet-go/parquet-go v0.29.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.42.0
 )
 
 require (
+	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/apache/thrift v0.23.0 // indirect
+	github.com/parquet-go/bitpack v1.0.0 // indirect
+	github.com/parquet-go/jsonlite v1.0.0 // indirect
+	github.com/twpayne/go-geom v1.6.1 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 )
 
