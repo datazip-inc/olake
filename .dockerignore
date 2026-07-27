@@ -1,2 +1,12 @@
 .git
 test/
+# The destination stack's bind mount is created root-owned (uid 999, the iceberg catalog
+# postgres) when the tests bring it up, so the driver-image build context cannot read it and
+# `docker build .` fails with "permission denied". It is never needed in an image anyway.
+destination/iceberg/local-test/data/
+# Locally-built driver binaries and other gitignored artifacts.
+drivers/*/olake
+olake-data
+**/__debug_bin*
+**/.DS_Store
+.vscode
