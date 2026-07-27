@@ -9,7 +9,13 @@ require (
 	go.mongodb.org/mongo-driver v1.17.3
 )
 
-require github.com/apache/thrift v0.23.0 // indirect
+require (
+	github.com/andybalholm/brotli v1.1.1 // indirect
+	github.com/parquet-go/bitpack v1.0.0 // indirect
+	github.com/parquet-go/jsonlite v1.0.0 // indirect
+	github.com/parquet-go/parquet-go v0.29.0 // indirect
+	github.com/twpayne/go-geom v1.6.1 // indirect
+)
 
 require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
