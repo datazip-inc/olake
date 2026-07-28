@@ -363,10 +363,8 @@ func SetupProcessLogger(processName string) (*ProcessOutputReader, *ProcessOutpu
 // SetupAndStartProcess creates and starts a process with stdout and stderr logged via the logger.
 // It handles the complete process lifecycle including starting the command and managing pipes.
 func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
-	// Readiness here is not observed directly: a goroutine scans the child's output for the
-	// readiness pattern below. So the span this function reports is "child became ready AND a
-	// Go reader got scheduled to notice", which under CPU pressure is not the same thing as
-	// the child's own startup cost. Break it into phases so the two can be told apart.
+	// Readiness is observed by a reader goroutine, so this span is "child ready AND a reader got
+	// scheduled to notice"; the phases below separate that from the child's own startup cost.
 	defer TrackTiming(processName, "setup+start total")()
 
 	// Set up process output capture using the logger utility
@@ -394,8 +392,7 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	cmd.Stdout = stdoutWriter
 	cmd.Stderr = stderrWriter
 
-	// fork+exec only. The child has not run a line of its own code when this returns, so a
-	// slow span here is the OS (or an overloaded host), never the JVM.
+	// fork+exec only: the child has run none of its own code yet, so a slow span here is the OS.
 	stopExec := TrackTiming(processName, "fork+exec")
 	startErr := cmd.Start()
 	stopExec()
@@ -451,10 +448,8 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		}
 	}()
 
-	// Everything the child does — JVM launch, classloading, catalog init, binding the port —
-	// lands in this span, plus however long it takes a reader goroutine to be scheduled and
-	// match the readiness line. Compare against the child's own self-reported startup to see
-	// which of the two is actually costing the time.
+	// Everything the child does (JVM launch, classloading, catalog init, port bind) plus the wait
+	// for a reader goroutine to match the readiness line.
 	stopAwait := TrackTiming(processName, "await readiness")
 
 	// Block until ready, error, or timeout

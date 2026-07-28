@@ -9,7 +9,6 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
-	libconstants "github.com/datazip-inc/olake/lib/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -74,7 +73,7 @@ var syncCmd = &cobra.Command{
 				return err
 			}
 		} else {
-			state.Version = libconstants.LatestStateVersion
+			state.Version = constants.LatestStateVersion
 		}
 		// set state version to global variable to use throughout olake cli instance
 		constants.LoadedStateVersion = state.Version

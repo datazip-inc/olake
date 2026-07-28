@@ -5,15 +5,8 @@ import (
 	"time"
 )
 
-// Phase timing for the olake process itself.
-//
-// Every line is emitted in one greppable shape so a whole run reads as a single timeline:
-//
-//	[timing] <scope> <phase>: <duration>
-//
-// Off unless OLAKE_TIMING is set, so a production sync pays nothing for it. The integration
-// harness sets it on every container and lifts the lines into the test log, where they sit
-// alongside its own `[timing]` spans and break the opaque `sync run` span into phases.
+// TimingEnvVar gates phase timing, emitted as `[timing] <scope> <phase>: <duration>`. Unset -- the
+// default -- a sync pays nothing for it; the integration harness sets it on every container.
 const TimingEnvVar = "OLAKE_TIMING"
 
 var timingEnabled = os.Getenv(TimingEnvVar) != ""
@@ -26,9 +19,8 @@ func LogTiming(scope, phase string, d time.Duration) {
 	Infof("[timing] %s %s: %s", scope, phase, d.Round(time.Millisecond))
 }
 
-// TrackTiming starts a wall-clock timer and returns a stop func that logs the elapsed span.
-// Use `defer logger.TrackTiming(scope, phase)()` to time an enclosing scope, or hold the
-// returned func to close a span early.
+// TrackTiming starts a wall-clock timer and returns a stop func that logs the elapsed span. Use
+// `defer TrackTiming(scope, phase)()`, or hold the returned func to close a span early.
 func TrackTiming(scope, phase string) (stop func()) {
 	if !timingEnabled {
 		return func() {}

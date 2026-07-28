@@ -18,7 +18,6 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/apache/spark-connect-go/v35/spark/sql/types"
-	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -28,8 +27,8 @@ import (
 const (
 	icebergCatalog    = "olake_iceberg"
 	parquetTestBucket = "warehouse"
-	// IP literal, not "localhost": hostname targets make grpc-go's DNS resolver stalling every new connection ~20s when the DNS servers are slow to answer them
-	// IP literals skip the DNS resolver entirely (measured: first query 20.22s vs 42ms).
+	// IP literal, not "localhost": a hostname sends grpc-go through a DNS resolver that stalls
+	// every new connection ~20s when the DNS servers are slow (measured 20.22s vs 42ms).
 	sparkConnectAddress            = "sc://127.0.0.1:15002"
 	SyncTimeout                    = 10 * time.Minute
 	BenchmarkThreshold             = 0.9
@@ -67,13 +66,11 @@ type SyncSpeed struct {
 type TestConfig struct {
 	Driver     string
 	DataFormat string
-	// Suite isolates one driver's suites from each other so they can run concurrently. Empty for
-	// the integration suite, which has to keep the unsuffixed names because `discover` writes
-	// streams.json next to --config and that path is not ours to choose; the other suites seed
-	// their own catalog and so can take suffixed ones. See applySuite.
+	// Suite isolates one driver's suites so they can run concurrently (see applySuite). Empty for
+	// the integration suite, pinned to the unsuffixed names by where `discover` writes streams.json.
 	Suite string
-	// ImagePlatform overrides the platform the driver image runs under (e.g. "linux/amd64"
-	// for drivers whose image only exists for amd64, run emulated on other hosts).
+	// ImagePlatform overrides the platform the driver image runs under, for images that exist
+	// only for amd64 and run emulated elsewhere.
 	ImagePlatform string
 
 	// Host-side paths, read and written directly by the harness.
@@ -98,13 +95,8 @@ type TestConfig struct {
 	StatsPath              string
 }
 
-// applySuite scopes every file a suite REWRITES to that suite, so two suites for the same driver
-// can run at once. Read-only fixtures (source.json, test_streams.json, the destination configs)
-// stay shared -- only the outputs move. Host and container names are suffixed identically, since
-// the whole testdata dir is bind-mounted at /testdata and the CLI is handed both sides.
-//
-// A no-op for the integration suite (empty name): `discover` writes streams.json next to --config
-// with no flag to redirect it, so that one suite is pinned to the unsuffixed names.
+// applySuite moves every file a suite REWRITES into a per-suite directory so two suites for one
+// driver can run at once; read-only fixtures stay shared. A no-op for the integration suite.
 func applySuite(t *testing.T, c *TestConfig, suite string) {
 	t.Helper()
 	if suite == "" {
@@ -112,16 +104,8 @@ func applySuite(t *testing.T, c *TestConfig, suite string) {
 	}
 	c.Suite = suite
 
-	// A DIRECTORY per suite, not a filename suffix. A sync run without --state writes its state to
-	// <folder of --config>/state.json (protocol/root.go), and the suite chain depends on that: the
-	// stateless Full-Refresh persists its post-backfill CDC position there, and the CDC syncs after
-	// it read it back. Rename the file and that handshake breaks silently -- the position lands in
-	// the shared state.json, the suite's own stays {}, and PreCDC treats the next sync as a first
-	// CDC run, advancing the slot past the very change the test just made. So the names stay put
-	// and the directory moves, which isolates the suite AND keeps olake's implicit default correct.
-	//
-	// Only the files a suite REWRITES move. The read-only fixtures (test_streams.json, the
-	// destination configs) stay at the testdata root and are passed by their own explicit flags.
+	// A directory per suite, not a filename suffix: a sync without --state writes state.json next
+	// to --config, and the stateless Full-Refresh -> CDC handshake depends on that default name.
 	hostSuiteDir := filepath.Join(c.HostTestDataPath, suite)
 	require.NoError(t, os.MkdirAll(hostSuiteDir, 0755), "failed to create the %q suite directory", suite)
 	hostPath := func(file string) string { return filepath.Join(hostSuiteDir, file) }
@@ -136,10 +120,7 @@ func applySuite(t *testing.T, c *TestConfig, suite string) {
 	c.StatePath = containerPath("state.json")
 	c.StatsPath = containerPath("stats.json")
 
-	// --config has to live in the suite directory too -- it is what anchors the default state path
-	// above. Copied unconditionally for that reason; variantSourceOverride then edits the copy for
-	// drivers whose CDC readers would otherwise contend (postgres a private replication slot, kafka
-	// a private consumer group).
+	// --config lives in the suite directory too, since it anchors the default state path above.
 	edit := variantSourceOverride(c.Driver, testTableName(c))
 	if edit == nil {
 		edit = func(map[string]interface{}) error { return nil }
@@ -171,13 +152,8 @@ func copyJSONWithEdit(srcHost, dstHost string, edit func(map[string]interface{})
 	return writeHostFile(dstHost, out, 0644)
 }
 
-// variantSourceOverride returns the per-suite source edit for drivers whose concurrent CDC readers
-// would otherwise contend: postgres (a logical replication slot allows one consumer, so each suite
-// needs its own) and kafka (suites sharing one consumer group split the topic's partitions, so each
-// loses records -- give each its own group). id is the suite's unique key, its test table.
-//
-// Returns nil for drivers that can share source.json: mysql assigns its own server_id, and
-// mongodb/mssql change streams are natively multi-reader.
+// variantSourceOverride gives a suite its own CDC reader where concurrent ones contend: a postgres
+// replication slot, a kafka consumer group. nil for drivers that can share source.json.
 func variantSourceOverride(driver, id string) func(map[string]interface{}) error {
 	switch driver {
 	case string(constants.Postgres):
@@ -201,28 +177,23 @@ func variantSourceOverride(driver, id string) func(map[string]interface{}) error
 // testTableName is the source table a suite drives. The suite suffix is what keeps concurrent
 // suites off each other's table -- without it they race the same DROP/CREATE.
 func testTableName(c *TestConfig) string {
-	name := testutils.Ternary(c.DataFormat == "",
+	name := Ternary(c.DataFormat == "",
 		fmt.Sprintf("%s_test_table_olake", c.Driver),
 		fmt.Sprintf("%s_%s_test_table_olake", c.Driver, c.DataFormat)).(string)
-	return testutils.Ternary(c.Suite == "", name, fmt.Sprintf("%s_%s", name, c.Suite)).(string)
+	return Ternary(c.Suite == "", name, fmt.Sprintf("%s_%s", name, c.Suite)).(string)
 }
 
-// destinationDBPrefix is passed as --destination-database-prefix. It carries the suite too because
-// Iceberg.Check probes <prefix>_test_olake on every sync, so suites sharing a prefix would race
-// that probe's CREATE TABLE.
+// destinationDBPrefix is passed as --destination-database-prefix. It carries the suite because
+// Iceberg.Check probes <prefix>_test_olake on every sync, and suites would race that CREATE TABLE.
 func destinationDBPrefix(c *TestConfig) string {
-	prefix := testutils.Ternary(c.DataFormat == "",
+	prefix := Ternary(c.DataFormat == "",
 		fmt.Sprintf("integration_%s", c.Driver),
 		fmt.Sprintf("integration_%s_%s", c.Driver, c.DataFormat)).(string)
-	return testutils.Ternary(c.Suite == "", prefix, fmt.Sprintf("%s_%s", prefix, c.Suite)).(string)
+	return Ternary(c.Suite == "", prefix, fmt.Sprintf("%s_%s", prefix, c.Suite)).(string)
 }
 
-// verifyDiscoveredStreams asserts that every stream test_streams.json describes was discovered,
-// and that what discover produced for it matches. Streams BEYOND those are ignored on purpose:
-// discover enumerates the whole database, so whatever else lives there -- another suite's table,
-// leftovers from an aborted run -- says nothing about whether this driver discovered its own
-// table correctly. Comparing the documents whole made the assertion depend on what else happened
-// to exist at that moment, which is not what it is trying to prove.
+// verifyDiscoveredStreams asserts every stream in test_streams.json was discovered and matches.
+// Extra streams are ignored: discover enumerates the whole database, including other suites' tables.
 func verifyDiscoveredStreams(t *testing.T, expectedPath, actualPath string) {
 	t.Helper()
 
@@ -278,7 +249,7 @@ func verifyDiscoveredStreams(t *testing.T, expectedPath, actualPath string) {
 			require.NoError(t, err)
 			gotJSON, err := json.Marshal(gotEntry)
 			require.NoError(t, err)
-			require.Truef(t, testutils.NormalizedEqual(string(wantJSON), string(gotJSON)),
+			require.Truef(t, NormalizedEqual(string(wantJSON), string(gotJSON)),
 				"%s: discovered %q does not match test_streams.json\nExpected:\n%s\nGot:\n%s", section, key, wantJSON, gotJSON)
 		}
 	}
@@ -288,19 +259,9 @@ func verifyDiscoveredStreams(t *testing.T, expectedPath, actualPath string) {
 	t.Logf("Generated streams validated with test streams")
 }
 
-// seedCatalogFromTestStreams writes test_streams.json out as the suite's catalog, renaming the
-// stream to this suite's table. The fixture names the unsuffixed table, so without the rename a
-// suffixed suite would sync a stream that does not exist. It also suffixes destination_database so
-// the suite writes to its OWN Iceberg namespace (see the inline note below) -- the fixture's baked
-// value would otherwise put every suite in one namespace, where concurrent syncs collide on it.
-//
-// Field-by-field rather than a text substitution, because the two identifiers do not share a
-// spelling: stream names follow the SOURCE's casing (oracle and db2 are SkipCDCDrivers, so
-// normalizeStreamName folds theirs to upper) while destination_table is the Iceberg table and stays
-// lowercase. A single replace catches only one of them -- which left the 2PC suite reading its own
-// _2pc source table but writing into the integration suite's Iceberg table, so one sync hit
-// "Table already exists" and the other's verify found nothing. Two replaces would be worse: for
-// drivers where the spellings DO match it would rename twice, yielding <table>_2pc_2pc.
+// seedCatalogFromTestStreams writes test_streams.json out as the suite's catalog, retargeting it at
+// the suite's table and namespace. Field-by-field: stream names carry the source's casing, tables
+// the destination's, so one text substitution would rename only one of them.
 func seedCatalogFromTestStreams(t *testing.T, c *TestConfig, testTable string) {
 	t.Helper()
 	if c.Suite == "" {
@@ -330,14 +291,8 @@ func seedCatalogFromTestStreams(t *testing.T, c *TestConfig, testTable string) {
 			if stream["destination_table"] == base {
 				stream["destination_table"] = testTable
 			}
-			// Isolate this suite's Iceberg namespace from the integration suite's. The fixture bakes a
-			// destination_database ("<db>:<namespace>", e.g. "db2_testdb:db2inst1") that the sync uses
-			// verbatim -- once destination_database is set, --destination-database-prefix is ignored --
-			// so without this both suites resolve to the SAME namespace and their concurrent syncs race
-			// its CREATE (createNamespace duplicate-key, or a double-committed full-refresh). Append the
-			// suite; the namespace resolves ':'->'_', so this becomes "..._db2inst1_2pc". The suite's
-			// cfg.DestinationDB is suffixed identically (see Test2PCIntegration) so verify/drop hit the
-			// same namespace the sync wrote to.
+			// A baked destination_database is used verbatim (it overrides the prefix flag), so suffix
+			// it or concurrent suites race the CREATE on one shared namespace.
 			if ddb, ok := stream["destination_database"].(string); ok && ddb != "" {
 				stream["destination_database"] = ddb + "_" + c.Suite
 			}
@@ -459,9 +414,8 @@ func (s *benchmarkStore) stats(
 	return Average(rpsValues), len(rpsValues)
 }
 
-// GetTestConfig returns the test config for the given driver. It expects to be called from
-// a test in tests/<driver>; extraParams[0] optionally selects a testdata sub-directory
-// (e.g. kafka's "json"/"avro" formats).
+// GetTestConfig returns the test config for a driver, called from a test in tests/<driver>.
+// extraParams[0] optionally selects a testdata sub-directory (kafka's "json"/"avro" formats).
 func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 	// pwd is olake/tests/(driver)
 	pwd, err := os.Getwd()
@@ -500,9 +454,8 @@ func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 	}
 }
 
-// The helpers below edit the driver's config/catalog files on the host; the driver
-// container sees the changes through the /testdata mount. They replace the jq edits the
-// old harness ran inside the test container.
+// The helpers below edit the driver's config/catalog files on the host; the container sees the
+// changes through the /testdata mount.
 
 // editJSONFile reads path, applies edit to the decoded document, and writes it back.
 func editJSONFile(path string, edit func(doc map[string]interface{}) error) error {
@@ -524,14 +477,8 @@ func editJSONFile(path string, edit func(doc map[string]interface{}) error) erro
 	return writeHostFile(path, out, 0644)
 }
 
-// writeHostFile writes data to a file under the shared /testdata mount, unlinking any existing
-// file first. The driver container runs as root, so on Linux CI a prior container run (e.g.
-// discover emitting streams.json) leaves the target owned by root; the host test process runs
-// as an ordinary user and cannot truncate a root-owned file, so a plain os.WriteFile fails with
-// "permission denied". The testdata directory itself is owned by the test user (git checkout),
-// so unlinking the stale file always succeeds and lets us recreate it fresh. On Docker Desktop
-// (macOS), where container writes are already remapped to the host user, the Remove is a
-// harmless no-op.
+// writeHostFile writes to the shared /testdata mount, unlinking first: the container runs as root,
+// so on Linux CI the test user cannot truncate a file a previous run left behind, only replace it.
 func writeHostFile(path string, data []byte, perm os.FileMode) error {
 	_ = os.Remove(path)
 	return os.WriteFile(path, data, perm)
@@ -540,12 +487,11 @@ func writeHostFile(path string, data []byte, perm os.FileMode) error {
 // normalizeStreamName uppercases the stream name for drivers whose catalogs store
 // uppercase identifiers (e.g. Oracle).
 func normalizeStreamName(driver, streamName string) string {
-	return testutils.Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(driver)), strings.ToUpper(streamName), streamName).(string)
+	return Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(driver)), strings.ToUpper(streamName), streamName).(string)
 }
 
-// updateSelectedStreams rewrites selected_streams so only the given streams (by name,
-// under namespace) stay selected, each with normalization enabled and the partition
-// regex, filter config and excluded column applied.
+// updateSelectedStreams rewrites selected_streams so only the given streams stay selected, with
+// normalization enabled and the partition regex, filter config and excluded column applied.
 func updateSelectedStreams(config *TestConfig, namespace, partitionRegex, filterConfig string, streams []string, columnToExclude string) error {
 	if len(streams) == 0 {
 		return nil
@@ -1414,9 +1360,8 @@ func (cfg *IntegrationTest) testIceberg2PCIncrementalRecovery(
 // reported separately.
 func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 	applySuite(t, cfg.TestConfig, "2pc")
-	// Match the per-suite destination_database seedCatalogFromTestStreams appends: the sync writes to
-	// "<ns>_2pc", so verify/drop (which read cfg.DestinationDB) must target the same -- otherwise they
-	// look in the integration suite's "<ns>" and the two concurrent suites collide on it again.
+	// Match the per-suite destination_database seedCatalogFromTestStreams appends, so verify/drop
+	// target the namespace the sync actually wrote to.
 	cfg.DestinationDB = cfg.DestinationDB + "_" + cfg.TestConfig.Suite
 	ctx := context.Background()
 	cfg.ExecuteQuery = timedExecuteQuery(cfg.TestConfig.Driver, cfg.ExecuteQuery)
@@ -1425,14 +1370,8 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
 	currentTestTable := testTableName(cfg.TestConfig)
 
-	// The slot lives as long as the source config that names it. applySuite pointed this suite's
-	// source config at slot = its table, and olake validates the CDC configuration at startup for
-	// EVERY sync in the suite -- including the incremental ones, whose streams never read it. So it
-	// is created once here and dropped when the suite ends; scoping it to the CDC tests alone left
-	// the incremental tests failing on "no record found" for a slot their config still referenced.
-	//
-	// Only postgres needs this: mysql assigns its own server_id, mongodb/mssql change streams are
-	// natively multi-reader, and kafka gets its own consumer group from the same source override.
+	// Postgres only, and for the whole suite: olake validates the CDC config on EVERY sync, so a
+	// slot scoped to just the CDC tests fails the incremental ones whose config still names it.
 	if cfg.TestConfig.Driver == string(constants.Postgres) {
 		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create-slot", false)
 		defer cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop-slot", false)
@@ -1599,9 +1538,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	currentTestTable := testTableName(cfg.TestConfig)
 
 	t.Run("Discover", func(t *testing.T) {
-		// 1. Query on test table; drop first so leftover state from a previous
-		// aborted run (e.g. evolve-schema mutations) cannot survive the
-		// CREATE IF NOT EXISTS
+		// 1. Query on test table; drop first so an aborted run's leftovers cannot survive
+		// the CREATE IF NOT EXISTS
 		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
@@ -1622,9 +1560,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	})
 
 	t.Run("Sync", func(t *testing.T) {
-		// 1. Query on test table; drop first so leftover state from a previous
-		// aborted run (e.g. evolve-schema mutations) cannot survive the
-		// CREATE IF NOT EXISTS
+		// 1. Query on test table; drop first so an aborted run's leftovers cannot survive
+		// the CREATE IF NOT EXISTS
 		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
@@ -1678,11 +1615,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			})
 		}
 
-		// Parquet file rolling: bulk-seeds the test table and asserts the writer splits the
-		// output into multiple size-bounded files without losing rows. Gated to the drivers
-		// wired with a rolling seed case + a max_file_size_mb in their parquet destination
-		// config (see parquetRollingTestDrivers). Runs last: it replaces the table contents
-		// and clears the partition regex/filter config from streams.json.
+		// Asserts the writer splits bulk output into size-bounded files without losing rows. Runs
+		// last: it replaces the table contents and clears streams.json's regex/filter config.
 		if hasParquetRollingTest(cfg.TestConfig.Driver) {
 			t.Run("Parquet Rolling", func(t *testing.T) {
 				if err := cfg.testParquetRolling(ctx, t, currentTestTable); err != nil {
@@ -1703,10 +1637,8 @@ var (
 	sharedSparkErr  error
 )
 
-// sparkSession returns the shared Spark Connect session, building it on first use. Transient
-// connection failures are retried, and the session is warmed with a trivial query so the
-// one-off server-side bootstrap shows up in the timing log here rather than inflating
-// whichever verify happens to run first.
+// sparkSession returns the shared Spark Connect session, building it on first use and warming it
+// so the one-off server bootstrap is timed here instead of inflating whichever verify runs first.
 func sparkSession(ctx context.Context, t *testing.T) (sql.SparkSession, error) {
 	sharedSparkOnce.Do(func() {
 		defer trackPhaseTiming(t, "spark", "session build")()
@@ -1759,9 +1691,8 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 
 	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, icebergDB, tableName)
-	// The shared session's Iceberg catalog caches table snapshots, so refresh before reading
-	// to see the rows the sync just committed (non-fatal: the table may not exist yet on the
-	// first sync — the retry loop below handles that).
+	// The shared session caches table snapshots, so refresh to see the rows the sync just committed.
+	// Non-fatal: on a first sync the table may not exist yet, which the retry loop below handles.
 	if _, refreshErr := spark.Sql(ctx, fmt.Sprintf("REFRESH TABLE %s", fullTableName)); refreshErr != nil {
 		t.Logf("REFRESH TABLE before verify (non-fatal): %v", refreshErr)
 	}
@@ -2246,9 +2177,8 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		}
 
 		t.Log("(backfill) sync started")
-		// MySQL derives its chunk plan from InnoDB statistics, which drift between runs and
-		// would change the backfill's parallelism under the RPS benchmark. Seed the run with
-		// the committed chunk plan instead so every benchmark measures the same split.
+		// MySQL derives its chunk plan from InnoDB statistics, which drift between runs; seed the
+		// committed plan instead so every benchmark measures the same split.
 		usePreChunkedState := cfg.TestConfig.Driver == string(constants.MySQL)
 		if usePreChunkedState {
 			if err := seedPerformanceState(cfg.TestConfig); err != nil {
