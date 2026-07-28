@@ -19,16 +19,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	var connStr string
 	if fileConfig {
-		var config Config
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
-
-		config.Host = fmt.Sprintf("%s:%d", config.Host, config.Port)
-
-		connStr = fmt.Sprintf("sqlserver://%s:%s@%s?database=%s&encrypt=disable",
-			config.Username,
-			config.Password,
-			config.Host,
-			config.Database,
+		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
+		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable",
+			config.String("username"),
+			config.String("password"),
+			config.String("host"),
+			config.Int("port"),
+			config.String("database"),
 		)
 	} else {
 		connStr = "sqlserver://sa:Password!123@localhost:1433?database=olake_mssql_test&encrypt=disable"

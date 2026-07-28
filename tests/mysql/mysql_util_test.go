@@ -19,14 +19,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	var connStr string
 	if fileConfig {
-		var config Config
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
+		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
+		// the mysql driver spells its single host "hosts"
 		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
-			config.Username,
-			config.Password,
-			config.Host,
-			config.Port,
-			config.Database)
+			config.String("username"),
+			config.String("password"),
+			config.String("hosts"),
+			config.Int("port"),
+			config.String("database"))
 	} else {
 		connStr = "mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true"
 	}

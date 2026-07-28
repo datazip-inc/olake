@@ -3,8 +3,8 @@ package kafka
 import (
 	"testing"
 
-	"github.com/datazip-inc/olake/lib/constants"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
 func kafkaJsonBaseConfig() *testutils.IntegrationTest {

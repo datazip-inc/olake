@@ -9,17 +9,41 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/jmoiron/sqlx"
+	go_ora "github.com/sijms/go-ora/v2"
 	"github.com/stretchr/testify/require"
 )
+
+// connectionString builds the go-ora URL from source.json. It mirrors the oracle driver's own
+// URL construction so the tests connect exactly the way the driver does.
+func connectionString(config testutils.SourceConfig) string {
+	urlOptions := config.StringMap("jdbc_url_params")
+	if urlOptions == nil {
+		urlOptions = map[string]string{}
+	}
+	if sid := config.String("sid"); sid != "" {
+		urlOptions["sid"] = sid
+	}
+	if ssl := config.Sub("ssl"); ssl != nil && ssl.String("mode") != "disable" {
+		urlOptions["ssl"] = "true"
+		urlOptions["ssl verify"] = "false"
+	}
+	quotedUsername := fmt.Sprintf("%q", config.String("username"))
+	return go_ora.BuildUrl(
+		config.String("host"),
+		config.Int("port"),
+		config.String("service_name"),
+		quotedUsername,
+		config.String("password"),
+		urlOptions,
+	)
+}
 
 func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
 	var connStr string
 	if fileConfig {
-		var config Config
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
-		connStr = config.connectionString()
+		connStr = connectionString(testutils.ReadSourceConfig(t, "./testdata/source.json"))
 	} else {
 		connStr = "oracle://myuser:secret1234@localhost:1521/orcl"
 	}

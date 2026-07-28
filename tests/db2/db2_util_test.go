@@ -13,15 +13,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// buildDSN builds the go_ibm_db DSN from source.json. It mirrors the db2 driver's own DSN
+// construction so the tests connect exactly the way the driver does.
+func buildDSN(config testutils.SourceConfig) string {
+	dsn := fmt.Sprintf(
+		"HOSTNAME=%s;PORT=%d;DATABASE=%s;UID=%s;PWD=%s;",
+		config.String("host"),
+		config.Int("port"),
+		config.String("database"),
+		config.String("username"),
+		config.String("password"),
+	)
+
+	// JDBC-style params if provided
+	for key, value := range config.StringMap("jdbc_url_params") {
+		dsn += fmt.Sprintf(";%s=%s", key, value)
+	}
+
+	// SSL if enabled
+	if ssl := config.Sub("ssl"); ssl != nil && ssl.String("mode") != "disable" {
+		dsn += ";SECURITY=SSL"
+	}
+
+	return dsn
+}
+
 // TODO: need to perfect db2 integration testing on local environment. recommended cpu architecture to be used is amd64.
 func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
 	var dsn string
 	if fileConfig {
-		var config Config
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
-		dsn = config.BuildDSN()
+		dsn = buildDSN(testutils.ReadSourceConfig(t, "./testdata/source.json"))
 	} else {
 		dsn = "HOSTNAME=localhost;PORT=50000;DATABASE=testdb;UID=db2inst1;PWD=secret1234;"
 	}

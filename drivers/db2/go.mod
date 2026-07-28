@@ -6,7 +6,6 @@ replace (
 	cloud.google.com/go/compute => cloud.google.com/go/compute v1.23.3
 	cloud.google.com/go/compute/metadata => cloud.google.com/go/compute/metadata v0.6.0
 	github.com/datazip-inc/olake => ../../
-	github.com/datazip-inc/olake/lib => ../../lib
 	github.com/ibmdb/go_ibm_db => github.com/datazip-inc/go_ibm_db v0.0.1
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 )
@@ -37,7 +36,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.30.3 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sts v1.34.0 // indirect
 	github.com/aws/smithy-go v1.23.0 // indirect
-	github.com/datazip-inc/olake/lib v0.0.0-00010101000000-000000000000 // indirect
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect

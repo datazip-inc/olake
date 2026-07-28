@@ -22,14 +22,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	var connStr string
 	if fileConfig {
-		var config Config
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
+		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
 		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
-			config.Username,
-			config.Password,
-			config.Host,
-			config.Port,
-			config.Database,
+			config.String("username"),
+			config.String("password"),
+			config.String("host"),
+			config.Int("port"),
+			config.String("database"),
 		)
 	} else {
 		connStr = "postgres://postgres@localhost:5433/postgres?sslmode=disable"

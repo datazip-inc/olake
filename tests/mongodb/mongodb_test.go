@@ -3,8 +3,8 @@ package mongodb
 import (
 	"testing"
 
-	"github.com/datazip-inc/olake/lib/constants"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
 // mongodbBaseConfig returns an IntegrationTest pre-populated with all fields shared

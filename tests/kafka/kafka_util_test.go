@@ -12,9 +12,9 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
-	"github.com/datazip-inc/olake/lib/constants"
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/linkedin/goavro/v2"
 	"github.com/stretchr/testify/require"
@@ -131,9 +131,8 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	var kafkaJSONBroker string
 	if fileConfig {
-		var config Config
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
-		kafkaJSONBroker = config.BootstrapServers
+		config := testutils.ReadSourceConfig(t, "./testdata/json/source.json")
+		kafkaJSONBroker = config.String("bootstrap_servers")
 	} else {
 		kafkaJSONBroker = kafkaJSONIntegrationBroker
 	}
@@ -306,9 +305,8 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 
 	var kafkaAvroBroker string
 	if fileConfig {
-		var config Config
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
-		kafkaAvroBroker = config.BootstrapServers
+		config := testutils.ReadSourceConfig(t, "./testdata/avro/source.json")
+		kafkaAvroBroker = config.String("bootstrap_servers")
 	} else {
 		kafkaAvroBroker = "127.0.0.1:29192"
 	}
