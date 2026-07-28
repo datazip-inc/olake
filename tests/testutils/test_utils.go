@@ -69,6 +69,7 @@ type TestConfig struct {
 	ParquetDestinationPath string
 	StatePath              string
 	StateCheckpointPath    string // backup of state.json used in 2PC recovery tests
+	PerformanceStatePath   string // committed pre-chunked seed state, copied over state.json by the performance suite
 	StatsPath              string
 	BenchmarksPath         string
 	HostTestDataPath       string
@@ -208,6 +209,7 @@ func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 		ParquetDestinationPath: fmt.Sprintf(containerTestDataPath, driver, "parquet_destination.json"),
 		StatePath:              fmt.Sprintf(containerTestDataPath, driver, "state.json"),
 		StateCheckpointPath:    fmt.Sprintf(containerTestDataPath, driver, "state_checkpoint.json"),
+		PerformanceStatePath:   fmt.Sprintf(containerTestDataPath, driver, "performance_state.json"),
 		StatsPath:              fmt.Sprintf(containerTestDataPath, driver, "stats.json"),
 	}
 }
@@ -288,11 +290,8 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 
 // reset state file so incremental can perform initial load (equivalent to full load on first run)
 func resetStateFileCommand(config TestConfig) string {
-	// Ensure the state is clean irrespective of previous CDC run. The version has to be stamped:
-	// an empty state reads back as version 0, which puts olake in legacy type-mapping mode for the
-	// whole run, so the sub-tests using a reset state would assert against different types than
-	// every other sub-test.
-	return fmt.Sprintf(`rm -f %[1]s; echo '{"version": %[2]d}' > %[1]s`, config.StatePath, constants.LatestStateVersion)
+	// Ensure the state is clean irrespective of previous CDC run
+	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
 }
 
 // saveStateFileCommand copies state.json to the checkpoint state file.
@@ -303,6 +302,13 @@ func saveStateFileCommand(config *TestConfig) string {
 // restoreStateFileCommand replaces state.json with the previously saved checkpoint backup.
 func restoreStateFileCommand(config *TestConfig) string {
 	return fmt.Sprintf(`cp %s %s`, config.StateCheckpointPath, config.StatePath)
+}
+
+// seedPerformanceStateCommand primes state.json from the committed pre-chunked seed. The seed is
+// copied rather than passed to sync directly because sync writes the running state back over
+// --state, which would rewrite the fixture on every benchmark run.
+func seedPerformanceStateCommand(config TestConfig) string {
+	return fmt.Sprintf(`cp %s %s`, config.PerformanceStatePath, config.StatePath)
 }
 
 func toggleArrowIcebergWrites(config TestConfig, enabled bool) string {
@@ -2029,7 +2035,15 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							}
 
 							t.Log("(backfill) sync started")
+							// MySQL derives its chunk plan from InnoDB statistics, which drift between runs and
+							// would change the backfill's parallelism under the RPS benchmark. Seed the run with
+							// the committed chunk plan instead so every benchmark measures the same split.
 							usePreChunkedState := cfg.TestConfig.Driver == string(constants.MySQL)
+							if usePreChunkedState {
+								if code, out, err := ExecCommand(ctx, c, seedPerformanceStateCommand(*cfg.TestConfig)); err != nil || code != 0 {
+									return fmt.Errorf("failed to seed pre-chunked state from %s (%d): %v\n%s", cfg.TestConfig.PerformanceStatePath, code, err, out)
+								}
+							}
 							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState, "iceberg", "--destination-database-prefix", destDBPrefix)
 							if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 								return fmt.Errorf("failed to perform sync:\n%s", string(output))
