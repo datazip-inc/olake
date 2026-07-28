@@ -1,18 +1,11 @@
 name: Integration Tests
 
 on:
+  # No path filter on master: a merge there is a release, so it runs every driver regardless of
+  # what the diff touched.
   push:
     branches:
       - "master"
-    paths:
-      - '**/*.go'
-      - '**/*.java'
-      - '**/go.mod'
-      - 'go.work'
-      - 'Dockerfile'
-      - 'Makefile'
-      - 'drivers/*/driver.mk'
-      - '.github/workflows/integration-tests.yml'
   pull_request:
     branches:
       - "*"
@@ -20,116 +13,117 @@ on:
       - '**/*.go'
       - '**/*.java'
       - '**/go.mod'
-      - 'go.work'
+      - '**/go.work'
+      - '**/pom.xml'
       - 'Dockerfile'
+      - 'base.Dockerfile'
+      - '.dockerignore'
       - 'Makefile'
+      - 'drivers/**.conf'
       - 'drivers/*/driver.mk'
+      - 'drivers/*/docker-compose.yml'
+      - 'destination/iceberg/local-test/**'
+      - 'tests/**'
       - '.github/workflows/integration-tests.yml'
 
 jobs:
-  # Single manual-approval gate for the WHOLE workflow. It's the ONLY job bound to the
-  # `integration_tests` environment (required reviewers), and every other job transitively needs it,
-  # so NOTHING -- not even detect-changes -- runs until a reviewer approves; and because it's the only
-  # gated job, one approval releases the entire run end-to-end (no downstream re-approval).
-  approve:
-    name: Approve integration tests
+  # Ungated, like the three cache jobs below it: the environment prompts once per wave of jobs that
+  # reach it, so gating these too would cost three approvals a run. Cheap: a file list and 3 lookups.
+  preflight:
+    name: Detect changes
     runs-on: ubuntu-latest
-    environment: integration_tests
-    steps:
-      - run: echo "Approved -- running detect-changes, warm, and the driver matrix."
-
-  # Decides which driver jobs run: a PR touching only drivers/<d>/** or tests/<d>/** runs
-  # that driver alone; shared code (root module, lib, tests/testutils, Dockerfile, Makefile)
-  # fans out to every driver. Pushes to master always run the full matrix.
-  detect-changes:
-    name: Detect changed drivers
-    needs: approve
-    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       drivers: ${{ steps.drivers.outputs.drivers }}
+      testutils: ${{ steps.drivers.outputs.testutils }}
+      jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
+      go-cached: ${{ steps.go-cache.outputs.cache-hit }}
+      go-key: ${{ steps.go-cache.outputs.cache-primary-key }}
+      apt-warmed: ${{ steps.apt-cache.outputs.cache-hit }}
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - uses: dorny/paths-filter@v3
-        if: github.event_name == 'pull_request'
-        id: filter
-        with:
-          filters: |
-            shared: &shared
-              - 'go.work'
-              - 'go.mod'
-              - 'Dockerfile'
-              - 'Makefile'
-              - 'base.Dockerfile'
-              - 'connector.go'
-              - 'config/**'
-              - 'constants/**'
-              - 'destination/**'
-              - 'lib/**'
-              - 'pkg/**'
-              - 'protocol/**'
-              - 'types/**'
-              - 'utils/**'
-              - 'writers/**'
-              - 'drivers/abstract/**'
-              - 'drivers/platforms.conf'
-              - 'tests/testutils/**'
-              - '.github/workflows/integration-tests.yml'
-            mysql:
-              - *shared
-              - 'drivers/mysql/**'
-              - 'tests/mysql/**'
-            postgres:
-              - *shared
-              - 'drivers/postgres/**'
-              - 'tests/postgres/**'
-            mongodb:
-              - *shared
-              - 'drivers/mongodb/**'
-              - 'tests/mongodb/**'
-            mssql:
-              - *shared
-              - 'drivers/mssql/**'
-              - 'tests/mssql/**'
-            db2:
-              - *shared
-              - 'drivers/db2/**'
-              - 'tests/db2/**'
-            oracle:
-              - *shared
-              - 'drivers/oracle/**'
-              - 'tests/oracle/**'
-            kafka:
-              - *shared
-              - 'drivers/kafka/**'
-              - 'tests/kafka/**'
-
-      # SOURCE_DRIVERS is the Makefile's list (drivers/ dirs with a go.mod and a
-      # docker-compose.yml), so adding a driver puts it in the push matrix without
-      # editing this file. The paths-filter above still needs its own entry.
+      # drivers/<d>/** and tests/<d>/** select driver <d>; a driver module without a suite (s3)
+      # selects nothing; anything else is shared and runs the full matrix, as does master. Both
+      # driver lists come from the Makefile, so adding a driver never needs an edit here.
       - name: Resolve driver matrix
         id: drivers
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            # 'shared' is only an anchor for the per-driver filters, drop it from the matrix
-            drivers=$(echo '${{ steps.filter.outputs.changes }}' | jq -c 'map(select(. != "shared"))')
-          else
-            drivers=$(make -s print.source-drivers | tr ' ' '\n' | jq -Rc '[., inputs] | map(select(. != ""))')
-          fi
-          echo "drivers=$drivers" >> "$GITHUB_OUTPUT"
-          echo "Running integration tests for: $drivers"
+          set -euo pipefail
+          tested=$(make -s print.source-drivers)
+          known=$(make -s print.drivers)
 
-  # One runner warms everything the matrix consumes (instead of three parallel warm jobs):
-  #  - the Iceberg writer jar (FATAL -- every driver job restores it from this cache), keyed on its
-  #    own sources so an unchanged writer skips Maven entirely;
-  #  - the base apt layer (base.Dockerfile), matched by the driver runtime stage's apt-get.
-  # The apt cache warm is best-effort so a miss never blocks tests. Destination images are NOT cached:
-  # for multi-GB images (Spark) a save/load tarball is slower than a registry pull, so the matrix just
-  # pulls them non-blocking, overlapped with the build.
-  warm:
-    name: Warm caches + build jar
-    needs: approve
-    runs-on: 16gb-runner
+          if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ github.base_ref }}" = master ]; then
+            selected="$tested"
+            testutils=true
+          else
+            changed=$(gh api --paginate \
+              "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+              --jq '.[].filename')
+            case "$changed" in *tests/testutils/*) testutils=true ;; *) testutils=false ;; esac
+            selected=""
+            for file in $changed; do
+              case "$file" in
+                drivers/*/*|tests/*/*) d=${file#*/}; d=${d%%/*} ;;
+                *) d="" ;;
+              esac
+              case " $tested " in *" $d "*) selected="$selected $d"; continue ;; esac
+              case " $known " in *" $d "*) continue ;; esac
+              selected="$tested"
+              break
+            done
+          fi
+
+          drivers=$(printf '%s\n' $selected | sort -u | jq -Rc '[., inputs] | map(select(. != ""))')
+          echo "drivers=$drivers" >> "$GITHUB_OUTPUT"
+          echo "testutils=$testutils" >> "$GITHUB_OUTPUT"
+          echo "Running integration tests for: $drivers (harness changed: $testutils)"
+
+      # lookup-only answers "already built?" without downloading the 362MB jar. No restore-keys:
+      # a fallback would report a stale jar as a hit and every driver would test the wrong writer.
+      - name: Look up Iceberg writer jar cache
+        id: jar-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
+          key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
+          lookup-only: true
+
+      # Keyed on the deps AND the harness source, so editing testutils republishes the cache instead
+      # of leaving eight jobs to recompile it. Exact key only: a prefix hit is a different build.
+      - name: Look up Go module + build cache
+        id: go-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-gobase-${{ hashFiles('tests/**/go.mod', 'tests/go.work', 'tests/testutils/**/*.go') }}
+          lookup-only: true
+
+      # A marker, since buildx's own gha cache keys are internal and cannot be looked up: it records
+      # that this base.Dockerfile was warmed. Eviction can outdate it, and a miss is only a slow build.
+      - name: Look up base docker layer marker
+        id: apt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .apt-warmed
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('base.Dockerfile') }}
+          lookup-only: true
+
+  # Only when the jar is missing: preflight already looked up the cache, so an unchanged writer
+  # skips Maven and this whole job.
+  build-jar:
+    name: Build Iceberg writer jar
+    needs: preflight
+    if: needs.preflight.outputs.jar-cached != 'true'
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout code
@@ -141,37 +135,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # Raw `docker buildx --cache-to/--cache-from type=gha` reads the Actions cache token from the
-      # env, which self-hosted runners don't export by default -- without this buildx silently
-      # caches nothing (the apt layer re-runs). Exposes ACTIONS_CACHE_URL/RUNTIME_TOKEN.
-      - name: Expose GitHub Actions cache token
-        uses: crazy-max/ghaction-github-runtime@v3
-
-      # The warm job no longer USES the jar (the drivers restore it from the cache themselves), so all
-      # it needs here is whether the jar is already cached -- lookup-only checks existence and sets
-      # cache-hit WITHOUT downloading the 362MB jar. It runs BEFORE the Maven cache and the build so
-      # both can gate on its result; on a miss the build produces the jar and the save step at the end
-      # of the job uploads it under this key.
-      #
-      # Deliberately NO restore-keys: cache-hit is 'true' only on an EXACT key match (pom.xml + src/**),
-      # so a changed writer misses and rebuilds. A fallback key would report a stale jar as a hit and
-      # every driver would test against writer code that does not match this branch.
-      - name: Look up Iceberg writer jar cache
-        id: jar-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
-          key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
-          lookup-only: true
-
-      # ~/.m2 only matters when the jar is actually (re)built below -- on a jar-cache HIT mvn never
-      # runs, so restoring (and maybe re-saving) ~/.m2 is pure wasted transfer. Gate it on the jar
-      # cache miss so it is skipped, exactly like the build, whenever the writer is unchanged.
       - name: Cache Maven dependencies
-        if: steps.jar-cache.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -180,120 +144,135 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      # Runs in the background, overlapping the apt warm below. Gated on the lookup miss above: on a
-      # hit the jar is already cached (and the lookup did not download it), so there is nothing to
-      # build -- and since the jar is NOT on disk here, only the `if` prevents `make iceberg.jar` from
-      # rebuilding it. On a miss `mvn clean package` produces it, and the save step at the end uploads
-      # it under the same key.
       - name: Build Iceberg writer jar
-        id: jar
-        if: steps.jar-cache.outputs.cache-hit != 'true'
-        background: true
         run: make iceberg.jar
 
-      # Best-effort: a miss just means the matrix build redoes that apt-get. It swallows its own
-      # failure so the step always exits 0, which lets the join below stay STRICT -- putting
-      # continue-on-error on the wait instead would swallow a jar failure too, and every driver
-      # depends on the jar.
-      - name: Warm base apt layer
-        run: |
-          docker buildx build -f base.Dockerfile --target runtime \
-            --cache-to type=gha,mode=max,scope=olake-base --cache-from type=gha,scope=olake-base . \
-            || echo "::warning::apt cache warm failed (non-fatal)"
-
-      # wait-all rather than `wait: [jar, apt-warm]`: on a cache hit the jar step is skipped, and
-      # wait-all joins whatever is actually running instead of naming a step that never started.
-      # A jar build failure fails the job here.
-      - name: Wait for jar and apt warm
-        wait: jar
-
-      # Persist the freshly built jar under the key the driver jobs restore from. Splitting the
-      # lookup (above) from this save is what let the lookup skip downloading the 362MB jar -- a plain
-      # actions/cache would have downloaded it on restore just to no-op the save. Only on a miss: on a
-      # hit it is already cached. After the wait, so the background build has finished writing it.
+      # Under the key preflight looked up and the driver jobs restore from.
       - name: Save Iceberg writer jar cache
-        if: steps.jar-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
           key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
 
-  # Self-contained -- ONE job per driver via the matrix. On the ephemeral runner
-  # pool each job is a fresh VM with its own Docker daemon, so nothing is shared
-  # across jobs: every job brings up its own source + destination and builds its
-  # own image. Drivers run in parallel as N independent VMs. No teardown -- the VM
-  # is discarded when the job ends.
-  integration-tests:
-    name: ${{ fromJSON('{"mysql":"MySQL","postgres":"PostgreSQL","mongodb":"MongoDB","mssql":"SQL Server","db2":"IBM Db2","oracle":"Oracle","kafka":"Kafka"}')[matrix.driver] }}
-    needs: [detect-changes, warm]
-    if: needs.detect-changes.outputs.drivers != '[]'
-    runs-on: 16gb-runner
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        driver: ${{ fromJSON(needs.detect-changes.outputs.drivers) }}
+  # Skipped while base.Dockerfile is unchanged and already warmed. Failure here is never fatal: the
+  # driver build just re-runs the layers it would have hit from cache.
+  apt-warm:
+    name: Warm base docker layers
+    needs: preflight
+    if: needs.preflight.outputs.apt-warmed != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Before the destination stack starts: the iceberg catalog's postgres runs as uid 999 and
-      # needs to own its bind mount (data/postgres-data). olake.destination.all.up only mkdir -p's
-      # these, as the runner user, so pre-creating them here settles the ownership.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Self-hosted runners do not export the Actions cache token; without it buildx caches nothing.
+      - name: Expose GitHub Actions cache token
+        uses: crazy-max/ghaction-github-runtime@v3
+
+      # Exits 0 either way: a failed warm must not block the matrix, it only leaves those layers to
+      # the driver build. The marker is what tells the next run to try again.
+      - name: Warm base docker layers
+        run: |
+          docker buildx build -f base.Dockerfile --target runtime \
+            --cache-to type=gha,mode=max,scope=olake-base --cache-from type=gha,scope=olake-base . \
+            && echo "$GITHUB_SHA" > .apt-warmed \
+            || echo "::warning::base layer warm failed (non-fatal)"
+
+      # Only on success, so a failed warm leaves the marker missing and the next run retries.
+      - name: Save base layer marker
+        if: hashFiles('.apt-warmed') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .apt-warmed
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('base.Dockerfile') }}
+
+  # The modules and compiled shared deps every driver job restores. Skipped while the cache already
+  # holds an entry for this dependency set and harness source.
+  go-cache:
+    name: Publish Go module + build cache
+    needs: preflight
+    if: needs.preflight.outputs.go-cached != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      # An exact hit is impossible here (preflight already found none), so this only picks up a
+      # near-miss from an earlier dependency set to build on; the post-job save publishes the result.
+      - name: Cache Go modules + build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ needs.preflight.outputs.go-key }}
+          restore-keys: |
+            ${{ runner.os }}-gobase-
+
+      # Every tests module, not just testutils, so the matrix jobs download nothing.
+      - name: Download Go modules
+        run: cd tests && for d in $(go list -m -f '{{.Dir}}'); do go -C "$d" mod download; done
+
+      # The same targets the driver jobs run, so their compile and link both hit this cache.
+      - name: Compile the driver test binaries
+        run: make test.build.all
+
+  # One job per driver, each on its own VM with its own Docker daemon: it brings up its own source
+  # plus destination stack, builds its own image and runs every suite for that driver.
+  integration-tests:
+    name: Test ${{ matrix.driver }}
+    needs: [preflight, build-jar, apt-warm, go-cache]
+    # Every need above this can legitimately be skipped, and a skipped need would otherwise skip
+    # this too -- so gate on "not failed" rather than on success. go-cache is exempt entirely: it
+    # only warms a cache, and it now downloads db2's clidriver, which must not block seven drivers.
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
+    runs-on: 16gb-runner
+    # The whole workflow's approval, deliberately on the only job that spends a 16gb runner: one
+    # prompt releases every driver, and "Re-run failed jobs" re-enters it so a replay costs another.
+    environment: integration_tests
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: ${{ fromJSON(needs.preflight.outputs.drivers) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # The iceberg catalog's postgres runs as uid 999 and has to own its bind mount.
       - name: Set up Data Directories
         run: |
           sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
           sudo chown -R 999:999 destination/iceberg/local-test/data
           sudo chmod -R 777 destination/iceberg/local-test/data
 
+      # Bounded so a wedged pull is a killed step rather than the job's whole budget.
       - name: Start containers
         id: containers
         background: true
-        # Bounded so a wedged pull surfaces as a killed step rather than eating the job's budget.
         timeout-minutes: 15
         run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
-
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version-file: "go.mod"
-          # setup-go's own cache is inert here: it keys on go.sum, and this repo tracks none, so it
-          # silently caches nothing and every run downloads + compiles cold. Disable it to avoid the
-          # "no go.sum" warning; the explicit cache below replaces it, keyed on go.mod instead.
-          cache: false
-
-      - name: Cache Go modules + build
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-          key: ${{ runner.os }}-go-${{ matrix.driver }}-${{ hashFiles('lib/**/go.mod', 'tests/testutils/go.mod', format('tests/{0}/go.mod', matrix.driver)) }}
-          restore-keys: |
-            ${{ runner.os }}-go-${{ matrix.driver }}-
-            ${{ runner.os }}-go-
-
-      - name: Install Dependencies
-        id: go-build
-        background: true
-        timeout-minutes: 15
-        run: make test.build.${{ matrix.driver }}
-
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Raw `docker buildx --cache-to/--cache-from type=gha` reads the Actions cache token from the
-      # env, which self-hosted runners don't export by default -- without this buildx silently
-      # caches nothing (the apt layer re-runs). Exposes ACTIONS_CACHE_URL/RUNTIME_TOKEN.
+      # Self-hosted runners do not export the Actions cache token; without it buildx caches nothing.
       - name: Expose GitHub Actions cache token
         uses: crazy-max/ghaction-github-runtime@v3
 
-      # Restore the jar the warm job built and cached, straight from the GHA cache -- no artifact
-      # round-trip. Keyed identically to the warm job's jar cache; the warm job's post-job save runs
-      # before this job starts (we need: warm), so the entry exists. fail-on-cache-miss: a miss means
-      # the warm cache was evicted, which must fail loudly here -- the Dockerfile COPYs this jar and
-      # the driver jobs have no Maven to rebuild it -- rather than surface as a confusing build error.
+      # fail-on-cache-miss: the Dockerfile COPYs this jar and there is no Maven here to rebuild it.
       - name: Restore Iceberg writer jar
         uses: actions/cache/restore@v4
         with:
@@ -301,39 +280,57 @@ jobs:
           key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
           fail-on-cache-miss: true
 
-      # No --cache-to, on measured evidence: exporting this build's cache to GHA cost ~119s (18.5s
-      # "preparing build cache for export" + 100.2s sending, of which two layers -- the 362MB jar and
-      # the builder stage -- were 90s). That is more than the ~85s build it was caching, and what it
-      # bought back was the makefiles layer plus prepare.<driver>, i.e. under a second.
-      #
-      # The apt layer is NOT part of that trade: it comes from scope=olake-base, which the warm job
-      # writes and this build only reads, so the --cache-from below still hits.
-      #
-      # The one real loss is db2, whose prepare.db2 downloads the IBM clidriver in the builder stage;
-      # only mode=max preserved that, so it now re-downloads from public.dhe.ibm.com every build. The
-      # curl in drivers/db2/driver.mk retries (5x, --retry-all-errors), which is what has to absorb
-      # the intermittent timeouts there now.
+      # The cache preserves the jar's original mtime while checkout stamps the writer sources with
+      # now, so make would rebuild it here with Maven. The key already proves it matches the sources.
+      - name: Mark the restored jar up to date
+        run: touch destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
+
+      # Background: the ~600MB Go cache restore below overlaps it instead of delaying it. No
+      # --cache-to -- exporting this build measured ~119s against the ~85s build it would save.
       - name: Build driver image
-        id: driver-image-build
+        id: image
+        background: true
+        timeout-minutes: 20
         run: make docker.${{ matrix.driver }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ matrix.driver }} --load"
 
+      # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      # Restore-only, from preflight: the modules and compiled shared deps are identical for
+      # every driver, and seven jobs saving a ~350MB copy each would evict the jar from the cache.
+      - name: Restore shared Go caches
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ needs.preflight.outputs.go-key }}
+          restore-keys: |
+            ${{ runner.os }}-gobase-
+
+      # Compiles the test binary while the container pull and the image build are still in flight.
+      - name: Install Dependencies
+        id: go-build
+        timeout-minutes: 15
+        run: make test.build.${{ matrix.driver }}
+
       - name: Wait for background jobs
-        wait: [containers, go-build]
+        wait: [containers, image, go-build]
 
       - name: Wait for source + destination readiness
-        run: make -j2 --output-sync=target db.${{ matrix.driver }}.wait db.destination.all.wait
+        timeout-minutes: 3
+        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
 
-      # Bootstrap this job's Iceberg JdbcCatalog ONCE, serially, before the tests: olake
-      # processes reaching a freshly created catalog concurrently race each other's
-      # CREATE TABLE on the catalog bookkeeping tables (iceberg_tables,
-      # iceberg_namespace_properties). The harness has no runtime fallback for this race,
-      # so this step is what guarantees an initialized catalog.
+      # Serial, once: olake processes reaching a fresh catalog race each other's CREATE TABLE on
+      # iceberg_tables, and the harness has no runtime fallback for that.
       - name: Check destination (bootstrap Iceberg catalog)
         run: |
           set -euo pipefail
           host_dir="tests/${{ matrix.driver }}/testdata"
-          # kafka splits its fixtures per wire format (testdata/avro, testdata/json); every
-          # other driver keeps a single config at the testdata root.
           cfg=$(find "$host_dir" -name iceberg_destination.json | sort | head -1)
           rel=${cfg#"$host_dir/"}
           echo "Bootstrapping Iceberg catalog via '${{ matrix.driver }}' ($rel)..."
@@ -344,17 +341,8 @@ jobs:
             "olake/source-${{ matrix.driver }}:local" \
             check --destination "/testdata/$rel"
 
-      # One command: waits for the source stack (the ups above already ran), makes sure the
-      # jar is in place, applies the driver's cgo env (GO_ENV.<d> -- db2 needs the clidriver
-      # prepare.db2 installs) and runs Integration + 2PC + (kafka) Rebalance in one go test.
-      # OLAKE_DRIVER_IMAGE pins the image built above so the harness does not rebuild it.
+      # Integration + 2PC + (kafka) Rebalance in one go test, against the image built above.
       - name: Run tests
         env:
           OLAKE_DRIVER_IMAGE: olake/source-${{ matrix.driver }}:local
-          # Set here, not in the harness, because what makes it safe lives in this workflow: the
-          # Bootstrap step above already ran a real `olake check` against this destination. Every
-          # iceberg sync otherwise repeats that catalog round-trip -- ~1.9s each on a runner, before
-          # a single record moves. A local run has no Bootstrap step, does not set this, and keeps
-          # the per-sync check.
-          OLAKE_SKIP_DESTINATION_CHECK: "true"
         run: make test.driver.${{ matrix.driver }}

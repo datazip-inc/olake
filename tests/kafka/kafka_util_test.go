@@ -168,11 +168,8 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 		t.Logf("Added 1 updated message to topic '%s'", streams[0])
 
 	case "insert_2pc":
-		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1.
-		// Each suite reads under its own consumer group, whose id is its topic (applySuite's source
-		// override sets consumer_group_id = <table>), so roll back THAT group -- the shared
-		// KafkaJsonConsumerGroupID constant is one this suite's sync never joined, and targeting it
-		// fails with GROUP_ID_NOT_FOUND, silently skipping the rollback.
+		// Simulate a 2PC failure after destination commit: the consumer offset on partition 0 lags
+		// at 1. Roll back the suite's own group (its id is its topic), not the shared constant.
 		commitConsumerGroupOffset(ctx, t, client, streams[0], streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
@@ -392,11 +389,8 @@ func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, t
 	require.NoError(t, topicErr, "no partition expansion response for topic '%s'", topic)
 	require.NoError(t, topicRes.Err, "failed to add %d partition(s) to topic '%s'", add, topic)
 
-	// The client's cached metadata still predates the expansion, and new partitions are otherwise
-	// only rediscovered on the periodic metadata refresh (franz-go MetadataMaxAge default = 5 min),
-	// so the very next manual-partition produce to a new partition blocks up to that long inside
-	// ProduceSync waiting for metadata to catch up -- the ~5 min this test used to spend.
-	// ForceMetadataRefresh is documented for exactly this CreatePartitions case; trigger it now.
+	// Without this, a produce to a new partition blocks inside ProduceSync until the periodic
+	// metadata refresh (franz-go default 5 min) notices the expansion.
 	client.ForceMetadataRefresh()
 
 	t.Logf("Added %d partition(s) to topic '%s' (forced metadata refresh)", add, topic)

@@ -142,19 +142,8 @@ func writeGCPCredsTempFile(credsJSON string) (string, error) {
 	return f.Name(), nil
 }
 
-// sharedArchivePath returns the AppCDS class archive sitting next to jarPath, or "" when
-// there is none. The driver image bakes one in (see Dockerfile); a checkout running against
-// a Maven target/ jar has none and simply starts without it.
-//
-// Every sync spawns a fresh JVM that loads ~3.4k classes out of the shaded jar before main()
-// is even entered, and that set is identical every time. Mapping it from an archive instead
-// of resolving it from the jar is the one startup cost that can be removed outright.
-//
-// Callers pair the archive with -Xshare:on rather than the more forgiving :auto on purpose.
-// A stale or foreign archive makes :auto fall back to ordinary classloading silently — the
-// JVM starts fine and just quietly gives back the saving — whereas :on refuses to start and
-// says why. Since the archive ships in the same image layer as the jar it describes, a
-// mismatch means something is wrong and should be heard about.
+// sharedArchivePath returns the AppCDS archive next to jarPath (the driver image bakes one in), or
+// "" when there is none. Callers pair it with -Xshare:on, so a stale archive fails loudly.
 func sharedArchivePath(jarPath string) string {
 	archive := strings.TrimSuffix(jarPath, filepath.Ext(jarPath)) + ".jsa"
 	if info, err := os.Stat(archive); err != nil || info.Size() == 0 {
@@ -229,9 +218,8 @@ func startServer(config *Config) (*serverInstance, error) {
 	// GCSFileIO auths separately from GoogleAuthManager; only via ADC env var. No-op if empty.
 	appendEnv("GOOGLE_APPLICATION_CREDENTIALS", gcpCredsTemp)
 
-	// Fork-to-ready for the shared JVM: exec, ~3.4k classes loaded out of the shaded jar,
-	// catalog built, gRPC port bound. Paid once per olake process before a single record
-	// moves, so on a short sync it is a large share of the total.
+	// Fork-to-ready: exec, ~3.4k classes loaded, catalog built, gRPC port bound. Paid once per
+	// olake process before a single record moves.
 	stopBoot := logger.TrackTiming("iceberg", "jvm boot")
 	err = logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd)
 	stopBoot()

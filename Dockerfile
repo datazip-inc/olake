@@ -32,6 +32,8 @@ RUN apt-get update && \
     ca-certificates \
     libpam-modules \
     libcrypt1 \
+    iproute2 \
+    lsof \
     && rm -rf /var/lib/apt/lists/*
 
 # Driver metadata

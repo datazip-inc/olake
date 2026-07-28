@@ -16,17 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cdcMetadataMu serialises the CDC enable/disable calls. sp_cdc_enable_table adds the capture job
-// via sp_cdc_add_job, which writes the server-wide msdb.dbo.cdc_jobs -- so two suites enabling CDC
-// on their own tables at the same time deadlock there, and SQL Server picks one as the victim
-// (error 1205). Concurrent suites live in one test binary, so a mutex removes that contention
-// outright; execCDCMetadata still retries, for the deadlocks SQL Server's own capture/cleanup jobs
-// can cause.
+// cdcMetadataMu serialises CDC enable/disable: both write the server-wide msdb.dbo.cdc_jobs, so two
+// suites doing it at once deadlock there (error 1205).
 var cdcMetadataMu sync.Mutex
 
 // execCDCMetadata runs a CDC metadata statement, retrying while SQL Server reports it as the
-// deadlock victim -- which is exactly what error 1205 asks the caller to do ("Rerun the
-// transaction"). Returns the last error if it never succeeds.
+// deadlock victim (error 1205, which asks the caller to rerun). Returns the last error otherwise.
 func execCDCMetadata(ctx context.Context, t *testing.T, db *sqlx.DB, query string) error {
 	t.Helper()
 	cdcMetadataMu.Lock()
@@ -177,7 +172,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 					@capture_instance = N'%s';
 			END;
 		`, captureInstance, integrationTestTable, captureInstance)
-		if _, err = db.ExecContext(ctx, disableTableCDC); err != nil {
+		if err = execCDCMetadata(ctx, t, db, disableTableCDC); err != nil {
 			t.Logf("failed to disable CDC on integration test table: %s", err)
 		}
 
