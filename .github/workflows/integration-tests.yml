@@ -47,43 +47,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # drivers/<d>/** and tests/<d>/** select driver <d>; a driver module without a suite (s3)
-      # selects nothing; anything else is shared and runs the full matrix, as does master. Both
-      # driver lists come from the Makefile, so adding a driver never needs an edit here.
+      # Shared with any workflow that wants to skip untouched drivers; the matrix below fans out
+      # over whatever it returns, and an empty array skips the driver jobs entirely.
       - name: Resolve driver matrix
         id: drivers
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tested=$(make -s print.source-drivers)
-          known=$(make -s print.drivers)
-
-          if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ github.base_ref }}" = master ]; then
-            selected="$tested"
-            testutils=true
-          else
-            changed=$(gh api --paginate \
-              "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-              --jq '.[].filename')
-            case "$changed" in *tests/testutils/*) testutils=true ;; *) testutils=false ;; esac
-            selected=""
-            for file in $changed; do
-              case "$file" in
-                drivers/*/*|tests/*/*) d=${file#*/}; d=${d%%/*} ;;
-                *) d="" ;;
-              esac
-              case " $tested " in *" $d "*) selected="$selected $d"; continue ;; esac
-              case " $known " in *" $d "*) continue ;; esac
-              selected="$tested"
-              break
-            done
-          fi
-
-          drivers=$(printf '%s\n' $selected | sort -u | jq -Rc '[., inputs] | map(select(. != ""))')
-          echo "drivers=$drivers" >> "$GITHUB_OUTPUT"
-          echo "testutils=$testutils" >> "$GITHUB_OUTPUT"
-          echo "Running integration tests for: $drivers (harness changed: $testutils)"
+        uses: ./.github/actions/detect-drivers
 
       # lookup-only answers "already built?" without downloading the 362MB jar. No restore-keys:
       # a fallback would report a stale jar as a hit and every driver would test the wrong writer.

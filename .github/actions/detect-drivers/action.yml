@@ -1,0 +1,60 @@
+name: Detect affected drivers
+description: >
+  Resolves which drivers a change touches. Both driver lists come from the Makefile, so adding a
+  driver never needs an edit here. Requires the repo to be checked out already (it runs `make`),
+  and `pull-requests: read` on the calling job to list a PR's files.
+
+inputs:
+  token:
+    description: Token used to list the pull request's changed files.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  drivers:
+    description: JSON array of drivers to run; empty when a change touches no tested driver.
+    value: ${{ steps.resolve.outputs.drivers }}
+  testutils:
+    description: true when the shared test harness (tests/testutils) changed.
+    value: ${{ steps.resolve.outputs.testutils }}
+
+runs:
+  using: composite
+  steps:
+    # drivers/<d>/** and tests/<d>/** select driver <d>; a driver module without a suite (s3)
+    # selects nothing; anything else is shared and selects every tested driver, as does master.
+    - name: Resolve affected drivers
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: |
+        set -euo pipefail
+        tested=$(make -s print.source-drivers)
+        known=$(make -s print.drivers)
+
+        if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ github.base_ref }}" = master ]; then
+          selected="$tested"
+          testutils=true
+        else
+          changed=$(gh api --paginate \
+            "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --jq '.[].filename')
+          case "$changed" in *tests/testutils/*) testutils=true ;; *) testutils=false ;; esac
+          selected=""
+          for file in $changed; do
+            case "$file" in
+              drivers/*/*|tests/*/*) d=${file#*/}; d=${d%%/*} ;;
+              *) d="" ;;
+            esac
+            case " $tested " in *" $d "*) selected="$selected $d"; continue ;; esac
+            case " $known " in *" $d "*) continue ;; esac
+            selected="$tested"
+            break
+          done
+        fi
+
+        drivers=$(printf '%s\n' $selected | sort -u | jq -Rc '[., inputs] | map(select(. != ""))')
+        echo "drivers=$drivers" >> "$GITHUB_OUTPUT"
+        echo "testutils=$testutils" >> "$GITHUB_OUTPUT"
+        echo "Affected drivers: $drivers (harness changed: $testutils)"
