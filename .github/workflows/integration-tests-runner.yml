@@ -84,7 +84,6 @@ jobs:
             -v go-build:/root/.cache/go-build \
             -w /test-olake \
             -e TELEMETRY_DISABLED=true \
-            -e OLAKE_SKIP_MOD_TIDY=1 \
             "$(make -s print.base-image)" \
             ./build.sh driver-mysql check --destination /test-olake/tests/mysql/testdata/iceberg_destination.json
 

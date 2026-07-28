@@ -192,8 +192,8 @@ func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 	if len(extraParams) > 0 {
 		dataFormat = extraParams[0]
 	}
-	containerTestDataPath := "/test-olake/drivers/%s/internal/testdata/%s"
-	hostTestDataPath := filepath.Join(rootPath, "drivers", "%s", "internal", "testdata", dataFormat, "%s")
+	containerTestDataPath := "/test-olake/tests/%s/testdata/%s"
+	hostTestDataPath := filepath.Join(rootPath, "tests", "%s", "testdata", dataFormat, "%s")
 	return &TestConfig{
 		Driver:                 driver,
 		HostRootPath:           rootPath,
@@ -1111,7 +1111,7 @@ func (cfg *IntegrationTest) runInTestContainer(
 		HostConfigModifier: func(hc *container.HostConfig) {
 			hc.Binds = []string{
 				fmt.Sprintf("%s:/test-olake:rw", cfg.TestConfig.HostRootPath),
-				fmt.Sprintf("%s:/test-olake/drivers/%s/internal/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
+				fmt.Sprintf("%s:/test-olake/tests/%s/testdata:rw", cfg.TestConfig.HostTestDataPath, cfg.TestConfig.Driver),
 				goModCacheMount,
 				goBuildCacheMount,
 			}
@@ -1934,7 +1934,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	checkBenchmarkRPS := func(config TestConfig, isBackfill bool) (bool, float64, error) {
 		// get current RPS
 		var stats SyncSpeed
-		if err := UnmarshalFile(filepath.Join(config.HostRootPath, fmt.Sprintf("drivers/%s/internal/testdata/%s", config.Driver, "stats.json")), &stats, false); err != nil {
+		if err := UnmarshalFile(config.HostStatsPath, &stats, false); err != nil {
 			return false, 0, err
 		}
 		rps, err := ParseFloat64(strings.Split(stats.Speed, " ")[0])
