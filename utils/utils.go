@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"sort"
@@ -22,6 +23,7 @@ import (
 	"github.com/oklog/ulid"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/testcontainers/testcontainers-go"
 )
 
 var (
@@ -339,6 +341,20 @@ func ComputeConfigHash(srcPath, destPath string) string {
 	}
 	sum := sha256.Sum256(append(a, b...))
 	return hex.EncodeToString(sum[:])
+}
+
+// Helper function to execute container commands
+func ExecCommand(
+	ctx context.Context,
+	c testcontainers.Container,
+	cmd string,
+) (int, []byte, error) {
+	code, reader, err := c.Exec(ctx, []string{"/bin/sh", "-c", cmd})
+	if err != nil {
+		return code, nil, err
+	}
+	output, _ := io.ReadAll(reader)
+	return code, output, nil
 }
 
 func NormalizedEqual(strune1, strune2 string) bool {

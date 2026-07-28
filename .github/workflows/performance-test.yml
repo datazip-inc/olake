@@ -87,23 +87,22 @@ jobs:
         aws-region: ${{ secrets.AWS_REGION }}
 
     - name: Install Go Dependencies
-      working-directory: ./tests/testutils
       run: go mod download
+
+    - name: Build Project
+      run: go build -v ./...
 
     - name: Build Iceberg Sink
       working-directory: ./destination/iceberg/olake-iceberg-java-writer
       run: mvn clean package -DskipTests
 
-    - name: Build Test Base Image
-      run: make docker.base.build
-
     - name: Create source
       run: |
-        echo '${{ secrets[format('{0}_SOURCE_JSON', matrix.driver_upper)] }}' | base64 --decode > ./tests/${{ matrix.driver }}/testdata/source.json
+        echo '${{ secrets[format('{0}_SOURCE_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/source.json
 
     - name: Create destination
       run: |
-        echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./tests/${{ matrix.driver }}/testdata/iceberg_destination.json
+        echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./drivers/${{ matrix.driver }}/internal/testdata/iceberg_destination.json
     
     - name: Get Last Successful Run ID
       id: last_run
@@ -122,20 +121,20 @@ jobs:
       continue-on-error: true
       with:
         name: benchmarks_${{ matrix.driver }}
-        path: ./tests/${{ matrix.driver }}/testdata/
+        path: ./drivers/${{ matrix.driver }}/internal/testdata/
         run-id: ${{ steps.last_run.outputs.id }}
         github-token: ${{ github.token }}
-
+    
     - name: Run Performance Tests
-      run: make test.performance.${{ matrix.driver }}
-
+      run: go test -v ./drivers/${{ matrix.driver }}/internal/... -timeout 0 -run 'Performance'
+    
     - name: Upload Benchmarks History
       uses: actions/upload-artifact@v4
       if: success()
       continue-on-error: true
       with:
         name: benchmarks_${{ matrix.driver }}
-        path: ./tests/${{ matrix.driver }}/testdata/benchmarks.json
+        path: ./drivers/${{ matrix.driver }}/internal/testdata/benchmarks.json
         retention-days: 90
    
     - name: Sleep server
