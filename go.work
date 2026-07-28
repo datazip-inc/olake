@@ -12,4 +12,13 @@ use (
 	./drivers/oracle
 	./drivers/postgres
 	./drivers/s3
+	./lib
+	./tests/db2
+	./tests/kafka
+	./tests/mongodb
+	./tests/mssql
+	./tests/mysql
+	./tests/oracle
+	./tests/postgres
+	./tests/testutils
 )
