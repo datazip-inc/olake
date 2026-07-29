@@ -100,6 +100,20 @@ func (c *Config) Validate() error {
 		c.CatalogName = "olake_iceberg"
 	}
 
+	if c.CatalogType == "s3tables" {
+		c.RestSigningV4 = true
+		c.RestSigningName = "s3tables"
+	}
+	if c.CatalogType == "unity" {
+		c.NoIdentifierFields = true
+	}
+	if c.CatalogType == "biglake" {
+		c.RestAuthType = "org.apache.iceberg.gcp.auth.GoogleAuthManager"
+	}
+	if c.CatalogType == "lakekeeper" || c.CatalogType == "nessie" || c.CatalogType == "s3tables" || c.CatalogType == "unity" || c.CatalogType == "polaris" || c.CatalogType == "biglake" {
+		c.CatalogType = RestCatalog
+	}
+
 	// Default to path-style access for S3-compatible services
 	if c.S3Endpoint != "" {
 		c.S3PathStyle = true
