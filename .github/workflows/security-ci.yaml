@@ -125,3 +125,6 @@ jobs:
           scanners: 'vuln'
           severity: 'HIGH,CRITICAL'
           ignore-unfixed: true
+          # Suppresses only CVEs verified unfixable from pom.xml (stale copies
+          # shaded inside third-party fat jars). Each entry documents why.
+          trivyignores: './destination/iceberg/olake-iceberg-java-writer/.trivyignore'
