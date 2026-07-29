@@ -2,7 +2,7 @@ package types
 
 import (
 	"github.com/linkedin/goavro/v2"
-	"github.com/segmentio/kafka-go"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 type SchemaType string
@@ -15,22 +15,23 @@ const (
 
 // PartitionMetaData holds metadata about a Kafka partition for a specific stream reader
 type PartitionMetaData struct {
-	ReaderID    string
-	Stream      StreamInterface
-	PartitionID int
-	EndOffset   int64
+	ReaderID        string
+	Stream          StreamInterface
+	PartitionID     int32
+	EndOffset       int64
+	CommittedOffset int64
 }
 
 // PartitionKey represents a unique key for a Kafka partition and topic
 type PartitionKey struct {
 	Topic     string
-	Partition int
+	Partition int32
 }
 
 // KafkaRecord represents a record (data + message) from a Kafka partition
 type KafkaRecord struct {
 	Data    map[string]interface{}
-	Message kafka.Message
+	Message *kgo.Record
 }
 
 // RegisteredSchema holds the schema information

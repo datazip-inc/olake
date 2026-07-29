@@ -5,19 +5,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httputil"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/rs/zerolog"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/spf13/viper"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
@@ -135,7 +137,7 @@ func FileLoggerWithPath(content any, path string) error {
 	return nil
 }
 
-func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
+func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int64)) {
 	startTime := time.Now()
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -146,9 +148,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 				Info("Monitoring stopped")
 				return
 			case <-ticker.C:
-				runningThreads, recordsToSync, syncedRecords := statsFunc()
-				memStats := new(runtime.MemStats)
-				runtime.ReadMemStats(memStats)
+				runningThreads, recordsToSync, syncedRecords, bytesRead := statsFunc()
 				speed := float64(syncedRecords) / time.Since(startTime).Seconds()
 				timeElapsed := time.Since(startTime).Seconds()
 				remainingRecords := recordsToSync - syncedRecords
@@ -159,10 +159,17 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64)) {
 				stats := map[string]interface{}{
 					"Writer Threads":           runningThreads,
 					"Synced Records":           syncedRecords,
-					"Memory":                   fmt.Sprintf("%d mb", memStats.HeapInuse/(1024*1024)),
+					"Bytes Read":               bytesRead,
 					"Speed":                    fmt.Sprintf("%.2f rps", speed),
 					"Seconds Elapsed":          fmt.Sprintf("%.2f", timeElapsed),
 					"Estimated Remaining Time": estimatedSeconds,
+				}
+				if memInfo, err := mem.VirtualMemory(); err == nil {
+					stats["Memory Usage Bytes"] = memInfo.Used
+				}
+				// perCPU is being passed as false, so the cpu utilization is aggregated over all cores
+				if cpuPercent, err := cpu.Percent(0, false); err == nil && len(cpuPercent) > 0 {
+					stats["CPU Utilization"] = math.Round(cpuPercent[0]*100) / 10000
 				}
 				if err := FileLogger(stats, "stats", ".json"); err != nil {
 					Fatalf("failed to write stats in file: %s", err)
@@ -462,4 +469,20 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		}
 		return fmt.Errorf("iceberg writer %s did not become ready within %d seconds: %s", processName, timeoutSec, stderrTail)
 	}
+}
+
+// FormatBytes converts a byte count to a human-readable string with the most
+// appropriate unit (B, KB, MB, GB, TB). Always shows two decimal places for
+// units larger than bytes.
+func FormatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTP"[exp])
 }

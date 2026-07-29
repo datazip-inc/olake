@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/datazip-inc/olake/destination"
@@ -33,12 +34,18 @@ var checkCmd = &cobra.Command{
 
 		return nil
 	},
-	Run: func(cmd *cobra.Command, _ []string) {
+	RunE: func(cmd *cobra.Command, _ []string) error {
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
-				_, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
-				return err
+				// NewWriterPool initializes destination resources and runs Check;
+				// close immediately since a check has no further work.
+				pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
+				if err != nil {
+					return err
+				}
+				pool.Shutdown(context.Background())
+				return nil
 			}
 
 			if configPath != "not-set" {
@@ -48,7 +55,9 @@ var checkCmd = &cobra.Command{
 			return nil
 		}()
 
-		// log success
+		// Report the outcome as a connection-status message, then surface any failure through
+		// the exit code: returning a non-nil error makes RootCmd.Execute() call logger.Fatal,
+		// so `check` exits non-zero on a failed connection instead of always exiting 0.
 		message := types.Message{
 			Type: types.ConnectionStatusMessage,
 			ConnectionStatus: &types.StatusRow{
@@ -60,5 +69,6 @@ var checkCmd = &cobra.Command{
 			message.ConnectionStatus.Status = types.ConnectionFailed
 		}
 		logger.Info(message)
+		return err
 	},
 }

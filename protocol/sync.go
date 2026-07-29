@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"github.com/datazip-inc/olake/utils/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -77,6 +79,10 @@ var syncCmd = &cobra.Command{
 		constants.LoadedStateVersion = state.Version
 
 		state.RWMutex = &sync.RWMutex{}
+
+		//version
+		logger.Infof("Ruuning OLake sync with version %s", version.GetOlakeCLIVersion())
+
 		stateBytes, _ := state.MarshalJSON()
 		logger.Infof("Running sync with state: %s", stateBytes)
 		return nil
@@ -113,21 +119,24 @@ var syncCmd = &cobra.Command{
 			if state, err = connector.ClearState(dropStreams); err != nil {
 				return fmt.Errorf("error clearing state for full refresh streams: %s", err)
 			}
-			cerr := destination.ClearDestination(cmd.Context(), destinationConfig, dropStreams)
-			if cerr != nil {
+			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
 				return fmt.Errorf("failed to clear destination: %s", cerr)
 			}
 		}
 
+		// Build the writer pool up front: it starts destination-owned resources
+		// (e.g. the Iceberg shared JVM) and validates the connection. pool.Close
+		// tears them down on exit (normal return or signal-canceled context).
 		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize)
 		if err != nil {
 			return err
 		}
+		defer pool.Shutdown(context.Background())
 
 		// start monitoring stats
-		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
+		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64, int64) {
 			stats := pool.GetStats()
-			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load()
+			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load(), stats.BytesRead.Load()
 		})
 
 		// Setup State for Connector
@@ -135,7 +144,8 @@ var syncCmd = &cobra.Command{
 		// Sync Telemetry tracking
 		telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
-			telemetry.TrackSyncCompleted(syncID, err == nil, pool.GetStats().ReadCount.Load())
+			stats := pool.GetStats()
+			telemetry.TrackSyncCompleted(syncID, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
 			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 			time.Sleep(5 * time.Second)
 		}()
@@ -146,10 +156,14 @@ var syncCmd = &cobra.Command{
 		}
 
 		state.LogWithLock()
-		// TODO: record count also contain records which arrived in retry attempts, need to remove them
+		// ReadCount/RecordsFiltered are rolled back per-thread on failed or retried
+		// chunks (see WriterThread.Close), so this reflects committed rows only.
 		stats := pool.GetStats()
 		readRecordsCount := max(int64(0), stats.ReadCount.Load()-stats.RecordsFiltered.Load())
-		logger.Infof("Total records read: %d", readRecordsCount)
+		bytesRead := stats.BytesRead.Load()
+		logger.Infof("Total records read: %d | Total bytes read: %s",
+			readRecordsCount,
+			logger.FormatBytes(bytesRead))
 		return nil
 	},
 }

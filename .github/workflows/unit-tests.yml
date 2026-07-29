@@ -14,9 +14,5 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version-file: "go.mod"
-
-      - name: Install Dependencies
-        run: go mod download
-
       - name: Run All Unit Tests
-        run: go test -v ./...
+        run: make test.unit

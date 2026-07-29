@@ -198,6 +198,7 @@ const MSSQLUISchema = `{
     { "port": 12, "max_threads": 12 },
     { "retry_count": 12, "jdbc_url_params": 12 },
     { "ssl": 12, "manage_capture_instances": 12 },
+    { "primary_config": 24 },
     { "update_method": 12, "ssh_config": 12 }
   ],
   "ssl": {
@@ -215,6 +216,19 @@ const MSSQLUISchema = `{
   },
   "manage_capture_instances": {
     "ui:widget": "boolean"
+  },
+  "primary_config": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "host": 12, "port": 12 },
+      { "username": 12, "password": 12 }
+    ],
+    "password": {
+      "ui:widget": "password"
+    }
   },
   "ssh_config": {
     "ui:options": {
@@ -421,7 +435,8 @@ const ParquetUISchema = `{
     "ui:grid": [
       { "s3_bucket": 12, "s3_region": 12 },
       { "s3_endpoint": 12, "s3_access_key": 12 },
-      { "s3_secret_key": 12, "s3_path": 12 }
+      { "s3_secret_key": 12, "s3_path": 12 },
+      { "max_file_size_mb": 12 }
     ],
     "ui:options": {
       "label": false
@@ -445,12 +460,19 @@ const IcebergUISchema = `{
       { "credential": 12, "no_identifier_fields": 12 },
       { "rest_signing_name": 12, "rest_signing_region": 12 },
       { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
+      { "gcp_service_account_json": 12, "gcp_auth_scopes": 12 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
       { "aws_region": 12, "glue_additional_config": 12 },
 	 { "glue_catalog_id": 12, "glue_access_key": 12, "glue_secret_key": 12 },
       { "glue_endpoint": 12, "glue_region": 12 },
       { "arrow_writes": 12 }
     ],
+    "gcp_service_account_json": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    },
     "no_identifier_fields": {
       "ui:widget": "boolean"
     },

@@ -32,6 +32,7 @@ type MSSQL struct {
 	cdcSupported  bool
 	isReadReplica bool
 	sshClient     *ssh.Client
+	primaryClient *sqlx.DB
 }
 
 // GetConfigRef implements abstract.DriverInterface.
@@ -60,49 +61,20 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
-	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
-		logger.Info("Found SSH Configuration")
-		var err error
-		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
-		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
-		}
+	var err error
+	m.sshClient, err = setupSSH(m.config.SSHConfig)
+	if err != nil {
+		return fmt.Errorf("failed to setup SSH connection: %s", err)
 	}
-
-	var client *sqlx.DB
-	connStr := m.config.URI()
-
 	if m.sshClient != nil {
 		logger.Info("Connecting to MSSQL via SSH tunnel")
-
-		connector, err := mssql.NewConnector(connStr)
-		if err != nil {
-			return fmt.Errorf("failed to create MSSQL connector: %s", err)
-		}
-
-		connector.Dialer = &mssqlSSHDialer{sshClient: m.sshClient, host: m.config.Host}
-
-		db := sql.OpenDB(connector)
-		client = sqlx.NewDb(db, "sqlserver")
-	} else {
-		db, err := sql.Open("sqlserver", connStr)
-		if err != nil {
-			return fmt.Errorf("failed to open MSSQL connection: %s", err)
-		}
-		client = sqlx.NewDb(db, "sqlserver")
 	}
 
-	// Set connection pool size
-	client.SetMaxOpenConns(m.config.MaxThreads)
-
-	// Test connection
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %s", err)
+	m.client, err = setupDBConnection(ctx, m.config.URI(), m.sshClient, m.config.Host, m.config.MaxThreads)
+	if err != nil {
+		return fmt.Errorf("failed to connect to MSSQL: %s", err)
 	}
 
-	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if database-level CDC is enabled
 	cdcSupported, err := m.isDatabaseCDCEnabled(ctx)
@@ -116,7 +88,21 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 
 	m.isReadReplica = m.detectReadReplica(ctx)
 	if m.isReadReplica {
-		logger.Info("Connected to a read-only MSSQL replica; CDC capture instance management is disabled and agent catch-up wait will be skipped")
+		logger.Info("Connected to a read-only MSSQL replica; agent catch-up wait will be skipped")
+	}
+
+	if m.config.ManageCaptureInstances && m.config.PrimaryConfig != nil && m.config.PrimaryConfig.Host != "" {
+		m.primaryClient, err = setupDBConnection(
+			ctx,
+			m.config.primaryURI(),
+			m.sshClient,
+			m.config.PrimaryConfig.Host,
+			1,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to connect to primary for capture instance management: %s", err)
+		}
+		logger.Info("connected to primary node successfully for capture instance management")
 	}
 	return nil
 }
@@ -143,6 +129,12 @@ func (m *MSSQL) Close() error {
 		}
 	}
 
+	if m.primaryClient != nil {
+		if err := m.primaryClient.Close(); err != nil {
+			logger.Errorf("failed to close primary MSSQL connection: %s", err)
+		}
+	}
+
 	if m.sshClient != nil {
 		if err := m.sshClient.Close(); err != nil {
 			logger.Errorf("failed to close SSH client: %s", err)
@@ -150,6 +142,40 @@ func (m *MSSQL) Close() error {
 	}
 
 	return nil
+}
+
+func setupSSH(sshCfg *utils.SSHConfig) (*ssh.Client, error) {
+	if sshCfg == nil || sshCfg.Host == "" {
+		return nil, nil
+	}
+
+	sshClient, err := sshCfg.SetupSSHConnection()
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("established SSH tunnel connection successfully")
+	return sshClient, nil
+}
+
+func setupDBConnection(ctx context.Context, uri string, sshClient *ssh.Client, host string, maxConns int) (*sqlx.DB, error) {
+	connector, err := mssql.NewConnector(uri)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MSSQL connector: %s", err)
+	}
+	if sshClient != nil {
+		connector.Dialer = &mssqlSSHDialer{sshClient: sshClient, host: host}
+	}
+
+	client := sqlx.NewDb(sql.OpenDB(connector), "sqlserver")
+	client.SetMaxOpenConns(maxConns)
+
+	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if err := client.PingContext(pingCtx); err != nil {
+		return nil, fmt.Errorf("failed to ping database: %s", err)
+	}
+
+	return client, nil
 }
 
 type mssqlSSHDialer struct {
@@ -180,7 +206,7 @@ func (m *MSSQL) MaxRetries() int {
 	return m.config.RetryCount
 }
 
-func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m *MSSQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for MSSQL database %s", m.config.Database)
 
 	query := jdbc.MSSQLDiscoverTablesQuery()
@@ -190,13 +216,13 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var tableNames []string
+	var tableNames []types.StreamID
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&schemaName, &tableName); err != nil {
 			return nil, fmt.Errorf("failed to scan table: %s", err)
 		}
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
+		tableNames = append(tableNames, types.StreamID{Namespace: schemaName, Name: tableName})
 	}
 
 	// Check for any errors that occurred while iterating over the rows
@@ -207,14 +233,10 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	return tableNames, nil
 }
 
-func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	produceTableSchema := func(ctx context.Context, streamName string) (*types.Stream, error) {
+func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
+	produceTableSchema := func(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
-		parts := strings.Split(streamName, ".")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-		}
-		schemaName, tableName := parts[0], parts[1]
+		schemaName, tableName := streamName.Namespace, streamName.Name
 		stream := types.NewStream(tableName, schemaName, &m.config.Database)
 
 		columnQuery := jdbc.MSSQLTableSchemaQuery()
