@@ -4,11 +4,13 @@ version: 2
 # updates always open against the repository default branch; that is a
 # Dependabot limitation and cannot be configured.
 updates:
-  # Go modules: root module plus every driver module (go.work workspace).
+  # Go modules: root module plus every driver, lib and test module (go.work workspace).
   - package-ecosystem: "gomod"
     directories:
       - "/"
       - "/drivers/*"
+      - "/lib"
+      - "/tests/*"
     target-branch: "staging"
     schedule:
       interval: "weekly"

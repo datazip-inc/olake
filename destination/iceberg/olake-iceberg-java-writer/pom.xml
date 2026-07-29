@@ -212,6 +212,24 @@
                     <groupId>org.apache.hadoop</groupId>
                     <artifactId>hadoop-hdfs</artifactId>
                 </exclusion>
+                <!--
+                  hive-metastore pulls derby 10.14.1.0 (embedded SQL DB, 2017)
+                  for its own metastore-db-in-a-jar mode. We only ever talk to
+                  an external metastore/catalog; this JVM never opens a derby DB.
+                -->
+                <exclusion>
+                    <groupId>org.apache.derby</groupId>
+                    <artifactId>derby</artifactId>
+                </exclusion>
+                <!--
+                  hive-common (via hive-serde) pulls jline:jline 2.12 (old
+                  groupId, 2014) for its interactive CLI. This process is a
+                  headless gRPC server and never reads from a terminal.
+                -->
+                <exclusion>
+                    <groupId>jline</groupId>
+                    <artifactId>jline</artifactId>
+                </exclusion>
                 <exclusion>
                     <groupId>org.apache.parquet</groupId>
                     <artifactId>parquet-hadoop-bundle</artifactId>
