@@ -41,9 +41,13 @@ func execCDCMetadata(ctx context.Context, t *testing.T, db *sqlx.DB, query strin
 	return err
 }
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string) {
 	t.Helper()
 
+	// The suite picks the database, not just the table: SQL Server scopes CDC to the database, so
+	// two suites sharing one would share a capture job and fn_cdc_get_max_lsn(). This has to resolve
+	// to the same name variantSourceOverride writes into the suite's source.json, or olake and these
+	// queries end up in different databases. 01-init.sql provisions each with CDC enabled.
 	var connStr string
 	if fileConfig {
 		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
@@ -52,10 +56,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			config.String("password"),
 			config.String("host"),
 			config.Int("port"),
-			config.String("database"),
+			testutils.SuiteDatabase(config.String("database"), suite),
 		)
 	} else {
-		connStr = "sqlserver://sa:Password!123@localhost:1433?database=olake_mssql_test&encrypt=disable"
+		connStr = fmt.Sprintf("sqlserver://sa:Password!123@localhost:1433?database=%s&encrypt=disable",
+			testutils.SuiteDatabase("olake_mssql_test", suite))
 	}
 
 	db, err := sqlx.ConnectContext(ctx, "sqlserver", connStr)

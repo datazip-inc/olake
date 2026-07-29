@@ -14,7 +14,7 @@ import (
 )
 
 // ExecuteQuery executes MySQL queries for testing based on the operation type
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string) {
 	t.Helper()
 
 	var connStr string

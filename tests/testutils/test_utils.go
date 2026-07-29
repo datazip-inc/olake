@@ -44,7 +44,7 @@ type IntegrationTest struct {
 	UpdatedDestinationDataTypeSchema map[string]string
 	DefaultCDCColumnsSchema          map[string]string
 	Namespace                        string
-	ExecuteQuery                     func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
+	ExecuteQuery                     func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string)
 	DestinationDB                    string
 	CursorField                      string
 	PartitionRegex                   string
@@ -57,7 +57,7 @@ type PerformanceTest struct {
 	Namespace       string
 	BackfillStreams []string
 	CDCStreams      []string
-	ExecuteQuery    func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool)
+	ExecuteQuery    func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string)
 }
 
 type SyncSpeed struct {
@@ -121,7 +121,7 @@ func applySuite(t *testing.T, c *TestConfig, suite string) {
 	c.StatsPath = containerPath("stats.json")
 
 	// --config lives in the suite directory too, since it anchors the default state path above.
-	edit := variantSourceOverride(c.Driver, testTableName(c))
+	edit := variantSourceOverride(c)
 	if edit == nil {
 		edit = func(map[string]interface{}) error { return nil }
 	}
@@ -153,9 +153,22 @@ func copyJSONWithEdit(srcHost, dstHost string, edit func(map[string]interface{})
 }
 
 // variantSourceOverride gives a suite its own CDC reader where concurrent ones contend: a postgres
-// replication slot, a kafka consumer group. nil for drivers that can share source.json.
-func variantSourceOverride(driver, id string) func(map[string]interface{}) error {
-	switch driver {
+// replication slot, a kafka consumer group, a whole mssql database. nil for drivers that can share
+// source.json. Whatever it renames here, suiteDatabase and the driver's own connection must match.
+func variantSourceOverride(c *TestConfig) func(map[string]interface{}) error {
+	id := testTableName(c)
+	switch c.Driver {
+	case string(constants.MSSQL):
+		// SQL Server scopes CDC to the database, so a per-suite table is not enough: the capture
+		// job and fn_cdc_get_max_lsn() are shared by every table in the database.
+		return func(doc map[string]interface{}) error {
+			base, ok := doc["database"].(string)
+			if !ok {
+				return fmt.Errorf("no database in source config")
+			}
+			doc["database"] = SuiteDatabase(base, c.Suite)
+			return nil
+		}
 	case string(constants.Postgres):
 		return func(doc map[string]interface{}) error {
 			updateMethod, ok := doc["update_method"].(map[string]interface{})
@@ -181,6 +194,16 @@ func testTableName(c *TestConfig) string {
 		fmt.Sprintf("%s_test_table_olake", c.Driver),
 		fmt.Sprintf("%s_%s_test_table_olake", c.Driver, c.DataFormat)).(string)
 	return Ternary(c.Suite == "", name, fmt.Sprintf("%s_%s", name, c.Suite)).(string)
+}
+
+// SuiteDatabase names the source database a suite owns, for drivers whose CDC is database-scoped.
+// Both sides must agree: variantSourceOverride rewrites source.json for olake, and the driver's
+// own ExecuteQuery connection calls this with the same suite.
+func SuiteDatabase(base, suite string) string {
+	if suite == "" {
+		return base
+	}
+	return fmt.Sprintf("%s_%s", base, suite)
 }
 
 // destinationDBPrefix is passed as --destination-database-prefix. It carries the suite because
@@ -619,12 +642,12 @@ func GetBackfillStreamsFromCDC(cdcStreams []string) []string {
 
 // reset table and add back data to the table
 func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T, testTable string) error {
-	cfg.ExecuteQuery(ctx, t, []string{testTable}, "drop", false)
-	cfg.ExecuteQuery(ctx, t, []string{testTable}, "create", false)
-	cfg.ExecuteQuery(ctx, t, []string{testTable}, "add", false)
+	cfg.ExecuteQuery(ctx, t, []string{testTable}, "drop", false, cfg.TestConfig.Suite)
+	cfg.ExecuteQuery(ctx, t, []string{testTable}, "create", false, cfg.TestConfig.Suite)
+	cfg.ExecuteQuery(ctx, t, []string{testTable}, "add", false, cfg.TestConfig.Suite)
 	if cfg.TestConfig.Driver == string(constants.DB2) {
 		// to populate stats for DB2
-		cfg.ExecuteQuery(ctx, t, []string{testTable}, "populate-stats", false)
+		cfg.ExecuteQuery(ctx, t, []string{testTable}, "populate-stats", false, cfg.TestConfig.Suite)
 	}
 	return nil
 }
@@ -723,13 +746,13 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	// Execute operation before sync if needed
 	if useState && operation != "" {
-		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false)
+		cfg.ExecuteQuery(ctx, t, []string{testTable}, operation, false, cfg.TestConfig.Suite)
 		// SQL Server CDC is asynchronous: the capture job only picks up the DML above on its next
 		// transaction-log scan, and the sync's change window ends at the job's processed max LSN
 		// (sys.fn_cdc_get_max_lsn), so syncing too early would see no changes. Wait for the capture
 		// job to advance past the DML. Incremental runs read the table directly and need no wait.
 		if isCDC && cfg.TestConfig.Driver == "mssql" {
-			cfg.ExecuteQuery(ctx, t, []string{testTable}, "wait-cdc-catchup", false)
+			cfg.ExecuteQuery(ctx, t, []string{testTable}, "wait-cdc-catchup", false, cfg.TestConfig.Suite)
 		}
 	}
 
@@ -853,7 +876,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			// schema evolution
 			if tc.operation == "update" {
 				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" && cfg.TestConfig.Driver != "kafka" {
-					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
+					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false, cfg.TestConfig.Suite)
 				}
 			}
 
@@ -950,7 +973,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 			// schema evolution
 			if tc.operation == "update" {
 				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" && cfg.TestConfig.Driver != "kafka" {
-					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
+					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false, cfg.TestConfig.Suite)
 				}
 			}
 
@@ -1033,7 +1056,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			// schema evolution
 			if tc.operation == "update" {
 				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != "mssql" {
-					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
+					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false, cfg.TestConfig.Suite)
 				}
 			}
 
@@ -1121,7 +1144,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 			// schema evolution
 			if tc.operation == "update" {
 				if cfg.TestConfig.Driver != string(constants.MongoDB) && cfg.TestConfig.Driver != "mssql" {
-					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false)
+					cfg.ExecuteQuery(ctx, t, []string{testTable}, "evolve-schema", false, cfg.TestConfig.Suite)
 				}
 			}
 
@@ -1373,18 +1396,18 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 	// Postgres only, and for the whole suite: olake validates the CDC config on EVERY sync, so a
 	// slot scoped to just the CDC tests fails the incremental ones whose config still names it.
 	if cfg.TestConfig.Driver == string(constants.Postgres) {
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create-slot", false)
-		defer cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop-slot", false)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create-slot", false, cfg.TestConfig.Suite)
+		defer cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop-slot", false, cfg.TestConfig.Suite)
 	}
 
 	// 2PC tests don't need schema discovery — the schema is already validated by the regular integration test.
 	seedCatalogFromTestStreams(t, cfg.TestConfig, currentTestTable)
 
 	t.Run("Sync", func(t *testing.T) {
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false, cfg.TestConfig.Suite)
 
 		if err := updateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, cfg.ColumnToExclude); err != nil {
 			t.Fatalf("failed to enable normalization and partition regex in streams.json: %s", err)
@@ -1419,7 +1442,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 			}
 		}
 
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false, cfg.TestConfig.Suite)
 		t.Logf("%s 2PC sync test cleanup", cfg.TestConfig.Driver)
 	})
 }
@@ -1475,7 +1498,7 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 
 	for _, tc := range rebalanceTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg.ExecuteQuery(ctx, t, []string{testTable}, tc.operation, false)
+			cfg.ExecuteQuery(ctx, t, []string{testTable}, tc.operation, false, cfg.TestConfig.Suite)
 
 			if err := cfg.runRebalanceSync(ctx, t, tc.useState); err != nil {
 				t.Fatalf("%s failed: %v", tc.name, err)
@@ -1509,8 +1532,8 @@ func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
 
 	t.Run("Sync", func(t *testing.T) {
 		// 1. Query on test table
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false, cfg.TestConfig.Suite)
 
 		// 2. Enable normalization and partition regex in streams.json
 		if err := updateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, cfg.ColumnToExclude); err != nil {
@@ -1524,7 +1547,7 @@ func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
 		}
 
 		// 4. Clean up
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false, cfg.TestConfig.Suite)
 		t.Logf("%s rebalance test cleanup", cfg.TestConfig.Driver)
 	})
 }
@@ -1540,10 +1563,10 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Run("Discover", func(t *testing.T) {
 		// 1. Query on test table; drop first so an aborted run's leftovers cannot survive
 		// the CREATE IF NOT EXISTS
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false, cfg.TestConfig.Suite)
 
 		// 2. Run discover against the driver image
 		code, out, err := runOlake(ctx, t, cfg.TestConfig, discoverArgs(*cfg.TestConfig)...)
@@ -1555,17 +1578,17 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 		verifyDiscoveredStreams(t, cfg.TestConfig.HostTestCatalogPath, cfg.TestConfig.HostCatalogPath)
 
 		// 4. Clean up
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false, cfg.TestConfig.Suite)
 		t.Logf("%s discover test cleanup", cfg.TestConfig.Driver)
 	})
 
 	t.Run("Sync", func(t *testing.T) {
 		// 1. Query on test table; drop first so an aborted run's leftovers cannot survive
 		// the CREATE IF NOT EXISTS
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false, cfg.TestConfig.Suite)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false, cfg.TestConfig.Suite)
 
 		// 2. Enable normalization, partition regex, filter and column exclusion in streams.json
 		if err := updateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, cfg.ColumnToExclude); err != nil {
@@ -1626,7 +1649,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 		}
 
 		// 3. Clean up
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false, cfg.TestConfig.Suite)
 		t.Logf("%s sync test cleanup", cfg.TestConfig.Driver)
 	})
 }
@@ -2158,7 +2181,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	t.Run("performance", func(t *testing.T) {
 		// reset CDC config
 		if cfg.TestConfig.Driver == string(constants.Postgres) || cfg.TestConfig.Driver == string(constants.MySQL) {
-			cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "reset_cdc_config", true)
+			cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "reset_cdc_config", true, cfg.TestConfig.Suite)
 			t.Log("CDC config reset completed")
 		}
 
@@ -2205,7 +2228,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			t.Logf("(cdc) running performance test for %s", cfg.TestConfig.Driver)
 
 			t.Log("(cdc) setup cdc started")
-			cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "setup_cdc", true)
+			cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "setup_cdc", true, cfg.TestConfig.Suite)
 			t.Log("(cdc) setup cdc completed")
 
 			t.Log("(cdc) discover started")
@@ -2225,7 +2248,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			t.Log("(cdc) state creation completed")
 
 			t.Log("(cdc) trigger cdc started")
-			cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "bulk_cdc_data_insert", true)
+			cfg.ExecuteQuery(ctx, t, cfg.CDCStreams, "bulk_cdc_data_insert", true, cfg.TestConfig.Suite)
 			t.Log("(cdc) trigger cdc completed")
 
 			t.Log("(cdc) sync started")

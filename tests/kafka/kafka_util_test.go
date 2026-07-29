@@ -124,7 +124,7 @@ var (
 )
 
 // ExecuteQueryJSON executes Kafka queries for testing based on the operation type
-func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string) {
 	t.Helper()
 
 	var kafkaJSONBroker string
@@ -299,7 +299,7 @@ func stopRebalanceTrigger() {
 }
 
 // ExecuteQueryAvro executes Kafka queries for testing based on the operation type
-func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string) {
 	t.Helper()
 
 	var kafkaAvroBroker string
