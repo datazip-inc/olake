@@ -25,6 +25,7 @@ on:
       - 'destination/iceberg/local-test/**'
       - 'tests/**'
       - '.github/workflows/integration-tests.yml'
+      - '.github/actions/detect-drivers/action.yml'
 
 jobs:
   # Ungated, like the three cache jobs below it: the environment prompts once per wave of jobs that
