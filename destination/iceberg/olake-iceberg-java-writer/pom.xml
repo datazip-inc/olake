@@ -43,7 +43,8 @@
         <!-- deliberate family pins; see DEPENDENCY POLICY above -->
         <version.netty>4.1.136.Final</version.netty>
         <version.jackson>2.22.1</version.jackson>
-        <!-- keep all grpc artifacts on one version; see warning on grpc-netty -->
+        <!-- keeps the grpc artifacts we declare on one version; gcsio brings its
+             own 1.67.x grpc modules that this does not reach -->
         <version.grpc>1.69.0</version.grpc>
         <!-- AWS SDK v2, managed by its BOM (AWS's documented pattern). -->
         <version.awssdk>2.49.6</version.awssdk>
@@ -142,11 +143,11 @@
             <artifactId>iceberg-hive-metastore</artifactId>
         </dependency>
         <!--
-          gRPC: do NOT upgrade past 1.69.x without testing server startup.
-          iceberg-gcp-bundle bundles grpc-netty-shaded classes; with grpc 1.82+
-          that stale SPI transport provider wins and ServerBuilder.build()
-          throws AbstractMethodError, so the server never starts. An exclusion
-          cannot reach it (classes are shaded in). Verified: 1.69.0 OK, 1.82.2 fails.
+          grpc-netty-shaded must stay off the classpath. When present it registers
+          a second SPI transport provider that can win over this one and make
+          ServerBuilder.build() throw AbstractMethodError, so the server never
+          starts. Keep the exclusions that hold it out (here and on gcsio), and
+          re-test server startup after any grpc upgrade.
         -->
         <dependency>
             <groupId>io.grpc</groupId>
@@ -232,8 +233,8 @@
             <exclusions>
                 <!--
                   jetty backs hadoop's HttpServer2 and hive's web UI. This is a
-                  headless gRPC writer: no web UI, no namenode, no YARN. Both
-                  remaining CVEs live here and have no obtainable fix on 9.4.x.
+                  headless gRPC writer: no web UI, no namenode, no YARN. The
+                  jetty CVEs it carries have no obtainable fix on 9.4.x.
                 -->
                 <exclusion>
                     <groupId>org.eclipse.jetty</groupId>
@@ -343,13 +344,10 @@
             <version>${version.googlebigdataoss}</version>
             <exclusions>
                 <!--
-                  gcsio pulls a standalone grpc-netty-shaded 1.67.1 while we
-                  use grpc 1.69.0. It is redundant: iceberg-gcp-bundle already
-                  bundles the same shaded classes, so dropping the artifact
-                  leaves exactly one source and removes a stale grpc version
-                  from the tree. Note this does NOT guard against the grpc
-                  upgrade hazard documented on the grpc-netty dependency; that
-                  copy is bundled inside iceberg-gcp-bundle and is unreachable.
+                  gcsio pulls grpc-netty-shaded 1.67.1, the only remaining source
+                  of the shaded transport described on the grpc-netty dependency
+                  above. GCS reaches storage over the HTTP/JSON transport, which
+                  does not need it.
                 -->
                 <exclusion>
                     <groupId>io.grpc</groupId>
@@ -405,8 +403,8 @@
             <exclusions>
                 <!--
                   jetty backs hadoop's HttpServer2 and hive's web UI. This is a
-                  headless gRPC writer: no web UI, no namenode, no YARN. Both
-                  remaining CVEs live here and have no obtainable fix on 9.4.x.
+                  headless gRPC writer: no web UI, no namenode, no YARN. The
+                  jetty CVEs it carries have no obtainable fix on 9.4.x.
                 -->
                 <exclusion>
                     <groupId>org.eclipse.jetty</groupId>
