@@ -7,7 +7,8 @@ on:
     paths:
       - 'pkg/kafka/**'
       - 'drivers/kafka/**'
-      - 'utils/testutils/test_utils.go'
+      - 'tests/kafka/**'
+      - 'tests/testutils/**'
       - '.github/workflows/kafka-rebalance-tests.yml'
   pull_request:
     branches:
@@ -15,7 +16,8 @@ on:
     paths:
       - 'pkg/kafka/**'
       - 'drivers/kafka/**'
-      - 'utils/testutils/test_utils.go'
+      - 'tests/kafka/**'
+      - 'tests/testutils/**'
       - '.github/workflows/kafka-rebalance-tests.yml'
 
 jobs:
@@ -38,61 +40,42 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Start Test Infrastructure
-        run: |
-          docker compose -f ./drivers/kafka/docker-compose.yml up -d
-          docker compose -f ./destination/iceberg/local-test/docker-compose.yml up minio mc postgres spark-iceberg -d
-
-      - name: Wait for Kafka
-        uses: nick-fields/retry@v2
-        with:
-          timeout_minutes: 5
-          max_attempts: 30
-          retry_wait_seconds: 5
-          command: |
-            docker exec kafkaJson kafka-topics --bootstrap-server localhost:9092 --list
-
-      - name: Wait for Spark Connect
-        uses: nick-fields/retry@v2
-        with:
-          timeout_minutes: 5
-          max_attempts: 30
-          retry_wait_seconds: 5
-          command: |
-            bash -c 'echo > /dev/tcp/127.0.0.1/15002'
-
       - name: Set up Data Directories
         run: |
-          sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/postgres-data
-          sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/minio-data
-          sudo mkdir -p /home/runner/work/olake/olake/destination/iceberg/local-test/data/ivy-cache
-          sudo chown -R 999:999 /home/runner/work/olake/olake/destination/iceberg/local-test/data
-          sudo chmod -R 777 /home/runner/work/olake/olake/destination/iceberg/local-test/data
+          sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
+          sudo chown -R 999:999 destination/iceberg/local-test/data
+          sudo chmod -R 777 destination/iceberg/local-test/data
 
-      - name: Install Go Dependencies
-        run: go mod download
-
-      - name: Build Project
-        run: go build -v ./...
-
+      # Building the iceberg java writer needs its maven dependencies, which the pom.xml pins.
       - name: Cache Maven dependencies
         uses: actions/cache@v4
         with:
           path: |
             ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          key: ${{ runner.os }}-maven-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
+
+      # Kafka and the destination stack boot together; nothing blocks until the
+      # wait step, so they come up while the steps below run.
+      - name: Start Test Infrastructure
+        run: make -j --output-sync=target olake.kafka.up olake.destination.all.up
+
+      - name: Install Go Dependencies
+        working-directory: ./tests/testutils
+        run: go mod download
 
       - name: Build Iceberg Sink
         working-directory: ./destination/iceberg/olake-iceberg-java-writer
         run: mvn clean package -DskipTests
 
-      - name: Run Kafka Rebalance Tests
-        run: go test -v ./drivers/kafka/internal/... -timeout 0 -run TestKafkaRebalance
+      - name: Build Kafka Driver Image
+        run: make docker.kafka.build
 
+      - name: Run Kafka Rebalance Tests
+        run: make test.kafka.rebalance
+
+      # stop, not teardown: teardown also deletes the root-owned data dir above.
       - name: Cleanup
         if: always()
-        run: |
-          docker compose -f ./destination/iceberg/local-test/docker-compose.yml down
-          docker compose -f ./drivers/kafka/docker-compose.yml down
+        run: make -j olake.kafka.stop olake.destination.all.stop
