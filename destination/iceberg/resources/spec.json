@@ -215,6 +215,11 @@
                   "title": "GCP Auth Scopes",
                   "description": "Comma-separated OAuth2 scopes for GoogleAuthManager. Defaults to https://www.googleapis.com/auth/cloud-platform if left empty"
                 },
+                "gcp_project_id": {
+                  "type": "string",
+                  "title": "GCP Project ID",
+                  "description": "Required by BigLake for request routing/billing (sent as the x-goog-user-project header)"
+                },
                 "no_identifier_fields": {
                   "type": "boolean",
                   "default": false,
