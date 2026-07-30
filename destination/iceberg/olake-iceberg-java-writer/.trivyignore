@@ -1,30 +1,17 @@
-# Trivy suppressions -- validated 2026-07-29.
-# All of these are vulnerable copies SHADED inside a third-party fat jar (or
-# have no published fix). Our resolved versions are already patched -- netty
-# 4.1.136, jackson-databind 2.22.1, jetty 9.4.58 -- so no pin, BOM or exclusion
-# can reach them. Fix an entry by exclusion or a parent upgrade, never a pin.
-
-# iceberg-aws-bundle 1.10.2 shades netty 4.1.124 (needs 4.1.135).
-# Upstream: https://github.com/apache/iceberg/issues/16286
-CVE-2026-44249
-CVE-2026-45416
-CVE-2026-50010
-
-# iceberg-azure-bundle 1.10.2 shades netty 4.1.112 (needs 4.1.133/4.1.135).
-CVE-2026-42579
-CVE-2026-45674
-CVE-2026-47691
-
-# parquet-jackson 1.16.0 shades jackson 2.19.2 (needs 2.21.4).
+# Trivy suppressions -- validated 2026-07-30.
+#
+# Both entries come from parquet-jackson, which ships its own copy of
+# jackson-databind relocated under shaded.parquet.*. Being a renamed package it
+# is not a Maven coordinate, so no pin, BOM or exclusion can reach it, and
+# Parquet is not removable (it is our primary file format). Our own resolved
+# jackson-databind is 2.22.1 and is patched.
+#
+# Upgrading Parquet does not help: 1.16.0 shades jackson 2.19.2 and the latest
+# 1.17.1 still shades 2.21.3, while the fix requires >= 2.21.4.
+#
+# Apache Iceberg suppresses these same CVEs for the same reason, see
+# https://github.com/apache/iceberg/blob/main/.github/trivyignore/kafka-connect-runtime.trivyignore
+#
+# Clears when Apache Parquet re-shades jackson >= 2.21.4.
 CVE-2026-54512
 CVE-2026-54513
-
-# jetty 9.4.58 is the newest 9.4.x published. jetty-http is fixed only in 12.x,
-# which breaks hadoop/hive/gcsio; jetty-security's 9.4.63 fix was never released.
-# Jetty here backs only hadoop/hive internal endpoints; our RPC surface is gRPC.
-CVE-2026-2332
-CVE-2026-10050
-
-# hadoop-aws 3.5.0 pins awssdk bundle 2.35.4, which shades a vulnerable
-# cloudfront (fixed in 2.41.30). Revisit when hadoop-aws ships a newer SDK.
-GHSA-443w-3rq3-5m5h
