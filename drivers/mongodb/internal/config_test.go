@@ -187,6 +187,18 @@ func TestConfig_Validate(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			name: "negative retry count fails validation",
+			config: &Config{
+				Hosts:      []string{"mongo.example.com:27017"},
+				Database:   "testdb",
+				Username:   "user",
+				Password:   "pass",
+				AuthDB:     "admin",
+				RetryCount: -1,
+			},
+			expectErr: true,
+		},
+		{
 			name: "sets defaults",
 			config: &Config{
 				Hosts:    []string{"mongo.example.com:27017"},

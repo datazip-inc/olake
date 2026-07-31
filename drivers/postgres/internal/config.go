@@ -52,6 +52,11 @@ func (c *Config) Validate() error {
 		c.MaxThreads = constants.DefaultThreadCount
 	}
 
+	// default backoff retry count
+	if c.RetryCount <= 0 {
+		c.RetryCount = constants.DefaultRetryCount
+	}
+
 	// Add the connection parameters to the url
 	parsed := &url.URL{
 		Scheme: "postgres",

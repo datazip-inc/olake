@@ -76,6 +76,11 @@ func (c *Config) Validate() error {
 		c.MaxThreads = constants.DefaultThreadCount
 	}
 
+	// default backoff retry count
+	if c.RetryCount <= 0 {
+		c.RetryCount = constants.DefaultRetryCount
+	}
+
 	if c.SSLConfiguration == nil {
 		c.SSLConfiguration = &utils.SSLConfig{
 			Mode: "disable",

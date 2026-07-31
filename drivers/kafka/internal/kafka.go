@@ -118,10 +118,6 @@ func (k *Kafka) Setup(ctx context.Context) error {
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
 	}
 
-	// TODO: Avoid modifying the configured/default retry count during initialization across all drivers.
-	// check for default backoff count
-	k.config.RetryCount = utils.Ternary(k.config.RetryCount <= 0, 1, k.config.RetryCount+1).(int)
-
 	return nil
 }
 
