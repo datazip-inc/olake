@@ -80,6 +80,8 @@ type Config struct {
 	// GCP auth for GoogleAuthManager (e.g. BigLake). Inline SA key JSON;
 	GCPServiceAccountJSON string `json:"gcp_service_account_json,omitempty"`
 	GCPAuthScopes         string `json:"gcp_auth_scopes,omitempty"`
+	// Required by BigLake for request routing/billing (sent as the x-goog-user-project header).
+	GCPProjectID string `json:"gcp_project_id,omitempty"`
 
 	UseArrowWrites bool `json:"arrow_writes,omitempty"`
 }
