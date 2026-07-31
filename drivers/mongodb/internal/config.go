@@ -116,7 +116,10 @@ func (c *Config) Validate() error {
 		c.MaxThreads = constants.DefaultThreadCount
 	}
 
-	if c.RetryCount <= 0 {
+	if c.RetryCount < 0 {
+		return fmt.Errorf("retry count must be non-negative")
+	}
+	if c.RetryCount == 0 {
 		c.RetryCount = constants.DefaultRetryCount
 	}
 
