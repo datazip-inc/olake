@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -140,9 +141,17 @@ func (d *DB2) forwardConnections(listener net.Listener, remoteAddr string) {
 			defer localConn.Close()
 			defer remoteConn.Close()
 
+			// The second copy always exits with net.ErrClosed once teardown closes both conns,
+			// so only unexpected copy failures are logged.
 			done := make(chan struct{}, 2)
-			go func() { _, _ = io.Copy(localConn, remoteConn); done <- struct{}{} }()
-			go func() { _, _ = io.Copy(remoteConn, localConn); done <- struct{}{} }()
+			tunnelCopy := func(dst, src net.Conn, way string) {
+				if _, err := io.Copy(dst, src); err != nil && !errors.Is(err, net.ErrClosed) {
+					logger.Warnf("ssh tunnel %s copy failed: %s", way, err)
+				}
+				done <- struct{}{}
+			}
+			go tunnelCopy(localConn, remoteConn, "remote->local")
+			go tunnelCopy(remoteConn, localConn, "local->remote")
 			<-done
 		}()
 	}

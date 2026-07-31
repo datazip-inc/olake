@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -64,7 +65,11 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			logger.Warnf("failed to rollback transaction: %s", err)
+		}
+	}()
 
 	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 		return tx.QueryContext(ctx, query, args...)

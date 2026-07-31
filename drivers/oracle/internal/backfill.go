@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -38,7 +39,11 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			logger.Warnf("failed to rollback transaction: %s", err)
+		}
+	}()
 
 	logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 
