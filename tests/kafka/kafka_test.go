@@ -7,9 +7,9 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
-func kafkaJSONBaseConfig() *testutils.IntegrationTest {
+func kafkaJSONBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "json"),
+		TestConfig:                       testutils.GetTestConfig(t, string(constants.Kafka), "json"),
 		Namespace:                        "topics",
 		ExpectedData:                     ExpectedKafkaJSONData,
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
@@ -38,9 +38,9 @@ func kafkaJSONBaseConfig() *testutils.IntegrationTest {
 	}
 }
 
-func kafkaAvroBaseConfig() *testutils.IntegrationTest {
+func kafkaAvroBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "avro"),
+		TestConfig:                       testutils.GetTestConfig(t, string(constants.Kafka), "avro"),
 		Namespace:                        "topics",
 		ExpectedData:                     ExpectedKafkaAvroData,
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
@@ -77,11 +77,11 @@ func TestKafkaIntegration(t *testing.T) {
 	}{
 		{
 			name: "JSON-Format",
-			cfg:  kafkaJSONBaseConfig(),
+			cfg:  kafkaJSONBaseConfig(t),
 		},
 		{
 			name: "AVRO-Format",
-			cfg:  kafkaAvroBaseConfig(),
+			cfg:  kafkaAvroBaseConfig(t),
 		},
 	}
 	for _, test := range tests {
@@ -94,10 +94,12 @@ func TestKafkaIntegration(t *testing.T) {
 
 func TestKafka2PC(t *testing.T) {
 	t.Parallel()
-	kafkaJSONBaseConfig().Test2PCIntegration(t)
+	kafkaJSONBaseConfig(t).Test2PCIntegration(t)
 }
 
 func TestKafkaRebalance(t *testing.T) {
 	t.Parallel()
-	kafkaJSONBaseConfig().TestRebalance(t)
+	cfg := kafkaJSONBaseConfig(t)
+	rebalanceSyncStatsPath = cfg.TestConfig.HostStatsPath
+	cfg.TestRebalance(t)
 }

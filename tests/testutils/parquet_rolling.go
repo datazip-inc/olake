@@ -86,7 +86,7 @@ func (cfg *IntegrationTest) testParquetRolling(ctx context.Context, t *testing.T
 // proof — a broken roll would leave one oversized file), and (3) preserved every row.
 func (cfg *IntegrationTest) verifyParquetRolling(t *testing.T, table string) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := t.Context()
 
 	client, err := newMinIOClient()
 	require.NoError(t, err)

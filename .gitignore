@@ -16,6 +16,3 @@ local-releaser.sh
 destination/iceberg/olake-iceberg-java-writer/.idea/
 destination/iceberg/olake-iceberg-java-writer/dependency-reduced-pom.xml
 tests/*/testdata/**/logs
-tests/*/testdata/**/state.json
-tests/*/testdata/**/stats.json
-tests/*/testdata/**/streams.json

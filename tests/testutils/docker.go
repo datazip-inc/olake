@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -34,6 +35,7 @@ func driverImageRef(driver string) string {
 var (
 	ensureImageOnce sync.Once
 	ensureImageErr  error
+	containerSeq    atomic.Int64
 )
 
 // getOrBuildDriverImage returns the driver image, rebuilding it via `make docker.<driver>.build`
@@ -82,9 +84,25 @@ func runOlake(ctx context.Context, t *testing.T, cfg *TestConfig, olakeArgs ...s
 	getOrBuildDriverImage(t, cfg)
 	defer trackPhaseTiming(t, cfg.Driver, olakeArgs[0]+" run")()
 
-	args := dockerRunArgs(cfg, []string{"--add-host", "host.docker.internal:host-gateway"}, olakeArgs)
-	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	name := fmt.Sprintf("olake-it-%s-%d-%d", cfg.Driver, os.Getpid(), containerSeq.Add(1))
+	t.Cleanup(func() {
+		if exec.Command("docker", "rm", "-f", name).Run() == nil {
+			t.Logf("reaped leaked container %s", name)
+		}
+	})
+	args := dockerRunArgs(cfg, []string{"--add-host", "host.docker.internal:host-gateway", "--name", name}, olakeArgs)
+
+	runCtx, cancel := context.WithTimeout(ctx, SyncTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(runCtx, "docker", args...).CombinedOutput()
 	logContainerTimings(t, out)
+	if runCtx.Err() == context.DeadlineExceeded {
+		err = exec.Command("docker", "rm", "-f", name).Run()
+		if err != nil {
+			t.Logf("error stopping docker container after timeout: %v", err)
+		}
+		return -1, out, fmt.Errorf("olake %s run timed out after %s", olakeArgs[0], SyncTimeout)
+	}
 	return dockerExitResult(out, err, olakeArgs[0])
 }
 

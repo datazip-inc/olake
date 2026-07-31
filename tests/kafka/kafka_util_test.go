@@ -13,7 +13,6 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
-	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/linkedin/goavro/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -73,6 +72,7 @@ var (
 	// rebalance trigger
 	rebalanceTriggerCancel context.CancelFunc
 	rebalanceTriggerDone   chan struct{} // closed when the trigger goroutine has fully exited
+	rebalanceSyncStatsPath string
 
 	// JSON
 	jsonKey          = []byte(`{"key":"json-key"}`)
@@ -263,7 +263,8 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 func waitForSyncProgress(ctx context.Context, t *testing.T) {
 	t.Helper()
 
-	statsPath := testutils.GetTestConfig(string(constants.Kafka), "json").HostStatsPath
+	statsPath := rebalanceSyncStatsPath
+	require.NotEmpty(t, statsPath, "rebalanceSyncStatsPath not set; waitForSyncProgress only runs under TestKafkaRebalance")
 	require.Eventually(t, func() bool {
 		if ctx.Err() != nil {
 			return true
@@ -483,7 +484,7 @@ func registerSchemaWithRetry(t *testing.T, url, topic, schema string) uint32 {
 	var schemaID uint32
 
 	// retry for schema registration
-	err = testutils.RetryOnBackoff(context.Background(), 5, 2*time.Second, func(_ context.Context) error {
+	err = testutils.RetryOnBackoff(t.Context(), 5, 2*time.Second, func(_ context.Context) error {
 		// get schema response
 		response, err := client.Post(
 			fmt.Sprintf("%s/subjects/%s-value/versions", url, topic),
