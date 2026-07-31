@@ -30,7 +30,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		ServerID:                mySQLGlobalState.ServerID,
 		Flavor:                  "mysql",
 		Host:                    m.config.Host,
-		Port:                    uint16(m.config.Port),
+		Port:                    uint16(m.config.Port), // #nosec G115 -- TCP ports fit uint16
 		User:                    m.config.Username,
 		Password:                m.config.Password,
 		Charset:                 "utf8mb4",
@@ -57,16 +57,14 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %s", err)
 		}
-		m.state.SetGlobal(MySQLGlobalState{ServerID: uint32(1000 + time.Now().UnixNano()%4294966295), State: binlog.Binlog{Position: binlogPos}})
+		m.state.SetGlobal(MySQLGlobalState{ServerID: uint32(1000 + time.Now().UnixNano()%4294966295), State: binlog.Binlog{Position: binlogPos}}) // #nosec G115 -- modulo bounds the value below 2^32
 		m.state.ResetStreams()
-		// reinit state
-		globalState = m.state.GetGlobal()
 	}
 	m.streams = streams
 	return nil
 }
 
-func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
+func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	savedState := m.state.GetGlobal()
 	if savedState == nil || savedState.State == nil {
 		return nil, fmt.Errorf("invalid global state; state is missing")

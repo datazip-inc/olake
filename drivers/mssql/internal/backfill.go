@@ -64,9 +64,9 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
-	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 		return tx.QueryContext(ctx, query, args...)
 	})
 
@@ -149,8 +149,8 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 // Sorting []uint64 with < is cheaper than sorting [][]byte with bytes.Compare.
 func physlocSortKey(fileID, pageID int32) uint64 {
 	var b [8]byte
-	binary.LittleEndian.PutUint32(b[0:4], uint32(pageID))
-	binary.LittleEndian.PutUint16(b[4:6], uint16(fileID))
+	binary.LittleEndian.PutUint32(b[0:4], uint32(pageID)) // #nosec G115 -- PHYSLOC page/file ids are unsigned; deliberate reinterpretation
+	binary.LittleEndian.PutUint16(b[4:6], uint16(fileID)) // #nosec G115 -- PHYSLOC page/file ids are unsigned; deliberate reinterpretation
 	binary.LittleEndian.PutUint16(b[6:8], 0xFFFF)
 	return binary.BigEndian.Uint64(b[:])
 }
@@ -323,7 +323,7 @@ func (m *MSSQL) splitViaPKSample(ctx context.Context, stream types.StreamInterfa
 
 	chunks := types.NewSet[types.Chunk]()
 	step := float64(len(samples)) / float64(numberOfChunks)
-	var prev any = nil
+	var prev any
 	for i := int64(0); i < numberOfChunks; i++ {
 		idx := min(int(float64(i)*step), len(samples)-1)
 		curr := samples[idx]
@@ -376,7 +376,7 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 	// Emit one open→closed chunk every pagesPerChunk pages. The trailing chunk
 	// is open-ended. If the table fits in one chunk this produces just {nil, nil}.
 	chunks := types.NewSet[types.Chunk]()
-	var prev any = nil
+	var prev any
 	for i := pagesPerChunk; i < total; i += pagesPerChunk {
 		boundary := utils.HexEncode(physLocBytes(pages[i]))
 		chunks.Insert(types.Chunk{Min: prev, Max: boundary})
@@ -470,17 +470,17 @@ func normalizeBoundaryValue(value any, pkCols []string, columnType string) strin
 }
 
 // getTableExtremes returns MIN and MAX key values for the given PK columns.
-func (m *MSSQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {
+func (m *MSSQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (minVal, maxVal any, err error) {
 	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
-	err = m.client.QueryRowContext(ctx, query).Scan(&min, &max)
-	return min, max, err
+	err = m.client.QueryRowContext(ctx, query).Scan(&minVal, &maxVal)
+	return minVal, maxVal, err
 }
 
 // getPhysLocExtremes returns MIN and MAX %%physloc%% values for the table.
-func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInterface) (min, max []byte, err error) {
+func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInterface) (minVal, maxVal []byte, err error) {
 	query := jdbc.MSSQLPhysLocExtremesQuery(stream)
-	err = m.client.QueryRowContext(ctx, query).Scan(&min, &max)
-	return min, max, err
+	err = m.client.QueryRowContext(ctx, query).Scan(&minVal, &maxVal)
+	return minVal, maxVal, err
 }
 
 // formatUniqueIdentifierBytes converts SQL Server's mixed-endian UNIQUEIDENTIFIER

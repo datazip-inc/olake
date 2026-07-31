@@ -14,6 +14,8 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+
+	// registers the go_ibm_db DB2 driver with database/sql
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/ssh"
@@ -139,8 +141,8 @@ func (d *DB2) forwardConnections(listener net.Listener, remoteAddr string) {
 			defer remoteConn.Close()
 
 			done := make(chan struct{}, 2)
-			go func() { io.Copy(localConn, remoteConn); done <- struct{}{} }()
-			go func() { io.Copy(remoteConn, localConn); done <- struct{}{} }()
+			go func() { _, _ = io.Copy(localConn, remoteConn); done <- struct{}{} }()
+			go func() { _, _ = io.Copy(remoteConn, localConn); done <- struct{}{} }()
 			<-done
 		}()
 	}
@@ -209,7 +211,7 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName types.StreamID) (*ty
 			}
 
 			stream.WithCursorField(columnName)
-			datatype := types.Unknown
+			var datatype types.DataType
 
 			if val, found := db2TypeToDataTypes[strings.ToLower(dataType)]; found {
 				datatype = val

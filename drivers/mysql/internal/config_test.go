@@ -415,7 +415,7 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 			name:       "fails with invalid CA pem",
 			config:     &Config{SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeVerifyCA, ServerCA: "not-a-pem"}},
 			expectErr:  true,
-			assertions: func(t *testing.T, _ *tls.Config) {},
+			assertions: func(_ *testing.T, _ *tls.Config) {},
 		},
 	}
 

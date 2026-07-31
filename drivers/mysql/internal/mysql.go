@@ -91,7 +91,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 
 		// Allows mysql driver to use the SSH client to connect to the database
 		cfg.Net = "mysqlTcp"
-		mysql.RegisterDialContext(cfg.Net, func(ctx context.Context, addr string) (net.Conn, error) {
+		mysql.RegisterDialContext(cfg.Net, func(_ context.Context, addr string) (net.Conn, error) {
 			return m.sshClient.Dial("tcp", addr)
 		})
 
@@ -220,7 +220,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 				return nil, fmt.Errorf("failed to scan column: %s", err)
 			}
 			stream.WithCursorField(columnName)
-			datatype := types.Unknown
+			var datatype types.DataType
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
 				datatype = val
 			} else {
@@ -275,19 +275,19 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		switch strings.ToLower(columnType) {
 		case "unsigned tinyint":
 			if v, ok := value.(int8); ok {
-				value = uint8(v)
+				value = uint8(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
 		case "unsigned smallint":
 			if v, ok := value.(int16); ok {
-				value = uint16(v)
+				value = uint16(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
 		case "unsigned mediumint", "unsigned int", "unsigned integer":
 			if v, ok := value.(int32); ok {
-				value = uint32(v)
+				value = uint32(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
 		case "unsigned bigint":
 			if v, ok := value.(int64); ok {
-				value = uint64(v)
+				value = uint64(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
 		}
 	} else {

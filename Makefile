@@ -5,6 +5,9 @@ GOPATH = $(shell go env GOPATH)
 GO_VERSION = $(shell awk '/^go / {print "go"$$2; exit}' go.mod)
 # A driver is any drivers/ subdir with its own go.mod (excludes util folders like abstract).
 DRIVERS = $(notdir $(patsubst %/go.mod,%,$(wildcard drivers/*/go.mod)))
+# Product modules only: tests/ (and its lib glue) carry their own lint state and are linted on
+# their own branch; drop the filter once the tests workspace split lands.
+ROOT_MODULES := $(filter-out $(CURDIR)/lib $(CURDIR)/tests/%,$(shell go list -m -f '{{.Dir}}'))
 
 # Platform resolution from drivers/platforms.conf; PLATFORMS=... overrides it.
 # parse_platforms_conf: driver $(1)'s entry; falls back to the '*' default when $(2) is non-empty.
@@ -19,7 +22,7 @@ local_driver_platforms = $(or $(PLATFORMS),$(call parse_platforms_conf,$(1)))
 print.platforms.%:
 	@echo $(call driver_platforms,$*)
 
-.PHONY: gomod golangci trivy gofmt pre-commit
+.PHONY: gomod golangci.install trivy gofmt pre-commit
 
 # Build a driver image locally, e.g. `make docker.postgres.build IMAGE_TAG=v1.2.3`.
 # Drivers with an explicit entry in drivers/platforms.conf are pinned to it.
@@ -34,9 +37,13 @@ $(addsuffix .build,$(addprefix docker.,$(DRIVERS))): docker.%.build:
 gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
-golangci:
-	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest;
-	$(GOPATH)/bin/golangci-lint run
+golangci.install:
+	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+# One golangci-lint run over every product module in go.work. Relative patterns on purpose: an
+# absolute <dir>/... for the root module sweeps into tests/, while ./... stays module-scoped.
+olake.lint: golangci.install prepare.all
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) $(GOPATH)/bin/golangci-lint run $(patsubst $(CURDIR)%,.%/...,$(ROOT_MODULES))
 
 trivy:
 	trivy fs  --vuln-type  os,library --severity HIGH,CRITICAL .
@@ -75,10 +82,8 @@ docker.base.build:
 	fi
 	docker build $(addprefix --platform ,$(PLATFORMS)) --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t $(BASE_IMAGE) -f base.Dockerfile .
 
-# Mirrors CI's "Go Build and Lint" workflow (.github/workflows/golang-ci.yml):
-# its lint job installs golangci-lint via `go install ...@latest` and runs it
-# against the repo's .golangci.yml -- exactly what the golangci target does.
-lint: golangci
+# Mirrors CI's "Go Build and Lint" workflow
+lint: olake.lint
 
 # Referenced by the build-check job of the same workflow (root module, same
 # command as the integration workflow's "Build Project" step; driver modules
@@ -359,9 +364,10 @@ help:
 	@echo "OLake Makefile  (SOURCE_DRIVERS: $(SOURCE_DRIVERS))"
 	@echo ""
 	@echo "Code quality:"
-	@printf "  %-44s %s\n" "lint" "run CI lint locally (golangci-lint, alias of golangci)"
+	@printf "  %-44s %s\n" "lint" "run CI lint locally (alias of olake.lint)"
+	@printf "  %-44s %s\n" "olake.lint" "golangci-lint over root + driver modules (incl. db2; provisions its clidriver)"
 	@printf "  %-44s %s\n" "build" "compile the root module (CI build-check)"
-	@printf "  %-44s %s\n" "gomod / golangci / trivy / gofmt / pre-commit" "tidy, lint, format and git-hook targets"
+	@printf "  %-44s %s\n" "gomod / golangci.install / trivy / gofmt / pre-commit" "tidy, lint-install, format and git-hook targets"
 	@echo ""
 	@echo "Source stacks (compose up + wait until ready; stop keeps volumes):"
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).start" "start + wait for $(d) (= olake.$(d).up then olake.$(d).wait)";)
@@ -400,7 +406,7 @@ help:
 	@echo ""
 	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG"
 
-.PHONY: lint build \
+.PHONY: lint olake.lint build \
 	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \
 	olake.destination.all.start olake.destination.all.stop olake.destination.all.teardown olake.destination.all.restart olake.destination.all.refresh \
 	olake.all.start olake.all.stop olake.all.teardown olake.all.restart olake.all.refresh \

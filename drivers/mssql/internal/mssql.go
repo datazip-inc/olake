@@ -26,7 +26,6 @@ type MSSQL struct {
 	client        *sqlx.DB
 	config        *Config
 	state         *types.State
-	capturesMap   map[string][]captureInstance
 	lsnMap        sync.Map
 	streams       []types.StreamInterface
 	cdcSupported  bool
@@ -55,7 +54,7 @@ func (m *MSSQL) CDCSupported() bool {
 	return m.cdcSupported
 }
 
-// Setup establishes the database connection and initialises CDC settings.
+// Setup establishes the database connection and initializes CDC settings.
 func (m *MSSQL) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
@@ -146,7 +145,7 @@ func (m *MSSQL) Close() error {
 
 func setupSSH(sshCfg *utils.SSHConfig) (*ssh.Client, error) {
 	if sshCfg == nil || sshCfg.Host == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // SSH is optional: no config means no client and no error
 	}
 
 	sshClient, err := sshCfg.SetupSSHConnection()
@@ -187,7 +186,7 @@ func (d *mssqlSSHDialer) DialContext(ctx context.Context, network, addr string) 
 	return d.sshClient.DialContext(ctx, network, addr)
 }
 
-// HostName implements go-mssqldb's HostDialer interface, signalling that DNS
+// HostName implements go-mssqldb's HostDialer interface, signaling that DNS
 // resolution should happen on the remote (SSH) side rather than locally.
 func (d *mssqlSSHDialer) HostName() string {
 	return d.host
@@ -268,7 +267,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 		for _, column := range columns {
 			stream.WithCursorField(column.name)
 
-			datatype := types.Unknown
+			var datatype types.DataType
 			if val, found := mssqlTypeToDataTypes[strings.ToLower(column.dataType)]; found {
 				datatype = val
 			} else {
