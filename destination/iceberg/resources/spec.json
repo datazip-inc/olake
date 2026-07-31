@@ -273,7 +273,7 @@
                 "gcp_auth_scopes": {
                   "type": "string",
                   "title": "GCP Auth Scopes",
-                  "description": "Comma-separated OAuth2 scopes for GoogleAuthManager. Defaults to https://www.googleapis.com/auth/cloud-platform if left empty"
+                  "description": "OAuth2 access scopes, space-separated for more than one"
                 },
                 "gcp_project_id": {
                   "type": "string",
@@ -294,7 +294,8 @@
                   "type":"string",
                   "title":"Authentication Type",
                   "enum": ["None", "OAuth2", "Token"],
-                  "default":"None"
+                  "default":"None",
+                  "description":"Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -313,6 +314,7 @@
               },
               "required": [
                 "rest_catalog_url",
+                "rest_auth_type",
                 "aws_region"
               ],
               "dependencies":{
@@ -381,7 +383,8 @@
                   "type":"string",
                   "title":"Authentication Type",
                   "enum": ["None", "OAuth2", "Token"],
-                  "default":"None"
+                  "default":"None",
+                  "description":"Authentication types supported by the catalog"
                 },
                 "iceberg_s3_path":{
                   "description":"S3 bucket path where Iceberg data and metadata are stored"
@@ -416,6 +419,7 @@
               },
               "required": [
                 "rest_catalog_url",
+                "rest_auth_type",
                 "aws_region"
               ],
               "dependencies":{
@@ -484,7 +488,8 @@
                   "type":"string",
                   "title":"Authentication Type",
                   "enum":[ "sigv4" ],
-                  "default":"sigv4"
+                  "default":"sigv4",
+                  "description":"Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -539,7 +544,7 @@
                   "type":"string",
                   "title":"Authentication Type",
                   "enum": ["OAuth2 U2M","OAuth2 M2M", "Token Federation", "Personal Access Token (PAT)"],
-                  "default":"OAuth2 U2M"
+                  "description":"Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -653,7 +658,8 @@
                 "rest_auth_type":{
                   "type":"string",
                   "title":"Authentication Type",
-                  "enum":["OAuth2", "Token"]
+                  "enum":["OAuth2", "Token"],
+                  "description":"Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -751,24 +757,28 @@
                 "rest_catalog_url": {
                   "type": "string",
                   "title": "REST Catalog URI",
-                  "description": "Specifies the endpoint URI for the REST catalog service the writer will connect to"
+                  "description": "Endpoint URL for the Big Lake REST catalog service"
+                },
+                "iceberg_s3_path":{
+                  "description":"Path to your BigLake catalog"
                 },
                 "rest_auth_type":{
                   "type":"string",
                   "title":"Authentication Type",
                   "enum":[ "GCP" ],
-                  "default":"GCP"
+                  "default":"GCP",
+                  "description":"Authentication types supported by the catalog"
                 },
                 "gcp_service_account_json": {
                   "type": "string",
                   "format": "password",
                   "title": "GCP Service Account JSON",
-                  "description": "Inline GCP service account key JSON, used when REST Auth Type is org.apache.iceberg.gcp.auth.GoogleAuthManager (e.g. BigLake). Falls back to Application Default Credentials if left empty"
+                  "description": "JSON key file content from your GCP service account"
                 },
                 "gcp_auth_scopes": {
                   "type": "string",
                   "title": "GCP Auth Scopes",
-                  "description": "Comma-separated OAuth2 scopes for GoogleAuthManager. Defaults to https://www.googleapis.com/auth/cloud-platform if left empty"
+                  "description": "OAuth2 access scopes, space-separated for more than one"
                 },
                 "gcp_project_id": {
                   "type": "string",

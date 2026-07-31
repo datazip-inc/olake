@@ -470,20 +470,19 @@ const IcebergUISchema = `{
       { "aws_region":12, "s3_path_style":12},
       { "s3_use_ssl": 12 },
 
+      { "rest_signing_name": 12, "rest_signing_region": 12 },
+      {"rest_signing_v_4": 24},
+
       { "gcp_service_account_json": 12, "gcp_auth_scopes": 12 },
       { "gcp_project_id": 12 },
 
-      { "rest_signing_name": 12, "rest_signing_region": 12 },
-      {"rest_signing_v_4": 24},
-      
       { "glue_additional_config": 24},
       { "glue_catalog_id": 12, "glue_endpoint": 12},
 	    { "glue_access_key": 12, "glue_secret_key": 12 }, 
       { "glue_region": 12 },
-      {"arrow_writes": 24 }
+      { "arrow_writes": 24 }
       
     ],
-
     "gcp_service_account_json": {
       "ui:widget": "textarea",
       "ui:options": {
