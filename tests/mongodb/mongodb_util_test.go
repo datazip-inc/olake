@@ -81,7 +81,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, "Failed to clean collection")
 
 	case "add":
-		insertTestData(t, ctx, collection)
+		insertTestData(ctx, t, collection)
 		return
 
 	case "insert":
@@ -214,7 +214,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	}
 }
 
-func insertTestData(t *testing.T, ctx context.Context, collection *mongo.Collection) {
+func insertTestData(ctx context.Context, t *testing.T, collection *mongo.Collection) {
 	t.Helper()
 	for i := 1; i <= 5; i++ {
 		doc := bson.M{
@@ -310,7 +310,7 @@ var UpdatedMongoToDestinationSchema = map[string]string{
 	"includedcolumn":    "int",
 }
 
-var ExpectedMongoDbDefaultCDCColumnsSchema = map[string]string{
+var ExpectedMongoDBDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_resume_token": "string",
 	"_cdc_timestamp":    "timestamp",
 }

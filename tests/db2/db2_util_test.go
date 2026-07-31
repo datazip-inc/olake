@@ -94,7 +94,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
 	case "add":
-		insertTestData(t, ctx, db, integrationTestTable)
+		insertTestData(ctx, t, db, integrationTestTable)
 		return
 
 	case "insert":
@@ -200,7 +200,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	require.NoError(t, err, "Failed to execute %s operation", operation)
 }
 
-func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName string) {
+func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string) {
 	t.Helper()
 
 	for i := 1; i <= 5; i++ {

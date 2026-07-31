@@ -28,7 +28,7 @@ const (
 	rebalanceBulkPartition     = int32(0)
 	rebalanceBulkBatchSize     = 500
 	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
-	KafkaJsonConsumerGroupID   = "kafka-Json-integration-test-group"
+	KafkaJSONConsumerGroupID   = "kafka-Json-integration-test-group"
 	avroSchemaRegistryURL      = "http://127.0.0.1:8081"
 
 	// Base Avro schema
@@ -157,8 +157,8 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "add":
 		// 5 messages inserted with different partitions
-		for partition := range partitionCount {
-			writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: int32(partition)})
+		for partition := range int32(partitionCount) {
+			writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: partition})
 		}
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonFilterValue})
 		t.Logf("Added 6 messages to topic '%s' (one per partition and one for filters)", streams[0])
@@ -169,7 +169,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_2pc":
 		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, client, KafkaJsonConsumerGroupID, streams[0], 0, 1)
+		commitConsumerGroupOffset(ctx, t, client, KafkaJSONConsumerGroupID, streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
@@ -227,7 +227,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		defer func() {
 			if client != nil {
 				client.Close()
-				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", KafkaJsonConsumerGroupID, instanceID)
+				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", KafkaJSONConsumerGroupID, instanceID)
 			}
 			close(done)
 		}()
@@ -240,7 +240,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		var err error
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(kafkaJSONIntegrationBroker),
-			kgo.ConsumerGroup(KafkaJsonConsumerGroupID),
+			kgo.ConsumerGroup(KafkaJSONConsumerGroupID),
 			kgo.ClientID(instanceID),
 			kgo.InstanceID(instanceID),
 			kgo.ConsumeTopics(topic),
@@ -249,7 +249,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		)
 		require.NoError(t, err)
 
-		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJsonConsumerGroupID, topic)
+		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJSONConsumerGroupID, topic)
 		for rebalanceCtx.Err() == nil {
 			client.PollFetches(rebalanceCtx)
 		}
