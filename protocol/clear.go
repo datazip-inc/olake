@@ -40,7 +40,14 @@ var clearCmd = &cobra.Command{
 		}
 		return nil
 	},
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) (err error) {
+		defer func() {
+			if err != nil {
+				return
+			}
+			err = finalizeS3Upload(cmd.Context())
+		}()
+
 		selectedStreamsMetadata, err := classifyStreams(catalog, nil, state)
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %s", err)

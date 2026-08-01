@@ -45,6 +45,9 @@ var RootCmd = &cobra.Command{
 	Use:   "olake",
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if err := resolveS3Paths(cmd.Context()); err != nil {
+			return err
+		}
 
 		// set global variables
 
