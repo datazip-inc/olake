@@ -37,7 +37,6 @@
           "title": "S3 Path",
           "description": "The S3 path or storage location for Iceberg data"
         },
-
         "arrow_writes": {
           "type": "boolean",
           "default": false,
@@ -252,7 +251,7 @@
                   "type": "string",
                   "title": "AWS Region",
                   "description": "Specify the AWS region where the S3 bucket is hosted"
-                },               
+                },
                 "no_identifier_fields": {
                   "type": "boolean",
                   "default": false,
@@ -268,7 +267,7 @@
                   "type": "string",
                   "format": "password",
                   "title": "GCP Service Account JSON",
-                  "description": "Inline GCP service account key JSON, used when REST Auth Type is org.apache.iceberg.gcp.auth.GoogleAuthManager (e.g. BigLake). Falls back to Application Default Credentials if left empty"
+                  "description": "JSON key file content from your GCP service account"
                 },
                 "gcp_auth_scopes": {
                   "type": "string",
@@ -282,7 +281,8 @@
                 }
               },
               "required": [
-                "rest_catalog_url"
+                "rest_catalog_url",
+                "aws_region"
               ]
             },
             {
@@ -368,7 +368,6 @@
                       "required":[
                         "token"
                       ]
-                      
                     }
                   ]
                 }
@@ -473,7 +472,6 @@
                       "required":[
                         "token"
                       ]
-                      
                     }
                   ]
                 }
@@ -544,6 +542,7 @@
                   "type":"string",
                   "title":"Authentication Type",
                   "enum": ["OAuth2 U2M","OAuth2 M2M", "Token Federation", "Personal Access Token (PAT)"],
+                  "default":["OAuth2 U2M"],
                   "description":"Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
@@ -579,7 +578,6 @@
                           "title": "REST Token",
                           "description":"OAuth2 access token from Databricks U2M authorization flow"
                         }
-                        
                       },
                       "required": [
                         "token"
@@ -623,7 +621,6 @@
                           "description":"Access token from your Databricks federation policy"
 
                         }
-                        
                       },
                       "required": [
                         "token"
@@ -644,7 +641,6 @@
                       "required":[
                         "token"
                       ]
-                      
                     }
                   ]
                 }
@@ -659,6 +655,7 @@
                   "type":"string",
                   "title":"Authentication Type",
                   "enum":["OAuth2", "Token"],
+                  "default":["OAuth2"],
                   "description":"Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
@@ -681,7 +678,6 @@
                   "title": "AWS Secret Key",
                   "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
                 },
-                
                 "aws_access_key": {
                   "type": "string",
                   "format": "password",
@@ -743,7 +739,6 @@
                       "required":[
                         "token"
                       ]
-                      
                     }
                   ]
                 }

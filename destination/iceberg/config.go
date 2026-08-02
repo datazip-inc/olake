@@ -3,8 +3,10 @@ package iceberg
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
@@ -99,18 +101,20 @@ func (c *Config) Validate() error {
 	if c.CatalogName == "" {
 		c.CatalogName = "olake_iceberg"
 	}
-
+	//S3 tables use SigV4 authentication and require signing name to be set to "s3tables"
 	if c.CatalogType == "s3tables" {
 		c.RestSigningV4 = true
 		c.RestSigningName = "s3tables"
 	}
+	//Unity Catalog doesn't support identifier fields (disable them)
 	if c.CatalogType == "unity" {
 		c.NoIdentifierFields = true
 	}
+	// BigLake requires GoogleAuthManager for authentication
 	if c.CatalogType == "biglake" {
 		c.RestAuthType = "org.apache.iceberg.gcp.auth.GoogleAuthManager"
 	}
-	if c.CatalogType == "lakekeeper" || c.CatalogType == "nessie" || c.CatalogType == "s3tables" || c.CatalogType == "unity" || c.CatalogType == "polaris" || c.CatalogType == "biglake" {
+	if slices.Contains(constants.RESTCatalogs, string(c.CatalogType)) {
 		c.CatalogType = RestCatalog
 	}
 
