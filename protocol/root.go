@@ -44,7 +44,7 @@ var (
 var RootCmd = &cobra.Command{
 	Use:   "olake",
 	Short: "root command",
-	RunE: func(cmd *cobra.Command, args []string) error {
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 		if err := resolveS3Paths(cmd.Context()); err != nil {
 			return err
 		}
@@ -74,6 +74,9 @@ var RootCmd = &cobra.Command{
 		logger.Init()
 		telemetry.Init()
 
+		return nil
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
 		}
@@ -134,6 +137,9 @@ func signalAwareRootContext(parent context.Context) context.Context {
 }
 
 func init() {
+	// Run root PersistentPreRunE (S3 path resolution) before child hooks like sync's.
+	cobra.EnableTraverseRunHooks = true
+
 	// TODO: replace --catalog flag with --streams
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd, clearCmd)
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
