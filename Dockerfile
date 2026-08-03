@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     make dev.${DRIVER_NAME}.build OVERLAY_DIR=/runtime-overlay
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS runtime-base
 
 # Install runtime dependencies
 RUN apt-get update && \
@@ -33,6 +33,8 @@ RUN apt-get update && \
     libpam-modules \
     libcrypt1 \
     && rm -rf /var/lib/apt/lists/*
+
+FROM runtime-base
 
 # Driver metadata
 ARG DRIVER_VERSION=dev

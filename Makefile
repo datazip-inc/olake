@@ -55,17 +55,6 @@ pre-commit:
 	chmod +x $(shell pwd)/.githooks/commit-msg
 	git config core.hooksPath $(shell pwd)/.githooks
 
-BASE_NO_CACHE ?=
-BASE_CACHE_FLAG = $(if $(BASE_NO_CACHE),--no-cache --pull)
-BASE_RUNTIME_IMAGE ?= olakego/base:runtime
-
-# Never pushed, so it takes the host platform by default rather than the release set in
-# drivers/platforms.conf: a two-platform build produces an image index, which only the containerd
-# image store can hold. Pass PLATFORMS=<single platform> to cross-build it.
-.PHONY: docker.base.build
-docker.base.build:
-	docker build $(addprefix --platform ,$(PLATFORMS)) --target runtime $(BASE_CACHE_FLAG) -t $(BASE_RUNTIME_IMAGE) -f base.Dockerfile .
-
 test.lint: golangci.install prepare.all
 	cd tests && $(foreach m,$(TEST_MODULES),($(GO_ENV.$(m)) $(GOPATH)/bin/golangci-lint run ./$(m)/...) &&) true
 
@@ -320,10 +309,6 @@ endef
 $(foreach d,$(DRIVERS),$(eval $(call DEV_BUILD_template,$(d))))
 
 # --- tests --------------------------------------------------------------------
-# Concurrency of the aggregate targets below: one job per driver by default, since every suite
-# drives its own database stack plus an olake container per sync. CI overrides it (TEST_JOBS=5).
-TEST_JOBS ?=
-
 # Everything one driver's suites need, brought up concurrently. A recursive -j sub-make, since plain
 # prerequisites only run in parallel when the caller passes -j; every goal is idempotent.
 driver_test_setup = $(MAKE) --no-print-directory -j3 olake.$(1).start olake.destination.all.start $(IMAGE_JAR_DEP)
@@ -379,10 +364,10 @@ endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call PERFORMANCE_TEST_template,$(d))))
 
 test.integration: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
-	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(or $(TEST_JOBS),$(words $(SOURCE_DRIVERS))) $(INTEGRATION_PKGS) -timeout 0 -count=1 -run 'Integration'
+	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(INTEGRATION_PKGS) -timeout 0 -count=1 -run 'Integration'
 
 test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .start,$(CDC_DRIVERS))) olake.destination.all.start $(IMAGE_JAR_DEP)
-	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(or $(TEST_JOBS),$(words $(CDC_DRIVERS))) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
+	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
 
 
 # Unit tests across every module in the go.work workspace. Directory patterns
@@ -444,7 +429,7 @@ help:
 		$(call print_help_targets) \
 	fi
 	@echo ""
-	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG TEST_JOBS"
+	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG"
 
 .PHONY: lint test.lint build \
 	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \

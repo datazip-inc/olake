@@ -16,7 +16,6 @@ on:
       - '**/go.work'
       - '**/pom.xml'
       - 'Dockerfile'
-      - 'base.Dockerfile'
       - '.dockerignore'
       - 'Makefile'
       - 'drivers/**.conf'
@@ -38,7 +37,6 @@ jobs:
       pull-requests: read
     outputs:
       drivers: ${{ steps.drivers.outputs.drivers }}
-      testutils: ${{ steps.drivers.outputs.testutils }}
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
       go-key: ${{ steps.go-cache.outputs.cache-primary-key }}
@@ -108,13 +106,13 @@ jobs:
           lookup-only: true
 
       # A marker, since buildx's own gha cache keys are internal and cannot be looked up: it records
-      # that this base.Dockerfile was warmed. Eviction can outdate it, and a miss is only a slow build.
+      # that the runtime-base stage was warmed. Eviction can outdate it, and a miss is only a slow build.
       - name: Look up base docker layer marker
         id: apt-cache
         uses: actions/cache/restore@v4
         with:
           path: .apt-warmed
-          key: ${{ runner.os }}-aptwarm-${{ hashFiles('base.Dockerfile') }}
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
           lookup-only: true
 
   # Only when the jar is missing: preflight already looked up the cache, so an unchanged writer
@@ -154,7 +152,7 @@ jobs:
           path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
           key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
 
-  # Skipped while base.Dockerfile is unchanged and already warmed. Failure here is never fatal: the
+  # Skipped while the Dockerfile is unchanged and already warmed. Failure here is never fatal: the
   # driver build just re-runs the layers it would have hit from cache.
   apt-warm:
     name: Warm base docker layers
@@ -177,7 +175,7 @@ jobs:
       # the driver build. The marker is what tells the next run to try again.
       - name: Warm base docker layers
         run: |
-          docker buildx build -f base.Dockerfile --target runtime \
+          docker buildx build --target runtime-base \
             --cache-to type=gha,mode=max,scope=olake-base --cache-from type=gha,scope=olake-base . \
             && echo "$GITHUB_SHA" > .apt-warmed \
             || echo "::warning::base layer warm failed (non-fatal)"
@@ -188,7 +186,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .apt-warmed
-          key: ${{ runner.os }}-aptwarm-${{ hashFiles('base.Dockerfile') }}
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
 
   # The modules and compiled shared deps every driver job restores. Skipped while the cache already
   # holds an entry for this dependency set and harness source.

@@ -27,7 +27,6 @@ const (
 	rebalanceBulkPartition     = int32(0)
 	rebalanceBulkBatchSize     = 500
 	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
-	KafkaJSONConsumerGroupID   = "kafka-Json-integration-test-group"
 	avroSchemaRegistryURL      = "http://127.0.0.1:8081"
 
 	// Base Avro schema

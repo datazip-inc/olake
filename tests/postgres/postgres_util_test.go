@@ -76,7 +76,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_point POINT,
 				col_polygon POLYGON,
 				col_circle CIRCLE,
-				CONSTRAINT unique_custom_key UNIQUE (col_bigserial),
+				-- Unnamed so Postgres derives a table-qualified index name
+				-- (<table>_col_bigserial_key); a fixed name like "unique_custom_key" is
+				-- schema-scoped and collides when concurrent suites create their tables at once.
+				UNIQUE (col_bigserial),
 				excludedColumn INT NULL
 			)`, integrationTestTable)
 
@@ -265,6 +268,15 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf(`INSERT INTO %s (col_text)
 			SELECT md5(random()::text) || md5(random()::text) || md5(random()::text)
 			FROM generate_series(1, %d)`, integrationTestTable, testutils.RollingSeedRows)
+
+	case "create-slot":
+		_, _ = db.ExecContext(ctx, fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, streams[0]))
+		query = fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput')`, streams[0])
+
+	case "drop-slot":
+		// Asserted like every other op: the NOT-active guard makes "nothing to drop" a no-op,
+		// so an error here means the cleanup itself is broken.
+		query = fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, streams[0])
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
