@@ -77,7 +77,7 @@ jobs:
             ~/go/pkg/mod
             ~/.cache/go-build
             ~/go/bin
-          key: ${{ runner.os }}-gobase-${{ hashFiles('tests/**/go.mod', 'tests/go.work', 'tests/testutils/**/*.go') }}
+          key: ${{ runner.os }}-gobase-${{ hashFiles('tests/**/go.mod', 'tests/go.work', 'tests/**/*.go') }}
           restore-keys: |
             ${{ runner.os }}-gobase-
 
