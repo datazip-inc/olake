@@ -28,6 +28,9 @@ jobs:
           # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
           version: latest
           install-mode: goinstall
+
+      - name: golangci-lint tests modules
+        run: make test.lint
   build-check:
     name: Build
     runs-on: ubuntu-latest

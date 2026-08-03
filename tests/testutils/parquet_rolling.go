@@ -8,7 +8,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/datazip-inc/olake/lib/constants"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/minio/minio-go/v7"
 	pqgo "github.com/parquet-go/parquet-go"
 	"github.com/stretchr/testify/require"

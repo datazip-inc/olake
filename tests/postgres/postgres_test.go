@@ -3,8 +3,8 @@ package postgres
 import (
 	"testing"
 
-	"github.com/datazip-inc/olake/lib/constants"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 	_ "github.com/lib/pq"
 )
 
