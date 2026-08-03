@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.debezium.serde.DebeziumSerdes;
 import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
+import io.debezium.server.iceberg.rpc.OlakeRowIndexer;
 import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
 import io.debezium.server.iceberg.rpc.IcebergSession;
 import io.grpc.Server;
@@ -92,6 +93,11 @@ public class OlakeRpcServer {
              OlakeArrowIngester oai = new OlakeArrowIngester(sharedSessions);
              serverBuilder.addService(oai);
              LOGGER.info("Arrow writer enabled - registered OlakeArrowIngester service");
+
+             // Positional deletes are only assembled on the arrow path, so the row
+             // index that feeds them is only useful alongside it.
+             serverBuilder.addService(new OlakeRowIndexer(sharedSessions));
+             LOGGER.info("Registered OlakeRowIndexer service");
         }
 
         // Legacy ingester is always registered (Check, GET_OR_CREATE_TABLE, DROP_TABLE

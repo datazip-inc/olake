@@ -104,6 +104,11 @@ var syncCmd = &cobra.Command{
 			state.Streams = selectedStreamsMetadata.NewStreamsState
 		}
 
+		var delMode types.DeleteMode
+		if deleteType != "" {
+			delMode = types.DeleteMode(deleteType)
+		}
+
 		// for clearing streams
 		dropStreams := []types.StreamInterface{}
 		dropStreams = append(dropStreams, selectedStreamsMetadata.FullLoadStreams...)
@@ -114,7 +119,8 @@ var syncCmd = &cobra.Command{
 			if state, err = connector.ClearState(dropStreams); err != nil {
 				return fmt.Errorf("error clearing state for full refresh streams: %s", err)
 			}
-			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
+
+			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, delMode, dropStreams); cerr != nil {
 				return fmt.Errorf("failed to clear destination: %s", cerr)
 			}
 		}
@@ -122,7 +128,7 @@ var syncCmd = &cobra.Command{
 		// Build the writer pool up front: it starts destination-owned resources
 		// (e.g. the Iceberg shared JVM) and validates the connection. pool.Close
 		// tears them down on exit (normal return or signal-canceled context).
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize)
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, delMode, selectedStreamsMetadata.SelectedStreams, batchSize)
 		if err != nil {
 			return err
 		}

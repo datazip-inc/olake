@@ -17,6 +17,7 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
@@ -32,6 +33,13 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
+	// rowIndex and indexTxn are non-nil only in positional delete mode. The txn
+	// stages every row location this thread writes and is committed in lockstep
+	// with the Iceberg commit, so the index never claims a position the table
+	// does not hold.
+	rowIndex            types.TableIndex
+	indexTxn            types.IndexTxn
+	committedSnapshotID *int64
 }
 
 type Writer struct {
@@ -81,6 +89,15 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 
 	if err := writer.initialize(ctx); err != nil {
 		return nil, fmt.Errorf("failed to initialize: %s", err)
+	}
+
+	if options.RowIndex != nil {
+		txn, err := options.RowIndex.NewTxn()
+		if err != nil {
+			return nil, fmt.Errorf("failed to open row index transaction: %s", err)
+		}
+		writer.rowIndex = options.RowIndex
+		writer.indexTxn = txn
 	}
 
 	return writer, nil
@@ -139,7 +156,9 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 	}
 
 	if w.upsertMode {
-		if writer.equalityDeleteWriter == nil {
+		// In positional delete mode the index resolves every row to a location, so
+		// no equality deletes are produced at all.
+		if writer.equalityDeleteWriter == nil && w.indexTxn == nil {
 			if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
 				return nil, err
 			}
@@ -171,9 +190,13 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		writer.data = append(writer.data, rec)
 		recordOpType := rec.OlakeColumns[constants.OpType].(string)
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
-		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i") {
-			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
+		filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
+		if w.indexTxn != nil {
+			if err := w.indexRecord(writer, recordOlakeID, recordOpType, filePosition); err != nil {
+				return err
+			}
+		} else if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i") {
 			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
 				// first time, add to equality deletes and track position
 				writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
@@ -200,6 +223,42 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		if recordOpType == "i" {
 			rec.OlakeColumns[constants.OpType] = "c"
 		}
+	}
+
+	return nil
+}
+
+// indexRecord records where a row is about to land and, when that row supersedes
+// an existing one, emits a positional delete for the copy it replaces.
+//
+// The index is written during backfill as well as CDC even though backfill emits
+// no deletes: paying a cheap put per row here is what spares the next sync from
+// reading the whole table back to learn the positions.
+func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePosition int64) error {
+	if w.upsertMode && (opType == "d" || opType == "u" || opType == "i") {
+		// Lookup sees this transaction's own puts, so repeats within a sync resolve
+		// against the row staged moments ago rather than a stale committed one.
+		previous, found, err := w.indexTxn.Lookup(olakeID)
+		if err != nil {
+			return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
+		}
+		if found {
+			writer.positionalDeletes = append(writer.positionalDeletes, PositionalDelete{
+				FilePath: previous.FilePath,
+				Position: previous.Position,
+			})
+		}
+	}
+
+	// The file this row lands in has not been committed, so Iceberg has not given
+	// it a sequence number yet. A later refresh scan reads the committed number
+	// off the table and fills it in.
+	if err := w.indexTxn.Put(olakeID, types.RowLocation{
+		FilePath:  writer.dataWriter.filePath,
+		Position:  filePosition,
+		SeqNumber: types.UnknownSeqNumber,
+	}); err != nil {
+		return fmt.Errorf("failed to index row[%s]: %s", olakeID, err)
 	}
 
 	return nil
@@ -232,18 +291,20 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 				return err
 			}
 
-			record := createDeleteArrowRecord(writer.equalityDeletes, w.allocator, w.arrowSchema[fileTypeEqualityDelete])
-			if err := writer.equalityDeleteWriter.currentWriter.WriteBuffered(record); err != nil {
+			if writer.equalityDeleteWriter != nil {
+				record := createDeleteArrowRecord(writer.equalityDeletes, w.allocator, w.arrowSchema[fileTypeEqualityDelete])
+				if err := writer.equalityDeleteWriter.currentWriter.WriteBuffered(record); err != nil {
+					record.Release()
+
+					return fmt.Errorf("failed to write equality delete record: %s", err)
+				}
+
+				writer.equalityDeleteWriter.currentRowCount += record.NumRows()
 				record.Release()
 
-				return fmt.Errorf("failed to write equality delete record: %s", err)
-			}
-
-			writer.equalityDeleteWriter.currentRowCount += record.NumRows()
-			record.Release()
-
-			if writer.equalityDeleteWriter, err = w.checkAndFlush(ctx, writer.equalityDeleteWriter, pKey); err != nil {
-				return err
+				if writer.equalityDeleteWriter, err = w.checkAndFlush(ctx, writer.equalityDeleteWriter, pKey); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -333,7 +394,35 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 }
 
 // Close flushes all writers and commits files to Iceberg.
-func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
+func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err error) {
+	defer func() {
+		// Positions are only real once Iceberg owns the files they point into, so a
+		// failed commit must take the staged index entries down with it.
+		if w.indexTxn == nil {
+			return
+		}
+		if err != nil {
+			if rollbackErr := w.indexTxn.Rollback(); rollbackErr != nil {
+				err = fmt.Errorf("%s (row index rollback also failed: %s)", err, rollbackErr)
+			}
+			return
+		}
+		if commitErr := w.indexTxn.Commit(); commitErr != nil {
+			err = fmt.Errorf("failed to commit row index: %s", commitErr)
+			return
+		}
+
+		// Advancing the checkpoint to the snapshot this commit produced is what
+		// spares the next sync from reading back everything written here. Threads
+		// racing to commit can leave it on a sibling snapshot, which costs the next
+		// sync only a short incremental scan.
+		if w.committedSnapshotID != nil {
+			if checkpointErr := w.rowIndex.SetIndexedSnapshot(*w.committedSnapshotID); checkpointErr != nil {
+				logger.Warnf("Thread[%s]: failed to checkpoint row index at snapshot[%d]: %s", w.options.ThreadID, *w.committedSnapshotID, checkpointErr)
+			}
+		}
+	}()
+
 	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}
@@ -363,11 +452,26 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
-	if _, err := w.server.SendClientRequest(commitCtx, commitRequest); err != nil {
+	response, err := w.server.SendClientRequest(commitCtx, commitRequest)
+	if err != nil {
 		return fmt.Errorf("failed to commit arrow files: %s", err)
 	}
 
+	w.committedSnapshotID = response.(*proto.ArrowIngestResponse).SnapshotId
 	return nil
+}
+
+// Abort drops the staged index entries for a thread that never reaches a commit.
+// Skipping it is survivable — the index replays its undo log on next open — but
+// unwinding here keeps the running process's view of the index clean.
+func (w *ArrowWriter) Abort() {
+	if w.indexTxn == nil {
+		return
+	}
+	if err := w.indexTxn.Rollback(); err != nil {
+		logger.Warnf("Thread[%s]: failed to roll back row index: %s", w.options.ThreadID, err)
+	}
+	w.indexTxn = nil
 }
 
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {

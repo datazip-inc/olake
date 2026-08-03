@@ -71,6 +71,13 @@ message RecordIngestResponse {
   string result = 1;
   bool success = 2;  // Adding success boolean for better error handling
   string olake_2pc_state = 3;  // GET_OR_CREATE_TABLE: 2PC state JSON from table metadata
+  // GET_OR_CREATE_TABLE: id of the table's current snapshot, 0 when the table has
+  // no snapshot yet. Compared against the row index's checkpoint to decide whether
+  // the index can be reused, refreshed, or has to be rebuilt.
+  int64 snapshot_id = 4;
+  // GET_OR_CREATE_TABLE: whether the current snapshot still carries equality
+  // delete files, which must be migrated before positional deletes take over.
+  bool has_equality_deletes = 5;
 }
 
 service ArrowIngestService {
@@ -124,4 +131,57 @@ message ArrowPayload {
 message ArrowIngestResponse {
   string result = 1;
   map<string, string> icebergSchemas = 2;
+  // Snapshot the table ended up on after REGISTER_AND_COMMIT, so a caller keeping
+  // a row index can checkpoint it without reading the table back.
+  optional int64 snapshot_id = 3;
+}
+
+// RowIndexService populates and maintains the caller's identifier -> row location
+// index, which is what lets deletes be expressed as positional rather than
+// equality deletes.
+service RowIndexService {
+  // ScanRowIndex streams the identifier and location of live rows in the table.
+  rpc ScanRowIndex(RowIndexScanRequest) returns (stream RowIndexScanBatch);
+  // MigrateEqualityDeletes rewrites the table's existing equality delete files
+  // into equivalent positional delete files in a single atomic commit.
+  rpc MigrateEqualityDeletes(MigrateEqualityDeletesRequest) returns (MigrateEqualityDeletesResponse);
+}
+
+message RowIndexScanRequest {
+  string thread_id = 1;
+  // When set, only files added after this snapshot are scanned. The server
+  // answers with requires_full_scan when the range cannot be served
+  // incrementally, for instance because a compaction rewrote existing files and
+  // invalidated the positions already held by the caller.
+  optional int64 from_snapshot_id = 2;
+}
+
+message RowIndexScanBatch {
+  message Entry {
+    string olake_id = 1;
+    string file_path = 2;
+    int64 position = 3;
+    bool deleted = 4;
+    int64 sequence_number = 5;
+  }
+
+  repeated Entry entries = 1;
+  // Snapshot this scan is consistent with, repeated on every batch so the caller
+  // can checkpoint the index without a second round trip.
+  int64 snapshot_id = 2;
+  // Set on a single empty batch when an incremental scan was requested but the
+  // caller must discard its index and ask for a full scan instead.
+  bool requires_full_scan = 3;
+}
+
+message MigrateEqualityDeletesRequest {
+  string thread_id = 1;
+}
+
+message MigrateEqualityDeletesResponse {
+  // Snapshot created by the rewrite, or the unchanged current snapshot when the
+  // table had no equality deletes to migrate.
+  int64 snapshot_id = 1;
+  int64 rewritten_delete_files = 2;
+  int64 positional_deletes_written = 3;
 }

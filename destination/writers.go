@@ -6,24 +6,29 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/pkg/indexdb"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type (
-	initWriter func(config any) (Writer, func(ctx context.Context), error)
+	initWriter func(config *types.WriterConfig, deleteMode types.DeleteMode) (Writer, func(ctx context.Context), error)
 
 	Options struct {
 		Backfill    bool
 		ThreadID    string
 		ApplyFilter bool
+		// RowIndex maps _olake_id to the row's location in the destination table.
+		// Set only when the destination's delete mode cannot be served without it.
+		RowIndex types.TableIndex
 	}
 
 	ThreadOptions func(opt *Options)
 	writerSchema  struct {
-		mu     sync.RWMutex
-		schema any
+		mu       sync.RWMutex
+		schema   any
+		rowIndex types.TableIndex
 	}
 
 	Stats struct {
@@ -36,9 +41,11 @@ type (
 	WriterPool struct {
 		stats        *Stats
 		initWriter   initWriter
+		deleteMode   types.DeleteMode
 		shutdown     func(ctx context.Context)
 		writerSchema sync.Map
 		batchSize    int64
+		indexStore   types.TableIndexStore
 	}
 
 	// writer thread used by reader
@@ -74,13 +81,13 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 
 // NewWriterPool manages a destination's shared resources (e.g., Iceberg JVM) and connection health.
 // It initializes global state, runs checks, and provides thread-level writers. Call Close() to clean up.
-func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode types.DeleteMode, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	initWriter, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
 	}
 
-	adapter, shutdown, err := initWriter(config.WriterConfig)
+	adapter, shutdown, err := initWriter(config, deleteMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize destination: %s", err)
 	}
@@ -92,6 +99,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 			RecordsFiltered:    atomic.Int64{},
 		},
 		initWriter: initWriter,
+		deleteMode: deleteMode,
 		shutdown:   shutdown,
 		batchSize:  batchSize,
 	}
@@ -100,11 +108,35 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
+	// Equality deletes need no row index, so that mode pays nothing for one.
+	if deleteMode.NeedsRowIndex() {
+		indexOptions, err := indexdb.OptionsFromEnv()
+		if err != nil {
+			return nil, fmt.Errorf("failed to configure row index: %s", err)
+		}
+
+		logger.Infof("delete mode[%s]: keeping row indexes in %s", deleteMode, indexOptions.Dir)
+		pool.indexStore = indexdb.NewPebbleStore(indexOptions)
+	}
+
 	for _, stream := range syncStreams {
-		pool.writerSchema.Store(stream, &writerSchema{
+		artifact := &writerSchema{
 			mu:     sync.RWMutex{},
 			schema: nil,
-		})
+		}
+
+		if pool.indexStore != nil {
+			// One database per stream, so rebuilding or dropping one table's index
+			// never disturbs another's.
+			rowIndex, err := pool.indexStore.Open(ctx, stream)
+			if err != nil {
+				_ = pool.indexStore.Close()
+				return nil, err
+			}
+			artifact.rowIndex = rowIndex
+		}
+
+		pool.writerSchema.Store(stream, artifact)
 	}
 
 	return pool, nil
@@ -112,6 +144,12 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 
 // Shutdown tears down destination-level process resources (like the Iceberg Java server)
 func (w *WriterPool) Shutdown(ctx context.Context) {
+	if w.indexStore != nil {
+		if err := w.indexStore.Close(); err != nil {
+			logger.Errorf("failed to close row index store: %s", err)
+		}
+	}
+
 	if w.shutdown != nil {
 		w.shutdown(ctx)
 	}
@@ -143,10 +181,13 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 		return nil, nil, fmt.Errorf("failed to convert raw stream artifact[%T] to *StreamArtifact struct", rawStreamArtifact)
 	}
 
+	// Threads of one stream share the stream's index; it is nil in equality mode.
+	opts.RowIndex = streamArtifact.rowIndex
+
 	writerThread, prevStreamState, err := func() (Writer, *types.MetadataState, error) {
 		// init writer and point it at the config parsed once at pool creation,
 		// shared read-only across all writer threads.
-		writerThread, _, err := w.initWriter(nil)
+		writerThread, _, err := w.initWriter(nil, w.deleteMode)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to initialize writer: %s", err)
 		}
@@ -280,7 +321,7 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 	}
 }
 
-func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
+func DropStreams(ctx context.Context, config *types.WriterConfig, deleteMode types.DeleteMode, dropStreams []types.StreamInterface) error {
 	if len(dropStreams) == 0 {
 		return nil
 	}
@@ -290,7 +331,7 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []
 		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
 	}
 
-	adapter, shutdown, err := initWriter(config.WriterConfig)
+	adapter, shutdown, err := initWriter(config, deleteMode)
 	if err != nil {
 		return fmt.Errorf("failed to initialize destination: %s", err)
 	}
@@ -302,6 +343,30 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []
 
 	if err := adapter.DropStreams(ctx, dropStreams); err != nil {
 		return fmt.Errorf("failed to drop streams: %s", err)
+	}
+
+	// A dropped table takes its row index with it, otherwise the next sync would
+	// resolve identifiers against files that no longer exist.
+	if !deleteMode.NeedsRowIndex() {
+		return nil
+	}
+
+	indexOptions, err := indexdb.OptionsFromEnv()
+	if err != nil {
+		return fmt.Errorf("failed to configure row index: %s", err)
+	}
+
+	indexStore := indexdb.NewPebbleStore(indexOptions)
+	defer func() {
+		if closeErr := indexStore.Close(); closeErr != nil {
+			logger.Errorf("failed to close row index store: %s", closeErr)
+		}
+	}()
+
+	for _, stream := range dropStreams {
+		if err := indexStore.Drop(ctx, stream.ID()); err != nil {
+			return err
+		}
 	}
 
 	return nil

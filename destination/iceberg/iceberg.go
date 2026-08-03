@@ -62,7 +62,7 @@ func (i *Iceberg) Spec() any {
 	return Config{}
 }
 
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any, options *destination.Options) (any, *types.MetadataState, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, existingSchema any, options *destination.Options) (any, *types.MetadataState, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]internal.PartitionInfo, 0)
@@ -131,6 +131,15 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	// set schema for current thread
 	i.schema = copySchema(schema)
 
+	// A nil incoming schema marks the stream's first writer thread. Reconciling
+	// once there keeps later threads off a scan of a table they are already
+	// indexing as they write.
+	if options.RowIndex != nil && existingSchema == nil {
+		if err := i.reconcileRowIndex(ctx, options.RowIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
+			return schema, nil, err
+		}
+	}
+
 	if i.config.UseArrowWrites {
 		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
 		if err != nil {
@@ -172,6 +181,7 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error)
 	select {
 	case <-ctx.Done():
 		// skip commit in case of context cancellation
+		i.writer.Abort()
 		return ctx.Err()
 	default:
 		return i.writer.Close(ctx, finalMetadataState)
@@ -610,7 +620,7 @@ func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 func init() {
 	var server *serverInstance
 	var icebergConfig *Config
-	destination.RegisteredWriters[types.Iceberg] = func(config any) (destination.Writer, func(ctx context.Context), error) {
+	destination.RegisteredWriters[types.Iceberg] = func(config *types.WriterConfig, deleteMode types.DeleteMode) (destination.Writer, func(ctx context.Context), error) {
 		if icebergConfig != nil || server != nil {
 			// for already initialized writer, return the same server and config instance
 			return &Iceberg{
@@ -621,9 +631,13 @@ func init() {
 
 		icebergConfig = &Config{}
 		// unmarshal config according to iceberg config struct
-		err := utils.Unmarshal(config, icebergConfig)
+		err := utils.Unmarshal(config.WriterConfig, icebergConfig)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to unmarshal iceberg config: %w", err)
+		}
+
+		if deleteMode != "" {
+			icebergConfig.DeleteMode = deleteMode
 		}
 
 		server, err = startServer(icebergConfig)

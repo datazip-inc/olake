@@ -6,7 +6,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -16,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import io.debezium.DebeziumException;
 import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.SchemaConvertor;
+import io.debezium.server.iceberg.rowindex.TableRowIndexScanner;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
@@ -168,8 +171,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 case GET_OR_CREATE_TABLE:
                     session.icebergTable.refresh();
                     String commitState = session.op.getCommitState(session.icebergTable);
-                    sendResponse(responseObserver, session.icebergTable.schema().toString(),
-                            commitState != null ? commitState : "");
+                    sendTableResponse(responseObserver, session.icebergTable.schema().toString(),
+                            commitState != null ? commitState : "", session.icebergTable);
                     break;
 
                 case RECORDS:
@@ -204,6 +207,28 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         if (olake2pcState != null) {
             builder.setOlake2PcState(olake2pcState);
         }
+        responseObserver.onNext(builder.build());
+        responseObserver.onCompleted();
+    }
+
+    /**
+     * Answers the GET_OR_CREATE_TABLE handshake with the table's current snapshot
+     * and whether it still carries equality deletes. A caller keeping a row index
+     * needs both to decide between reusing, refreshing, and rebuilding it.
+     */
+    private void sendTableResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver,
+            String message, String olake2pcState, Table table) throws Exception {
+        RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder()
+                .setResult(message)
+                .setOlake2PcState(olake2pcState);
+
+        Snapshot current = table.currentSnapshot();
+        if (current != null) {
+            builder.setSnapshotId(current.snapshotId());
+            builder.setHasEqualityDeletes(
+                    !TableRowIndexScanner.deleteFiles(table, FileContent.EQUALITY_DELETES).isEmpty());
+        }
+
         responseObserver.onNext(builder.build());
         responseObserver.onCompleted();
     }

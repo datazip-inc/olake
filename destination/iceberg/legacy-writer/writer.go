@@ -102,6 +102,9 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	return nil
 }
 
+// Abort is a no-op: the legacy writer stages nothing outside the Java server.
+func (w *LegacyWriter) Abort() {}
+
 func (w *LegacyWriter) EvolveSchema(_ context.Context, newSchema map[string]string) error {
 	w.schema = newSchema
 

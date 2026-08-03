@@ -30,6 +30,7 @@ type serverInstance struct {
 	cmd             *exec.Cmd
 	client          proto.RecordIngestServiceClient
 	arrowClient     proto.ArrowIngestServiceClient
+	rowIndexClient  proto.RowIndexServiceClient
 	conn            *grpc.ClientConn
 	defaultServerID string
 }
@@ -194,6 +195,7 @@ func startServer(config *Config) (*serverInstance, error) {
 		cmd:             serverCmd,
 		client:          proto.NewRecordIngestServiceClient(conn),
 		arrowClient:     proto.NewArrowIngestServiceClient(conn),
+		rowIndexClient:  proto.NewRowIndexServiceClient(conn),
 		conn:            conn,
 		defaultServerID: serverID,
 	}, nil
