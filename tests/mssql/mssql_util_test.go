@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// cdcMetadataMu serialises CDC enable/disable: both write the server-wide msdb.dbo.cdc_jobs, so two
+// cdcMetadataMu serializes CDC enable/disable: both write the server-wide msdb.dbo.cdc_jobs, so two
 // suites doing it at once deadlock there (error 1205).
 var cdcMetadataMu sync.Mutex
 

@@ -32,7 +32,7 @@ var (
 	}
 )
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, _ string) {
 	t.Helper()
 
 	var connStr string
