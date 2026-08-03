@@ -224,6 +224,13 @@ jobs:
       - name: Compile the driver test binaries
         run: make test.build.all
 
+      - name: Install lint and gosec binaries into the cache
+        env:
+          GOSEC_VERSION: v2.22.11
+        run: |
+          make golangci.install
+          curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin $GOSEC_VERSION
+
   # One job per driver, each on its own VM with its own Docker daemon: it brings up its own source
   # plus destination stack, builds its own image and runs every suite for that driver.
   integration-tests:
