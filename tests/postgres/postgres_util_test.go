@@ -17,7 +17,7 @@ const (
 	cdcPublicationName = "performance_publication"
 )
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, _ string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
 	var connStr string

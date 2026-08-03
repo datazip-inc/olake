@@ -55,8 +55,8 @@ func (cfg *IntegrationTest) testParquetRolling(ctx context.Context, t *testing.T
 	}
 
 	// Swap the handful of datatype rows for a bulk payload.
-	cfg.ExecuteQuery(ctx, t, []string{testTable}, "clean", false, cfg.TestConfig.Suite)
-	cfg.ExecuteQuery(ctx, t, []string{testTable}, "rolling_seed", false, cfg.TestConfig.Suite)
+	cfg.ExecuteQuery(ctx, t, []string{testTable}, "clean", false)
+	cfg.ExecuteQuery(ctx, t, []string{testTable}, "rolling_seed", false)
 
 	// Start from an empty destination folder — the earlier parquet sub-tests leave files behind
 	// (with an evolved schema) and the assertions below count everything under the table prefix.

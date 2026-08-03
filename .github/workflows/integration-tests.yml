@@ -28,13 +28,11 @@ on:
 
 jobs:
   # Ungated, like the three cache jobs below it: the environment prompts once per wave of jobs that
-  # reach it, so gating these too would cost three approvals a run. Also runs the tests modules'
-  # lint and gosec on the restored Go cache: this runner is already up on every run, so the
-  # checks cost no extra machine.
+  # reach it, so gating these too would cost three approvals a run. Cheap: a file list and 3 lookups.
   preflight:
     name: Detect changes
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
@@ -64,12 +62,10 @@ jobs:
           key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
           lookup-only: true
 
-      # Keyed on the deps AND the harness source, so editing testutils republishes the cache instead
-      # of leaving eight jobs to recompile it. A real restore, not lookup-only: the lint and gosec
-      # steps below run on it. cache-hit stays true only on the exact key, so the go-cached output
-      # still tells go-cache when to publish; the prefix fallback just hands the checks an older
-      # module set and golangci-lint binary to work with.
-      - name: Restore Go module + build cache
+      # Keyed on the deps AND the whole tests tree, so any tests change republishes the cache and
+      # re-runs the checks living in the publish job. Exact key only: a prefix hit is a different
+      # build.
+      - name: Look up Go module + build cache
         id: go-cache
         uses: actions/cache/restore@v4
         with:
@@ -78,8 +74,7 @@ jobs:
             ~/.cache/go-build
             ~/go/bin
           key: ${{ runner.os }}-gobase-${{ hashFiles('tests/**/go.mod', 'tests/go.work', 'tests/**/*.go') }}
-          restore-keys: |
-            ${{ runner.os }}-gobase-
+          lookup-only: true
 
       # A marker, since buildx's own gha cache keys are internal and cannot be looked up: it records
       # that the runtime-base stage was warmed. Eviction can outdate it, and a miss is only a slow build.
@@ -90,26 +85,6 @@ jobs:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
           lookup-only: true
-
-      # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version-file: "go.mod"
-          cache: false
-
-      # golangci.install inside is skipped when the restored cache already carries the binary.
-      - name: golangci-lint tests modules
-        run: make test.lint
-
-      - name: install gosec
-        env:
-          GOSEC_VERSION: v2.22.11
-        run: $(go env GOPATH)/bin/gosec --version 2>/dev/null | grep -q "${GOSEC_VERSION#v}" || curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin $GOSEC_VERSION
-
-      - name: Run Gosec on tests modules
-        working-directory: tests
-        run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
 
   # Only when the jar is missing: preflight already looked up the cache, so an unchanged writer
   # skips Maven and this whole job.
@@ -184,8 +159,9 @@ jobs:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
 
-  # The modules and compiled shared deps every driver job restores. Skipped while the cache already
-  # holds an entry for this dependency set and harness source.
+  # The modules and compiled shared deps every driver job restores, plus the tests modules' lint
+  # and gosec. The gate makes both the publish and the checks run exactly when tests Go code or
+  # deps changed; an unchanged tree keeps its green from the run that published the cache.
   go-cache:
     name: Publish Go module + build cache
     needs: preflight
@@ -224,12 +200,19 @@ jobs:
       - name: Compile the driver test binaries
         run: make test.build.all
 
-      - name: Install lint and gosec binaries into the cache
+      # Installs golangci-lint as a side effect (the Makefile guard skips it when the restored
+      # cache already carries the binary), so it rides into the post-job save with gosec below.
+      - name: golangci-lint tests modules
+        run: make test.lint
+
+      - name: install gosec
         env:
           GOSEC_VERSION: v2.22.11
-        run: |
-          make golangci.install
-          curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin $GOSEC_VERSION
+        run: $(go env GOPATH)/bin/gosec --version 2>/dev/null | grep -q "${GOSEC_VERSION#v}" || curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin $GOSEC_VERSION
+
+      - name: Run Gosec on tests modules
+        working-directory: tests
+        run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
 
   # One job per driver, each on its own VM with its own Docker daemon: it brings up its own source
   # plus destination stack, builds its own image and runs every suite for that driver.
@@ -237,8 +220,9 @@ jobs:
     name: Test ${{ matrix.driver }}
     needs: [preflight, build-jar, apt-warm, go-cache]
     # Every need above this can legitimately be skipped, and a skipped need would otherwise skip
-    # this too -- so gate on "not failed" rather than on success. go-cache is exempt entirely: it
-    # only warms a cache, and it now downloads db2's clidriver, which must not block seven drivers.
+    # this too -- so gate on "not failed" rather than on success. go-cache is exempt entirely: its
+    # cache warm and db2 clidriver download must not block seven drivers, and its lint and gosec
+    # failures already surface as their own check.
     if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
     runs-on: 16gb-runner
     # The whole workflow's approval, deliberately on the only job that spends a 16gb runner: one

@@ -173,16 +173,21 @@ func startServer(config *Config) (*serverInstance, error) {
 	}
 
 	// need to do some research on the following flags
-	javaArgs := []string{
-		"-XX:+UseG1GC",
-		"-XX:MaxRAMPercentage=75.0",
-		"-XX:+ExitOnOutOfMemoryError",
-	}
+	var serverCmd *exec.Cmd
 	if os.Getenv("OLAKE_DEBUG_MODE") != "" {
-		javaArgs = append(javaArgs, "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005")
+		serverCmd = exec.Command("java",
+			"-XX:+UseG1GC",
+			"-XX:MaxRAMPercentage=75.0",
+			"-XX:+ExitOnOutOfMemoryError",
+			"-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005",
+			"-jar", config.JarPath, string(configJSON))
+	} else {
+		serverCmd = exec.Command("java",
+			"-XX:+UseG1GC",
+			"-XX:MaxRAMPercentage=75.0",
+			"-XX:+ExitOnOutOfMemoryError",
+			"-jar", config.JarPath, string(configJSON))
 	}
-	javaArgs = append(javaArgs, "-jar", config.JarPath, string(configJSON))
-	serverCmd := exec.Command("java", javaArgs...)
 
 	serverCmd.Env = os.Environ()
 	appendEnv := func(key, value string) {
@@ -206,12 +211,7 @@ func startServer(config *Config) (*serverInstance, error) {
 	// GCSFileIO auths separately from GoogleAuthManager; only via ADC env var. No-op if empty.
 	appendEnv("GOOGLE_APPLICATION_CREDENTIALS", gcpCredsTemp)
 
-	// Fork-to-ready: exec, ~3.4k classes loaded, catalog built, gRPC port bound. Paid once per
-	// olake process before a single record moves.
-	stopBoot := logger.TrackTiming("iceberg", "jvm boot")
-	err = logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd)
-	stopBoot()
-	if err != nil {
+	if err := logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd); err != nil {
 		if gcpCredsTemp != "" {
 			os.Remove(gcpCredsTemp)
 		}
