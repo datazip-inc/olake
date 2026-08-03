@@ -36,9 +36,9 @@ func Average[T int | int8 | int16 | int32 | int64 | float32 | float64](values []
 	return sum / float64(len(values))
 }
 
-// UnmarshalFile reads the JSON file at path into dest. credsFile is accepted for signature
-// compatibility with olake's helper; this copy never decrypts (the tests always pass false).
-func UnmarshalFile(file string, dest any, credsFile bool) error {
+// UnmarshalFile reads the JSON file at path into dest. The ignored bool mirrors olake's
+// credsFile flag for signature compatibility; this copy never decrypts.
+func UnmarshalFile(file string, dest any, _ bool) error {
 	data, err := os.ReadFile(file)
 	if err != nil {
 		return fmt.Errorf("file not found : %s", err)
@@ -58,7 +58,7 @@ func FileLoggerWithPath(content any, path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal content: %s", err)
 	}
-	if err := os.WriteFile(path, contentBytes, 0644); err != nil {
+	if err := os.WriteFile(path, contentBytes, 0600); err != nil {
 		return fmt.Errorf("failed to write data to file: %s", err)
 	}
 	return nil
