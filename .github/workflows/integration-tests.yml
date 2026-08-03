@@ -103,7 +103,9 @@ jobs:
         run: make test.lint
 
       - name: install gosec
-        run: curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.22.11
+        env:
+          GOSEC_VERSION: v2.22.11
+        run: $(go env GOPATH)/bin/gosec --version 2>/dev/null | grep -q "${GOSEC_VERSION#v}" || curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin $GOSEC_VERSION
 
       - name: Run Gosec on tests modules
         working-directory: tests
