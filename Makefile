@@ -39,7 +39,7 @@ gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
 golangci.install:
-	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@test -x $(GOPATH)/bin/golangci-lint || GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 golangci: golangci.install
 	$(GOPATH)/bin/golangci-lint run

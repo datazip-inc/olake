@@ -28,11 +28,13 @@ on:
 
 jobs:
   # Ungated, like the three cache jobs below it: the environment prompts once per wave of jobs that
-  # reach it, so gating these too would cost three approvals a run. Cheap: a file list and 3 lookups.
+  # reach it, so gating these too would cost three approvals a run. Also runs the tests modules'
+  # lint and gosec on the restored Go cache: this runner is already up on every run, so the
+  # checks cost no extra machine.
   preflight:
     name: Detect changes
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: read
@@ -63,16 +65,21 @@ jobs:
           lookup-only: true
 
       # Keyed on the deps AND the harness source, so editing testutils republishes the cache instead
-      # of leaving eight jobs to recompile it. Exact key only: a prefix hit is a different build.
-      - name: Look up Go module + build cache
+      # of leaving eight jobs to recompile it. A real restore, not lookup-only: the lint and gosec
+      # steps below run on it. cache-hit stays true only on the exact key, so the go-cached output
+      # still tells go-cache when to publish; the prefix fallback just hands the checks an older
+      # module set and golangci-lint binary to work with.
+      - name: Restore Go module + build cache
         id: go-cache
         uses: actions/cache/restore@v4
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
+            ~/go/bin
           key: ${{ runner.os }}-gobase-${{ hashFiles('tests/**/go.mod', 'tests/go.work', 'tests/testutils/**/*.go') }}
-          lookup-only: true
+          restore-keys: |
+            ${{ runner.os }}-gobase-
 
       # A marker, since buildx's own gha cache keys are internal and cannot be looked up: it records
       # that the runtime-base stage was warmed. Eviction can outdate it, and a miss is only a slow build.
@@ -83,6 +90,24 @@ jobs:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
           lookup-only: true
+
+      # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      # golangci.install inside is skipped when the restored cache already carries the binary.
+      - name: golangci-lint tests modules
+        run: make test.lint
+
+      - name: install gosec
+        run: curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.22.11
+
+      - name: Run Gosec on tests modules
+        working-directory: tests
+        run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
 
   # Only when the jar is missing: preflight already looked up the cache, so an unchanged writer
   # skips Maven and this whole job.
@@ -184,6 +209,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
+            ~/go/bin
           key: ${{ needs.preflight.outputs.go-key }}
           restore-keys: |
             ${{ runner.os }}-gobase-
@@ -275,6 +301,7 @@ jobs:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
+            ~/go/bin
           key: ${{ needs.preflight.outputs.go-key }}
           restore-keys: |
             ${{ runner.os }}-gobase-

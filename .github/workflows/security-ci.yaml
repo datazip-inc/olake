@@ -70,10 +70,6 @@ jobs:
         run: curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.22.11
       - name: Run Gosec Security Scanner
         run: $(go env GOPATH)/bin/gosec -exclude=G115 -exclude-dir=tests -severity=high -confidence=medium ./...
-      # TODO: move to the integration-tests workflow
-      - name: Run Gosec Security Scanner on tests modules
-        working-directory: tests
-        run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
 
   trivy-go:
     name: trivy-go
