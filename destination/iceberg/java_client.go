@@ -91,6 +91,8 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 		addMapKeyIfNotEmpty("scope", config.RestScope)
 		addMapKeyIfNotEmpty("gcp.auth.credentials-path", gcpCredsTemp)
 		addMapKeyIfNotEmpty("gcp.auth.scopes", config.GCPAuthScopes)
+		// BigLake requires this header for request routing/billing.
+		addMapKeyIfNotEmpty("header.x-goog-user-project", config.GCPProjectID)
 	default:
 		return nil, fmt.Errorf("unsupported catalog type: %s", config.CatalogType)
 	}
