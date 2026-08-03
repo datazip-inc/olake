@@ -27,12 +27,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     make dev.${DRIVER_NAME}.build OVERLAY_DIR=/runtime-overlay
 
-FROM debian:bookworm-slim
+FROM eclipse-temurin:17-jre-noble
 
-# Install runtime dependencies
+# Install runtime dependencies. The JRE comes from the base image: installing
+# Debian's openjdk-*-jre-headless pulls ca-certificates-java, whose postinst is
+# a perl script, which drags in perl (2 CRITICAL CVEs with no fix in any Debian
+# release) plus libnss3. Temurin ships the JRE directly and avoids both.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    openjdk-17-jre-headless \
     libxml2 \
     ca-certificates \
     libpam-modules \
