@@ -3,8 +3,8 @@ package mongodb
 import (
 	"testing"
 
-	"github.com/datazip-inc/olake/lib/constants"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
 // mongodbBaseConfig returns an IntegrationTest pre-populated with all fields shared
@@ -15,7 +15,7 @@ func mongodbBaseConfig() *testutils.IntegrationTest {
 		Namespace:                 "olake_mongodb_test",
 		ExpectedData:              ExpectedMongoData,
 		DestinationDataTypeSchema: MongoToDestinationSchema,
-		DefaultCDCColumnsSchema:   ExpectedMongoDbDefaultCDCColumnsSchema,
+		DefaultCDCColumnsSchema:   ExpectedMongoDBDefaultCDCColumnsSchema,
 		ExecuteQuery:              ExecuteQuery,
 		DestinationDB:             "mongodb_olake_mongodb_test",
 		CursorField:               "id_cursor:id_int",

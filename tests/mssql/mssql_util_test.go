@@ -19,16 +19,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	var connStr string
 	if fileConfig {
-		var config Config
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
-
-		config.Host = fmt.Sprintf("%s:%d", config.Host, config.Port)
-
-		connStr = fmt.Sprintf("sqlserver://%s:%s@%s?database=%s&encrypt=disable",
-			config.Username,
-			config.Password,
-			config.Host,
-			config.Database,
+		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
+		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable",
+			config.String("username"),
+			config.String("password"),
+			config.String("host"),
+			config.Int("port"),
+			config.String("database"),
 		)
 	} else {
 		connStr = "sqlserver://sa:Password!123@localhost:1433?database=olake_mssql_test&encrypt=disable"
@@ -131,7 +128,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, "failed to enable CDC on integration test table")
 
 		// Wait until current_max_lsn >= start_lsn of the capture instance so CDC is ready for sync
-		verifyCDCEnabled(t, ctx, db, captureInstance)
+		verifyCDCEnabled(ctx, t, db, captureInstance)
 
 	case "drop":
 		// Disable CDC before dropping table to ensure capture instance is cleaned up
@@ -161,7 +158,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, "failed to clean integration test table")
 
 	case "add":
-		insertTestData(t, ctx, db, integrationTestTable)
+		insertTestData(ctx, t, db, integrationTestTable)
 		return
 
 	case "insert":
@@ -304,7 +301,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "wait-cdc-catchup":
 		// The caller just committed DML it expects the next CDC sync to pick up; wait for the
 		// asynchronous capture job to scan it.
-		waitForCDCCapture(t, ctx, db)
+		waitForCDCCapture(ctx, t, db)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
@@ -313,7 +310,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 // verifyCDCEnabled polls until sys.fn_cdc_get_max_lsn() >= start_lsn of the
 // given capture instance, so the capture instance is ready for CDC sync.
-func verifyCDCEnabled(t *testing.T, ctx context.Context, db *sqlx.DB, captureInstance string) {
+func verifyCDCEnabled(ctx context.Context, t *testing.T, db *sqlx.DB, captureInstance string) {
 	t.Helper()
 	const (
 		pollInterval = 500 * time.Millisecond
@@ -353,7 +350,7 @@ func verifyCDCEnabled(t *testing.T, ctx context.Context, db *sqlx.DB, captureIns
 // rows. Timing out is not an error: if the capture job processed the DML before the baseline was
 // read, the mark only moves on future activity — proceeding then costs no more than the blind
 // 20-second sleep this wait replaced.
-func waitForCDCCapture(t *testing.T, ctx context.Context, db *sqlx.DB) {
+func waitForCDCCapture(ctx context.Context, t *testing.T, db *sqlx.DB) {
 	t.Helper()
 	const (
 		pollInterval = 500 * time.Millisecond
@@ -377,7 +374,7 @@ func waitForCDCCapture(t *testing.T, ctx context.Context, db *sqlx.DB) {
 	t.Logf("waitForCDCCapture: max LSN did not advance within %v (capture job may have already scanned the change); proceeding", timeout)
 }
 
-func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName string) {
+func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string) {
 	t.Helper()
 	for i := 1; i <= 5; i++ {
 		query := fmt.Sprintf(`

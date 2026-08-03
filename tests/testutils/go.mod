@@ -33,7 +33,6 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
-	github.com/datazip-inc/olake/lib v0.0.0-00010101000000-000000000000
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
@@ -100,7 +99,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace (
-	github.com/datazip-inc/olake/lib => ../../lib
-	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
-)
+replace google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80

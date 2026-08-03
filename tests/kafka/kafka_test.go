@@ -3,11 +3,11 @@ package kafka
 import (
 	"testing"
 
-	"github.com/datazip-inc/olake/lib/constants"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
-func kafkaJsonBaseConfig() *testutils.IntegrationTest {
+func kafkaJSONBaseConfig() *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "json"),
 		Namespace:                        "topics",
@@ -78,7 +78,7 @@ func TestKafkaIntegration(t *testing.T) {
 	}{
 		{
 			name: "JSON-Format",
-			cfg:  kafkaJsonBaseConfig(),
+			cfg:  kafkaJSONBaseConfig(),
 		},
 		{
 			name: "AVRO-Format",
@@ -97,9 +97,9 @@ func TestKafkaIntegration(t *testing.T) {
 
 func TestKafka2PC(t *testing.T) {
 	t.Parallel()
-	kafkaJsonBaseConfig().Test2PCIntegration(t)
+	kafkaJSONBaseConfig().Test2PCIntegration(t)
 }
 
 func TestKafkaRebalance(t *testing.T) {
-	kafkaJsonBaseConfig().TestRebalance(t)
+	kafkaJSONBaseConfig().TestRebalance(t)
 }

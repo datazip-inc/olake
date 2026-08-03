@@ -3,8 +3,8 @@ package oracle
 import (
 	"testing"
 
-	"github.com/datazip-inc/olake/lib/constants"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
 // oracleBaseConfig returns an IntegrationTest pre-populated with all fields shared

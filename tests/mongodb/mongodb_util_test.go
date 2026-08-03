@@ -36,16 +36,16 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	t.Helper()
 
 	var connStr string
-	var config Config
+	var config testutils.SourceConfig
 	if fileConfig {
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
+		config = testutils.ReadSourceConfig(t, "./testdata/source.json")
 		connStr = fmt.Sprintf(
 			"mongodb://%s:%s@%s/?authSource=%s&readPreference=%s",
-			config.Username,
-			config.Password,
-			strings.Join(config.Hosts, ","),
-			config.AuthDB,
-			config.ReadPreference,
+			config.String("username"),
+			config.String("password"),
+			strings.Join(config.Strings("hosts"), ","),
+			config.String("authdb"),
+			config.String("read_preference"),
 		)
 	} else {
 		connStr = fmt.Sprintf("mongodb://%s:%s@localhost:%d/admin?replicaSet=%s&directConnection=true",
@@ -81,7 +81,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, err, "Failed to clean collection")
 
 	case "add":
-		insertTestData(t, ctx, collection)
+		insertTestData(ctx, t, collection)
 		return
 
 	case "insert":
@@ -168,7 +168,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "setup_cdc":
 		// truncate the cdc tables
 		for _, cdcStream := range streams {
-			_, err := client.Database(config.Database).Collection(cdcStream).DeleteMany(ctx, bson.D{})
+			_, err := client.Database(config.String("database")).Collection(cdcStream).DeleteMany(ctx, bson.D{})
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
 		return
@@ -180,8 +180,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		// TODO: insert data in batch
 		// insert the data into the cdc tables concurrently
 		err := testutils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
-			srcColl := client.Database(config.Database).Collection(backfillStreams[executionNumber])
-			destColl := client.Database(config.Database).Collection(cdcStream)
+			srcColl := client.Database(config.String("database")).Collection(backfillStreams[executionNumber])
+			destColl := client.Database(config.String("database")).Collection(cdcStream)
 
 			cursor, err := srcColl.Find(ctx, bson.D{}, options.Find().SetLimit(int64(totalRows)))
 			if err != nil {
@@ -214,7 +214,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	}
 }
 
-func insertTestData(t *testing.T, ctx context.Context, collection *mongo.Collection) {
+func insertTestData(ctx context.Context, t *testing.T, collection *mongo.Collection) {
 	t.Helper()
 	for i := 1; i <= 5; i++ {
 		doc := bson.M{
@@ -310,7 +310,7 @@ var UpdatedMongoToDestinationSchema = map[string]string{
 	"includedcolumn":    "int",
 }
 
-var ExpectedMongoDbDefaultCDCColumnsSchema = map[string]string{
+var ExpectedMongoDBDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_resume_token": "string",
 	"_cdc_timestamp":    "timestamp",
 }
