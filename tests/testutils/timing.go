@@ -3,9 +3,6 @@ package testutils
 import (
 	"context"
 	"fmt"
-	"regexp"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 )
@@ -20,11 +17,10 @@ import (
 // The phases are designed to nest to a subtest's wall-clock total, so a slow run can be attributed
 // rather than guessed at:
 //
-//	base image + container ready + in-container work ≈ subtest total
-//	in-container work            ≈ Σ query <op> + <phase> build + <phase> run (+ verify)
+//	driver image (one-time build, if missing) + Σ query <op> + <cmd> run (+ verify) ≈ subtest total
 
 // logPhaseTiming emits one uniformly-formatted timing line. scope is usually the driver name (or a
-// shared resource such as "base-image"); phase names the measured step.
+// shared resource such as "driver-image"); phase names the measured step.
 func logPhaseTiming(t *testing.T, scope, phase string, d time.Duration) {
 	t.Helper()
 	t.Logf("[timing] %s %s: %s", scope, phase, d.Round(time.Millisecond))
@@ -49,22 +45,5 @@ func timedExecuteQuery(
 	return func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string) {
 		defer trackPhaseTiming(t, driver, fmt.Sprintf("query %q", operation))()
 		executeQuery(ctx, t, streams, operation, fileConfig, suite)
-	}
-}
-
-// build.sh's `timed <MARKER> <cmd>` helper brackets its in-container `go mod tidy`, `go build`
-// and `./olake` run with OLAKE_<MARKER>_MS=<elapsed> markers so the harness can attribute those
-// spans separately — the single ExecCommand call that triggers build.sh only sees one combined
-// duration.
-var buildRunMsRe = regexp.MustCompile(`OLAKE_([A-Z]+)_MS=(\d+)`)
-
-// logBuildRunTimings splits build.sh's output into "<phase> <marker>" timings ("discover tidy",
-// "iceberg sync build", ...). Absent markers (e.g. build.sh run under BSD date) are simply
-// skipped, so callers can invoke it unconditionally.
-func logBuildRunTimings(t *testing.T, driver, phase string, out []byte) {
-	t.Helper()
-	for _, m := range buildRunMsRe.FindAllSubmatch(out, -1) {
-		ms, _ := strconv.Atoi(string(m[2]))
-		logPhaseTiming(t, driver, phase+" "+strings.ToLower(string(m[1])), time.Duration(ms)*time.Millisecond)
 	}
 }
