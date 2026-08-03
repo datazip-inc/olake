@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -142,16 +141,6 @@ func writeGCPCredsTempFile(credsJSON string) (string, error) {
 	return f.Name(), nil
 }
 
-// sharedArchivePath returns the AppCDS archive next to jarPath (the driver image bakes one in), or
-// "" when there is none. Callers pair it with -Xshare:on, so a stale archive fails loudly.
-func sharedArchivePath(jarPath string) string {
-	archive := strings.TrimSuffix(jarPath, filepath.Ext(jarPath)) + ".jsa"
-	if info, err := os.Stat(archive); err != nil || info.Size() == 0 {
-		return ""
-	}
-	return archive
-}
-
 // startServer launches the JVM and returns the running instance. Invoked once
 // from Iceberg.Initialize (via WriterPool.NewWriterPool) before any
 // sync/check/clear work begins.
@@ -186,9 +175,6 @@ func startServer(config *Config) (*serverInstance, error) {
 		"-XX:+UseG1GC",
 		"-XX:MaxRAMPercentage=75.0",
 		"-XX:+ExitOnOutOfMemoryError",
-	}
-	if archive := sharedArchivePath(config.JarPath); archive != "" {
-		javaArgs = append(javaArgs, "-XX:SharedArchiveFile="+archive, "-Xshare:on")
 	}
 	if os.Getenv("OLAKE_DEBUG_MODE") != "" {
 		javaArgs = append(javaArgs, "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005")
