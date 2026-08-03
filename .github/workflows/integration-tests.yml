@@ -163,7 +163,7 @@ jobs:
   # and gosec. The gate makes both the publish and the checks run exactly when tests Go code or
   # deps changed; an unchanged tree keeps its green from the run that published the cache.
   go-cache:
-    name: Publish Go module + build cache
+    name: Go checks + cache
     needs: preflight
     if: needs.preflight.outputs.go-cached != 'true'
     runs-on: ubuntu-latest
