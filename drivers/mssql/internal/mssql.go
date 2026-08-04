@@ -61,11 +61,11 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	}
 
 	var err error
-	m.sshClient, err = setupSSH(m.config.SSHConfig)
-	if err != nil {
-		return fmt.Errorf("failed to setup SSH connection: %s", err)
-	}
-	if m.sshClient != nil {
+	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
+		m.sshClient, err = setupSSH(m.config.SSHConfig)
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
 		logger.Info("Connecting to MSSQL via SSH tunnel")
 	}
 
@@ -144,10 +144,6 @@ func (m *MSSQL) Close() error {
 }
 
 func setupSSH(sshCfg *utils.SSHConfig) (*ssh.Client, error) {
-	if sshCfg == nil || sshCfg.Host == "" {
-		return nil, nil //nolint:nilnil // SSH is optional: no config means no client and no error
-	}
-
 	sshClient, err := sshCfg.SetupSSHConnection()
 	if err != nil {
 		return nil, err

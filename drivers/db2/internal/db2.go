@@ -15,9 +15,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-
-	// registers the go_ibm_db DB2 driver with database/sql
-	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/ssh"
 )

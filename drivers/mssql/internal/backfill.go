@@ -152,10 +152,10 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 // to SQL Server's byte-by-byte BINARY(8) comparison of the equivalent %%physloc%%.
 // slot_id is fixed at 0xFFFF ("end of page") so chunk predicates split cleanly between pages.
 // Sorting []uint64 with < is cheaper than sorting [][]byte with bytes.Compare.
-func physlocSortKey(fileID, pageID int32) uint64 {
+func physlocSortKey(fileID uint16, pageID uint32) uint64 {
 	var b [8]byte
-	binary.LittleEndian.PutUint32(b[0:4], uint32(pageID)) // #nosec G115 -- PHYSLOC page/file ids are unsigned; deliberate reinterpretation
-	binary.LittleEndian.PutUint16(b[4:6], uint16(fileID)) // #nosec G115 -- PHYSLOC page/file ids are unsigned; deliberate reinterpretation
+	binary.LittleEndian.PutUint32(b[0:4], pageID)
+	binary.LittleEndian.PutUint16(b[4:6], fileID)
 	binary.LittleEndian.PutUint16(b[6:8], 0xFFFF)
 	return binary.BigEndian.Uint64(b[:])
 }
@@ -358,7 +358,8 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 
 	pages := make([]uint64, 0, 1024)
 	for rows.Next() {
-		var fileID, pageID int32
+		var fileID uint16
+		var pageID uint32
 		if err := rows.Scan(&fileID, &pageID); err != nil {
 			return nil, fmt.Errorf("failed to scan IAM walk page: %s", err)
 		}

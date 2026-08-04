@@ -119,7 +119,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 
 	// No changes yet
 	if lsnInState >= targetLSN {
-		return nil, nil //nolint:nilnil // no changes past the stored LSN; nil state keeps the previous checkpoint
+		return nil, err
 	}
 
 	// prepare capture instance

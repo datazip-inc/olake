@@ -141,7 +141,9 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}
-	opts.SetMaxPoolSize(uint64(m.config.MaxThreads)) // #nosec G115 -- MaxThreads is a non-negative config value
+	if maxPoolSize := m.config.MaxThreads; maxPoolSize > 0 {
+		opts.SetMaxPoolSize(uint64(maxPoolSize))
+	}
 	connectCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 

@@ -410,12 +410,11 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 				}
 			},
 		},
-		// Returns an error when CA PEM is invalid.
+		// Returns an error when CA PEM is invalid; assertions unset as the runner returns early on error.
 		{
-			name:       "fails with invalid CA pem",
-			config:     &Config{SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeVerifyCA, ServerCA: "not-a-pem"}},
-			expectErr:  true,
-			assertions: func(_ *testing.T, _ *tls.Config) {},
+			name:      "fails with invalid CA pem",
+			config:    &Config{SSLConfiguration: &utils.SSLConfig{Mode: utils.SSLModeVerifyCA, ServerCA: "not-a-pem"}},
+			expectErr: true,
 		},
 	}
 

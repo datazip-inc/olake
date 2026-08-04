@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -26,11 +27,16 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		}
 	}
 
+	port := m.config.Port
+	if port <= 0 || port > math.MaxUint16 {
+		return nil, fmt.Errorf("invalid mysql port: %d", port)
+	}
+
 	config := &binlog.Config{
 		ServerID:                mySQLGlobalState.ServerID,
 		Flavor:                  "mysql",
 		Host:                    m.config.Host,
-		Port:                    uint16(m.config.Port), // #nosec G115 -- TCP ports fit uint16
+		Port:                    uint16(port),
 		User:                    m.config.Username,
 		Password:                m.config.Password,
 		Charset:                 "utf8mb4",
@@ -49,6 +55,18 @@ func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
 	return true, false, false
 }
 
+// minServerID is the lower bound for generated replication server IDs.
+const minServerID = 1000
+
+// newServerID derives a pseudo-random replication server ID in [minServerID, math.MaxUint32).
+func newServerID() uint32 {
+	offset := time.Now().UnixNano() % (math.MaxUint32 - minServerID)
+	if offset < 0 || offset > math.MaxUint32-minServerID {
+		return minServerID
+	}
+	return minServerID + uint32(offset)
+}
+
 func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	// Load or initialize global state
 	globalState := m.state.GetGlobal()
@@ -57,7 +75,7 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %s", err)
 		}
-		m.state.SetGlobal(MySQLGlobalState{ServerID: uint32(1000 + time.Now().UnixNano()%4294966295), State: binlog.Binlog{Position: binlogPos}}) // #nosec G115 -- modulo bounds the value below 2^32
+		m.state.SetGlobal(MySQLGlobalState{ServerID: newServerID(), State: binlog.Binlog{Position: binlogPos}})
 		m.state.ResetStreams()
 	}
 	m.streams = streams
