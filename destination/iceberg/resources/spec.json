@@ -61,8 +61,8 @@
                   "title": "JDBC URL",
                   "description": "Specifies the JDBC URL used to connect to the PostgreSQL catalog"
                 },
-                "iceberg_s3_path":{
-                  "description":"S3 bucket path where Iceberg data and metadata are stored"
+                "iceberg_s3_path": {
+                  "description": "S3 bucket path where Iceberg data and metadata are stored"
                 },
                 "jdbc_username": {
                   "type": "string",
@@ -198,7 +198,7 @@
                   "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
                 "iceberg_s3_path":{
-                  "description":"S3 bucket path where Iceberg data and metadata are stored"
+                  "description": "S3 bucket path where Iceberg data and metadata are stored"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -308,12 +308,18 @@
                   "pattern": "^[a-z_]+$",
                   "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
-                "rest_auth_type":{
-                  "type":"string",
-                  "title":"Authentication Type",
-                  "enum": ["None", "OAuth2", "Token"],
-                  "default":"None",
-                  "description":"Authentication types supported by the catalog"
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "Authentication Type",
+                  "enum": [
+                    "None",
+                    "OAuth2",
+                    "Token"
+                  ],
+                  "default": [
+                    "None"
+                  ],
+                  "description": "Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -321,8 +327,8 @@
                   "description": "Endpoint URL for the Lakekeeper REST catalog service"
                 },
                 "iceberg_s3_path": {
-                  "title":"Lakekeeper Warehouse",
-                  "description":"Name of the warehouse created in your Lakekeeper catalog"
+                  "title": "Lakekeeper Warehouse",
+                  "description": "Name of the warehouse created in your Lakekeeper catalog"
                 },
                 "aws_region": {
                   "type": "string",
@@ -335,18 +341,18 @@
                 "rest_auth_type",
                 "aws_region"
               ],
-              "dependencies":{
-                "rest_auth_type":{
-                  "oneOf":[
+              "dependencies": {
+                "rest_auth_type": {
+                  "oneOf": [
                     {
-                      "properties":{
+                      "properties": {
                         "rest_auth_type": {
-                          "const":"None"
+                          "const": "None"
                         }
                       }
                     },
                     {
-                      "properties":{
+                      "properties": {
                         "rest_auth_type": {
                           "const": "OAuth2"
                         },
@@ -366,10 +372,10 @@
                           "description": "OAuth2 access scopes (space separated for more than one)"
                         }
                       },
-                      "required":[
+                      "required": [
                         "credential",
                         "oauth2_uri"
-                      ]      
+                      ]
                     },
                     {
                       "properties": {
@@ -383,7 +389,7 @@
                           "description": "Bearer token for REST catalog authentication"
                         }
                       },
-                      "required":[
+                      "required": [
                         "token"
                       ]
                     }
@@ -402,15 +408,21 @@
                   "pattern": "^[a-z_]+$",
                   "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
-                "rest_auth_type":{
-                  "type":"string",
-                  "title":"Authentication Type",
-                  "enum": ["None", "OAuth2", "Token"],
-                  "default":"None",
-                  "description":"Authentication types supported by the catalog"
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "Authentication Type",
+                  "enum": [
+                    "None",
+                    "OAuth2",
+                    "Token"
+                  ],
+                  "default": [
+                    "None"
+                  ],
+                  "description": "Authentication types supported by the catalog"
                 },
-                "iceberg_s3_path":{
-                  "description":"S3 bucket path where Iceberg data and metadata are stored"
+                "iceberg_s3_path": {
+                  "description": "S3 bucket path where Iceberg data and metadata are stored"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -438,25 +450,25 @@
                   "type": "string",
                   "title": "AWS Region",
                   "description": "Specify the AWS region where the S3 bucket is hosted"
-                }              
+                }
               },
               "required": [
                 "rest_catalog_url",
                 "rest_auth_type",
                 "aws_region"
               ],
-              "dependencies":{
-                "rest_auth_type":{
-                  "oneOf":[
+              "dependencies": {
+                "rest_auth_type": {
+                  "oneOf": [
                     {
-                      "properties":{
+                      "properties": {
                         "rest_auth_type": {
-                          "const":"None"
+                          "const": "None"
                         }
                       }
                     },
                     {
-                      "properties":{
+                      "properties": {
                         "rest_auth_type": {
                           "const": "OAuth2"
                         },
@@ -476,7 +488,7 @@
                           "description": "OAuth2 access scopes (space separated for more than one)"
                         }
                       },
-                      "required":[
+                      "required": [
                         "credential",
                         "oauth2_uri"
                       ]
@@ -493,7 +505,7 @@
                           "description": "Bearer token for token-based authentication"
                         }
                       },
-                      "required":[
+                      "required": [
                         "token"
                       ]
                     }
@@ -503,8 +515,8 @@
             },
             {
               "properties": {
-                "catalog_type":{
-                  "const":"s3tables"
+                "catalog_type": {
+                  "const": "s3tables"
                 },
                 "catalog_name": {
                   "type": "string",
@@ -512,12 +524,16 @@
                   "pattern": "^[a-z_]+$",
                   "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
-                "rest_auth_type":{
-                  "type":"string",
-                  "title":"Authentication Type",
-                  "enum":[ "sigv4" ],
-                  "default":"sigv4",
-                  "description":"Authentication types supported by the catalog"
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "Authentication Type",
+                  "enum": [
+                    "sigv4"
+                  ],
+                  "default": [
+                    "sigv4"
+                  ],
+                  "description": "Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -529,7 +545,7 @@
                   "title": "REST Signing Region",
                   "description": "AWS region for SigV4 signing"
                 },
-                "iceberg_s3_path":{
+                "iceberg_s3_path": {
                   "title": "S3 Table Buckets ARN",
                   "description": "ARN of your S3 Tables table bucket"
                 },
@@ -554,7 +570,7 @@
                   "type": "string",
                   "title": "AWS Region",
                   "description": "Specify the AWS region where the S3 bucket is hosted"
-                }         
+                }
               },
               "required": [
                 "rest_catalog_url",
@@ -565,8 +581,8 @@
             },
             {
               "properties": {
-                "catalog_type":{
-                  "const":"unity"
+                "catalog_type": {
+                  "const": "unity"
                 },
                 "catalog_name": {
                   "type": "string",
@@ -574,12 +590,19 @@
                   "pattern": "^[a-z_]+$",
                   "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
-                "rest_auth_type":{
-                  "type":"string",
-                  "title":"Authentication Type",
-                  "enum": ["OAuth2 U2M","OAuth2 M2M", "Token Federation", "Personal Access Token (PAT)"],
-                  "default":["OAuth2 U2M"],
-                  "description":"Authentication types supported by the catalog"
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "Authentication Type",
+                  "enum": [
+                    "OAuth2 U2M",
+                    "OAuth2 M2M",
+                    "Token Federation",
+                    "Personal Access Token (PAT)"
+                  ],
+                  "default": [
+                    "OAuth2 U2M"
+                  ],
+                  "description": "Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -587,7 +610,7 @@
                   "description": "Databricks workspace URL with Unity Catalog REST API endpoint"
                 },
                 "iceberg_s3_path": {
-                  "title":"Unity Catalog Name",
+                  "title": "Unity Catalog Name",
                   "description": "Name of the catalog in Unity"
                 },
                 "s3_endpoint": {
@@ -600,11 +623,11 @@
                 "rest_catalog_url",
                 "rest_auth_type"
               ],
-              "dependencies":{
-                "rest_auth_type":{
-                  "oneOf":[
+              "dependencies": {
+                "rest_auth_type": {
+                  "oneOf": [
                     {
-                      "properties":{
+                      "properties": {
                         "rest_auth_type": {
                           "const": "OAuth2 U2M"
                         },
@@ -612,7 +635,7 @@
                           "type": "string",
                           "format": "password",
                           "title": "REST Token",
-                          "description":"OAuth2 access token from Databricks U2M authorization flow"
+                          "description": "OAuth2 access token from Databricks U2M authorization flow"
                         }
                       },
                       "required": [
@@ -620,7 +643,7 @@
                       ]
                     },
                     {
-                      "properties":{
+                      "properties": {
                         "rest_auth_type": {
                           "const": "OAuth2 M2M"
                         },
@@ -640,13 +663,13 @@
                           "description": "OAuth2 access scopes (space separated for more than one)"
                         }
                       },
-                      "required":[
+                      "required": [
                         "credential",
                         "oauth2_uri"
                       ]
                     },
                     {
-                      "properties":{
+                      "properties": {
                         "rest_auth_type": {
                           "const": "Token Federation"
                         },
@@ -654,8 +677,7 @@
                           "type": "string",
                           "format": "password",
                           "title": "REST Token",
-                          "description":"Access token from your Databricks federation policy"
-
+                          "description": "Access token from your Databricks federation policy"
                         }
                       },
                       "required": [
@@ -671,10 +693,10 @@
                           "type": "string",
                           "format": "password",
                           "title": "REST Token",
-                          "description":"Databricks personal access token"
+                          "description": "Databricks personal access token"
                         }
                       },
-                      "required":[
+                      "required": [
                         "token"
                       ]
                     }
@@ -684,8 +706,8 @@
             },
             {
               "properties": {
-                "catalog_type":{
-                  "const":"polaris"
+                "catalog_type": {
+                  "const": "polaris"
                 },
                 "catalog_name": {
                   "type": "string",
@@ -693,12 +715,17 @@
                   "pattern": "^[a-z_]+$",
                   "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
-                "rest_auth_type":{
-                  "type":"string",
-                  "title":"Authentication Type",
-                  "enum":["OAuth2", "Token"],
-                  "default":["OAuth2"],
-                  "description":"Authentication types supported by the catalog"
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "Authentication Type",
+                  "enum": [
+                    "OAuth2",
+                    "Token"
+                  ],
+                  "default": [
+                    "OAuth2"
+                  ],
+                  "description": "Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
                   "type": "string",
@@ -706,8 +733,8 @@
                   "description": "Endpoint URL for the Polaris REST catalog service"
                 },
                 "iceberg_s3_path": {
-                  "title":"Polaris Catalog Name",
-                  "description":"Name of the catalog created in your Polaris instance"
+                  "title": "Polaris Catalog Name",
+                  "description": "Name of the catalog created in your Polaris instance"
                 },
                 "s3_endpoint": {
                   "type": "string",
@@ -737,11 +764,11 @@
                 "rest_auth_type",
                 "aws_region"
               ],
-              "dependencies":{
-                "rest_auth_type":{
-                  "oneOf":[
+              "dependencies": {
+                "rest_auth_type": {
+                  "oneOf": [
                     {
-                      "properties":{
+                      "properties": {
                         "rest_auth_type": {
                           "const": "OAuth2"
                         },
@@ -761,7 +788,7 @@
                           "description": "OAuth2 access scopes (space separated for more than one)"
                         }
                       },
-                      "required":[
+                      "required": [
                         "credential",
                         "oauth2_uri"
                       ]
@@ -778,7 +805,7 @@
                           "description": "Bearer token for token-based authentication"
                         }
                       },
-                      "required":[
+                      "required": [
                         "token"
                       ]
                     }
@@ -789,7 +816,7 @@
             {
               "properties": {
                 "catalog_type": {
-                  "const":"biglake"
+                  "const": "biglake"
                 },
                 "catalog_name": {
                   "type": "string",
@@ -802,15 +829,19 @@
                   "title": "REST Catalog URI",
                   "description": "Endpoint URL for the Big Lake REST catalog service"
                 },
-                "iceberg_s3_path":{
-                  "description":"Path to your BigLake catalog"
+                "iceberg_s3_path": {
+                  "description": "Path to your BigLake catalog"
                 },
-                "rest_auth_type":{
-                  "type":"string",
-                  "title":"Authentication Type",
-                  "enum":[ "GCP" ],
-                  "default":"GCP",
-                  "description":"Authentication types supported by the catalog"
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "Authentication Type",
+                  "enum": [
+                    "GCP"
+                  ],
+                  "default": [
+                    "GCP"
+                  ],
+                  "description": "Authentication types supported by the catalog"
                 },
                 "gcp_service_account_json": {
                   "type": "string",
@@ -829,7 +860,7 @@
                   "description": "Required by BigLake for request routing/billing (sent as the x-goog-user-project header)"
                 }
               },
-              "required":[
+              "required": [
                 "rest_auth_type",
                 "rest_catalog_url",
                 "gcp_service_account_json"
@@ -861,7 +892,7 @@
                   "type": "string",
                   "title": "AWS Region",
                   "description": "Specify the AWS region where the S3 bucket is hosted"
-                },            
+                },
                 "glue_additional_config": {
                   "type": "boolean",
                   "default": false,
@@ -869,7 +900,7 @@
                   "description": "Enable separate credentials (access key and secret key), endpoint, and region for the Glue catalog"
                 }
               },
-              "required":[
+              "required": [
                 "aws_region"
               ],
               "dependencies": {
