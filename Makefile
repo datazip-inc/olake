@@ -8,6 +8,7 @@ DRIVERS = $(notdir $(patsubst %/go.mod,%,$(wildcard drivers/*/go.mod)))
 # Product modules only: tests/ (and its lib glue) carry their own lint state and are linted on
 # their own branch; drop the filter once the tests workspace split lands.
 ROOT_MODULES := $(filter-out $(CURDIR)/lib $(CURDIR)/tests/%,$(shell go list -m -f '{{.Dir}}'))
+TEST_MODULES := $(notdir $(shell cd tests && go list -m -f '{{.Dir}}'))
 
 # Platform resolution from drivers/platforms.conf; PLATFORMS=... overrides it.
 # parse_platforms_conf: driver $(1)'s entry; falls back to the '*' default when $(2) is non-empty.
@@ -82,8 +83,11 @@ docker.base.build:
 	fi
 	docker build $(addprefix --platform ,$(PLATFORMS)) --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t $(BASE_IMAGE) -f base.Dockerfile .
 
+test.lint: golangci.install prepare.all
+	cd tests && $(foreach m,$(TEST_MODULES),($(GO_ENV.$(m)) $(GOPATH)/bin/golangci-lint run ./$(m)/...) &&) true
+
 # Mirrors CI's "Go Build and Lint" workflow
-lint: olake.lint
+lint: olake.lint test.lint
 
 # Referenced by the build-check job of the same workflow (root module, same
 # command as the integration workflow's "Build Project" step; driver modules
@@ -364,8 +368,9 @@ help:
 	@echo "OLake Makefile  (SOURCE_DRIVERS: $(SOURCE_DRIVERS))"
 	@echo ""
 	@echo "Code quality:"
-	@printf "  %-44s %s\n" "lint" "run CI lint locally (alias of olake.lint)"
+	@printf "  %-44s %s\n" "lint" "run CI lint locally (olake.lint + test.lint)"
 	@printf "  %-44s %s\n" "olake.lint" "golangci-lint over root + driver modules (incl. db2; provisions its clidriver)"
+	@printf "  %-44s %s\n" "test.lint" "golangci-lint over tests/ modules (incl. db2; provisions its clidriver)"
 	@printf "  %-44s %s\n" "build" "compile the root module (CI build-check)"
 	@printf "  %-44s %s\n" "gomod / golangci.install / trivy / gofmt / pre-commit" "tidy, lint-install, format and git-hook targets"
 	@echo ""
@@ -406,7 +411,7 @@ help:
 	@echo ""
 	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG"
 
-.PHONY: lint olake.lint build \
+.PHONY: lint olake.lint test.lint build \
 	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \
 	olake.destination.all.start olake.destination.all.stop olake.destination.all.teardown olake.destination.all.restart olake.destination.all.refresh \
 	olake.all.start olake.all.stop olake.all.teardown olake.all.restart olake.all.refresh \

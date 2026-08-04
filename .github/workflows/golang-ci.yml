@@ -24,6 +24,10 @@ jobs:
           go-version-file: "go.mod"
       - name: golangci-lint
         run: make olake.lint
+
+      # TODO: move this on integration test workflow in PR 1037
+      - name: golangci-lint tests modules
+        run: make test.lint
   build-check:
     name: Build
     runs-on: ubuntu-latest

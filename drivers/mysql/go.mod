@@ -4,7 +4,6 @@ go 1.25.12
 
 replace (
 	github.com/datazip-inc/olake => ../../
-	github.com/datazip-inc/olake/lib => ../../lib
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 )
 
@@ -100,7 +99,6 @@ require (
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/apache/thrift v0.23.0 // indirect
 	github.com/aws/aws-sdk-go v1.55.6 // indirect
-	github.com/datazip-inc/olake/lib v0.0.0-00010101000000-000000000000 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/go-mysql-org/go-mysql v1.11.0

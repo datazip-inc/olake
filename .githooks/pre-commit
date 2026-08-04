@@ -1,11 +1,11 @@
 #!/bin/sh
 
-# Run golangci-lint on staged files
-echo "Running golangci-lint..."
-make golangci
+# Run lint on staged files
+echo "Running lint..."
+make lint
 
 # Check if the linter passed
 if [ $? -ne 0 ]; then
-  echo "❌ golangci-lint found issues. Commit aborted."
+  echo "❌ lint found issues. Commit aborted."
   exit 1
 fi
