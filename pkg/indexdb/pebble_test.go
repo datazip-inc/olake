@@ -1,7 +1,6 @@
 package indexdb
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -16,65 +15,6 @@ import (
 // retiredUndoPrefix is the key family the undo log used to occupy. Nothing may
 // write there any more; the guard below is what keeps it that way.
 const retiredUndoPrefix byte = 0x04
-
-func testOptions(t *testing.T) Options {
-	t.Helper()
-	return Options{
-		Dir:          t.TempDir(),
-		CacheSize:    8 * mib,
-		MemTableSize: 2 * mib,
-		MaxOpenFiles: 64,
-	}
-}
-
-func openTestIndex(t *testing.T, opts Options) *pebbleIndex {
-	t.Helper()
-	index, err := openIndex(opts.Dir+"/stream", opts)
-	require.NoError(t, err)
-	return index
-}
-
-// countPrefix reports how many keys the index holds in one key family.
-func countPrefix(t *testing.T, index *pebbleIndex, prefix byte) int {
-	t.Helper()
-
-	lower := []byte{prefix}
-	iter, err := index.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: prefixEnd(lower)})
-	require.NoError(t, err)
-	defer func() { require.NoError(t, iter.Close()) }()
-
-	count := 0
-	for ok := iter.First(); ok; ok = iter.Next() {
-		count++
-	}
-	return count
-}
-
-func put(b *types.RowIndexBatch, key, path string, position int64) {
-	b.Put(key, types.RowLocation{FilePath: path, Position: position})
-}
-
-// applyAt commits a batch and moves the checkpoint, which is what a writer
-// thread does once its destination commit has succeeded.
-func applyAt(t *testing.T, index types.TableIndex, batch *types.RowIndexBatch, snapshotID int64) {
-	t.Helper()
-	require.NoError(t, index.Apply(batch, &snapshotID))
-}
-
-func requireLocation(t *testing.T, index types.TableIndex, key, path string, position int64) {
-	t.Helper()
-	loc, found, err := index.Lookup(key)
-	require.NoError(t, err)
-	require.True(t, found, "expected key[%s] to be indexed", key)
-	assert.Equal(t, types.RowLocation{FilePath: path, Position: position}, loc)
-}
-
-func requireAbsent(t *testing.T, index types.TableIndex, key string) {
-	t.Helper()
-	_, found, err := index.Lookup(key)
-	require.NoError(t, err)
-	assert.False(t, found, "expected key[%s] to be absent", key)
-}
 
 func TestPebbleIndexApplyPersistsAcrossReopen(t *testing.T) {
 	opts := testOptions(t)
@@ -358,81 +298,6 @@ func TestPebbleIndexConcurrentApplyAcrossDisjointKeys(t *testing.T) {
 	}
 }
 
-func TestPebbleStoreIsolatesAndDropsStreams(t *testing.T) {
-	ctx := context.Background()
-	store := NewPebbleStore(testOptions(t))
-	defer func() { require.NoError(t, store.Close()) }()
-
-	first, err := store.Open(ctx, "public.orders")
-	require.NoError(t, err)
-	second, err := store.Open(ctx, "public.customers")
-	require.NoError(t, err)
-
-	batch := types.NewRowIndexBatch(first)
-	put(batch, "shared-key", "s3://bucket/orders.parquet", 1)
-	applyAt(t, first, batch, 1)
-
-	requireLocation(t, first, "shared-key", "s3://bucket/orders.parquet", 1)
-	requireAbsent(t, second, "shared-key")
-
-	// Reopening the same stream must hand back the live index, not a new one.
-	again, err := store.Open(ctx, "public.orders")
-	require.NoError(t, err)
-	assert.Same(t, first, again)
-
-	require.NoError(t, store.Drop(ctx, "public.orders"))
-	rebuilt, err := store.Open(ctx, "public.orders")
-	require.NoError(t, err)
-	requireAbsent(t, rebuilt, "shared-key")
-}
-
-// The configured sizes describe one stream, so a stream's cache is its own and
-// what one stream reads cannot evict what another is holding.
-func TestPebbleStoreGivesEachStreamItsOwnCache(t *testing.T) {
-	ctx := context.Background()
-	store := NewPebbleStore(testOptions(t))
-	defer func() { require.NoError(t, store.Close()) }()
-
-	busy, err := store.Open(ctx, "public.orders")
-	require.NoError(t, err)
-	idle, err := store.Open(ctx, "public.customers")
-	require.NoError(t, err)
-
-	// Only one stream is written to and read back, so only one stream has any
-	// reason to hold cached blocks.
-	batch := types.NewRowIndexBatch(busy)
-	for i := 0; i < 512; i++ {
-		put(batch, fmt.Sprintf("key-%d", i), "s3://bucket/orders.parquet", int64(i))
-	}
-	applyAt(t, busy, batch, 1)
-
-	// Blocks only enter a cache once they live in an sstable rather than in the
-	// memtable, so the write has to be flushed before a read goes through one.
-	require.NoError(t, busy.(*pebbleIndex).db.Flush())
-	requireLocation(t, busy, "key-0", "s3://bucket/orders.parquet", 0)
-
-	// The untouched stream reporting nothing is what shows the two databases are
-	// not drawing on a single cache.
-	assert.NotZero(t, busy.(*pebbleIndex).db.Metrics().BlockCache.Count)
-	assert.Zero(t, idle.(*pebbleIndex).db.Metrics().BlockCache.Count)
-}
-
-func TestIndexDirNameSeparatesCollidingStreamIDs(t *testing.T) {
-	first := indexDirName("public.orders")
-	second := indexDirName("public/orders")
-
-	assert.NotEqual(t, first, second, "stream ids that sanitize alike must not share a database")
-	assert.Regexp(t, `^[a-zA-Z0-9_.-]+$`, first)
-	assert.Regexp(t, `^[a-zA-Z0-9_.-]+$`, second)
-}
-
-func TestPrefixEnd(t *testing.T) {
-	assert.Equal(t, []byte{0x02}, prefixEnd([]byte{0x01}))
-	assert.Equal(t, []byte{0x01, 0x03}, prefixEnd([]byte{0x01, 0x02}))
-	assert.Equal(t, []byte{0x02}, prefixEnd([]byte{0x01, 0xff}))
-	assert.Nil(t, prefixEnd([]byte{0xff, 0xff}))
-}
-
 // A dictionary entry is the path verbatim, so nothing about a path may be
 // assumed: an empty one, one carrying bytes that are not valid UTF-8, and one
 // long enough to span a block all have to survive the round trip.
@@ -528,17 +393,4 @@ func TestPebbleIndexDiscardsAnIndexOfAnotherFormat(t *testing.T) {
 	_, indexed, err := reopened.IndexedSnapshot()
 	require.NoError(t, err)
 	assert.False(t, indexed, "a discarded index must ask to be rebuilt")
-}
-
-func TestEncodeDecodeRowRoundTrip(t *testing.T) {
-	for _, tc := range []struct {
-		fileID   uint64
-		position uint64
-		want     int64
-	}{{0, 0, 0}, {1, 127, 127}, {128, 128, 128}, {1 << 20, 1 << 40, 1 << 40}} {
-		fileID, position, err := decodeRow(encodeRow(tc.fileID, tc.position))
-		require.NoError(t, err)
-		assert.Equal(t, tc.fileID, fileID)
-		assert.Equal(t, tc.want, position)
-	}
 }

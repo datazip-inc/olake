@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v3.21.12
-// source: destination/iceberg/proto/records_ingest.proto
+// source: records_ingest.proto
 
 package proto
 
@@ -66,11 +66,11 @@ func (x IcebergPayload_PayloadType) String() string {
 }
 
 func (IcebergPayload_PayloadType) Descriptor() protoreflect.EnumDescriptor {
-	return file_destination_iceberg_proto_records_ingest_proto_enumTypes[0].Descriptor()
+	return file_records_ingest_proto_enumTypes[0].Descriptor()
 }
 
 func (IcebergPayload_PayloadType) Type() protoreflect.EnumType {
-	return &file_destination_iceberg_proto_records_ingest_proto_enumTypes[0]
+	return &file_records_ingest_proto_enumTypes[0]
 }
 
 func (x IcebergPayload_PayloadType) Number() protoreflect.EnumNumber {
@@ -79,7 +79,7 @@ func (x IcebergPayload_PayloadType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use IcebergPayload_PayloadType.Descriptor instead.
 func (IcebergPayload_PayloadType) EnumDescriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{0, 0}
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 0}
 }
 
 type ArrowPayload_PayloadType int32
@@ -118,11 +118,11 @@ func (x ArrowPayload_PayloadType) String() string {
 }
 
 func (ArrowPayload_PayloadType) Descriptor() protoreflect.EnumDescriptor {
-	return file_destination_iceberg_proto_records_ingest_proto_enumTypes[1].Descriptor()
+	return file_records_ingest_proto_enumTypes[1].Descriptor()
 }
 
 func (ArrowPayload_PayloadType) Type() protoreflect.EnumType {
-	return &file_destination_iceberg_proto_records_ingest_proto_enumTypes[1]
+	return &file_records_ingest_proto_enumTypes[1]
 }
 
 func (x ArrowPayload_PayloadType) Number() protoreflect.EnumNumber {
@@ -131,7 +131,7 @@ func (x ArrowPayload_PayloadType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ArrowPayload_PayloadType.Descriptor instead.
 func (ArrowPayload_PayloadType) EnumDescriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{2, 0}
+	return file_records_ingest_proto_rawDescGZIP(), []int{3, 0}
 }
 
 type IcebergPayload struct {
@@ -145,7 +145,7 @@ type IcebergPayload struct {
 
 func (x *IcebergPayload) Reset() {
 	*x = IcebergPayload{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[0]
+	mi := &file_records_ingest_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -157,7 +157,7 @@ func (x *IcebergPayload) String() string {
 func (*IcebergPayload) ProtoMessage() {}
 
 func (x *IcebergPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[0]
+	mi := &file_records_ingest_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -170,7 +170,7 @@ func (x *IcebergPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IcebergPayload.ProtoReflect.Descriptor instead.
 func (*IcebergPayload) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{0}
+	return file_records_ingest_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *IcebergPayload) GetType() IcebergPayload_PayloadType {
@@ -206,13 +206,16 @@ type RecordIngestResponse struct {
 	// GET_OR_CREATE_TABLE: whether the current snapshot still carries equality
 	// delete files, which must be migrated before positional deletes take over.
 	HasEqualityDeletes bool `protobuf:"varint,5,opt,name=has_equality_deletes,json=hasEqualityDeletes,proto3" json:"has_equality_deletes,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// RECORDS: returned when rows are written, detailing where they landed so
+	// the sender can update its row index. Order matches the request records.
+	WriteRuns     []*WriteRun `protobuf:"bytes,6,rep,name=write_runs,json=writeRuns,proto3" json:"write_runs,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RecordIngestResponse) Reset() {
 	*x = RecordIngestResponse{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[1]
+	mi := &file_records_ingest_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -224,7 +227,7 @@ func (x *RecordIngestResponse) String() string {
 func (*RecordIngestResponse) ProtoMessage() {}
 
 func (x *RecordIngestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[1]
+	mi := &file_records_ingest_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -237,7 +240,7 @@ func (x *RecordIngestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RecordIngestResponse.ProtoReflect.Descriptor instead.
 func (*RecordIngestResponse) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{1}
+	return file_records_ingest_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RecordIngestResponse) GetResult() string {
@@ -275,6 +278,84 @@ func (x *RecordIngestResponse) GetHasEqualityDeletes() bool {
 	return false
 }
 
+func (x *RecordIngestResponse) GetWriteRuns() []*WriteRun {
+	if x != nil {
+		return x.WriteRuns
+	}
+	return nil
+}
+
+// WriteRun describes a contiguous block of rows written to a single data file.
+// Because Java writes records sequentially, a batch of records typically maps
+// to just one or two runs (if a file rolled).
+type WriteRun struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	FilePath      string                 `protobuf:"bytes,1,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
+	BatchStartIdx int32                  `protobuf:"varint,2,opt,name=batch_start_idx,json=batchStartIdx,proto3" json:"batch_start_idx,omitempty"`
+	StartPosition int64                  `protobuf:"varint,3,opt,name=start_position,json=startPosition,proto3" json:"start_position,omitempty"`
+	Count         int32                  `protobuf:"varint,4,opt,name=count,proto3" json:"count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WriteRun) Reset() {
+	*x = WriteRun{}
+	mi := &file_records_ingest_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WriteRun) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WriteRun) ProtoMessage() {}
+
+func (x *WriteRun) ProtoReflect() protoreflect.Message {
+	mi := &file_records_ingest_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WriteRun.ProtoReflect.Descriptor instead.
+func (*WriteRun) Descriptor() ([]byte, []int) {
+	return file_records_ingest_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *WriteRun) GetFilePath() string {
+	if x != nil {
+		return x.FilePath
+	}
+	return ""
+}
+
+func (x *WriteRun) GetBatchStartIdx() int32 {
+	if x != nil {
+		return x.BatchStartIdx
+	}
+	return 0
+}
+
+func (x *WriteRun) GetStartPosition() int64 {
+	if x != nil {
+		return x.StartPosition
+	}
+	return 0
+}
+
+func (x *WriteRun) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
 type ArrowPayload struct {
 	state         protoimpl.MessageState   `protogen:"open.v1"`
 	Type          ArrowPayload_PayloadType `protobuf:"varint,1,opt,name=type,proto3,enum=io.debezium.server.iceberg.rpc.ArrowPayload_PayloadType" json:"type,omitempty"`
@@ -285,7 +366,7 @@ type ArrowPayload struct {
 
 func (x *ArrowPayload) Reset() {
 	*x = ArrowPayload{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[2]
+	mi := &file_records_ingest_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -297,7 +378,7 @@ func (x *ArrowPayload) String() string {
 func (*ArrowPayload) ProtoMessage() {}
 
 func (x *ArrowPayload) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[2]
+	mi := &file_records_ingest_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -310,7 +391,7 @@ func (x *ArrowPayload) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArrowPayload.ProtoReflect.Descriptor instead.
 func (*ArrowPayload) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{2}
+	return file_records_ingest_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ArrowPayload) GetType() ArrowPayload_PayloadType {
@@ -340,7 +421,7 @@ type ArrowIngestResponse struct {
 
 func (x *ArrowIngestResponse) Reset() {
 	*x = ArrowIngestResponse{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[3]
+	mi := &file_records_ingest_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -352,7 +433,7 @@ func (x *ArrowIngestResponse) String() string {
 func (*ArrowIngestResponse) ProtoMessage() {}
 
 func (x *ArrowIngestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[3]
+	mi := &file_records_ingest_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -365,7 +446,7 @@ func (x *ArrowIngestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArrowIngestResponse.ProtoReflect.Descriptor instead.
 func (*ArrowIngestResponse) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{3}
+	return file_records_ingest_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ArrowIngestResponse) GetResult() string {
@@ -403,7 +484,7 @@ type RowIndexScanRequest struct {
 
 func (x *RowIndexScanRequest) Reset() {
 	*x = RowIndexScanRequest{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[4]
+	mi := &file_records_ingest_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -415,7 +496,7 @@ func (x *RowIndexScanRequest) String() string {
 func (*RowIndexScanRequest) ProtoMessage() {}
 
 func (x *RowIndexScanRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[4]
+	mi := &file_records_ingest_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -428,7 +509,7 @@ func (x *RowIndexScanRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RowIndexScanRequest.ProtoReflect.Descriptor instead.
 func (*RowIndexScanRequest) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{4}
+	return file_records_ingest_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *RowIndexScanRequest) GetThreadId() string {
@@ -460,7 +541,7 @@ type RowIndexScanBatch struct {
 
 func (x *RowIndexScanBatch) Reset() {
 	*x = RowIndexScanBatch{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[5]
+	mi := &file_records_ingest_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -472,7 +553,7 @@ func (x *RowIndexScanBatch) String() string {
 func (*RowIndexScanBatch) ProtoMessage() {}
 
 func (x *RowIndexScanBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[5]
+	mi := &file_records_ingest_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -485,7 +566,7 @@ func (x *RowIndexScanBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RowIndexScanBatch.ProtoReflect.Descriptor instead.
 func (*RowIndexScanBatch) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{5}
+	return file_records_ingest_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RowIndexScanBatch) GetEntries() []*RowIndexScanBatch_Entry {
@@ -518,7 +599,7 @@ type MigrateEqualityDeletesRequest struct {
 
 func (x *MigrateEqualityDeletesRequest) Reset() {
 	*x = MigrateEqualityDeletesRequest{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[6]
+	mi := &file_records_ingest_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -530,7 +611,7 @@ func (x *MigrateEqualityDeletesRequest) String() string {
 func (*MigrateEqualityDeletesRequest) ProtoMessage() {}
 
 func (x *MigrateEqualityDeletesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[6]
+	mi := &file_records_ingest_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -543,7 +624,7 @@ func (x *MigrateEqualityDeletesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MigrateEqualityDeletesRequest.ProtoReflect.Descriptor instead.
 func (*MigrateEqualityDeletesRequest) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{6}
+	return file_records_ingest_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *MigrateEqualityDeletesRequest) GetThreadId() string {
@@ -566,7 +647,7 @@ type MigrateEqualityDeletesResponse struct {
 
 func (x *MigrateEqualityDeletesResponse) Reset() {
 	*x = MigrateEqualityDeletesResponse{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[7]
+	mi := &file_records_ingest_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -578,7 +659,7 @@ func (x *MigrateEqualityDeletesResponse) String() string {
 func (*MigrateEqualityDeletesResponse) ProtoMessage() {}
 
 func (x *MigrateEqualityDeletesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[7]
+	mi := &file_records_ingest_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -591,7 +672,7 @@ func (x *MigrateEqualityDeletesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MigrateEqualityDeletesResponse.ProtoReflect.Descriptor instead.
 func (*MigrateEqualityDeletesResponse) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{7}
+	return file_records_ingest_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *MigrateEqualityDeletesResponse) GetSnapshotId() int64 {
@@ -632,7 +713,7 @@ type IcebergPayload_Metadata struct {
 
 func (x *IcebergPayload_Metadata) Reset() {
 	*x = IcebergPayload_Metadata{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[8]
+	mi := &file_records_ingest_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -644,7 +725,7 @@ func (x *IcebergPayload_Metadata) String() string {
 func (*IcebergPayload_Metadata) ProtoMessage() {}
 
 func (x *IcebergPayload_Metadata) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[8]
+	mi := &file_records_ingest_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -657,7 +738,7 @@ func (x *IcebergPayload_Metadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IcebergPayload_Metadata.ProtoReflect.Descriptor instead.
 func (*IcebergPayload_Metadata) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{0, 0}
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 0}
 }
 
 func (x *IcebergPayload_Metadata) GetDestTableName() string {
@@ -726,7 +807,7 @@ type IcebergPayload_SchemaField struct {
 
 func (x *IcebergPayload_SchemaField) Reset() {
 	*x = IcebergPayload_SchemaField{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[9]
+	mi := &file_records_ingest_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -738,7 +819,7 @@ func (x *IcebergPayload_SchemaField) String() string {
 func (*IcebergPayload_SchemaField) ProtoMessage() {}
 
 func (x *IcebergPayload_SchemaField) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[9]
+	mi := &file_records_ingest_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -751,7 +832,7 @@ func (x *IcebergPayload_SchemaField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IcebergPayload_SchemaField.ProtoReflect.Descriptor instead.
 func (*IcebergPayload_SchemaField) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{0, 1}
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 1}
 }
 
 func (x *IcebergPayload_SchemaField) GetIceType() string {
@@ -778,7 +859,7 @@ type IcebergPayload_PartitionField struct {
 
 func (x *IcebergPayload_PartitionField) Reset() {
 	*x = IcebergPayload_PartitionField{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[10]
+	mi := &file_records_ingest_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -790,7 +871,7 @@ func (x *IcebergPayload_PartitionField) String() string {
 func (*IcebergPayload_PartitionField) ProtoMessage() {}
 
 func (x *IcebergPayload_PartitionField) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[10]
+	mi := &file_records_ingest_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -803,7 +884,7 @@ func (x *IcebergPayload_PartitionField) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IcebergPayload_PartitionField.ProtoReflect.Descriptor instead.
 func (*IcebergPayload_PartitionField) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{0, 2}
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 2}
 }
 
 func (x *IcebergPayload_PartitionField) GetField() string {
@@ -831,7 +912,7 @@ type IcebergPayload_IceRecord struct {
 
 func (x *IcebergPayload_IceRecord) Reset() {
 	*x = IcebergPayload_IceRecord{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[11]
+	mi := &file_records_ingest_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -843,7 +924,7 @@ func (x *IcebergPayload_IceRecord) String() string {
 func (*IcebergPayload_IceRecord) ProtoMessage() {}
 
 func (x *IcebergPayload_IceRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[11]
+	mi := &file_records_ingest_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -856,7 +937,7 @@ func (x *IcebergPayload_IceRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use IcebergPayload_IceRecord.ProtoReflect.Descriptor instead.
 func (*IcebergPayload_IceRecord) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{0, 3}
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 3}
 }
 
 func (x *IcebergPayload_IceRecord) GetFields() []*IcebergPayload_IceRecord_FieldValue {
@@ -892,7 +973,7 @@ type IcebergPayload_IceRecord_FieldValue struct {
 
 func (x *IcebergPayload_IceRecord_FieldValue) Reset() {
 	*x = IcebergPayload_IceRecord_FieldValue{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[12]
+	mi := &file_records_ingest_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -904,7 +985,7 @@ func (x *IcebergPayload_IceRecord_FieldValue) String() string {
 func (*IcebergPayload_IceRecord_FieldValue) ProtoMessage() {}
 
 func (x *IcebergPayload_IceRecord_FieldValue) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[12]
+	mi := &file_records_ingest_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -917,7 +998,7 @@ func (x *IcebergPayload_IceRecord_FieldValue) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use IcebergPayload_IceRecord_FieldValue.ProtoReflect.Descriptor instead.
 func (*IcebergPayload_IceRecord_FieldValue) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{0, 3, 0}
+	return file_records_ingest_proto_rawDescGZIP(), []int{0, 3, 0}
 }
 
 func (x *IcebergPayload_IceRecord_FieldValue) GetValue() isIcebergPayload_IceRecord_FieldValue_Value {
@@ -1052,7 +1133,7 @@ type ArrowPayload_FileMetadata struct {
 
 func (x *ArrowPayload_FileMetadata) Reset() {
 	*x = ArrowPayload_FileMetadata{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[13]
+	mi := &file_records_ingest_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1064,7 +1145,7 @@ func (x *ArrowPayload_FileMetadata) String() string {
 func (*ArrowPayload_FileMetadata) ProtoMessage() {}
 
 func (x *ArrowPayload_FileMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[13]
+	mi := &file_records_ingest_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1077,7 +1158,7 @@ func (x *ArrowPayload_FileMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArrowPayload_FileMetadata.ProtoReflect.Descriptor instead.
 func (*ArrowPayload_FileMetadata) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{2, 0}
+	return file_records_ingest_proto_rawDescGZIP(), []int{3, 0}
 }
 
 func (x *ArrowPayload_FileMetadata) GetFileType() string {
@@ -1118,7 +1199,7 @@ type ArrowPayload_FileUploadRequest struct {
 
 func (x *ArrowPayload_FileUploadRequest) Reset() {
 	*x = ArrowPayload_FileUploadRequest{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[14]
+	mi := &file_records_ingest_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1130,7 +1211,7 @@ func (x *ArrowPayload_FileUploadRequest) String() string {
 func (*ArrowPayload_FileUploadRequest) ProtoMessage() {}
 
 func (x *ArrowPayload_FileUploadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[14]
+	mi := &file_records_ingest_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1143,7 +1224,7 @@ func (x *ArrowPayload_FileUploadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArrowPayload_FileUploadRequest.ProtoReflect.Descriptor instead.
 func (*ArrowPayload_FileUploadRequest) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{2, 1}
+	return file_records_ingest_proto_rawDescGZIP(), []int{3, 1}
 }
 
 func (x *ArrowPayload_FileUploadRequest) GetFileData() []byte {
@@ -1173,7 +1254,7 @@ type ArrowPayload_Metadata struct {
 
 func (x *ArrowPayload_Metadata) Reset() {
 	*x = ArrowPayload_Metadata{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[15]
+	mi := &file_records_ingest_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1185,7 +1266,7 @@ func (x *ArrowPayload_Metadata) String() string {
 func (*ArrowPayload_Metadata) ProtoMessage() {}
 
 func (x *ArrowPayload_Metadata) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[15]
+	mi := &file_records_ingest_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1198,7 +1279,7 @@ func (x *ArrowPayload_Metadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArrowPayload_Metadata.ProtoReflect.Descriptor instead.
 func (*ArrowPayload_Metadata) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{2, 2}
+	return file_records_ingest_proto_rawDescGZIP(), []int{3, 2}
 }
 
 func (x *ArrowPayload_Metadata) GetDestTableName() string {
@@ -1253,7 +1334,7 @@ type ArrowPayload_FileMetadata_PartitionValue struct {
 
 func (x *ArrowPayload_FileMetadata_PartitionValue) Reset() {
 	*x = ArrowPayload_FileMetadata_PartitionValue{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[16]
+	mi := &file_records_ingest_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1265,7 +1346,7 @@ func (x *ArrowPayload_FileMetadata_PartitionValue) String() string {
 func (*ArrowPayload_FileMetadata_PartitionValue) ProtoMessage() {}
 
 func (x *ArrowPayload_FileMetadata_PartitionValue) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[16]
+	mi := &file_records_ingest_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1278,7 +1359,7 @@ func (x *ArrowPayload_FileMetadata_PartitionValue) ProtoReflect() protoreflect.M
 
 // Deprecated: Use ArrowPayload_FileMetadata_PartitionValue.ProtoReflect.Descriptor instead.
 func (*ArrowPayload_FileMetadata_PartitionValue) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{2, 0, 0}
+	return file_records_ingest_proto_rawDescGZIP(), []int{3, 0, 0}
 }
 
 func (x *ArrowPayload_FileMetadata_PartitionValue) GetValue() isArrowPayload_FileMetadata_PartitionValue_Value {
@@ -1400,7 +1481,7 @@ type RowIndexScanBatch_Entry struct {
 
 func (x *RowIndexScanBatch_Entry) Reset() {
 	*x = RowIndexScanBatch_Entry{}
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[18]
+	mi := &file_records_ingest_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1412,7 +1493,7 @@ func (x *RowIndexScanBatch_Entry) String() string {
 func (*RowIndexScanBatch_Entry) ProtoMessage() {}
 
 func (x *RowIndexScanBatch_Entry) ProtoReflect() protoreflect.Message {
-	mi := &file_destination_iceberg_proto_records_ingest_proto_msgTypes[18]
+	mi := &file_records_ingest_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1425,7 +1506,7 @@ func (x *RowIndexScanBatch_Entry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RowIndexScanBatch_Entry.ProtoReflect.Descriptor instead.
 func (*RowIndexScanBatch_Entry) Descriptor() ([]byte, []int) {
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP(), []int{5, 0}
+	return file_records_ingest_proto_rawDescGZIP(), []int{6, 0}
 }
 
 func (x *RowIndexScanBatch_Entry) GetOlakeId() string {
@@ -1456,11 +1537,11 @@ func (x *RowIndexScanBatch_Entry) GetDeleted() bool {
 	return false
 }
 
-var File_destination_iceberg_proto_records_ingest_proto protoreflect.FileDescriptor
+var File_records_ingest_proto protoreflect.FileDescriptor
 
-const file_destination_iceberg_proto_records_ingest_proto_rawDesc = "" +
+const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	".destination/iceberg/proto/records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xd7\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xd7\n" +
 	"\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
@@ -1510,14 +1591,21 @@ const file_destination_iceberg_proto_records_ingest_proto_rawDesc = "" +
 	"DROP_TABLE\x10\x03\x12\x17\n" +
 	"\x13GET_OR_CREATE_TABLE\x10\x04\x12\x18\n" +
 	"\x14REFRESH_TABLE_SCHEMA\x10\x05\x12\x11\n" +
-	"\rCLOSE_SESSION\x10\x06\"\xc3\x01\n" +
+	"\rCLOSE_SESSION\x10\x06\"\x8c\x02\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12&\n" +
 	"\x0folake_2pc_state\x18\x03 \x01(\tR\rolake2pcState\x12\x1f\n" +
 	"\vsnapshot_id\x18\x04 \x01(\x03R\n" +
 	"snapshotId\x120\n" +
-	"\x14has_equality_deletes\x18\x05 \x01(\bR\x12hasEqualityDeletes\"\xe4\b\n" +
+	"\x14has_equality_deletes\x18\x05 \x01(\bR\x12hasEqualityDeletes\x12G\n" +
+	"\n" +
+	"write_runs\x18\x06 \x03(\v2(.io.debezium.server.iceberg.rpc.WriteRunR\twriteRuns\"\x8c\x01\n" +
+	"\bWriteRun\x12\x1b\n" +
+	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12&\n" +
+	"\x0fbatch_start_idx\x18\x02 \x01(\x05R\rbatchStartIdx\x12%\n" +
+	"\x0estart_position\x18\x03 \x01(\x03R\rstartPosition\x12\x14\n" +
+	"\x05count\x18\x04 \x01(\x05R\x05count\"\xe4\b\n" +
 	"\fArrowPayload\x12L\n" +
 	"\x04type\x18\x01 \x01(\x0e28.io.debezium.server.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12Q\n" +
 	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\xca\x03\n" +
@@ -1594,80 +1682,82 @@ const file_destination_iceberg_proto_records_ingest_proto_rawDesc = "" +
 	"\x16MigrateEqualityDeletes\x12=.io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest\x1a>.io.debezium.server.iceberg.rpc.MigrateEqualityDeletesResponseB\x1dB\fRecordIngestZ\riceberg/protob\x06proto3"
 
 var (
-	file_destination_iceberg_proto_records_ingest_proto_rawDescOnce sync.Once
-	file_destination_iceberg_proto_records_ingest_proto_rawDescData []byte
+	file_records_ingest_proto_rawDescOnce sync.Once
+	file_records_ingest_proto_rawDescData []byte
 )
 
-func file_destination_iceberg_proto_records_ingest_proto_rawDescGZIP() []byte {
-	file_destination_iceberg_proto_records_ingest_proto_rawDescOnce.Do(func() {
-		file_destination_iceberg_proto_records_ingest_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_destination_iceberg_proto_records_ingest_proto_rawDesc), len(file_destination_iceberg_proto_records_ingest_proto_rawDesc)))
+func file_records_ingest_proto_rawDescGZIP() []byte {
+	file_records_ingest_proto_rawDescOnce.Do(func() {
+		file_records_ingest_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_records_ingest_proto_rawDesc), len(file_records_ingest_proto_rawDesc)))
 	})
-	return file_destination_iceberg_proto_records_ingest_proto_rawDescData
+	return file_records_ingest_proto_rawDescData
 }
 
-var file_destination_iceberg_proto_records_ingest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_destination_iceberg_proto_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
-var file_destination_iceberg_proto_records_ingest_proto_goTypes = []any{
+var file_records_ingest_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
+var file_records_ingest_proto_goTypes = []any{
 	(IcebergPayload_PayloadType)(0),                  // 0: io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
 	(ArrowPayload_PayloadType)(0),                    // 1: io.debezium.server.iceberg.rpc.ArrowPayload.PayloadType
 	(*IcebergPayload)(nil),                           // 2: io.debezium.server.iceberg.rpc.IcebergPayload
 	(*RecordIngestResponse)(nil),                     // 3: io.debezium.server.iceberg.rpc.RecordIngestResponse
-	(*ArrowPayload)(nil),                             // 4: io.debezium.server.iceberg.rpc.ArrowPayload
-	(*ArrowIngestResponse)(nil),                      // 5: io.debezium.server.iceberg.rpc.ArrowIngestResponse
-	(*RowIndexScanRequest)(nil),                      // 6: io.debezium.server.iceberg.rpc.RowIndexScanRequest
-	(*RowIndexScanBatch)(nil),                        // 7: io.debezium.server.iceberg.rpc.RowIndexScanBatch
-	(*MigrateEqualityDeletesRequest)(nil),            // 8: io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest
-	(*MigrateEqualityDeletesResponse)(nil),           // 9: io.debezium.server.iceberg.rpc.MigrateEqualityDeletesResponse
-	(*IcebergPayload_Metadata)(nil),                  // 10: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
-	(*IcebergPayload_SchemaField)(nil),               // 11: io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
-	(*IcebergPayload_PartitionField)(nil),            // 12: io.debezium.server.iceberg.rpc.IcebergPayload.PartitionField
-	(*IcebergPayload_IceRecord)(nil),                 // 13: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
-	(*IcebergPayload_IceRecord_FieldValue)(nil),      // 14: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
-	(*ArrowPayload_FileMetadata)(nil),                // 15: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
-	(*ArrowPayload_FileUploadRequest)(nil),           // 16: io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
-	(*ArrowPayload_Metadata)(nil),                    // 17: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
-	(*ArrowPayload_FileMetadata_PartitionValue)(nil), // 18: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
-	nil,                             // 19: io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
-	(*RowIndexScanBatch_Entry)(nil), // 20: io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry
+	(*WriteRun)(nil),                                 // 4: io.debezium.server.iceberg.rpc.WriteRun
+	(*ArrowPayload)(nil),                             // 5: io.debezium.server.iceberg.rpc.ArrowPayload
+	(*ArrowIngestResponse)(nil),                      // 6: io.debezium.server.iceberg.rpc.ArrowIngestResponse
+	(*RowIndexScanRequest)(nil),                      // 7: io.debezium.server.iceberg.rpc.RowIndexScanRequest
+	(*RowIndexScanBatch)(nil),                        // 8: io.debezium.server.iceberg.rpc.RowIndexScanBatch
+	(*MigrateEqualityDeletesRequest)(nil),            // 9: io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest
+	(*MigrateEqualityDeletesResponse)(nil),           // 10: io.debezium.server.iceberg.rpc.MigrateEqualityDeletesResponse
+	(*IcebergPayload_Metadata)(nil),                  // 11: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
+	(*IcebergPayload_SchemaField)(nil),               // 12: io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
+	(*IcebergPayload_PartitionField)(nil),            // 13: io.debezium.server.iceberg.rpc.IcebergPayload.PartitionField
+	(*IcebergPayload_IceRecord)(nil),                 // 14: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
+	(*IcebergPayload_IceRecord_FieldValue)(nil),      // 15: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
+	(*ArrowPayload_FileMetadata)(nil),                // 16: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
+	(*ArrowPayload_FileUploadRequest)(nil),           // 17: io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
+	(*ArrowPayload_Metadata)(nil),                    // 18: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
+	(*ArrowPayload_FileMetadata_PartitionValue)(nil), // 19: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
+	nil,                             // 20: io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
+	(*RowIndexScanBatch_Entry)(nil), // 21: io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry
 }
-var file_destination_iceberg_proto_records_ingest_proto_depIdxs = []int32{
+var file_records_ingest_proto_depIdxs = []int32{
 	0,  // 0: io.debezium.server.iceberg.rpc.IcebergPayload.type:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
-	10, // 1: io.debezium.server.iceberg.rpc.IcebergPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
-	13, // 2: io.debezium.server.iceberg.rpc.IcebergPayload.records:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
-	1,  // 3: io.debezium.server.iceberg.rpc.ArrowPayload.type:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.PayloadType
-	17, // 4: io.debezium.server.iceberg.rpc.ArrowPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
-	19, // 5: io.debezium.server.iceberg.rpc.ArrowIngestResponse.icebergSchemas:type_name -> io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
-	20, // 6: io.debezium.server.iceberg.rpc.RowIndexScanBatch.entries:type_name -> io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry
-	11, // 7: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
-	12, // 8: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.partition_fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PartitionField
-	14, // 9: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
-	18, // 10: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.partition_values:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
-	15, // 11: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
-	16, // 12: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_upload:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
-	2,  // 13: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
-	4,  // 14: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:input_type -> io.debezium.server.iceberg.rpc.ArrowPayload
-	6,  // 15: io.debezium.server.iceberg.rpc.RowIndexService.ScanRowIndex:input_type -> io.debezium.server.iceberg.rpc.RowIndexScanRequest
-	8,  // 16: io.debezium.server.iceberg.rpc.RowIndexService.MigrateEqualityDeletes:input_type -> io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest
-	3,  // 17: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
-	5,  // 18: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:output_type -> io.debezium.server.iceberg.rpc.ArrowIngestResponse
-	7,  // 19: io.debezium.server.iceberg.rpc.RowIndexService.ScanRowIndex:output_type -> io.debezium.server.iceberg.rpc.RowIndexScanBatch
-	9,  // 20: io.debezium.server.iceberg.rpc.RowIndexService.MigrateEqualityDeletes:output_type -> io.debezium.server.iceberg.rpc.MigrateEqualityDeletesResponse
-	17, // [17:21] is the sub-list for method output_type
-	13, // [13:17] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	11, // 1: io.debezium.server.iceberg.rpc.IcebergPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
+	14, // 2: io.debezium.server.iceberg.rpc.IcebergPayload.records:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
+	4,  // 3: io.debezium.server.iceberg.rpc.RecordIngestResponse.write_runs:type_name -> io.debezium.server.iceberg.rpc.WriteRun
+	1,  // 4: io.debezium.server.iceberg.rpc.ArrowPayload.type:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.PayloadType
+	18, // 5: io.debezium.server.iceberg.rpc.ArrowPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
+	20, // 6: io.debezium.server.iceberg.rpc.ArrowIngestResponse.icebergSchemas:type_name -> io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
+	21, // 7: io.debezium.server.iceberg.rpc.RowIndexScanBatch.entries:type_name -> io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry
+	12, // 8: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
+	13, // 9: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.partition_fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PartitionField
+	15, // 10: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
+	19, // 11: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.partition_values:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
+	16, // 12: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
+	17, // 13: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_upload:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
+	2,  // 14: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
+	5,  // 15: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:input_type -> io.debezium.server.iceberg.rpc.ArrowPayload
+	7,  // 16: io.debezium.server.iceberg.rpc.RowIndexService.ScanRowIndex:input_type -> io.debezium.server.iceberg.rpc.RowIndexScanRequest
+	9,  // 17: io.debezium.server.iceberg.rpc.RowIndexService.MigrateEqualityDeletes:input_type -> io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest
+	3,  // 18: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
+	6,  // 19: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:output_type -> io.debezium.server.iceberg.rpc.ArrowIngestResponse
+	8,  // 20: io.debezium.server.iceberg.rpc.RowIndexService.ScanRowIndex:output_type -> io.debezium.server.iceberg.rpc.RowIndexScanBatch
+	10, // 21: io.debezium.server.iceberg.rpc.RowIndexService.MigrateEqualityDeletes:output_type -> io.debezium.server.iceberg.rpc.MigrateEqualityDeletesResponse
+	18, // [18:22] is the sub-list for method output_type
+	14, // [14:18] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
-func init() { file_destination_iceberg_proto_records_ingest_proto_init() }
-func file_destination_iceberg_proto_records_ingest_proto_init() {
-	if File_destination_iceberg_proto_records_ingest_proto != nil {
+func init() { file_records_ingest_proto_init() }
+func file_records_ingest_proto_init() {
+	if File_records_ingest_proto != nil {
 		return
 	}
-	file_destination_iceberg_proto_records_ingest_proto_msgTypes[3].OneofWrappers = []any{}
-	file_destination_iceberg_proto_records_ingest_proto_msgTypes[4].OneofWrappers = []any{}
-	file_destination_iceberg_proto_records_ingest_proto_msgTypes[8].OneofWrappers = []any{}
-	file_destination_iceberg_proto_records_ingest_proto_msgTypes[12].OneofWrappers = []any{
+	file_records_ingest_proto_msgTypes[4].OneofWrappers = []any{}
+	file_records_ingest_proto_msgTypes[5].OneofWrappers = []any{}
+	file_records_ingest_proto_msgTypes[9].OneofWrappers = []any{}
+	file_records_ingest_proto_msgTypes[13].OneofWrappers = []any{
 		(*IcebergPayload_IceRecord_FieldValue_StringValue)(nil),
 		(*IcebergPayload_IceRecord_FieldValue_IntValue)(nil),
 		(*IcebergPayload_IceRecord_FieldValue_LongValue)(nil),
@@ -1676,8 +1766,8 @@ func file_destination_iceberg_proto_records_ingest_proto_init() {
 		(*IcebergPayload_IceRecord_FieldValue_BoolValue)(nil),
 		(*IcebergPayload_IceRecord_FieldValue_BytesValue)(nil),
 	}
-	file_destination_iceberg_proto_records_ingest_proto_msgTypes[15].OneofWrappers = []any{}
-	file_destination_iceberg_proto_records_ingest_proto_msgTypes[16].OneofWrappers = []any{
+	file_records_ingest_proto_msgTypes[16].OneofWrappers = []any{}
+	file_records_ingest_proto_msgTypes[17].OneofWrappers = []any{
 		(*ArrowPayload_FileMetadata_PartitionValue_IntValue)(nil),
 		(*ArrowPayload_FileMetadata_PartitionValue_LongValue)(nil),
 		(*ArrowPayload_FileMetadata_PartitionValue_StringValue)(nil),
@@ -1689,18 +1779,18 @@ func file_destination_iceberg_proto_records_ingest_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_destination_iceberg_proto_records_ingest_proto_rawDesc), len(file_destination_iceberg_proto_records_ingest_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_records_ingest_proto_rawDesc), len(file_records_ingest_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   19,
+			NumMessages:   20,
 			NumExtensions: 0,
 			NumServices:   3,
 		},
-		GoTypes:           file_destination_iceberg_proto_records_ingest_proto_goTypes,
-		DependencyIndexes: file_destination_iceberg_proto_records_ingest_proto_depIdxs,
-		EnumInfos:         file_destination_iceberg_proto_records_ingest_proto_enumTypes,
-		MessageInfos:      file_destination_iceberg_proto_records_ingest_proto_msgTypes,
+		GoTypes:           file_records_ingest_proto_goTypes,
+		DependencyIndexes: file_records_ingest_proto_depIdxs,
+		EnumInfos:         file_records_ingest_proto_enumTypes,
+		MessageInfos:      file_records_ingest_proto_msgTypes,
 	}.Build()
-	File_destination_iceberg_proto_records_ingest_proto = out.File
-	file_destination_iceberg_proto_records_ingest_proto_goTypes = nil
-	file_destination_iceberg_proto_records_ingest_proto_depIdxs = nil
+	File_records_ingest_proto = out.File
+	file_records_ingest_proto_goTypes = nil
+	file_records_ingest_proto_depIdxs = nil
 }

@@ -78,6 +78,20 @@ message RecordIngestResponse {
   // GET_OR_CREATE_TABLE: whether the current snapshot still carries equality
   // delete files, which must be migrated before positional deletes take over.
   bool has_equality_deletes = 5;
+
+  // RECORDS: returned when rows are written, detailing where they landed so
+  // the sender can update its row index. Order matches the request records.
+  repeated WriteRun write_runs = 6;
+}
+
+// WriteRun describes a contiguous block of rows written to a single data file.
+// Because Java writes records sequentially, a batch of records typically maps
+// to just one or two runs (if a file rolled).
+message WriteRun {
+  string file_path = 1;
+  int32 batch_start_idx = 2;
+  int64 start_position = 3;
+  int32 count = 4;
 }
 
 service ArrowIngestService {

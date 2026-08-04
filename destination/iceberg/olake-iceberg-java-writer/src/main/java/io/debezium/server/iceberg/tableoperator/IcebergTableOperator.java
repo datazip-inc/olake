@@ -122,17 +122,20 @@ public class IcebergTableOperator {
    * @param threadId The thread ID to commit
    * @throws RuntimeException if commit fails
    */
-  public void commitThread(String threadId, String payload, Table table) {
+  public long commitThread(String threadId, String payload, Table table) {
     if (table == null) {
       LOGGER.warn("No table found for thread: {}", threadId);
-      return;
+      return 0;
     }
   
     completeWriter();
   
     if (filesToCommit.isEmpty()) {
       LOGGER.info("No files to commit for thread: {}", threadId);
-      return;
+      if (table.currentSnapshot() != null) {
+        return table.currentSnapshot().snapshotId();
+      }
+      return 0;
     }
   
     // Refresh once before committing
@@ -160,7 +163,10 @@ public class IcebergTableOperator {
     if (totalDataFiles == 0 && totalDeleteFiles == 0) {
       LOGGER.info("No files to commit for thread: {}", threadId);
       filesToCommit.clear();
-      return;
+      if (table.currentSnapshot() != null) {
+        return table.currentSnapshot().snapshotId();
+      }
+      return 0;
     }
   
     try {
@@ -210,11 +216,18 @@ public class IcebergTableOperator {
 
       // 3. Final Commit to Catalog (Creates ONE metadata file)
       transaction.commitTransaction();
+      
+      long snapshotId = 0;
+      if (table.currentSnapshot() != null) {
+          snapshotId = table.currentSnapshot().snapshotId();
+      }
 
-      LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
-          totalDataFiles, totalDeleteFiles, threadId);
+      LOGGER.info("Successfully committed {} data files and {} delete files for thread: {} snapshot: {}",
+          totalDataFiles, totalDeleteFiles, threadId, snapshotId);
   
       filesToCommit.clear();
+      
+      return snapshotId;
   
     } catch (Exception e) {
       String msg = String.format("Failed to commit for thread %s: %s", threadId, e.getMessage());
@@ -258,35 +271,72 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
+  public List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
     if (writer == null) {
       writer = writerFactory2.create(icebergTable);
     }
+    List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> runs = new ArrayList<>();
     try {
       io.grpc.Context grpcContext = io.grpc.Context.current();
-      for (RecordWrapper record : events) {
+      
+      PositionTrackableWriter trackable = (PositionTrackableWriter) writer;
+      String currentPath = null;
+      int runStartIdx = -1;
+      long runStartPos = -1;
+      int runCount = 0;
+
+      for (int i = 0; i < events.size(); i++) {
+        RecordWrapper record = events.get(i);
         // Cooperative cancel: check on every record to stop processing early if client disconnects
         if (grpcContext.isCancelled()) {
           LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
-          return;
+          return runs;
         }
         try{
           // Normalise _op_type "i" → "c" before routing to any writer.
-          //   - Delta writers (upsert=true):  op() == INSERT, field == "i" → both would work
-          //   - Append writers (upsert=false, AppendMode/backfill): op() == READ, field == "i"
-          //     → op()-based check misses these entirely
-          // op() on RecordWrapper is immutable, so delta writers still see Operation.INSERT
-          // and correctly fire the equality-delete path in BaseDeltaTaskWriter.
           if ("i".equals(record.getField("_op_type"))) {
             record.setField("_op_type", "c");
           }
-           writer.write(record);
+
+          CharSequence pathCs = trackable.currentPath(record);
+          long pos = trackable.currentRows(record);
+          String path = pathCs != null ? pathCs.toString() : null;
+
+          if (currentPath == null || !currentPath.equals(path) || pos != runStartPos + runCount) {
+              if (currentPath != null) {
+                  runs.add(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.newBuilder()
+                      .setFilePath(currentPath)
+                      .setBatchStartIdx(runStartIdx)
+                      .setStartPosition(runStartPos)
+                      .setCount(runCount)
+                      .build());
+              }
+              currentPath = path;
+              runStartIdx = i;
+              runStartPos = pos;
+              runCount = 1;
+          } else {
+              runCount++;
+          }
+
+          writer.write(record);
         }catch (Exception ex) {
           LOGGER.error("Failed to write data: {}, exception: {}", record,ex);
           throw ex;
         }
       }
-      LOGGER.info("Successfully wrote {} events for thread: {}", events.size(), threadID);
+      
+      if (currentPath != null) {
+          runs.add(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.newBuilder()
+              .setFilePath(currentPath)
+              .setBatchStartIdx(runStartIdx)
+              .setStartPosition(runStartPos)
+              .setCount(runCount)
+              .build());
+      }
+      
+      LOGGER.info("Successfully wrote {} events for thread: {} in {} runs", events.size(), threadID, runs.size());
+      return runs;
 
     } catch (Exception ex) {
       LOGGER.error("Failed to write data to table: {} for thread: {}, exception: {}", icebergTable.name(), threadID, ex);

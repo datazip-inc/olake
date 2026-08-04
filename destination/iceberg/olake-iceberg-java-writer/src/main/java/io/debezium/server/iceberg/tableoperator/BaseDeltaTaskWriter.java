@@ -12,9 +12,10 @@ import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.types.TypeUtil;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.Set;
 
-abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
+abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements PositionTrackableWriter {
 
   private final Schema schema;
   private final Schema deleteSchema;
@@ -43,6 +44,14 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
 
   abstract RowDataDeltaWriter route(Record row);
 
+  public CharSequence currentPath(Record record) {
+      return route(record).currentPath();
+  }
+
+  public long currentRows(Record record) {
+      return route(record).currentRows();
+  }
+
   InternalRecordWrapper wrapper() {
     return wrapper;
   }
@@ -67,9 +76,27 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
   }
 
   public class RowDataDeltaWriter extends BaseEqualityDeltaWriter {
+    private RollingFileWriter cachedDataWriter;
+
     RowDataDeltaWriter(PartitionKey partition) {
       // create one positional delete file per referenced data file,
       super(partition, schema, deleteSchema, DeleteGranularity.FILE);
+      
+      try {
+        Field f = BaseEqualityDeltaWriter.class.getDeclaredField("dataWriter");
+        f.setAccessible(true);
+        cachedDataWriter = (RollingFileWriter) f.get(this);
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to access underlying dataWriter", e);
+      }
+    }
+
+    public CharSequence currentPath() {
+        return cachedDataWriter.currentPath();
+    }
+
+    public long currentRows() {
+        return cachedDataWriter.currentRows();
     }
 
     @Override

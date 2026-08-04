@@ -16,19 +16,26 @@ import (
 )
 
 type LegacyWriter struct {
-	options *destination.Options
-	schema  map[string]string
-	stream  types.StreamInterface
-	server  internal.ServerClient
+	options    *destination.Options
+	schema     map[string]string
+	stream     types.StreamInterface
+	server     internal.ServerClient
+	indexBatch *types.RowIndexBatch
 }
 
 func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient) *LegacyWriter {
-	return &LegacyWriter{
+	writer := &LegacyWriter{
 		options: options,
 		schema:  schema,
 		stream:  stream,
 		server:  server,
 	}
+
+	if options.RowIndex != nil {
+		writer.indexBatch = types.NewRowIndexBatch(options.RowIndex)
+	}
+
+	return writer
 }
 
 func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) error {
@@ -99,11 +106,34 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	ingestResponse := res.(*proto.RecordIngestResponse)
 	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", w.options.ThreadID, ingestResponse.GetResult())
 
+	if w.indexBatch != nil {
+		for _, run := range ingestResponse.GetWriteRuns() {
+			for i := int32(0); i < run.Count; i++ {
+				rec := records[run.BatchStartIdx+i]
+				olakeID := rec.OlakeColumns[constants.OlakeID].(string)
+				opType := rec.OlakeColumns[constants.OpType].(string)
+
+				if opType == "d" {
+					w.indexBatch.Delete(olakeID)
+				} else {
+					w.indexBatch.Put(olakeID, types.RowLocation{
+						FilePath: run.FilePath,
+						Position: run.StartPosition + int64(i),
+					})
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
-// Abort is a no-op: the legacy writer stages nothing outside the Java server.
-func (w *LegacyWriter) Abort() {}
+// Abort drops the buffered index entries of a thread that never reaches a
+// commit. Nothing was written to the index, so releasing the buffer is the
+// entire rollback.
+func (w *LegacyWriter) Abort() {
+	w.indexBatch = nil
+}
 
 func (w *LegacyWriter) EvolveSchema(_ context.Context, newSchema map[string]string) error {
 	w.schema = newSchema
@@ -138,6 +168,13 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 
 	ingestResponse := res.(*proto.RecordIngestResponse)
 	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, ingestResponse.GetResult())
+
+	if w.indexBatch != nil {
+		if err := w.options.RowIndex.Apply(w.indexBatch, &ingestResponse.SnapshotId); err != nil {
+			return fmt.Errorf("failed to apply row index: %s", err)
+		}
+		w.indexBatch = nil
+	}
 
 	return nil
 }

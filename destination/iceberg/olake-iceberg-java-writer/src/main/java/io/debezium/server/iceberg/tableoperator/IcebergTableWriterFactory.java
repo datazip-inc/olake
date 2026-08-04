@@ -10,8 +10,8 @@ import org.apache.iceberg.data.InternalRecordWrapper;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.OutputFileFactory;
-import org.apache.iceberg.io.PartitionedFanoutWriter;
 import org.apache.iceberg.io.UnpartitionedWriter;
+
 import org.apache.iceberg.util.PropertyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,11 +65,12 @@ public class IcebergTableWriterFactory {
 
     if (icebergTable.spec().isUnpartitioned()) {
       // table is un partitioned use un partitioned append writer
-      return new UnpartitionedWriter<>(
+      return new OlakeUnpartitionedWriter(
           icebergTable.spec(), format, appenderFactory, fileFactory, icebergTable.io(), targetFileSize);
 
     } else {
-        return createFanoutAppendWriter(icebergTable, format, appenderFactory, fileFactory, targetFileSize);
+        return new OlakePartitionedFanoutWriter(
+          icebergTable.spec(), format, appenderFactory, fileFactory, icebergTable.io(), targetFileSize, icebergTable.schema());
     }
   }
 
@@ -89,29 +90,5 @@ public class IcebergTableWriterFactory {
     }
   }
 
-  private BaseTaskWriter<Record> createFanoutAppendWriter(Table icebergTable, FileFormat format,
-                                                       GenericAppenderFactory appenderFactory,
-                                                       OutputFileFactory fileFactory, long targetFileSize) {
-    
     // Create PartitionedFanoutWriter - this extends BaseTaskWriter<Record>
-    return new PartitionedFanoutWriter<Record>(
-        icebergTable.spec(), 
-        format, 
-        appenderFactory,  // GenericAppenderFactory works as FileAppenderFactory
-        fileFactory, 
-        icebergTable.io(), 
-        targetFileSize
-    ) {
-        // Need to provide partition logic
-        private final PartitionKey partitionKey = new PartitionKey(icebergTable.spec(), icebergTable.schema());
-        private final InternalRecordWrapper wrapper = new InternalRecordWrapper(icebergTable.schema().asStruct());
-        
-        @Override
-        protected PartitionKey partition(Record record) {
-            // Use InternalRecordWrapper to handle data type conversions correctly
-            partitionKey.partition(wrapper.wrap(record));
-            return partitionKey;
-        }
-    };
-}
 }
