@@ -518,8 +518,6 @@ func editJSONFile(path string, edit func(doc map[string]interface{}) error) erro
 // so on Linux CI the test user cannot truncate a file a previous run left behind, only replace it.
 func writeHostFile(path string, data []byte) error {
 	_ = os.Remove(path)
-	// 0600: harness-owned working files, and the container reads them as root, which bypasses
-	// permission checks. Owner-only satisfies gosec G306 by value; a named constant would not.
 	return os.WriteFile(path, data, 0600)
 }
 
