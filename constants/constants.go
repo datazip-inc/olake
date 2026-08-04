@@ -1,12 +1,8 @@
-// TODO: unify these onto lib/constants directly in a later refactor. Deferred for now because the
-// change spans most of the codebase.
 package constants
 
 import (
 	"fmt"
 	"time"
-
-	libconstants "github.com/datazip-inc/olake/lib/constants"
 )
 
 const (
@@ -55,23 +51,26 @@ const (
 	// blocks/pages are clustered (e.g. freshly inserted rows land on adjacent pages).
 	SampleRowsPerChunkMultiplier = int64(10)
 
-	CdcTimestamp = libconstants.CdcTimestamp
+	// CdcTimestamp is the column name olake writes the CDC event timestamp into.
+	CdcTimestamp = "_cdc_timestamp"
 )
 
-type DriverType = libconstants.DriverType
+// DriverType identifies a source/destination driver.
+type DriverType string
 
 const (
-	MongoDB  = libconstants.MongoDB
-	Postgres = libconstants.Postgres
-	MySQL    = libconstants.MySQL
-	Oracle   = libconstants.Oracle
-	DB2      = libconstants.DB2
-	S3       = libconstants.S3
-	Kafka    = libconstants.Kafka
-	MSSQL    = libconstants.MSSQL
+	MongoDB  DriverType = "mongodb"
+	Postgres DriverType = "postgres"
+	MySQL    DriverType = "mysql"
+	Oracle   DriverType = "oracle"
+	DB2      DriverType = "db2"
+	S3       DriverType = "s3"
+	Kafka    DriverType = "kafka"
+	MSSQL    DriverType = "mssql"
 )
 
-var SkipCDCDrivers = libconstants.SkipCDCDrivers
+// SkipCDCDrivers are drivers that do not run a CDC-based sync.
+var SkipCDCDrivers = []DriverType{Oracle, DB2}
 
 // Drivers where filters are applied in memory after full refresh data is read.
 var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}

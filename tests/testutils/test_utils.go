@@ -13,7 +13,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/spark-connect-go/v35/spark/sql"
 	"github.com/apache/spark-connect-go/v35/spark/sql/types"
-	"github.com/datazip-inc/olake/lib/constants"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/moby/moby/api/types/container"

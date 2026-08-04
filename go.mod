@@ -122,7 +122,6 @@ require (
 
 require (
 	github.com/aws/aws-sdk-go v1.55.6
-	github.com/datazip-inc/olake/lib v0.0.0-00010101000000-000000000000
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mitchellh/hashstructure v1.1.0
@@ -134,6 +133,5 @@ require (
 replace (
 	cloud.google.com/go/compute => cloud.google.com/go/compute v1.23.3
 	cloud.google.com/go/compute/metadata => cloud.google.com/go/compute/metadata v0.6.0
-	github.com/datazip-inc/olake/lib => ./lib
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 )
