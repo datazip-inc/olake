@@ -22,14 +22,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	var connStr string
 	if fileConfig {
-		var config Config
-		testutils.UnmarshalFile("./testdata/source.json", &config, false)
+		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
 		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
-			config.Username,
-			config.Password,
-			config.Host,
-			config.Port,
-			config.Database,
+			config.String("username"),
+			config.String("password"),
+			config.String("host"),
+			config.Int("port"),
+			config.String("database"),
 		)
 	} else {
 		connStr = "postgres://postgres@localhost:5433/postgres?sslmode=disable"
@@ -88,7 +87,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
 	case "add":
-		insertTestData(t, ctx, db, integrationTestTable)
+		insertTestData(ctx, t, db, integrationTestTable)
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
@@ -276,7 +275,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 }
 
 // insertTestData inserts test data into the specified table
-func insertTestData(t *testing.T, ctx context.Context, db *sqlx.DB, tableName string) {
+func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string) {
 	t.Helper()
 
 	for i := 1; i <= 5; i++ {
