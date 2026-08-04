@@ -317,16 +317,13 @@ jobs:
       - name: Check destination (bootstrap Iceberg catalog)
         run: |
           set -euo pipefail
-          host_dir="tests/${{ matrix.driver }}/testdata"
-          cfg=$(find "$host_dir" -name iceberg_destination.json | sort | head -1)
-          rel=${cfg#"$host_dir/"}
-          echo "Bootstrapping Iceberg catalog via '${{ matrix.driver }}' ($rel)..."
+          echo "Bootstrapping Iceberg catalog via '${{ matrix.driver }}'..."
           docker run --rm \
-            -v "$PWD/$host_dir:/testdata" \
+            -v "$PWD/tests/testdata:/testdata" \
             --add-host host.docker.internal:host-gateway \
             -e TELEMETRY_DISABLED=true \
             "olake/source-${{ matrix.driver }}:local" \
-            check --destination "/testdata/$rel"
+            check --destination /testdata/iceberg_destination.json
 
       # Integration + 2PC + (kafka) Rebalance in one go test, against the image built above.
       - name: Run tests
