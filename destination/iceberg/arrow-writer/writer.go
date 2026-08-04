@@ -17,7 +17,6 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
@@ -33,12 +32,12 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
-	// rowIndex and indexTxn are non-nil only in positional delete mode. The txn
-	// stages every row location this thread writes and is committed in lockstep
-	// with the Iceberg commit, so the index never claims a position the table
-	// does not hold.
+	// rowIndex and indexBatch are non-nil only in positional delete mode. The
+	// batch holds every row location this thread writes in memory and reaches
+	// the index only once Iceberg has accepted the files, so the index can never
+	// claim a position the table does not hold.
 	rowIndex            types.TableIndex
-	indexTxn            types.IndexTxn
+	indexBatch          *types.RowIndexBatch
 	committedSnapshotID *int64
 }
 
@@ -92,12 +91,8 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 	}
 
 	if options.RowIndex != nil {
-		txn, err := options.RowIndex.NewTxn()
-		if err != nil {
-			return nil, fmt.Errorf("failed to open row index transaction: %s", err)
-		}
 		writer.rowIndex = options.RowIndex
-		writer.indexTxn = txn
+		writer.indexBatch = types.NewRowIndexBatch(options.RowIndex)
 	}
 
 	return writer, nil
@@ -158,7 +153,7 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 	if w.upsertMode {
 		// In positional delete mode the index resolves every row to a location, so
 		// no equality deletes are produced at all.
-		if writer.equalityDeleteWriter == nil && w.indexTxn == nil {
+		if writer.equalityDeleteWriter == nil && w.rowIndex == nil {
 			if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
 				return nil, err
 			}
@@ -192,7 +187,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
 		filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
-		if w.indexTxn != nil {
+		if w.indexBatch != nil {
 			if err := w.indexRecord(writer, recordOlakeID, recordOpType, filePosition); err != nil {
 				return err
 			}
@@ -236,9 +231,10 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 // reading the whole table back to learn the positions.
 func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePosition int64) error {
 	if w.upsertMode && (opType == "d" || opType == "u" || opType == "i") {
-		// Lookup sees this transaction's own puts, so repeats within a sync resolve
-		// against the row staged moments ago rather than a stale committed one.
-		previous, found, err := w.indexTxn.Lookup(olakeID)
+		// Lookup sees this thread's own buffered puts, so repeats within a sync
+		// resolve against the row staged moments ago rather than a stale
+		// committed one.
+		previous, found, err := w.indexBatch.Lookup(olakeID)
 		if err != nil {
 			return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
 		}
@@ -250,16 +246,10 @@ func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePo
 		}
 	}
 
-	// The file this row lands in has not been committed, so Iceberg has not given
-	// it a sequence number yet. A later refresh scan reads the committed number
-	// off the table and fills it in.
-	if err := w.indexTxn.Put(olakeID, types.RowLocation{
-		FilePath:  writer.dataWriter.filePath,
-		Position:  filePosition,
-		SeqNumber: types.UnknownSeqNumber,
-	}); err != nil {
-		return fmt.Errorf("failed to index row[%s]: %s", olakeID, err)
-	}
+	w.indexBatch.Put(olakeID, types.RowLocation{
+		FilePath: writer.dataWriter.filePath,
+		Position: filePosition,
+	})
 
 	return nil
 }
@@ -396,30 +386,26 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 // Close flushes all writers and commits files to Iceberg.
 func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err error) {
 	defer func() {
-		// Positions are only real once Iceberg owns the files they point into, so a
-		// failed commit must take the staged index entries down with it.
-		if w.indexTxn == nil {
+		// Positions are only real once Iceberg owns the files they point into, so
+		// the buffer is held back until the commit below succeeds. A failure needs
+		// no unwinding: nothing has reached the index, so dropping the buffer is
+		// the whole of the rollback.
+		if w.indexBatch == nil {
 			return
 		}
+		batch := w.indexBatch
+		w.indexBatch = nil
+
 		if err != nil {
-			if rollbackErr := w.indexTxn.Rollback(); rollbackErr != nil {
-				err = fmt.Errorf("%s (row index rollback also failed: %s)", err, rollbackErr)
-			}
-			return
-		}
-		if commitErr := w.indexTxn.Commit(); commitErr != nil {
-			err = fmt.Errorf("failed to commit row index: %s", commitErr)
 			return
 		}
 
-		// Advancing the checkpoint to the snapshot this commit produced is what
-		// spares the next sync from reading back everything written here. Threads
-		// racing to commit can leave it on a sibling snapshot, which costs the next
-		// sync only a short incremental scan.
-		if w.committedSnapshotID != nil {
-			if checkpointErr := w.rowIndex.SetIndexedSnapshot(*w.committedSnapshotID); checkpointErr != nil {
-				logger.Warnf("Thread[%s]: failed to checkpoint row index at snapshot[%d]: %s", w.options.ThreadID, *w.committedSnapshotID, checkpointErr)
-			}
+		// The rows and the checkpoint go down together, so the index can never
+		// claim to be current at a snapshot whose rows it is missing. Threads
+		// racing to commit can leave the checkpoint on a sibling snapshot, which
+		// costs the next sync only a short incremental scan.
+		if applyErr := w.rowIndex.Apply(batch, w.committedSnapshotID); applyErr != nil {
+			err = fmt.Errorf("failed to apply row index: %s", applyErr)
 		}
 	}()
 
@@ -461,17 +447,11 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 	return nil
 }
 
-// Abort drops the staged index entries for a thread that never reaches a commit.
-// Skipping it is survivable — the index replays its undo log on next open — but
-// unwinding here keeps the running process's view of the index clean.
+// Abort drops the buffered index entries of a thread that never reaches a
+// commit. Nothing was written to the index, so releasing the buffer is the
+// entire rollback.
 func (w *ArrowWriter) Abort() {
-	if w.indexTxn == nil {
-		return
-	}
-	if err := w.indexTxn.Rollback(); err != nil {
-		logger.Warnf("Thread[%s]: failed to roll back row index: %s", w.options.ThreadID, err)
-	}
-	w.indexTxn = nil
+	w.indexBatch = nil
 }
 
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {

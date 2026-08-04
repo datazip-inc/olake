@@ -204,6 +204,22 @@
                   "title": "REST Token",
                   "description": "Bearer token for token-based authentication"
                 },
+                "gcp_service_account_json": {
+                  "type": "string",
+                  "format": "password",
+                  "title": "GCP Service Account JSON",
+                  "description": "Inline GCP service account key JSON, used when REST Auth Type is org.apache.iceberg.gcp.auth.GoogleAuthManager (e.g. BigLake). Falls back to Application Default Credentials if left empty"
+                },
+                "gcp_auth_scopes": {
+                  "type": "string",
+                  "title": "GCP Auth Scopes",
+                  "description": "Comma-separated OAuth2 scopes for GoogleAuthManager. Defaults to https://www.googleapis.com/auth/cloud-platform if left empty"
+                },
+                "gcp_project_id": {
+                  "type": "string",
+                  "title": "GCP Project ID",
+                  "description": "Required by BigLake for request routing/billing (sent as the x-goog-user-project header)"
+                },
                 "no_identifier_fields": {
                   "type": "boolean",
                   "default": false,

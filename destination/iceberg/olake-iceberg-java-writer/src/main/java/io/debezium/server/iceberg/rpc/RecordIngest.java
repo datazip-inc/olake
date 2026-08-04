@@ -15101,12 +15101,6 @@ java.lang.String defaultValue) {
        * @return The deleted.
        */
       boolean getDeleted();
-
-      /**
-       * <code>int64 sequence_number = 5;</code>
-       * @return The sequenceNumber.
-       */
-      long getSequenceNumber();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry}
@@ -15250,17 +15244,6 @@ java.lang.String defaultValue) {
         return deleted_;
       }
 
-      public static final int SEQUENCE_NUMBER_FIELD_NUMBER = 5;
-      private long sequenceNumber_ = 0L;
-      /**
-       * <code>int64 sequence_number = 5;</code>
-       * @return The sequenceNumber.
-       */
-      @java.lang.Override
-      public long getSequenceNumber() {
-        return sequenceNumber_;
-      }
-
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -15287,9 +15270,6 @@ java.lang.String defaultValue) {
         if (deleted_ != false) {
           output.writeBool(4, deleted_);
         }
-        if (sequenceNumber_ != 0L) {
-          output.writeInt64(5, sequenceNumber_);
-        }
         getUnknownFields().writeTo(output);
       }
 
@@ -15312,10 +15292,6 @@ java.lang.String defaultValue) {
         if (deleted_ != false) {
           size += com.google.protobuf.CodedOutputStream
             .computeBoolSize(4, deleted_);
-        }
-        if (sequenceNumber_ != 0L) {
-          size += com.google.protobuf.CodedOutputStream
-            .computeInt64Size(5, sequenceNumber_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -15340,8 +15316,6 @@ java.lang.String defaultValue) {
             != other.getPosition()) return false;
         if (getDeleted()
             != other.getDeleted()) return false;
-        if (getSequenceNumber()
-            != other.getSequenceNumber()) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -15363,9 +15337,6 @@ java.lang.String defaultValue) {
         hash = (37 * hash) + DELETED_FIELD_NUMBER;
         hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
             getDeleted());
-        hash = (37 * hash) + SEQUENCE_NUMBER_FIELD_NUMBER;
-        hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-            getSequenceNumber());
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -15499,7 +15470,6 @@ java.lang.String defaultValue) {
           filePath_ = "";
           position_ = 0L;
           deleted_ = false;
-          sequenceNumber_ = 0L;
           return this;
         }
 
@@ -15544,9 +15514,6 @@ java.lang.String defaultValue) {
           }
           if (((from_bitField0_ & 0x00000008) != 0)) {
             result.deleted_ = deleted_;
-          }
-          if (((from_bitField0_ & 0x00000010) != 0)) {
-            result.sequenceNumber_ = sequenceNumber_;
           }
         }
 
@@ -15610,9 +15577,6 @@ java.lang.String defaultValue) {
           if (other.getDeleted() != false) {
             setDeleted(other.getDeleted());
           }
-          if (other.getSequenceNumber() != 0L) {
-            setSequenceNumber(other.getSequenceNumber());
-          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -15659,11 +15623,6 @@ java.lang.String defaultValue) {
                   bitField0_ |= 0x00000008;
                   break;
                 } // case 32
-                case 40: {
-                  sequenceNumber_ = input.readInt64();
-                  bitField0_ |= 0x00000010;
-                  break;
-                } // case 40
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -15885,38 +15844,6 @@ java.lang.String defaultValue) {
         public Builder clearDeleted() {
           bitField0_ = (bitField0_ & ~0x00000008);
           deleted_ = false;
-          onChanged();
-          return this;
-        }
-
-        private long sequenceNumber_ ;
-        /**
-         * <code>int64 sequence_number = 5;</code>
-         * @return The sequenceNumber.
-         */
-        @java.lang.Override
-        public long getSequenceNumber() {
-          return sequenceNumber_;
-        }
-        /**
-         * <code>int64 sequence_number = 5;</code>
-         * @param value The sequenceNumber to set.
-         * @return This builder for chaining.
-         */
-        public Builder setSequenceNumber(long value) {
-          
-          sequenceNumber_ = value;
-          bitField0_ |= 0x00000010;
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>int64 sequence_number = 5;</code>
-         * @return This builder for chaining.
-         */
-        public Builder clearSequenceNumber() {
-          bitField0_ = (bitField0_ & ~0x00000010);
-          sequenceNumber_ = 0L;
           onChanged();
           return this;
         }
@@ -18248,33 +18175,33 @@ java.lang.String defaultValue) {
       "\022\r\n\005value\030\002 \001(\t:\0028\001B\016\n\014_snapshot_id\"\\\n\023R" +
       "owIndexScanRequest\022\021\n\tthread_id\030\001 \001(\t\022\035\n" +
       "\020from_snapshot_id\030\002 \001(\003H\000\210\001\001B\023\n\021_from_sn" +
-      "apshot_id\"\370\001\n\021RowIndexScanBatch\022H\n\007entri" +
+      "apshot_id\"\366\001\n\021RowIndexScanBatch\022H\n\007entri" +
       "es\030\001 \003(\01327.io.debezium.server.iceberg.rp" +
       "c.RowIndexScanBatch.Entry\022\023\n\013snapshot_id" +
-      "\030\002 \001(\003\022\032\n\022requires_full_scan\030\003 \001(\010\032h\n\005En" +
+      "\030\002 \001(\003\022\032\n\022requires_full_scan\030\003 \001(\010\032f\n\005En" +
       "try\022\020\n\010olake_id\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t" +
-      "\022\020\n\010position\030\003 \001(\003\022\017\n\007deleted\030\004 \001(\010\022\027\n\017s" +
-      "equence_number\030\005 \001(\003\"2\n\035MigrateEqualityD" +
-      "eletesRequest\022\021\n\tthread_id\030\001 \001(\t\"y\n\036Migr" +
-      "ateEqualityDeletesResponse\022\023\n\013snapshot_i" +
-      "d\030\001 \001(\003\022\036\n\026rewritten_delete_files\030\002 \001(\003\022" +
-      "\"\n\032positional_deletes_written\030\003 \001(\0032\212\001\n\023" +
-      "RecordIngestService\022s\n\013SendRecords\022..io." +
-      "debezium.server.iceberg.rpc.IcebergPaylo" +
-      "ad\0324.io.debezium.server.iceberg.rpc.Reco" +
-      "rdIngestResponse2\205\001\n\022ArrowIngestService\022" +
-      "o\n\nIcebergAPI\022,.io.debezium.server.icebe" +
-      "rg.rpc.ArrowPayload\0323.io.debezium.server" +
-      ".iceberg.rpc.ArrowIngestResponse2\245\002\n\017Row" +
-      "IndexService\022x\n\014ScanRowIndex\0223.io.debezi" +
-      "um.server.iceberg.rpc.RowIndexScanReques" +
-      "t\0321.io.debezium.server.iceberg.rpc.RowIn" +
-      "dexScanBatch0\001\022\227\001\n\026MigrateEqualityDelete" +
-      "s\022=.io.debezium.server.iceberg.rpc.Migra" +
-      "teEqualityDeletesRequest\032>.io.debezium.s" +
-      "erver.iceberg.rpc.MigrateEqualityDeletes" +
-      "ResponseB\035B\014RecordIngestZ\riceberg/protob" +
-      "\006proto3"
+      "\022\020\n\010position\030\003 \001(\003\022\017\n\007deleted\030\004 \001(\010J\004\010\005\020" +
+      "\006R\017sequence_number\"2\n\035MigrateEqualityDel" +
+      "etesRequest\022\021\n\tthread_id\030\001 \001(\t\"y\n\036Migrat" +
+      "eEqualityDeletesResponse\022\023\n\013snapshot_id\030" +
+      "\001 \001(\003\022\036\n\026rewritten_delete_files\030\002 \001(\003\022\"\n" +
+      "\032positional_deletes_written\030\003 \001(\0032\212\001\n\023Re" +
+      "cordIngestService\022s\n\013SendRecords\022..io.de" +
+      "bezium.server.iceberg.rpc.IcebergPayload" +
+      "\0324.io.debezium.server.iceberg.rpc.Record" +
+      "IngestResponse2\205\001\n\022ArrowIngestService\022o\n" +
+      "\nIcebergAPI\022,.io.debezium.server.iceberg" +
+      ".rpc.ArrowPayload\0323.io.debezium.server.i" +
+      "ceberg.rpc.ArrowIngestResponse2\245\002\n\017RowIn" +
+      "dexService\022x\n\014ScanRowIndex\0223.io.debezium" +
+      ".server.iceberg.rpc.RowIndexScanRequest\032" +
+      "1.io.debezium.server.iceberg.rpc.RowInde" +
+      "xScanBatch0\001\022\227\001\n\026MigrateEqualityDeletes\022" +
+      "=.io.debezium.server.iceberg.rpc.Migrate" +
+      "EqualityDeletesRequest\032>.io.debezium.ser" +
+      "ver.iceberg.rpc.MigrateEqualityDeletesRe" +
+      "sponseB\035B\014RecordIngestZ\riceberg/protob\006p" +
+      "roto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -18381,7 +18308,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_descriptor,
-        new java.lang.String[] { "OlakeId", "FilePath", "Position", "Deleted", "SequenceNumber", });
+        new java.lang.String[] { "OlakeId", "FilePath", "Position", "Deleted", });
     internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesRequest_descriptor =
       getDescriptor().getMessageTypes().get(6);
     internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesRequest_fieldAccessorTable = new

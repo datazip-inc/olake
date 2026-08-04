@@ -1489,3 +1489,43 @@ func TestFilterRecords_LargeDataset(t *testing.T) {
 	}
 	assert.Len(t, result, expectedCount)
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: Concurrent filtering - Preserve Order of Records
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestFilterRecords_PreserveOrder(t *testing.T) {
+	ctx := context.Background()
+	records := []types.RawRecord{
+		makeRecord(map[string]any{"id": int64(1), "active": true}),
+		makeRecord(map[string]any{"id": int64(2), "active": false}),
+		makeRecord(map[string]any{"id": int64(3), "active": true}),
+		makeRecord(map[string]any{"id": int64(4), "active": true}),
+		makeRecord(map[string]any{"id": int64(5), "active": false}),
+	}
+
+	filter := types.FilterConfig{
+		LogicalOperator: "AND",
+		Conditions: []types.FilterCondition{
+			{Column: "active", Operator: "=", Value: true},
+		},
+	}
+
+	schema := makeIcebergSchema(map[string]string{
+		"id":     "long",
+		"active": "boolean",
+	})
+
+	result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
+	require.NoError(t, err)
+	require.Len(t, result, 3)
+
+	expectedOrder := []int64{1, 3, 4}
+	actualOrder := []int64{
+		result[0].Data["id"].(int64),
+		result[1].Data["id"].(int64),
+		result[2].Data["id"].(int64),
+	}
+
+	assert.Equal(t, expectedOrder, actualOrder)
+}

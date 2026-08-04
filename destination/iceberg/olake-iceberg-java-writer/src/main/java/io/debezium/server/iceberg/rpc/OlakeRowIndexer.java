@@ -122,13 +122,12 @@ public class OlakeRowIndexer extends RowIndexServiceGrpc.RowIndexServiceImplBase
     }
 
     @Override
-    public void accept(String identifier, String filePath, long position, boolean deleted, long sequenceNumber) {
+    public void accept(String identifier, String filePath, long position, boolean deleted) {
       batch.addEntries(RowIndexScanBatch.Entry.newBuilder()
           .setOlakeId(identifier)
           .setFilePath(filePath)
           .setPosition(position)
-          .setDeleted(deleted)
-          .setSequenceNumber(sequenceNumber));
+          .setDeleted(deleted));
 
       if (batch.getEntriesCount() >= BATCH_SIZE) {
         send();

@@ -61,7 +61,7 @@ public final class TableRowIndexScanner {
      */
     void begin(long snapshotId);
 
-    void accept(String identifier, String filePath, long position, boolean deleted, long sequenceNumber) throws Exception;
+    void accept(String identifier, String filePath, long position, boolean deleted) throws Exception;
   }
 
   /** Outcome of a scan request. */
@@ -310,7 +310,6 @@ public final class TableRowIndexScanner {
   private static long emitFile(Table table, DataFile file, Schema projection, String identifierField,
       BitSet deleted, boolean isDeletedFile, EntryConsumer consumer) throws Exception {
     String path = file.path().toString();
-    long sequenceNumber = file.dataSequenceNumber() == null ? 0 : file.dataSequenceNumber();
     long position = 0L;
     long emitted = 0L;
 
@@ -318,7 +317,7 @@ public final class TableRowIndexScanner {
       for (Record row : rows) {
         Object identifier = row.getField(identifierField);
         if (identifier != null && !isDeleted(deleted, position)) {
-          consumer.accept(identifier.toString(), path, position, isDeletedFile, sequenceNumber);
+          consumer.accept(identifier.toString(), path, position, isDeletedFile);
           emitted++;
         }
         position++;

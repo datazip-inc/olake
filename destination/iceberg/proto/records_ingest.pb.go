@@ -1389,14 +1389,13 @@ func (*ArrowPayload_FileMetadata_PartitionValue_BoolValue) isArrowPayload_FileMe
 }
 
 type RowIndexScanBatch_Entry struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	OlakeId        string                 `protobuf:"bytes,1,opt,name=olake_id,json=olakeId,proto3" json:"olake_id,omitempty"`
-	FilePath       string                 `protobuf:"bytes,2,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
-	Position       int64                  `protobuf:"varint,3,opt,name=position,proto3" json:"position,omitempty"`
-	Deleted        bool                   `protobuf:"varint,4,opt,name=deleted,proto3" json:"deleted,omitempty"`
-	SequenceNumber int64                  `protobuf:"varint,5,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	OlakeId       string                 `protobuf:"bytes,1,opt,name=olake_id,json=olakeId,proto3" json:"olake_id,omitempty"`
+	FilePath      string                 `protobuf:"bytes,2,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
+	Position      int64                  `protobuf:"varint,3,opt,name=position,proto3" json:"position,omitempty"`
+	Deleted       bool                   `protobuf:"varint,4,opt,name=deleted,proto3" json:"deleted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RowIndexScanBatch_Entry) Reset() {
@@ -1455,13 +1454,6 @@ func (x *RowIndexScanBatch_Entry) GetDeleted() bool {
 		return x.Deleted
 	}
 	return false
-}
-
-func (x *RowIndexScanBatch_Entry) GetSequenceNumber() int64 {
-	if x != nil {
-		return x.SequenceNumber
-	}
-	return 0
 }
 
 var File_destination_iceberg_proto_records_ingest_proto protoreflect.FileDescriptor
@@ -1574,18 +1566,17 @@ const file_destination_iceberg_proto_records_ingest_proto_rawDesc = "" +
 	"\x13RowIndexScanRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12-\n" +
 	"\x10from_snapshot_id\x18\x02 \x01(\x03H\x00R\x0efromSnapshotId\x88\x01\x01B\x13\n" +
-	"\x11_from_snapshot_id\"\xd6\x02\n" +
+	"\x11_from_snapshot_id\"\xc4\x02\n" +
 	"\x11RowIndexScanBatch\x12Q\n" +
 	"\aentries\x18\x01 \x03(\v27.io.debezium.server.iceberg.rpc.RowIndexScanBatch.EntryR\aentries\x12\x1f\n" +
 	"\vsnapshot_id\x18\x02 \x01(\x03R\n" +
 	"snapshotId\x12,\n" +
-	"\x12requires_full_scan\x18\x03 \x01(\bR\x10requiresFullScan\x1a\x9e\x01\n" +
+	"\x12requires_full_scan\x18\x03 \x01(\bR\x10requiresFullScan\x1a\x8c\x01\n" +
 	"\x05Entry\x12\x19\n" +
 	"\bolake_id\x18\x01 \x01(\tR\aolakeId\x12\x1b\n" +
 	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x12\x1a\n" +
 	"\bposition\x18\x03 \x01(\x03R\bposition\x12\x18\n" +
-	"\adeleted\x18\x04 \x01(\bR\adeleted\x12'\n" +
-	"\x0fsequence_number\x18\x05 \x01(\x03R\x0esequenceNumber\"<\n" +
+	"\adeleted\x18\x04 \x01(\bR\adeletedJ\x04\b\x05\x10\x06R\x0fsequence_number\"<\n" +
 	"\x1dMigrateEqualityDeletesRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\"\xb5\x01\n" +
 	"\x1eMigrateEqualityDeletesResponse\x12\x1f\n" +

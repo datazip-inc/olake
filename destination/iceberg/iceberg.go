@@ -88,7 +88,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 	icebergPartFields := make([]*proto.IcebergPayload_PartitionField, 0, len(i.partitionInfo))
 	for _, p := range i.partitionInfo {
 		icebergPartFields = append(icebergPartFields, &proto.IcebergPayload_PartitionField{
-			Field:     p.Field,
+			Field:     p.SchemaField,
 			Transform: p.Transform,
 		})
 	}
@@ -642,6 +642,7 @@ func init() {
 
 		server, err = startServer(icebergConfig)
 		if err != nil {
+			icebergConfig = nil
 			return nil, nil, fmt.Errorf("failed to start iceberg server: %w", err)
 		}
 

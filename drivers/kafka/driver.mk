@@ -1,0 +1,11 @@
+PROBE.kafka = docker exec kafkaJson kafka-topics --bootstrap-server localhost:9092 --list && \
+              docker exec kafkaAvro kafka-topics --bootstrap-server localhost:9092 --list && \
+              curl -f http://localhost:8081/subjects
+
+# Kafka-only: consumer-group rebalance recovery (CI: kafka-rebalance-tests.yml).
+.PHONY: test.kafka.rebalance
+test.kafka.rebalance: olake.kafka.start olake.destination.all.start $(ICEBERG_JAR)
+	cd tests && go test -v ./kafka/... -timeout 0 -count=1 -run 'Rebalance'
+
+HELP_TARGETS += test.kafka.rebalance
+HELP.test.kafka.rebalance = Kafka consumer-group rebalance recovery tests

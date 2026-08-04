@@ -37,9 +37,7 @@ package constants
 //     * Previously, numeric values returned as byte slices (common in some SQL drivers) caused errors
 //     * Now these byte slices are parsed and converted into int64
 
-const (
-	LatestStateVersion = 6
-)
+const LatestStateVersion = 6
 
 // Used as the current version of the state when the program is running
 var LoadedStateVersion = LatestStateVersion

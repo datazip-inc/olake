@@ -19,6 +19,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/version"
 	"github.com/spf13/viper"
 )
 
@@ -66,7 +67,7 @@ func Init() {
 			platform: platformInfo{
 				OS:           runtime.GOOS,
 				Arch:         runtime.GOARCH,
-				OlakeVersion: getOlakeCLIVersion(),
+				OlakeVersion: version.GetOlakeCLIVersion(),
 				DeviceCPU:    fmt.Sprintf("%d cores", runtime.NumCPU()),
 			},
 			ipAddress: ip,
@@ -134,7 +135,7 @@ func TrackSyncStarted(syncID string, selectedStreams []string, fullLoadStreams, 
 	}()
 }
 
-func TrackSyncCompleted(syncID string, status bool, records int64) {
+func TrackSyncCompleted(syncID string, status bool, records, bytesRead int64) {
 	go func() {
 		if telemetry == nil {
 			return
@@ -144,6 +145,7 @@ func TrackSyncCompleted(syncID string, status bool, records int64) {
 			"sync_end":       time.Now(),
 			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
 			"records_synced": records,
+			"bytes_read":     bytesRead,
 		}
 
 		if err := telemetry.sendEvent("Sync Completed - CLI", props); err != nil {
@@ -294,13 +296,4 @@ func countPartitionedStreams(catalog *types.Catalog) int {
 		return nil
 	})
 	return count
-}
-
-// getOlakeCLIVersion() extracts the olake version from the ENV embedded in the olake image
-func getOlakeCLIVersion() string {
-	version := os.Getenv("DRIVER_VERSION")
-	if version == "" {
-		return "Not Available"
-	}
-	return version
 }

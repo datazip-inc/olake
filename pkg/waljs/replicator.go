@@ -155,19 +155,17 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 		return nil
 	}
 
+	sleep := 500 * time.Millisecond
+
 	// wait for slot to be updated
 	timeoutCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-
-	ticker := time.NewTicker(3 * time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case <-timeoutCtx.Done():
 			// stop waiting after 5 minutes or if parent ctx is canceled
 			return fmt.Errorf("%w: %s", constants.ErrNonRetryable, "LSN not updated after 5 minutes")
-		case <-ticker.C:
+		case <-time.After(sleep):
 			slot, err := GetSlotPosition(ctx, db, socket.ReplicationSlot)
 			if err != nil {
 				return fmt.Errorf("failed to get slot position: %s", err)
@@ -176,6 +174,8 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 			if slot.LSN == walPosition {
 				return nil
 			}
+
+			sleep *= 2
 		}
 	}
 }

@@ -26,20 +26,21 @@ const (
 )
 
 type serverInstance struct {
-	port            int
-	cmd             *exec.Cmd
-	client          proto.RecordIngestServiceClient
-	arrowClient     proto.ArrowIngestServiceClient
-	rowIndexClient  proto.RowIndexServiceClient
-	conn            *grpc.ClientConn
-	defaultServerID string
+	port               int
+	cmd                *exec.Cmd
+	client             proto.RecordIngestServiceClient
+	arrowClient        proto.ArrowIngestServiceClient
+	rowIndexClient     proto.RowIndexServiceClient
+	conn               *grpc.ClientConn
+	defaultServerID    string
+	gcpCredentialsTemp string // temp file holding gcp_service_account_json content, if used; cleaned up on Shutdown
 }
 
 // getServerConfigJSON builds the catalog/storage-level config the JVM consumes
 // at startup. Per-stream concepts (namespace, upsert, identifier-fields,
 // partition spec) are deliberately *not* included here — they ride on every
 // per-request payload instead. See StreamMetaCtx.
-func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]byte, error) {
+func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpCredsTemp string) ([]byte, error) {
 	serverConfig := map[string]interface{}{
 		"port":                 fmt.Sprintf("%d", port),
 		"warehouse":            config.IcebergS3Path,
@@ -89,6 +90,10 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 		addMapKeyIfNotEmpty("rest.auth.type", config.RestAuthType)
 		addMapKeyIfNotEmpty("credential", config.RestCredential)
 		addMapKeyIfNotEmpty("scope", config.RestScope)
+		addMapKeyIfNotEmpty("gcp.auth.credentials-path", gcpCredsTemp)
+		addMapKeyIfNotEmpty("gcp.auth.scopes", config.GCPAuthScopes)
+		// BigLake requires this header for request routing/billing.
+		addMapKeyIfNotEmpty("header.x-goog-user-project", config.GCPProjectID)
 	default:
 		return nil, fmt.Errorf("unsupported catalog type: %s", config.CatalogType)
 	}
@@ -119,6 +124,26 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool) ([]b
 	return json.Marshal(serverConfig)
 }
 
+// writeGCPCredsTempFile materializes inline gcp_service_account_json content to a
+// temp file, since GoogleAuthManager only reads credentials from a file path.
+// Returns "" if credsJSON is empty.
+func writeGCPCredsTempFile(credsJSON string) (string, error) {
+	if credsJSON == "" {
+		return "", nil
+	}
+	f, err := os.CreateTemp("", "olake-gcp-creds-*.json")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp file for gcp_service_account_json: %w", err)
+	}
+	if _, err := f.WriteString(credsJSON); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return "", fmt.Errorf("failed to write gcp_service_account_json to temp file: %w", err)
+	}
+	f.Close()
+	return f.Name(), nil
+}
+
 // startServer launches the JVM and returns the running instance. Invoked once
 // from Iceberg.Initialize (via WriterPool.NewWriterPool) before any
 // sync/check/clear work begins.
@@ -133,8 +158,18 @@ func startServer(config *Config) (*serverInstance, error) {
 	// Forcefully kill any existing process on this port before starting
 	reclaimPort(port)
 
-	configJSON, err := getServerConfigJSON(config, port, config.UseArrowWrites)
+	// GoogleAuthManager only reads credentials from a file path (gcp.auth.credentials-path);
+	// materialize inline JSON content to a temp file so the property has something to point at.
+	gcpCredsTemp, err := writeGCPCredsTempFile(config.GCPServiceAccountJSON)
 	if err != nil {
+		return nil, err
+	}
+
+	configJSON, err := getServerConfigJSON(config, port, config.UseArrowWrites, gcpCredsTemp)
+	if err != nil {
+		if gcpCredsTemp != "" {
+			os.Remove(gcpCredsTemp)
+		}
 		return nil, fmt.Errorf("failed to create server config: %w", err)
 	}
 
@@ -174,8 +209,13 @@ func startServer(config *Config) (*serverInstance, error) {
 	appendEnv("AWS_REGION", config.Region)
 	appendEnv("AWS_SESSION_TOKEN", config.SessionToken)
 	appendEnv("AWS_PROFILE", config.ProfileName)
+	// GCSFileIO auths separately from GoogleAuthManager; only via ADC env var. No-op if empty.
+	appendEnv("GOOGLE_APPLICATION_CREDENTIALS", gcpCredsTemp)
 
 	if err := logger.SetupAndStartProcess(fmt.Sprintf("Iceberg[%d]", port), serverCmd); err != nil {
+		if gcpCredsTemp != "" {
+			os.Remove(gcpCredsTemp)
+		}
 		return nil, fmt.Errorf("failed to start iceberg java writer and setup logger: %w", err)
 	}
 
@@ -186,18 +226,22 @@ func startServer(config *Config) (*serverInstance, error) {
 		if serverCmd != nil && serverCmd.Process != nil {
 			_ = serverCmd.Process.Kill()
 		}
+		if gcpCredsTemp != "" {
+			os.Remove(gcpCredsTemp)
+		}
 		return nil, fmt.Errorf("failed to create new grpc client: %w", err)
 	}
 
 	logger.Infof("Started shared Iceberg JVM on port %d", port)
 	return &serverInstance{
-		port:            port,
-		cmd:             serverCmd,
-		client:          proto.NewRecordIngestServiceClient(conn),
-		arrowClient:     proto.NewArrowIngestServiceClient(conn),
-		rowIndexClient:  proto.NewRowIndexServiceClient(conn),
-		conn:            conn,
-		defaultServerID: serverID,
+		port:               port,
+		cmd:                serverCmd,
+		client:             proto.NewRecordIngestServiceClient(conn),
+		arrowClient:        proto.NewArrowIngestServiceClient(conn),
+		rowIndexClient:     proto.NewRowIndexServiceClient(conn),
+		conn:               conn,
+		defaultServerID:    serverID,
+		gcpCredentialsTemp: gcpCredsTemp,
 	}, nil
 }
 
@@ -242,6 +286,9 @@ func (s *serverInstance) Shutdown(ctx context.Context) {
 			logger.Warnf("Iceberg JVM did not exit within 10s after SIGTERM, killing")
 			_ = s.cmd.Process.Kill()
 		}
+	}
+	if s.gcpCredentialsTemp != "" {
+		os.Remove(s.gcpCredentialsTemp)
 	}
 }
 

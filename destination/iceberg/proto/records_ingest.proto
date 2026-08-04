@@ -162,7 +162,11 @@ message RowIndexScanBatch {
     string file_path = 2;
     int64 position = 3;
     bool deleted = 4;
-    int64 sequence_number = 5;
+    // 5 held sequence_number, which no consumer read: the scan already emits
+    // files oldest first, so overwriting entries as they arrive leaves the
+    // newest version of each identifier without comparing sequence numbers.
+    reserved 5;
+    reserved "sequence_number";
   }
 
   repeated Entry entries = 1;

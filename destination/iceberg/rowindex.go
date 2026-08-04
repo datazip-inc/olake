@@ -61,11 +61,9 @@ func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.TableIndex,
 			return err
 		}
 		// Rows moved between files since the checkpoint, so every position the
-		// index holds is suspect and the whole table has to be read again.
+		// index holds is suspect and the whole table has to be read again. The
+		// rebuild scan below empties the index before it starts.
 		logger.Warnf("Table[%s]: row index cannot be refreshed incrementally, rebuilding it", table)
-		if err := index.Truncate(); err != nil {
-			return fmt.Errorf("failed to clear row index of table[%s]: %s", table, err)
-		}
 	default:
 		logger.Infof("Table[%s]: building row index from snapshot[%d]", table, tableSnapshotID)
 	}
@@ -73,12 +71,20 @@ func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.TableIndex,
 	return i.fillRowIndex(ctx, index, nil)
 }
 
+// rowIndexScanChunk bounds how many scanned entries are held in memory before
+// being handed to the index. A scan is replayable from the checkpoint, so
+// applying it in pieces is safe and keeps a table of any size from having to be
+// buffered whole.
+const rowIndexScanChunk = 50_000
+
 // fillRowIndex streams row locations from the destination into index. A nil
 // fromSnapshotID reads every live row; otherwise only the rows added after that
 // snapshot are read.
 //
-// The whole scan lands in one index transaction: a scan that dies halfway leaves
-// no half-updated index behind, which is what lets the checkpoint be trusted.
+// The checkpoint is written only once the scan has been consumed in full, so a
+// scan that dies partway leaves the index behind rather than wrong: the next
+// sync sees the older checkpoint and rescans from it, re-deriving exactly the
+// entries that had already landed.
 func (i *Iceberg) fillRowIndex(ctx context.Context, index types.TableIndex, fromSnapshotID *int64) error {
 	stream, err := i.server.rowIndexClient.ScanRowIndex(ctx, &proto.RowIndexScanRequest{
 		ThreadId:       i.options.ThreadID,
@@ -88,35 +94,35 @@ func (i *Iceberg) fillRowIndex(ctx context.Context, index types.TableIndex, from
 		return fmt.Errorf("failed to start row index scan: %s", err)
 	}
 
-	txn, err := index.NewTxn()
-	if err != nil {
-		return fmt.Errorf("failed to open row index transaction: %s", err)
-	}
-
-	snapshotID, entries, err := drainRowIndexScan(stream, txn)
-	if err != nil {
-		if rollbackErr := txn.Rollback(); rollbackErr != nil {
-			return fmt.Errorf("%s (row index rollback also failed: %s)", err, rollbackErr)
+	// A scan from nothing replaces the index rather than amending it. Emptying it
+	// up front also clears the checkpoint, which is what makes an interrupted
+	// rebuild safe: an index with no checkpoint is rebuilt again, never trusted.
+	if fromSnapshotID == nil {
+		if err := index.Truncate(); err != nil {
+			return fmt.Errorf("failed to empty row index before rebuild: %s", err)
 		}
+	}
+
+	snapshotID, entries, err := drainRowIndexScan(stream, index)
+	if err != nil {
 		return err
-	}
-
-	if err := txn.Commit(); err != nil {
-		return fmt.Errorf("failed to commit row index scan: %s", err)
-	}
-
-	if err := index.SetIndexedSnapshot(snapshotID); err != nil {
-		return fmt.Errorf("failed to checkpoint row index at snapshot[%d]: %s", snapshotID, err)
 	}
 
 	logger.Infof("Indexed %d row(s) up to snapshot[%d]", entries, snapshotID)
 	return nil
 }
 
-func drainRowIndexScan(stream proto.RowIndexService_ScanRowIndexClient, txn types.IndexTxn) (snapshotID, entries int64, err error) {
+func drainRowIndexScan(stream proto.RowIndexService_ScanRowIndexClient, index types.TableIndex) (snapshotID, entries int64, err error) {
+	pending := types.NewRowIndexBatch(index)
+
 	for {
 		batch, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
+			// The checkpoint rides with the final chunk, so it is reached only
+			// after every entry the scan produced has been applied.
+			if err := index.Apply(pending, &snapshotID); err != nil {
+				return 0, 0, fmt.Errorf("failed to checkpoint row index at snapshot[%d]: %s", snapshotID, err)
+			}
 			return snapshotID, entries, nil
 		}
 		if err != nil {
@@ -134,25 +140,28 @@ func drainRowIndexScan(stream proto.RowIndexService_ScanRowIndexClient, txn type
 				// Only remove from index if the row is still in the deleted file.
 				// If it moved to another file (e.g. updated after this file was written),
 				// a newer position was already put, or will be put later in this scan.
-				loc, found, err := txn.Lookup(olakeID)
+				loc, found, err := pending.Lookup(olakeID)
 				if err != nil {
 					return 0, 0, fmt.Errorf("failed to lookup row[%s] for delete: %s", olakeID, err)
 				}
 				if found && loc.FilePath == entry.GetFilePath() {
-					if err := txn.Delete(olakeID); err != nil {
-						return 0, 0, fmt.Errorf("failed to delete indexed row[%s]: %s", olakeID, err)
-					}
+					pending.Delete(olakeID)
 				}
 			} else {
-				if err := txn.Put(olakeID, types.RowLocation{
-					FilePath:  entry.GetFilePath(),
-					Position:  entry.GetPosition(),
-					SeqNumber: entry.GetSequenceNumber(),
-				}); err != nil {
-					return 0, 0, fmt.Errorf("failed to index row[%s]: %s", olakeID, err)
-				}
+				pending.Put(olakeID, types.RowLocation{
+					FilePath: entry.GetFilePath(),
+					Position: entry.GetPosition(),
+				})
 			}
 		}
 		entries += int64(len(batch.GetEntries()))
+
+		if pending.Len() < rowIndexScanChunk {
+			continue
+		}
+		if err := index.Apply(pending, nil); err != nil {
+			return 0, 0, fmt.Errorf("failed to apply row index scan chunk: %s", err)
+		}
+		pending.Reset()
 	}
 }

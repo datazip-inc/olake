@@ -13,16 +13,27 @@ import (
 // environment rather than the destination config because the destination config
 // is shared across every sync of a pipeline, whereas index placement and memory
 // budget belong to the machine running one particular sync.
+//
+// Every size below describes one stream. A sync opens a database per stream it
+// writes and each owns its memory, so what the machine has to hold is the value
+// multiplied by the number of streams; size these by dividing the budget a host
+// can spare, not by setting the total.
+//
+// These sizes do not cover the row locations a writer thread buffers between
+// destination commits, which are held outside the database until the commit that
+// makes them real. Backfill and incremental threads bound that buffer naturally,
+// since each covers one chunk or run, but a CDC thread lives for the whole sync
+// and its buffer grows with the number of distinct rows it touches.
 const (
 	// EnvDir is the parent directory holding one database per stream. It should
 	// point at fast local disk that survives between syncs, otherwise every sync
 	// pays for a full index rebuild.
 	EnvDir = "OLAKE_INDEX_DB_DIR"
-	// EnvCacheMB sizes the shared block cache.
+	// EnvCacheMB sizes one stream's block cache.
 	EnvCacheMB = "OLAKE_INDEX_DB_CACHE_MB"
-	// EnvMemTableMB sizes each database's memtable.
+	// EnvMemTableMB sizes one stream's memtable.
 	EnvMemTableMB = "OLAKE_INDEX_DB_MEMTABLE_MB"
-	// EnvMaxOpenFiles caps open sstable file descriptors per database.
+	// EnvMaxOpenFiles caps one stream's open sstable file descriptors.
 	EnvMaxOpenFiles = "OLAKE_INDEX_DB_MAX_OPEN_FILES"
 )
 
@@ -33,15 +44,16 @@ const (
 	mib                 = 1024 * 1024
 )
 
-// Options tunes the on-disk row index.
+// Options tunes the on-disk row index. Every size describes a single stream,
+// since a stream is given a database of its own.
 type Options struct {
 	// Dir is the parent directory containing one database per stream.
 	Dir string
-	// CacheSize is the block cache size in bytes, shared across streams.
+	// CacheSize is one stream's block cache size in bytes.
 	CacheSize int64
-	// MemTableSize is the per-database memtable size in bytes.
+	// MemTableSize is one stream's memtable size in bytes.
 	MemTableSize uint64
-	// MaxOpenFiles caps open sstable file descriptors per database.
+	// MaxOpenFiles caps one stream's open sstable file descriptors.
 	MaxOpenFiles int
 }
 
