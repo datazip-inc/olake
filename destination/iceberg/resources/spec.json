@@ -598,9 +598,6 @@
                     "Token Federation",
                     "Personal Access Token (PAT)"
                   ],
-                  "default": [
-                    "OAuth2 U2M"
-                  ],
                   "description": "Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
@@ -721,9 +718,6 @@
                     "OAuth2",
                     "Token"
                   ],
-                  "default": [
-                    "OAuth2"
-                  ],
                   "description": "Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
@@ -829,6 +823,7 @@
                   "description": "Endpoint URL for the Big Lake REST catalog service"
                 },
                 "iceberg_s3_path": {
+                  "title":"BigLake Catalog Path",
                   "description": "Path to your BigLake catalog"
                 },
                 "rest_auth_type": {
