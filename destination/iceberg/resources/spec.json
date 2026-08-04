@@ -197,7 +197,7 @@
                   "pattern": "^[a-z_]+$",
                   "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
-                "iceberg_s3_path":{
+                "iceberg_s3_path": {
                   "description": "S3 bucket path where Iceberg data and metadata are stored"
                 },
                 "rest_catalog_url": {
@@ -333,13 +333,12 @@
                 "aws_region": {
                   "type": "string",
                   "title": "AWS Region",
-                  "description": "Specify the AWS region where the S3 bucket is hosted"
+                  "description": "AWS region where the S3 bucket is hosted (Optional if already set in your Lakekeeper warehouse)"
                 }
               },
               "required": [
                 "rest_catalog_url",
-                "rest_auth_type",
-                "aws_region"
+                "rest_auth_type"
               ],
               "dependencies": {
                 "rest_auth_type": {
