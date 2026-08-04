@@ -26,12 +26,6 @@
           "title": "Catalog Type",
           "description": "Type of catalog to use"
         },
-        "catalog_name": {
-          "type": "string",
-          "title": "Catalog Name",
-          "pattern": "^[a-z_]+$",
-          "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
-        },
         "iceberg_s3_path": {
           "type": "string",
           "title": "S3 Path",
@@ -55,6 +49,12 @@
               "properties": {
                 "catalog_type": {
                   "const": "jdbc"
+                },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
                 "jdbc_url": {
                   "type": "string",
@@ -123,6 +123,12 @@
                 "catalog_type": {
                   "const": "hive"
                 },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                },
                 "hive_uri": {
                   "type": "string",
                   "title": "Hive URI",
@@ -185,7 +191,13 @@
                 "catalog_type": {
                   "const": "rest"
                 },
-                "iceberg_s3_path": {
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                },
+                "iceberg_s3_path":{
                   "description": "S3 bucket path where Iceberg data and metadata are stored"
                 },
                 "rest_catalog_url": {
@@ -290,6 +302,12 @@
                 "catalog_type": {
                   "const": "lakekeeper"
                 },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                },
                 "rest_auth_type": {
                   "type": "string",
                   "title": "Authentication Type",
@@ -383,6 +401,12 @@
               "properties": {
                 "catalog_type": {
                   "const": "nessie"
+                },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
                 "rest_auth_type": {
                   "type": "string",
@@ -494,6 +518,12 @@
                 "catalog_type": {
                   "const": "s3tables"
                 },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                },
                 "rest_auth_type": {
                   "type": "string",
                   "title": "Authentication Type",
@@ -553,6 +583,12 @@
               "properties": {
                 "catalog_type": {
                   "const": "unity"
+                },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
                 "rest_auth_type": {
                   "type": "string",
@@ -673,6 +709,12 @@
                 "catalog_type": {
                   "const": "polaris"
                 },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                },
                 "rest_auth_type": {
                   "type": "string",
                   "title": "Authentication Type",
@@ -775,6 +817,12 @@
               "properties": {
                 "catalog_type": {
                   "const": "biglake"
+                },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
                 },
                 "rest_catalog_url": {
                   "type": "string",
