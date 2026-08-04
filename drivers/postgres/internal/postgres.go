@@ -266,7 +266,6 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 
 		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 		if p.CDCSupported() {
-			stream.UpsertField(waljs.CDCLSN, types.String, true, true)
 			stream.WithSyncMode(types.CDC, types.STRICTCDC)
 		}
 
