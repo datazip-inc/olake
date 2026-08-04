@@ -415,6 +415,19 @@ func (s *benchmarkStore) stats(
 	return Average(rpsValues), len(rpsValues)
 }
 
+// driverOrCommonConfig returns the driver's own fixture for file when present, else the shared
+// one under tests/testdata; source.json never falls back.
+func driverOrCommonConfig(fixturesPath, testsDir, file string) string {
+	p := filepath.Join(fixturesPath, file)
+	if file == "source.json" {
+		return p
+	}
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		return filepath.Join(testsDir, "..", "testdata", file)
+	}
+	return p
+}
+
 // GetTestConfig returns the test config for a driver, called from a test in tests/<driver>.
 // extraParams[0] optionally selects a testdata sub-directory (kafka's "json"/"avro" formats).
 func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConfig {
@@ -446,11 +459,11 @@ func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConf
 	hostPath := func(file string) string { return filepath.Join(workDir, file) }
 	containerPath := func(file string) string { return path.Join(containerTestDataDir, file) }
 	for _, file := range []string{"source.json", "iceberg_destination.json", "parquet_destination.json"} {
-		require.NoError(t, copyFile(fixturePath(file), hostPath(file)), "failed to seed the test working directory")
+		require.NoError(t, copyFile(driverOrCommonConfig(fixturesPath, pwd, file), hostPath(file)), "failed to seed the test working directory")
 	}
 	// The arrow writer variant is derived, never committed: the base config stays the single
 	// source of truth, and writer variants become a pure file choice (see testIcebergWriter).
-	require.NoError(t, copyJSONWithEdit(fixturePath("iceberg_destination.json"), hostPath("iceberg_destination_arrow.json"),
+	require.NoError(t, copyJSONWithEdit(hostPath("iceberg_destination.json"), hostPath("iceberg_destination_arrow.json"),
 		func(doc map[string]interface{}) error {
 			writer, ok := doc["writer"].(map[string]interface{})
 			if !ok {
