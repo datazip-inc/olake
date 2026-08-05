@@ -104,7 +104,7 @@ func (s *S3) MaxConnections() int {
 
 // MaxRetries returns the maximum number of retry attempts
 func (s *S3) MaxRetries() int {
-	return s.config.RetryCount
+	return s.config.RetryCount + 1
 }
 
 // GetStreamNames discovers all files in the S3 bucket matching the configuration

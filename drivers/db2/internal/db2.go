@@ -161,7 +161,7 @@ func (d *DB2) MaxConnections() int {
 }
 
 func (d *DB2) MaxRetries() int {
-	return d.config.RetryCount
+	return d.config.RetryCount + 1
 }
 
 func (d *DB2) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
