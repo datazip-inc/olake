@@ -10,6 +10,8 @@ import (
 	"maps"
 	"math"
 	"math/big"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
+	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -27,17 +30,8 @@ import (
 
 // The S3 integration test reuses the MinIO instance from the Iceberg destination stack
 // (destination/iceberg/local-test/docker-compose.yml) as the source object store. Every
-// format variant shares one bucket, isolated by per-variant path prefixes, so the parallel
-// subtests never touch each other's keys.
+// format variant shares one bucket, isolated by the path prefix in its source.json.
 const (
-	s3TestBucket = "olake-s3-test"
-
-	// Host-side address of the MinIO seed files are uploaded to. The address the driver
-	// itself connects to is container-side and lives in each testdata/<format>/source.json.
-	s3TestEndpoint  = "127.0.0.1:9000"
-	s3TestAccessKey = "admin"
-	s3TestSecretKey = "password"
-
 	rowsPerFile = 3
 
 	// S3DestinationDB is the Iceberg database every variant syncs into: discover derives it
@@ -60,12 +54,16 @@ const (
 	// parsers hand an unseen column through as a string, so string is the type it lands as.
 	evolvedColumn      = "new_col"
 	evolvedColumnValue = "evolved"
+
+	// Deselected from the stream before every sync, so the destination must not carry them.
+	textExcludedColumn    = "mixed_col"
+	parquetExcludedColumn = "empty_col"
 )
 
-// farFutureTs rides in the Parquet variant's ts_far_col, same instant in every file: a
+// farFutureTS rides in the Parquet variant's ts_far_col, same instant in every file: a
 // timestamp whose micros overflow int64 nanoseconds, pinning the parser against the scaling
 // bug that wrapped 9999-12-31 back to year 1816 (see parquet_test.go "far future").
-var farFutureTs = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
+var farFutureTS = time.Date(9999, 12, 31, 23, 59, 59, 0, time.UTC)
 
 // S3FilterConfig is satisfied by every seeded row, matching how the other drivers exercise
 // filters: it proves the filter is parsed and applied without dropping the rows the sync is
@@ -93,17 +91,17 @@ const S3FilterConfig = `{
 //
 // The CSV and JSON variants carry what a text format can express -- strings, booleans,
 // numbers (Float and Int64, both inferred as double) and the four timestamp precisions
-// (Ts/TsMilli/TsMicro/TsNano), plus JSON and List for the JSON variant, whose format can
+// (TS/TSMilli/TSMicro/TSNano), plus JSON and List for the JSON variant, whose format can
 // nest objects and arrays. The remaining fields exist for the Parquet variant alone.
 type rowValues struct {
 	Str   string
 	Bool  bool
 	Float float64
-	Ts    time.Time
+	TS    time.Time
 
-	TsMilli time.Time
-	TsMicro time.Time
-	TsNano  time.Time
+	TSMilli time.Time
+	TSMicro time.Time
+	TSNano  time.Time
 
 	Int8  int8
 	Int16 int16
@@ -137,8 +135,8 @@ var (
 	// every one of them is stored in a wider signed physical column, so a value that only
 	// exercises the low bits would not catch a width or sign error.
 	//
-	// Ts stops at whole seconds and TsMilli at whole milliseconds, which every destination
-	// carries identically. TsMicro and TsNano hold finer digits, where the destinations
+	// TS stops at whole seconds and TSMilli at whole milliseconds, which every destination
+	// carries identically. TSMicro and TSNano hold finer digits, where the destinations
 	// genuinely differ -- the legacy Iceberg writer ships timestamptz as epoch millis
 	// (toProtoFieldValue, legacy-writer/writer.go) while the Arrow writer and the Parquet
 	// destination keep micros -- so their columns are asserted against the writer that
@@ -147,11 +145,11 @@ var (
 		Str:   "test_string",
 		Bool:  true,
 		Float: 99.99,
-		Ts:    time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC),
+		TS:    time.Date(2024, 6, 15, 10, 30, 0, 0, time.UTC),
 
-		TsMilli: time.Date(2024, 6, 15, 10, 30, 0, 123_000_000, time.UTC),
-		TsMicro: time.Date(2024, 6, 15, 10, 30, 0, 123_456_000, time.UTC),
-		TsNano:  time.Date(2024, 6, 15, 10, 30, 0, 123_456_789, time.UTC),
+		TSMilli: time.Date(2024, 6, 15, 10, 30, 0, 123_000_000, time.UTC),
+		TSMicro: time.Date(2024, 6, 15, 10, 30, 0, 123_456_000, time.UTC),
+		TSNano:  time.Date(2024, 6, 15, 10, 30, 0, 123_456_789, time.UTC),
 
 		Int8:  math.MinInt8,
 		Int16: math.MinInt16,
@@ -186,11 +184,11 @@ var (
 		Str:   "updated_string",
 		Bool:  false,
 		Float: 11.11,
-		Ts:    time.Date(2025, 1, 20, 8, 45, 0, 0, time.UTC),
+		TS:    time.Date(2025, 1, 20, 8, 45, 0, 0, time.UTC),
 
-		TsMilli: time.Date(2025, 1, 20, 8, 45, 0, 987_000_000, time.UTC),
-		TsMicro: time.Date(2025, 1, 20, 8, 45, 0, 987_654_000, time.UTC),
-		TsNano:  time.Date(2025, 1, 20, 8, 45, 0, 987_654_321, time.UTC),
+		TSMilli: time.Date(2025, 1, 20, 8, 45, 0, 987_000_000, time.UTC),
+		TSMicro: time.Date(2025, 1, 20, 8, 45, 0, 987_654_000, time.UTC),
+		TSNano:  time.Date(2025, 1, 20, 8, 45, 0, 987_654_321, time.UTC),
 
 		Int8:  math.MaxInt8,
 		Int16: math.MaxInt16,
@@ -273,7 +271,6 @@ var (
 
 		"str_col":     "string",
 		"unicode_col": "string",
-		"empty_col":   "string",
 		"null_col":    "string",
 		"bytes_col":   "string",
 		"json_col":    "string",
@@ -325,7 +322,6 @@ func s3TextDestinationSchema(formatSpecific map[string]string) map[string]string
 		"bool_col":  "boolean",
 		"float_col": "double",
 		"int_col":   "double",
-		"mixed_col": "string",
 		"date_col":  "timestamp",
 
 		"ts_col":       "timestamp",
@@ -352,12 +348,12 @@ func expectedTextData(v rowValues) map[string]interface{} {
 		// Both text parsers infer integer-form numbers as double, so the extreme int64
 		// arrives through the same float64 rounding the parser applied.
 		"int_col":  float64(v.Int64),
-		"date_col": arrow.Timestamp(v.Ts.UTC().Truncate(24 * time.Hour).UnixMicro()),
+		"date_col": arrow.Timestamp(v.TS.UTC().Truncate(24 * time.Hour).UnixMicro()),
 		// buildCSVFile and buildJSONLFile render ts_col with time.RFC3339, which
 		// carries no fractional seconds. The seed is whole seconds anyway; Truncate keeps
 		// this expectation honest should the seed ever grow a sub-second part.
-		"ts_col":       arrow.Timestamp(v.Ts.Truncate(time.Second).UnixMicro()),
-		"ts_milli_col": arrow.Timestamp(v.TsMilli.UnixMicro()),
+		"ts_col":       arrow.Timestamp(v.TS.Truncate(time.Second).UnixMicro()),
+		"ts_milli_col": arrow.Timestamp(v.TSMilli.UnixMicro()),
 	}
 }
 
@@ -391,8 +387,8 @@ func textWriterExpectedData(v rowValues, writer s3DestinationWriter) map[string]
 		keep = time.Millisecond
 	}
 	return map[string]interface{}{
-		"ts_micro_col": arrow.Timestamp(v.TsMicro.Truncate(keep).UnixMicro()),
-		"ts_nano_col":  arrow.Timestamp(v.TsNano.Truncate(keep).UnixMicro()),
+		"ts_micro_col": arrow.Timestamp(v.TSMicro.Truncate(keep).UnixMicro()),
+		"ts_nano_col":  arrow.Timestamp(v.TSNano.Truncate(keep).UnixMicro()),
 	}
 }
 
@@ -400,7 +396,7 @@ func textWriterExpectedData(v rowValues, writer s3DestinationWriter) map[string]
 // types are the ones Spark hands back for each Iceberg type: int32 for int, int64 for
 // bigint, float32 for float, and arrow.Timestamp (microseconds) for timestamp.
 func expectedParquetData(v rowValues) map[string]interface{} {
-	day := v.Ts.UTC().Truncate(24 * time.Hour)
+	day := v.TS.UTC().Truncate(24 * time.Hour)
 	return map[string]interface{}{
 		"bool_col": v.Bool,
 
@@ -420,7 +416,6 @@ func expectedParquetData(v rowValues) map[string]interface{} {
 
 		"str_col":     v.Str,
 		"unicode_col": v.Unicode,
-		"empty_col":   "",
 		"null_col":    nil,
 		// Not valid UTF-8, so the parser base64 encodes it rather than corrupting it.
 		"bytes_col": base64.StdEncoding.EncodeToString(v.Bytes),
@@ -441,8 +436,8 @@ func expectedParquetData(v rowValues) map[string]interface{} {
 		// millis renderings agree at this precision), so it stays a shared expectation;
 		// the micro, nano and Int96 columns are writer-dependent and live in
 		// parquetWriterExpectedData.
-		"ts_ms_col":  arrow.Timestamp(v.TsMilli.UnixMicro()),
-		"ts_far_col": arrow.Timestamp(farFutureTs.UnixMicro()),
+		"ts_ms_col":  arrow.Timestamp(v.TSMilli.UnixMicro()),
+		"ts_far_col": arrow.Timestamp(farFutureTS.UnixMicro()),
 
 		// The destination flattener (utils/typeutils/flatten.go) JSON-encodes every
 		// non-scalar value before it reaches the writer, so the map, struct and array all
@@ -463,9 +458,9 @@ func parquetWriterExpectedData(v rowValues, writer s3DestinationWriter) map[stri
 		keep = time.Millisecond
 	}
 	return map[string]interface{}{
-		"ts_col":    arrow.Timestamp(v.TsMicro.Truncate(keep).UnixMicro()),
-		"ts_ns_col": arrow.Timestamp(v.TsNano.Truncate(keep).UnixMicro()),
-		"int96_col": arrow.Timestamp(v.TsNano.Truncate(keep).UnixMicro()),
+		"ts_col":    arrow.Timestamp(v.TSMicro.Truncate(keep).UnixMicro()),
+		"ts_ns_col": arrow.Timestamp(v.TSNano.Truncate(keep).UnixMicro()),
+		"int96_col": arrow.Timestamp(v.TSNano.Truncate(keep).UnixMicro()),
 	}
 }
 
@@ -488,7 +483,6 @@ type buildFileFn func(t *testing.T, startID int64, vals rowValues) []byte
 type S3TestVariant struct {
 	Name       string
 	DataFormat string // testdata subdirectory, and part of the stream name
-	PathPrefix string // folder inside the shared bucket; must not be a prefix of another variant's
 	PlainExt   string // extension of an uncompressed file of this format
 	// Gzipped seeds the stream's second file gzipped, alongside a plain first one. The
 	// driver detects compression from each file's own extension, so one stream can mix both.
@@ -496,7 +490,9 @@ type S3TestVariant struct {
 	BuildFile buildFileFn
 	// BuildEvolvedFile renders a file like BuildFile plus evolvedColumn on every row; the
 	// "evolve-schema" operation uploads it.
-	BuildEvolvedFile  buildFileFn
+	BuildEvolvedFile buildFileFn
+	// Per variant: the formats share no column that is expendable in all of them.
+	ColumnToExclude   string
 	DestinationSchema map[string]string
 	// UpdatedDestinationSchema is the destination schema after the "evolve-schema"
 	// operation ran; same as DestinationSchema where BuildEvolvedFile is nil.
@@ -517,11 +513,11 @@ var S3TestVariants = []S3TestVariant{
 	{
 		Name:                     "CSV",
 		DataFormat:               "csv",
-		PathPrefix:               "csv",
 		PlainExt:                 ".csv",
 		Gzipped:                  true,
 		BuildFile:                buildCSVFile,
 		BuildEvolvedFile:         buildEvolvedCSVFile,
+		ColumnToExclude:          textExcludedColumn,
 		DestinationSchema:        S3CSVToDestinationSchema,
 		UpdatedDestinationSchema: S3CSVUpdatedDestinationSchema,
 		ExpectedData:             ExpectedCSVS3Data,
@@ -531,11 +527,11 @@ var S3TestVariants = []S3TestVariant{
 	{
 		Name:                     "JSON",
 		DataFormat:               "json",
-		PathPrefix:               "json",
 		PlainExt:                 ".jsonl",
 		Gzipped:                  true,
 		BuildFile:                buildJSONLFile,
 		BuildEvolvedFile:         buildEvolvedJSONLFile,
+		ColumnToExclude:          textExcludedColumn,
 		DestinationSchema:        S3JSONToDestinationSchema,
 		UpdatedDestinationSchema: S3JSONUpdatedDestinationSchema,
 		ExpectedData:             ExpectedJSONS3Data,
@@ -543,20 +539,42 @@ var S3TestVariants = []S3TestVariant{
 		WriterExpectedData:       textWriterExpectedData,
 	},
 	{
-		// The driver's file matcher recognises no gzip variant for Parquet, so this stream
+		// The driver's file matcher recognizes no gzip variant for Parquet, so this stream
 		// stays uncompressed.
 		Name:                     "Parquet",
 		DataFormat:               "parquet",
-		PathPrefix:               "parquet",
 		PlainExt:                 ".parquet",
 		BuildFile:                buildParquetFile,
 		BuildEvolvedFile:         buildEvolvedParquetFile,
+		ColumnToExclude:          parquetExcludedColumn,
 		DestinationSchema:        S3ParquetToDestinationSchema,
 		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
 		ExpectedData:             ExpectedParquetS3Data,
 		ExpectedUpdatedData:      ExpectedUpdatedParquetS3Data,
 		WriterExpectedData:       parquetWriterExpectedData,
 	},
+}
+
+// s3Source is the host-side view of a variant's source.json: the same bucket, credentials
+// and prefix the driver uses, reached at 127.0.0.1 rather than the container address.
+type s3Source struct {
+	client *minio.Client
+	bucket string
+	prefix string
+}
+
+func (v S3TestVariant) source(t *testing.T) s3Source {
+	t.Helper()
+
+	config := testutils.ReadSourceConfig(t, filepath.Join("testdata", v.DataFormat, "source.json"))
+	endpoint, err := url.Parse(config.String("endpoint"))
+	require.NoError(t, err, "failed to parse endpoint")
+	client, err := minio.New(net.JoinHostPort("127.0.0.1", endpoint.Port()), &minio.Options{
+		Creds: credentials.NewStaticV4(config.String("access_key_id"), config.String("secret_access_key"), ""),
+	})
+	require.NoError(t, err, "failed to create MinIO client")
+
+	return s3Source{client: client, bucket: config.String("bucket_name"), prefix: config.String("path_prefix")}
 }
 
 // s3DestinationWriter identifies the destination writer a sync runs through, as far as
@@ -627,47 +645,41 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 		// harness toggled the destination to since the last operation.
 		variant.applyWriterExpectations(t)
 
-		client, err := minio.New(s3TestEndpoint, &minio.Options{
-			Creds:  credentials.NewStaticV4(s3TestAccessKey, s3TestSecretKey, ""),
-			Secure: false,
-		})
-		require.NoError(t, err, "failed to create MinIO client")
-
-		prefix := variant.PathPrefix + "/" + streams[0] + "/"
+		src := variant.source(t)
+		prefix := src.prefix + "/" + streams[0] + "/"
 
 		switch operation {
 		case "create":
-			// Variants run in parallel against the shared bucket, so tolerate the create race.
-			if err := client.MakeBucket(ctx, s3TestBucket, minio.MakeBucketOptions{}); err != nil {
+			if err := src.client.MakeBucket(ctx, src.bucket, minio.MakeBucketOptions{}); err != nil {
 				code := minio.ToErrorResponse(err).Code
 				if code != "BucketAlreadyOwnedByYou" && code != "BucketAlreadyExists" {
-					require.NoError(t, err, "failed to create bucket %s", s3TestBucket)
+					require.NoError(t, err, "failed to create bucket %s", src.bucket)
 				}
 			}
 
 		case "clean", "drop":
-			for obj := range client.ListObjects(ctx, s3TestBucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+			for obj := range src.client.ListObjects(ctx, src.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
 				if minio.ToErrorResponse(obj.Err).Code == "NoSuchBucket" {
 					break
 				}
 				require.NoError(t, obj.Err, "failed to list objects under %s", prefix)
-				require.NoError(t, client.RemoveObject(ctx, s3TestBucket, obj.Key, minio.RemoveObjectOptions{}), "failed to remove %s", obj.Key)
+				require.NoError(t, src.client.RemoveObject(ctx, src.bucket, obj.Key, minio.RemoveObjectOptions{}), "failed to remove %s", obj.Key)
 			}
 
 		case "add":
 			// One plain file and, where the format allows it, one gzipped: a single stream
 			// mixing both proves compression is detected per file rather than per stream.
-			variant.putFile(ctx, t, client, prefix, "seed_1", variant.BuildFile, 1, seedValues, false)
-			variant.putFile(ctx, t, client, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped)
+			variant.putFile(ctx, t, src, prefix, "seed_1", variant.BuildFile, 1, seedValues, false)
+			variant.putFile(ctx, t, src, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped)
 
 		case "insert":
 			// A file the incremental cursor has not seen: it is stamped after the previous
 			// sync, so only its rows are re-read.
-			variant.putFile(ctx, t, client, prefix, "insert_1", variant.BuildFile, 7, seedValues, false)
+			variant.putFile(ctx, t, src, prefix, "insert_1", variant.BuildFile, 7, seedValues, false)
 
 		case "update":
 			// Object stores have no in-place update: changed data arrives as another file.
-			variant.putFile(ctx, t, client, prefix, "update_1", variant.BuildFile, 10, updatedValues, false)
+			variant.putFile(ctx, t, src, prefix, "update_1", variant.BuildFile, 10, updatedValues, false)
 
 		case "evolve-schema":
 			// An object store's ALTER TABLE: a file whose rows carry a column discover has
@@ -677,7 +689,7 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 			// ExpectedUpdatedData; evolvedColumn itself is asserted through the schema, not
 			// per row, since the "update" file's rows sync a null there.
 			if variant.BuildEvolvedFile != nil {
-				variant.putFile(ctx, t, client, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false)
+				variant.putFile(ctx, t, src, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false)
 			}
 
 		default:
@@ -689,7 +701,7 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 // putFile renders one file with build and uploads it under prefix. Gzipped files get a
 // ".gz" suffix, which is what both the driver's file matcher and its reader use to detect
 // compression.
-func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, client *minio.Client, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped bool) {
+func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped bool) {
 	t.Helper()
 
 	data := build(t, startID, vals)
@@ -700,9 +712,9 @@ func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, client *minio.
 	}
 
 	key := prefix + name + ext
-	_, err := client.PutObject(ctx, s3TestBucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
+	_, err := src.client.PutObject(ctx, src.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
 	require.NoError(t, err, "failed to upload %s", key)
-	t.Logf("Uploaded s3://%s/%s (%d bytes)", s3TestBucket, key, len(data))
+	t.Logf("Uploaded s3://%s/%s (%d bytes)", src.bucket, key, len(data))
 }
 
 // Sub-second timestamp layouts for the text variants. Fixed-width fractions (not the
@@ -752,11 +764,11 @@ func csvFile(startID int64, vals rowValues, evolved bool) []byte {
 		// empty value is how the format spells null.
 		b.WriteString(fmt.Sprintf("%d,%s,%t,%v,%d,%s,,%s,%s,%s,%s,%s",
 			id, vals.Str, vals.Bool, vals.Float, vals.Int64, mixed,
-			vals.Ts.UTC().Format(time.DateOnly),
-			vals.Ts.Format(time.RFC3339),
-			vals.TsMilli.Format(tsMilliLayout),
-			vals.TsMicro.Format(tsMicroLayout),
-			vals.TsNano.Format(tsNanoLayout)))
+			vals.TS.UTC().Format(time.DateOnly),
+			vals.TS.Format(time.RFC3339),
+			vals.TSMilli.Format(tsMilliLayout),
+			vals.TSMicro.Format(tsMicroLayout),
+			vals.TSNano.Format(tsNanoLayout)))
 		if evolved {
 			b.WriteString("," + evolvedColumnValue)
 		}
@@ -788,11 +800,11 @@ func jsonlFile(startID int64, vals rowValues, evolved bool) []byte {
 			fmt.Sprintf(`"mixed_col": %s`, mixed),
 			fmt.Sprintf(`"object_col": %s`, vals.JSON),
 			fmt.Sprintf(`"array_col": %s`, mustJSON(vals.List)),
-			fmt.Sprintf(`"date_col": %q`, vals.Ts.UTC().Format(time.DateOnly)),
-			fmt.Sprintf(`"ts_col": %q`, vals.Ts.Format(time.RFC3339)),
-			fmt.Sprintf(`"ts_milli_col": %q`, vals.TsMilli.Format(tsMilliLayout)),
-			fmt.Sprintf(`"ts_micro_col": %q`, vals.TsMicro.Format(tsMicroLayout)),
-			fmt.Sprintf(`"ts_nano_col": %q`, vals.TsNano.Format(tsNanoLayout)),
+			fmt.Sprintf(`"date_col": %q`, vals.TS.UTC().Format(time.DateOnly)),
+			fmt.Sprintf(`"ts_col": %q`, vals.TS.Format(time.RFC3339)),
+			fmt.Sprintf(`"ts_milli_col": %q`, vals.TSMilli.Format(tsMilliLayout)),
+			fmt.Sprintf(`"ts_micro_col": %q`, vals.TSMicro.Format(tsMicroLayout)),
+			fmt.Sprintf(`"ts_nano_col": %q`, vals.TSNano.Format(tsNanoLayout)),
 		}
 		// optional_col rides only on two of the three rows: a field some records lack
 		// must stay typed by the records that carry it and sync as null elsewhere.
@@ -854,12 +866,12 @@ type parquetRow struct {
 	TimeMsCol int32 `parquet:"time_ms_col"`
 	TimeUsCol int64 `parquet:"time_us_col"`
 	TimeNsCol int64 `parquet:"time_ns_col"`
-	TsMsCol   int64 `parquet:"ts_ms_col"`
-	TsCol     int64 `parquet:"ts_col"`
-	TsNsCol   int64 `parquet:"ts_ns_col"`
-	// TsFarCol carries the far-future instant scaling bugs wrap: micros scaled up into
+	TSMsCol   int64 `parquet:"ts_ms_col"`
+	TSCol     int64 `parquet:"ts_col"`
+	TSNsCol   int64 `parquet:"ts_ns_col"`
+	// TSFarCol carries the far-future instant scaling bugs wrap: micros scaled up into
 	// int64 nanoseconds overflow past ~2262 and used to come back as year 1816.
-	TsFarCol int64            `parquet:"ts_far_col"`
+	TSFarCol int64            `parquet:"ts_far_col"`
 	Int96Col deprecated.Int96 `parquet:"int96_col"`
 
 	MapCol    map[string]string `parquet:"map_col"`
@@ -980,17 +992,19 @@ func makeParquetRow(id int64, vals rowValues) parquetRow {
 		Dec64Col:    vals.Dec64,
 		DecBytesCol: decimalToFixedBytes(vals.Dec32),
 
-		DateCol:   int32(vals.Ts.Truncate(24*time.Hour).Unix() / 86400),
+		//nolint:gosec // G115: fixed seed values, well inside int32
+		DateCol: int32(vals.TS.Truncate(24*time.Hour).Unix() / 86400),
+		//nolint:gosec // G115: fixed seed values, well inside int32
 		TimeMsCol: int32(vals.TimeOfDay.Milliseconds()),
 		TimeUsCol: vals.TimeOfDay.Microseconds(),
 		TimeNsCol: vals.TimeOfDay.Nanoseconds(),
 		// Each timestamp column carries the seed of its own precision, so the file holds
 		// real sub-second digits for the parser to keep and the writers to floor.
-		TsMsCol:  vals.TsMilli.UnixMilli(),
-		TsCol:    vals.TsMicro.UnixMicro(),
-		TsNsCol:  vals.TsNano.UnixNano(),
-		TsFarCol: farFutureTs.UnixMicro(),
-		Int96Col: timeToInt96(vals.TsNano),
+		TSMsCol:  vals.TSMilli.UnixMilli(),
+		TSCol:    vals.TSMicro.UnixMicro(),
+		TSNsCol:  vals.TSNano.UnixNano(),
+		TSFarCol: farFutureTS.UnixMicro(),
+		Int96Col: timeToInt96(vals.TSNano),
 
 		MapCol:  map[string]string{"k": vals.Str},
 		ListCol: vals.List,

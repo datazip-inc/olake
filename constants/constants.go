@@ -69,9 +69,6 @@ const (
 	MSSQL    DriverType = "mssql"
 )
 
-// SkipCDCDrivers are drivers that do not run a CDC-based sync.
-var SkipCDCDrivers = []DriverType{Oracle, DB2}
-
 // Drivers where filters are applied in memory after full refresh data is read.
 var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}

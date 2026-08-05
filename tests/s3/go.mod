@@ -4,7 +4,6 @@ go 1.25.12
 
 require (
 	github.com/apache/arrow-go/v18 v18.2.0
-	github.com/datazip-inc/olake/lib v0.0.0-00010101000000-000000000000
 	github.com/datazip-inc/olake/tests/testutils v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.6.0
 	github.com/minio/minio-go/v7 v7.0.34
@@ -97,7 +96,6 @@ require (
 )
 
 replace (
-	github.com/datazip-inc/olake/lib => ../../lib
 	github.com/datazip-inc/olake/tests/testutils => ../testutils
 	google.golang.org/genproto => google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80
 )

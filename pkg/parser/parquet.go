@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"slices"
 	"time"
 	"unicode/utf8"
 
@@ -239,12 +240,14 @@ func readColumnValues(columnChunk pq.ColumnChunk, numRows int64) ([]pq.Value, er
 			return nil, fmt.Errorf("failed to read page: %s", err)
 		}
 
-		buf := make([]pq.Value, page.NumValues())
-		n, err := page.Values().ReadValues(buf)
+		// Read into the tail of the result: no per-page buffer, no copy out of it.
+		count := int(page.NumValues())
+		values = slices.Grow(values, count)
+		n, err := page.Values().ReadValues(values[len(values) : len(values)+count])
 		if err != nil && err != io.EOF {
 			return nil, fmt.Errorf("failed to read page values: %s", err)
 		}
-		values = append(values, buf[:n]...)
+		values = values[:len(values)+n]
 	}
 }
 
