@@ -54,7 +54,7 @@
                   "type": "string",
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
-                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "jdbc_url": {
                   "type": "string",
@@ -127,7 +127,7 @@
                   "type": "string",
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
-                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "hive_uri": {
                   "type": "string",
@@ -195,7 +195,7 @@
                   "type": "string",
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
-                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "iceberg_s3_path": {
                   "description": "S3 bucket path where Iceberg data and metadata are stored"
@@ -306,7 +306,7 @@
                   "type": "string",
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
-                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
                   "type": "string",
@@ -405,7 +405,7 @@
                   "type": "string",
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
-                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
                   "type": "string",
@@ -521,7 +521,7 @@
                   "type": "string",
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
-                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
                   "type": "string",
@@ -587,7 +587,7 @@
                   "type": "string",
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
-                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
                   "type": "string",
@@ -709,7 +709,7 @@
                   "type": "string",
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
-                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
                   "type": "string",
@@ -815,7 +815,7 @@
                   "type": "string",
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
-                  "description": "User defined catalog name, if left blank defaults to olake_iceberg. Only lowercase letters and underscores are allowed."
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_catalog_url": {
                   "type": "string",
