@@ -27,7 +27,7 @@ func TestS3Integration(t *testing.T) {
 					// must land it in the destination as a string column.
 					UpdatedDestinationDataTypeSchema: variant.UpdatedDestinationSchema,
 					ExecuteQuery:                     ExecuteQueryFactory(variant),
-					ColumnToExclude:                  variant.ColumnToExclude,
+					ColumnToExclude:                  excludedColumn,
 					DestinationDB:                    S3DestinationDB,
 					CursorField:                      S3CursorField,
 					PartitionRegex:                   S3PartitionRegex,

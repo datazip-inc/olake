@@ -55,9 +55,10 @@ const (
 	evolvedColumn      = "new_col"
 	evolvedColumnValue = "evolved"
 
-	// Deselected from the stream before every sync, so the destination must not carry them.
-	textExcludedColumn    = "mixed_col"
-	parquetExcludedColumn = "empty_col"
+	// excludedColumn is deselected from the stream before every sync: discover must see it,
+	// the destination must not carry it.
+	excludedColumn      = "excluded_col"
+	excludedColumnValue = "excluded"
 )
 
 // farFutureTS rides in the Parquet variant's ts_far_col, same instant in every file: a
@@ -271,6 +272,7 @@ var (
 
 		"str_col":     "string",
 		"unicode_col": "string",
+		"empty_col":   "string",
 		"null_col":    "string",
 		"bytes_col":   "string",
 		"json_col":    "string",
@@ -322,6 +324,7 @@ func s3TextDestinationSchema(formatSpecific map[string]string) map[string]string
 		"bool_col":  "boolean",
 		"float_col": "double",
 		"int_col":   "double",
+		"mixed_col": "string",
 		"date_col":  "timestamp",
 
 		"ts_col":       "timestamp",
@@ -416,6 +419,7 @@ func expectedParquetData(v rowValues) map[string]interface{} {
 
 		"str_col":     v.Str,
 		"unicode_col": v.Unicode,
+		"empty_col":   "",
 		"null_col":    nil,
 		// Not valid UTF-8, so the parser base64 encodes it rather than corrupting it.
 		"bytes_col": base64.StdEncoding.EncodeToString(v.Bytes),
@@ -490,9 +494,7 @@ type S3TestVariant struct {
 	BuildFile buildFileFn
 	// BuildEvolvedFile renders a file like BuildFile plus evolvedColumn on every row; the
 	// "evolve-schema" operation uploads it.
-	BuildEvolvedFile buildFileFn
-	// Per variant: the formats share no column that is expendable in all of them.
-	ColumnToExclude   string
+	BuildEvolvedFile  buildFileFn
 	DestinationSchema map[string]string
 	// UpdatedDestinationSchema is the destination schema after the "evolve-schema"
 	// operation ran; same as DestinationSchema where BuildEvolvedFile is nil.
@@ -517,7 +519,6 @@ var S3TestVariants = []S3TestVariant{
 		Gzipped:                  true,
 		BuildFile:                buildCSVFile,
 		BuildEvolvedFile:         buildEvolvedCSVFile,
-		ColumnToExclude:          textExcludedColumn,
 		DestinationSchema:        S3CSVToDestinationSchema,
 		UpdatedDestinationSchema: S3CSVUpdatedDestinationSchema,
 		ExpectedData:             ExpectedCSVS3Data,
@@ -531,7 +532,6 @@ var S3TestVariants = []S3TestVariant{
 		Gzipped:                  true,
 		BuildFile:                buildJSONLFile,
 		BuildEvolvedFile:         buildEvolvedJSONLFile,
-		ColumnToExclude:          textExcludedColumn,
 		DestinationSchema:        S3JSONToDestinationSchema,
 		UpdatedDestinationSchema: S3JSONUpdatedDestinationSchema,
 		ExpectedData:             ExpectedJSONS3Data,
@@ -546,7 +546,6 @@ var S3TestVariants = []S3TestVariant{
 		PlainExt:                 ".parquet",
 		BuildFile:                buildParquetFile,
 		BuildEvolvedFile:         buildEvolvedParquetFile,
-		ColumnToExclude:          parquetExcludedColumn,
 		DestinationSchema:        S3ParquetToDestinationSchema,
 		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
 		ExpectedData:             ExpectedParquetS3Data,
@@ -752,7 +751,7 @@ func buildEvolvedCSVFile(_ *testing.T, startID int64, vals rowValues) []byte {
 
 func csvFile(startID int64, vals rowValues, evolved bool) []byte {
 	var b strings.Builder
-	b.WriteString("id,str_col,bool_col,float_col,int_col,mixed_col,null_col,date_col,ts_col,ts_milli_col,ts_micro_col,ts_nano_col")
+	b.WriteString("id,str_col,bool_col,float_col,int_col,mixed_col,null_col,date_col,ts_col,ts_milli_col,ts_micro_col,ts_nano_col," + excludedColumn)
 	if evolved {
 		b.WriteString("," + evolvedColumn)
 	}
@@ -762,13 +761,14 @@ func csvFile(startID int64, vals rowValues, evolved bool) []byte {
 		mixed, _ := mixedValue(id)
 		// null_col is the empty cell after mixed_col: CSV cannot omit a column, so an
 		// empty value is how the format spells null.
-		b.WriteString(fmt.Sprintf("%d,%s,%t,%v,%d,%s,,%s,%s,%s,%s,%s",
+		b.WriteString(fmt.Sprintf("%d,%s,%t,%v,%d,%s,,%s,%s,%s,%s,%s,%s",
 			id, vals.Str, vals.Bool, vals.Float, vals.Int64, mixed,
 			vals.TS.UTC().Format(time.DateOnly),
 			vals.TS.Format(time.RFC3339),
 			vals.TSMilli.Format(tsMilliLayout),
 			vals.TSMicro.Format(tsMicroLayout),
-			vals.TSNano.Format(tsNanoLayout)))
+			vals.TSNano.Format(tsNanoLayout),
+			excludedColumnValue))
 		if evolved {
 			b.WriteString("," + evolvedColumnValue)
 		}
@@ -805,6 +805,7 @@ func jsonlFile(startID int64, vals rowValues, evolved bool) []byte {
 			fmt.Sprintf(`"ts_milli_col": %q`, vals.TSMilli.Format(tsMilliLayout)),
 			fmt.Sprintf(`"ts_micro_col": %q`, vals.TSMicro.Format(tsMicroLayout)),
 			fmt.Sprintf(`"ts_nano_col": %q`, vals.TSNano.Format(tsNanoLayout)),
+			fmt.Sprintf(`%q: %q`, excludedColumn, excludedColumnValue),
 		}
 		// optional_col rides only on two of the three rows: a field some records lack
 		// must stay typed by the records that carry it and sync as null elsewhere.
@@ -871,8 +872,9 @@ type parquetRow struct {
 	TSNsCol   int64 `parquet:"ts_ns_col"`
 	// TSFarCol carries the far-future instant scaling bugs wrap: micros scaled up into
 	// int64 nanoseconds overflow past ~2262 and used to come back as year 1816.
-	TSFarCol int64            `parquet:"ts_far_col"`
-	Int96Col deprecated.Int96 `parquet:"int96_col"`
+	TSFarCol    int64            `parquet:"ts_far_col"`
+	Int96Col    deprecated.Int96 `parquet:"int96_col"`
+	ExcludedCol string           `parquet:"excluded_col"`
 
 	MapCol    map[string]string `parquet:"map_col"`
 	StructCol struct {
@@ -929,15 +931,16 @@ func parquetTestGroup() pq.Group {
 		"dec64_col":     pq.Decimal(4, 18, pq.Int64Type),
 		"dec_bytes_col": pq.Decimal(2, 38, pq.FixedLenByteArrayType(16)),
 
-		"date_col":    pq.Date(),
-		"time_ms_col": pq.Time(pq.Millisecond),
-		"time_us_col": pq.Time(pq.Microsecond),
-		"time_ns_col": pq.Time(pq.Nanosecond),
-		"ts_ms_col":   pq.Timestamp(pq.Millisecond),
-		"ts_col":      pq.Timestamp(pq.Microsecond),
-		"ts_ns_col":   pq.Timestamp(pq.Nanosecond),
-		"ts_far_col":  pq.Timestamp(pq.Microsecond),
-		"int96_col":   pq.Leaf(pq.Int96Type),
+		"date_col":     pq.Date(),
+		"time_ms_col":  pq.Time(pq.Millisecond),
+		"time_us_col":  pq.Time(pq.Microsecond),
+		"time_ns_col":  pq.Time(pq.Nanosecond),
+		"ts_ms_col":    pq.Timestamp(pq.Millisecond),
+		"ts_col":       pq.Timestamp(pq.Microsecond),
+		"ts_ns_col":    pq.Timestamp(pq.Nanosecond),
+		"ts_far_col":   pq.Timestamp(pq.Microsecond),
+		"int96_col":    pq.Leaf(pq.Int96Type),
+		"excluded_col": pq.String(),
 
 		"map_col":    pq.Map(pq.String(), pq.String()),
 		"struct_col": pq.Group{"a": pq.String(), "b": pq.Int(64)},
@@ -1000,11 +1003,12 @@ func makeParquetRow(id int64, vals rowValues) parquetRow {
 		TimeNsCol: vals.TimeOfDay.Nanoseconds(),
 		// Each timestamp column carries the seed of its own precision, so the file holds
 		// real sub-second digits for the parser to keep and the writers to floor.
-		TSMsCol:  vals.TSMilli.UnixMilli(),
-		TSCol:    vals.TSMicro.UnixMicro(),
-		TSNsCol:  vals.TSNano.UnixNano(),
-		TSFarCol: farFutureTS.UnixMicro(),
-		Int96Col: timeToInt96(vals.TSNano),
+		TSMsCol:     vals.TSMilli.UnixMilli(),
+		TSCol:       vals.TSMicro.UnixMicro(),
+		TSNsCol:     vals.TSNano.UnixNano(),
+		TSFarCol:    farFutureTS.UnixMicro(),
+		Int96Col:    timeToInt96(vals.TSNano),
+		ExcludedCol: excludedColumnValue,
 
 		MapCol:  map[string]string{"k": vals.Str},
 		ListCol: vals.List,
