@@ -27,10 +27,11 @@ const (
 	// much of a row group is held in memory while still amortizing reads over the network.
 	rowReadBatchSize = 256
 
-	// parquetTimestampStateVersion is the first state version that surfaces Int96 columns as
-	// timestamps. Builds before it emitted the raw 96-bit integer as a string, so older state
-	// keeps that behavior to avoid changing an existing destination column's type on upgrade.
-	parquetTimestampStateVersion = 7
+	// parquetTypeStateVersion is the first state version carrying this release's parquet type
+	// fixes: Int96 as a timestamp rather than the raw integer string, and unsigned 32 bit
+	// integers widened to Int64. Older state keeps the previous behavior so an existing
+	// destination column does not change type on upgrade.
+	parquetTypeStateVersion = 7
 )
 
 // ParquetParser implements the Parser interface for Parquet files
@@ -586,7 +587,14 @@ func mapParquetIntegerType(bitWidth int8, signed bool) types.DataType {
 		switch bitWidth {
 		case 8, 16:
 			return types.Int32
-		case 32, 64:
+		case 32:
+			// Widened only from the gated version; older state keeps the Int32 pre-gate
+			// builds inferred, wrapping values above 2^31-1 negative as they did then.
+			if constants.LoadedStateVersion >= parquetTypeStateVersion {
+				return types.Int64
+			}
+			return types.Int32
+		case 64:
 			return types.Int64
 		}
 	}
@@ -716,7 +724,8 @@ func convertLogicalValue(val pq.Value, fieldType pq.Type) (interface{}, bool) {
 	// reads back negative unless the bits are reinterpreted and widened. The narrower widths
 	// fit in an int32 already and unsigned 64 has nothing wider to widen into, so both take
 	// the physical path.
-	case logicalType.Integer != nil && !logicalType.Integer.IsSigned && logicalType.Integer.BitWidth == 32:
+	case logicalType.Integer != nil && !logicalType.Integer.IsSigned && logicalType.Integer.BitWidth == 32 &&
+		constants.LoadedStateVersion >= parquetTypeStateVersion:
 		//nolint:gosec // G115: reinterpreting the physical bits as unsigned is the intent
 		return int64(uint32(val.Int32())), true
 	}
@@ -732,10 +741,19 @@ func convertPhysicalValue(val pq.Value) interface{} {
 	case pq.Boolean:
 		return val.Boolean()
 	case pq.Int32:
+		// Native width only from the gated version. Pre-gate builds widened to int64/float64,
+		// which made the destination create the column bigint/double; narrowing it on upgrade
+		// is a transition Iceberg cannot make, so older state keeps the wide value.
+		if constants.LoadedStateVersion < parquetTypeStateVersion {
+			return int64(val.Int32())
+		}
 		return val.Int32()
 	case pq.Int64:
 		return val.Int64()
 	case pq.Float:
+		if constants.LoadedStateVersion < parquetTypeStateVersion {
+			return float64(val.Float())
+		}
 		return val.Float()
 	case pq.Double:
 		return val.Double()
@@ -750,7 +768,7 @@ func convertPhysicalValue(val pq.Value) interface{} {
 		// value agrees with the Timestamp schema; older state emits the raw 96-bit integer as
 		// a string, as pre-gate builds did, so an existing destination column stays String
 		// across the upgrade instead of changing type.
-		if constants.LoadedStateVersion >= parquetTimestampStateVersion {
+		if constants.LoadedStateVersion >= parquetTypeStateVersion {
 			return int96ToTime(val.Int96())
 		}
 		return val.String()

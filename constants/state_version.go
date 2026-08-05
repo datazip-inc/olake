@@ -37,9 +37,10 @@ package constants
 //     * Previously, numeric values returned as byte slices (common in some SQL drivers) caused errors
 //     * Now these byte slices are parsed and converted into int64
 //
-//   - Version 7: (Current Version) Parquet INT96 columns surface as timestamps.
-//     * Earlier the raw 96-bit integer was emitted as a string, which disagreed with the inferred Timestamp schema and collapsed the column to String.
-//     * Older state keeps the string so an existing destination column does not change type on upgrade.
+//   - Version 7: (Current Version) Parquet INT96 and unsigned 32-bit columns map to their correct types.
+//     * INT96: earlier the raw 96-bit integer was emitted as a string, which disagreed with the inferred Timestamp schema and collapsed the column to String.
+//     * Unsigned 32-bit: earlier read as a signed int32 and mapped to Int32, so values above 2^31-1 wrapped negative. Now widened to Int64, matching pg/mysql.
+//     * Older state keeps both previous behaviors so existing destination columns do not change type on upgrade.
 
 const LatestStateVersion = 7
 

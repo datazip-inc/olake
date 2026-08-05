@@ -1313,6 +1313,11 @@ func TestParquetParser_NestedLogicalTypes(t *testing.T) {
 		"repeated leaf elements must carry timestamps, not raw micros")
 }
 
+// The three state-gate tests below cannot run concurrently (no t.Parallel, here or in any test
+// they share the package with): the gate reads constants.LoadedStateVersion, a process global,
+// so setting it leaks across tests. The state version wants to be a parameter rather than a
+// global before these can be made modular and parallel-safe.
+//
 // TestParquetValueToInterfaceWithType_Int96StateGate pins the backward-compatibility gate:
 // state created before version 7 keeps the legacy raw-integer string so an existing
 // destination column does not change type on upgrade, while newer state gets the time.Time.
@@ -1322,16 +1327,60 @@ func TestParquetValueToInterfaceWithType_Int96StateGate(t *testing.T) {
 	i96 := deprecated.Int64ToInt96(49530123456789)
 	i96[2] = 2460477 // 2024-06-15
 
-	constants.LoadedStateVersion = parquetTimestampStateVersion - 1
+	constants.LoadedStateVersion = parquetTypeStateVersion - 1
 	legacy := parquetValueToInterfaceWithType(pq.Int96Value(i96), pq.Int96Type)
 	_, isString := legacy.(string)
 	require.True(t, isString, "state < 7 must emit the raw Int96 string, got %T", legacy)
 	assert.Equal(t, pq.Int96Value(i96).String(), legacy, "must match the pre-gate string output")
 
-	constants.LoadedStateVersion = parquetTimestampStateVersion
+	constants.LoadedStateVersion = parquetTypeStateVersion
 	gated := parquetValueToInterfaceWithType(pq.Int96Value(i96), pq.Int96Type)
 	_, isTime := gated.(time.Time)
 	require.True(t, isTime, "state >= 7 must emit time.Time, got %T", gated)
+}
+
+// TestUnsigned32StateGate pins the other half of the version-7 gate: state created before it
+// keeps the Int32 schema and the signed value that wrapped negative above 2^31-1.
+func TestUnsigned32StateGate(t *testing.T) {
+	defer func(v int) { constants.LoadedStateVersion = v }(constants.LoadedStateVersion)
+
+	schema := pq.NewSchema("test", pq.Group{"u32": pq.Uint(32)})
+	u32 := schema.Fields()[0].Type()
+	// 2^31 as stored bits: reads back negative when taken as a signed int32.
+	stored := pq.Int32Value(int32(-2147483648))
+
+	constants.LoadedStateVersion = parquetTypeStateVersion - 1
+	assert.Equal(t, types.Int32, mapParquetTypeToOlake(u32), "state < 7 must keep the Int32 schema")
+	// Pre-gate builds took the physical path, which widened to int64 and left the sign wrapped.
+	assert.Equal(t, int64(-2147483648), parquetValueToInterfaceWithType(stored, u32),
+		"state < 7 must keep the signed, widened value pre-gate builds emitted")
+
+	constants.LoadedStateVersion = parquetTypeStateVersion
+	assert.Equal(t, types.Int64, mapParquetTypeToOlake(u32), "state >= 7 must widen to Int64")
+	assert.Equal(t, int64(2147483648), parquetValueToInterfaceWithType(stored, u32),
+		"state >= 7 must reinterpret the bits as unsigned")
+}
+
+// TestNativeWidthStateGate pins the third part of the version-7 gate: pre-gate builds widened
+// int32 to int64 and float32 to float64, which made the destination create the column
+// bigint/double. Older state keeps the wide value so that column is not narrowed on upgrade.
+func TestNativeWidthStateGate(t *testing.T) {
+	defer func(v int) { constants.LoadedStateVersion = v }(constants.LoadedStateVersion)
+
+	i32 := pq.Int32Value(-32768)
+	f32 := pq.FloatValue(3.14)
+
+	constants.LoadedStateVersion = parquetTypeStateVersion - 1
+	assert.Equal(t, int64(-32768), parquetValueToInterfaceWithType(i32, pq.Int32Type),
+		"state < 7 must keep the widened int64")
+	assert.Equal(t, float64(float32(3.14)), parquetValueToInterfaceWithType(f32, pq.FloatType),
+		"state < 7 must keep the widened float64")
+
+	constants.LoadedStateVersion = parquetTypeStateVersion
+	assert.Equal(t, int32(-32768), parquetValueToInterfaceWithType(i32, pq.Int32Type),
+		"state >= 7 must keep the native int32")
+	assert.Equal(t, float32(3.14), parquetValueToInterfaceWithType(f32, pq.FloatType),
+		"state >= 7 must keep the native float32")
 }
 
 // TestParquetParser_FlatNullableColumns exercises the columnar read path (used for flat
