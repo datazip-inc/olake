@@ -5,9 +5,7 @@ GOPATH = $(shell go env GOPATH)
 GO_VERSION = $(shell awk '/^go / {print "go"$$2; exit}' go.mod)
 # A driver is any drivers/ subdir with its own go.mod (excludes util folders like abstract).
 DRIVERS = $(notdir $(patsubst %/go.mod,%,$(wildcard drivers/*/go.mod)))
-# Product modules only: tests/ (and its lib glue) carry their own lint state and are linted on
-# their own branch; drop the filter once the tests workspace split lands.
-ROOT_MODULES := $(filter-out $(CURDIR)/lib $(CURDIR)/tests/%,$(shell go list -m -f '{{.Dir}}'))
+ROOT_MODULES := $(shell go list -m -f '{{.Dir}}')
 TEST_MODULES := $(notdir $(shell cd tests && go list -m -f '{{.Dir}}'))
 
 # Platform resolution from drivers/platforms.conf; PLATFORMS=... overrides it.

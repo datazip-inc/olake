@@ -1,11 +1,32 @@
 #!/bin/sh
 
-# Run lint on staged files
-echo "Running lint..."
-make lint
+# Lints only the half that changed: any change under tests/ runs test.lint, .go changes
+# anywhere else run olake.lint. Staged or not -- golangci-lint reads the working tree.
 
-# Check if the linter passed
-if [ $? -ne 0 ]; then
-  echo "❌ lint found issues. Commit aborted."
-  exit 1
+changed=$(git diff --name-only HEAD)
+if [ -z "$changed" ]; then
+	echo "⏭️  no changes, skipping lint"
+	exit 0
+fi
+
+product=$(printf '%s\n' "$changed" | grep -v '^tests/' | grep '\.go$')
+tests=$(printf '%s\n' "$changed" | grep '^tests/')
+
+status=0
+if [ -n "$product" ]; then
+	echo "Running lint..."
+	make olake.lint || status=1
+else
+	echo "⏭️  no .go changes outside tests/, skipping olake.lint"
+fi
+if [ -n "$tests" ]; then
+	echo "Running lint on tests modules..."
+	make test.lint || status=1
+else
+	echo "⏭️  no changes in tests/, skipping test.lint"
+fi
+
+if [ $status -ne 0 ]; then
+	echo "❌ lint found issues. Commit aborted."
+	exit 1
 fi
