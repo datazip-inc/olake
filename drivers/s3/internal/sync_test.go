@@ -414,7 +414,7 @@ func TestMaxConnectionsAndRetries(t *testing.T) {
 				RetryCount: 5,
 			},
 		}
-		assert.Equal(t, 5, s.MaxRetries())
+		assert.Equal(t, 6, s.MaxRetries())
 	})
 }
 

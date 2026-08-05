@@ -70,7 +70,7 @@ func (k *Kafka) MaxConnections() int {
 }
 
 func (k *Kafka) MaxRetries() int {
-	return k.config.RetryCount
+	return k.config.RetryCount + 1
 }
 
 func (k *Kafka) CDCSupported() bool {

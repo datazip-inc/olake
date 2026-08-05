@@ -181,7 +181,7 @@ func (m *MySQL) MaxConnections() int {
 }
 
 func (m *MySQL) MaxRetries() int {
-	return m.config.RetryCount
+	return m.config.RetryCount + 1
 }
 
 func (m MySQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {

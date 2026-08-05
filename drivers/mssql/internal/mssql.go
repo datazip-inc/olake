@@ -197,7 +197,7 @@ func (m *MSSQL) MaxConnections() int {
 }
 
 func (m *MSSQL) MaxRetries() int {
-	return m.config.RetryCount
+	return m.config.RetryCount + 1
 }
 
 func (m *MSSQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
