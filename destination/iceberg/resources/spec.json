@@ -289,7 +289,7 @@
                 "gcp_project_id": {
                   "type": "string",
                   "title": "GCP Project ID",
-                  "description": "Required by BigLake for request routing/billing (sent as the x-goog-user-project header)"
+                  "description": "Required for multi-bucket catalogs only. Identifies the GCP project for BigLake request routing and billing."
                 }
               },
               "required": [
@@ -608,11 +608,6 @@
                 "iceberg_s3_path": {
                   "title": "Unity Catalog Name",
                   "description": "Name of the catalog in Unity"
-                },
-                "s3_endpoint": {
-                  "type": "string",
-                  "title": "S3 Endpoint",
-                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
                 }
               },
               "required": [
@@ -851,7 +846,7 @@
                 "gcp_project_id": {
                   "type": "string",
                   "title": "GCP Project ID",
-                  "description": "Required by BigLake for request routing/billing (sent as the x-goog-user-project header)"
+                  "description": "Required for multi-bucket catalogs only. Identifies the GCP project for BigLake request routing and billing"
                 }
               },
               "required": [
