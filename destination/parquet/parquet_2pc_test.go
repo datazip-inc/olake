@@ -43,7 +43,7 @@ func TestLoad2PCState(t *testing.T) {
 	t.Run("recovers finished full refresh staging", func(t *testing.T) {
 		p, store := testS3Parquet(t, "current-thread", true)
 		threadID := "full-refresh-thread"
-		prefix := p.stagingRootPrefix() + encodeThreadID(threadID) + "/"
+		prefix := p.backfillStagingPrefix(threadID)
 		store.put(prefix+"bucket_1/data.parquet", []byte("full-refresh"))
 		store.put(prefix+parquet2PCFinishFile, []byte("{}"))
 
@@ -51,7 +51,7 @@ func TestLoad2PCState(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, state.FullRefreshCommittedIDs, threadID)
 		require.True(t, *state.DedupInserts)
-		require.Equal(t, []byte("full-refresh"), store.get(p.s3ObjectPath(p.basePath+"/bucket_1/data.parquet")))
+		require.Equal(t, []byte("full-refresh"), store.get(p.s3ObjectKey(p.basePath+"/bucket_1/data.parquet")))
 		require.Empty(t, store.keys(prefix))
 	})
 
@@ -59,22 +59,22 @@ func TestLoad2PCState(t *testing.T) {
 	t.Run("recovers finished shared staging", func(t *testing.T) {
 		p, store := testS3Parquet(t, "cdc-thread", false)
 		expected := &types.MetadataState{State: `{"lsn":"1/20"}`}
-		finishData, _, err := finishState(expected)
+		finishData, _, err := streamFinishState(expected)
 		require.NoError(t, err)
 		store.put(p.stagingObjectKey("bucket_1/data.parquet"), []byte("cdc"))
-		store.put(p.currentFinishObjectKey(), finishData)
+		store.put(p.sharedFinishObjectKey(), finishData)
 
 		state, err := p.load2PCState(ctx)
 		require.NoError(t, err)
 		require.Equal(t, expected, state)
-		require.Equal(t, []byte("cdc"), store.get(p.s3ObjectPath(p.basePath+"/bucket_1/data.parquet")))
+		require.Equal(t, []byte("cdc"), store.get(p.s3ObjectKey(p.basePath+"/bucket_1/data.parquet")))
 		require.Empty(t, store.keys(p.stagingRootPrefix()))
 	})
 
 	// Full-refresh staging without finish.json is not committed and is discarded.
 	t.Run("deletes unfinished full refresh staging", func(t *testing.T) {
 		p, store := testS3Parquet(t, "current-thread", true)
-		prefix := p.stagingRootPrefix() + encodeThreadID("failed-thread") + "/"
+		prefix := p.backfillStagingPrefix("failed-thread")
 		store.put(prefix+"orphan.parquet", []byte("incomplete"))
 
 		state, err := p.load2PCState(ctx)
@@ -98,37 +98,27 @@ func TestLoad2PCState(t *testing.T) {
 	t.Run("continues partial promotion", func(t *testing.T) {
 		p, store := testS3Parquet(t, "incremental-thread", false)
 		expected := &types.MetadataState{ID: "incremental-thread", State: `{"cursor":30}`}
-		finishData, _, err := finishState(expected)
+		finishData, _, err := streamFinishState(expected)
 		require.NoError(t, err)
-		store.put(p.s3ObjectPath(p.basePath+"/bucket_1/already-promoted.parquet"), []byte("first"))
+		store.put(p.s3ObjectKey(p.basePath+"/bucket_1/already-promoted.parquet"), []byte("first"))
 		store.put(p.stagingObjectKey("bucket_2/remaining.parquet"), []byte("second"))
-		store.put(p.currentFinishObjectKey(), finishData)
+		store.put(p.sharedFinishObjectKey(), finishData)
 
 		state, err := p.load2PCState(ctx)
 		require.NoError(t, err)
 		require.Equal(t, expected, state)
-		require.Equal(t, []byte("first"), store.get(p.s3ObjectPath(p.basePath+"/bucket_1/already-promoted.parquet")))
-		require.Equal(t, []byte("second"), store.get(p.s3ObjectPath(p.basePath+"/bucket_2/remaining.parquet")))
+		require.Equal(t, []byte("first"), store.get(p.s3ObjectKey(p.basePath+"/bucket_1/already-promoted.parquet")))
+		require.Equal(t, []byte("second"), store.get(p.s3ObjectKey(p.basePath+"/bucket_2/remaining.parquet")))
 		require.Empty(t, store.keys(p.stagingRootPrefix()))
 	})
 
 	// Malformed finish metadata stops recovery instead of discarding staged data.
 	t.Run("rejects invalid finish state", func(t *testing.T) {
 		p, store := testS3Parquet(t, "invalid-thread", false)
-		store.put(p.currentFinishObjectKey(), []byte("{"))
+		store.put(p.sharedFinishObjectKey(), []byte("{"))
 
 		_, err := p.load2PCState(ctx)
 		require.ErrorContains(t, err, "failed to unmarshal parquet 2pc finish state")
-	})
-
-	// Full-refresh finish files are markers and must not contain cursor metadata.
-	t.Run("rejects metadata in full refresh finish", func(t *testing.T) {
-		p, store := testS3Parquet(t, "current-thread", true)
-		prefix := p.stagingRootPrefix() + encodeThreadID("invalid-thread") + "/"
-		store.put(prefix+parquet2PCFinishFile, []byte(`{"state":"cursor"}`))
-
-		_, err := p.load2PCState(ctx)
-		require.ErrorContains(t, err, "metadata state is not supported in full-refresh staging")
 	})
 }
 
@@ -156,7 +146,11 @@ func TestStagingPaths(t *testing.T) {
 
 			require.Equal(t, tt.expectedPrefix, p.currentStagingPrefix())
 			require.Equal(t, tt.expectedPrefix+"partition/data.parquet", p.stagingObjectKey("partition/data.parquet"))
-			require.Equal(t, tt.expectedPrefix+parquet2PCFinishFile, p.currentFinishObjectKey())
+			if tt.backfill {
+				require.Equal(t, tt.expectedPrefix+parquet2PCFinishFile, p.backfillFinishObjectKey("thread"))
+			} else {
+				require.Equal(t, tt.expectedPrefix+parquet2PCFinishFile, p.sharedFinishObjectKey())
+			}
 			require.Equal(t, "root/namespace/table/metadata.json", p.metadataObjectKey())
 		})
 	}
@@ -172,6 +166,7 @@ func TestCloseCommits2PCState(t *testing.T) {
 		writeRecord   bool
 		existingState *types.MetadataState
 		metadataState *types.MetadataState
+		typedNilState bool
 		expectedState *types.MetadataState
 		expectedFiles int
 		expectedError string
@@ -233,6 +228,14 @@ func TestCloseCommits2PCState(t *testing.T) {
 			writeRecord:   true,
 			expectedError: "cannot commit parquet CDC or incremental files without metadata state",
 		},
+		// A typed nil inside an interface must not cross the commit boundary.
+		{
+			name:          "data with typed nil metadata",
+			threadID:      "typed-nil-metadata-thread",
+			writeRecord:   true,
+			typedNilState: true,
+			expectedError: "cannot commit parquet CDC or incremental files without metadata state",
+		},
 	}
 
 	for _, tt := range tests {
@@ -246,7 +249,9 @@ func TestCloseCommits2PCState(t *testing.T) {
 			}
 
 			var metadataState any
-			if tt.metadataState != nil {
+			if tt.typedNilState {
+				metadataState = (*types.MetadataState)(nil)
+			} else if tt.metadataState != nil {
 				metadataState = tt.metadataState
 			}
 			err := p.Close(ctx, metadataState)
@@ -288,17 +293,46 @@ func TestCloseCommitsRolledFiles(t *testing.T) {
 	require.Equal(t, state, metadata)
 }
 
-func TestCloseRecoversSharedStagingBeforeUpload(t *testing.T) {
+func TestCloseResolvesSharedStagingBeforeUpload(t *testing.T) {
 	ctx := context.Background()
-	p, store := testS3Parquet(t, "next-cdc-thread", false)
-	store.put(p.stagingObjectKey("orphan.parquet"), []byte("incomplete"))
-	require.NoError(t, p.Write(ctx, []types.RawRecord{testRawRecord()}))
 
-	state := &types.MetadataState{State: `{"lsn":"1/30"}`}
-	require.NoError(t, p.Close(ctx, state))
-	require.Nil(t, store.get(p.s3ObjectPath(p.basePath+"/orphan.parquet")))
-	require.Equal(t, 1, testFinalParquetObjects(p, store))
-	require.Empty(t, store.keys(p.stagingRootPrefix()))
+	// Unfinished staging from an earlier writer is discarded before the shared prefix is reused.
+	t.Run("discards unfinished staging", func(t *testing.T) {
+		p, store := testS3Parquet(t, "next-cdc-thread", false)
+		store.put(p.stagingObjectKey("orphan.parquet"), []byte("incomplete"))
+		require.NoError(t, p.Write(ctx, []types.RawRecord{testRawRecord()}))
+
+		state := &types.MetadataState{State: `{"lsn":"1/30"}`}
+		require.NoError(t, p.Close(ctx, state))
+		require.Nil(t, store.get(p.s3ObjectKey(p.basePath+"/orphan.parquet")))
+		require.Equal(t, 1, testFinalParquetObjects(p, store))
+		require.Empty(t, store.keys(p.stagingRootPrefix()))
+	})
+
+	// Finished staging is rolled forward before the next parallel checkpoint is committed.
+	t.Run("rolls finished staging forward", func(t *testing.T) {
+		p, store := testS3Parquet(t, "reader-2", false)
+		previous := &types.MetadataState{ID: "reader-1", State: `{"consumer_group_id":"group","partition_0":10}`}
+		finishData, _, err := streamFinishState(previous)
+		require.NoError(t, err)
+		store.put(p.stagingObjectKey("reader-1.parquet"), []byte("reader-1"))
+		store.put(p.sharedFinishObjectKey(), finishData)
+		require.NoError(t, p.Write(ctx, []types.RawRecord{testRawRecord()}))
+
+		current := &types.MetadataState{ID: "reader-2", State: `{"consumer_group_id":"group","partition_1":20}`}
+		require.NoError(t, p.Close(ctx, current))
+
+		state, err := p.readMetadata(ctx)
+		require.NoError(t, err)
+		require.Equal(t, "reader-2", state.ID)
+		require.Equal(t, map[string]any{
+			"consumer_group_id": "group",
+			"partition_0":       json.Number("10"),
+			"partition_1":       json.Number("20"),
+		}, testMetadataStateMap(t, state))
+		require.Equal(t, 2, testFinalParquetObjects(p, store))
+		require.Empty(t, store.keys(p.stagingRootPrefix()))
+	})
 }
 
 func TestCloseRecoveryBoundaries(t *testing.T) {
@@ -319,7 +353,7 @@ func TestCloseRecoveryBoundaries(t *testing.T) {
 		{
 			name: "before finish",
 			fail: func(p *Parquet, store *memoryS3) {
-				store.failNext(memoryS3Put, p.currentFinishObjectKey())
+				store.failNext(memoryS3Put, p.sharedFinishObjectKey())
 			},
 		},
 		// Promotion can resume from the remaining staged objects.
@@ -342,7 +376,7 @@ func TestCloseRecoveryBoundaries(t *testing.T) {
 		{
 			name: "during staging cleanup",
 			fail: func(p *Parquet, store *memoryS3) {
-				store.failNext(memoryS3Delete, p.currentFinishObjectKey())
+				store.failNext(memoryS3Delete, p.sharedFinishObjectKey())
 			},
 			expectCommitted: true,
 		},
@@ -370,6 +404,45 @@ func TestCloseRecoveryBoundaries(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDeleteStagingPreservesFinishOnFailure(t *testing.T) {
+	ctx := context.Background()
+	p, store := testS3Parquet(t, "incremental-thread", false)
+	prefix := p.currentStagingPrefix()
+	dataKey := p.stagingObjectKey("partition/data.parquet")
+	finishKey := p.sharedFinishObjectKey()
+	store.put(dataKey, []byte("data"))
+	store.put(finishKey, []byte(`{"state":"checkpoint"}`))
+	store.failNext(memoryS3Delete, dataKey)
+
+	// Failed data cleanup must leave the recovery marker intact.
+	require.Error(t, p.deleteStagingPrefix(ctx, prefix))
+	require.NotNil(t, store.get(dataKey))
+	require.NotNil(t, store.get(finishKey))
+
+	require.NoError(t, p.deleteStagingPrefix(ctx, prefix))
+	require.Empty(t, store.keys(prefix))
+}
+
+func TestS3OperationsUseConfiguredPrefix(t *testing.T) {
+	ctx := context.Background()
+	p, store := testS3Parquet(t, "incremental-thread", false)
+	p.config.Prefix = "allowed/path"
+	require.NoError(t, p.Write(ctx, []types.RawRecord{testRawRecord()}))
+
+	expected := &types.MetadataState{ID: "incremental-thread", State: `{"cursor":30}`}
+	store.failNext(memoryS3Copy, p.stagingObjectKey(p.pendingDataFiles()[0].relativePath))
+	require.Error(t, p.Close(ctx, expected))
+	testRequireS3Prefix(t, store, "allowed/path/")
+
+	recovery := testS3ParquetWithStore(t, store, "next-thread", false)
+	recovery.config.Prefix = "allowed/path"
+	state, err := recovery.load2PCState(ctx)
+	require.NoError(t, err)
+	require.Equal(t, expected, state)
+	require.Equal(t, 1, testFinalParquetObjects(recovery, store))
+	testRequireS3Prefix(t, store, "allowed/path/")
 }
 
 // TestCloseCancellationDoesNotStageFiles verifies canceled writers remain private to local temp storage.
@@ -405,10 +478,7 @@ func TestCommitMetadataMergesParallelKafkaCheckpoints(t *testing.T) {
 
 	state, err := second.readMetadata(ctx)
 	require.NoError(t, err)
-	var checkpoint map[string]any
-	decoder := json.NewDecoder(strings.NewReader(state.State.(string)))
-	decoder.UseNumber()
-	require.NoError(t, decoder.Decode(&checkpoint))
+	checkpoint := testMetadataStateMap(t, state)
 	require.Equal(t, "group", checkpoint["consumer_group_id"])
 	require.Equal(t, json.Number("10"), checkpoint["partition_0"])
 	require.Equal(t, json.Number("20"), checkpoint["partition_1"])
@@ -601,8 +671,29 @@ func testWriteMetadata(t *testing.T, p *Parquet, store *memoryS3, state *types.M
 	store.put(p.metadataObjectKey(), data)
 }
 
+func testMetadataStateMap(t *testing.T, state *types.MetadataState) map[string]any {
+	t.Helper()
+	stateString, ok := state.State.(string)
+	require.True(t, ok)
+
+	var checkpoint map[string]any
+	decoder := json.NewDecoder(strings.NewReader(stateString))
+	decoder.UseNumber()
+	require.NoError(t, decoder.Decode(&checkpoint))
+	return checkpoint
+}
+
+func testRequireS3Prefix(t *testing.T, store *memoryS3, prefix string) {
+	t.Helper()
+	keys := store.keys("")
+	require.NotEmpty(t, keys)
+	for _, key := range keys {
+		require.Truef(t, strings.HasPrefix(key, prefix), "S3 key %q is outside configured prefix %q", key, prefix)
+	}
+}
+
 func testFinalParquetObjects(p *Parquet, store *memoryS3) int {
-	prefix := p.s3ObjectPath(p.basePath) + "/"
+	prefix := p.s3ObjectKey(p.basePath) + "/"
 	var count int
 	for _, key := range store.keys(prefix) {
 		if strings.Contains(key, "/"+parquet2PCDir+"/") {

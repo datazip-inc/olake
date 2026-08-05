@@ -33,6 +33,8 @@ import (
 	"github.com/xitongsys/parquet-go/source"
 )
 
+const parquetTempDirPattern = "olake-parquet-*"
+
 type FileMetadata struct {
 	writer       *pqgo.GenericWriter[any]
 	file         source.ParquetFile
@@ -107,7 +109,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 			if err := os.MkdirAll(p.config.Path, os.ModePerm); err != nil {
 				return fmt.Errorf("failed to create parquet temp path[%s]: %s", p.config.Path, err)
 			}
-			p.tempDir, err = os.MkdirTemp(p.config.Path, "olake-parquet-*")
+			p.tempDir, err = os.MkdirTemp(p.config.Path, parquetTempDirPattern)
 			if err != nil {
 				return fmt.Errorf("failed to create parquet temp directory: %s", err)
 			}
@@ -449,7 +451,7 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	}()
 
 	dataFiles := p.pendingDataFiles()
-	if !p.options.Backfill && (len(dataFiles) == 0 || finalMetadataState == nil) {
+	if !p.options.Backfill && len(dataFiles) == 0 {
 		if err := p.closePqFiles(true); err != nil {
 			return err
 		}
@@ -457,19 +459,20 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if len(dataFiles) == 0 {
-			return nil
-		}
-
-		return fmt.Errorf("cannot commit parquet CDC or incremental files without metadata state")
+		return nil
 	}
 
-	finishData, metadataState, err := finishState(finalMetadataState)
-	if err != nil {
-		if closeErr := p.closePqFiles(true); closeErr != nil {
-			return fmt.Errorf("%w: failed to close parquet files: %s", err, closeErr)
+	finishData := []byte(parquet2PCEmptyFinishState)
+	var metadataState types.MetadataState
+	if !p.options.Backfill {
+		var err error
+		finishData, metadataState, err = streamFinishState(finalMetadataState)
+		if err != nil {
+			if closeErr := p.closePqFiles(true); closeErr != nil {
+				return fmt.Errorf("%w: failed to close parquet files: %s", err, closeErr)
+			}
+			return err
 		}
-		return err
 	}
 
 	if err := p.closePqFiles(ctx.Err() != nil); err != nil {
@@ -480,6 +483,7 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 		return err
 	}
 
+	// Resolve staging left by an earlier serialized writer before reusing the shared prefix.
 	if err := p.recoverStaging(ctx); err != nil {
 		return err
 	}
@@ -492,7 +496,11 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	if err := p.promoteStaging(ctx); err != nil {
 		return err
 	}
-	if err := p.commitMetadata(ctx, p.options.ThreadID, metadataState); err != nil {
+	if p.options.Backfill {
+		if err := p.commitBackfillMetadata(ctx, p.options.ThreadID); err != nil {
+			return err
+		}
+	} else if err := p.commitStreamMetadata(ctx, metadataState); err != nil {
 		return err
 	}
 	if err := p.deleteStaging(ctx); err != nil {

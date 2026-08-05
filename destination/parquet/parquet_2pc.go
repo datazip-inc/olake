@@ -23,9 +23,10 @@ import (
 )
 
 const (
-	parquet2PCDir          = "_olake_2pc"
-	parquet2PCFinishFile   = "finish.json"
-	parquet2PCMetadataFile = "metadata.json"
+	parquet2PCDir              = "_olake_2pc"
+	parquet2PCFinishFile       = "finish.json"
+	parquet2PCMetadataFile     = "metadata.json"
+	parquet2PCEmptyFinishState = "{}"
 )
 
 type parquet2PCStagingEntry struct {
@@ -59,30 +60,21 @@ func (p *Parquet) recoverBackfillStaging(ctx context.Context) error {
 
 	for _, entry := range entries {
 		if !entry.finished {
-			if err := p.deleteS3Prefix(ctx, entry.prefix); err != nil {
+			// Without finish.json, the previous attempt did not reach the commit boundary.
+			if err := p.deleteStagingPrefix(ctx, entry.prefix); err != nil {
 				return err
 			}
 			continue
 		}
 
-		data, err := p.readS3Object(ctx, entry.prefix+parquet2PCFinishFile)
-		if err != nil {
-			return err
-		}
-		finishedState, err := parseFinishState(data)
-		if err != nil {
-			return err
-		}
-		if finishedState != nil {
-			return fmt.Errorf("parquet 2pc metadata state is not supported in full-refresh staging")
-		}
+		// A finished attempt is rolled forward before its staging objects are removed.
 		if err := p.promoteS3Staging(ctx, entry.prefix); err != nil {
 			return err
 		}
-		if err := p.commitMetadata(ctx, entry.threadID, finishedState); err != nil {
+		if err := p.commitBackfillMetadata(ctx, entry.threadID); err != nil {
 			return err
 		}
-		if err := p.deleteS3Prefix(ctx, entry.prefix); err != nil {
+		if err := p.deleteStagingPrefix(ctx, entry.prefix); err != nil {
 			return err
 		}
 	}
@@ -100,9 +92,9 @@ func (p *Parquet) recoverSharedStaging(ctx context.Context) error {
 		return nil
 	}
 
-	finishKey := prefix + parquet2PCFinishFile
+	finishKey := p.sharedFinishObjectKey()
 	if !slices.Contains(keys, finishKey) {
-		return p.deleteS3Prefix(ctx, prefix)
+		return p.deleteStagingPrefix(ctx, prefix)
 	}
 
 	data, err := p.readS3Object(ctx, finishKey)
@@ -119,26 +111,27 @@ func (p *Parquet) recoverSharedStaging(ctx context.Context) error {
 	if err := p.promoteS3Staging(ctx, prefix); err != nil {
 		return err
 	}
-	if err := p.commitMetadata(ctx, p.options.ThreadID, finishedState); err != nil {
+	if err := p.commitStreamMetadata(ctx, *finishedState); err != nil {
 		return err
 	}
-	return p.deleteS3Prefix(ctx, prefix)
+	return p.deleteStagingPrefix(ctx, prefix)
 }
 
-func finishState(finalMetadataState any) ([]byte, *types.MetadataState, error) {
-	if finalMetadataState == nil {
-		return []byte("{}"), nil, nil
-	}
-
+// streamFinishState serializes the abstract-provided state for finish.json and returns
+// the same state in the typed form used to update metadata.json.
+func streamFinishState(finalMetadataState any) ([]byte, types.MetadataState, error) {
 	data, err := json.Marshal(finalMetadataState)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal parquet 2pc finish state: %s", err)
+		return nil, types.MetadataState{}, fmt.Errorf("failed to marshal parquet 2pc finish state: %s", err)
 	}
 	state, err := parseFinishState(data)
 	if err != nil {
-		return nil, nil, err
+		return nil, types.MetadataState{}, err
 	}
-	return data, state, nil
+	if state == nil {
+		return nil, types.MetadataState{}, fmt.Errorf("cannot commit parquet CDC or incremental files without metadata state")
+	}
+	return data, *state, nil
 }
 
 func parseFinishState(data []byte) (*types.MetadataState, error) {
@@ -155,11 +148,14 @@ func parseFinishState(data []byte) (*types.MetadataState, error) {
 }
 
 func (p *Parquet) writeFinish(ctx context.Context, data []byte) error {
-	return p.writeS3Object(ctx, p.currentFinishObjectKey(), data)
+	key := p.sharedFinishObjectKey()
+	if p.options.Backfill {
+		key = p.backfillFinishObjectKey(p.options.ThreadID)
+	}
+	return p.writeS3Object(ctx, key, data)
 }
 
-// commitMetadata records promoted progress in the table-level metadata file.
-func (p *Parquet) commitMetadata(ctx context.Context, threadID string, finishedState *types.MetadataState) error {
+func (p *Parquet) commitBackfillMetadata(ctx context.Context, threadID string) error {
 	state, err := p.readMetadata(ctx)
 	if err != nil {
 		return err
@@ -168,16 +164,29 @@ func (p *Parquet) commitMetadata(ctx context.Context, threadID string, finishedS
 		state = &types.MetadataState{}
 	}
 
-	if finishedState == nil {
-		if !slices.Contains(state.FullRefreshCommittedIDs, threadID) {
-			state.FullRefreshCommittedIDs = append(state.FullRefreshCommittedIDs, threadID)
-		}
-		dedupInserts := true
-		state.DedupInserts = &dedupInserts
-	} else if err := mergeMetadataState(state, finishedState); err != nil {
+	if !slices.Contains(state.FullRefreshCommittedIDs, threadID) {
+		state.FullRefreshCommittedIDs = append(state.FullRefreshCommittedIDs, threadID)
+	}
+	dedupInserts := true
+	state.DedupInserts = &dedupInserts
+	return p.writeMetadata(ctx, state)
+}
+
+func (p *Parquet) commitStreamMetadata(ctx context.Context, finishedState types.MetadataState) error {
+	state, err := p.readMetadata(ctx)
+	if err != nil {
 		return err
 	}
+	if state == nil {
+		state = &types.MetadataState{}
+	}
+	if err := mergeStreamMetadataState(state, &finishedState); err != nil {
+		return err
+	}
+	return p.writeMetadata(ctx, state)
+}
 
+func (p *Parquet) writeMetadata(ctx context.Context, state *types.MetadataState) error {
 	data, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("failed to marshal parquet 2pc metadata: %s", err)
@@ -188,8 +197,8 @@ func (p *Parquet) commitMetadata(ctx context.Context, threadID string, finishedS
 	return nil
 }
 
-// mergeMetadataState preserves fields committed by parallel writers for the same stream.
-func mergeMetadataState(current, next *types.MetadataState) error {
+// mergeStreamMetadataState preserves checkpoints committed by parallel writers for the same stream.
+func mergeStreamMetadataState(current, next *types.MetadataState) error {
 	if next.ID != nil {
 		current.ID = next.ID
 	}
@@ -199,11 +208,6 @@ func mergeMetadataState(current, next *types.MetadataState) error {
 			return err
 		}
 		current.State = state
-	}
-	for _, threadID := range next.FullRefreshCommittedIDs {
-		if !slices.Contains(current.FullRefreshCommittedIDs, threadID) {
-			current.FullRefreshCommittedIDs = append(current.FullRefreshCommittedIDs, threadID)
-		}
 	}
 	if next.DedupInserts != nil {
 		current.DedupInserts = next.DedupInserts
@@ -268,39 +272,32 @@ func (p *Parquet) listBackfillStagingEntries(ctx context.Context) ([]parquet2PCS
 		return nil, err
 	}
 
-	entries := make(map[string]*parquet2PCStagingEntry)
+	entries := make([]parquet2PCStagingEntry, 0)
 	for _, key := range keys {
 		relativePath := strings.TrimPrefix(key, rootPrefix)
+		// For "<encoded-thread>/partition/data.parquet", parts[0] is the thread directory and parts[1] is the staged path.
 		parts := strings.SplitN(relativePath, "/", 2)
 		if len(parts) != 2 {
 			continue
 		}
 
-		entry, exists := entries[parts[0]]
-		if !exists {
-			threadID, err := decodeThreadID(parts[0])
+		encodedThreadID, stagedPath := parts[0], parts[1]
+		entryPrefix := rootPrefix + encodedThreadID + "/"
+		if len(entries) == 0 || entries[len(entries)-1].prefix != entryPrefix {
+			threadID, err := decodeThreadID(encodedThreadID)
 			if err != nil {
 				return nil, err
 			}
-			entry = &parquet2PCStagingEntry{
-				prefix:   rootPrefix + parts[0] + "/",
+			entries = append(entries, parquet2PCStagingEntry{
+				prefix:   entryPrefix,
 				threadID: threadID,
-			}
-			entries[parts[0]] = entry
+			})
 		}
-		if parts[1] == parquet2PCFinishFile {
-			entry.finished = true
+		if stagedPath == parquet2PCFinishFile {
+			entries[len(entries)-1].finished = true
 		}
 	}
-
-	stagingEntries := make([]parquet2PCStagingEntry, 0, len(entries))
-	for _, entry := range entries {
-		stagingEntries = append(stagingEntries, *entry)
-	}
-	sort.Slice(stagingEntries, func(i, j int) bool {
-		return stagingEntries[i].prefix < stagingEntries[j].prefix
-	})
-	return stagingEntries, nil
+	return entries, nil
 }
 
 func (p *Parquet) promoteStaging(ctx context.Context) error {
@@ -320,7 +317,7 @@ func (p *Parquet) promoteS3Staging(ctx context.Context, stagingPrefix string) er
 			continue
 		}
 
-		finalKey := p.s3ObjectPath(path.Join(p.basePath, relativePath))
+		finalKey := p.s3ObjectKey(path.Join(p.basePath, relativePath))
 		if err := p.copyS3Object(ctx, key, finalKey); err != nil {
 			return err
 		}
@@ -343,10 +340,10 @@ func (p *Parquet) copyS3Object(ctx context.Context, sourceKey, destinationKey st
 }
 
 func (p *Parquet) deleteStaging(ctx context.Context) error {
-	return p.deleteS3Prefix(ctx, p.currentStagingPrefix())
+	return p.deleteStagingPrefix(ctx, p.currentStagingPrefix())
 }
 
-func (p *Parquet) deleteS3Prefix(ctx context.Context, prefix string) error {
+func (p *Parquet) deleteStagingPrefix(ctx context.Context, prefix string) error {
 	keys, err := p.listS3Keys(ctx, prefix)
 	if err != nil {
 		return err
@@ -354,9 +351,28 @@ func (p *Parquet) deleteS3Prefix(ctx context.Context, prefix string) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	return utils.Concurrent(ctx, keys, min(len(keys), 8), func(deleteCtx context.Context, key string, _ int) error {
-		return p.deleteS3Object(deleteCtx, key)
-	})
+
+	finishKey := prefix + parquet2PCFinishFile
+	dataKeys := make([]string, 0, len(keys))
+	hasFinish := false
+	for _, key := range keys {
+		if key == finishKey {
+			hasFinish = true
+			continue
+		}
+		dataKeys = append(dataKeys, key)
+	}
+	if len(dataKeys) > 0 {
+		if err := utils.Concurrent(ctx, dataKeys, min(len(dataKeys), 8), func(deleteCtx context.Context, key string, _ int) error {
+			return p.deleteS3Object(deleteCtx, key)
+		}); err != nil {
+			return err
+		}
+	}
+	if hasFinish {
+		return p.deleteS3Object(ctx, finishKey)
+	}
+	return nil
 }
 
 func (p *Parquet) listS3Keys(ctx context.Context, prefix string) ([]string, error) {
@@ -431,12 +447,16 @@ func (p *Parquet) retryS3(ctx context.Context, fn func(context.Context) error) e
 }
 
 func (p *Parquet) stagingRootPrefix() string {
-	return p.s3ObjectPath(path.Join(p.basePath, parquet2PCDir)) + "/"
+	return p.s3ObjectKey(path.Join(p.basePath, parquet2PCDir)) + "/"
+}
+
+func (p *Parquet) backfillStagingPrefix(threadID string) string {
+	return p.stagingRootPrefix() + encodeThreadID(threadID) + "/"
 }
 
 func (p *Parquet) currentStagingPrefix() string {
 	if p.options.Backfill {
-		return p.stagingRootPrefix() + encodeThreadID(p.options.ThreadID) + "/"
+		return p.backfillStagingPrefix(p.options.ThreadID)
 	}
 	return p.stagingRootPrefix()
 }
@@ -445,15 +465,19 @@ func (p *Parquet) stagingObjectKey(relativePath string) string {
 	return p.currentStagingPrefix() + strings.TrimLeft(relativePath, "/")
 }
 
-func (p *Parquet) currentFinishObjectKey() string {
-	return p.currentStagingPrefix() + parquet2PCFinishFile
+func (p *Parquet) sharedFinishObjectKey() string {
+	return p.stagingRootPrefix() + parquet2PCFinishFile
+}
+
+func (p *Parquet) backfillFinishObjectKey(threadID string) string {
+	return p.backfillStagingPrefix(threadID) + parquet2PCFinishFile
 }
 
 func (p *Parquet) metadataObjectKey() string {
-	return p.s3ObjectPath(path.Join(p.basePath, parquet2PCMetadataFile))
+	return p.s3ObjectKey(path.Join(p.basePath, parquet2PCMetadataFile))
 }
 
-func (p *Parquet) s3ObjectPath(relativePath string) string {
+func (p *Parquet) s3ObjectKey(relativePath string) string {
 	prefix := strings.Trim(p.config.Prefix, "/")
 	if prefix == "" {
 		return relativePath
