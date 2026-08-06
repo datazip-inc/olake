@@ -197,21 +197,21 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		var chunks []types.Chunk
 		for idx, bucket := range buckets {
 			// converts value according to _id string repr.
-			min, err := reformatID(bucket.ID.Min)
+			minVal, err := reformatID(bucket.ID.Min)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert bucket min value to required type: %s", err)
 			}
-			var max interface{}
+			var maxVal interface{}
 			// for last bucket, max will be nil
 			if idx != len(buckets)-1 {
-				max, err = reformatID(bucket.ID.Max)
+				maxVal, err = reformatID(bucket.ID.Max)
 				if err != nil {
 					return nil, fmt.Errorf("failed to convert bucket max value to required type: %s", err)
 				}
 			}
 			chunks = append(chunks, types.Chunk{
-				Min: min,
-				Max: max,
+				Min: minVal,
+				Max: maxVal,
 			})
 		}
 		return chunks, nil

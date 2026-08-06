@@ -10,17 +10,17 @@ import (
 // CDC is not supported yet
 
 // PreCDC is called before CDC operation starts
-func (o *Oracle) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+func (o *Oracle) PreCDC(_ context.Context, _ []types.StreamInterface) error {
 	return nil
 }
 
 // StreamChanges streams CDC changes for a given stream
 func (o *Oracle) StreamChanges(_ context.Context, _ int, _ map[string]any, _ abstract.CDCMsgFn) (any, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil // CDC unsupported for Oracle: nil state with nil error is the stub contract
 }
 
 // PostCDC is called after CDC operation completes
-func (o *Oracle) PostCDC(ctx context.Context, _ int) error {
+func (o *Oracle) PostCDC(_ context.Context, _ int) error {
 	return nil
 }
 

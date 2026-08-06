@@ -110,7 +110,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		pgCfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
 			return p.sshClient.Dial("tcp", addr)
 		}
-
 	}
 
 	db = stdlib.OpenDB(*pgCfg)
@@ -248,7 +247,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 
 		for _, column := range columnSchemaOutput {
 			stream.WithCursorField(column.Name)
-			datatype := types.Unknown
+			var datatype types.DataType
 			if val, found := pgTypeToDataTypes[*column.DataType]; found {
 				datatype = val
 			} else {

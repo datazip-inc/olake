@@ -201,7 +201,7 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 	}
 }
 
-func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string, database string) (bool, error) {
+func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string, _ string) (bool, error) {
 	var exists bool
 	err := conn.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = $1 AND database = current_database())`, slotName).Scan(&exists)
 	if err != nil {
@@ -233,16 +233,15 @@ func validateGlobalState(postgresGlobalState waljs.WALState, confirmedFlushLSN p
 	// global state exist check for cursor and cursor mismatch
 	if postgresGlobalState.LSN == "" {
 		return fmt.Errorf("%w: lsn is empty, please proceed with clear destination", constants.ErrNonRetryable)
-	} else {
-		parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
-		if err != nil {
-			return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
-		}
-		// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
-		// suggesting to proceed with clear destination
-		if parsed != confirmedFlushLSN {
-			return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, confirmedFlushLSN)
-		}
+	}
+	parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
+	if err != nil {
+		return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
+	}
+	// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
+	// suggesting to proceed with clear destination
+	if parsed != confirmedFlushLSN {
+		return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, confirmedFlushLSN)
 	}
 	return nil
 }

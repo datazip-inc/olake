@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,7 +15,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/ssh"
 )
@@ -138,9 +138,17 @@ func (d *DB2) forwardConnections(listener net.Listener, remoteAddr string) {
 			defer localConn.Close()
 			defer remoteConn.Close()
 
+			// The second copy always exits with net.ErrClosed once teardown closes both conns,
+			// so only unexpected copy failures are logged.
 			done := make(chan struct{}, 2)
-			go func() { io.Copy(localConn, remoteConn); done <- struct{}{} }()
-			go func() { io.Copy(remoteConn, localConn); done <- struct{}{} }()
+			tunnelCopy := func(dst, src net.Conn, way string) {
+				if _, err := io.Copy(dst, src); err != nil && !errors.Is(err, net.ErrClosed) {
+					logger.Warnf("ssh tunnel %s copy failed: %s", way, err)
+				}
+				done <- struct{}{}
+			}
+			go tunnelCopy(localConn, remoteConn, "remote->local")
+			go tunnelCopy(remoteConn, localConn, "local->remote")
 			<-done
 		}()
 	}
@@ -209,7 +217,7 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName types.StreamID) (*ty
 			}
 
 			stream.WithCursorField(columnName)
-			datatype := types.Unknown
+			var datatype types.DataType
 
 			if val, found := db2TypeToDataTypes[strings.ToLower(dataType)]; found {
 				datatype = val

@@ -23,12 +23,9 @@ jobs:
         with:
           go-version-file: "go.mod"
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
-          version: latest
-          install-mode: goinstall
+        run: make olake.lint
 
+      # TODO: move this on integration test workflow in PR 1037
       - name: golangci-lint tests modules
         run: make test.lint
   build-check:

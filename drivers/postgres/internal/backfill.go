@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 
@@ -35,14 +36,18 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			logger.Warnf("failed to rollback transaction: %s", err)
+		}
+	}()
 
 	logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 
 	chunkColumn := stream.Self().StreamMetadata.ChunkColumn
 	chunkColumn = utils.Ternary(chunkColumn == "", "ctid", chunkColumn).(string)
 	stmt := jdbc.PostgresChunkScanQuery(stream, chunkColumn, chunk, filter)
-	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 		return tx.QueryContext(ctx, query, args...)
 	})
 
@@ -127,21 +132,20 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 				Min: fmt.Sprintf("'(%d,0)'", start),
 				Max: fmt.Sprintf("'(%d,0)'", end),
 			})
-
 		}
 
 		return chunks, nil
 	}
 
-	splitViaBatchSize := func(min, max interface{}, dynamicChunkSize int) (*types.Set[types.Chunk], error) {
+	splitViaBatchSize := func(minVal, maxVal interface{}, dynamicChunkSize int) (*types.Set[types.Chunk], error) {
 		splits := types.NewSet[types.Chunk]()
-		chunkStart := min
-		chunkEnd, err := utils.AddConstantToInterface(min, dynamicChunkSize)
+		chunkStart := minVal
+		chunkEnd, err := utils.AddConstantToInterface(minVal, dynamicChunkSize)
 		if err != nil {
 			return nil, fmt.Errorf("failed to split batch size chunks: %s", err)
 		}
 
-		for typeutils.Compare(chunkEnd, max) <= 0 {
+		for typeutils.Compare(chunkEnd, maxVal) <= 0 {
 			splits.Insert(types.Chunk{Min: chunkStart, Max: chunkEnd})
 			chunkStart = chunkEnd
 			newChunkEnd, err := utils.AddConstantToInterface(chunkEnd, dynamicChunkSize)
@@ -154,8 +158,8 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		return splits, nil
 	}
 
-	splitViaNextQuery := func(min interface{}, stream types.StreamInterface, chunkColumn string) (*types.Set[types.Chunk], error) {
-		chunkStart := min
+	splitViaNextQuery := func(minVal interface{}, stream types.StreamInterface, chunkColumn string) (*types.Set[types.Chunk], error) {
+		chunkStart := minVal
 		splits := types.NewSet[types.Chunk]()
 		for {
 			chunkEnd, err := p.nextChunkEnd(ctx, stream, chunkStart, chunkColumn)
@@ -194,14 +198,13 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		}
 
 		chunkColType, _ := stream.Schema().GetType(chunkColumn)
-		// evenly distirbution only available for float and int types
+		// evenly distribution only available for float and int types
 		if chunkColType == types.Int64 || chunkColType == types.Float64 {
 			return splitViaBatchSize(minValue, maxValue, 10000)
 		}
 		return splitViaNextQuery(minValue, stream, chunkColumn)
-	} else {
-		return generateCTIDRanges(stream)
 	}
+	return generateCTIDRanges(stream)
 }
 
 func (p *Postgres) nextChunkEnd(ctx context.Context, stream types.StreamInterface, previousChunkEnd interface{}, chunkColumn string) (interface{}, error) {
