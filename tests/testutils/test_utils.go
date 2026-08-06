@@ -92,7 +92,6 @@ type TestConfig struct {
 	IcebergDestinationPath string
 	ParquetDestinationPath string
 	StatePath              string
-	StatsPath              string
 }
 
 // applySuite names the suite and rewires source.json where concurrent suites contend on a CDC
@@ -488,7 +487,6 @@ func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConf
 		IcebergDestinationPath:   containerPath("iceberg_destination.json"),
 		ParquetDestinationPath:   containerPath("parquet_destination.json"),
 		StatePath:                containerPath("state.json"),
-		StatsPath:                containerPath("stats.json"),
 	}
 }
 
