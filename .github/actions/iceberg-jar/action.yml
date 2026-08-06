@@ -1,0 +1,42 @@
+name: Iceberg writer jar
+description: Restores, looks up or publishes the Iceberg writer jar under one key.
+
+inputs:
+  mode:
+    description: lookup, restore or save.
+    required: false
+    default: restore
+
+outputs:
+  cache-hit:
+    description: true when the jar for these sources is already cached.
+    value: ${{ steps.lookup.outputs.cache-hit || steps.restore.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - id: lookup
+      if: inputs.mode == 'lookup'
+      uses: actions/cache/restore@v4
+      with:
+        path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
+        key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
+        lookup-only: true
+
+    - id: restore
+      if: inputs.mode == 'restore'
+      uses: actions/cache/restore@v4
+      with:
+        path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
+        key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
+        fail-on-cache-miss: true
+
+    - if: inputs.mode == 'restore'
+      shell: bash
+      run: touch destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
+
+    - if: inputs.mode == 'save'
+      uses: actions/cache/save@v4
+      with:
+        path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
+        key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}

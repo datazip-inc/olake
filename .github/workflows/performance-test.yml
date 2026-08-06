@@ -44,6 +44,9 @@ jobs:
       with:
         go-version-file: "go.mod"
 
+    - name: Restore driver external dependencies
+      uses: ./.github/actions/driver-deps
+
     - name: Set up Java for Maven
       uses: actions/setup-java@v3
       with:

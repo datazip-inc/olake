@@ -40,7 +40,6 @@ jobs:
       drivers: ${{ steps.drivers.outputs.drivers }}
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
-      go-key: ${{ steps.go-cache.outputs.cache-primary-key }}
       apt-warmed: ${{ steps.apt-cache.outputs.cache-hit }}
     steps:
       - name: Checkout code
@@ -52,29 +51,17 @@ jobs:
         id: drivers
         uses: ./.github/actions/detect-drivers
 
-      # lookup-only answers "already built?" without downloading the 362MB jar. No restore-keys:
-      # a fallback would report a stale jar as a hit and every driver would test the wrong writer.
       - name: Look up Iceberg writer jar cache
         id: jar-cache
-        uses: actions/cache/restore@v4
+        uses: ./.github/actions/iceberg-jar
         with:
-          path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
-          key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
-          lookup-only: true
+          mode: lookup
 
-      # Keyed on the deps AND the whole tests tree, so any tests change republishes the cache and
-      # re-runs the checks living in the publish job. Exact key only: a prefix hit is a different
-      # build.
       - name: Look up Go module + build cache
         id: go-cache
-        uses: actions/cache/restore@v4
+        uses: ./.github/actions/go-caches
         with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-            ~/go/bin
-          key: ${{ runner.os }}-gobase-${{ hashFiles('tests/**/go.mod', 'tests/go.work', 'tests/**/*.go') }}
-          lookup-only: true
+          mode: lookup
 
       # A marker, since buildx's own gha cache keys are internal and cannot be looked up: it records
       # that the runtime-base stage was warmed. Eviction can outdate it, and a miss is only a slow build.
@@ -116,12 +103,10 @@ jobs:
       - name: Build Iceberg writer jar
         run: make iceberg.jar
 
-      # Under the key preflight looked up and the driver jobs restore from.
       - name: Save Iceberg writer jar cache
-        uses: actions/cache/save@v4
+        uses: ./.github/actions/iceberg-jar
         with:
-          path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
-          key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
+          mode: save
 
   # Skipped while the Dockerfile is unchanged and already warmed. Failure here is never fatal: the
   # driver build just re-runs the layers it would have hit from cache.
@@ -136,11 +121,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # Self-hosted runners do not export the Actions cache token; without it buildx caches nothing.
-      - name: Expose GitHub Actions cache token
-        uses: crazy-max/ghaction-github-runtime@v3
+        uses: ./.github/actions/buildx
 
       # Exits 0 either way: a failed warm must not block the matrix, it only leaves those layers to
       # the driver build. The marker is what tells the next run to try again.
@@ -179,18 +160,15 @@ jobs:
           go-version-file: "go.mod"
           cache: false
 
-      # An exact hit is impossible here (preflight already found none), so this only picks up a
-      # near-miss from an earlier dependency set to build on; the post-job save publishes the result.
       - name: Cache Go modules + build cache
-        uses: actions/cache@v4
+        uses: ./.github/actions/go-caches
         with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-            ~/go/bin
-          key: ${{ needs.preflight.outputs.go-key }}
-          restore-keys: |
-            ${{ runner.os }}-gobase-
+          mode: save
+
+      - name: Cache driver external dependencies
+        uses: ./.github/actions/driver-deps
+        with:
+          save: "true"
 
       # Every tests module, not just testutils, so the matrix jobs download nothing.
       - name: Download Go modules
@@ -244,6 +222,9 @@ jobs:
           sudo chown -R 999:999 destination/iceberg/local-test/data
           sudo chmod -R 777 destination/iceberg/local-test/data
 
+      - name: Restore driver external dependencies
+        uses: ./.github/actions/driver-deps
+
       # Bounded so a wedged pull is a killed step rather than the job's whole budget.
       - name: Start containers
         id: containers
@@ -252,24 +233,10 @@ jobs:
         run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: ./.github/actions/buildx
 
-      # Self-hosted runners do not export the Actions cache token; without it buildx caches nothing.
-      - name: Expose GitHub Actions cache token
-        uses: crazy-max/ghaction-github-runtime@v3
-
-      # fail-on-cache-miss: the Dockerfile COPYs this jar and there is no Maven here to rebuild it.
       - name: Restore Iceberg writer jar
-        uses: actions/cache/restore@v4
-        with:
-          path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
-          key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
-          fail-on-cache-miss: true
-
-      # The cache preserves the jar's original mtime while checkout stamps the writer sources with
-      # now, so make would rebuild it here with Maven. The key already proves it matches the sources.
-      - name: Mark the restored jar up to date
-        run: touch destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
+        uses: ./.github/actions/iceberg-jar
 
       # Background: the ~600MB Go cache restore below overlaps it instead of delaying it. No
       # --cache-to -- exporting this build measured ~119s against the ~85s build it would save.
@@ -286,18 +253,10 @@ jobs:
           go-version-file: "go.mod"
           cache: false
 
-      # Restore-only, from preflight: the modules and compiled shared deps are identical for
-      # every driver, and seven jobs saving a ~350MB copy each would evict the jar from the cache.
+      # Restore-only: the modules and compiled shared deps are identical for every driver, and seven
+      # jobs saving a ~350MB copy each would evict the jar from the cache.
       - name: Restore shared Go caches
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/.cache/go-build
-            ~/go/bin
-          key: ${{ needs.preflight.outputs.go-key }}
-          restore-keys: |
-            ${{ runner.os }}-gobase-
+        uses: ./.github/actions/go-caches
 
       # Compiles the test binary while the container pull and the image build are still in flight.
       - name: Install Dependencies
