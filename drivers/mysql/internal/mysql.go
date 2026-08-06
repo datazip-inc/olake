@@ -282,6 +282,7 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 				value = uint16(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
 		case "unsigned mediumint", "unsigned int", "unsigned integer":
+			// TODO: unsigned mediumint conversion is broken... -1 value from mysql binlog should be unsigned mediumint max but currently it goes to int32 max which gives -1 as final output in destination
 			if v, ok := value.(int32); ok {
 				value = uint32(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
