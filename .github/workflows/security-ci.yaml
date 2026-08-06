@@ -8,6 +8,8 @@ on:
       - '**/*.go'
       - '**/*.java'
       - '**/go.mod'
+      - '**/*.yml'
+      - '**/*.yaml'
   pull_request:
     branches:
       - "*"
@@ -15,6 +17,8 @@ on:
       - '**/*.go'
       - '**/*.java'
       - '**/go.mod'
+      - '**/*.yml'
+      - '**/*.yaml'
   workflow_dispatch:
     inputs:
       logLevel:
@@ -93,19 +97,38 @@ jobs:
           severity: 'HIGH,CRITICAL'
           ignore-unfixed: true
 
-  # TODO: Add Java Dependency Trivy (removed because trivy getting stuck or run for hours)
-  # trivy-java:
-  #   name: trivy-java
-  #   runs-on: ubuntu-latest
-  #   timeout-minutes: 10
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v3
-  #     - name: Run Trivy Java vulnerability scanner in repo mode
-  #       uses: aquasecurity/trivy-action@master
-  #       with:
-  #         exit-code: '1'
-  #         scan-type: 'fs'
-  #         scan-ref: './destination/iceberg/olake-iceberg-java-writer'
-  #         scanners: 'vuln'
-  #         severity: 'HIGH,CRITICAL'
+  trivy-java:
+    name: trivy-java
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      # Build the shaded uber-jar so Trivy scans the real, resolved & shipped
+      # dependencies baked into the artifact. No pom re-resolution at scan time
+      # -> no Maven Central rate-limit hangs.
+      - name: Build shaded jar
+        working-directory: ./destination/iceberg/olake-iceberg-java-writer
+        run: mvn -B -q clean package -DskipTests
+      - name: Prepare scan directory
+        run: |
+          mkdir -p /tmp/cve-scan
+          cp ./destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-*.jar /tmp/cve-scan/
+      - name: Run Trivy Java vulnerability scanner on built jar
+        uses: aquasecurity/trivy-action@master
+        with:
+          exit-code: '1'
+          scan-type: 'rootfs'
+          scan-ref: '/tmp/cve-scan'
+          scanners: 'vuln'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          # Suppresses only CVEs verified unfixable from pom.xml (stale copies
+          # shaded inside third-party fat jars). Each entry documents why.
+          trivyignores: './destination/iceberg/olake-iceberg-java-writer/.trivyignore'

@@ -46,14 +46,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
-import jakarta.enterprise.context.Dependent;
 
 /**
  * Wrapper to perform operations on iceberg tables
  *
  * @author Rafael Acevedo
  */
-@Dependent
 public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
