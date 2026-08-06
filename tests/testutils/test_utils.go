@@ -250,7 +250,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 	}
 	streamConditions := make([]string, len(stream))
 	for i, s := range stream {
-		s = Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(s), s).(string)
+		s = Ternary(slices.Contains(constants.UppercaseStreamDrivers, constants.DriverType(config.Driver)), strings.ToUpper(s), s).(string)
 		streamConditions[i] = fmt.Sprintf(`.stream_name == "%s"`, s)
 	}
 	condition := strings.Join(streamConditions, " or ")
@@ -278,7 +278,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
 func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
 	// in case of Oracle, the stream names are in uppercase in stream.json
-	streamName = Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(config.Driver)), strings.ToUpper(streamName), streamName).(string)
+	streamName = Ternary(slices.Contains(constants.UppercaseStreamDrivers, constants.DriverType(config.Driver)), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
 	// map/select pattern updates nested array members
 	return fmt.Sprintf(
@@ -1189,6 +1189,14 @@ func (cfg *IntegrationTest) runInTestContainer(
 	}()
 }
 
+// keepTestData reports whether OLAKE_TEST_KEEP_DATA=true, the dev switch that skips the
+// final source-data drop so the seeded tables/files survive the run for inspection.
+// Every pre-test drop/clean still runs, so the next run starts from a clean slate
+// regardless of the switch.
+func keepTestData() bool {
+	return os.Getenv("OLAKE_TEST_KEEP_DATA") == "true"
+}
+
 // Test2PCIntegration runs the full Two-Phase Commit (2PC) failure-recovery integration test
 // suite in an isolated container. It exercises CDC and incremental state-recovery scenarios
 // independently of the happy-path integration tests, allowing them to be scheduled and
@@ -1249,8 +1257,12 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 				}
 			}
 
-			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-			t.Logf("%s 2PC sync test-container clean up", cfg.TestConfig.Driver)
+			if keepTestData() {
+				t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)
+			} else {
+				cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+				t.Logf("%s 2PC sync test-container clean up", cfg.TestConfig.Driver)
+			}
 			return nil
 		})
 	})
@@ -1422,8 +1434,12 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			t.Logf("Generated streams validated with test streams")
 
 			// 4. Clean up
-			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-			t.Logf("%s discover test-container clean up", cfg.TestConfig.Driver)
+			if keepTestData() {
+				t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)
+			} else {
+				cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+				t.Logf("%s discover test-container clean up", cfg.TestConfig.Driver)
+			}
 			return nil
 		})
 	})
@@ -1508,8 +1524,12 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			}
 
 			// 2. Clean up
-			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-			t.Logf("%s sync test-container clean up", cfg.TestConfig.Driver)
+			if keepTestData() {
+				t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)
+			} else {
+				cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+				t.Logf("%s sync test-container clean up", cfg.TestConfig.Driver)
+			}
 			return nil
 		})
 	})
