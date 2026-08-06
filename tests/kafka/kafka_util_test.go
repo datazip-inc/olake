@@ -174,7 +174,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_2pc":
 		// Simulate a 2PC failure after destination commit: the consumer offset on partition 0 lags
-		// at 1. Roll back the suite's own group (its id is its topic), not the shared constant.
+		// at 1. Roll back the suite's own group.
 		commitConsumerGroupOffset(ctx, t, client, streams[0], streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
@@ -184,7 +184,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_rebalance":
 		addRebalanceBulkMessages(ctx, t, client, streams[0])
-		startRebalanceTrigger(ctx, t, streams[0], conf.HostStatsPath)
+		startRebalanceTrigger(ctx, t, suiteConsumerGroup(t, conf), streams[0], conf.HostStatsPath)
 
 	case "stop_rebalance":
 		stopRebalanceTrigger()
@@ -218,9 +218,16 @@ func addRebalanceBulkMessages(ctx context.Context, t *testing.T, client *kgo.Cli
 	t.Logf("Added %d messages to topic '%s' on partition %d", rebalanceBulkMessageCount, topic, rebalanceBulkPartition)
 }
 
+func suiteConsumerGroup(t *testing.T, conf *testutils.TestConfig) string {
+	t.Helper()
+	group := testutils.ReadSourceConfig(t, conf.HostSourcePath).String("consumer_group_id")
+	require.NotEmpty(t, group, "no consumer_group_id in %s", conf.HostSourcePath)
+	return group
+}
+
 // startRebalanceTrigger waits for sync progress, then joins a competing consumer group member in the
 // background to force a rebalance while olake is still syncing.
-func startRebalanceTrigger(ctx context.Context, t *testing.T, topic, statsPath string) {
+func startRebalanceTrigger(ctx context.Context, t *testing.T, group, topic, statsPath string) {
 	t.Helper()
 
 	rebalanceCtx, cancel := context.WithCancel(ctx)
@@ -233,7 +240,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic, statsPath s
 		defer func() {
 			if client != nil {
 				client.Close()
-				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", topic, instanceID)
+				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", group, instanceID)
 			}
 			close(done)
 		}()
@@ -246,9 +253,9 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic, statsPath s
 		var err error
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(kafkaJSONIntegrationBroker),
-			// Same group the suite's sync joined (consumer_group_id = its topic), which is what
-			// makes this consumer's arrival trigger a rebalance for it.
-			kgo.ConsumerGroup(topic),
+			// Same group the suite's sync joined, which is what makes this consumer's
+			// arrival trigger a rebalance for it.
+			kgo.ConsumerGroup(group),
 			kgo.ClientID(instanceID),
 			kgo.InstanceID(instanceID),
 			kgo.ConsumeTopics(topic),
@@ -257,7 +264,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic, statsPath s
 		)
 		require.NoError(t, err)
 
-		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", topic, topic)
+		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", group, topic)
 		for rebalanceCtx.Err() == nil {
 			client.PollFetches(rebalanceCtx)
 		}

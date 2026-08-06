@@ -133,7 +133,6 @@ func copyJSONWithEdit(srcHost, dstHost string, edit func(map[string]interface{})
 // replication slot, a kafka consumer group, a whole mssql database. nil for drivers that can share
 // source.json. Whatever it renames here, suiteDatabase and the driver's own connection must match.
 func variantSourceOverride(c *TestConfig) func(map[string]interface{}) error {
-	id := testTableName(c)
 	switch c.Driver {
 	case string(constants.MSSQL):
 		// SQL Server scopes CDC to the database, so a per-suite table is not enough: the capture
@@ -152,12 +151,16 @@ func variantSourceOverride(c *TestConfig) func(map[string]interface{}) error {
 			if !ok {
 				return fmt.Errorf("no update_method object in source config")
 			}
-			updateMethod["replication_slot"] = id
+			updateMethod["replication_slot"] = testTableName(c)
 			return nil
 		}
 	case string(constants.Kafka):
 		return func(doc map[string]interface{}) error {
-			doc["consumer_group_id"] = id
+			base, ok := doc["consumer_group_id"].(string)
+			if !ok || base == "" {
+				return fmt.Errorf("no consumer_group_id in source config")
+			}
+			doc["consumer_group_id"] = withSuite(base, c.Suite)
 			return nil
 		}
 	}
@@ -170,17 +173,19 @@ func testTableName(c *TestConfig) string {
 	name := Ternary(c.DataFormat == "",
 		fmt.Sprintf("%s_test_table_olake", c.Driver),
 		fmt.Sprintf("%s_%s_test_table_olake", c.Driver, c.DataFormat)).(string)
-	return Ternary(c.Suite == "", name, fmt.Sprintf("%s_%s", name, c.Suite)).(string)
+	return withSuite(name, c.Suite)
+}
+
+// withSuite names a suite's own copy of a shared resource (table, database, consumer group, namespace).
+func withSuite(base, suite string) string {
+	return Ternary(suite == "", base, fmt.Sprintf("%s_%s", base, suite)).(string)
 }
 
 // SuiteDatabase names the source database a suite owns, for drivers whose CDC is database-scoped.
 // Both sides must agree: variantSourceOverride rewrites source.json for olake, and the driver's
 // own ExecuteQuery connection calls this with the same suite.
 func SuiteDatabase(base, suite string) string {
-	if suite == "" {
-		return base
-	}
-	return fmt.Sprintf("%s_%s", base, suite)
+	return withSuite(base, suite)
 }
 
 // destinationDBPrefix is passed as --destination-database-prefix. It carries the suite because
@@ -189,7 +194,7 @@ func destinationDBPrefix(c *TestConfig) string {
 	prefix := Ternary(c.DataFormat == "",
 		fmt.Sprintf("integration_%s", c.Driver),
 		fmt.Sprintf("integration_%s_%s", c.Driver, c.DataFormat)).(string)
-	return Ternary(c.Suite == "", prefix, fmt.Sprintf("%s_%s", prefix, c.Suite)).(string)
+	return withSuite(prefix, c.Suite)
 }
 
 // verifyDiscoveredStreams asserts the discovered catalog holds exactly the streams test_streams.json
@@ -293,7 +298,7 @@ func seedCatalogFromTestStreams(t *testing.T, c *TestConfig, testTable string) {
 			// A baked destination_database is used verbatim (it overrides the prefix flag), so suffix
 			// it or concurrent suites race the CREATE on one shared namespace.
 			if ddb, ok := stream["destination_database"].(string); ok && ddb != "" {
-				stream["destination_database"] = ddb + "_" + c.Suite
+				stream["destination_database"] = withSuite(ddb, c.Suite)
 			}
 		}
 		byNamespace, _ := doc["selected_streams"].(map[string]interface{})
@@ -1407,7 +1412,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 	applySuite(t, cfg.TestConfig, "2pc")
 	// Match the per-suite destination_database seedCatalogFromTestStreams appends, so verify/drop
 	// target the namespace the sync actually wrote to.
-	cfg.DestinationDB = cfg.DestinationDB + "_" + cfg.TestConfig.Suite
+	cfg.DestinationDB = withSuite(cfg.DestinationDB, cfg.TestConfig.Suite)
 	ctx := t.Context()
 	cfg.ExecuteQuery = timedExecuteQuery(cfg.TestConfig.Driver, cfg.ExecuteQuery)
 
@@ -1572,7 +1577,7 @@ func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
 	applySuite(t, cfg.TestConfig, "rebalance")
 	// Suffix the destination namespace to match the seed's per-suite destination_database, as
 	// Test2PCIntegration does.
-	cfg.DestinationDB = cfg.DestinationDB + "_" + cfg.TestConfig.Suite
+	cfg.DestinationDB = withSuite(cfg.DestinationDB, cfg.TestConfig.Suite)
 	ctx := t.Context()
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
