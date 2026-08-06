@@ -39,8 +39,6 @@
         <version.quarkus>3.19.1</version.quarkus>
         <version.commons.io>2.14.0</version.commons.io>
         <version.avro>1.12.1</version.avro>
-        <!-- Must track the parquet version iceberg-parquet resolves to. -->
-        <version.parquet>1.13.1</version.parquet>
         <version.snappy>1.1.10.4</version.snappy>
         <version.jackson>2.16.1</version.jackson>
         <version.commons.compress>1.26.0</version.commons.compress>
@@ -208,16 +206,6 @@
         <dependency>
             <groupId>org.apache.iceberg</groupId>
             <artifactId>iceberg-parquet</artifactId>
-        </dependency>
-        <!-- iceberg-parquet pulls parquet-column in at runtime scope only, but
-             Iceberg's Parquet.read(..).createReaderFunc(..) builders expose
-             MessageType in their signatures and so need it while compiling.
-             Declaring it here promotes it to compile scope; it must stay in the
-             shaded jar because the Iceberg writers load it at runtime too. -->
-        <dependency>
-            <groupId>org.apache.parquet</groupId>
-            <artifactId>parquet-column</artifactId>
-            <version>${version.parquet}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.iceberg</groupId>

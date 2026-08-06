@@ -86,11 +86,14 @@ public class SchemaConvertor {
               throw new RuntimeException("Failed to parse JSON string for field "+ fieldName +" value "+ fieldValue + " exceptipn: " + e);
           }
       }
+      String deleteFilePath = data.hasDeleteFilePath() ? data.getDeleteFilePath() : null;
+      Long deletePosition = data.hasDeletePosition() ? data.getDeletePosition() : null;
+
       // check if it is append only or upsert
-      if(!upsert) { 
-        return new RecordWrapper(genericRow, Operation.READ);
+      if(!upsert) {
+        return new RecordWrapper(genericRow, Operation.READ, deleteFilePath, deletePosition);
       }
-      return new RecordWrapper(genericRow, cdcOpValue(data.getRecordType()));
+      return new RecordWrapper(genericRow, cdcOpValue(data.getRecordType()), deleteFilePath, deletePosition);
   }
 
   private static Object fieldValuetoIceType(Types.NestedField field, FieldValue value) {

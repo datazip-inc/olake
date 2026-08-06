@@ -3,14 +3,11 @@ package io.debezium.server.iceberg.tableoperator;
 import io.debezium.server.iceberg.IcebergUtil;
 import jakarta.enterprise.context.Dependent;
 import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.PartitionKey;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.GenericAppenderFactory;
-import org.apache.iceberg.data.InternalRecordWrapper;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.OutputFileFactory;
-import org.apache.iceberg.io.UnpartitionedWriter;
 
 import org.apache.iceberg.util.PropertyUtil;
 import org.slf4j.Logger;
@@ -32,6 +29,7 @@ public class IcebergTableWriterFactory {
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableWriterFactory.class);
   public boolean upsert = true;
   public boolean keepDeletes = true;
+  public boolean usePositionalDeletes = false;
 
   public BaseTaskWriter<Record> create(Table icebergTable) {
 
@@ -81,12 +79,12 @@ public class IcebergTableWriterFactory {
       // running with upsert mode + un partitioned table
       return new UnpartitionedDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
           icebergTable.io(),
-          targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes);
+          targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes, usePositionalDeletes);
     } else {
       // running with upsert mode + partitioned table
       return new PartitionedDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
           icebergTable.io(),
-          targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes);
+          targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes, usePositionalDeletes);
     }
   }
 

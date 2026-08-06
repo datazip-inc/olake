@@ -22,8 +22,10 @@ class UnpartitionedDeltaWriter extends BaseDeltaTaskWriter {
                            long targetFileSize,
                            Schema schema,
                            Set<Integer> identifierFieldIds,
-                           boolean keepDeletes) {
-    super(spec, format, appenderFactory, fileFactory, io, targetFileSize, schema, identifierFieldIds, keepDeletes);
+                           boolean keepDeletes,
+                           boolean usePositionalDeletes) {
+    super(spec, format, appenderFactory, fileFactory, io, targetFileSize, schema, identifierFieldIds, keepDeletes,
+        usePositionalDeletes);
     this.writer = new RowDataDeltaWriter(null);
   }
 

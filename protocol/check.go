@@ -24,10 +24,7 @@ var checkCmd = &cobra.Command{
 		// check for destination config
 		if destinationConfigPath != "not-set" {
 			destinationConfig = &types.WriterConfig{}
-			if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
-				return err
-			}
-			return nil
+			return utils.UnmarshalFile(destinationConfigPath, destinationConfig, true)
 		}
 
 		// check for source config
@@ -41,13 +38,9 @@ var checkCmd = &cobra.Command{
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
-				var delMode types.DeleteMode
-				if deleteType != "" {
-					delMode = types.DeleteMode(deleteType)
-				}
 				// NewWriterPool initializes destination resources and runs Check;
 				// close immediately since a check has no further work.
-				pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, delMode, nil, batchSize)
+				pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, types.DeleteModeEquality, nil, batchSize)
 				if err != nil {
 					return err
 				}

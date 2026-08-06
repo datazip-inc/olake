@@ -94,17 +94,19 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 	}
 
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	upsertMode := isUpsertMode(stream, options.Backfill)
 	iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
 	requestPayload := proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			Schema:          iceSchema,
-			DestTableName:   stream.GetDestinationTable(),
-			ThreadId:        options.ThreadID,
-			IdentifierField: &identifierField,
-			Namespace:       stream.GetDestinationDatabase(&i.config.IcebergDatabase),
-			Upsert:          isUpsertMode(stream, options.Backfill),
-			PartitionFields: icebergPartFields,
+			Schema:               iceSchema,
+			DestTableName:        stream.GetDestinationTable(),
+			ThreadId:             options.ThreadID,
+			IdentifierField:      &identifierField,
+			Namespace:            stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+			Upsert:               upsertMode,
+			UsePositionalDeletes: options.RowIndex != nil,
+			PartitionFields:      icebergPartFields,
 		},
 	}
 
@@ -141,12 +143,12 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 	}
 
 	if i.config.UseArrowWrites {
-		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
+		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create arrow writer: %s", err)
 		}
 	} else {
-		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server)
+		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode)
 	}
 
 	return schema, &metadataState, nil
@@ -620,7 +622,7 @@ func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 func init() {
 	var server *serverInstance
 	var icebergConfig *Config
-	destination.RegisteredWriters[types.Iceberg] = func(config *types.WriterConfig, deleteMode types.DeleteMode) (destination.Writer, func(ctx context.Context), error) {
+	destination.RegisteredWriters[types.Iceberg] = func(config any) (destination.Writer, func(ctx context.Context), error) {
 		if icebergConfig != nil || server != nil {
 			// for already initialized writer, return the same server and config instance
 			return &Iceberg{
@@ -631,13 +633,9 @@ func init() {
 
 		icebergConfig = &Config{}
 		// unmarshal config according to iceberg config struct
-		err := utils.Unmarshal(config.WriterConfig, icebergConfig)
+		err := utils.Unmarshal(config, icebergConfig)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to unmarshal iceberg config: %w", err)
-		}
-
-		if deleteMode != "" {
-			icebergConfig.DeleteMode = deleteMode
 		}
 
 		server, err = startServer(icebergConfig)

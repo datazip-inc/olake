@@ -71,12 +71,6 @@ func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.TableIndex,
 	return i.fillRowIndex(ctx, index, nil)
 }
 
-// rowIndexScanChunk bounds how many scanned entries are held in memory before
-// being handed to the index. A scan is replayable from the checkpoint, so
-// applying it in pieces is safe and keeps a table of any size from having to be
-// buffered whole.
-const rowIndexScanChunk = 50_000
-
 // fillRowIndex streams row locations from the destination into index. A nil
 // fromSnapshotID reads every live row; otherwise only the rows added after that
 // snapshot are read.
@@ -118,8 +112,8 @@ func drainRowIndexScan(stream proto.RowIndexService_ScanRowIndexClient, index ty
 	for {
 		batch, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
-			// The checkpoint rides with the final chunk, so it is reached only
-			// after every entry the scan produced has been applied.
+			// The checkpoint rides with the final batch, applied in full only
+			// after every entry the scan produced has been accumulated.
 			if err := index.Apply(pending, &snapshotID); err != nil {
 				return 0, 0, fmt.Errorf("failed to checkpoint row index at snapshot[%d]: %s", snapshotID, err)
 			}
@@ -155,13 +149,5 @@ func drainRowIndexScan(stream proto.RowIndexService_ScanRowIndexClient, index ty
 			}
 		}
 		entries += int64(len(batch.GetEntries()))
-
-		if pending.Len() < rowIndexScanChunk {
-			continue
-		}
-		if err := index.Apply(pending, nil); err != nil {
-			return 0, 0, fmt.Errorf("failed to apply row index scan chunk: %s", err)
-		}
-		pending.Reset()
 	}
 }

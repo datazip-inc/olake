@@ -9,28 +9,60 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"sync"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
 var unsafeDirChars = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
 
+type StoreOptions struct {
+	Dir          string
+	CacheSize    int64
+	MemTableSize uint64
+	MaxOpenFiles int
+}
+
+func DefaultOptions() StoreOptions {
+	dir := os.Getenv(constants.IndexDBDir)
+	// TODO: make env keys equal to pebble support instead of custom defined
+
+	// if not set in env use current working directory
+	if dir == "" {
+		wd, _ := os.Getwd()
+		dir = filepath.Join(wd, "olake-row-index")
+	}
+
+	cacheSize, err := strconv.Atoi(os.Getenv(constants.IndexDBCacheSizePerStream))
+	if err != nil {
+		logger.Errorf("failed to parse index db cache size (using default %d MB): %s", 128, err)
+		cacheSize = 128 * 1024 * 1024 // 128 MB default block cache
+	}
+
+	return StoreOptions{
+		Dir:          dir,
+		CacheSize:    int64(cacheSize),
+		MemTableSize: 64 * 1024 * 1024, // 64 MB default memtable
+		MaxOpenFiles: 1000,
+	}
+}
+
+// NewStore returns a TableIndexStore backed by PebbleDB.
+func NewStore() types.TableIndexStore {
+	opts := DefaultOptions()
+	logger.Infof("keeping row indexes in %s", opts.Dir)
+	return &pebbleStore{opts: opts, indexes: make(map[string]*pebbleIndex)}
+}
+
 type pebbleStore struct {
-	opts Options
+	opts StoreOptions
 
 	mu      sync.Mutex
 	indexes map[string]*pebbleIndex
 	closed  bool
-}
-
-// NewPebbleStore returns a TableIndexStore that keeps each stream's row index in
-// its own pebble database beneath opts.Dir. A stream owns its memory as well as
-// its files: opts sizes one database, so a sync's footprint scales with the
-// number of streams it writes.
-func NewPebbleStore(opts Options) types.TableIndexStore {
-	return &pebbleStore{opts: opts, indexes: make(map[string]*pebbleIndex)}
 }
 
 func (s *pebbleStore) Open(_ context.Context, streamID string) (types.TableIndex, error) {
@@ -40,6 +72,7 @@ func (s *pebbleStore) Open(_ context.Context, streamID string) (types.TableIndex
 	if s.closed {
 		return nil, fmt.Errorf("row index store is already closed")
 	}
+
 	if index, exists := s.indexes[streamID]; exists {
 		return index, nil
 	}
@@ -94,8 +127,6 @@ func (s *pebbleStore) indexDir(streamID string) string {
 	return filepath.Join(s.opts.Dir, indexDirName(streamID))
 }
 
-// indexDirName maps a stream ID onto a filesystem-safe directory name. The hash
-// suffix keeps two stream IDs that sanitize to the same string apart.
 func indexDirName(streamID string) string {
 	sum := sha256.Sum256([]byte(streamID))
 	safe := unsafeDirChars.ReplaceAllString(streamID, "_")
@@ -103,20 +134,4 @@ func indexDirName(streamID string) string {
 		safe = safe[:80]
 	}
 	return fmt.Sprintf("%s-%s", safe, hex.EncodeToString(sum[:6]))
-}
-
-// pebbleLogger routes pebble's internal logging into OLake's logger. Pebble's
-// Infof output is verbose compaction bookkeeping, so it goes to debug.
-type pebbleLogger struct{}
-
-func (pebbleLogger) Infof(format string, args ...interface{}) {
-	logger.Debugf("row index: "+format, args...)
-}
-
-func (pebbleLogger) Errorf(format string, args ...interface{}) {
-	logger.Errorf("row index: "+format, args...)
-}
-
-func (pebbleLogger) Fatalf(format string, args ...interface{}) {
-	logger.Fatalf("row index: "+format, args...)
 }

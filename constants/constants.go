@@ -53,6 +53,10 @@ const (
 
 	// CdcTimestamp is the column name olake writes the CDC event timestamp into.
 	CdcTimestamp = "_cdc_timestamp"
+
+	// Index store constants
+	IndexDBDir                = "OLAKE_INDEX_DB_DIR"
+	IndexDBCacheSizePerStream = "OLAKE_INDEX_DB_CACHE_SIZE"
 )
 
 // DriverType identifies a source/destination driver.

@@ -40,9 +40,11 @@ type TableIndex interface {
 	// holds no live row for key.
 	Lookup(key string) (loc RowLocation, found bool, err error)
 	// Apply installs every change in batch. A non-nil snapshotID additionally
-	// advances the checkpoint, and is written only after all of the batch has
-	// landed, so an interrupted Apply leaves the checkpoint where it was and the
-	// next sync rescans from there.
+	// advances the checkpoint in the same durable commit as those changes, so
+	// the index never claims to be current at a snapshot whose rows it is
+	// missing. A nil snapshotID leaves the checkpoint where it was; an
+	// interrupted Apply is repaired by the next sync rescanning from the older
+	// checkpoint.
 	//
 	// Callers must only pass a snapshotID once the destination has committed the
 	// files the batch refers to.

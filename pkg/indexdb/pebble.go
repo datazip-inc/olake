@@ -1,22 +1,10 @@
-// Package indexdb provides a pebble-backed implementation of
-// types.TableIndexStore: a durable map from row identifier to the location of
-// that row in a destination table, used to turn equality deletes into
-// positional deletes.
-//
-// There is no undo log and no transaction. Writers buffer their changes and hand
-// them over only once the destination has committed, so a failed sync leaves the
-// index untouched; and because every entry is a fact a rescan can produce again,
-// an interrupted Apply is repaired by leaving the checkpoint behind and letting
-// the next sync rescan from it.
-//
-// The on-disk key layout lives in codec.go, and the per-stream database handout
-// in store.go.
 package indexdb
 
 import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"sync"
 
@@ -27,45 +15,35 @@ import (
 )
 
 const (
-	// batchEntries bounds how many mutations pebble is asked to hold at once.
-	// A caller's buffer may be far larger than this, so Apply hands it over in
-	// chunks rather than materializing one giant write batch.
-	batchEntries = 4096
+	prefixRow        byte = 0x01
+	prefixFileByID   byte = 0x02
+	prefixFileByPath byte = 0x03
+	prefixMeta       byte = 0x05
 
-	// bloomBitsPerKey sizes the per-sstable bloom filters. Ten bits is pebble's
-	// own suggested value and costs roughly 1.2 bytes per indexed row for a
-	// false positive rate near 1%.
-	bloomBitsPerKey = 10
+	bloomBitsPerKey        = 10
+	maxCompactions         = 4
+	formatVersion   uint64 = 4
+)
 
-	// maxCompactions caps how many compactions pebble may run at once. The
-	// default of one falls behind a sustained ingest and eventually stalls
-	// writes, so the ceiling is raised while leaving the steady-state
-	// concurrency at one.
-	maxCompactions = 4
-
-	// formatVersion identifies the on-disk encoding. The index is derived from
-	// the destination table and can always be rebuilt, so an index written by a
-	// different version is discarded rather than interpreted. Bump this whenever
-	// the meaning of any key or value family changes.
-	formatVersion uint64 = 4
+var (
+	metaSnapshot      = []byte("snapshot")
+	metaNextFileID    = []byte("next_file_id")
+	metaFormatVersion = []byte("format_version")
 )
 
 type pebbleIndex struct {
 	dir string
 	db  *pebble.DB
 
-	// File path interning. The maps are a cache over the 0x02/0x03 key families.
 	fileMu     sync.RWMutex
 	pathToID   map[string]uint64
 	idToPath   map[uint64]string
 	nextFileID uint64
 
-	// applyMu serializes Apply so that two threads committing at once cannot
-	// interleave their chunks and land a checkpoint over a half-written batch.
 	applyMu sync.Mutex
 }
 
-func openIndex(dir string, opts Options) (*pebbleIndex, error) {
+func openIndex(dir string, opts StoreOptions) (*pebbleIndex, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create row index directory %s: %s", dir, err)
 	}
@@ -77,16 +55,10 @@ func openIndex(dir string, opts Options) (*pebbleIndex, error) {
 		CompactionConcurrencyRange: func() (int, int) { return 1, maxCompactions },
 	}
 
-	// Pebble builds no filters unless asked for them. Lookups during a backfill
-	// are overwhelmingly misses, and a miss with no filter has to read index
-	// blocks from every level before it can be answered.
 	for level := range pebbleOpts.Levels {
 		pebbleOpts.Levels[level].FilterPolicy = bloom.FilterPolicy(bloomBitsPerKey)
 	}
 
-	// This stream's cache, not a shared one, so that a stream's memory can be
-	// reasoned about on its own. Open takes its own reference and drops it when
-	// the database closes, which leaves nothing here to hold.
 	if opts.CacheSize > 0 {
 		cache := pebble.NewCache(opts.CacheSize)
 		defer cache.Unref()
@@ -113,33 +85,25 @@ func openIndex(dir string, opts Options) (*pebbleIndex, error) {
 	return index, nil
 }
 
-// load prepares an index for use. There is deliberately no recovery step here:
-// an index left behind by a process that died mid-sync is not inconsistent, only
-// out of date, because nothing reaches it until the destination has committed.
-// Its checkpoint tells the next sync how far to rescan.
 func (i *pebbleIndex) load() error {
-	// Nothing on disk may be interpreted before the encoding is known to match.
 	if err := i.checkFormatVersion(); err != nil {
 		return err
 	}
 
 	var err error
-	if i.nextFileID, err = i.readCounter(metaNextFileID); err != nil {
+	if i.nextFileID, err = i.readMetaKey(metaNextFileID); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-// checkFormatVersion discards an index left behind by a different on-disk
-// encoding. A missing stamp means either an empty directory or one written
-// before versioning existed; clearing both is safe because the index only ever
-// holds what a rescan of the destination table can produce again.
 func (i *pebbleIndex) checkFormatVersion() error {
-	stored, err := i.readCounter(metaFormatVersion)
+	stored, err := i.readMetaKey(metaFormatVersion)
 	if err != nil {
 		return err
 	}
+
 	if stored == formatVersion {
 		return nil
 	}
@@ -148,6 +112,7 @@ func (i *pebbleIndex) checkFormatVersion() error {
 		logger.Warnf("row index %s: on-disk format v%d is not v%d, discarding it for a rebuild",
 			i.dir, stored, formatVersion)
 	}
+
 	return i.Truncate()
 }
 
@@ -176,14 +141,6 @@ func (i *pebbleIndex) Lookup(key string) (types.RowLocation, bool, error) {
 	return types.RowLocation{FilePath: path, Position: position}, true, nil
 }
 
-// Apply writes batch to the index and, when snapshotID is non-nil, moves the
-// checkpoint to it.
-//
-// A batch larger than one pebble write batch is handed over in chunks. That is
-// safe without any rollback machinery because the checkpoint rides with the last
-// chunk: a crash partway leaves the index holding some of the batch under the
-// old checkpoint, and rescanning from that checkpoint re-derives exactly the
-// entries that landed, so replaying converges on the same state.
 func (i *pebbleIndex) Apply(batch *types.RowIndexBatch, snapshotID *int64) error {
 	i.applyMu.Lock()
 	defer i.applyMu.Unlock()
@@ -193,26 +150,9 @@ func (i *pebbleIndex) Apply(batch *types.RowIndexBatch, snapshotID *int64) error
 		_ = pending.Close()
 	}()
 
-	staged := 0
 	if batch != nil {
 		err := batch.Range(func(key string, loc types.RowLocation, deleted bool) error {
-			if err := i.stageChange(pending, key, loc, deleted); err != nil {
-				return err
-			}
-
-			staged++
-			if staged < batchEntries {
-				return nil
-			}
-
-			if err := pending.Commit(pebble.NoSync); err != nil {
-				return fmt.Errorf("failed to write row index chunk in %s: %s", i.dir, err)
-			}
-			if err := pending.Close(); err != nil {
-				return fmt.Errorf("failed to release row index chunk in %s: %s", i.dir, err)
-			}
-			pending, staged = i.db.NewBatch(), 0
-			return nil
+			return i.stageChange(pending, key, loc, deleted)
 		})
 		if err != nil {
 			return err
@@ -228,8 +168,13 @@ func (i *pebbleIndex) Apply(batch *types.RowIndexBatch, snapshotID *int64) error
 	if pending.Empty() {
 		return nil
 	}
+
 	if err := pending.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to commit row index changes in %s: %s", i.dir, err)
+	}
+
+	if err := i.db.Flush(); err != nil {
+		logger.Warnf("row index %s: failed to flush memtable after commit: %s", i.dir, err)
 	}
 
 	return nil
@@ -276,9 +221,6 @@ func (i *pebbleIndex) IndexedSnapshot() (int64, bool, error) {
 	return snapshotID, true, nil
 }
 
-// Truncate clears the whole index, checkpoint included. Dropping the checkpoint
-// is the point: an index with none is rebuilt from the table rather than
-// trusted, which is what lets a from-scratch rebuild run without a rollback path.
 func (i *pebbleIndex) Truncate() error {
 	batch := i.db.NewBatch()
 	defer batch.Close()
@@ -288,20 +230,21 @@ func (i *pebbleIndex) Truncate() error {
 			return fmt.Errorf("failed to clear row index %s: %s", i.dir, err)
 		}
 	}
-	// The wipe takes the meta family with it, so the encoding has to be stamped
-	// again in the same batch to keep an emptied index from looking unversioned.
+
 	if err := setCounter(batch, metaFormatVersion, formatVersion); err != nil {
 		return err
 	}
+
 	if err := batch.Commit(pebble.Sync); err != nil {
 		return fmt.Errorf("failed to commit row index truncate for %s: %s", i.dir, err)
 	}
 
 	i.fileMu.Lock()
+	defer i.fileMu.Unlock()
+
 	i.pathToID = make(map[string]uint64)
 	i.idToPath = make(map[uint64]string)
 	i.nextFileID = 0
-	i.fileMu.Unlock()
 
 	return nil
 }
@@ -313,13 +256,6 @@ func (i *pebbleIndex) Close() error {
 	return nil
 }
 
-// fileID interns path into a compact integer. The dictionary entry is made
-// durable immediately instead of joining the caller's batch: an id that no row
-// ends up referencing wastes a few bytes, whereas a row value referencing an
-// unknown id would be unreadable.
-//
-// A path already interned keeps its id, so interning is idempotent and every
-// call after the first is served from the cache.
 func (i *pebbleIndex) fileID(path string) (uint64, error) {
 	i.fileMu.RLock()
 	id, cached := i.pathToID[path]
@@ -331,8 +267,6 @@ func (i *pebbleIndex) fileID(path string) (uint64, error) {
 	i.fileMu.Lock()
 	defer i.fileMu.Unlock()
 
-	// The cache is only ever populated from durable state, so a hit under the
-	// write lock means another caller interned this path while we waited.
 	if id, cached := i.pathToID[path]; cached {
 		return id, nil
 	}
@@ -384,7 +318,6 @@ func (i *pebbleIndex) readFileID(path string) (uint64, bool, error) {
 	return binary.BigEndian.Uint64(value), true, nil
 }
 
-// filePath resolves an interned id back to the path of the file it names.
 func (i *pebbleIndex) filePath(id uint64) (string, error) {
 	i.fileMu.RLock()
 	path, cached := i.idToPath[id]
@@ -412,7 +345,6 @@ func (i *pebbleIndex) readFilePath(id uint64) (string, error) {
 		return "", fmt.Errorf("failed to resolve indexed file id[%d] in %s: %s", id, i.dir, err)
 	}
 
-	// The conversion copies, so the path outlives the pebble-owned buffer.
 	path := string(value)
 	if err := closer.Close(); err != nil {
 		return "", fmt.Errorf("failed to release file id[%d] read: %s", id, err)
@@ -421,11 +353,12 @@ func (i *pebbleIndex) readFilePath(id uint64) (string, error) {
 	return path, nil
 }
 
-func (i *pebbleIndex) readCounter(name []byte) (uint64, error) {
+func (i *pebbleIndex) readMetaKey(name []byte) (uint64, error) {
 	value, closer, err := i.db.Get(metaKey(name))
 	if errors.Is(err, pebble.ErrNotFound) {
 		return 0, nil
 	}
+
 	if err != nil {
 		return 0, fmt.Errorf("failed to read row index counter %s in %s: %s", name, i.dir, err)
 	}
@@ -435,5 +368,84 @@ func (i *pebbleIndex) readCounter(name []byte) (uint64, error) {
 	if read <= 0 {
 		return 0, fmt.Errorf("corrupt row index counter %s in %s", name, i.dir)
 	}
+
 	return counter, nil
+}
+
+func rowKey(id string) []byte {
+	return append(append(make([]byte, 0, 1+len(id)), prefixRow), id...)
+}
+
+func fileByIDKey(id uint64) []byte {
+	return append([]byte{prefixFileByID}, be64(id)...)
+}
+
+func fileByPathKey(path string) []byte {
+	return append(append(make([]byte, 0, 1+len(path)), prefixFileByPath), path...)
+}
+
+func metaKey(name []byte) []byte {
+	return append(append(make([]byte, 0, 1+len(name)), prefixMeta), name...)
+}
+
+func be64(value uint64) []byte {
+	encoded := make([]byte, 8)
+	binary.BigEndian.PutUint64(encoded, value)
+	return encoded
+}
+
+func encodeRow(fileID, position uint64) []byte {
+	return binary.AppendUvarint(binary.AppendUvarint(make([]byte, 0, 2*binary.MaxVarintLen64), fileID), position)
+}
+
+func decodeRow(value []byte) (fileID uint64, position int64, err error) {
+	fileID, read := binary.Uvarint(value)
+	if read <= 0 {
+		return 0, 0, fmt.Errorf("unreadable file id")
+	}
+
+	raw, readPosition := binary.Uvarint(value[read:])
+	if readPosition <= 0 {
+		return 0, 0, fmt.Errorf("unreadable position")
+	}
+	if raw > math.MaxInt64 {
+		return 0, 0, fmt.Errorf("position %d out of range", raw)
+	}
+
+	return fileID, int64(raw), nil
+}
+
+func setCounter(batch *pebble.Batch, name []byte, value uint64) error {
+	if err := batch.Set(metaKey(name), binary.AppendUvarint(nil, value), nil); err != nil {
+		return fmt.Errorf("failed to stage row index counter %s: %s", name, err)
+	}
+	return nil
+}
+
+func prefixEnd(prefix []byte) []byte {
+	end := make([]byte, len(prefix))
+	copy(end, prefix)
+
+	for i := len(end) - 1; i >= 0; i-- {
+		end[i]++
+		if end[i] != 0 {
+			return end[:i+1]
+		}
+	}
+
+	return nil
+}
+
+type pebbleLogger struct{}
+
+func (pebbleLogger) Infof(format string, args ...interface{}) {
+	logger.Debugf("row index: "+format, args...)
+}
+
+func (pebbleLogger) Errorf(format string, args ...interface{}) {
+	logger.Errorf("row index: "+format, args...)
+}
+
+func (pebbleLogger) Fatalf(format string, args ...interface{}) {
+	logger.Fatalf("row index: "+format, args...)
 }

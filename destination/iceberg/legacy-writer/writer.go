@@ -21,14 +21,16 @@ type LegacyWriter struct {
 	stream     types.StreamInterface
 	server     internal.ServerClient
 	indexBatch *types.RowIndexBatch
+	upsertMode bool
 }
 
-func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient) *LegacyWriter {
+func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) *LegacyWriter {
 	writer := &LegacyWriter{
-		options: options,
-		schema:  schema,
-		stream:  stream,
-		server:  server,
+		options:    options,
+		schema:     schema,
+		stream:     stream,
+		server:     server,
+		upsertMode: upsertMode,
 	}
 
 	if options.RowIndex != nil {
@@ -51,7 +53,9 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	//   normalization=true:  typed columns + OlakeColumns merged in
 	//   normalization=false: StringifiedData + OlakeColumns + partition columns
 	// A single loop over protoSchema covers both cases.
+	// sentRecords tracks the Go records that map 1:1 onto protoRecords / WriteRun indices.
 	protoRecords := make([]*proto.IcebergPayload_IceRecord, 0, len(records))
+	sentRecords := make([]types.RawRecord, 0, len(records))
 	for _, record := range records {
 		if record.Data == nil {
 			continue
@@ -71,12 +75,34 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 			protoColumnsValue = append(protoColumnsValue, fv)
 		}
 
-		if len(protoColumnsValue) > 0 {
-			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
-				Fields:     protoColumnsValue,
-				RecordType: record.OlakeColumns[constants.OpType].(string),
-			})
+		if len(protoColumnsValue) == 0 {
+			continue
 		}
+
+		opType := record.OlakeColumns[constants.OpType].(string)
+		iceRecord := &proto.IcebergPayload_IceRecord{
+			Fields:     protoColumnsValue,
+			RecordType: opType,
+		}
+
+		// Positional mode: look up any prior live location so Java can emit a
+		// positional delete before writing the superseding row.
+		if w.indexBatch != nil && w.upsertMode && (opType == "d" || opType == "u" || opType == "i") {
+			olakeID := record.OlakeColumns[constants.OlakeID].(string)
+			previous, found, err := w.indexBatch.Lookup(olakeID)
+			if err != nil {
+				return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
+			}
+			if found {
+				filePath := previous.FilePath
+				position := previous.Position
+				iceRecord.DeleteFilePath = &filePath
+				iceRecord.DeletePosition = &position
+			}
+		}
+
+		protoRecords = append(protoRecords, iceRecord)
+		sentRecords = append(sentRecords, record)
 	}
 
 	if len(protoRecords) == 0 {
@@ -108,19 +134,16 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 
 	if w.indexBatch != nil {
 		for _, run := range ingestResponse.GetWriteRuns() {
+			logger.Debugf("Thread[%s]: write run: %s::%d", w.options.ThreadID, run.FilePath, run.StartPosition)
 			for i := int32(0); i < run.Count; i++ {
-				rec := records[run.BatchStartIdx+i]
+				rec := sentRecords[run.BatchStartIdx+i]
 				olakeID := rec.OlakeColumns[constants.OlakeID].(string)
-				opType := rec.OlakeColumns[constants.OpType].(string)
-
-				if opType == "d" {
-					w.indexBatch.Delete(olakeID)
-				} else {
-					w.indexBatch.Put(olakeID, types.RowLocation{
-						FilePath: run.FilePath,
-						Position: run.StartPosition + int64(i),
-					})
-				}
+				// Soft-delete keeps the tombstone row on disk, so the index must
+				// point at the new location just like any other write (matches arrow).
+				w.indexBatch.Put(olakeID, types.RowLocation{
+					FilePath: run.FilePath,
+					Position: run.StartPosition + int64(i),
+				})
 			}
 		}
 	}
@@ -170,10 +193,11 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, ingestResponse.GetResult())
 
 	if w.indexBatch != nil {
-		if err := w.options.RowIndex.Apply(w.indexBatch, &ingestResponse.SnapshotId); err != nil {
+		batch := w.indexBatch
+		w.indexBatch = nil
+		if err := w.options.RowIndex.Apply(batch, &ingestResponse.SnapshotId); err != nil {
 			return fmt.Errorf("failed to apply row index: %s", err)
 		}
-		w.indexBatch = nil
 	}
 
 	return nil

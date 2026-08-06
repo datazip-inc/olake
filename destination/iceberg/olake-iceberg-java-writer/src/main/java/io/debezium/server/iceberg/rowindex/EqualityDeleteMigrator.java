@@ -86,9 +86,10 @@ public final class EqualityDeleteMigrator {
     Map<String, Set<String>> keysByDeleteFile = new HashMap<>();
     Map<String, PartitionGroup> groups = new LinkedHashMap<>();
     Set<DeleteFile> replaced = new LinkedHashSet<>();
-    long positions = 0L;
+    long posConvCount = 0L;
 
     for (DataFileDeletes entry : affected.values()) {
+      LOGGER.debug("data file affected {} with delete records: {}", entry.dataFile.path(), entry.equalityDeletes.toArray());
       Set<String> deletedKeys = new HashSet<>();
       for (DeleteFile delete : entry.equalityDeletes) {
         replaced.add(delete);
@@ -99,7 +100,7 @@ public final class EqualityDeleteMigrator {
       PartitionGroup group = groups.computeIfAbsent(
           table.spec().partitionToPath(entry.dataFile.partition()),
           path -> new PartitionGroup(entry.dataFile.partition()));
-      positions += collectPositions(table, entry.dataFile, projection, identifierField, deletedKeys, group);
+      posConvCount += collectPositions(table, entry.dataFile, projection, identifierField, deletedKeys, group);
     }
 
     List<DeleteFile> written = writePositionDeletes(table, fileFactory, groups);
@@ -111,9 +112,9 @@ public final class EqualityDeleteMigrator {
 
     long snapshotId = table.currentSnapshot() == null ? current.snapshotId() : table.currentSnapshot().snapshotId();
     LOGGER.info("migrated {} equality delete files of {} into {} positional delete files covering {} rows",
-        replaced.size(), table.name(), written.size(), positions);
+        replaced.size(), table.name(), written.size(), posConvCount);
 
-    return new Result(snapshotId, replaced.size(), positions);
+    return new Result(snapshotId, replaced.size(), posConvCount);
   }
 
   /** Data files that currently have at least one equality delete applied to them. */
@@ -148,10 +149,10 @@ public final class EqualityDeleteMigrator {
     }
 
     Set<String> keys = new HashSet<>();
-    try (CloseableIterable<Record> rows =
+    try (CloseableIterable<Object> rows =
         TableRowIndexScanner.openParquet(table, delete.path().toString(), projection)) {
-      for (Record row : rows) {
-        Object key = row.getField(identifierField);
+      for (Object row : rows) {
+        Object key = TableRowIndexScanner.getFieldValue(row, identifierField);
         if (key != null) {
           keys.add(key.toString());
         }
@@ -174,9 +175,9 @@ public final class EqualityDeleteMigrator {
     long position = 0L;
     long matched = 0L;
 
-    try (CloseableIterable<Record> rows = TableRowIndexScanner.openRows(table, dataFile, projection)) {
-      for (Record row : rows) {
-        Object key = row.getField(identifierField);
+    try (CloseableIterable<Object> rows = TableRowIndexScanner.openRows(table, dataFile, projection)) {
+      for (Object row : rows) {
+        Object key = TableRowIndexScanner.getFieldValue(row, identifierField);
         if (key != null && deletedKeys.contains(key.toString())) {
           group.positions.add(new RowPosition(path, position));
           matched++;
@@ -197,6 +198,7 @@ public final class EqualityDeleteMigrator {
 
     for (PartitionGroup group : groups.values()) {
       if (group.positions.isEmpty()) {
+        LOGGER.info("No positions to write for partition {}", group.partition);
         continue;
       }
 

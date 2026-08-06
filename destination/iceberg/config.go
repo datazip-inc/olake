@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
@@ -85,10 +84,6 @@ type Config struct {
 	GCPProjectID string `json:"gcp_project_id,omitempty"`
 
 	UseArrowWrites bool `json:"arrow_writes,omitempty"`
-
-	// DeleteMode selects how deletes and updates evict previously committed rows.
-	// Defaults to types.DeleteModeEquality.
-	DeleteMode types.DeleteMode `mapstructure:"delete_mode"`
 }
 
 func (c *Config) Validate() error {
@@ -103,23 +98,6 @@ func (c *Config) Validate() error {
 
 	if c.CatalogName == "" {
 		c.CatalogName = "olake_iceberg"
-	}
-
-	switch c.DeleteMode {
-	case "":
-		c.DeleteMode = types.DeleteModeEquality
-	case types.DeleteModeEquality, types.DeleteModePosition:
-	case types.DeleteModeDeletionVector:
-		// TODO: emit Iceberg v3 deletion vectors instead of delete files.
-		return fmt.Errorf("delete_mode %q is not implemented yet", c.DeleteMode)
-	default:
-		return fmt.Errorf("unsupported delete_mode %q, expected one of %q, %q", c.DeleteMode, types.DeleteModeEquality, types.DeleteModePosition)
-	}
-
-	if c.DeleteMode == types.DeleteModePosition && !c.UseArrowWrites {
-		// Only the arrow path builds delete files in Go, which is where positional
-		// deletes are assembled from the row index.
-		return fmt.Errorf("delete_mode %q requires arrow_writes to be enabled", c.DeleteMode)
 	}
 
 	// Default to path-style access for S3-compatible services

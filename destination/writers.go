@@ -13,7 +13,7 @@ import (
 )
 
 type (
-	initWriter func(config *types.WriterConfig, deleteMode types.DeleteMode) (Writer, func(ctx context.Context), error)
+	initWriter func(config any) (Writer, func(ctx context.Context), error)
 
 	Options struct {
 		Backfill    bool
@@ -96,7 +96,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
 	}
 
-	adapter, shutdown, err := initWriter(config, deleteMode)
+	adapter, shutdown, err := initWriter(config.WriterConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize destination: %s", err)
 	}
@@ -119,13 +119,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 
 	// Equality deletes need no row index, so that mode pays nothing for one.
 	if deleteMode.NeedsRowIndex() {
-		indexOptions, err := indexdb.OptionsFromEnv()
-		if err != nil {
-			return nil, fmt.Errorf("failed to configure row index: %s", err)
-		}
-
-		logger.Infof("delete mode[%s]: keeping row indexes in %s", deleteMode, indexOptions.Dir)
-		pool.indexStore = indexdb.NewPebbleStore(indexOptions)
+		pool.indexStore = indexdb.NewStore()
 	}
 
 	for _, stream := range syncStreams {
@@ -196,7 +190,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	writerThread, prevStreamState, err := func() (Writer, *types.MetadataState, error) {
 		// init writer and point it at the config parsed once at pool creation,
 		// shared read-only across all writer threads.
-		writerThread, _, err := w.initWriter(nil, w.deleteMode)
+		writerThread, _, err := w.initWriter(nil)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to initialize writer: %s", err)
 		}
@@ -366,15 +360,32 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, deleteMode typ
 		return nil
 	}
 
+	if deleteMode.NeedsRowIndex() {
+		// drop index first and then drop table
+		indexStore := indexdb.NewStore()
+		defer func() {
+			if closeErr := indexStore.Close(); closeErr != nil {
+				logger.Errorf("failed to close row index store: %s", closeErr)
+			}
+		}()
+
+		for _, stream := range dropStreams {
+			if err := indexStore.Drop(ctx, stream.ID()); err != nil {
+				return err
+			}
+		}
+	}
+
 	initWriter, found := RegisteredWriters[config.Type]
 	if !found {
 		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
 	}
 
-	adapter, shutdown, err := initWriter(config, deleteMode)
+	adapter, shutdown, err := initWriter(config.WriterConfig)
 	if err != nil {
 		return fmt.Errorf("failed to initialize destination: %s", err)
 	}
+
 	defer func() {
 		if shutdown != nil {
 			shutdown(context.Background())
@@ -383,30 +394,6 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, deleteMode typ
 
 	if err := adapter.DropStreams(ctx, dropStreams); err != nil {
 		return fmt.Errorf("failed to drop streams: %s", err)
-	}
-
-	// A dropped table takes its row index with it, otherwise the next sync would
-	// resolve identifiers against files that no longer exist.
-	if !deleteMode.NeedsRowIndex() {
-		return nil
-	}
-
-	indexOptions, err := indexdb.OptionsFromEnv()
-	if err != nil {
-		return fmt.Errorf("failed to configure row index: %s", err)
-	}
-
-	indexStore := indexdb.NewPebbleStore(indexOptions)
-	defer func() {
-		if closeErr := indexStore.Close(); closeErr != nil {
-			logger.Errorf("failed to close row index store: %s", closeErr)
-		}
-	}()
-
-	for _, stream := range dropStreams {
-		if err := indexStore.Drop(ctx, stream.ID()); err != nil {
-			return err
-		}
 	}
 
 	return nil

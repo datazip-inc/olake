@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.avro.generic.GenericRecord;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
@@ -25,7 +26,6 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.Record;
-import org.apache.iceberg.data.parquet.GenericParquetReaders;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.parquet.Parquet;
@@ -172,14 +172,14 @@ public final class TableRowIndexScanner {
     Schema pathPos = DeleteSchemaUtil.pathPosSchema();
 
     for (DeleteFile delete : deleteFiles(table, FileContent.POSITION_DELETES)) {
-      try (CloseableIterable<Record> rows = openParquet(table, delete.path().toString(), pathPos)) {
-        for (Record row : rows) {
-          Object path = row.getField(MetadataColumns.DELETE_FILE_PATH.name());
-          Object position = row.getField(MetadataColumns.DELETE_FILE_POS.name());
+      try (CloseableIterable<Object> rows = openParquet(table, delete.path().toString(), pathPos)) {
+        for (Object row : rows) {
+          Object path = getFieldValue(row, MetadataColumns.DELETE_FILE_PATH.name());
+          Object position = getFieldValue(row, MetadataColumns.DELETE_FILE_POS.name());
           if (path == null || position == null) {
             continue;
           }
-          long ordinal = (Long) position;
+          long ordinal = position instanceof Number n ? n.longValue() : Long.parseLong(position.toString());
           if (ordinal > Integer.MAX_VALUE) {
             // No realistic data file holds this many rows. Treating such a row as
             // live only costs a redundant positional delete later on.
@@ -313,9 +313,9 @@ public final class TableRowIndexScanner {
     long position = 0L;
     long emitted = 0L;
 
-    try (CloseableIterable<Record> rows = openRows(table, file, projection)) {
-      for (Record row : rows) {
-        Object identifier = row.getField(identifierField);
+    try (CloseableIterable<Object> rows = openRows(table, file, projection)) {
+      for (Object row : rows) {
+        Object identifier = getFieldValue(row, identifierField);
         if (identifier != null && !isDeleted(deleted, position)) {
           consumer.accept(identifier.toString(), path, position, isDeletedFile);
           emitted++;
@@ -332,11 +332,21 @@ public final class TableRowIndexScanner {
     return position <= Integer.MAX_VALUE && deleted.get((int) position);
   }
 
+  /** Extracts a field value from either an Iceberg Record or an Avro GenericRecord. */
+  public static Object getFieldValue(Object row, String fieldName) {
+    if (row instanceof Record r) {
+      return r.getField(fieldName);
+    } else if (row instanceof GenericRecord g) {
+      return g.get(fieldName);
+    }
+    return null;
+  }
+
   /**
    * Opens a data file for a sequential read. Reading the whole file in order is
    * what makes the running ordinal equal Iceberg's row position.
    */
-  static CloseableIterable<Record> openRows(Table table, DataFile file, Schema projection) {
+  static CloseableIterable<Object> openRows(Table table, DataFile file, Schema projection) {
     if (file.format() != FileFormat.PARQUET) {
       throw new UnsupportedOperationException(
           "row index scanning supports parquet data files only, found " + file.format() + " in " + table.name());
@@ -350,10 +360,9 @@ public final class TableRowIndexScanner {
   }
 
   /** Opens any Iceberg-written parquet file projected down to {@code projection}. */
-  static CloseableIterable<Record> openParquet(Table table, String path, Schema projection) {
+  static CloseableIterable<Object> openParquet(Table table, String path, Schema projection) {
     return Parquet.read(table.io().newInputFile(path))
         .project(projection)
-        .createReaderFunc(fileSchema -> GenericParquetReaders.buildReader(projection, fileSchema))
         .reuseContainers()
         .build();
   }

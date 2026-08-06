@@ -31,6 +31,9 @@ message IcebergPayload {
     // Per-stream context (previously baked into JVM CLI args)
     string namespace = 7;
     bool upsert = 8;
+    // When true, the writer resolves superseding rows via positional deletes
+    // (fed by the caller's row index) instead of equality deleteKey.
+    bool use_positional_deletes = 9;
     repeated PartitionField partition_fields = 10;
   }
 
@@ -61,6 +64,11 @@ message IcebergPayload {
     
     repeated FieldValue fields = 1;
     string record_type = 2;  // "u", "c", "r"
+    // Prior live location of this identifier, when the caller's row index has
+    // one. The Java writer emits a positional delete for (path, position)
+    // before writing the new row.
+    optional string delete_file_path = 3;
+    optional int64 delete_position = 4;
   }
 
   Metadata metadata = 2;

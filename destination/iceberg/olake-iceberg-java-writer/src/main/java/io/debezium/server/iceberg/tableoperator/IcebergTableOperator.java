@@ -63,11 +63,17 @@ public class IcebergTableOperator {
   ArrayList<Pair<ArrayList<DeleteFile>, ArrayList<DataFile>>> filesToCommit = new ArrayList<>();
 
   public IcebergTableOperator(boolean upsert_records) {
+    this(upsert_records, false);
+  }
+
+  public IcebergTableOperator(boolean upsert_records, boolean usePositionalDeletes) {
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
     writerFactory2.upsert = upsert_records;
+    writerFactory2.usePositionalDeletes = usePositionalDeletes;
     this.allowFieldAddition = true;
     this.upsert = upsert_records;
+    this.usePositionalDeletes = usePositionalDeletes;
     this.cdcOpField = "_op_type";
     this.cdcSourceTsMsField = "_cdc_timestamp";
   }
@@ -91,6 +97,7 @@ public class IcebergTableOperator {
   String cdcOpField;
   boolean allowFieldAddition;
   boolean upsert;
+  boolean usePositionalDeletes;
   /**
    * If given schema contains new fields compared to target table schema then it
    * adds new fields to target iceberg

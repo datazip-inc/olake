@@ -3,11 +3,13 @@ package io.debezium.server.iceberg.tableoperator;
 import com.google.common.collect.Sets;
 import org.apache.iceberg.*;
 import org.apache.iceberg.deletes.DeleteGranularity;
+import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.data.InternalRecordWrapper;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.FileAppenderFactory;
 import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.FileWriter;
 import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.types.TypeUtil;
 
@@ -22,6 +24,7 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
   private final InternalRecordWrapper wrapper;
   private final InternalRecordWrapper keyWrapper;
   private final boolean keepDeletes;
+  private final boolean usePositionalDeletes;
   private final RecordProjection keyProjection;
 
   BaseDeltaTaskWriter(PartitionSpec spec,
@@ -32,7 +35,8 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
                       long targetFileSize,
                       Schema schema,
                       Set<Integer> identifierFieldIds,
-                      boolean keepDeletes) {
+                      boolean keepDeletes,
+                      boolean usePositionalDeletes) {
     super(spec, format, appenderFactory, fileFactory, io, targetFileSize);
     this.schema = schema;
     this.deleteSchema = TypeUtil.select(schema, Sets.newHashSet(identifierFieldIds));
@@ -40,6 +44,7 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
     this.keyWrapper = new InternalRecordWrapper(deleteSchema.asStruct());
     this.keyProjection = RecordProjection.create(schema, deleteSchema);
     this.keepDeletes = keepDeletes;
+    this.usePositionalDeletes = usePositionalDeletes;
   }
 
   abstract RowDataDeltaWriter route(Record row);
@@ -56,10 +61,28 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
     return wrapper;
   }
 
-  @Override/**/
+  @Override
   public void write(Record row) throws IOException {
     RowDataDeltaWriter writer = route(row);
-    Operation rowOperation = ((RecordWrapper) row).op();
+    RecordWrapper wrapped = (RecordWrapper) row;
+    Operation rowOperation = wrapped.op();
+
+    if (usePositionalDeletes) {
+      if (wrapped.hasPositionalDelete()) {
+        writer.deletePosition(wrapped.deleteFilePath(), wrapped.deletePosition());
+      }
+
+      if (rowOperation == Operation.DELETE && !keepDeletes) {
+        // Hard delete: positional delete only, no tombstone row.
+        return;
+      }
+
+      // Iceberg's write() already pos-deletes a prior insert of the same
+      // equality key within this writer session (insertedRowMap).
+      writer.write(wrapped);
+      return;
+    }
+
     if (rowOperation == Operation.DELETE && !keepDeletes) {
       // deletes. doing hard delete. when keepDeletes = FALSE we dont keep deleted record
       writer.deleteKey(keyProjection.wrap(row));
@@ -76,18 +99,27 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
   }
 
   public class RowDataDeltaWriter extends BaseEqualityDeltaWriter {
-    private RollingFileWriter cachedDataWriter;
+    private final RollingFileWriter cachedDataWriter;
+    private final FileWriter<PositionDelete<Record>, ?> posDeleteWriter;
+    private final PositionDelete<Record> positionDelete = PositionDelete.create();
 
+    @SuppressWarnings("unchecked")
     RowDataDeltaWriter(PartitionKey partition) {
       // create one positional delete file per referenced data file,
       super(partition, schema, deleteSchema, DeleteGranularity.FILE);
-      
+
       try {
-        Field f = BaseEqualityDeltaWriter.class.getDeclaredField("dataWriter");
-        f.setAccessible(true);
-        cachedDataWriter = (RollingFileWriter) f.get(this);
+        Field dataField = BaseEqualityDeltaWriter.class.getDeclaredField("dataWriter");
+        dataField.setAccessible(true);
+        cachedDataWriter = (RollingFileWriter) dataField.get(this);
+
+        // Iceberg 1.10 keeps writePosDelete private; write through the same
+        // pos-delete writer the equality path uses so files join the close/commit.
+        Field posField = BaseEqualityDeltaWriter.class.getDeclaredField("posDeleteWriter");
+        posField.setAccessible(true);
+        posDeleteWriter = (FileWriter<PositionDelete<Record>, ?>) posField.get(this);
       } catch (Exception e) {
-        throw new RuntimeException("Failed to access underlying dataWriter", e);
+        throw new RuntimeException("Failed to access underlying equality delta writer fields", e);
       }
     }
 
@@ -97,6 +129,11 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
 
     public long currentRows() {
         return cachedDataWriter.currentRows();
+    }
+
+    /** Emit a positional delete for a previously committed (or indexed) row. */
+    void deletePosition(String filePath, long position) throws IOException {
+      posDeleteWriter.write(positionDelete.set(filePath, position, null));
     }
 
     @Override

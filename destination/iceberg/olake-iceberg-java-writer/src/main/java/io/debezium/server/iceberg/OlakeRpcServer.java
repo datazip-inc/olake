@@ -93,12 +93,12 @@ public class OlakeRpcServer {
              OlakeArrowIngester oai = new OlakeArrowIngester(sharedSessions);
              serverBuilder.addService(oai);
              LOGGER.info("Arrow writer enabled - registered OlakeArrowIngester service");
-
-             // Positional deletes are only assembled on the arrow path, so the row
-             // index that feeds them is only useful alongside it.
-             serverBuilder.addService(new OlakeRowIndexer(sharedSessions));
-             LOGGER.info("Registered OlakeRowIndexer service");
         }
+
+        // Positional deletes are supported for both arrow and legacy paths, so the row
+        // index that feeds them is always registered.
+        serverBuilder.addService(new OlakeRowIndexer(sharedSessions));
+        LOGGER.info("Registered OlakeRowIndexer service");
 
         // Legacy ingester is always registered (Check, GET_OR_CREATE_TABLE, DROP_TABLE
         // and the default RECORDS path all flow through it).
