@@ -1,63 +1,32 @@
 #!/bin/sh
 
-# Lints the staged snapshot only: unstaged edits are set aside for the run so golangci-lint sees
-# exactly the tree about to be committed, then restored on every exit path.
+# Lints only the half that changed: any change under tests/ runs test.lint, 
+# .go changes anywhere else run olake.lint.
 
-cd "$(git rev-parse --show-toplevel)" || exit 1
-
-staged=$(git diff --cached --name-only --diff-filter=ACMR)
-product=$(printf '%s\n' "$staged" | grep -v '^tests/' | grep '\.go$')
-tests=$(printf '%s\n' "$staged" | grep '^tests/')
-if [ -z "$product" ] && [ -z "$tests" ]; then
-	echo "⏭️  nothing lintable staged, skipping lint"
+changed=$(git diff --name-only HEAD)
+if [ -z "$changed" ]; then
+	echo "⏭️  no changes, skipping lint"
 	exit 0
 fi
 
-# Saved as a patch rather than stashed: `git stash pop --keep-index` conflicts on any file that is
-# both staged and modified, while re-applying this diff onto its own base cannot.
-patch="$(git rev-parse --git-dir)/pre-commit-unstaged.patch"
-git diff --binary --no-color --no-ext-diff --ignore-submodules >"$patch" || exit 1
-
-isolated=0
-if [ -s "$patch" ]; then
-	if ! git checkout --force -- .; then
-		echo "❌ could not set aside unstaged changes. Commit aborted."
-		exit 1
-	fi
-	isolated=1
-	echo "📦 unstaged changes set aside for the duration of the lint"
-else
-	rm -f "$patch"
-fi
-
-restore() {
-	[ "$isolated" -eq 1 ] || return 0
-	isolated=0
-	if ! git apply --whitespace=nowarn "$patch"; then
-		echo "⚠️  could not restore your unstaged changes -- recover them with:"
-		echo "    git apply $patch"
-		return 1
-	fi
-	rm -f "$patch"
-}
-trap restore EXIT
-trap 'restore; exit 1' INT TERM
+product=$(printf '%s\n' "$changed" | grep -v '^tests/' | grep '\.go$')
+tests=$(printf '%s\n' "$changed" | grep '^tests/')
 
 status=0
 if [ -n "$product" ]; then
 	echo "Running lint..."
 	make olake.lint || status=1
 else
-	echo "⏭️  no .go changes staged outside tests/, skipping olake.lint"
+	echo "⏭️  no .go changes outside tests/, skipping olake.lint"
 fi
 if [ -n "$tests" ]; then
 	echo "Running lint on tests modules..."
 	make test.lint || status=1
 else
-	echo "⏭️  no changes staged in tests/, skipping test.lint"
+	echo "⏭️  no changes in tests/, skipping test.lint"
 fi
 
 if [ $status -ne 0 ]; then
 	echo "❌ lint found issues. Commit aborted."
+	exit 1
 fi
-exit $status
