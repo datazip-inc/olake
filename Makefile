@@ -50,10 +50,12 @@ trivy:
 gofmt:
 	gofmt -l -s -w .
 
+# Relative on purpose: worktrees share .git/config, so an absolute path would point every worktree
+# at whichever one ran this target last. Git resolves it against each worktree's own root.
 pre-commit:
-	chmod +x $(shell pwd)/.githooks/pre-commit
-	chmod +x $(shell pwd)/.githooks/commit-msg
-	git config core.hooksPath $(shell pwd)/.githooks
+	chmod +x .githooks/pre-commit
+	chmod +x .githooks/commit-msg
+	git config core.hooksPath .githooks
 
 BASE_NO_CACHE ?=
 BASE_CACHE_FLAG = $(if $(BASE_NO_CACHE),--no-cache --pull)
