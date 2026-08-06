@@ -13,8 +13,8 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
-	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
 )
 
@@ -142,11 +142,15 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, error) {
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, int64, error) {
 	data := make(map[string]any)
 	if tuple == nil {
-		return data, nil
+		return data, 0, nil
 	}
+
+	// rowBytes is summed inline below (attached to CDCChange.Bytes by the caller),
+	// so the tuple is walked only once.
+	var rowBytes int64
 
 	for idx, col := range tuple.Columns {
 		if idx >= len(rel.Columns) {
@@ -154,6 +158,13 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		}
 		colName := rel.Columns[idx].Name
 		colType := rel.Columns[idx].DataType
+
+		// Size the data that actually arrived in this WAL change (the new tuple),
+		// before any TOAST recovery below. Unchanged-TOAST columns carry nil Data
+		// here and add 0 — Postgres does not resend them.
+		if col.Data != nil {
+			rowBytes += oidStorageBytes(colType, col.Data)
+		}
 
 		isUnchangedToast := col.DataType == pglogrepl.TupleDataTypeToast
 		// On UPDATE, unchanged TOAST columns in the new tuple are marked TupleDataTypeToast.
@@ -172,11 +183,11 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		typeName := oidToString(colType)
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
-			return nil, err
+			return nil, 0, err
 		}
 		data[colName] = val
 	}
-	return data, nil
+	return data, rowBytes, nil
 }
 
 func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {
@@ -190,18 +201,13 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.Tuple, nil)
+	values, rowBytes, err := p.tupleValuesToMap(rel, m.Tuple, nil)
 	if err != nil {
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{
-		Stream:       stream,
-		Timestamp:    p.txnCommitTime,
-		Kind:         "insert",
-		Data:         values,
-		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
-	})
+	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "insert", values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
@@ -215,18 +221,13 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
+	values, rowBytes, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
 	if err != nil {
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{
-		Stream:       stream,
-		Timestamp:    p.txnCommitTime,
-		Kind:         "update",
-		Data:         values,
-		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
-	})
+	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
@@ -240,18 +241,13 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
+	values, rowBytes, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 	if err != nil {
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{
-		Stream:       stream,
-		Timestamp:    p.txnCommitTime,
-		Kind:         "delete",
-		Data:         values,
-		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
-	})
+	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

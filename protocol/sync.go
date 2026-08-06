@@ -134,9 +134,9 @@ var syncCmd = &cobra.Command{
 		defer pool.Shutdown(context.Background())
 
 		// start monitoring stats
-		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64) {
+		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64, int64) {
 			stats := pool.GetStats()
-			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load()
+			return stats.ThreadCount.Load(), stats.TotalRecordsToSync.Load(), stats.ReadCount.Load(), stats.BytesRead.Load()
 		})
 
 		// Setup State for Connector
@@ -144,7 +144,8 @@ var syncCmd = &cobra.Command{
 		// Sync Telemetry tracking
 		telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
-			telemetry.TrackSyncCompleted(syncID, err == nil, pool.GetStats().ReadCount.Load())
+			stats := pool.GetStats()
+			telemetry.TrackSyncCompleted(syncID, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
 			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 			time.Sleep(5 * time.Second)
 		}()
@@ -155,10 +156,14 @@ var syncCmd = &cobra.Command{
 		}
 
 		state.LogWithLock()
-		// TODO: record count also contain records which arrived in retry attempts, need to remove them
+		// ReadCount/RecordsFiltered are rolled back per-thread on failed or retried
+		// chunks (see WriterThread.Close), so this reflects committed rows only.
 		stats := pool.GetStats()
 		readRecordsCount := max(int64(0), stats.ReadCount.Load()-stats.RecordsFiltered.Load())
-		logger.Infof("Total records read: %d", readRecordsCount)
+		bytesRead := stats.BytesRead.Load()
+		logger.Infof("Total records read: %d | Total bytes read: %s",
+			readRecordsCount,
+			logger.FormatBytes(bytesRead))
 		return nil
 	},
 }
