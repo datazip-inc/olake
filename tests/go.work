@@ -10,5 +10,6 @@ use (
 	./mysql
 	./oracle
 	./postgres
+	./s3
 	./testutils
 )
