@@ -445,8 +445,7 @@ func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConf
 	fixturesPath := filepath.Join(pwd, "testdata", dataFormat)
 	workDir, err := os.MkdirTemp("/tmp", fmt.Sprintf("olake-it-%s-", driver))
 	require.NoError(t, err, "failed to create the test working directory")
-	// Removed once the test passes, kept on failure for inspection. Logged, not fatal: on CI the
-	// containers leave root-owned files behind that the test user cannot remove.
+	// Removed once the test passes, kept on failure for inspection. Logged, not fatal
 	t.Cleanup(func() {
 		if !t.Failed() {
 			if err := os.RemoveAll(workDir); err != nil {

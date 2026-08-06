@@ -65,6 +65,7 @@ func dockerRunArgs(cfg *TestConfig, extraFlags []string, olakeArgs []string) []s
 	args := []string{
 		"run", "--rm",
 		"-v", fmt.Sprintf("%s:%s", cfg.HostTestDataPath, containerTestDataDir),
+		"--tmpfs", fmt.Sprintf("%s/logs", containerTestDataDir),
 		"-e", "TELEMETRY_DISABLED=true",
 		"-e", "OLAKE_TIMING=1",
 	}
