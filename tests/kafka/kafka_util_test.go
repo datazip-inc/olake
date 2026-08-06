@@ -175,7 +175,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 	case "insert_2pc":
 		// Simulate a 2PC failure after destination commit: the consumer offset on partition 0 lags
 		// at 1. Roll back the suite's own group.
-		commitConsumerGroupOffset(ctx, t, client, streams[0], streams[0], 0, 1)
+		commitConsumerGroupOffset(ctx, t, client, suiteConsumerGroup(t, conf), streams[0], 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
 		addKafkaPartitions(ctx, t, client, streams[0], 1)
@@ -444,10 +444,10 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Cl
 			return fmt.Errorf("leave group %s error code %d", consumerGroupID, leaveResp.ErrorCode)
 		}
 		return fmt.Errorf("consumer group %s still has %d active member(s)", consumerGroupID, len(group.Members))
-	}))
+	}), "force-leave consumer group %q", consumerGroupID)
 
 	fetched, err := adm.FetchOffsets(ctx, consumerGroupID)
-	require.NoError(t, err)
+	require.NoError(t, err, "fetch offsets for consumer group %q", consumerGroupID)
 
 	toCommit := fetched.Offsets()
 	toCommit.Delete(topic, partition)
@@ -455,11 +455,11 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Cl
 
 	// Delete and re-seed offsets admin-side; avoids joining Olake's multi-member consumer group.
 	_, err = adm.DeleteGroup(ctx, consumerGroupID)
-	require.NoError(t, err)
+	require.NoError(t, err, "delete consumer group %q", consumerGroupID)
 
 	committed, err := adm.CommitOffsets(ctx, consumerGroupID, toCommit)
-	require.NoError(t, err)
-	require.NoError(t, committed.Error())
+	require.NoError(t, err, "commit offsets for consumer group %q", consumerGroupID)
+	require.NoError(t, committed.Error(), "commit offsets for consumer group %q", consumerGroupID)
 	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, nextOffset)
 }
 
