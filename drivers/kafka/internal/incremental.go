@@ -13,6 +13,6 @@ func (k *Kafka) StreamIncrementalChanges(_ context.Context, _ types.StreamInterf
 	return nil
 }
 
-func (k *Kafka) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+func (k *Kafka) FetchMaxCursorValues(_ context.Context, _ types.StreamInterface) (any, any, error) {
 	return nil, nil, nil
 }
