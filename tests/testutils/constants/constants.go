@@ -34,4 +34,8 @@ const LatestStateVersion = 6
 
 // SkipCDCDrivers are drivers that do not run a CDC-based sync. Unlike the identifiers above this is
 // test-side policy, not an olake contract -- it decides which suites skip their CDC subtests.
-var SkipCDCDrivers = []DriverType{Oracle, DB2}
+var SkipCDCDrivers = []DriverType{Oracle, DB2, S3}
+
+// UppercaseStreamDrivers are drivers whose sources name objects in uppercase, so discover writes
+// uppercase stream names and a test patching streams.json by name must match that casing.
+var UppercaseStreamDrivers = []DriverType{Oracle, DB2}

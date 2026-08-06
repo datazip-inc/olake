@@ -536,7 +536,7 @@ func writeHostFile(path string, data []byte) error {
 // normalizeStreamName uppercases the stream name for drivers whose catalogs store
 // uppercase identifiers (e.g. Oracle).
 func normalizeStreamName(driver, streamName string) string {
-	return Ternary(slices.Contains(constants.SkipCDCDrivers, constants.DriverType(driver)), strings.ToUpper(streamName), streamName).(string)
+	return Ternary(slices.Contains(constants.UppercaseStreamDrivers, constants.DriverType(driver)), strings.ToUpper(streamName), streamName).(string)
 }
 
 // updateSelectedStreams rewrites selected_streams so only the given streams stay selected, with
@@ -1394,6 +1394,14 @@ func (cfg *IntegrationTest) testIceberg2PCIncrementalRecovery(
 	return nil
 }
 
+// keepTestData reports whether OLAKE_TEST_KEEP_DATA=true, the dev switch that skips the
+// final source-data drop so the seeded tables/files survive the run for inspection.
+// Every pre-test drop/clean still runs, so the next run starts from a clean slate
+// regardless of the switch.
+func keepTestData() bool {
+	return os.Getenv("OLAKE_TEST_KEEP_DATA") == "true"
+}
+
 // Test2PCIntegration runs the full Two-Phase Commit (2PC) failure-recovery integration test
 // suite against the driver image. It exercises CDC and incremental state-recovery scenarios
 // independently of the happy-path integration tests, allowing them to be scheduled and
@@ -1459,8 +1467,12 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 			}
 		}
 
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-		t.Logf("%s 2PC sync test cleanup", cfg.TestConfig.Driver)
+		if keepTestData() {
+			t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)
+		} else {
+			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+			t.Logf("%s 2PC sync test cleanup", cfg.TestConfig.Driver)
+		}
 	})
 }
 
@@ -1617,7 +1629,13 @@ func (cfg *IntegrationTest) TestDiscover(t *testing.T) {
 	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 	// Deferred, so a failed discover still hands the parallel suites behind it a clean source.
-	defer cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+	defer func() {
+		if keepTestData() {
+			t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)
+			return
+		}
+		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+	}()
 
 	// 2. Run discover against the driver image
 	code, out, err := runOlake(ctx, t, cfg.TestConfig, discoverArgs(*cfg.TestConfig)...)
@@ -1708,6 +1726,10 @@ func (cfg *IntegrationTest) TestSync(t *testing.T) {
 	}
 
 	// 3. Clean up
+	if keepTestData() {
+		t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)
+		return
+	}
 	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 	t.Logf("%s sync test cleanup", cfg.TestConfig.Driver)
 }

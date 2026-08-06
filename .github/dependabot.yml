@@ -1,0 +1,53 @@
+version: 2
+
+# Note: target-branch applies to VERSION updates only. Dependabot security
+# updates always open against the repository default branch; that is a
+# Dependabot limitation and cannot be configured.
+updates:
+  # Go modules: root module plus every driver, lib and test module (go.work workspace).
+  - package-ecosystem: "gomod"
+    directories:
+      - "/"
+      - "/drivers/*"
+      - "/lib"
+      - "/tests/*"
+    target-branch: "staging"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "go"
+    groups:
+      # One PR per module for routine bumps; security updates stay separate.
+      go-dependencies:
+        update-types: ["minor", "patch"]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Java Iceberg writer. Dependabot cannot fix a transitive Maven dependency,
+  # so keeping the parents current is the whole mechanism here.
+  - package-ecosystem: "maven"
+    directory: "/destination/iceberg/olake-iceberg-java-writer"
+    target-branch: "staging"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "java"
+    ignore:
+      # Majors are reviewed by hand: this module has no test suite, so a green
+      # build does not prove runtime behaviour is intact.
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "staging"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"

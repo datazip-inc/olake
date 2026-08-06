@@ -156,7 +156,7 @@ HELP_TARGETS :=
 
 # --- driver lists -------------------------------------------------------------
 # A driver is any drivers/ subdir with its own go.mod; the ones that also have
-# a docker-compose.yml get olake.* stacks and test targets (s3 has no local stack).
+# a docker-compose.yml get olake.* stacks and test targets.
 SOURCE_DRIVERS := $(filter $(DRIVERS),$(notdir $(patsubst %/docker-compose.yml,%,$(wildcard drivers/*/docker-compose.yml))))
 CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
 SOURCE_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
@@ -169,7 +169,7 @@ print.source-drivers:
 	@echo $(SOURCE_DRIVERS)
 
 # Every driver module, suite or not. CI subtracts the two lists to tell a driver with no suite
-# (s3) apart from shared code, so a PR touching only that driver runs nothing instead of everything.
+# apart from shared code, so a PR touching only that driver runs nothing instead of everything.
 .PHONY: print.drivers
 print.drivers:
 	@echo $(DRIVERS)
