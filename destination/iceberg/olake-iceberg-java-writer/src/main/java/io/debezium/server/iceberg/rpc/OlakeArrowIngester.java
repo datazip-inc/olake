@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 
 import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
 import io.grpc.stub.StreamObserver;
-import jakarta.enterprise.context.Dependent;
 
 /**
  * Multi-Thread-Session gRPC service for the Arrow Iceberg write path.
@@ -32,7 +31,6 @@ import jakarta.enterprise.context.Dependent;
  * from the JSONSCHEMA payload that creates the session; every later payload
  * (FILEPATH / UPLOAD_FILE / REGISTER_AND_COMMIT) carries only the thread_id.
  */
-@Dependent
 public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServiceImplBase {
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeArrowIngester.class);
     private static final String FILE_TYPE_DATA = "data";

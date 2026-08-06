@@ -143,11 +143,11 @@ func (o *Oracle) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 
 	var streamNames []types.StreamID
 	for rows.Next() {
-		var owner, table_name string
-		if err := rows.Scan(&owner, &table_name); err != nil {
+		var owner, tableName string
+		if err := rows.Scan(&owner, &tableName); err != nil {
 			return nil, fmt.Errorf("failed to scan table: %s", err)
 		}
-		streamNames = append(streamNames, types.StreamID{Namespace: owner, Name: table_name})
+		streamNames = append(streamNames, types.StreamID{Namespace: owner, Name: tableName})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating tables: %s", err)
@@ -177,7 +177,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName types.StreamID) (
 			return nil, fmt.Errorf("failed to scan column: %s", err)
 		}
 		stream.WithCursorField(columnName)
-		datatype := types.Unknown
+		var datatype types.DataType
 		if val, found := reformatOracleDatatype(dataType, dataPrecision, dataScale); found {
 			datatype = val
 		} else {

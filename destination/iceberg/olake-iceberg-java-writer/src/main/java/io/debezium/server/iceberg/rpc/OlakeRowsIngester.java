@@ -15,7 +15,6 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.debezium.DebeziumException;
 import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.SchemaConvertor;
 import io.debezium.server.iceberg.rowindex.TableRowIndexScanner;
@@ -23,7 +22,6 @@ import io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
-import jakarta.enterprise.context.Dependent;
 
 /**
  * Multi-Thread-Session gRPC service for the legacy (rows-based) Iceberg write path.
@@ -41,7 +39,6 @@ import jakarta.enterprise.context.Dependent;
  * session; later payloads carry only thread_id (+ evolving schema), so the JVM
  * still needs no global config.
  */
-@Dependent
 public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServiceImplBase {
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRowsIngester.class);
 
@@ -256,7 +253,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s",
                                                     tableId, e.getMessage());
                 LOGGER.error(errorMessage, e);
-                throw new DebeziumException(errorMessage, e);
+                throw new RuntimeException(errorMessage, e);
             }
         });
     }

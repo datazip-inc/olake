@@ -12,7 +12,6 @@ require (
 	github.com/go-playground/validator/v10 v10.25.0
 	github.com/goccy/go-json v0.10.5
 	github.com/jackc/pglogrepl v0.0.0-20250322012620-f1e2b1498ed6
-	github.com/jackc/pgtype v1.14.0
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/linkedin/goavro/v2 v2.15.0
@@ -51,7 +50,6 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
-	github.com/jackc/pgx/v4 v4.18.3 // indirect
 	github.com/klauspost/asmfmt v1.3.2 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect

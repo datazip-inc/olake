@@ -1,7 +1,6 @@
 package io.debezium.server.iceberg.tableoperator;
 
 import io.debezium.server.iceberg.IcebergUtil;
-import jakarta.enterprise.context.Dependent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.GenericAppenderFactory;
@@ -24,7 +23,6 @@ import static org.apache.iceberg.TableProperties.WRITE_TARGET_FILE_SIZE_BYTES_DE
  * Fields are plain (no @ConfigProperty) because the shared JVM hosts many operators
  * with possibly different upsert flags; each operator sets these explicitly.
  */
-@Dependent
 public class IcebergTableWriterFactory {
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableWriterFactory.class);
   public boolean upsert = true;

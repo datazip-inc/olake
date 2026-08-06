@@ -82,7 +82,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	// A successful recovery stops processing for this reader so the next run starts from the recovered offsets.
 	if isRecoveryPerformed {
 		logger.Infof("reader[%d]: recovery performed for this sync, skipping this reader", readerID)
-		return nil, nil
+		return nil, err
 	}
 
 	// Restart the reader to create a fresh franz-go client for each StreamChanges attempt.
