@@ -1,25 +1,41 @@
 package kafka
 
 import (
+	"context"
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
+type kafkaFormat struct {
+	name string
+	cfg  *testutils.IntegrationTest
+}
+
+func kafkaFormats(t *testing.T) []kafkaFormat {
+	return []kafkaFormat{
+		{name: "JSON-Format", cfg: kafkaJSONBaseConfig(t)},
+		{name: "AVRO-Format", cfg: kafkaAvroBaseConfig(t)},
+	}
+}
+
 func kafkaJSONBaseConfig(t *testing.T) *testutils.IntegrationTest {
+	testConf := testutils.GetTestConfig(t, string(constants.Kafka), "json")
 	return &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(t, string(constants.Kafka), "json"),
+		TestConfig:                       testConf,
 		Namespace:                        "topics",
 		ExpectedData:                     ExpectedKafkaJSONData,
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
 		DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
 		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationJSONSchema,
 		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
-		ExecuteQuery:                     ExecuteQueryJSON,
-		DestinationDB:                    "kafka_topics",
-		PartitionRegex:                   "/{int_value,identity}",
-		ColumnToExclude:                  "col_excluded",
+		ExecuteQuery: func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+			ExecuteQueryJSON(ctx, t, streams, operation, fileConfig, testConf)
+		},
+		DestinationDB:   "kafka_topics",
+		PartitionRegex:  "/{int_value,identity}",
+		ColumnToExclude: "col_excluded",
 		FilterConfig: `{
 			"logical_operator": "And",
 			"conditions": [
@@ -69,25 +85,20 @@ func kafkaAvroBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	}
 }
 
-func TestKafkaIntegration(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name string
-		cfg  *testutils.IntegrationTest
-	}{
-		{
-			name: "JSON-Format",
-			cfg:  kafkaJSONBaseConfig(t),
-		},
-		{
-			name: "AVRO-Format",
-			cfg:  kafkaAvroBaseConfig(t),
-		},
+func TestKafkaDiscover(t *testing.T) {
+	for _, format := range kafkaFormats(t) {
+		t.Run(format.name, func(t *testing.T) {
+			format.cfg.TestDiscover(t)
+		})
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+}
+
+func TestKafkaSync(t *testing.T) {
+	t.Parallel()
+	for _, format := range kafkaFormats(t) {
+		t.Run(format.name, func(t *testing.T) {
 			t.Parallel()
-			test.cfg.TestIntegration(t)
+			format.cfg.TestSync(t)
 		})
 	}
 }
@@ -99,7 +110,5 @@ func TestKafka2PC(t *testing.T) {
 
 func TestKafkaRebalance(t *testing.T) {
 	t.Parallel()
-	cfg := kafkaJSONBaseConfig(t)
-	rebalanceSyncStatsPath = cfg.TestConfig.HostStatsPath
-	cfg.TestRebalance(t)
+	kafkaJSONBaseConfig(t).TestRebalance(t)
 }

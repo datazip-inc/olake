@@ -8,7 +8,7 @@ import (
 )
 
 // oracleBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// between TestOracleIntegration and TestOracle2PC.
+// by the oracle suites.
 func oracleBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(t, string(constants.Oracle)),
@@ -38,12 +38,16 @@ func oracleBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	}
 }
 
-func TestOracleIntegration(t *testing.T) {
+func TestOracleDiscover(t *testing.T) {
+	oracleBaseConfig(t).TestDiscover(t)
+}
+
+func TestOracleSync(t *testing.T) {
 	t.Parallel()
 	cfg := oracleBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedOracleData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedOracleToDestinationSchema
-	cfg.TestIntegration(t)
+	cfg.TestSync(t)
 }
 
 func TestOracle2PC(t *testing.T) {

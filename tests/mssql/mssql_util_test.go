@@ -161,6 +161,30 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		// Wait until current_max_lsn >= start_lsn of the capture instance so CDC is ready for sync
 		verifyCDCEnabled(ctx, t, db, captureInstance)
 
+	case "drop-all":
+		require.NoError(t, execCDCMetadata(ctx, t, db, `
+			DECLARE @schema SYSNAME, @table SYSNAME, @capture SYSNAME;
+			DECLARE tables CURSOR LOCAL FAST_FORWARD FOR
+				SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+				WHERE TABLE_TYPE = 'BASE TABLE'
+				AND TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA', 'sys', 'cdc');
+			OPEN tables;
+			FETCH NEXT FROM tables INTO @schema, @table;
+			WHILE @@FETCH_STATUS = 0
+			BEGIN
+				SET @capture = NULL;
+				IF OBJECT_ID('cdc.change_tables') IS NOT NULL
+					SELECT @capture = capture_instance FROM cdc.change_tables
+					WHERE source_object_id = OBJECT_ID(QUOTENAME(@schema) + '.' + QUOTENAME(@table));
+				IF @capture IS NOT NULL
+					EXEC sys.sp_cdc_disable_table
+						@source_schema = @schema, @source_name = @table, @capture_instance = @capture;
+				EXEC('DROP TABLE ' + QUOTENAME(@schema) + '.' + QUOTENAME(@table));
+				FETCH NEXT FROM tables INTO @schema, @table;
+			END
+			CLOSE tables;
+			DEALLOCATE tables;`), "failed to drop all tables")
+
 	case "drop":
 		// Disable CDC before dropping table to ensure capture instance is cleaned up
 		// This prevents "capture instance already exists" errors in subsequent test runs

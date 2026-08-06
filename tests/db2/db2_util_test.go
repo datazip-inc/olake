@@ -94,6 +94,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	var query string
 
 	switch operation {
+	case "drop-all":
+		query = `
+			BEGIN
+				FOR t AS SELECT TABNAME FROM SYSCAT.TABLES WHERE TYPE = 'T' AND TABSCHEMA = CURRENT SCHEMA DO
+					EXECUTE IMMEDIATE 'DROP TABLE "' || t.TABNAME || '"';
+				END FOR;
+			END`
+
 	case "create":
 		query = fmt.Sprintf(`
 			CREATE TABLE %s (

@@ -86,6 +86,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "drop":
 		query = fmt.Sprintf(`DROP TABLE IF EXISTS %s;`, integrationTestTable)
 
+	case "drop-all":
+		query = `
+			BEGIN
+				FOR t IN (SELECT table_name FROM user_tables) LOOP
+					EXECUTE IMMEDIATE 'DROP TABLE "' || t.table_name || '" CASCADE CONSTRAINTS PURGE';
+				END LOOP;
+			END;`
+
 	case "clean":
 		query = fmt.Sprintf("TRUNCATE TABLE %s", integrationTestTable)
 

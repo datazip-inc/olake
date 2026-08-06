@@ -193,8 +193,7 @@ func destinationDBPrefix(c *TestConfig) string {
 	return Ternary(c.Suite == "", prefix, fmt.Sprintf("%s_%s", prefix, c.Suite)).(string)
 }
 
-// verifyDiscoveredStreams asserts every stream in test_streams.json was discovered and matches.
-// Extra streams are ignored: discover enumerates the whole database, including other suites' tables.
+// verifyDiscoveredStreams asserts the discovered catalog holds exactly the streams test_streams.json
 func verifyDiscoveredStreams(t *testing.T, expectedPath, actualPath string) {
 	t.Helper()
 
@@ -243,12 +242,12 @@ func verifyDiscoveredStreams(t *testing.T, expectedPath, actualPath string) {
 	}
 
 	compare := func(section string, want, got map[string]interface{}) {
+		require.Equal(t, slices.Sorted(maps.Keys(want)), slices.Sorted(maps.Keys(got)),
+			"%s: discover returned a different set of streams than test_streams.json", section)
 		for key, wantEntry := range want {
-			gotEntry, found := got[key]
-			require.Truef(t, found, "%s: discover did not return %q (found: %v)", section, key, slices.Sorted(maps.Keys(got)))
 			wantJSON, err := json.Marshal(wantEntry)
 			require.NoError(t, err)
-			gotJSON, err := json.Marshal(gotEntry)
+			gotJSON, err := json.Marshal(got[key])
 			require.NoError(t, err)
 			require.Truef(t, NormalizedEqual(string(wantJSON), string(gotJSON)),
 				"%s: discovered %q does not match test_streams.json\nExpected:\n%s\nGot:\n%s", section, key, wantJSON, gotJSON)
@@ -1465,6 +1464,31 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 	})
 }
 
+// WaitForSyncProgress blocks until the running sync has reported its first records in stats.json.
+// A driver uses it to time an event at a point where the sync is demonstrably mid-flight, rather
+// than guessing with a sleep.
+func WaitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		if ctx.Err() != nil {
+			return true
+		}
+
+		var stats struct {
+			SyncedRecords int64 `json:"Synced Records"`
+		}
+		if err := UnmarshalFile(statsPath, &stats, false); err != nil {
+			return false
+		}
+		if stats.SyncedRecords > 0 {
+			t.Logf("sync started: %d records synced", stats.SyncedRecords)
+			return true
+		}
+		return false
+	}, SyncTimeout, time.Second)
+}
+
 // runRebalanceSync runs a sync command for the rebalance test.
 func (cfg *IntegrationTest) runRebalanceSync(
 	ctx context.Context,
@@ -1570,7 +1594,14 @@ func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
 	})
 }
 
-func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
+// TestDiscover seeds the source with this driver's test table, runs discover against the driver
+// image and asserts the catalog it writes matches test_streams.json exactly.
+//
+// Its caller must not be parallel. The compare is an equality one, so it only holds while this
+// table is the only thing in the source -- and every other suite seeds one of its own. Leaving the
+// test serial is what orders it ahead of them: Go resumes parallel tests only once the serial ones
+// in the package are done.
+func (cfg *IntegrationTest) TestDiscover(t *testing.T) {
 	ctx := t.Context()
 	cfg.ExecuteQuery = timedExecuteQuery(cfg.TestConfig.Driver, cfg.ExecuteQuery)
 
@@ -1578,98 +1609,107 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
 	currentTestTable := testTableName(cfg.TestConfig)
 
-	t.Run("Discover", func(t *testing.T) {
-		// 1. Query on test table; drop first so an aborted run's leftovers cannot survive
-		// the CREATE IF NOT EXISTS
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+	// 1. Empty the source, then seed just this table. drop-all is what makes the compare below an
+	// equality one: discover enumerates everything, so anything an aborted run (or a perf seed)
+	// left behind would show up as an extra stream. Safe only here -- the discover suite runs
+	// alone, while every parallel suite owns a table drop-all would take with it.
+	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop-all", false)
+	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+	// Deferred, so a failed discover still hands the parallel suites behind it a clean source.
+	defer cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 
-		// 2. Run discover against the driver image
-		code, out, err := runOlake(ctx, t, cfg.TestConfig, discoverArgs(*cfg.TestConfig)...)
-		if err != nil || code != 0 {
-			t.Fatalf("discover failed (%d): %s\n%s", code, err, string(out))
+	// 2. Run discover against the driver image
+	code, out, err := runOlake(ctx, t, cfg.TestConfig, discoverArgs(*cfg.TestConfig)...)
+	if err != nil || code != 0 {
+		t.Fatalf("discover failed (%d): %s\n%s", code, err, string(out))
+	}
+
+	// 3. Verify streams.json describes exactly the streams we expect
+	verifyDiscoveredStreams(t, cfg.TestConfig.HostTestCatalogPath, cfg.TestConfig.HostCatalogPath)
+}
+
+// TestSync runs the happy-path sync suite: full load, CDC and incremental, over both Iceberg writers
+// and Parquet. It seeds its catalog from test_streams.json instead of discovering one, the way the
+// 2PC and rebalance suites do -- TestDiscover already proves the two are identical.
+func (cfg *IntegrationTest) TestSync(t *testing.T) {
+	ctx := t.Context()
+	cfg.ExecuteQuery = timedExecuteQuery(cfg.TestConfig.Driver, cfg.ExecuteQuery)
+
+	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
+	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
+	currentTestTable := testTableName(cfg.TestConfig)
+
+	seedCatalogFromTestStreams(t, cfg.TestConfig, currentTestTable)
+
+	// 1. Query on test table; drop first so an aborted run's leftovers cannot survive
+	// the CREATE IF NOT EXISTS
+	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
+	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
+	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
+
+	// 2. Enable normalization, partition regex, filter and column exclusion in streams.json
+	if err := updateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, cfg.ColumnToExclude); err != nil {
+		t.Fatalf("failed to enable normalization and partition regex in streams.json: %s", err)
+	}
+	t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.HostCatalogPath)
+
+	writerTypes := []struct {
+		name     string
+		useArrow bool
+	}{
+		{"Legacy", false},
+		{"Arrow", true},
+	}
+
+	// Skip cdc tests for drivers not supporting cdc mode
+	if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
+		for _, wt := range writerTypes {
+			t.Run(fmt.Sprintf("Iceberg (%s) Full load + CDC tests", wt.name), func(t *testing.T) {
+				if err := cfg.testIcebergWriter(ctx, t, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndCDC); err != nil {
+					t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", wt.name, err)
+				}
+			})
 		}
 
-		// 3. Verify streams.json describes the streams we expect
-		verifyDiscoveredStreams(t, cfg.TestConfig.HostTestCatalogPath, cfg.TestConfig.HostCatalogPath)
-
-		// 4. Clean up
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-		t.Logf("%s discover test cleanup", cfg.TestConfig.Driver)
-	})
-
-	t.Run("Sync", func(t *testing.T) {
-		// 1. Query on test table; drop first so an aborted run's leftovers cannot survive
-		// the CREATE IF NOT EXISTS
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
-
-		// 2. Enable normalization, partition regex, filter and column exclusion in streams.json
-		if err := updateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, cfg.ColumnToExclude); err != nil {
-			t.Fatalf("failed to enable normalization and partition regex in streams.json: %s", err)
-		}
-		t.Logf("Enabled normalization and added partition regex in %s", cfg.TestConfig.HostCatalogPath)
-
-		writerTypes := []struct {
-			name     string
-			useArrow bool
-		}{
-			{"Legacy", false},
-			{"Arrow", true},
-		}
-
-		// Skip cdc tests for drivers not supporting cdc mode
-		if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
-			for _, wt := range writerTypes {
-				t.Run(fmt.Sprintf("Iceberg (%s) Full load + CDC tests", wt.name), func(t *testing.T) {
-					if err := cfg.testIcebergWriter(ctx, t, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndCDC); err != nil {
-						t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", wt.name, err)
-					}
-				})
+		t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
+			if err := cfg.testParquetFullLoadAndCDC(ctx, t, currentTestTable); err != nil {
+				t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
 			}
+		})
+	}
 
-			t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
-				if err := cfg.testParquetFullLoadAndCDC(ctx, t, currentTestTable); err != nil {
-					t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
+	// Skip incremental tests for drivers not supporting incremental mode
+	if cfg.TestConfig.Driver != string(constants.Kafka) {
+		for _, wt := range writerTypes {
+			t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
+				if err := cfg.testIcebergWriter(ctx, t, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndIncremental); err != nil {
+					t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", wt.name, err)
 				}
 			})
 		}
 
-		// Skip incremental tests for drivers not supporting incremental mode
-		if cfg.TestConfig.Driver != string(constants.Kafka) {
-			for _, wt := range writerTypes {
-				t.Run(fmt.Sprintf("Iceberg (%s) Full load + Incremental tests", wt.name), func(t *testing.T) {
-					if err := cfg.testIcebergWriter(ctx, t, currentTestTable, wt.useArrow, cfg.testIcebergFullLoadAndIncremental); err != nil {
-						t.Fatalf("Iceberg (%s) Full load + Incremental tests failed: %v", wt.name, err)
-					}
-				})
+		t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
+			if err := cfg.testParquetFullLoadAndIncremental(ctx, t, currentTestTable); err != nil {
+				t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
 			}
+		})
+	}
 
-			t.Run("Parquet Full load + Incremental tests", func(t *testing.T) {
-				if err := cfg.testParquetFullLoadAndIncremental(ctx, t, currentTestTable); err != nil {
-					t.Fatalf("Parquet Full load + Incremental tests failed: %v", err)
-				}
-			})
-		}
+	// Asserts the writer splits bulk output into size-bounded files without losing rows. Runs
+	// last: it replaces the table contents and clears streams.json's regex/filter config.
+	if hasParquetRollingTest(cfg.TestConfig.Driver) {
+		t.Run("Parquet Rolling", func(t *testing.T) {
+			if err := cfg.testParquetRolling(ctx, t, currentTestTable); err != nil {
+				t.Fatalf("Parquet Rolling test failed: %v", err)
+			}
+		})
+	}
 
-		// Asserts the writer splits bulk output into size-bounded files without losing rows. Runs
-		// last: it replaces the table contents and clears streams.json's regex/filter config.
-		if hasParquetRollingTest(cfg.TestConfig.Driver) {
-			t.Run("Parquet Rolling", func(t *testing.T) {
-				if err := cfg.testParquetRolling(ctx, t, currentTestTable); err != nil {
-					t.Fatalf("Parquet Rolling test failed: %v", err)
-				}
-			})
-		}
-
-		// 3. Clean up
-		cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
-		t.Logf("%s sync test cleanup", cfg.TestConfig.Driver)
-	})
+	// 3. Clean up
+	cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
+	t.Logf("%s sync test cleanup", cfg.TestConfig.Driver)
 }
 
 var (

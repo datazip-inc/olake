@@ -9,7 +9,7 @@ import (
 )
 
 // postgresBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// between TestPostgresIntegration and TestPostgres2PC.
+// by the postgres suites.
 func postgresBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(t, string(constants.Postgres)),
@@ -40,12 +40,16 @@ func postgresBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	}
 }
 
-func TestPostgresIntegration(t *testing.T) {
+func TestPostgresDiscover(t *testing.T) {
+	postgresBaseConfig(t).TestDiscover(t)
+}
+
+func TestPostgresSync(t *testing.T) {
 	t.Parallel()
 	cfg := postgresBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
-	cfg.TestIntegration(t)
+	cfg.TestSync(t)
 }
 
 func TestPostgres2PC(t *testing.T) {

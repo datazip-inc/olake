@@ -17,18 +17,20 @@ import (
 func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
-	var connStr string
+	var connStr, database string
 	if fileConfig {
 		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
+		database = config.String("database")
 		// the mysql driver spells its single host "hosts"
 		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
 			config.String("username"),
 			config.String("password"),
 			config.String("hosts"),
 			config.Int("port"),
-			config.String("database"))
+			database)
 	} else {
-		connStr = "mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true"
+		database = "olake_mysql_test"
+		connStr = fmt.Sprintf("mysql:secret1234@tcp(localhost:3306)/%s?parseTime=true", database)
 	}
 	db, err := sqlx.ConnectContext(ctx, "mysql", connStr)
 	require.NoError(t, err, "failed to connect to  mysql")
@@ -89,6 +91,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
+
+	case "drop-all":
+		_, err = db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", database))
+		require.NoError(t, err, "failed to drop database %s", database)
+		query = fmt.Sprintf("CREATE DATABASE `%s`", database)
 
 	case "clean":
 		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)

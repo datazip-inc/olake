@@ -76,6 +76,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		err := collection.Drop(ctx)
 		require.NoError(t, err, "Failed to drop collection")
 
+	case "drop-all":
+		require.NoError(t, db.Drop(ctx), "Failed to drop database")
+
 	case "clean":
 		_, err := collection.DeleteMany(ctx, bson.M{})
 		require.NoError(t, err, "Failed to clean collection")

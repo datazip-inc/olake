@@ -8,7 +8,6 @@ import (
 )
 
 // mongodbBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// between TestMongodbIntegration and TestMongodb2PC.
 func mongodbBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(t, string(constants.MongoDB)),
@@ -39,12 +38,16 @@ func mongodbBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	}
 }
 
-func TestMongodbIntegration(t *testing.T) {
+func TestMongodbDiscover(t *testing.T) {
+	mongodbBaseConfig(t).TestDiscover(t)
+}
+
+func TestMongodbSync(t *testing.T) {
 	t.Parallel()
 	cfg := mongodbBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedMongoToDestinationSchema
-	cfg.TestIntegration(t)
+	cfg.TestSync(t)
 }
 
 func TestMongodb2PC(t *testing.T) {

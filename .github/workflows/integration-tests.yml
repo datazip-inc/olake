@@ -329,4 +329,4 @@ jobs:
       - name: Run tests
         env:
           OLAKE_DRIVER_IMAGE: olake/source-${{ matrix.driver }}:local
-        run: make test.driver.${{ matrix.driver }}
+        run: make test.integration.${{ matrix.driver }}

@@ -8,7 +8,7 @@ import (
 )
 
 // mysqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// between TestMySQLIntegration and TestMySQL2PC.
+// by the mysql suites.
 func mysqlBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(t, string(constants.MySQL)),
@@ -39,12 +39,16 @@ func mysqlBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	}
 }
 
-func TestMySQLIntegration(t *testing.T) {
+func TestMySQLDiscover(t *testing.T) {
+	mysqlBaseConfig(t).TestDiscover(t)
+}
+
+func TestMySQLSync(t *testing.T) {
 	t.Parallel()
 	cfg := mysqlBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
-	cfg.TestIntegration(t)
+	cfg.TestSync(t)
 }
 
 func TestMySQL2PC(t *testing.T) {

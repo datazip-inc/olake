@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
@@ -28,6 +29,9 @@ const (
 	rebalanceBulkBatchSize     = 500
 	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
 	avroSchemaRegistryURL      = "http://127.0.0.1:8081"
+	schemaRegistryTopic        = "_schemas"
+	topicDeletionAttempts      = 8
+	topicDeletionBackoff       = 200 * time.Millisecond
 
 	// Base Avro schema
 	avroSchema = `{
@@ -71,7 +75,6 @@ var (
 	// rebalance trigger
 	rebalanceTriggerCancel context.CancelFunc
 	rebalanceTriggerDone   chan struct{} // closed when the trigger goroutine has fully exited
-	rebalanceSyncStatsPath string
 
 	// JSON
 	jsonKey          = []byte(`{"key":"json-key"}`)
@@ -123,7 +126,7 @@ var (
 )
 
 // ExecuteQueryJSON executes Kafka queries for testing based on the operation type
-func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, conf *testutils.TestConfig) {
 	t.Helper()
 
 	var kafkaJSONBroker string
@@ -154,6 +157,9 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 	case "drop":
 		deleteKafkaTopic(ctx, t, client, streams[0])
 
+	case "drop-all":
+		deleteAllKafkaTopics(ctx, t, client)
+
 	case "add":
 		// 5 messages inserted with different partitions
 		for partition := range int32(partitionCount) {
@@ -178,7 +184,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	case "insert_rebalance":
 		addRebalanceBulkMessages(ctx, t, client, streams[0])
-		startRebalanceTrigger(ctx, t, streams[0])
+		startRebalanceTrigger(ctx, t, streams[0], conf.HostStatsPath)
 
 	case "stop_rebalance":
 		stopRebalanceTrigger()
@@ -214,7 +220,7 @@ func addRebalanceBulkMessages(ctx context.Context, t *testing.T, client *kgo.Cli
 
 // startRebalanceTrigger waits for sync progress, then joins a competing consumer group member in the
 // background to force a rebalance while olake is still syncing.
-func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
+func startRebalanceTrigger(ctx context.Context, t *testing.T, topic, statsPath string) {
 	t.Helper()
 
 	rebalanceCtx, cancel := context.WithCancel(ctx)
@@ -232,7 +238,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 			close(done)
 		}()
 
-		waitForSyncProgress(rebalanceCtx, t)
+		testutils.WaitForSyncProgress(rebalanceCtx, t, statsPath)
 		if rebalanceCtx.Err() != nil {
 			return
 		}
@@ -256,31 +262,6 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 			client.PollFetches(rebalanceCtx)
 		}
 	}()
-}
-
-// waitForSyncProgress waits for sync progress to start.
-func waitForSyncProgress(ctx context.Context, t *testing.T) {
-	t.Helper()
-
-	statsPath := rebalanceSyncStatsPath
-	require.NotEmpty(t, statsPath, "rebalanceSyncStatsPath not set; waitForSyncProgress only runs under TestKafkaRebalance")
-	require.Eventually(t, func() bool {
-		if ctx.Err() != nil {
-			return true
-		}
-
-		var stats struct {
-			SyncedRecords int64 `json:"Synced Records"`
-		}
-		if err := testutils.UnmarshalFile(statsPath, &stats, false); err != nil {
-			return false
-		}
-		if stats.SyncedRecords > 0 {
-			t.Logf("sync started: %d records synced", stats.SyncedRecords)
-			return true
-		}
-		return false
-	}, 20*time.Minute, time.Second)
 }
 
 // stopRebalanceTrigger stops the rebalance trigger consumer.
@@ -329,6 +310,9 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 	case "drop":
 		deleteKafkaTopic(ctx, t, client, streams[0])
 
+	case "drop-all":
+		deleteAllKafkaTopics(ctx, t, client)
+
 	case "add":
 		// avro codec
 		codec, err := goavro.NewCodec(avroSchema)
@@ -365,6 +349,26 @@ func deleteKafkaTopic(ctx context.Context, t *testing.T, client *kgo.Client, top
 	require.NoError(t, err, "failed to delete topic '%s'", topic)
 
 	ensureTopicDeletion(ctx, t, client, topic)
+}
+
+// deleteAllKafkaTopics deletes every topic kafka discover would enumerate. Kafka has no delete-all,
+// but DeleteTopics takes the whole set at once. kadm.ListTopics already hides kafka's own internal
+// topics; _schemas is the schema registry's own and the driver skips it too (InternalKafkaTopics).
+func deleteAllKafkaTopics(ctx context.Context, t *testing.T, client *kgo.Client) {
+	t.Helper()
+
+	adm := kadm.NewClient(client)
+	topics, err := adm.ListTopics(ctx)
+	require.NoError(t, err, "failed to list kafka topics")
+	names := slices.DeleteFunc(topics.Names(), func(topic string) bool { return topic == schemaRegistryTopic })
+	if len(names) == 0 {
+		return
+	}
+
+	res, err := adm.DeleteTopics(ctx, names...)
+	require.NoError(t, err, "failed to delete kafka topics")
+	require.NoError(t, res.Error(), "kafka topic deletion returned errors")
+	ensureTopicDeletion(ctx, t, client, names...)
 }
 
 // createTopic creates the test topic with a fixed partition count and replication factor 1.
@@ -530,38 +534,20 @@ func encodeAndWriteAvro(ctx context.Context, t *testing.T, writer *kgo.Client, c
 	writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: key, Value: msg})
 }
 
-func ensureTopicDeletion(ctx context.Context, t *testing.T, client *kgo.Client, topic string) {
+func ensureTopicDeletion(ctx context.Context, t *testing.T, client *kgo.Client, topics ...string) {
 	t.Helper()
 
-	topicAdminTimeout := 30 * time.Second
-	topicPollInterval := 200 * time.Millisecond
-
-	// waitCtx bounds the whole wait — every probe RPC and every pause runs under it, so
-	// the loop cannot outlive topicAdminTimeout no matter where it blocks.
-	waitCtx, cancel := context.WithTimeout(ctx, topicAdminTimeout)
-	defer cancel()
 	adm := kadm.NewClient(client)
 	start := time.Now()
-	for {
-		vres, verr := adm.ValidateCreateTopics(waitCtx, int32(partitionCount), 1, nil, topic)
-		if verr == nil {
-			if vres[topic].Err == nil {
-				t.Logf("topic %q deletion completed after %s", topic, time.Since(start).Round(time.Millisecond))
-				return
-			}
-			require.ErrorIs(t, vres[topic].Err, kerr.TopicAlreadyExists,
-				"unexpected validation error while waiting for topic '%s' deletion", topic)
+	err := testutils.RetryOnBackoff(ctx, topicDeletionAttempts, topicDeletionBackoff, func(ctx context.Context) error {
+		res, err := adm.ValidateCreateTopics(ctx, int32(partitionCount), 1, nil, topics...)
+		if err != nil {
+			return err
 		}
-		if waitCtx.Err() != nil {
-			t.Fatalf("topic %q deletion did not complete within %s (last error: %v)", topic, topicAdminTimeout, verr)
-		}
-		require.NoError(t, verr, "failed to validate-create while waiting for topic '%s' deletion", topic)
-		select {
-		case <-waitCtx.Done():
-			t.Fatalf("topic %q deletion did not complete within %s", topic, topicAdminTimeout)
-		case <-time.After(topicPollInterval):
-		}
-	}
+		return res.Error()
+	})
+	require.NoError(t, err, "deletion of topic(s) %v did not complete", topics)
+	t.Logf("deletion of %d topic(s) completed after %s", len(topics), time.Since(start).Round(time.Millisecond))
 }
 
 // JSON data format resources

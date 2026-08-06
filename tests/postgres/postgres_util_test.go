@@ -86,6 +86,28 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
 
+	case "drop-all":
+		query = `
+			DO $$
+			DECLARE r record;
+			BEGIN
+				FOR r IN
+					SELECT n.nspname, c.relname, c.relkind
+					FROM pg_class c
+					JOIN pg_namespace n ON c.relnamespace = n.oid
+					WHERE c.relkind IN ('r', 'm', 't', 'f', 'p')
+					AND n.nspname NOT LIKE 'pg_%'
+					AND n.nspname != 'information_schema'
+				LOOP
+					EXECUTE format('DROP %s IF EXISTS %I.%I CASCADE',
+						CASE r.relkind
+							WHEN 'm' THEN 'MATERIALIZED VIEW'
+							WHEN 'f' THEN 'FOREIGN TABLE'
+							ELSE 'TABLE'
+						END, r.nspname, r.relname);
+				END LOOP;
+			END $$`
+
 	case "clean":
 		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 

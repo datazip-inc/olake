@@ -9,7 +9,7 @@ import (
 )
 
 // mssqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// between TestMSSQLIntegration and TestMSSQL2PC.
+// by the mssql suites.
 func mssqlBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	testConf := testutils.GetTestConfig(t, string(constants.MSSQL))
 	return &testutils.IntegrationTest{
@@ -43,12 +43,16 @@ func mssqlBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	}
 }
 
-func TestMSSQLIntegration(t *testing.T) {
+func TestMSSQLDiscover(t *testing.T) {
+	mssqlBaseConfig(t).TestDiscover(t)
+}
+
+func TestMSSQLSync(t *testing.T) {
 	t.Parallel()
 	cfg := mssqlBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedMSSQLData
 	cfg.UpdatedDestinationDataTypeSchema = MSSQLToDestinationSchema
-	cfg.TestIntegration(t)
+	cfg.TestSync(t)
 }
 
 func TestMSSQL2PC(t *testing.T) {

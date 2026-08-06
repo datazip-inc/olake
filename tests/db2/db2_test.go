@@ -8,7 +8,6 @@ import (
 )
 
 // db2BaseConfig returns an IntegrationTest pre-populated with all fields shared
-// between TestDB2Integration and TestDB22PC.
 func db2BaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(t, string(constants.DB2)).WithImagePlatform("linux/amd64"),
@@ -38,12 +37,16 @@ func db2BaseConfig(t *testing.T) *testutils.IntegrationTest {
 	}
 }
 
-func TestDB2Integration(t *testing.T) {
+func TestDB2Discover(t *testing.T) {
+	db2BaseConfig(t).TestDiscover(t)
+}
+
+func TestDB2Sync(t *testing.T) {
 	t.Parallel()
 	cfg := db2BaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedDB2Data
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedDB2ToDestinationSchema
-	cfg.TestIntegration(t)
+	cfg.TestSync(t)
 }
 
 func TestDB22PC(t *testing.T) {
