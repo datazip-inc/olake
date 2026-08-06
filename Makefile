@@ -183,7 +183,7 @@ HELP_TARGETS :=
 
 # --- driver lists -------------------------------------------------------------
 # A driver is any drivers/ subdir with its own go.mod; the ones that also have
-# a docker-compose.yml get olake.* stacks and test targets (s3 has no local stack).
+# a docker-compose.yml get olake.* stacks and test targets.
 SOURCE_DRIVERS := $(filter $(DRIVERS),$(notdir $(patsubst %/docker-compose.yml,%,$(wildcard drivers/*/docker-compose.yml))))
 CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
 INTEGRATION_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
