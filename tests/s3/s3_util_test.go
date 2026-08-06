@@ -581,6 +581,8 @@ func (v S3TestVariant) source(t *testing.T) s3Source {
 type s3DestinationWriter string
 
 const (
+	// TODO: arrow and legacy writers differ in timestamp precisions we need to fix the legacy writer to keep micros and then remove this distinction from the test.
+
 	// writerLegacy is the legacy Iceberg writer, which truncates timestamptz to millis.
 	writerLegacy s3DestinationWriter = "legacy"
 	// writerArrow is the Arrow Iceberg writer, which keeps micros. The Parquet
