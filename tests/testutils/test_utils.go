@@ -214,7 +214,7 @@ func GetTestConfig(driver string, extraParams ...string) *TestConfig {
 	}
 }
 
-func syncCommand(config TestConfig, useState bool, destinationType string, flags ...string) string {
+func SyncCommand(config TestConfig, useState bool, destinationType string, flags ...string) string {
 	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s sync --config %s --catalog %s", config.Driver, config.SourcePath, config.CatalogPath)
 
 	switch destinationType {
@@ -235,7 +235,7 @@ func syncCommand(config TestConfig, useState bool, destinationType string, flags
 }
 
 // pass flags as `--flag1, flag1 value, --flag2, flag2 value...`
-func discoverCommand(config TestConfig, flags ...string) string {
+func DiscoverCommand(config TestConfig, flags ...string) string {
 	baseCmd := fmt.Sprintf("/test-olake/build.sh driver-%s discover --config %s", config.Driver, config.SourcePath)
 	if len(flags) > 0 {
 		baseCmd = fmt.Sprintf("%s %s", baseCmd, strings.Join(flags, " "))
@@ -244,7 +244,7 @@ func discoverCommand(config TestConfig, flags ...string) string {
 }
 
 // update normalization=true, partition_regex, and filter_input for selected streams under selected_streams.<namespace> by name
-func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, filterConfig string, stream []string, isBackfill bool, columnToExclude string) string {
+func UpdateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, filterConfig string, stream []string, isBackfill bool, columnToExclude string) string {
 	if len(stream) == 0 {
 		return ""
 	}
@@ -276,7 +276,7 @@ func updateSelectedStreamsCommand(config TestConfig, namespace, partitionRegex, 
 }
 
 // set sync_mode and cursor_field for a specific stream object in streams[] by namespace+name
-func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
+func UpdateStreamConfigCommand(config TestConfig, namespace, streamName, syncMode, cursorField string) string {
 	// in case of Oracle, the stream names are in uppercase in stream.json
 	streamName = Ternary(slices.Contains(constants.UppercaseStreamDrivers, constants.DriverType(config.Driver)), strings.ToUpper(streamName), streamName).(string)
 	tmpCatalog := fmt.Sprintf("/tmp/%s_set_mode_streams.json", config.Driver)
@@ -289,7 +289,7 @@ func updateStreamConfigCommand(config TestConfig, namespace, streamName, syncMod
 }
 
 // reset state file so incremental can perform initial load (equivalent to full load on first run)
-func resetStateFileCommand(config TestConfig) string {
+func ResetStateFileCommand(config TestConfig) string {
 	// Ensure the state is clean irrespective of previous CDC run
 	return fmt.Sprintf(`rm -f %s; echo '{}' > %s`, config.StatePath, config.StatePath)
 }
@@ -311,7 +311,7 @@ func seedPerformanceStateCommand(config TestConfig) string {
 	return fmt.Sprintf(`cp %s %s`, config.PerformanceStatePath, config.StatePath)
 }
 
-func toggleArrowIcebergWrites(config TestConfig, enabled bool) string {
+func ToggleArrowIcebergWrites(config TestConfig, enabled bool) string {
 	tmpDest := "/tmp/iceberg_destination.json"
 	return fmt.Sprintf(
 		`jq '.writer.arrow_writes = %t' %s > %s && mv %s %s`,
@@ -431,7 +431,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	isCDC bool,
 ) error {
 	destDBPrefix := Ternary(cfg.TestConfig.DataFormat != "", fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat), fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
-	cmd := syncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
+	cmd := SyncCommand(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 
 	// Execute operation before sync if needed
 	if useState && operation != "" {
@@ -492,7 +492,7 @@ func (cfg *IntegrationTest) testIcebergWriter(
 	useArrowWriter bool,
 	testFunc func(context.Context, *testing.T, testcontainers.Container, string) error,
 ) error {
-	cmd := toggleArrowIcebergWrites(*cfg.TestConfig, useArrowWriter)
+	cmd := ToggleArrowIcebergWrites(*cfg.TestConfig, useArrowWriter)
 	code, out, err := ExecCommand(ctx, c, cmd)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to toggle arrow_writes (%d): %s\n%s", code, err, out)
@@ -594,7 +594,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	t.Log("Iceberg Full load + CDC tests completed successfully")
 
 	// Drop the Iceberg table after all tests are finished
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	DropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil
@@ -714,14 +714,14 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
-	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
+	incPatch := UpdateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
 	code, out, err := ExecCommand(ctx, c, incPatch)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
 	}
 
 	// Reset state so initial incremental behaves like a first full incremental load
-	resetState := resetStateFileCommand(*cfg.TestConfig)
+	resetState := ResetStateFileCommand(*cfg.TestConfig)
 	code, out, err = ExecCommand(ctx, c, resetState)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
@@ -763,7 +763,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			}
 
 			// drop iceberg table before sync
-			dropIcebergTable(t, testTable, cfg.DestinationDB)
+			DropIcebergTable(t, testTable, cfg.DestinationDB)
 			t.Logf("Dropped Iceberg table: %s", testTable)
 
 			if err := cfg.runSyncAndVerify(
@@ -788,7 +788,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	// Drop the Iceberg table after all tests are finished, so the incremental
 	// cursor state left in the table's olake_2pc property is not read back as
 	// CDC state by a later run.
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	DropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil
@@ -808,14 +808,14 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
-	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
+	incPatch := UpdateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
 	code, out, err := ExecCommand(ctx, c, incPatch)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
 	}
 
 	// Reset state so initial incremental behaves like a first full incremental load
-	resetState := resetStateFileCommand(*cfg.TestConfig)
+	resetState := ResetStateFileCommand(*cfg.TestConfig)
 	code, out, err = ExecCommand(ctx, c, resetState)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
@@ -900,8 +900,8 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 
 	// Drop the Iceberg table and reset state before the first sync, so stale rows and the
 	// olake_2pc table property left by a previous run can't leak into this run's recovery timeline.
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
-	resetState := resetStateFileCommand(*cfg.TestConfig)
+	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	resetState := ResetStateFileCommand(*cfg.TestConfig)
 	if code, out, err := ExecCommand(ctx, c, resetState); err != nil || code != 0 {
 		return fmt.Errorf("failed to reset state (%d): %s\n%s", code, err, out)
 	}
@@ -976,7 +976,7 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 	}
 
 	t.Log("Iceberg 2PC CDC Recovery tests completed successfully")
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	DropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table after 2PC CDC tests: %s", testTable)
 	return nil
 }
@@ -1001,17 +1001,17 @@ func (cfg *IntegrationTest) testIceberg2PCIncrementalRecovery(
 
 	// Drop the Iceberg table before the first sync, so stale rows and the olake_2pc table
 	// property left by a previous run can't leak into this run's recovery timeline.
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	DropIcebergTable(t, testTable, cfg.DestinationDB)
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field
-	incPatch := updateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
+	incPatch := UpdateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField)
 	code, out, err := ExecCommand(ctx, c, incPatch)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to patch streams.json for incremental (%d): %s\n%s", code, err, out)
 	}
 
 	// Reset state so initial incremental behaves like a first full incremental load
-	resetState := resetStateFileCommand(*cfg.TestConfig)
+	resetState := ResetStateFileCommand(*cfg.TestConfig)
 	code, out, err = ExecCommand(ctx, c, resetState)
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to reset state for incremental (%d): %s\n%s", code, err, out)
@@ -1088,15 +1088,15 @@ func (cfg *IntegrationTest) testIceberg2PCIncrementalRecovery(
 	}
 
 	t.Log("Iceberg 2PC Incremental Recovery tests completed successfully")
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	DropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table after 2PC Incremental tests: %s", testTable)
 	return nil
 }
 
-// runInTestContainer starts a disposable golang:bookworm container, mounts the project root
+// RunInTestContainer starts a disposable golang:bookworm container, mounts the project root
 // and driver test-data directory, runs testFn inside its PostReadies lifecycle hook, and
 // terminates the container when done.
-func (cfg *IntegrationTest) runInTestContainer(
+func (cfg *IntegrationTest) RunInTestContainer(
 	ctx context.Context,
 	t *testing.T,
 	testFn func(ctx context.Context, c testcontainers.Container) error,
@@ -1181,13 +1181,13 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 	require.NoError(t, os.WriteFile(cfg.TestConfig.HostCatalogPath, testStreamsData, 0600), "failed to write streams.json")
 
 	t.Run("Sync", func(t *testing.T) {
-		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
+		cfg.RunInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "drop", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "create", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
-			streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true, cfg.ColumnToExclude)
+			streamUpdateCmd := UpdateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true, cfg.ColumnToExclude)
 			if code, out, err := ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 				return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
 					code, err, out,
@@ -1244,7 +1244,7 @@ func (cfg *IntegrationTest) runRebalanceSync(
 	t.Helper()
 
 	destDBPrefix := fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)
-	cmd := syncCommand(*cfg.TestConfig, useState, "iceberg", "--destination-database-prefix", destDBPrefix)
+	cmd := SyncCommand(*cfg.TestConfig, useState, "iceberg", "--destination-database-prefix", destDBPrefix)
 
 	code, out, err := ExecCommand(ctx, c, cmd)
 	if err != nil {
@@ -1266,8 +1266,8 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 ) error {
 	t.Log("Starting Kafka rebalance recovery test")
 
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
-	code, out, err := ExecCommand(ctx, c, resetStateFileCommand(*cfg.TestConfig))
+	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	code, out, err := ExecCommand(ctx, c, ResetStateFileCommand(*cfg.TestConfig))
 	if err != nil || code != 0 {
 		return fmt.Errorf("failed to reset state file (%d): %s\n%s", code, err, out)
 	}
@@ -1300,7 +1300,7 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 
 	t.Log("Kafka rebalance recovery test completed successfully")
 
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
+	DropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil
@@ -1319,7 +1319,7 @@ func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
 	require.NoError(t, os.WriteFile(cfg.TestConfig.HostCatalogPath, testStreamsData, 0600), "failed to write streams.json")
 
 	t.Run("Sync", func(t *testing.T) {
-		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
+		cfg.RunInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
 			// 1. Install required tools
 			if code, out, err := ExecCommand(ctx, c, installCmd); err != nil || code != 0 {
 				return fmt.Errorf("install failed (%d): %s\n%s", code, err, out)
@@ -1330,7 +1330,7 @@ func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "clean", false)
 
 			// 3. Enable normalization and partition regex in streams.json
-			streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true, cfg.ColumnToExclude)
+			streamUpdateCmd := UpdateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true, cfg.ColumnToExclude)
 			if code, out, err := ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 				return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
 					code, err, out,
@@ -1368,7 +1368,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Run("Discover", func(t *testing.T) {
 		skipOutsideTestPhase(t, "discover")
-		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
+		cfg.RunInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
 			// 1. Query on test table; drop first so leftover state from a previous
 			// aborted run (e.g. evolve-schema mutations) cannot survive the
 			// CREATE IF NOT EXISTS
@@ -1378,7 +1378,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			cfg.ExecuteQuery(ctx, t, []string{currentTestTable}, "add", false)
 
 			// 2. Run discover command (build.sh compiles the driver in-container, then discovers)
-			discoverCmd := discoverCommand(*cfg.TestConfig)
+			discoverCmd := DiscoverCommand(*cfg.TestConfig)
 			code, out, err := ExecCommand(ctx, c, discoverCmd)
 			if err != nil || code != 0 {
 				return fmt.Errorf("discover failed (%d): %s\n%s", code, err, string(out))
@@ -1412,7 +1412,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 
 	t.Run("Sync", func(t *testing.T) {
 		skipOutsideTestPhase(t, "sync")
-		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
+		cfg.RunInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
 			// 1. Query on test table; drop first so leftover state from a previous
 			// aborted run (e.g. evolve-schema mutations) cannot survive the
 			// CREATE IF NOT EXISTS
@@ -1425,7 +1425,7 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 			// 	`jq '(.selected_streams[][] | .normalization) = true' %s > /tmp/streams.json && mv /tmp/streams.json %s`,
 			// 	cfg.TestConfig.CatalogPath, cfg.TestConfig.CatalogPath,
 			// )
-			streamUpdateCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true, cfg.ColumnToExclude)
+			streamUpdateCmd := UpdateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, true, cfg.ColumnToExclude)
 			if code, out, err := ExecCommand(ctx, c, streamUpdateCmd); err != nil || code != 0 {
 				return fmt.Errorf("failed to enable normalization and partition regex in streams.json (%d): %s\n%s",
 					code, err, out,
@@ -1450,6 +1450,26 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", wt.name, err)
 						}
 					})
+
+					if hasIcebergRowIndexTest(cfg.TestConfig.Driver) {
+						t.Run(fmt.Sprintf("Iceberg (%s) Eq to Pos conversion test", wt.name), func(t *testing.T) {
+							if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergEqToPosConversion); err != nil {
+								t.Fatalf("Iceberg (%s) Eq to Pos conversion test failed: %v", wt.name, err)
+							}
+						})
+
+						t.Run(fmt.Sprintf("Iceberg (%s) Clean table positional with Pebble index test", wt.name), func(t *testing.T) {
+							if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergCleanTablePositionalWithPebbleIndex); err != nil {
+								t.Fatalf("Iceberg (%s) Clean table positional with Pebble index test failed: %v", wt.name, err)
+							}
+						})
+
+						t.Run(fmt.Sprintf("Iceberg (%s) Rebuild index from scratch test", wt.name), func(t *testing.T) {
+							if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergRebuildIndexFromScratch); err != nil {
+								t.Fatalf("Iceberg (%s) Rebuild index from scratch test failed: %v", wt.name, err)
+							}
+						})
+					}
 				}
 
 				t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
@@ -1501,8 +1521,8 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 	})
 }
 
-// dropIcebergTable drops an Iceberg table using Spark SQL
-func dropIcebergTable(t *testing.T, tableName, icebergDB string) {
+// DropIcebergTable drops an Iceberg table using Spark SQL
+func DropIcebergTable(t *testing.T, tableName, icebergDB string) {
 	t.Helper()
 	ctx := context.Background()
 	spark, err := sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
@@ -2043,13 +2063,13 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 							destDBPrefix := fmt.Sprintf("performance_%s", cfg.TestConfig.Driver)
 
 							t.Log("(backfill) discover started")
-							discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
+							discoverCmd := DiscoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
 							if code, output, err := ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to perform discover:\n%s", string(output))
 							}
 							t.Log("(backfill) discover completed")
 
-							updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.BackfillStreams, true, "")
+							updateStreamsCmd := UpdateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.BackfillStreams, true, "")
 							if code, _, err := ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 								return fmt.Errorf("failed to update streams: %s", err)
 							}
@@ -2064,7 +2084,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 									return fmt.Errorf("failed to seed pre-chunked state from %s (%d): %v\n%s", cfg.TestConfig.PerformanceStatePath, code, err, out)
 								}
 							}
-							syncCmd := syncCommand(*cfg.TestConfig, usePreChunkedState, "iceberg", "--destination-database-prefix", destDBPrefix)
+							syncCmd := SyncCommand(*cfg.TestConfig, usePreChunkedState, "iceberg", "--destination-database-prefix", destDBPrefix)
 							if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 								return fmt.Errorf("failed to perform sync:\n%s", string(output))
 							}
@@ -2090,19 +2110,19 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) setup cdc completed")
 
 								t.Log("(cdc) discover started")
-								discoverCmd := discoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
+								discoverCmd := DiscoverCommand(*cfg.TestConfig, "--destination-database-prefix", destDBPrefix)
 								if code, output, err := ExecCommand(ctx, c, discoverCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform discover:\n%s", string(output))
 								}
 								t.Log("(cdc) discover completed")
 
-								updateStreamsCmd := updateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.CDCStreams, false, "")
+								updateStreamsCmd := UpdateSelectedStreamsCommand(*cfg.TestConfig, cfg.Namespace, "", "", cfg.CDCStreams, false, "")
 								if code, _, err := ExecCommand(ctx, c, updateStreamsCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to update streams: %s", err)
 								}
 
 								t.Log("(cdc) state creation started")
-								syncCmd := syncCommand(*cfg.TestConfig, false, "iceberg", "--destination-database-prefix", destDBPrefix)
+								syncCmd := SyncCommand(*cfg.TestConfig, false, "iceberg", "--destination-database-prefix", destDBPrefix)
 								if code, output, err := ExecCommand(ctx, c, syncCmd); err != nil || code != 0 {
 									return fmt.Errorf("failed to perform initial sync:\n%s", string(output))
 								}
@@ -2113,7 +2133,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 								t.Log("(cdc) trigger cdc completed")
 
 								t.Log("(cdc) sync started")
-								syncCmd = syncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
+								syncCmd = SyncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 								if output, err := syncWithTimeout(ctx, c, syncCmd); err != nil {
 									return fmt.Errorf("failed to perform CDC sync:\n%s", string(output))
 								}
@@ -2144,7 +2164,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		})
 		require.NoError(t, err, "performance test failed: ", err)
 		defer func() {
-			// Same as runInTestContainer: PID 1 is `tail -f /dev/null`, which ignores
+			// Same as RunInTestContainer: PID 1 is `tail -f /dev/null`, which ignores
 			// SIGTERM, so skip the default 10s grace period and kill immediately.
 			if err := container.Terminate(ctx, testcontainers.StopTimeout(0)); err != nil {
 				t.Logf("warning: failed to terminate container: %v", err)
