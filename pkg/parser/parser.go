@@ -41,3 +41,8 @@ type JSONConfig struct {
 type ParquetConfig struct {
 	StreamingEnabled bool `json:"streaming_enabled"` // Default: true - use range requests
 }
+
+// XMLConfig holds XML-specific parsing configuration
+type XMLConfig struct {
+	RecordTag string `json:"record_tag"` //Default: ""
+}
