@@ -85,7 +85,7 @@ func TestBuildTLSConfig(t *testing.T) {
 		assert.True(t, cfg.InsecureSkipVerify)
 		assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
 		assert.Nil(t, cfg.RootCAs)
-		assert.Nil(t, cfg.VerifyPeerCertificate)
+		assert.Nil(t, cfg.VerifyConnection)
 	})
 
 	t.Run("verify-ca checks the chain but not the hostname", func(t *testing.T) {
@@ -94,7 +94,7 @@ func TestBuildTLSConfig(t *testing.T) {
 		require.NotNil(t, cfg)
 		assert.True(t, cfg.InsecureSkipVerify)
 		assert.Empty(t, cfg.ServerName)
-		assert.NotNil(t, cfg.VerifyPeerCertificate)
+		assert.NotNil(t, cfg.VerifyConnection)
 	})
 
 	t.Run("verify-full checks the hostname", func(t *testing.T) {
@@ -103,7 +103,7 @@ func TestBuildTLSConfig(t *testing.T) {
 		require.NotNil(t, cfg)
 		assert.False(t, cfg.InsecureSkipVerify)
 		assert.Equal(t, "db.internal", cfg.ServerName)
-		assert.Nil(t, cfg.VerifyPeerCertificate)
+		assert.Nil(t, cfg.VerifyConnection)
 	})
 
 	t.Run("missing server ca", func(t *testing.T) {
@@ -190,7 +190,7 @@ func TestBuildTLSConfig(t *testing.T) {
 	})
 }
 
-// TestBuildTLSConfigVerifyCA drives the verify-ca callback with synthetic certificate chains, the
+// TestBuildTLSConfigVerifyCA drives the verify-ca callback with synthetic connection states, the
 // closest a unit test gets to a handshake.
 func TestBuildTLSConfigVerifyCA(t *testing.T) {
 	ca, caKey := issue(t, caTemplate("root"), nil, nil)
@@ -204,7 +204,7 @@ func TestBuildTLSConfigVerifyCA(t *testing.T) {
 
 	cfg, err := BuildTLSConfig("db.internal", &SSLConfig{Mode: SSLModeVerifyCA, ServerCA: certPEM(ca)})
 	require.NoError(t, err)
-	require.NotNil(t, cfg.VerifyPeerCertificate)
+	require.NotNil(t, cfg.VerifyConnection)
 
 	tests := []struct {
 		name        string
@@ -237,11 +237,7 @@ func TestBuildTLSConfigVerifyCA(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			raw := make([][]byte, 0, len(tc.peers))
-			for _, peer := range tc.peers {
-				raw = append(raw, peer.Raw)
-			}
-			err := cfg.VerifyPeerCertificate(raw, nil)
+			err := cfg.VerifyConnection(tls.ConnectionState{PeerCertificates: tc.peers})
 			if tc.errContains == "" {
 				assert.NoError(t, err)
 				return

@@ -1163,6 +1163,26 @@ func keepTestData() bool {
 	return os.Getenv("OLAKE_TEST_KEEP_DATA") == "true"
 }
 
+// seedCatalog copies the tracked test_streams.json over the generated streams.json, for the suites
+// that skip discovery and reuse the schema the integration test already validated. The copy runs
+// inside an os.Root scoped to the driver's testdata dir, so neither side can address a file outside it.
+func seedCatalog(cfg *TestConfig) error {
+	root, err := os.OpenRoot(cfg.HostTestDataPath)
+	if err != nil {
+		return fmt.Errorf("failed to open test data directory: %s", err)
+	}
+	defer func() { _ = root.Close() }()
+
+	data, err := root.ReadFile(filepath.Base(cfg.HostTestCatalogPath))
+	if err != nil {
+		return fmt.Errorf("failed to read test_streams.json: %s", err)
+	}
+	if err := root.WriteFile(filepath.Base(cfg.HostCatalogPath), data, 0600); err != nil {
+		return fmt.Errorf("failed to write streams.json: %s", err)
+	}
+	return nil
+}
+
 // Test2PCIntegration runs the full Two-Phase Commit (2PC) failure-recovery integration test
 // suite in an isolated container. It exercises CDC and incremental state-recovery scenarios
 // independently of the happy-path integration tests, allowing them to be scheduled and
@@ -1176,9 +1196,7 @@ func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
 	currentTestTable := Ternary(cfg.TestConfig.DataFormat == "", fmt.Sprintf("%s_test_table_olake", cfg.TestConfig.Driver), fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)).(string)
 
 	// 2PC tests don't need schema discovery — the schema is already validated by the regular integration test.
-	testStreamsData, err := os.ReadFile(cfg.TestConfig.HostTestCatalogPath)
-	require.NoError(t, err, "failed to read test_streams.json")
-	require.NoError(t, os.WriteFile(cfg.TestConfig.HostCatalogPath, testStreamsData, 0600), "failed to write streams.json")
+	require.NoError(t, seedCatalog(cfg.TestConfig))
 
 	t.Run("Sync", func(t *testing.T) {
 		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {
@@ -1314,9 +1332,7 @@ func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
 	t.Logf("Test data directory: %s", cfg.TestConfig.HostTestDataPath)
 	currentTestTable := fmt.Sprintf("%s_%s_test_table_olake", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat)
 
-	testStreamsData, err := os.ReadFile(cfg.TestConfig.HostTestCatalogPath)
-	require.NoError(t, err, "failed to read test_streams.json")
-	require.NoError(t, os.WriteFile(cfg.TestConfig.HostCatalogPath, testStreamsData, 0600), "failed to write streams.json")
+	require.NoError(t, seedCatalog(cfg.TestConfig))
 
 	t.Run("Sync", func(t *testing.T) {
 		cfg.runInTestContainer(ctx, t, func(ctx context.Context, c testcontainers.Container) error {

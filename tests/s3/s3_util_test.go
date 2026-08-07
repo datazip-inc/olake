@@ -763,14 +763,14 @@ func csvFile(startID int64, vals rowValues, evolved bool) []byte {
 		mixed, _ := mixedValue(id)
 		// null_col is the empty cell after mixed_col: CSV cannot omit a column, so an
 		// empty value is how the format spells null.
-		b.WriteString(fmt.Sprintf("%d,%s,%t,%v,%d,%s,,%s,%s,%s,%s,%s,%s",
+		fmt.Fprintf(&b, "%d,%s,%t,%v,%d,%s,,%s,%s,%s,%s,%s,%s",
 			id, vals.Str, vals.Bool, vals.Float, vals.Int64, mixed,
 			vals.TS.UTC().Format(time.DateOnly),
 			vals.TS.Format(time.RFC3339),
 			vals.TSMilli.Format(tsMilliLayout),
 			vals.TSMicro.Format(tsMicroLayout),
 			vals.TSNano.Format(tsNanoLayout),
-			excludedColumnValue))
+			excludedColumnValue)
 		if evolved {
 			b.WriteString("," + evolvedColumnValue)
 		}

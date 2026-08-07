@@ -45,6 +45,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	if fileConfig {
 		connStr = connectionString(testutils.ReadSourceConfig(t, "./testdata/source.json"))
 	} else {
+		// #nosec G101 -- the fixture password from drivers/oracle/docker-compose.yml, not a secret
 		connStr = "oracle://myuser:secret1234@localhost:1521/orcl"
 	}
 
