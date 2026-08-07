@@ -21,7 +21,7 @@ import (
 
 // various stream formats
 type StreamClassification struct {
-	SelectedStreams    []string
+	SelectedStreams    []types.StreamInterface
 	CDCStreams         []types.StreamInterface
 	IncrementalStreams []types.StreamInterface
 	FullLoadStreams    []types.StreamInterface
@@ -177,7 +177,7 @@ var syncCmd = &cobra.Command{
 func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
-		SelectedStreams:    []string{},
+		SelectedStreams:    []types.StreamInterface{},
 		CDCStreams:         []types.StreamInterface{},
 		IncrementalStreams: []types.StreamInterface{},
 		FullLoadStreams:    []types.StreamInterface{},
@@ -251,7 +251,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
-		classifications.SelectedStreams = append(classifications.SelectedStreams, elem.ID())
+		classifications.SelectedStreams = append(classifications.SelectedStreams, elem)
 		switch elem.Stream.SyncMode {
 		case types.CDC, types.STRICTCDC:
 			classifications.CDCStreams = append(classifications.CDCStreams, elem)
@@ -280,6 +280,10 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		return nil, fmt.Errorf("no valid streams found in catalog")
 	}
 
-	logger.Infof("Valid selected streams are %s", strings.Join(classifications.SelectedStreams, ", "))
+	selectedStreamNames := make([]string, len(classifications.SelectedStreams))
+	for i, stream := range classifications.SelectedStreams {
+		selectedStreamNames[i] = stream.ID()
+	}
+	logger.Infof("Valid selected streams are %v", strings.Join(selectedStreamNames, ", "))
 	return classifications, nil
 }

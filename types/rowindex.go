@@ -85,6 +85,10 @@ type RowIndexBatch struct {
 
 // NewRowIndexBatch returns an empty batch that resolves misses against index.
 func NewRowIndexBatch(index TableIndex) *RowIndexBatch {
+	if index == nil {
+		return nil
+	}
+
 	return &RowIndexBatch{index: index, changes: make(map[string]rowIndexChange)}
 }
 

@@ -93,20 +93,20 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 		})
 	}
 
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	upsertMode := isUpsertMode(stream, options.Backfill)
+
+	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
 	requestPayload := proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			Schema:               iceSchema,
-			DestTableName:        stream.GetDestinationTable(),
-			ThreadId:             options.ThreadID,
-			IdentifierField:      &identifierField,
-			Namespace:            stream.GetDestinationDatabase(&i.config.IcebergDatabase),
-			Upsert:               upsertMode,
-			UsePositionalDeletes: options.RowIndex != nil,
-			PartitionFields:      icebergPartFields,
+			Schema:          iceSchema,
+			DestTableName:   stream.GetDestinationTable(),
+			ThreadId:        options.ThreadID,
+			IdentifierField: &identifierField,
+			Namespace:       stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+			Upsert:          upsertMode,
+			PartitionFields: icebergPartFields,
 		},
 	}
 
@@ -133,11 +133,10 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 	// set schema for current thread
 	i.schema = copySchema(schema)
 
-	// A nil incoming schema marks the stream's first writer thread. Reconciling
-	// once there keeps later threads off a scan of a table they are already
-	// indexing as they write.
-	if options.RowIndex != nil && existingSchema == nil {
-		if err := i.reconcileRowIndex(ctx, options.RowIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
+	// reconcile row index incrementally or from scratch based on snapshot id check
+	// only for the first thread (other threads will just read the indexes)
+	if existingSchema == nil {
+		if err := i.reconcileRowIndex(ctx, options.RowIndex, ingestResponse.GetSnapshotId()); err != nil {
 			return schema, nil, err
 		}
 	}

@@ -159,7 +159,11 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 	}
 
 	spark = getSparkSession(ctx, t)
-	defer spark.Stop()
+	defer func() {
+		if err := spark.Stop(); err != nil {
+			t.Logf("Failed to stop Spark session: %v", err)
+		}
+	}()
 
 	require.Equal(t, int64(0), countDeleteFiles(ctx, t, spark, fullTableName, 2), "expected 0 equality delete files after conversion")
 	require.Greater(t, countDeleteFiles(ctx, t, spark, fullTableName, 1), int64(0), "expected positional delete files after conversion")
@@ -196,7 +200,11 @@ func (cfg *IntegrationTest) testIcebergCleanTablePositionalWithPebbleIndex(ctx c
 	}
 
 	spark := getSparkSession(ctx, t)
-	defer spark.Stop()
+	defer func() {
+		if err := spark.Stop(); err != nil {
+			t.Logf("Failed to stop Spark session: %v", err)
+		}
+	}()
 
 	require.Greater(t, countDeleteFiles(ctx, t, spark, fullTableName, 1), int64(0), "expected positional delete files to exist")
 	require.Equal(t, seedRowCount, countLiveRecords(ctx, t, spark, fullTableName), "live record count should match seed")
@@ -239,7 +247,11 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 	}
 
 	spark := getSparkSession(ctx, t)
-	defer spark.Stop()
+	defer func() {
+		if err := spark.Stop(); err != nil {
+			t.Logf("Failed to stop Spark session: %v", err)
+		}
+	}()
 
 	require.Greater(t, countDeleteFiles(ctx, t, spark, fullTableName, 1), int64(0), "expected positional delete files after index rebuild")
 	require.Equal(t, seedRowCount, countLiveRecords(ctx, t, spark, fullTableName), "live record count should match seed")

@@ -90,7 +90,7 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 
 // NewWriterPool manages a destination's shared resources (e.g., Iceberg JVM) and connection health.
 // It initializes global state, runs checks, and provides thread-level writers. Call Close() to clean up.
-func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode types.DeleteMode, syncStreams []string, batchSize int64) (*WriterPool, error) {
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode types.DeleteMode, syncStreams []types.StreamInterface, batchSize int64) (*WriterPool, error) {
 	initWriter, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -118,7 +118,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 	}
 
 	// Equality deletes need no row index, so that mode pays nothing for one.
-	if deleteMode.NeedsRowIndex() {
+	if deleteMode.NeedsRowIndex(config.Type) {
 		pool.indexStore = indexdb.NewStore()
 	}
 
@@ -128,10 +128,9 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 			schema: nil,
 		}
 
-		if pool.indexStore != nil {
-			// One database per stream, so rebuilding or dropping one table's index
-			// never disturbs another's.
-			rowIndex, err := pool.indexStore.Open(ctx, stream)
+		if deleteMode.NeedsRowIndex(config.Type) && !stream.Self().StreamMetadata.AppendMode {
+			// open index store for the stream
+			rowIndex, err := pool.indexStore.Open(ctx, stream.ID())
 			if err != nil {
 				_ = pool.indexStore.Close()
 				return nil, err
@@ -185,6 +184,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	}
 
 	// Threads of one stream share the stream's index; it is nil in equality mode.
+	// TODO: can we pass things through contexts like streamContext ?
 	opts.RowIndex = streamArtifact.rowIndex
 
 	writerThread, prevStreamState, err := func() (Writer, *types.MetadataState, error) {
@@ -363,7 +363,7 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, deleteMode typ
 		return nil
 	}
 
-	if deleteMode.NeedsRowIndex() {
+	if deleteMode.NeedsRowIndex(config.Type) {
 		// drop index first and then drop table
 		indexStore := indexdb.NewStore()
 		defer func() {

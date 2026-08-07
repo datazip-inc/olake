@@ -57,6 +57,10 @@ const (
 	// Index store constants
 	IndexDBDir                = "OLAKE_INDEX_DB_DIR"
 	IndexDBCacheSizePerStream = "OLAKE_INDEX_DB_CACHE_SIZE"
+	DefaultDirName            = "olake-row-index"
+	DefaultCacheSize          = 128 * 1024 * 1024 // 128 MB default block cache
+	DefaultMemTableSize       = 64 * 1024 * 1024  // 64 MB default memtable
+	DefaultMaxOpenFiles       = 100
 )
 
 // DriverType identifies a source/destination driver.

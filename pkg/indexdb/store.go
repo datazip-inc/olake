@@ -28,25 +28,25 @@ type StoreOptions struct {
 
 func DefaultOptions() StoreOptions {
 	dir := os.Getenv(constants.IndexDBDir)
-	// TODO: make env keys equal to pebble support instead of custom defined
+	// TODO: support all env variables defined in pebble (all configurable by user per stream)
 
 	// if not set in env use current working directory
 	if dir == "" {
 		wd, _ := os.Getwd()
-		dir = filepath.Join(wd, "olake-row-index")
+		dir = filepath.Join(wd, constants.DefaultDirName)
 	}
 
 	cacheSize, err := strconv.Atoi(os.Getenv(constants.IndexDBCacheSizePerStream))
 	if err != nil {
-		logger.Errorf("failed to parse index db cache size (using default %d MB): %s", 128, err)
-		cacheSize = 128 * 1024 * 1024 // 128 MB default block cache
+		logger.Errorf("failed to parse index db cache size (using default %d MB): %s", constants.DefaultCacheSize, err)
+		cacheSize = constants.DefaultCacheSize
 	}
 
 	return StoreOptions{
 		Dir:          dir,
 		CacheSize:    int64(cacheSize),
-		MemTableSize: 64 * 1024 * 1024, // 64 MB default memtable
-		MaxOpenFiles: 1000,
+		MemTableSize: constants.DefaultMemTableSize,
+		MaxOpenFiles: constants.DefaultMaxOpenFiles,
 	}
 }
 

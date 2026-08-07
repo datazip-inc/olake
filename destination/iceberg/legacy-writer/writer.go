@@ -25,19 +25,14 @@ type LegacyWriter struct {
 }
 
 func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) *LegacyWriter {
-	writer := &LegacyWriter{
+	return &LegacyWriter{
 		options:    options,
 		schema:     schema,
 		stream:     stream,
 		server:     server,
 		upsertMode: upsertMode,
+		indexBatch: types.NewRowIndexBatch(options.RowIndex),
 	}
-
-	if options.RowIndex != nil {
-		writer.indexBatch = types.NewRowIndexBatch(options.RowIndex)
-	}
-
-	return writer
 }
 
 func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) error {
@@ -85,9 +80,8 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 			RecordType: opType,
 		}
 
-		// Positional mode: look up any prior live location so Java can emit a
-		// positional delete before writing the superseding row.
-		if w.indexBatch != nil && w.upsertMode && (opType == "d" || opType == "u" || opType == "i") {
+		// check if we need to write pos for the current record
+		if w.indexBatch != nil && (opType != "r") {
 			olakeID := record.OlakeColumns[constants.OlakeID].(string)
 			previous, found, err := w.indexBatch.Lookup(olakeID)
 			if err != nil {
@@ -133,6 +127,23 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", w.options.ThreadID, ingestResponse.GetResult())
 
 	if w.indexBatch != nil {
+		// in response we just get startOlakeID,filepath and count written in that
+		// example:
+		// WriteRuns: []*proto.WriteRun{
+		// 	{
+		// 		FilePath:      "s3a://warehouse/olake_test/test_table/data/00000-0-1111.parquet",
+		// 		BatchStartIdx: 0,   // maps to sentRecords[0], sentRecords[1], sentRecords[2]
+		// 		StartPosition: 100, // row offset 100 in File 1
+		// 		Count:         3,
+		// 	},
+		// 	{
+		// 		FilePath:      "s3a://warehouse/olake_test/test_table/data/00001-0-2222.parquet",
+		// 		BatchStartIdx: 3, // maps to sentRecords[3], sentRecords[4]
+		// 		StartPosition: 0, // row offset 0 in File 2
+		// 		Count:         2,
+		// 	},
+		// },
+
 		for _, run := range ingestResponse.GetWriteRuns() {
 			logger.Debugf("Thread[%s]: write run: %s::%d", w.options.ThreadID, run.FilePath, run.StartPosition)
 			for i := int32(0); i < run.Count; i++ {
