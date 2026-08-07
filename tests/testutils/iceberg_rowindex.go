@@ -31,6 +31,13 @@ func getSparkSession(ctx context.Context, t *testing.T) sql.SparkSession {
 	return spark
 }
 
+func refreshTable(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) {
+	t.Helper()
+	if _, err := spark.Sql(ctx, fmt.Sprintf("REFRESH TABLE %s", fullTableName)); err != nil {
+		t.Logf("REFRESH TABLE %s failed (non-fatal): %v", fullTableName, err)
+	}
+}
+
 func countSpark(ctx context.Context, t *testing.T, spark sql.SparkSession, query string) int64 {
 	t.Helper()
 	df, err := spark.Sql(ctx, query)
@@ -45,6 +52,7 @@ func countSpark(ctx context.Context, t *testing.T, spark sql.SparkSession, query
 
 func countDeleteFiles(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string, content int) int64 {
 	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
 	return countSpark(ctx, t, spark, fmt.Sprintf(
 		"SELECT count(*) as cnt FROM %s.delete_files WHERE content = %d", fullTableName, content,
 	))
@@ -52,6 +60,7 @@ func countDeleteFiles(ctx context.Context, t *testing.T, spark sql.SparkSession,
 
 func countByOpType(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName, opType string) int64 {
 	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
 	return countSpark(ctx, t, spark, fmt.Sprintf(
 		"SELECT count(*) as cnt FROM %s WHERE _op_type = '%s'", fullTableName, opType,
 	))
@@ -59,11 +68,13 @@ func countByOpType(ctx context.Context, t *testing.T, spark sql.SparkSession, fu
 
 func countLiveRecords(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) int64 {
 	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
 	return countSpark(ctx, t, spark, fmt.Sprintf("SELECT count(*) as cnt FROM %s", fullTableName))
 }
 
 func queryLiveOpTypes(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) map[string]string {
 	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
 	df, err := spark.Sql(ctx, fmt.Sprintf("SELECT col_bigserial, _op_type FROM %s", fullTableName))
 	require.NoError(t, err)
 	rows, err := df.Collect(ctx)
