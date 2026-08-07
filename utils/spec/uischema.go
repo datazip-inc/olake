@@ -332,13 +332,14 @@ const S3UISchema = `{
     { "file_pattern": 12, "compression": 12 },
     { "retry_count": 12, "max_threads": 12 },
     { "file_format": 12},
-    { "csv": 12, "parquet": 12, "json": 12 }
+    { "csv": 12, "parquet": 12, "json": 12, "xml": 12 }
   ],
   "file_format": {
     "ui:enumNames": [
       "CSV",
       "JSON",
-      "Parquet"
+      "Parquet",
+      "XML"
     ]
   },
   "csv": {
@@ -377,6 +378,15 @@ const S3UISchema = `{
     "streaming_enabled": {
       "ui:widget": "boolean"
     }
+  },
+  "xml": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "record_tag": 12 }
+    ]
   }
 }`
 

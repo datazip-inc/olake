@@ -96,7 +96,7 @@ func TestConfigValidate(t *testing.T) {
 				Region:          "us-east-1",
 				AccessKeyID:     "test-access-key",
 				SecretAccessKey: "test-secret-key",
-				FileFormat:      "xml",
+				FileFormat:      "yaml",
 			},
 			wantErr: true,
 			errMsg:  "invalid file_format",
@@ -281,7 +281,7 @@ func TestConfigPathPrefixNormalization(t *testing.T) {
 }
 
 func TestConfigAllFileFormats(t *testing.T) {
-	formats := []FileFormat{FormatCSV, FormatJSON, FormatParquet}
+	formats := []FileFormat{FormatCSV, FormatJSON, FormatParquet, FormatXML}
 
 	for _, format := range formats {
 		t.Run(string(format), func(t *testing.T) {

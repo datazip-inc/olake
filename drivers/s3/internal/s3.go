@@ -216,6 +216,9 @@ func (s *S3) matchesFileFormat(key string) bool {
 			(s.config.Compression == CompressionGzip && (strings.HasSuffix(lowerKey, ".json.gz") || strings.HasSuffix(lowerKey, ".jsonl.gz")))
 	case FormatParquet:
 		return strings.HasSuffix(lowerKey, ".parquet")
+	case FormatXML:
+		return strings.HasSuffix(lowerKey, ".xml") ||
+			(s.config.Compression == CompressionGzip && strings.HasSuffix(lowerKey, ".xml.gz"))
 	default:
 		return false
 	}
@@ -249,6 +252,8 @@ func (s *S3) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types
 		inferredStream, err = s.inferSchemaForJSON(ctx, firstFile, stream)
 	case FormatParquet:
 		inferredStream, err = s.inferSchemaForParquet(ctx, firstFile, stream)
+	case FormatXML:
+		inferredStream, err = s.inferSchemaForXML(ctx, firstFile, stream)
 	default:
 		return nil, fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
 	}
@@ -265,7 +270,7 @@ func (s *S3) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types
 	return inferredStream, nil
 }
 
-// withFileReader is a helper that manages file reader lifecycle for CSV/JSON formats
+// withFileReader is a helper that manages file reader lifecycle for CSV/JSON/XML formats
 // It acquires a reader, ensures cleanup, and executes the provided callback
 func (s *S3) withFileReader(ctx context.Context, fileKey string, callback func(io.Reader) (*types.Stream, error)) (*types.Stream, error) {
 	reader, err := s.getFileReader(ctx, fileKey)
@@ -316,6 +321,14 @@ func (s *S3) inferSchemaForParquet(ctx context.Context, file FileObject, stream 
 	return s.withParquetReader(ctx, file.FileKey, file.Size, func(reader io.Reader) (*types.Stream, error) {
 		parquetParser := parser.NewParquetParser(*s.config.GetParquetConfig(), stream)
 		return parquetParser.InferSchema(ctx, reader)
+	})
+}
+
+// inferSchemaForXML infers schema from an XML file
+func (s *S3) inferSchemaForXML(ctx context.Context, file FileObject, stream *types.Stream) (*types.Stream, error) {
+	return s.withFileReader(ctx, file.FileKey, func(reader io.Reader) (*types.Stream, error) {
+		xmlParser := parser.NewXMLParser(*s.config.GetXMLConfig(), stream)
+		return xmlParser.InferSchema(ctx, reader)
 	})
 }
 

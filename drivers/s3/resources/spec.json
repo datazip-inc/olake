@@ -42,7 +42,8 @@
       "enum": [
         "csv",
         "json",
-        "parquet"
+        "parquet",
+        "xml"
       ],
       "default": "csv"
     },
@@ -161,6 +162,25 @@
                   "title": "Streaming Enabled",
                   "description": "Use S3 range requests for memory-efficient streaming (recommended for large files)",
                   "default": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "properties": {
+            "file_format": {
+              "const": "xml"
+            },
+            "xml": {
+              "type": "object",
+              "title": "XML Configuration",
+              "description": "XML format-specific settings",
+              "properties": {
+                "record_tag": {
+                  "type":"string",
+                  "title": "Record Tag",
+                  "description": "XML tag that encloses each record (e.g., <record> or <item>)" 
                 }
               }
             }

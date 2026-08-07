@@ -15,6 +15,7 @@ const (
 	FormatCSV     FileFormat = "csv"
 	FormatJSON    FileFormat = "json"
 	FormatParquet FileFormat = "parquet"
+	FormatXML     FileFormat = "xml"
 )
 
 // CompressionType represents the compression type of files
@@ -54,6 +55,7 @@ type Config struct {
 	CSV     *parser.CSVConfig     `json:"csv,omitempty"`
 	JSON    *parser.JSONConfig    `json:"json,omitempty"`
 	Parquet *parser.ParquetConfig `json:"parquet,omitempty"`
+	XML     *parser.XMLConfig     `json:"xml,omitempty"`
 }
 
 // Validate validates the S3 configuration
@@ -76,18 +78,18 @@ func (c *Config) Validate() error {
 
 	// Validate file format
 	if c.FileFormat == "" {
-		return fmt.Errorf("file_format is required (csv, json, or parquet)")
+		return fmt.Errorf("file_format is required (csv, json, parquet, or xml)")
 	}
 
 	validFormat := false
-	for _, format := range []FileFormat{FormatCSV, FormatJSON, FormatParquet} {
+	for _, format := range []FileFormat{FormatCSV, FormatJSON, FormatParquet, FormatXML} {
 		if c.FileFormat == format {
 			validFormat = true
 			break
 		}
 	}
 	if !validFormat {
-		return fmt.Errorf("invalid file_format: must be csv, json, or parquet")
+		return fmt.Errorf("invalid file_format: must be csv, json, parquet, or xml")
 	}
 
 	// Set default values
@@ -132,6 +134,12 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.FileFormat == FormatXML && c.XML == nil {
+		// Initialize with defaults if not provided
+		c.XML = &parser.XMLConfig{
+			RecordTag: "",
+		}
+	}
 	// Set default thread count
 	if c.MaxThreads <= 0 {
 		c.MaxThreads = constants.DefaultThreadCount
@@ -171,4 +179,8 @@ func (c *Config) GetJSONConfig() *parser.JSONConfig {
 // GetParquetConfig returns the Parquet parser configuration
 func (c *Config) GetParquetConfig() *parser.ParquetConfig {
 	return c.Parquet
+}
+
+func (c *Config) GetXMLConfig() *parser.XMLConfig {
+	return c.XML
 }
