@@ -130,9 +130,22 @@ func copyJSONWithEdit(srcHost, dstHost string, edit func(map[string]interface{})
 }
 
 // variantSourceOverride gives a suite its own CDC reader where concurrent ones contend: a postgres
-// replication slot, a kafka consumer group. nil for drivers that can share source.json.
+// replication slot, a kafka consumer group, a whole mssql database. nil for drivers that can share
+// source.json. Whatever it renames here, SuiteDatabase and the driver's own connection must match.
 func variantSourceOverride(c *TestConfig) func(map[string]interface{}) error {
 	switch c.Driver {
+	case string(constants.MSSQL):
+		// Table separation alone races: DROP/CREATE TABLE modify database-scoped shared metadata
+		// (system catalog, cdc schema) even for separate tables, and the loser transaction fails
+		// as the deadlock victim (error 1205) -- so each suite owns a whole database.
+		return func(doc map[string]interface{}) error {
+			base, ok := doc["database"].(string)
+			if !ok {
+				return fmt.Errorf("no database in source config")
+			}
+			doc["database"] = SuiteDatabase(base, c.Suite)
+			return nil
+		}
 	case string(constants.Postgres):
 		return func(doc map[string]interface{}) error {
 			updateMethod, ok := doc["update_method"].(map[string]interface{})
@@ -167,6 +180,13 @@ func testTableName(c *TestConfig) string {
 // withSuite names a suite's own copy of a shared resource (table, database, consumer group, namespace).
 func withSuite(base, suite string) string {
 	return Ternary(suite == "", base, fmt.Sprintf("%s_%s", base, suite)).(string)
+}
+
+// SuiteDatabase names the source database a suite owns, for drivers whose CDC is database-scoped.
+// Both sides must agree: variantSourceOverride rewrites source.json for olake, and the driver's
+// own ExecuteQuery connection calls this with the same suite.
+func SuiteDatabase(base, suite string) string {
+	return withSuite(base, suite)
 }
 
 // destinationDBPrefix is passed as --destination-database-prefix. It carries the suite because
