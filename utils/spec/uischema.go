@@ -435,7 +435,8 @@ const ParquetUISchema = `{
     "ui:grid": [
       { "s3_bucket": 12, "s3_region": 12 },
       { "s3_endpoint": 12, "s3_access_key": 12 },
-      { "s3_secret_key": 12, "s3_path": 12 }
+      { "s3_secret_key": 12, "s3_path": 12 },
+      { "max_file_size_mb": 12 }
     ],
     "ui:options": {
       "label": false
@@ -460,6 +461,7 @@ const IcebergUISchema = `{
       { "rest_signing_name": 12, "rest_signing_region": 12 },
       { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
       { "gcp_service_account_json": 12, "gcp_auth_scopes": 12 },
+      { "gcp_project_id": 12 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
       { "aws_region": 12, "glue_additional_config": 12 },
 	 { "glue_catalog_id": 12, "glue_access_key": 12, "glue_secret_key": 12 },

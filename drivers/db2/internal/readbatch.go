@@ -219,7 +219,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		// Converts each row of each batch through the pre-compiled converters
 		// and calls OnMessage. Runs concurrently with the producer, then returns
 		// the buffer set to freeCh for reuse.
-		consumer := func(ctx context.Context) (err error) {
+		consumer := func(_ context.Context) (err error) {
 			// recover so a panic in processBatch returns an error instead of crashing the process.
 			defer func() {
 				if r := recover(); r != nil {

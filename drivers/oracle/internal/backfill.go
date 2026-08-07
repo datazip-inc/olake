@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"time"
@@ -38,7 +39,11 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %s", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			logger.Warnf("failed to rollback transaction: %s", err)
+		}
+	}()
 
 	logger.Debugf("Starting backfill from %v to %v with filter: %s, args: %v", chunk.Min, chunk.Max, filter, args)
 
@@ -46,7 +51,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	if err != nil {
 		return fmt.Errorf("failed to build chunk scan query: %s", err)
 	}
-	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
 		return tx.QueryContext(ctx, query, args...)
 	})
@@ -77,7 +82,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 		return nil, fmt.Errorf("failed to check for rows: %s", err)
 	}
 
-	chunks, err := o.splitViaRowId(ctx, stream)
+	chunks, err := o.splitViaRowID(ctx, stream)
 	// If the fast RowID strategy fails for ANY reason (Read-Only, Permissions, etc.) fallback to Table Iteration strategy
 	if err != nil {
 		logger.Debugf("DBMS Parallel Execute strategy failed (%v). Automatically falling back to Table Iteration strategy for stream [%s.%s]", err, stream.Namespace(), stream.Name())
@@ -116,43 +121,43 @@ func (o *Oracle) splitViaTableIteration(ctx context.Context, stream types.Stream
 func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.StreamInterface, rowsPerChunk int64) (*types.Set[types.Chunk], error) {
 	chunks := types.NewSet[types.Chunk]()
 
-	var minRowId, maxRowId string
+	var minRowID, maxRowID string
 	query := jdbc.OracleMinMaxRowIDQuery(stream)
-	err := o.client.QueryRowContext(ctx, query).Scan(&minRowId, &maxRowId)
+	err := o.client.QueryRowContext(ctx, query).Scan(&minRowID, &maxRowID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get min-max row id: %s", err)
 	}
 
-	currRowId := minRowId
+	currRowID := minRowID
 	chunks.Insert(types.Chunk{
 		Min: nil,
-		Max: currRowId,
+		Max: currRowID,
 	})
 
 	for {
-		var nextRowId string
+		var nextRowID string
 		var rowCount int64
 
-		nextRowIdQuery := jdbc.NextRowIDQuery(stream, currRowId, rowsPerChunk)
-		err = o.client.QueryRowContext(ctx, nextRowIdQuery).Scan(&nextRowId, &rowCount)
+		nextRowIDQuery := jdbc.NextRowIDQuery(stream, currRowID, rowsPerChunk)
+		err = o.client.QueryRowContext(ctx, nextRowIDQuery).Scan(&nextRowID, &rowCount)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get next row id: %s", err)
 		}
 
-		if rowCount < rowsPerChunk || nextRowId == maxRowId {
+		if rowCount < rowsPerChunk || nextRowID == maxRowID {
 			chunks.Insert(types.Chunk{
-				Min: currRowId,
+				Min: currRowID,
 				Max: nil,
 			})
 			break
 		}
 
 		chunks.Insert(types.Chunk{
-			Min: currRowId,
-			Max: nextRowId,
+			Min: currRowID,
+			Max: nextRowID,
 		})
 
-		currRowId = nextRowId
+		currRowID = nextRowID
 	}
 
 	return chunks, nil
@@ -203,8 +208,8 @@ func (o *Oracle) splitViaTableIterationSample(ctx context.Context, stream types.
 	return buildChunksFromStartRowIDs(startRowIDs), nil
 }
 
-// splitViaRowId chunks a table by using DBMS_PARALLEL_EXECUTE.CREATE_CHUNKS_BY_ROWID strategy
-func (o *Oracle) splitViaRowId(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+// splitViaRowID chunks a table by using DBMS_PARALLEL_EXECUTE.CREATE_CHUNKS_BY_ROWID strategy
+func (o *Oracle) splitViaRowID(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	logger.Debugf("Chunking via DBMS_PARALLEL_EXECUTE for %s.%s", stream.Namespace(), stream.Name())
 	query := jdbc.OracleBlockSizeQuery()
 	var blockSize int64

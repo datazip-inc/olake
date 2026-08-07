@@ -33,13 +33,16 @@ package constants
 //     * BSON DateTime at any depth is now decoded directly to time.Time (UTC) via a custom client registry, preventing json.Marshal crashes for out-of-range years ([0,9999]).
 //     * Top-level DateTime fields that previously formatted with the local machine timezone (e.g. "+05:30") now always output UTC ("Z").
 //
-//   - Version 6: (Current Version) Added []uint8 (byte slice) support in ReformatInt64
+//   - Version 6: Added []uint8 (byte slice) support in ReformatInt64
 //     * Previously, numeric values returned as byte slices (common in some SQL drivers) caused errors
 //     * Now these byte slices are parsed and converted into int64
+//
+//   - Version 7: (Current Version) Parquet INT96 and unsigned 32-bit columns map to their correct types.
+//     * INT96: earlier the raw 96-bit integer was emitted as a string, which disagreed with the inferred Timestamp schema and collapsed the column to String.
+//     * Unsigned 32-bit: earlier read as a signed int32 and mapped to Int32, so values above 2^31-1 wrapped negative. Now widened to Int64, matching pg/mysql.
+//     * Older state keeps both previous behaviors so existing destination columns do not change type on upgrade.
 
-const (
-	LatestStateVersion = 6
-)
+const LatestStateVersion = 7
 
 // Used as the current version of the state when the program is running
 var LoadedStateVersion = LatestStateVersion

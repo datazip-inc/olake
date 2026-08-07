@@ -118,7 +118,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 		}
 
 		if hasNext {
-			if err := m.handleChangeDoc(ctx, cursor, stream, prevResumeToken.(string), OnMessage); err != nil {
+			if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
 				return nil, err
 			}
 		}
@@ -163,7 +163,7 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 	return token, nil
 }
 
-func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, startingResumeToken string, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
 	var record CDCDocument
 	if err := cursor.Decode(&record); err != nil {
 		return fmt.Errorf("error while decoding: %s", err)
