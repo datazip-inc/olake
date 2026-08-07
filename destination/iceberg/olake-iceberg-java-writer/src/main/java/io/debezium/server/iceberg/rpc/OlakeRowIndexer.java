@@ -12,7 +12,6 @@ import io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRespons
 import io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch;
 import io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest;
 import io.grpc.stub.StreamObserver;
-import jakarta.enterprise.context.Dependent;
 
 /**
  * Serves the row index that the Go side keeps on local disk so it can express
@@ -23,7 +22,6 @@ import jakarta.enterprise.context.Dependent;
  * flat memory. Like the arrow ingester, this service reuses the session created
  * by the GET_OR_CREATE_TABLE handshake instead of loading its own table handle.
  */
-@Dependent
 public class OlakeRowIndexer extends RowIndexServiceGrpc.RowIndexServiceImplBase {
   private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRowIndexer.class);
 
