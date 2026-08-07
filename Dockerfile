@@ -28,12 +28,24 @@ FROM eclipse-temurin:17-jre-noble
 # Debian's openjdk-*-jre-headless pulls ca-certificates-java, whose postinst is
 # a perl script, which drags in perl (2 CRITICAL CVEs with no fix in any Debian
 # release) plus libnss3. Temurin ships the JRE directly and avoids both.
+#
+# ca-certificates-java + the symlink keep the OS trust store and the JVM's in
+# sync. Debian's openjdk did this for us; Temurin instead bakes a static cacerts,
+# so a private CA added to the OS store would never reach the JVM and TLS to an
+# internal REST catalog, Hive metastore or self-signed S3 endpoint would fail with
+# "PKIX path building failed" while the Go side (which reads /etc/ssl/certs) kept
+# working. Ubuntu's ca-certificates-java, unlike Debian's, needs no perl.
+# update-ca-certificates must run here: the symlink dangles until it materializes
+# the keystore, and a dangling cacerts means the JVM trusts nothing at all.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libxml2 \
     ca-certificates \
+    ca-certificates-java \
     libpam-modules \
     libcrypt1 \
+    && ln -sf /etc/ssl/certs/java/cacerts "$JAVA_HOME/lib/security/cacerts" \
+    && update-ca-certificates -f \
     && rm -rf /var/lib/apt/lists/*
 
 # Driver metadata
