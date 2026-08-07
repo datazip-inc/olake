@@ -16,7 +16,7 @@ import (
 
 // FetchMaxCursorValues returns the maximum LastModified timestamp for all files in the stream
 // This is used by the abstract layer to track incremental sync progress
-func (s *S3) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
+func (s *S3) FetchMaxCursorValues(_ context.Context, stream types.StreamInterface) (any, any, error) {
 	streamName := stream.Name()
 
 	files, exists := s.discoveredFiles[streamName]
