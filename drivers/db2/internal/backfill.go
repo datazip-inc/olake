@@ -200,8 +200,8 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 	return splitViaRID(ctx, stream)
 }
 
-func (d *DB2) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {
+func (d *DB2) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (minVal, maxVal any, err error) {
 	query := jdbc.DB2MinMaxPKQuery(stream, pkColumns)
-	err = d.client.QueryRowContext(ctx, query).Scan(&min, &max)
-	return min, max, err
+	err = d.client.QueryRowContext(ctx, query).Scan(&minVal, &maxVal)
+	return minVal, maxVal, err
 }
