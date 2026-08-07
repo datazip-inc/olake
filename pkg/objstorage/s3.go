@@ -149,6 +149,9 @@ func (s *s3Store) Open(ctx context.Context, key string) (io.ReadCloser, error) {
 
 // OpenRange returns object bytes [offset, offset+length) using an S3 ranged GET.
 func (s *s3Store) OpenRange(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	if offset < 0 || length <= 0 {
+		return nil, fmt.Errorf("invalid range: offset=%d, length=%d", offset, length)
+	}
 	// S3 range format: "bytes=start-end" (inclusive)
 	rangeHeader := fmt.Sprintf("bytes=%d-%d", offset, offset+length-1)
 	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
