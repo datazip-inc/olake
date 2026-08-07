@@ -99,7 +99,7 @@ func (cfg *IntegrationTest) prepareRowIndexSync(ctx context.Context, t *testing.
 		return fmt.Errorf("failed updating selected streams (%d): %s\n%s", code, err, out)
 	}
 
-	modeCmd := UpdateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "full_refresh, cdc", "")
+	modeCmd := UpdateStreamConfigCommand(*cfg.TestConfig, cfg.Namespace, testTable, "cdc", "")
 	if code, out, err := ExecCommand(ctx, c, modeCmd); err != nil || code != 0 {
 		return fmt.Errorf("failed setting stream mode (%d): %s\n%s", code, err, out)
 	}
@@ -131,7 +131,7 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 	}
 
 	// Step 1: full load + CDC update with equality deletes
-	syncEqCmd := SyncCommand(*cfg.TestConfig, false, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "eq")
+	syncEqCmd := SyncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "eq")
 	if code, out, err := ExecCommand(ctx, c, syncEqCmd); err != nil || code != 0 {
 		return fmt.Errorf("initial full load sync failed (%d): %s\n%s", code, err, out)
 	}
@@ -183,7 +183,7 @@ func (cfg *IntegrationTest) testIcebergCleanTablePositionalWithPebbleIndex(ctx c
 		return err
 	}
 
-	syncFullCmd := SyncCommand(*cfg.TestConfig, false, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "pos")
+	syncFullCmd := SyncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "pos")
 	if code, out, err := ExecCommand(ctx, c, syncFullCmd); err != nil || code != 0 {
 		return fmt.Errorf("initial full load failed (%d): %s\n%s", code, err, out)
 	}
@@ -203,7 +203,7 @@ func (cfg *IntegrationTest) testIcebergCleanTablePositionalWithPebbleIndex(ctx c
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row")
 	require.Equal(t, seedRowCount-1, countByOpType(ctx, t, spark, fullTableName, "r"), "expected remaining backfill rows")
 
-	checkIdxCmd := "ls /test-olake/olake-row-index"
+	checkIdxCmd := "find /test-olake -name olake-row-index -type d | grep ."
 	if code, out, err := ExecCommand(ctx, c, checkIdxCmd); err != nil || code != 0 {
 		return fmt.Errorf("expected pebble index directory to exist (%d): %s\n%s", code, err, out)
 	}
@@ -222,12 +222,12 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 		return err
 	}
 
-	syncFullCmd := SyncCommand(*cfg.TestConfig, false, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "pos")
+	syncFullCmd := SyncCommand(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "pos")
 	if code, out, err := ExecCommand(ctx, c, syncFullCmd); err != nil || code != 0 {
 		return fmt.Errorf("initial full load failed (%d): %s\n%s", code, err, out)
 	}
 
-	if code, out, err := ExecCommand(ctx, c, "rm -rf /test-olake/olake-row-index"); err != nil || code != 0 {
+	if code, out, err := ExecCommand(ctx, c, "rm -rf /test-olake/olake-row-index /test-olake/drivers/*/olake-row-index"); err != nil || code != 0 {
 		return fmt.Errorf("failed deleting row index (%d): %s\n%s", code, err, out)
 	}
 
@@ -245,7 +245,7 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 	require.Equal(t, seedRowCount, countLiveRecords(ctx, t, spark, fullTableName), "live record count should match seed")
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row after rebuild")
 
-	if code, out, err := ExecCommand(ctx, c, "ls /test-olake/olake-row-index"); err != nil || code != 0 {
+	if code, out, err := ExecCommand(ctx, c, "find /test-olake -name olake-row-index -type d | grep ."); err != nil || code != 0 {
 		return fmt.Errorf("pebble index should be rebuilt and present (%d): %s\n%s", code, err, out)
 	}
 
