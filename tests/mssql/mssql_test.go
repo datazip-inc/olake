@@ -1,7 +1,6 @@
 package mssql
 
 import (
-	"context"
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
@@ -18,13 +17,11 @@ func mssqlBaseConfig(t *testing.T) *testutils.IntegrationTest {
 		ExpectedData:              ExpectedMSSQLData,
 		DestinationDataTypeSchema: MSSQLToDestinationSchema,
 		DefaultCDCColumnsSchema:   ExpectedMSSQLDefaultCDCColumnsSchema,
-		ExecuteQuery: func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
-			ExecuteQuery(ctx, t, streams, operation, fileConfig, testConf.Suite)
-		},
-		ColumnToExclude: "excludedColumn",
-		DestinationDB:   "mssql_olake_mssql_test_dbo",
-		CursorField:     "id_cursor:col_int",
-		PartitionRegex:  "/{id,identity}",
+		ExecuteQuery:              ExecuteQuery,
+		ColumnToExclude:           "excludedColumn",
+		DestinationDB:             "mssql_olake_mssql_test_dbo",
+		CursorField:               "id_cursor:col_int",
+		PartitionRegex:            "/{id,identity}",
 		FilterConfig: `{
                     "logical_operator": "And",
                     "conditions": [

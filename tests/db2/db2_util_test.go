@@ -60,7 +60,7 @@ func getDB(ctx context.Context, t *testing.T, dsn string) *sqlx.DB {
 }
 
 // exec runs one autocommit statement, retrying only the DB2 deadlock victim (SQL0911N,
-// SQLSTATE 40001): TestDB2Integration and TestDB22PC run in parallel and their DDL contends
+// SQLSTATE 40001): TestDB2Sync and TestDB22PC run in parallel and their DDL contends
 // on the system catalog, so either side can be rolled back and has to replay the statement.
 func exec(ctx context.Context, db *sqlx.DB, query string) error {
 	var err error

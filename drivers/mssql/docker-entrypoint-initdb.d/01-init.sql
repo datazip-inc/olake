@@ -79,23 +79,3 @@ IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'olake_mssql_test' AND is_cd
 BEGIN
     EXEC sys.sp_cdc_enable_db;
 END;
-GO
-
--------------------------------------------------------------------------------
--- 2PC suite. Its own database, not just its own table: SQL Server scopes CDC to
--- the database -- one capture job and one fn_cdc_get_max_lsn() shared by every
--- table in it -- so suites sharing a database cannot run concurrently.
--------------------------------------------------------------------------------
-IF DB_ID('olake_mssql_test_2pc') IS NULL
-BEGIN
-    CREATE DATABASE olake_mssql_test_2pc;
-END;
-GO
-
-USE olake_mssql_test_2pc;
-GO
-
-IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'olake_mssql_test_2pc' AND is_cdc_enabled = 0)
-BEGIN
-    EXEC sys.sp_cdc_enable_db;
-END;

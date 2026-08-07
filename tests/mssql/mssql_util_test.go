@@ -36,18 +36,18 @@ func execCDCMetadata(ctx context.Context, t *testing.T, db *sqlx.DB, query strin
 			return err
 		}
 		t.Logf("CDC metadata statement lost a deadlock (attempt %d/5), retrying: %s", attempt, err)
-		time.Sleep(time.Duration(attempt) * time.Second)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt) * time.Second):
+		}
 	}
 	return err
 }
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
 	t.Helper()
 
-	// The suite picks the database, not just the table: SQL Server scopes CDC to the database, so
-	// two suites sharing one would share a capture job and fn_cdc_get_max_lsn(). This has to resolve
-	// to the same name variantSourceOverride writes into the suite's source.json, or olake and these
-	// queries end up in different databases. 01-init.sql provisions each with CDC enabled.
 	var connStr string
 	if fileConfig {
 		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
@@ -56,11 +56,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			config.String("password"),
 			config.String("host"),
 			config.Int("port"),
-			testutils.SuiteDatabase(config.String("database"), suite),
+			config.String("database"),
 		)
 	} else {
-		connStr = fmt.Sprintf("sqlserver://sa:Password!123@localhost:1433?database=%s&encrypt=disable",
-			testutils.SuiteDatabase("olake_mssql_test", suite))
+		connStr = "sqlserver://sa:Password!123@localhost:1433?database=olake_mssql_test&encrypt=disable"
 	}
 
 	db, err := sqlx.ConnectContext(ctx, "sqlserver", connStr)

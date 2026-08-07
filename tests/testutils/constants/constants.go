@@ -30,6 +30,8 @@ const CdcTimestamp = "_cdc_timestamp"
 
 // LatestStateVersion is the state file format olake writes today. A state file without it reads as
 // version 0, which puts the sync on legacy type mapping -- so the harness has to name the version.
+// TODO: temporary copy of constants/state_version.go's LatestStateVersion; bump it in lockstep
+// until both move to external secrets alongside the source configs.
 const LatestStateVersion = 6
 
 // SkipCDCDrivers are drivers that do not run a CDC-based sync. Unlike the identifiers above this is

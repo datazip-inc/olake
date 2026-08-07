@@ -25,13 +25,12 @@ runs:
 
     - id: restore
       if: inputs.mode == 'restore'
-      uses: actions/cache/restore@v4
+      uses: actions/cache@v4
       with:
         path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
         key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
-        fail-on-cache-miss: true
 
-    - if: inputs.mode == 'restore'
+    - if: inputs.mode == 'restore' && steps.restore.outputs.cache-hit == 'true'
       shell: bash
       run: touch destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
 

@@ -14,9 +14,6 @@ outputs:
   drivers:
     description: JSON array of drivers to run; empty when a change touches no tested driver.
     value: ${{ steps.resolve.outputs.drivers }}
-  testutils:
-    description: true when the shared test harness (tests/testutils) changed.
-    value: ${{ steps.resolve.outputs.testutils }}
 
 runs:
   using: composite

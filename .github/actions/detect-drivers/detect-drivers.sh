@@ -6,12 +6,10 @@ known=$(make -s print.drivers)
 
 if [ "$GITHUB_EVENT_NAME" != "pull_request" ] || [ "$GITHUB_BASE_REF" = master ]; then
   selected="$tested"
-  testutils=true
 else
   changed=$(gh api --paginate \
     "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
     --jq '.[].filename')
-  case "$changed" in *tests/testutils/*) testutils=true ;; *) testutils=false ;; esac
   selected=""
   for file in $changed; do
     case "$file" in
@@ -27,5 +25,4 @@ fi
 
 drivers=$(printf '%s\n' $selected | sort -u | jq -Rc '[., inputs] | map(select(. != ""))')
 echo "drivers=$drivers" >> "$GITHUB_OUTPUT"
-echo "testutils=$testutils" >> "$GITHUB_OUTPUT"
-echo "Affected drivers: $drivers (harness changed: $testutils)"
+echo "Affected drivers: $drivers"
