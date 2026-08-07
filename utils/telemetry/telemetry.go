@@ -135,7 +135,7 @@ func TrackSyncStarted(syncID string, selectedStreams []string, fullLoadStreams, 
 	}()
 }
 
-func TrackSyncCompleted(syncID string, status bool, records, bytesRead int64) {
+func TrackSyncCompleted(syncID, deleteType string, status bool, records, bytesRead int64) {
 	go func() {
 		if telemetry == nil {
 			return
@@ -146,6 +146,7 @@ func TrackSyncCompleted(syncID string, status bool, records, bytesRead int64) {
 			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
 			"records_synced": records,
 			"bytes_read":     bytesRead,
+			"delete_type":    deleteType,
 		}
 
 		if err := telemetry.sendEvent("Sync Completed - CLI", props); err != nil {

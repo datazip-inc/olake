@@ -110,7 +110,7 @@ var syncCmd = &cobra.Command{
 		}
 
 		var delMode types.DeleteMode
-		if deleteType != "" {
+		if deleteType != "eq" {
 			delMode = types.DeleteMode(deleteType)
 		}
 
@@ -151,7 +151,7 @@ var syncCmd = &cobra.Command{
 		telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
 		defer func() {
 			stats := pool.GetStats()
-			telemetry.TrackSyncCompleted(syncID, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
+			telemetry.TrackSyncCompleted(syncID, deleteType, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
 			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 			time.Sleep(5 * time.Second)
 		}()

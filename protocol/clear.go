@@ -64,7 +64,7 @@ var clearCmd = &cobra.Command{
 		connector.SetupState(newState)
 
 		var delMode types.DeleteMode
-		if deleteType != "" {
+		if deleteType != "eq" {
 			delMode = types.DeleteMode(deleteType)
 		}
 

@@ -1450,8 +1450,18 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 							t.Fatalf("Iceberg (%s) Full load + CDC tests failed: %v", wt.name, err)
 						}
 					})
+				}
 
-					if hasIcebergRowIndexTest(cfg.TestConfig.Driver) {
+				t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
+					if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
+						t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
+					}
+				})
+
+				// Row-index / delete-mode tests run after CDC so they do not reset
+				// state/catalog mid-suite and break Arrow CDC. Postgres-only.
+				if hasIcebergRowIndexTest(cfg.TestConfig.Driver) {
+					for _, wt := range writerTypes {
 						t.Run(fmt.Sprintf("Iceberg (%s) Eq to Pos conversion test", wt.name), func(t *testing.T) {
 							if err := cfg.testIcebergWriter(ctx, t, c, currentTestTable, wt.useArrow, cfg.testIcebergEqToPosConversion); err != nil {
 								t.Fatalf("Iceberg (%s) Eq to Pos conversion test failed: %v", wt.name, err)
@@ -1471,12 +1481,6 @@ func (cfg *IntegrationTest) TestIntegration(t *testing.T) {
 						})
 					}
 				}
-
-				t.Run("Parquet Full load + CDC tests", func(t *testing.T) {
-					if err := cfg.testParquetFullLoadAndCDC(ctx, t, c, currentTestTable); err != nil {
-						t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
-					}
-				})
 			}
 
 			// Skip incremental tests for drivers not supporting incremental mode
