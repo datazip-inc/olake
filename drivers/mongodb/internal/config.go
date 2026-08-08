@@ -10,21 +10,23 @@ import (
 )
 
 type Config struct {
-	Hosts            []string          `json:"hosts"`
-	Username         string            `json:"username"`
-	Password         string            `json:"password"`
-	AuthDB           string            `json:"authdb"`
-	ReplicaSet       string            `json:"replica_set"`
-	ReadPreference   string            `json:"read_preference"`
-	Srv              bool              `json:"srv"`
-	ServerRAM        uint              `json:"server_ram"`
-	MaxThreads       int               `json:"max_threads"`
-	Database         string            `json:"database"`
-	RetryCount       int               `json:"backoff_retry_count"`
-	ChunkingStrategy string            `json:"chunking_strategy"`
-	UseIAM           bool              `json:"use_iam"`
-	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
-	AdditionalParams map[string]string `json:"additional_params"`
+	Hosts             []string          `json:"hosts"`
+	Username          string            `json:"username"`
+	Password          string            `json:"password"`
+	AuthDB            string            `json:"authdb"`
+	ReplicaSet        string            `json:"replica_set"`
+	ReadPreference    string            `json:"read_preference"`
+	Srv               bool              `json:"srv"`
+	ServerRAM         uint              `json:"server_ram"`
+	MaxThreads        int               `json:"max_threads"`
+	Database          string            `json:"database"`
+	RetryCount        int               `json:"backoff_retry_count"`
+	ChunkingStrategy  string            `json:"chunking_strategy"`
+	UseIAM            bool              `json:"use_iam"`
+	TLSCACert         string            `json:"tls_ca_cert"`
+	TLSCertificateKey string            `json:"tls_certificate_key"`
+	SSHConfig         *utils.SSHConfig  `json:"ssh_config"`
+	AdditionalParams  map[string]string `json:"additional_params"`
 }
 
 func (c *Config) URI() string {
@@ -59,7 +61,7 @@ func (c *Config) URI() string {
 
 	host := strings.Join(c.Hosts, ",")
 
-	for key, value := range c.AdditionalParams {
+	for key, value := range c.uriAdditionalParams() {
 		query.Set(key, value)
 	}
 
@@ -80,5 +82,8 @@ func (c *Config) URI() string {
 
 // TODO: Add go struct validation in Config
 func (c *Config) Validate() error {
+	if _, err := c.buildTLSConfig(); err != nil {
+		return err
+	}
 	return utils.Validate(c)
 }

@@ -26,6 +26,8 @@ const MongoDBUISchema = `{
         { "read_preference": 12, "srv": 12 },
         { "max_threads": 12, "backoff_retry_count": 12 },
         { "chunking_strategy": 12, "use_iam": 12 },
+        { "tls_ca_cert": 24 },
+        { "tls_certificate_key": 24 },
         { "additional_params": 12, "ssh_config": 12 }
     ],
     "srv": {
@@ -33,6 +35,18 @@ const MongoDBUISchema = `{
     },
     "use_iam": {
         "ui:widget": "boolean"
+    },
+    "tls_ca_cert": {
+        "ui:widget": "textarea",
+        "ui:options": {
+            "rows": 3
+        }
+    },
+    "tls_certificate_key": {
+        "ui:widget": "textarea",
+        "ui:options": {
+            "rows": 3
+        }
     },
     "hosts": {
         "ui:options": {

@@ -136,6 +136,13 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 
 	opts.ApplyURI(m.config.URI())
+	tlsConfig, err := m.config.buildTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build tls config: %s", err)
+	}
+	if tlsConfig != nil {
+		opts.SetTLSConfig(tlsConfig)
+	}
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {
