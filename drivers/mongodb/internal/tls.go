@@ -15,6 +15,9 @@ func (c *Config) hasInlineTLS() bool {
 	return strings.TrimSpace(c.TLSCACert) != "" || strings.TrimSpace(c.TLSCertificateKey) != ""
 }
 
+// Returns connection URI params. When inline PEM is set,
+// file-path TLS params are stripped and tls=true is ensured. Otherwise params
+// are returned unchanged for CLI backward compatibility.
 func (c *Config) uriAdditionalParams() map[string]string {
 	if !c.hasInlineTLS() {
 		return c.AdditionalParams
