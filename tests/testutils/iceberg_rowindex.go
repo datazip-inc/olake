@@ -148,7 +148,11 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 	opTypesBefore := queryLiveOpTypes(ctx, t, spark, fullTableName)
 	require.Equal(t, seedRowCount, int64(len(opTypesBefore)), "live row count before conversion should match seed")
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row before conversion")
-	spark.Stop()
+	defer func() {
+		if err := spark.Stop(); err != nil {
+			t.Logf("Failed to stop Spark session: %v", err)
+		}
+	}()
 
 	// Step 2: CDC insert with positional deletes (triggers eq -> pos conversion)
 	cfg.ExecuteQuery(ctx, t, []string{testTable}, "insert", false)

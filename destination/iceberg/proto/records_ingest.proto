@@ -95,6 +95,21 @@ message RecordIngestResponse {
 // WriteRun describes a contiguous block of rows written to a single data file.
 // Because Java writes records sequentially, a batch of records typically maps
 // to just one or two runs (if a file rolled).
+// example:
+  // WriteRuns: []*proto.WriteRun{
+  // 	{
+  // 		FilePath:      "s3a://warehouse/olake_test/test_table/data/00000-0-1111.parquet",
+  // 		BatchStartIdx: 0,   // maps to sentRecords[0], sentRecords[1], sentRecords[2]
+  // 		StartPosition: 100, // row offset 100 in File 1
+  // 		Count:         3,
+  // 	},
+  // 	{
+  // 		FilePath:      "s3a://warehouse/olake_test/test_table/data/00001-0-2222.parquet",
+  // 		BatchStartIdx: 3, // maps to sentRecords[3], sentRecords[4]
+  // 		StartPosition: 0, // row offset 0 in File 2
+  // 		Count:         2,
+  // 	},
+  // },
 message WriteRun {
   string file_path = 1;
   int32 batch_start_idx = 2;

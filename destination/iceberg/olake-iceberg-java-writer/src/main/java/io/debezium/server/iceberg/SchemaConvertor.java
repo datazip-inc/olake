@@ -41,7 +41,11 @@ public class SchemaConvertor {
       String fieldName = rawField.getKey(); // field name 
       String fieldType = rawField.getIceType();
       Boolean isPkField = (fieldName.equals(identifierField));
-      final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldName, fieldType));
+      int fieldId = schemaData.nextFieldId().getAndIncrement();
+      Type fieldPrimitiveType = icebergPrimitiveField(fieldName, fieldType);
+      final Types.NestedField field = isPkField
+          ? Types.NestedField.required(fieldId, fieldName, fieldPrimitiveType)
+          : Types.NestedField.optional(fieldId, fieldName, fieldPrimitiveType);
       schemaData.fields().add(field);
       if (isPkField) schemaData.identifierFieldIds().add(field.fieldId());
     }

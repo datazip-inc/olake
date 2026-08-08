@@ -37,7 +37,7 @@ func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.TableIndex,
 	}
 
 	// now check if the index is already up to date, if not then update incrementally
-	indexedSnapshotID, indexed, err := index.IndexedSnapshot()
+	indexedSnapshotID, indexed, err := index.LastCommittedSnapshot()
 	if err != nil {
 		return fmt.Errorf("failed to read row index checkpoint of table[%s]: %s", table, err)
 	}
@@ -97,7 +97,7 @@ func drainRowIndexScan(stream proto.RowIndexService_ScanRowIndexClient, index ty
 		if errors.Is(err, io.EOF) {
 			// The checkpoint rides with the final batch, applied in full only
 			// after every entry the scan produced has been accumulated.
-			if err := index.Apply(pending, &snapshotID); err != nil {
+			if err := index.Commit(pending, &snapshotID); err != nil {
 				return 0, 0, fmt.Errorf("failed to checkpoint row index at snapshot[%d]: %s", snapshotID, err)
 			}
 			return snapshotID, entries, nil

@@ -14,7 +14,7 @@ const (
 	// identifier -> RowLocation index of every live row in the table.
 	DeleteModePosition DeleteMode = "pos"
 	// DeleteModeDeletionVector writes Iceberg v3 deletion vectors.
-	// TODO: not implemented; validation rejects it.
+	// TODO: implement dv writing in Olake (Difficulty: Medium)
 	DeleteModeDeletionVector DeleteMode = "dv"
 )
 

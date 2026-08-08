@@ -89,11 +89,11 @@ public final class EqualityDeleteMigrator {
     long posConvCount = 0L;
 
     for (DataFileDeletes entry : affected.values()) {
-      LOGGER.debug("data file affected {} with delete records: {}", entry.dataFile.path(), entry.equalityDeletes.toArray());
+      LOGGER.debug("data file affected {} with delete records: {}", entry.dataFile.location(), entry.equalityDeletes.toArray());
       Set<String> deletedKeys = new HashSet<>();
       for (DeleteFile delete : entry.equalityDeletes) {
         replaced.add(delete);
-        deletedKeys.addAll(keysByDeleteFile.computeIfAbsent(delete.path().toString(),
+        deletedKeys.addAll(keysByDeleteFile.computeIfAbsent(delete.location(),
             path -> readKeys(table, delete, projection, identifierField)));
       }
 
@@ -106,7 +106,12 @@ public final class EqualityDeleteMigrator {
     List<DeleteFile> written = writePositionDeletes(table, fileFactory, groups);
 
     RewriteFiles rewrite = table.newRewrite();
-    rewrite.rewriteFiles(Collections.emptySet(), replaced, Collections.emptySet(), new LinkedHashSet<>(written));
+    for (DeleteFile deleteFile : replaced) {
+      rewrite.deleteFile(deleteFile);
+    }
+    for (DeleteFile deleteFile : written) {
+      rewrite.addFile(deleteFile);
+    }
     rewrite.commit();
     table.refresh();
 
@@ -134,7 +139,7 @@ public final class EqualityDeleteMigrator {
         }
 
         // planFiles can split a file into several tasks; merge their delete lists.
-        affected.computeIfAbsent(task.file().path().toString(), path -> new DataFileDeletes(task.file()))
+        affected.computeIfAbsent(task.file().location(), path -> new DataFileDeletes(task.file()))
             .equalityDeletes.addAll(equalityDeletes);
       }
     }
@@ -150,7 +155,7 @@ public final class EqualityDeleteMigrator {
 
     Set<String> keys = new HashSet<>();
     try (CloseableIterable<Object> rows =
-        TableRowIndexScanner.openParquet(table, delete.path().toString(), projection)) {
+        TableRowIndexScanner.openParquet(table, delete.location(), projection)) {
       for (Object row : rows) {
         Object key = TableRowIndexScanner.getFieldValue(row, identifierField);
         if (key != null) {
@@ -158,7 +163,7 @@ public final class EqualityDeleteMigrator {
         }
       }
     } catch (IOException e) {
-      throw new UncheckedIOException("failed to read equality delete file " + delete.path(), e);
+      throw new UncheckedIOException("failed to read equality delete file " + delete.location(), e);
     }
 
     return keys;
@@ -171,7 +176,7 @@ public final class EqualityDeleteMigrator {
       return 0L;
     }
 
-    String path = dataFile.path().toString();
+    String path = dataFile.location();
     long position = 0L;
     long matched = 0L;
 

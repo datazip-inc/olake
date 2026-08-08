@@ -142,7 +142,7 @@ public final class TableRowIndexScanner {
       entries += emitFile(table, file, projection, identifierField, EMPTY_POSITIONS, true, consumer);
     }
     for (DataFile file : addedFiles) {
-      BitSet deleted = deletedPositions.getOrDefault(file.path().toString(), EMPTY_POSITIONS);
+      BitSet deleted = deletedPositions.getOrDefault(file.location(), EMPTY_POSITIONS);
       entries += emitFile(table, file, projection, identifierField, deleted, false, consumer);
     }
 
@@ -155,9 +155,9 @@ public final class TableRowIndexScanner {
   /** Whether a data file is still present and can be opened for reading. */
   private static boolean isReadable(Table table, DataFile file) {
     try {
-      return table.io().newInputFile(file.path().toString()).exists();
+      return table.io().newInputFile(file.location()).exists();
     } catch (RuntimeException e) {
-      LOGGER.debug("data file {} of {} cannot be reached", file.path(), table.name(), e);
+      LOGGER.debug("data file {} of {} cannot be reached", file.location(), table.name(), e);
       return false;
     }
   }
@@ -172,7 +172,7 @@ public final class TableRowIndexScanner {
     Schema pathPos = DeleteSchemaUtil.pathPosSchema();
 
     for (DeleteFile delete : deleteFiles(table, FileContent.POSITION_DELETES)) {
-      try (CloseableIterable<Object> rows = openParquet(table, delete.path().toString(), pathPos)) {
+      try (CloseableIterable<Object> rows = openParquet(table, delete.location(), pathPos)) {
         for (Object row : rows) {
           Object path = getFieldValue(row, MetadataColumns.DELETE_FILE_PATH.name());
           Object position = getFieldValue(row, MetadataColumns.DELETE_FILE_POS.name());
@@ -199,7 +199,7 @@ public final class TableRowIndexScanner {
     try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
       // planFiles may split one file into several tasks; index each file once.
       for (FileScanTask task : tasks) {
-        unique.putIfAbsent(task.file().path().toString(), task.file());
+        unique.putIfAbsent(task.file().location(), task.file());
       }
     }
     return sortedOldestFirst(unique.values());
@@ -237,10 +237,10 @@ public final class TableRowIndexScanner {
     try {
       for (Snapshot snapshot : range) {
         for (DataFile file : snapshot.removedDataFiles(table.io())) {
-          removed.putIfAbsent(file.path().toString(), file);
+          removed.putIfAbsent(file.location(), file);
         }
         for (DataFile file : snapshot.addedDataFiles(table.io())) {
-          added.putIfAbsent(file.path().toString(), file);
+          added.putIfAbsent(file.location(), file);
         }
       }
     } catch (RuntimeException e) {
@@ -290,7 +290,7 @@ public final class TableRowIndexScanner {
     // of each identifier. Path breaks ties for a deterministic result.
     sorted.sort(Comparator
         .comparingLong((DataFile file) -> file.dataSequenceNumber() == null ? 0L : file.dataSequenceNumber())
-        .thenComparing(file -> file.path().toString()));
+        .thenComparing(file -> file.location()));
     return sorted;
   }
 
@@ -309,7 +309,7 @@ public final class TableRowIndexScanner {
    */
   private static long emitFile(Table table, DataFile file, Schema projection, String identifierField,
       BitSet deleted, boolean isDeletedFile, EntryConsumer consumer) throws Exception {
-    String path = file.path().toString();
+    String path = file.location();
     long position = 0L;
     long emitted = 0L;
 
@@ -353,9 +353,9 @@ public final class TableRowIndexScanner {
     }
 
     try {
-      return openParquet(table, file.path().toString(), projection);
+      return openParquet(table, file.location(), projection);
     } catch (UncheckedIOException e) {
-      throw new UncheckedIOException("failed to read data file " + file.path(), e.getCause());
+      throw new UncheckedIOException("failed to read data file " + file.location(), e.getCause());
     }
   }
 
@@ -375,7 +375,7 @@ public final class TableRowIndexScanner {
     try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
       for (FileScanTask task : tasks) {
         for (DeleteFile delete : task.deletes()) {
-          if (delete.content() == content && seen.add(delete.path().toString())) {
+          if (delete.content() == content && seen.add(delete.location())) {
             found.add(delete);
           }
         }

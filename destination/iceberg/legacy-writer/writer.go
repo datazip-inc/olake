@@ -127,23 +127,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", w.options.ThreadID, ingestResponse.GetResult())
 
 	if w.indexBatch != nil {
-		// in response we just get startOlakeID,filepath and count written in that
-		// example:
-		// WriteRuns: []*proto.WriteRun{
-		// 	{
-		// 		FilePath:      "s3a://warehouse/olake_test/test_table/data/00000-0-1111.parquet",
-		// 		BatchStartIdx: 0,   // maps to sentRecords[0], sentRecords[1], sentRecords[2]
-		// 		StartPosition: 100, // row offset 100 in File 1
-		// 		Count:         3,
-		// 	},
-		// 	{
-		// 		FilePath:      "s3a://warehouse/olake_test/test_table/data/00001-0-2222.parquet",
-		// 		BatchStartIdx: 3, // maps to sentRecords[3], sentRecords[4]
-		// 		StartPosition: 0, // row offset 0 in File 2
-		// 		Count:         2,
-		// 	},
-		// },
-
+		// for example of writeRuns check definition in proto file
 		for _, run := range ingestResponse.GetWriteRuns() {
 			logger.Debugf("Thread[%s]: write run: %s::%d", w.options.ThreadID, run.FilePath, run.StartPosition)
 			for i := int32(0); i < run.Count; i++ {
@@ -206,7 +190,7 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 	if w.options.RowIndex != nil && w.indexBatch != nil {
 		batch := w.indexBatch
 		w.indexBatch = nil
-		if err := w.options.RowIndex.Apply(batch, &ingestResponse.SnapshotId); err != nil {
+		if err := w.options.RowIndex.Commit(batch, &ingestResponse.SnapshotId); err != nil {
 			return fmt.Errorf("failed to apply row index: %s", err)
 		}
 	}

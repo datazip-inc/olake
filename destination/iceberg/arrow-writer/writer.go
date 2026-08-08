@@ -406,7 +406,7 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 		committedSnapshotID := response.(*proto.ArrowIngestResponse).SnapshotId
 		batch := w.indexBatch
 		w.indexBatch = nil
-		if applyErr := w.options.RowIndex.Apply(batch, committedSnapshotID); applyErr != nil {
+		if applyErr := w.options.RowIndex.Commit(batch, committedSnapshotID); applyErr != nil {
 			return fmt.Errorf("failed to apply row index: %s", applyErr)
 		}
 	}

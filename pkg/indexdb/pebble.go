@@ -203,7 +203,7 @@ func (i *pebbleIndex) Lookup(key string) (types.RowLocation, bool, error) {
 	return types.RowLocation{FilePath: path, Position: position}, true, nil
 }
 
-func (i *pebbleIndex) Apply(batch *types.RowIndexBatch, snapshotID *int64) error {
+func (i *pebbleIndex) Commit(batch *types.RowIndexBatch, snapshotID *int64) error {
 	i.applyMu.Lock()
 	defer i.applyMu.Unlock()
 
@@ -265,7 +265,7 @@ func (i *pebbleIndex) stageChange(batch *pebble.Batch, key string, loc types.Row
 	return nil
 }
 
-func (i *pebbleIndex) IndexedSnapshot() (int64, bool, error) {
+func (i *pebbleIndex) LastCommittedSnapshot() (int64, bool, error) {
 	value, closer, err := i.db.Get(metaKey(metaSnapshot))
 	if errors.Is(err, pebble.ErrNotFound) {
 		return 0, false, nil

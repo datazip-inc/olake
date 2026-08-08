@@ -6,42 +6,15 @@ type RowLocation struct {
 	Position int64
 }
 
-// TableIndex is a durable map from a row identifier (_olake_id) to the location
-// of that row in the destination table, plus the snapshot the map is consistent
-// with. Implementations must be safe for concurrent use.
-//
-// The index carries no transactions and no undo log. Everything it holds is a
-// fact re-derivable by scanning the destination table, so instead of unwinding a
-// failed write the index simply refuses to advance its checkpoint: a checkpoint
-// behind the table's snapshot tells the next sync to rescan the difference, and
-// replaying a scan produces the same entries it produced the first time.
-//
-// The rule that keeps that reasoning valid is that a row location must never
-// reach the index before the destination commit that created the file it points
-// into. Writers therefore buffer their changes in a RowIndexBatch and hand the
-// whole batch over once the destination has accepted the files.
+// tableIndex is interface for index store
 type TableIndex interface {
-	// Lookup returns the indexed location of key. found is false when the index
-	// holds no live row for key.
+	// lookup for keys in index store
 	Lookup(key string) (loc RowLocation, found bool, err error)
-	// Apply installs every change in batch. A non-nil snapshotID additionally
-	// advances the checkpoint in the same durable commit as those changes, so
-	// the index never claims to be current at a snapshot whose rows it is
-	// missing. A nil snapshotID leaves the checkpoint where it was; an
-	// interrupted Apply is repaired by the next sync rescanning from the older
-	// checkpoint.
-	//
-	// Callers must only pass a snapshotID once the destination has committed the
-	// files the batch refers to.
-	Apply(batch *RowIndexBatch, snapshotID *int64) error
-	// IndexedSnapshot returns the destination snapshot ID this index reflects.
-	// ok is false while the index has never been populated, which is the signal
-	// that a full bootstrap scan is required.
-	IndexedSnapshot() (snapshotID int64, ok bool, err error)
-	// Truncate removes all entries and clears the indexed snapshot. Clearing the
-	// checkpoint is what makes it safe to start a from-scratch rebuild without a
-	// rollback path: a rebuild that dies partway leaves no checkpoint, and an
-	// index with no checkpoint is rebuilt again rather than trusted.
+	// commit changes to index store
+	Commit(batch *RowIndexBatch, snapshotID *int64) error
+	// LastCommittedSnapshot returns the last committed snapshot ID
+	LastCommittedSnapshot() (snapshotID int64, ok bool, err error)
+	// truncate index store
 	Truncate() error
 	Close() error
 }
@@ -53,16 +26,7 @@ type rowIndexChange struct {
 	deleted bool
 }
 
-// RowIndexBatch buffers the index changes of a single writer thread until the
-// destination commit that makes them real, and answers that thread's lookups
-// from the buffer before falling through to the committed index.
-//
-// Buffering rather than writing through is what removes the need for an undo
-// log: a thread that dies, or whose destination commit fails, has written
-// nothing to the index at all, so there is nothing to unwind.
-//
-// A batch is not safe for concurrent use. Each writer thread owns one, which
-// also means threads no longer observe one another's uncommitted locations.
+// rowIndexBatch buffers the index changes of a single writer thread until the destination commit happens
 type RowIndexBatch struct {
 	index   TableIndex
 	changes map[string]rowIndexChange
@@ -103,11 +67,6 @@ func (b *RowIndexBatch) Lookup(key string) (RowLocation, bool, error) {
 	return b.index.Lookup(key)
 }
 
-// Len reports how many rows the batch will touch.
-func (b *RowIndexBatch) Len() int {
-	return len(b.changes)
-}
-
 // Range hands every pending change to fn, stopping at the first error.
 func (b *RowIndexBatch) Range(fn func(key string, loc RowLocation, deleted bool) error) error {
 	for key, change := range b.changes {
@@ -116,9 +75,4 @@ func (b *RowIndexBatch) Range(fn func(key string, loc RowLocation, deleted bool)
 		}
 	}
 	return nil
-}
-
-// Reset empties the batch so the same buffer can serve the next commit cycle.
-func (b *RowIndexBatch) Reset() {
-	b.changes = make(map[string]rowIndexChange)
 }
