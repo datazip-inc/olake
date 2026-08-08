@@ -46,7 +46,6 @@ type (
 		shutdown     func(ctx context.Context)
 		writerSchema sync.Map
 		batchSize    int64
-		indexStore   types.TableIndexStore
 	}
 
 	// writer thread used by reader
@@ -117,11 +116,6 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
-	// Equality deletes need no row index, so that mode pays nothing for one.
-	if deleteMode.NeedsRowIndex(config.Type) {
-		pool.indexStore = indexdb.NewStore()
-	}
-
 	for _, stream := range syncStreams {
 		artifact := &writerSchema{
 			mu:     sync.RWMutex{},
@@ -129,10 +123,9 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 		}
 
 		if deleteMode.NeedsRowIndex(config.Type) && !stream.Self().StreamMetadata.AppendMode {
-			// open index store for the stream
-			rowIndex, err := pool.indexStore.Open(ctx, stream.ID())
+			rowIndex, err := indexdb.Open(stream.ID())
 			if err != nil {
-				_ = pool.indexStore.Close()
+				pool.Shutdown(ctx)
 				return nil, err
 			}
 			artifact.rowIndex = rowIndex
@@ -146,11 +139,14 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 
 // Shutdown tears down destination-level process resources (like the Iceberg Java server)
 func (w *WriterPool) Shutdown(ctx context.Context) {
-	if w.indexStore != nil {
-		if err := w.indexStore.Close(); err != nil {
-			logger.Errorf("failed to close row index store: %s", err)
+	w.writerSchema.Range(func(key, value any) bool {
+		if artifact, ok := value.(*writerSchema); ok && artifact.rowIndex != nil {
+			if err := artifact.rowIndex.Close(); err != nil {
+				logger.Errorf("failed to close row index for stream[%v]: %s", key, err)
+			}
 		}
-	}
+		return true
+	})
 
 	if w.shutdown != nil {
 		w.shutdown(ctx)
@@ -364,16 +360,8 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, deleteMode typ
 	}
 
 	if deleteMode.NeedsRowIndex(config.Type) {
-		// drop index first and then drop table
-		indexStore := indexdb.NewStore()
-		defer func() {
-			if closeErr := indexStore.Close(); closeErr != nil {
-				logger.Errorf("failed to close row index store: %s", closeErr)
-			}
-		}()
-
 		for _, stream := range dropStreams {
-			if err := indexStore.Drop(ctx, stream.ID()); err != nil {
+			if err := indexdb.Drop(stream.ID()); err != nil {
 				return err
 			}
 		}

@@ -1,24 +1,9 @@
 package types
 
-import "context"
-
 // RowLocation addresses a single row within one data file of a destination table.
 type RowLocation struct {
 	FilePath string
 	Position int64
-}
-
-// TableIndexStore hands out one TableIndex per stream. Each stream is backed by
-// its own database so that a rebuild, drop, or corruption of one stream's index
-// cannot affect another's.
-type TableIndexStore interface {
-	// Open returns the index for streamID, creating an empty one on first use.
-	// Repeated calls for the same streamID return the same TableIndex.
-	Open(ctx context.Context, streamID string) (TableIndex, error)
-	// Drop discards streamID's index entirely, forcing a rebuild on next Open.
-	Drop(ctx context.Context, streamID string) error
-	// Close releases every open index.
-	Close() error
 }
 
 // TableIndex is a durable map from a row identifier (_olake_id) to the location

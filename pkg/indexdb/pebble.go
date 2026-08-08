@@ -1,18 +1,80 @@
 package indexdb
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
 	"sync"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/bloom"
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 )
+
+var unsafeDirChars = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
+
+type StoreOptions struct {
+	Dir          string
+	CacheSize    int64
+	MemTableSize uint64
+	MaxOpenFiles int
+}
+
+func DefaultOptions() StoreOptions {
+	dir := os.Getenv(constants.IndexDBDir)
+	if dir == "" {
+		wd, _ := os.Getwd()
+		dir = filepath.Join(wd, constants.DefaultDirName)
+	}
+
+	cacheSize, err := strconv.Atoi(os.Getenv(constants.IndexDBCacheSizePerStream))
+	if err != nil {
+		logger.Errorf("failed to parse index db cache size (using default %d MB): %s", constants.DefaultCacheSize, err)
+		cacheSize = constants.DefaultCacheSize
+	}
+
+	return StoreOptions{
+		Dir:          dir,
+		CacheSize:    int64(cacheSize),
+		MemTableSize: constants.DefaultMemTableSize,
+		MaxOpenFiles: constants.DefaultMaxOpenFiles,
+	}
+}
+
+// Open opens or creates a TableIndex for the given streamID.
+func Open(streamID string) (types.TableIndex, error) {
+	opts := DefaultOptions()
+	dir := indexDir(opts.Dir, streamID)
+	return openIndex(dir, opts)
+}
+
+// Drop removes the on-disk index directory for streamID.
+func Drop(streamID string) error {
+	opts := DefaultOptions()
+	dir := indexDir(opts.Dir, streamID)
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("failed to remove row index for stream[%s]: %w", streamID, err)
+	}
+	return nil
+}
+
+func indexDir(baseDir, streamID string) string {
+	sum := sha256.Sum256([]byte(streamID))
+	safe := unsafeDirChars.ReplaceAllString(streamID, "_")
+	if len(safe) > 80 {
+		safe = safe[:80]
+	}
+	return filepath.Join(baseDir, fmt.Sprintf("%s-%s", safe, hex.EncodeToString(sum[:6])))
+}
 
 const (
 	prefixRow        byte = 0x01
