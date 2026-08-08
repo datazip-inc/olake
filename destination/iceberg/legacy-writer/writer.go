@@ -203,7 +203,7 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 	ingestResponse := res.(*proto.RecordIngestResponse)
 	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, ingestResponse.GetResult())
 
-	if w.indexBatch != nil {
+	if w.options.RowIndex != nil && w.indexBatch != nil {
 		batch := w.indexBatch
 		w.indexBatch = nil
 		if err := w.options.RowIndex.Apply(batch, &ingestResponse.SnapshotId); err != nil {

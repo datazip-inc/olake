@@ -141,8 +141,9 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 	}
 
 	if w.upsertMode {
-		// when indexBatch is nil, we don't need to write equality deletes
-		if writer.equalityDeleteWriter == nil && w.indexBatch != nil {
+		// In positional delete mode the index resolves every row to a location, so
+		// no equality deletes are produced at all.
+		if writer.equalityDeleteWriter == nil && w.options.RowIndex == nil {
 			if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
 				return nil, err
 			}
@@ -400,11 +401,14 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 		return fmt.Errorf("failed to commit arrow files: %s", err)
 	}
 
-	committedSnapshotID := response.(*proto.ArrowIngestResponse).SnapshotId
-	batch := w.indexBatch
-	w.indexBatch = nil
-	if applyErr := w.options.RowIndex.Apply(batch, committedSnapshotID); applyErr != nil {
-		return fmt.Errorf("failed to apply row index: %s", applyErr)
+	// apply row index if it exists
+	if w.options.RowIndex != nil && w.indexBatch != nil {
+		committedSnapshotID := response.(*proto.ArrowIngestResponse).SnapshotId
+		batch := w.indexBatch
+		w.indexBatch = nil
+		if applyErr := w.options.RowIndex.Apply(batch, committedSnapshotID); applyErr != nil {
+			return fmt.Errorf("failed to apply row index: %s", applyErr)
+		}
 	}
 
 	return nil

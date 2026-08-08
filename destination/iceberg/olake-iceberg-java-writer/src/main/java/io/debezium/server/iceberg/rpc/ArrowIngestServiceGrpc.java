@@ -5,14 +5,14 @@ import static io.grpc.MethodDescriptor.generateFullMethodName;
 /**
  */
 @javax.annotation.Generated(
-    value = "by gRPC proto compiler (version 1.69.0)",
+    value = "by gRPC proto compiler (version 1.53.0)",
     comments = "Source: record_ingest.proto")
 @io.grpc.stub.annotations.GrpcGenerated
 public final class ArrowIngestServiceGrpc {
 
   private ArrowIngestServiceGrpc() {}
 
-  public static final java.lang.String SERVICE_NAME = "io.debezium.server.iceberg.rpc.ArrowIngestService";
+  public static final String SERVICE_NAME = "io.debezium.server.iceberg.rpc.ArrowIngestService";
 
   // Static method descriptors that strictly reflect the proto.
   private static volatile io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload,
@@ -92,32 +92,31 @@ public final class ArrowIngestServiceGrpc {
 
   /**
    */
-  public interface AsyncService {
+  public static abstract class ArrowIngestServiceImplBase implements io.grpc.BindableService {
 
     /**
      */
-    default void icebergAPI(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload request,
+    public void icebergAPI(io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload request,
         io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.ArrowIngestResponse> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getIcebergAPIMethod(), responseObserver);
     }
-  }
-
-  /**
-   * Base class for the server implementation of the service ArrowIngestService.
-   */
-  public static abstract class ArrowIngestServiceImplBase
-      implements io.grpc.BindableService, AsyncService {
 
     @java.lang.Override public final io.grpc.ServerServiceDefinition bindService() {
-      return ArrowIngestServiceGrpc.bindService(this);
+      return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
+          .addMethod(
+            getIcebergAPIMethod(),
+            io.grpc.stub.ServerCalls.asyncUnaryCall(
+              new MethodHandlers<
+                io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload,
+                io.debezium.server.iceberg.rpc.RecordIngest.ArrowIngestResponse>(
+                  this, METHODID_ICEBERG_API)))
+          .build();
     }
   }
 
   /**
-   * A stub to allow clients to do asynchronous rpc calls to service ArrowIngestService.
    */
-  public static final class ArrowIngestServiceStub
-      extends io.grpc.stub.AbstractAsyncStub<ArrowIngestServiceStub> {
+  public static final class ArrowIngestServiceStub extends io.grpc.stub.AbstractAsyncStub<ArrowIngestServiceStub> {
     private ArrowIngestServiceStub(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       super(channel, callOptions);
@@ -139,10 +138,8 @@ public final class ArrowIngestServiceGrpc {
   }
 
   /**
-   * A stub to allow clients to do synchronous rpc calls to service ArrowIngestService.
    */
-  public static final class ArrowIngestServiceBlockingStub
-      extends io.grpc.stub.AbstractBlockingStub<ArrowIngestServiceBlockingStub> {
+  public static final class ArrowIngestServiceBlockingStub extends io.grpc.stub.AbstractBlockingStub<ArrowIngestServiceBlockingStub> {
     private ArrowIngestServiceBlockingStub(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       super(channel, callOptions);
@@ -163,10 +160,8 @@ public final class ArrowIngestServiceGrpc {
   }
 
   /**
-   * A stub to allow clients to do ListenableFuture-style rpc calls to service ArrowIngestService.
    */
-  public static final class ArrowIngestServiceFutureStub
-      extends io.grpc.stub.AbstractFutureStub<ArrowIngestServiceFutureStub> {
+  public static final class ArrowIngestServiceFutureStub extends io.grpc.stub.AbstractFutureStub<ArrowIngestServiceFutureStub> {
     private ArrowIngestServiceFutureStub(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       super(channel, callOptions);
@@ -194,10 +189,10 @@ public final class ArrowIngestServiceGrpc {
       io.grpc.stub.ServerCalls.ServerStreamingMethod<Req, Resp>,
       io.grpc.stub.ServerCalls.ClientStreamingMethod<Req, Resp>,
       io.grpc.stub.ServerCalls.BidiStreamingMethod<Req, Resp> {
-    private final AsyncService serviceImpl;
+    private final ArrowIngestServiceImplBase serviceImpl;
     private final int methodId;
 
-    MethodHandlers(AsyncService serviceImpl, int methodId) {
+    MethodHandlers(ArrowIngestServiceImplBase serviceImpl, int methodId) {
       this.serviceImpl = serviceImpl;
       this.methodId = methodId;
     }
@@ -226,18 +221,6 @@ public final class ArrowIngestServiceGrpc {
     }
   }
 
-  public static final io.grpc.ServerServiceDefinition bindService(AsyncService service) {
-    return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
-        .addMethod(
-          getIcebergAPIMethod(),
-          io.grpc.stub.ServerCalls.asyncUnaryCall(
-            new MethodHandlers<
-              io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload,
-              io.debezium.server.iceberg.rpc.RecordIngest.ArrowIngestResponse>(
-                service, METHODID_ICEBERG_API)))
-        .build();
-  }
-
   private static abstract class ArrowIngestServiceBaseDescriptorSupplier
       implements io.grpc.protobuf.ProtoFileDescriptorSupplier, io.grpc.protobuf.ProtoServiceDescriptorSupplier {
     ArrowIngestServiceBaseDescriptorSupplier() {}
@@ -261,9 +244,9 @@ public final class ArrowIngestServiceGrpc {
   private static final class ArrowIngestServiceMethodDescriptorSupplier
       extends ArrowIngestServiceBaseDescriptorSupplier
       implements io.grpc.protobuf.ProtoMethodDescriptorSupplier {
-    private final java.lang.String methodName;
+    private final String methodName;
 
-    ArrowIngestServiceMethodDescriptorSupplier(java.lang.String methodName) {
+    ArrowIngestServiceMethodDescriptorSupplier(String methodName) {
       this.methodName = methodName;
     }
 

@@ -144,7 +144,7 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 	}
 
 	spark := getSparkSession(ctx, t)
-	require.Greater(t, countDeleteFiles(ctx, t, spark, fullTableName, 2), int64(0), "expected equality delete files before conversion")
+	require.Equal(t, int64(1), countDeleteFiles(ctx, t, spark, fullTableName, 2), "expected 1 equality delete file before conversion")
 	opTypesBefore := queryLiveOpTypes(ctx, t, spark, fullTableName)
 	require.Equal(t, seedRowCount, int64(len(opTypesBefore)), "live row count before conversion should match seed")
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row before conversion")
@@ -166,7 +166,7 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 	}()
 
 	require.Equal(t, int64(0), countDeleteFiles(ctx, t, spark, fullTableName, 2), "expected 0 equality delete files after conversion")
-	require.Greater(t, countDeleteFiles(ctx, t, spark, fullTableName, 1), int64(0), "expected positional delete files after conversion")
+	require.Equal(t, int64(1), countDeleteFiles(ctx, t, spark, fullTableName, 1), "expected 1 positional delete file after conversion")
 
 	opTypesAfter := queryLiveOpTypes(ctx, t, spark, fullTableName)
 	for idStr, opBefore := range opTypesBefore {
@@ -206,7 +206,7 @@ func (cfg *IntegrationTest) testIcebergCleanTablePositionalWithPebbleIndex(ctx c
 		}
 	}()
 
-	require.Greater(t, countDeleteFiles(ctx, t, spark, fullTableName, 1), int64(0), "expected positional delete files to exist")
+	require.Equal(t, int64(1), countDeleteFiles(ctx, t, spark, fullTableName, 1), "expected positional delete file to exist")
 	require.Equal(t, seedRowCount, countLiveRecords(ctx, t, spark, fullTableName), "live record count should match seed")
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row")
 	require.Equal(t, seedRowCount-1, countByOpType(ctx, t, spark, fullTableName, "r"), "expected remaining backfill rows")
@@ -253,7 +253,7 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 		}
 	}()
 
-	require.Greater(t, countDeleteFiles(ctx, t, spark, fullTableName, 1), int64(0), "expected positional delete files after index rebuild")
+	require.Equal(t, int64(1), countDeleteFiles(ctx, t, spark, fullTableName, 1), "expected positional delete file after index rebuild")
 	require.Equal(t, seedRowCount, countLiveRecords(ctx, t, spark, fullTableName), "live record count should match seed")
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row after rebuild")
 

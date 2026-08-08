@@ -14,7 +14,7 @@ import (
 var errFullScanRequired = errors.New("row index requires a full scan")
 
 // reconcileRowIndex makes the stream's row index agree with the destination table before the first record is written
-func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.TableIndex, tableSnapshotID int64) error {
+func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.TableIndex, tableSnapshotID int64, hasEqualityDeletes bool) error {
 	if index == nil {
 		// no row index to reconcile
 		return nil
@@ -22,17 +22,19 @@ func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.TableIndex,
 
 	table := fmt.Sprintf("%s.%s", i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.GetDestinationTable())
 
-	// first check for equality deletes and migrate them to positional deletes
-	migrated, err := i.server.rowIndexClient.MigrateEqualityDeletes(ctx, &proto.MigrateEqualityDeletesRequest{
-		ThreadId: i.options.ThreadID,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to migrate equality deletes of table[%s]: %s", table, err)
-	}
+	if hasEqualityDeletes {
+		// first check for equality deletes and migrate them to positional deletes
+		migrated, err := i.server.rowIndexClient.MigrateEqualityDeletes(ctx, &proto.MigrateEqualityDeletesRequest{
+			ThreadId: i.options.ThreadID,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to migrate equality deletes of table[%s]: %s", table, err)
+		}
 
-	logger.Infof("Table[%s]: rewrote %d equality delete file(s) as %d positional delete(s)",
-		table, migrated.GetRewrittenDeleteFiles(), migrated.GetPositionalDeletesWritten())
-	tableSnapshotID = migrated.GetSnapshotId()
+		logger.Infof("Table[%s]: rewrote %d equality delete file(s) as %d positional delete(s)",
+			table, migrated.GetRewrittenDeleteFiles(), migrated.GetPositionalDeletesWritten())
+		tableSnapshotID = migrated.GetSnapshotId()
+	}
 
 	// now check if the index is already up to date, if not then update incrementally
 	indexedSnapshotID, indexed, err := index.IndexedSnapshot()

@@ -5,14 +5,14 @@ import static io.grpc.MethodDescriptor.generateFullMethodName;
 /**
  */
 @javax.annotation.Generated(
-    value = "by gRPC proto compiler (version 1.69.0)",
+    value = "by gRPC proto compiler (version 1.53.0)",
     comments = "Source: record_ingest.proto")
 @io.grpc.stub.annotations.GrpcGenerated
 public final class RecordIngestServiceGrpc {
 
   private RecordIngestServiceGrpc() {}
 
-  public static final java.lang.String SERVICE_NAME = "io.debezium.server.iceberg.rpc.RecordIngestService";
+  public static final String SERVICE_NAME = "io.debezium.server.iceberg.rpc.RecordIngestService";
 
   // Static method descriptors that strictly reflect the proto.
   private static volatile io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload,
@@ -92,32 +92,31 @@ public final class RecordIngestServiceGrpc {
 
   /**
    */
-  public interface AsyncService {
+  public static abstract class RecordIngestServiceImplBase implements io.grpc.BindableService {
 
     /**
      */
-    default void sendRecords(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload request,
+    public void sendRecords(io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload request,
         io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse> responseObserver) {
       io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getSendRecordsMethod(), responseObserver);
     }
-  }
-
-  /**
-   * Base class for the server implementation of the service RecordIngestService.
-   */
-  public static abstract class RecordIngestServiceImplBase
-      implements io.grpc.BindableService, AsyncService {
 
     @java.lang.Override public final io.grpc.ServerServiceDefinition bindService() {
-      return RecordIngestServiceGrpc.bindService(this);
+      return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
+          .addMethod(
+            getSendRecordsMethod(),
+            io.grpc.stub.ServerCalls.asyncUnaryCall(
+              new MethodHandlers<
+                io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload,
+                io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse>(
+                  this, METHODID_SEND_RECORDS)))
+          .build();
     }
   }
 
   /**
-   * A stub to allow clients to do asynchronous rpc calls to service RecordIngestService.
    */
-  public static final class RecordIngestServiceStub
-      extends io.grpc.stub.AbstractAsyncStub<RecordIngestServiceStub> {
+  public static final class RecordIngestServiceStub extends io.grpc.stub.AbstractAsyncStub<RecordIngestServiceStub> {
     private RecordIngestServiceStub(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       super(channel, callOptions);
@@ -139,10 +138,8 @@ public final class RecordIngestServiceGrpc {
   }
 
   /**
-   * A stub to allow clients to do synchronous rpc calls to service RecordIngestService.
    */
-  public static final class RecordIngestServiceBlockingStub
-      extends io.grpc.stub.AbstractBlockingStub<RecordIngestServiceBlockingStub> {
+  public static final class RecordIngestServiceBlockingStub extends io.grpc.stub.AbstractBlockingStub<RecordIngestServiceBlockingStub> {
     private RecordIngestServiceBlockingStub(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       super(channel, callOptions);
@@ -163,10 +160,8 @@ public final class RecordIngestServiceGrpc {
   }
 
   /**
-   * A stub to allow clients to do ListenableFuture-style rpc calls to service RecordIngestService.
    */
-  public static final class RecordIngestServiceFutureStub
-      extends io.grpc.stub.AbstractFutureStub<RecordIngestServiceFutureStub> {
+  public static final class RecordIngestServiceFutureStub extends io.grpc.stub.AbstractFutureStub<RecordIngestServiceFutureStub> {
     private RecordIngestServiceFutureStub(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       super(channel, callOptions);
@@ -194,10 +189,10 @@ public final class RecordIngestServiceGrpc {
       io.grpc.stub.ServerCalls.ServerStreamingMethod<Req, Resp>,
       io.grpc.stub.ServerCalls.ClientStreamingMethod<Req, Resp>,
       io.grpc.stub.ServerCalls.BidiStreamingMethod<Req, Resp> {
-    private final AsyncService serviceImpl;
+    private final RecordIngestServiceImplBase serviceImpl;
     private final int methodId;
 
-    MethodHandlers(AsyncService serviceImpl, int methodId) {
+    MethodHandlers(RecordIngestServiceImplBase serviceImpl, int methodId) {
       this.serviceImpl = serviceImpl;
       this.methodId = methodId;
     }
@@ -226,18 +221,6 @@ public final class RecordIngestServiceGrpc {
     }
   }
 
-  public static final io.grpc.ServerServiceDefinition bindService(AsyncService service) {
-    return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
-        .addMethod(
-          getSendRecordsMethod(),
-          io.grpc.stub.ServerCalls.asyncUnaryCall(
-            new MethodHandlers<
-              io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload,
-              io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse>(
-                service, METHODID_SEND_RECORDS)))
-        .build();
-  }
-
   private static abstract class RecordIngestServiceBaseDescriptorSupplier
       implements io.grpc.protobuf.ProtoFileDescriptorSupplier, io.grpc.protobuf.ProtoServiceDescriptorSupplier {
     RecordIngestServiceBaseDescriptorSupplier() {}
@@ -261,9 +244,9 @@ public final class RecordIngestServiceGrpc {
   private static final class RecordIngestServiceMethodDescriptorSupplier
       extends RecordIngestServiceBaseDescriptorSupplier
       implements io.grpc.protobuf.ProtoMethodDescriptorSupplier {
-    private final java.lang.String methodName;
+    private final String methodName;
 
-    RecordIngestServiceMethodDescriptorSupplier(java.lang.String methodName) {
+    RecordIngestServiceMethodDescriptorSupplier(String methodName) {
       this.methodName = methodName;
     }
 

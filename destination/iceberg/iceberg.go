@@ -100,13 +100,14 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 	requestPayload := proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			Schema:          iceSchema,
-			DestTableName:   stream.GetDestinationTable(),
-			ThreadId:        options.ThreadID,
-			IdentifierField: &identifierField,
-			Namespace:       stream.GetDestinationDatabase(&i.config.IcebergDatabase),
-			Upsert:          upsertMode,
-			PartitionFields: icebergPartFields,
+			Schema:               iceSchema,
+			DestTableName:        stream.GetDestinationTable(),
+			ThreadId:             options.ThreadID,
+			IdentifierField:      &identifierField,
+			Namespace:            stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+			Upsert:               upsertMode,
+			UsePositionalDeletes: options.RowIndex != nil,
+			PartitionFields:      icebergPartFields,
 		},
 	}
 
@@ -136,7 +137,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 	// reconcile row index incrementally or from scratch based on snapshot id check
 	// only for the first thread (other threads will just read the indexes)
 	if existingSchema == nil {
-		if err := i.reconcileRowIndex(ctx, options.RowIndex, ingestResponse.GetSnapshotId()); err != nil {
+		if err := i.reconcileRowIndex(ctx, options.RowIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
 			return schema, nil, err
 		}
 	}

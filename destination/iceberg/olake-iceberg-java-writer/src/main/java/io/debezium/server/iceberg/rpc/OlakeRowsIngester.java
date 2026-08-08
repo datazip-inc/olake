@@ -117,6 +117,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 }
                 String identifierField = metadata.getIdentifierField();
                 boolean upsert = metadata.getUpsert();
+                boolean usePositionalDeletes = metadata.getUsePositionalDeletes();
                 List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
                 List<Map<String, String>> partitionTransforms = toPartitionList(metadata.getPartitionFieldsList());
                 TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
@@ -129,7 +130,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                         k -> {
                             Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
                             Table icebergTable = loadOrCreateTable(tid, schema, partitionTransforms);
-                            return new IcebergSession(icebergTable, upsert, identifierField);
+                            return new IcebergSession(icebergTable, upsert, identifierField, usePositionalDeletes);
                         });
             } else {
                 // RECORDS / COMMIT / EVOLVE_SCHEMA / REFRESH_TABLE_SCHEMA: the

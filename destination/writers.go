@@ -138,7 +138,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 			artifact.rowIndex = rowIndex
 		}
 
-		pool.writerSchema.Store(stream, artifact)
+		pool.writerSchema.Store(stream.ID(), artifact)
 	}
 
 	return pool, nil
