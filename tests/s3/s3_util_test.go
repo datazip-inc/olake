@@ -508,6 +508,9 @@ type S3TestVariant struct {
 	// ExpectedData/ExpectedUpdatedData by applyWriterExpectations; nil when every column
 	// of the variant syncs identically across destinations.
 	WriterExpectedData func(v rowValues, writer s3DestinationWriter) map[string]interface{}
+	// ParquetStreaming is the parquet.streaming_enabled value every sync of the variant
+	// runs with; meaningful only when DataFormat is "parquet" (see applyParquetStreamingMode).
+	ParquetStreaming bool
 }
 
 // S3TestVariants lists every source format covered by TestS3Integration.
@@ -539,6 +542,20 @@ var S3TestVariants = []S3TestVariant{
 		WriterExpectedData:       textWriterExpectedData,
 	},
 	{
+		// Identical to Parquet except streaming_enabled=false: every sync loads whole files
+		// into memory. Listed first so the suite ends at the committed streaming=true.
+		Name:                     "ParquetInMemory",
+		DataFormat:               "parquet",
+		PlainExt:                 ".parquet",
+		BuildFile:                buildParquetFile,
+		BuildEvolvedFile:         buildEvolvedParquetFile,
+		DestinationSchema:        S3ParquetToDestinationSchema,
+		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
+		ExpectedData:             ExpectedParquetS3Data,
+		ExpectedUpdatedData:      ExpectedUpdatedParquetS3Data,
+		WriterExpectedData:       parquetWriterExpectedData,
+	},
+	{
 		// The driver's file matcher recognizes no gzip variant for Parquet, so this stream
 		// stays uncompressed.
 		Name:                     "Parquet",
@@ -551,6 +568,7 @@ var S3TestVariants = []S3TestVariant{
 		ExpectedData:             ExpectedParquetS3Data,
 		ExpectedUpdatedData:      ExpectedUpdatedParquetS3Data,
 		WriterExpectedData:       parquetWriterExpectedData,
+		ParquetStreaming:         true,
 	},
 }
 
@@ -632,6 +650,28 @@ func (v S3TestVariant) applyWriterExpectations(t *testing.T) {
 	maps.Copy(v.ExpectedUpdatedData, v.WriterExpectedData(updatedValues, writer))
 }
 
+// applyParquetStreamingMode pins parquet.streaming_enabled in the shared parquet source.json
+func (v S3TestVariant) applyParquetStreamingMode(t *testing.T) {
+	t.Helper()
+	if v.DataFormat != "parquet" {
+		return
+	}
+
+	path := filepath.Join("testdata", v.DataFormat, "source.json")
+	data, err := os.ReadFile(path)
+	require.NoError(t, err, "failed to read %s", path)
+
+	want := fmt.Sprintf(`"streaming_enabled": %t`, v.ParquetStreaming)
+	if bytes.Contains(data, []byte(want)) {
+		return
+	}
+	stale := fmt.Sprintf(`"streaming_enabled": %t`, !v.ParquetStreaming)
+	require.Contains(t, string(data), stale, "%s lost its streaming_enabled key", path)
+	data = bytes.ReplaceAll(data, []byte(stale), []byte(want))
+	require.NoError(t, os.WriteFile(path, data, 0o600), "failed to write %s", path)
+	t.Logf("parquet source streaming_enabled=%t for upcoming syncs", v.ParquetStreaming)
+}
+
 // ExecuteQueryFactory returns the harness ExecuteQuery hook for one S3 format variant.
 // Unlike database drivers, operations here manage files in the shared source bucket under
 // the variant's path prefix: "create" ensures the bucket exists, "add" seeds the stream,
@@ -645,6 +685,7 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 		// refreshing the expectations here keeps them aligned with whichever writer the
 		// harness toggled the destination to since the last operation.
 		variant.applyWriterExpectations(t)
+		variant.applyParquetStreamingMode(t)
 
 		src := variant.source(t)
 		prefix := src.prefix + "/" + streams[0] + "/"
