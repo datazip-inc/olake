@@ -38,7 +38,7 @@ func DefaultOptions() StoreOptions {
 
 	cacheSize, err := strconv.Atoi(os.Getenv(constants.IndexDBCacheSizePerStream))
 	if err != nil {
-		logger.Errorf("failed to parse index db cache size (using default %d MB): %s", constants.DefaultCacheSize, err)
+		logger.Debugf("failed to parse index db cache size (using default %d MB): %s", constants.DefaultCacheSize, err)
 		cacheSize = constants.DefaultCacheSize
 	}
 
@@ -101,8 +101,6 @@ type pebbleIndex struct {
 	pathToID   map[string]uint64
 	idToPath   map[uint64]string
 	nextFileID uint64
-
-	applyMu sync.Mutex
 }
 
 func openIndex(dir string, opts StoreOptions) (*pebbleIndex, error) {

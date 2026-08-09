@@ -161,7 +161,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.icebergTable.refresh();
                     // complete current writer
                     session.op.completeWriter();
-                    sendSchemaResponse(responseObserver, session.icebergTable);
+                    sendResponseString(responseObserver, session.icebergTable.schema().toString());
                     LOGGER.info("{} Successfully applied schema evolution for thread: {}", requestId, threadId);
                     break;
 
@@ -169,7 +169,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.icebergTable.refresh();
                     // complete current writer
                     session.op.completeWriter();
-                    sendSchemaResponse(responseObserver, session.icebergTable);
+                    sendResponseString(responseObserver, session.icebergTable.schema().toString());
                     break;
 
                 case GET_OR_CREATE_TABLE:
@@ -219,18 +219,6 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder().setResult(message);
         if (olake2pcState != null) {
             builder.setOlake2PcState(olake2pcState);
-        }
-        responseObserver.onNext(builder.build());
-        responseObserver.onCompleted();
-    }
-
-    /** Schema string plus current snapshot so a row-index caller can advance its checkpoint after evolve/refresh. */
-    private void sendSchemaResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, Table table) {
-        RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder()
-                .setResult(table.schema().toString());
-        Snapshot current = table.currentSnapshot();
-        if (current != null) {
-            builder.setSnapshotId(current.snapshotId());
         }
         responseObserver.onNext(builder.build());
         responseObserver.onCompleted();

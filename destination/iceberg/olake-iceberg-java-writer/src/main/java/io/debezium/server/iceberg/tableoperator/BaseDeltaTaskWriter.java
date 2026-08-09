@@ -74,6 +74,7 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
 
       if (rowOperation == Operation.DELETE && !keepDeletes) {
         // Hard delete: positional delete only, no tombstone row.
+        // currently we do soft deletes so we not updated our olake-index
         return;
       }
 

@@ -472,13 +472,6 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		return nil, fmt.Errorf("failed to evolve writer schema: %v", err)
 	}
 
-	// Schema commits advance the table snapshot without changing row locations.
-	// Advance the row-index checkpoint so the pre-commit freshness check does not
-	// treat our own evolve as a conflicting external writer.
-	if err := i.advanceRowIndexCheckpoint(ingestResponse.GetSnapshotId()); err != nil {
-		return nil, err
-	}
-
 	return schemaAfterEvolution, nil
 }
 
