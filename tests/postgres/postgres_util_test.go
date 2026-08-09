@@ -17,12 +17,15 @@ const (
 	cdcPublicationName = "performance_publication"
 )
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+// performanceCDCStreams is the CDC stream set the performance suite drives, shared between the
+// PerformanceTest config and the perf operations below.
+var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
+
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
 	var connStr string
-	if fileConfig {
-		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
+	if config := conf.SourceBaseConfig; config != nil {
 		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
 			config.String("username"),
 			config.String("password"),
@@ -40,7 +43,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := streams[0]
+	integrationTestTable := testutils.TestTableName(conf)
 	var query string
 
 	switch operation {
@@ -251,7 +254,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		return
 
 	case "setup_cdc":
-		for _, cdcStream := range streams {
+		for _, cdcStream := range performanceCDCStreams {
 			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
@@ -261,9 +264,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		// insert records in batches
 		batchSize := 300_000
 		totalRows := 15_000_000
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
 
-		err := testutils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+		err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			for offset := 0; offset < totalRows; offset += batchSize {
 				query := fmt.Sprintf(
 					`INSERT INTO %s
@@ -292,13 +295,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			FROM generate_series(1, %d)`, integrationTestTable, testutils.RollingSeedRows)
 
 	case "create-slot":
-		_, _ = db.ExecContext(ctx, fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, streams[0]))
-		query = fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput')`, streams[0])
+		_, _ = db.ExecContext(ctx, fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, integrationTestTable))
+		query = fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput')`, integrationTestTable)
 
 	case "drop-slot":
 		// Asserted like every other op: the NOT-active guard makes "nothing to drop" a no-op,
 		// so an error here means the cleanup itself is broken.
-		query = fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, streams[0])
+		query = fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, integrationTestTable)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)

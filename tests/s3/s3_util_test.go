@@ -650,17 +650,17 @@ func (v S3TestVariant) applyWriterExpectations(t *testing.T, config *testutils.T
 // the variant's path prefix: "create" ensures the bucket exists, "add" seeds the stream,
 // "insert"/"update" upload a further file each, and "clean"/"drop" remove everything under
 // the prefix.
-func ExecuteQueryFactory(variant S3TestVariant, config *testutils.TestConfig) func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
-	return func(ctx context.Context, t *testing.T, streams []string, operation string, _ bool) {
+func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
+	return func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 		t.Helper()
 
 		// Every destination block starts by re-seeding the source through this hook, so
 		// refreshing the expectations here keeps them aligned with whichever writer the
 		// harness pointed the destination at since the last operation.
-		variant.applyWriterExpectations(t, config)
+		variant.applyWriterExpectations(t, conf)
 
 		src := variant.source(t)
-		prefix := src.prefix + "/" + streams[0] + "/"
+		prefix := src.prefix + "/" + testutils.TestTableName(conf) + "/"
 
 		switch operation {
 		case "drop-all":

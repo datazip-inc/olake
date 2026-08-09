@@ -32,13 +32,16 @@ var (
 	}
 )
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+// performanceCDCStreams is the CDC stream set the performance suite drives, shared between the
+// PerformanceTest config and the perf operations below.
+var performanceCDCStreams = []string{"tweets_cdc"}
+
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
 	var connStr string
-	var config testutils.SourceConfig
-	if fileConfig {
-		config = testutils.ReadSourceConfig(t, "./testdata/source.json")
+	config := conf.SourceBaseConfig
+	if config != nil {
 		connStr = fmt.Sprintf(
 			"mongodb://%s:%s@%s/?authSource=%s&readPreference=%s",
 			config.String("username"),
@@ -59,7 +62,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		}
 	}()
 
-	integrationTestCollection := streams[0]
+	integrationTestCollection := testutils.TestTableName(conf)
 	db := client.Database(MongoDBDatabase)
 	collection := db.Collection(integrationTestCollection)
 
@@ -170,19 +173,19 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	case "setup_cdc":
 		// truncate the cdc tables
-		for _, cdcStream := range streams {
+		for _, cdcStream := range performanceCDCStreams {
 			_, err := client.Database(config.String("database")).Collection(cdcStream).DeleteMany(ctx, bson.D{})
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 		}
 		return
 
 	case "bulk_cdc_data_insert":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
 		totalRows := 15000000
 
 		// TODO: insert data in batch
 		// insert the data into the cdc tables concurrently
-		err := testutils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+		err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			srcColl := client.Database(config.String("database")).Collection(backfillStreams[executionNumber])
 			destColl := client.Database(config.String("database")).Collection(cdcStream)
 

@@ -59,8 +59,8 @@ func TestMongodbPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(t, string(constants.MongoDB)),
 		Namespace:       "twitter_data",
-		BackfillStreams: []string{"tweets"},
-		CDCStreams:      []string{"tweets_cdc"},
+		BackfillStreams: testutils.GetBackfillStreamsFromCDC(performanceCDCStreams),
+		CDCStreams:      performanceCDCStreams,
 		ExecuteQuery:    ExecuteQuery,
 	}
 

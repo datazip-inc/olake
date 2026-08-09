@@ -1,7 +1,6 @@
 package kafka
 
 import (
-	"context"
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
@@ -21,21 +20,18 @@ func kafkaFormats(t *testing.T) []kafkaFormat {
 }
 
 func kafkaJSONBaseConfig(t *testing.T) *testutils.IntegrationTest {
-	testConf := testutils.GetTestConfig(t, string(constants.Kafka), "json")
 	return &testutils.IntegrationTest{
-		TestConfig:                       testConf,
+		TestConfig:                       testutils.GetTestConfig(t, string(constants.Kafka), "json"),
 		Namespace:                        "topics",
 		ExpectedData:                     ExpectedKafkaJSONData,
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
 		DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
 		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationJSONSchema,
 		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
-		ExecuteQuery: func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
-			ExecuteQueryJSON(ctx, t, streams, operation, fileConfig, testConf)
-		},
-		DestinationDB:   "kafka_topics",
-		PartitionRegex:  "/{int_value,identity}",
-		ColumnToExclude: "col_excluded",
+		ExecuteQuery:                     ExecuteQueryJSON,
+		DestinationDB:                    "kafka_topics",
+		PartitionRegex:                   "/{int_value,identity}",
+		ColumnToExclude:                  "col_excluded",
 		FilterConfig: `{
 			"logical_operator": "And",
 			"conditions": [

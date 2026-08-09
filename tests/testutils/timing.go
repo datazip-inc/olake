@@ -40,10 +40,10 @@ func trackPhaseTiming(t *testing.T, scope, phase string) (stop func()) {
 // of wall-clock that would otherwise fall through the cracks between the other phase timings.
 func timedExecuteQuery(
 	driver string,
-	executeQuery func(context.Context, *testing.T, []string, string, bool),
-) func(context.Context, *testing.T, []string, string, bool) {
-	return func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+	executeQuery func(context.Context, *testing.T, *TestConfig, string),
+) func(context.Context, *testing.T, *TestConfig, string) {
+	return func(ctx context.Context, t *testing.T, conf *TestConfig, operation string) {
 		defer trackPhaseTiming(t, driver, fmt.Sprintf("query %q", operation))()
-		executeQuery(ctx, t, streams, operation, fileConfig)
+		executeQuery(ctx, t, conf, operation)
 	}
 }

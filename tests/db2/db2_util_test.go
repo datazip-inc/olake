@@ -77,12 +77,12 @@ func exec(ctx context.Context, db *sqlx.DB, query string) error {
 	return err
 }
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
 	var dsn string
-	if fileConfig {
-		dsn = buildDSN(testutils.ReadSourceConfig(t, "./testdata/source.json"))
+	if conf.SourceBaseConfig != nil {
+		dsn = buildDSN(conf.SourceBaseConfig)
 	} else {
 		dsn = "HOSTNAME=localhost;PORT=50000;DATABASE=testdb;UID=db2inst1;PWD=secret1234;"
 	}
@@ -90,7 +90,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	db := getDB(ctx, t, dsn)
 	var err error
 
-	integrationTestTable := streams[0]
+	integrationTestTable := testutils.TestTableName(conf)
 	var query string
 
 	switch operation {

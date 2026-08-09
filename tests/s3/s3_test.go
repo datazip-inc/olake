@@ -10,13 +10,12 @@ import (
 // s3BaseConfig returns an IntegrationTest for one source format variant. Each variant owns a
 // testdata/<DataFormat>/ directory, which is what GetTestConfig's third argument selects.
 func s3BaseConfig(t *testing.T, variant S3TestVariant) *testutils.IntegrationTest {
-	testConf := testutils.GetTestConfig(t, string(constants.S3), variant.DataFormat)
 	return &testutils.IntegrationTest{
-		TestConfig:                testConf,
+		TestConfig:                testutils.GetTestConfig(t, string(constants.S3), variant.DataFormat),
 		Namespace:                 "s3",
 		ExpectedData:              variant.ExpectedData,
 		DestinationDataTypeSchema: variant.DestinationSchema,
-		ExecuteQuery:              ExecuteQueryFactory(variant, testConf),
+		ExecuteQuery:              ExecuteQueryFactory(variant),
 		ColumnToExclude:           excludedColumn,
 		DestinationDB:             S3DestinationDB,
 		CursorField:               S3CursorField,

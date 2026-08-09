@@ -38,12 +38,12 @@ func connectionString(config testutils.SourceConfig) string {
 	)
 }
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
 	var connStr string
-	if fileConfig {
-		connStr = connectionString(testutils.ReadSourceConfig(t, "./testdata/source.json"))
+	if conf.SourceBaseConfig != nil {
+		connStr = connectionString(conf.SourceBaseConfig)
 	} else {
 		connStr = "oracle://myuser:secret1234@localhost:1521/orcl"
 	}
@@ -54,7 +54,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, db.Close())
 	}()
 
-	integrationTestTable := streams[0]
+	integrationTestTable := testutils.TestTableName(conf)
 	var query string
 
 	switch operation {

@@ -60,8 +60,8 @@ func TestMySQLPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(t, string(constants.MySQL)),
 		Namespace:       "benchmark",
-		BackfillStreams: []string{"trips", "fhv_trips"},
-		CDCStreams:      []string{"trips_cdc", "fhv_trips_cdc"},
+		BackfillStreams: testutils.GetBackfillStreamsFromCDC(performanceCDCStreams),
+		CDCStreams:      performanceCDCStreams,
 		ExecuteQuery:    ExecuteQuery,
 	}
 

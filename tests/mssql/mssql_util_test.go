@@ -45,7 +45,7 @@ func execCDCMetadata(ctx context.Context, t *testing.T, db *sqlx.DB, query strin
 	return err
 }
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool, suite string) {
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
 	// The suite picks the database, not just the table: separate tables still race on DDL like
@@ -54,18 +54,17 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	// variantSourceOverride writes into the suite's source.json, or olake and these queries end up
 	// in different databases. 01-init.sql provisions each with CDC enabled.
 	var connStr string
-	if fileConfig {
-		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
+	if config := conf.SourceBaseConfig; config != nil {
 		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable",
 			config.String("username"),
 			config.String("password"),
 			config.String("host"),
 			config.Int("port"),
-			testutils.SuiteDatabase(config.String("database"), suite),
+			testutils.SuiteDatabase(config.String("database"), conf.Suite),
 		)
 	} else {
 		connStr = fmt.Sprintf("sqlserver://sa:Password!123@localhost:1433?database=%s&encrypt=disable",
-			testutils.SuiteDatabase("olake_mssql_test", suite))
+			testutils.SuiteDatabase("olake_mssql_test", conf.Suite))
 	}
 
 	db, err := sqlx.ConnectContext(ctx, "sqlserver", connStr)
@@ -75,7 +74,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := streams[0]
+	integrationTestTable := testutils.TestTableName(conf)
 
 	// A capture instance is SQL Server’s logical CDC stream for a table.
 	captureInstance := fmt.Sprintf("dbo_%s", integrationTestTable)
