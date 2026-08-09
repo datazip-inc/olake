@@ -458,7 +458,8 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		return false, fmt.Errorf("failed to %s: %s", request.Type.String(), err)
 	}
 
-	response := resp.(*proto.RecordIngestResponse).GetResult()
+	ingestResponse := resp.(*proto.RecordIngestResponse)
+	response := ingestResponse.GetResult()
 
 	// only refresh table schema
 	schemaAfterEvolution, err := parseSchema(response)
@@ -469,6 +470,13 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	i.schema = copySchema(schemaAfterEvolution)
 	if err := i.writer.EvolveSchema(ctx, schemaAfterEvolution); err != nil {
 		return nil, fmt.Errorf("failed to evolve writer schema: %v", err)
+	}
+
+	// Schema commits advance the table snapshot without changing row locations.
+	// Advance the row-index checkpoint so the pre-commit freshness check does not
+	// treat our own evolve as a conflicting external writer.
+	if err := i.advanceRowIndexCheckpoint(ingestResponse.GetSnapshotId()); err != nil {
+		return nil, err
 	}
 
 	return schemaAfterEvolution, nil

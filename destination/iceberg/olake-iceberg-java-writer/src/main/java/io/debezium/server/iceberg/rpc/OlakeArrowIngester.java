@@ -8,7 +8,6 @@ import java.util.concurrent.ConcurrentMap;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
-import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
 import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.io.FileIO;
@@ -123,16 +122,16 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                         }
                     }
 
-                    session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable);
+                    Long baseSnapshotId = metadata.hasBaseSnapshotId() ? metadata.getBaseSnapshotId() : null;
+                    long snapshotId = session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable,
+                            baseSnapshotId);
 
-                    session.icebergTable.refresh();
-                    Snapshot committed = session.icebergTable.currentSnapshot();
                     RecordIngest.ArrowIngestResponse.Builder response = RecordIngest.ArrowIngestResponse.newBuilder()
                             .setResult(String.format(
                                     "Successfully committed %d data files, %d equality delete files, and %d positional delete files for thread %s",
                                     dataFileCount, eqDeleteFileCount, posDeleteFileCount, threadId));
-                    if (committed != null) {
-                        response.setSnapshotId(committed.snapshotId());
+                    if (snapshotId != 0) {
+                        response.setSnapshotId(snapshotId);
                     }
                     responseObserver.onNext(response.build());
                     responseObserver.onCompleted();

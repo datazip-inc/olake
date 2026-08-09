@@ -204,9 +204,6 @@ func (i *pebbleIndex) Lookup(key string) (types.RowLocation, bool, error) {
 }
 
 func (i *pebbleIndex) Commit(batch *types.RowIndexBatch, snapshotID *int64) error {
-	i.applyMu.Lock()
-	defer i.applyMu.Unlock()
-
 	pending := i.db.NewBatch()
 	defer func() {
 		_ = pending.Close()

@@ -25,6 +25,7 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateSchema;
@@ -123,11 +124,15 @@ public class IcebergTableOperator {
 
   /**
    * Commits data files for a specific thread
-   * 
+   *
    * @param threadId The thread ID to commit
+   * @param baseSnapshotId when non-null, table tip after refresh must equal this
+   *                       snapshot (the caller's row-index checkpoint); otherwise
+   *                       the commit is refused so positional deletes built from a
+   *                       stale index cannot be published
    * @throws RuntimeException if commit fails
    */
-  public long commitThread(String threadId, String payload, Table table) {
+  public long commitThread(String threadId, String payload, Table table, Long baseSnapshotId) {
     if (table == null) {
       LOGGER.warn("No table found for thread: {}", threadId);
       return 0;
@@ -145,7 +150,8 @@ public class IcebergTableOperator {
   
     // Refresh once before committing
     table.refresh();
-  
+    assertRowIndexCurrent(threadId, table, baseSnapshotId);
+
     boolean hasAnyDeletes = false;
     int totalDataFiles = 0;
     int totalDeleteFiles = 0;
@@ -219,13 +225,16 @@ public class IcebergTableOperator {
         rowDelta.commit();
       }
 
+      // take transaction snapshot id as commit id
+      Snapshot staged = transaction.table().currentSnapshot();
+      if (staged == null) {
+        throw new IllegalStateException(
+            "transaction for thread " + threadId + " staged no snapshot before catalog commit");
+      }
+      long snapshotId = staged.snapshotId();
+
       // 3. Final Commit to Catalog (Creates ONE metadata file)
       transaction.commitTransaction();
-      
-      long snapshotId = 0;
-      if (table.currentSnapshot() != null) {
-          snapshotId = table.currentSnapshot().snapshotId();
-      }
 
       LOGGER.info("Successfully committed {} data files and {} delete files for thread: {} snapshot: {}",
           totalDataFiles, totalDeleteFiles, threadId, snapshotId);
@@ -240,7 +249,25 @@ public class IcebergTableOperator {
       throw new RuntimeException(msg, e);
     }
   }
-  
+
+  /**
+   * Refuses the commit when the table has moved past the snapshot the caller's
+   * row index was built against. Without this, an external rewrite can land
+   * between write and commit and our positional deletes would target stale
+   * locations while still succeeding.
+   */
+  private static void assertRowIndexCurrent(String threadId, Table table, Long baseSnapshotId) {
+    if (baseSnapshotId == null) {
+      return;
+    }
+    Snapshot current = table.currentSnapshot();
+    long currentId = current == null ? 0L : current.snapshotId();
+    if (currentId != baseSnapshotId) {
+      throw new IllegalStateException(String.format(
+          "row index is stale for thread %s: indexed snapshot %d but table is at %d; refusing commit",
+          threadId, baseSnapshotId, currentId));
+    }
+  }
 
   public void completeWriter() {
     try {

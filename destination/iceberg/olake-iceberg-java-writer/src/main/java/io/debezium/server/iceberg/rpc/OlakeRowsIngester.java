@@ -145,7 +145,9 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
             switch (request.getType()) {
                 case COMMIT:
-                    long snapshotId = session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable);
+                    Long baseSnapshotId = metadata.hasBaseSnapshotId() ? metadata.getBaseSnapshotId() : null;
+                    long snapshotId = session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable,
+                            baseSnapshotId);
                     RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder()
                         .setResult(requestId + " Successfully committed data for thread " + threadId)
                         .setSnapshotId(snapshotId);
@@ -159,7 +161,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.icebergTable.refresh();
                     // complete current writer
                     session.op.completeWriter();
-                    sendResponseString(responseObserver, session.icebergTable.schema().toString());
+                    sendSchemaResponse(responseObserver, session.icebergTable);
                     LOGGER.info("{} Successfully applied schema evolution for thread: {}", requestId, threadId);
                     break;
 
@@ -167,7 +169,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.icebergTable.refresh();
                     // complete current writer
                     session.op.completeWriter();
-                    sendResponseString(responseObserver, session.icebergTable.schema().toString());
+                    sendSchemaResponse(responseObserver, session.icebergTable);
                     break;
 
                 case GET_OR_CREATE_TABLE:
@@ -217,6 +219,18 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder().setResult(message);
         if (olake2pcState != null) {
             builder.setOlake2PcState(olake2pcState);
+        }
+        responseObserver.onNext(builder.build());
+        responseObserver.onCompleted();
+    }
+
+    /** Schema string plus current snapshot so a row-index caller can advance its checkpoint after evolve/refresh. */
+    private void sendSchemaResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, Table table) {
+        RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder()
+                .setResult(table.schema().toString());
+        Snapshot current = table.currentSnapshot();
+        if (current != null) {
+            builder.setSnapshotId(current.snapshotId());
         }
         responseObserver.onNext(builder.build());
         responseObserver.onCompleted();

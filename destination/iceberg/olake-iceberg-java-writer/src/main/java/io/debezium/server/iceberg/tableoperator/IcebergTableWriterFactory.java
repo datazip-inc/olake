@@ -85,6 +85,4 @@ public class IcebergTableWriterFactory {
           targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes, usePositionalDeletes);
     }
   }
-
-    // Create PartitionedFanoutWriter - this extends BaseTaskWriter<Record>
 }

@@ -48,7 +48,22 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	//   normalization=true:  typed columns + OlakeColumns merged in
 	//   normalization=false: StringifiedData + OlakeColumns + partition columns
 	// A single loop over protoSchema covers both cases.
-	// sentRecords tracks the Go records that map 1:1 onto protoRecords / WriteRun indices.
+	// example:
+	//
+	//	WriteRuns: []*proto.WriteRun{
+	//		{
+	//			FilePath:      "s3a://warehouse/olake_test/test_table/data/00000-0-1111.parquet",
+	//			BatchStartIdx: 0,   // maps to sentRecords[0], sentRecords[1], sentRecords[2]
+	//			StartPosition: 100, // row offset 100 in File 1
+	//			Count:         3,
+	//		},
+	//		{
+	//			FilePath:      "s3a://warehouse/olake_test/test_table/data/00001-0-2222.parquet",
+	//			BatchStartIdx: 3, // maps to sentRecords[3], sentRecords[4]
+	//			StartPosition: 0, // row offset 0 in File 2
+	//			Count:         2,
+	//		},
+	//	},
 	protoRecords := make([]*proto.IcebergPayload_IceRecord, 0, len(records))
 	sentRecords := make([]types.RawRecord, 0, len(records))
 	for _, record := range records {
@@ -174,6 +189,12 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 			Payload:  payloadStr,
 		},
 	}
+
+	baseSnapshotID, err := internal.RowIndexBaseSnapshotID(w.options.RowIndex)
+	if err != nil {
+		return err
+	}
+	request.Metadata.BaseSnapshotId = baseSnapshotID
 
 	// Send commit request with timeout
 	ctx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)

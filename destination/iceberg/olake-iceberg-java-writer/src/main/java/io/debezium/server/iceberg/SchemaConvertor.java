@@ -41,11 +41,7 @@ public class SchemaConvertor {
       String fieldName = rawField.getKey(); // field name 
       String fieldType = rawField.getIceType();
       Boolean isPkField = (fieldName.equals(identifierField));
-      int fieldId = schemaData.nextFieldId().getAndIncrement();
-      Type fieldPrimitiveType = icebergPrimitiveField(fieldName, fieldType);
-      final Types.NestedField field = isPkField
-          ? Types.NestedField.required(fieldId, fieldName, fieldPrimitiveType)
-          : Types.NestedField.optional(fieldId, fieldName, fieldPrimitiveType);
+      final Types.NestedField field = Types.NestedField.of(schemaData.nextFieldId().getAndIncrement(), !isPkField, fieldName, icebergPrimitiveField(fieldName, fieldType));
       schemaData.fields().add(field);
       if (isPkField) schemaData.identifierFieldIds().add(field.fieldId());
     }
@@ -94,7 +90,7 @@ public class SchemaConvertor {
       Long deletePosition = data.hasDeletePosition() ? data.getDeletePosition() : null;
 
       // check if it is append only or upsert
-      if(!upsert) {
+      if(!upsert) { 
         return new RecordWrapper(genericRow, Operation.READ, deleteFilePath, deletePosition);
       }
       return new RecordWrapper(genericRow, cdcOpValue(data.getRecordType()), deleteFilePath, deletePosition);

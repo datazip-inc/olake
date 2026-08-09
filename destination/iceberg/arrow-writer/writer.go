@@ -393,6 +393,12 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 		commitRequest.Metadata.Payload = string(payloadBytes)
 	}
 
+	baseSnapshotID, err := internal.RowIndexBaseSnapshotID(w.options.RowIndex)
+	if err != nil {
+		return err
+	}
+	commitRequest.Metadata.BaseSnapshotId = baseSnapshotID
+
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 

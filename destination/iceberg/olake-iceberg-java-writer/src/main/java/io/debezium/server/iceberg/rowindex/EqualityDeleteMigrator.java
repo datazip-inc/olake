@@ -3,7 +3,6 @@ package io.debezium.server.iceberg.rowindex;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -112,10 +111,10 @@ public final class EqualityDeleteMigrator {
     for (DeleteFile deleteFile : written) {
       rewrite.addFile(deleteFile);
     }
-    rewrite.commit();
-    table.refresh();
 
-    long snapshotId = table.currentSnapshot() == null ? current.snapshotId() : table.currentSnapshot().snapshotId();
+    long snapshotId = rewrite.apply().snapshotId();
+    rewrite.commit();
+
     LOGGER.info("migrated {} equality delete files of {} into {} positional delete files covering {} rows",
         replaced.size(), table.name(), written.size(), posConvCount);
 

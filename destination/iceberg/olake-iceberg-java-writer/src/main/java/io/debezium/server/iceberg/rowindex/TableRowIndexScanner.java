@@ -135,6 +135,7 @@ public final class TableRowIndexScanner {
     Map<String, BitSet> deletedPositions = deletedPositions(table);
     long entries = 0L;
 
+    // first remove index of removed data files (if exist)
     for (DataFile file : removedFiles) {
       // A removed file has no positional deletes left pointing at it, so every
       // row it holds is offered for unindexing and the caller drops the ones it
@@ -166,7 +167,7 @@ public final class TableRowIndexScanner {
    * Positions already removed by positional delete files, keyed by data file path.
    * Skipping these keeps the index proportional to the number of live rows rather
    * than to everything the table has ever held.
-   */
+   */ 
   private static Map<String, BitSet> deletedPositions(Table table) throws IOException {
     Map<String, BitSet> byFile = new HashMap<>();
     Schema pathPos = DeleteSchemaUtil.pathPosSchema();
@@ -223,6 +224,9 @@ public final class TableRowIndexScanner {
    * <p>A file that the range both adds and removes is left out of each list. It
    * is invisible to a caller indexed at {@code fromSnapshotId} and gone by
    * {@code toSnapshotId}, so neither indexing nor unindexing its rows is right.
+   * reason to read deleted: Just reading the added files not work out, 
+   * there can be a transaction that query engine did to delete records
+   *  and compaction just removed all those delete files. 
    */
   private static DataFileChanges dataFileChangesSince(Table table, long fromSnapshotId, long toSnapshotId) {
     List<Snapshot> range = snapshotRange(table, fromSnapshotId, toSnapshotId);

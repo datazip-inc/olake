@@ -13,6 +13,28 @@ import (
 
 var errFullScanRequired = errors.New("row index requires a full scan")
 
+// advanceRowIndexCheckpoint moves the index's snapshot watermark forward when the
+// table tip changed without row locations changing (e.g. schema evolution).
+func (i *Iceberg) advanceRowIndexCheckpoint(snapshotID int64) error {
+	if i.options.RowIndex == nil || snapshotID == 0 {
+		return nil
+	}
+	indexed, ok, err := i.options.RowIndex.LastCommittedSnapshot()
+	if err != nil {
+		return fmt.Errorf("failed to read row index checkpoint after schema change: %s", err)
+	}
+	if ok && indexed == snapshotID {
+		return nil
+	}
+	if err := i.options.RowIndex.Commit(types.NewRowIndexBatch(i.options.RowIndex), &snapshotID); err != nil {
+		return fmt.Errorf("failed to advance row index checkpoint to snapshot[%d]: %s", snapshotID, err)
+	}
+	logger.Infof("Table[%s]: advanced row index checkpoint to snapshot[%d] after schema change",
+		fmt.Sprintf("%s.%s", i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.GetDestinationTable()),
+		snapshotID)
+	return nil
+}
+
 // reconcileRowIndex makes the stream's row index agree with the destination table before the first record is written
 func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.TableIndex, tableSnapshotID int64, hasEqualityDeletes bool) error {
 	if index == nil {

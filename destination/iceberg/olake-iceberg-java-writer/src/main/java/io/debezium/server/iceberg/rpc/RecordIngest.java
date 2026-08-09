@@ -404,6 +404,29 @@ public final class RecordIngest {
        */
       io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.PartitionFieldOrBuilder getPartitionFieldsOrBuilder(
           int index);
+
+      /**
+       * <pre>
+       * COMMIT: snapshot the caller's row index is checkpointed at. The server
+       * refreshes the table and refuses the commit when the tip has moved, so
+       * positional deletes built from a stale index cannot be published.
+       * </pre>
+       *
+       * <code>optional int64 base_snapshot_id = 11;</code>
+       * @return Whether the baseSnapshotId field is set.
+       */
+      boolean hasBaseSnapshotId();
+      /**
+       * <pre>
+       * COMMIT: snapshot the caller's row index is checkpointed at. The server
+       * refreshes the table and refuses the commit when the tip has moved, so
+       * positional deletes built from a stale index cannot be published.
+       * </pre>
+       *
+       * <code>optional int64 base_snapshot_id = 11;</code>
+       * @return The baseSnapshotId.
+       */
+      long getBaseSnapshotId();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.Metadata}
@@ -773,6 +796,37 @@ public final class RecordIngest {
         return partitionFields_.get(index);
       }
 
+      public static final int BASE_SNAPSHOT_ID_FIELD_NUMBER = 11;
+      private long baseSnapshotId_ = 0L;
+      /**
+       * <pre>
+       * COMMIT: snapshot the caller's row index is checkpointed at. The server
+       * refreshes the table and refuses the commit when the tip has moved, so
+       * positional deletes built from a stale index cannot be published.
+       * </pre>
+       *
+       * <code>optional int64 base_snapshot_id = 11;</code>
+       * @return Whether the baseSnapshotId field is set.
+       */
+      @java.lang.Override
+      public boolean hasBaseSnapshotId() {
+        return ((bitField0_ & 0x00000002) != 0);
+      }
+      /**
+       * <pre>
+       * COMMIT: snapshot the caller's row index is checkpointed at. The server
+       * refreshes the table and refuses the commit when the tip has moved, so
+       * positional deletes built from a stale index cannot be published.
+       * </pre>
+       *
+       * <code>optional int64 base_snapshot_id = 11;</code>
+       * @return The baseSnapshotId.
+       */
+      @java.lang.Override
+      public long getBaseSnapshotId() {
+        return baseSnapshotId_;
+      }
+
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -814,6 +868,9 @@ public final class RecordIngest {
         for (int i = 0; i < partitionFields_.size(); i++) {
           output.writeMessage(10, partitionFields_.get(i));
         }
+        if (((bitField0_ & 0x00000002) != 0)) {
+          output.writeInt64(11, baseSnapshotId_);
+        }
         getUnknownFields().writeTo(output);
       }
 
@@ -854,6 +911,10 @@ public final class RecordIngest {
           size += com.google.protobuf.CodedOutputStream
             .computeMessageSize(10, partitionFields_.get(i));
         }
+        if (((bitField0_ & 0x00000002) != 0)) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeInt64Size(11, baseSnapshotId_);
+        }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
         return size;
@@ -890,6 +951,11 @@ public final class RecordIngest {
             != other.getUsePositionalDeletes()) return false;
         if (!getPartitionFieldsList()
             .equals(other.getPartitionFieldsList())) return false;
+        if (hasBaseSnapshotId() != other.hasBaseSnapshotId()) return false;
+        if (hasBaseSnapshotId()) {
+          if (getBaseSnapshotId()
+              != other.getBaseSnapshotId()) return false;
+        }
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -926,6 +992,11 @@ public final class RecordIngest {
         if (getPartitionFieldsCount() > 0) {
           hash = (37 * hash) + PARTITION_FIELDS_FIELD_NUMBER;
           hash = (53 * hash) + getPartitionFieldsList().hashCode();
+        }
+        if (hasBaseSnapshotId()) {
+          hash = (37 * hash) + BASE_SNAPSHOT_ID_FIELD_NUMBER;
+          hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+              getBaseSnapshotId());
         }
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
@@ -1077,6 +1148,7 @@ public final class RecordIngest {
             partitionFieldsBuilder_.clear();
           }
           bitField0_ = (bitField0_ & ~0x00000100);
+          baseSnapshotId_ = 0L;
           return this;
         }
 
@@ -1154,6 +1226,10 @@ public final class RecordIngest {
           }
           if (((from_bitField0_ & 0x00000080) != 0)) {
             result.usePositionalDeletes_ = usePositionalDeletes_;
+          }
+          if (((from_bitField0_ & 0x00000200) != 0)) {
+            result.baseSnapshotId_ = baseSnapshotId_;
+            to_bitField0_ |= 0x00000002;
           }
           result.bitField0_ |= to_bitField0_;
         }
@@ -1285,6 +1361,9 @@ public final class RecordIngest {
               }
             }
           }
+          if (other.hasBaseSnapshotId()) {
+            setBaseSnapshotId(other.getBaseSnapshotId());
+          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -1372,6 +1451,11 @@ public final class RecordIngest {
                   }
                   break;
                 } // case 82
+                case 88: {
+                  baseSnapshotId_ = input.readInt64();
+                  bitField0_ |= 0x00000200;
+                  break;
+                } // case 88
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -2333,6 +2417,70 @@ public final class RecordIngest {
             partitionFields_ = null;
           }
           return partitionFieldsBuilder_;
+        }
+
+        private long baseSnapshotId_ ;
+        /**
+         * <pre>
+         * COMMIT: snapshot the caller's row index is checkpointed at. The server
+         * refreshes the table and refuses the commit when the tip has moved, so
+         * positional deletes built from a stale index cannot be published.
+         * </pre>
+         *
+         * <code>optional int64 base_snapshot_id = 11;</code>
+         * @return Whether the baseSnapshotId field is set.
+         */
+        @java.lang.Override
+        public boolean hasBaseSnapshotId() {
+          return ((bitField0_ & 0x00000200) != 0);
+        }
+        /**
+         * <pre>
+         * COMMIT: snapshot the caller's row index is checkpointed at. The server
+         * refreshes the table and refuses the commit when the tip has moved, so
+         * positional deletes built from a stale index cannot be published.
+         * </pre>
+         *
+         * <code>optional int64 base_snapshot_id = 11;</code>
+         * @return The baseSnapshotId.
+         */
+        @java.lang.Override
+        public long getBaseSnapshotId() {
+          return baseSnapshotId_;
+        }
+        /**
+         * <pre>
+         * COMMIT: snapshot the caller's row index is checkpointed at. The server
+         * refreshes the table and refuses the commit when the tip has moved, so
+         * positional deletes built from a stale index cannot be published.
+         * </pre>
+         *
+         * <code>optional int64 base_snapshot_id = 11;</code>
+         * @param value The baseSnapshotId to set.
+         * @return This builder for chaining.
+         */
+        public Builder setBaseSnapshotId(long value) {
+          
+          baseSnapshotId_ = value;
+          bitField0_ |= 0x00000200;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * COMMIT: snapshot the caller's row index is checkpointed at. The server
+         * refreshes the table and refuses the commit when the tip has moved, so
+         * positional deletes built from a stale index cannot be published.
+         * </pre>
+         *
+         * <code>optional int64 base_snapshot_id = 11;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearBaseSnapshotId() {
+          bitField0_ = (bitField0_ & ~0x00000200);
+          baseSnapshotId_ = 0L;
+          onChanged();
+          return this;
         }
         @java.lang.Override
         public final Builder setUnknownFields(
@@ -13000,6 +13148,27 @@ public final class RecordIngest {
        */
       com.google.protobuf.ByteString
           getPayloadBytes();
+
+      /**
+       * <pre>
+       * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+       * The server refuses the commit when the table tip has moved past it.
+       * </pre>
+       *
+       * <code>optional int64 base_snapshot_id = 7;</code>
+       * @return Whether the baseSnapshotId field is set.
+       */
+      boolean hasBaseSnapshotId();
+      /**
+       * <pre>
+       * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+       * The server refuses the commit when the table tip has moved past it.
+       * </pre>
+       *
+       * <code>optional int64 base_snapshot_id = 7;</code>
+       * @return The baseSnapshotId.
+       */
+      long getBaseSnapshotId();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.Metadata}
@@ -13230,6 +13399,35 @@ public final class RecordIngest {
         }
       }
 
+      public static final int BASE_SNAPSHOT_ID_FIELD_NUMBER = 7;
+      private long baseSnapshotId_ = 0L;
+      /**
+       * <pre>
+       * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+       * The server refuses the commit when the table tip has moved past it.
+       * </pre>
+       *
+       * <code>optional int64 base_snapshot_id = 7;</code>
+       * @return Whether the baseSnapshotId field is set.
+       */
+      @java.lang.Override
+      public boolean hasBaseSnapshotId() {
+        return ((bitField0_ & 0x00000002) != 0);
+      }
+      /**
+       * <pre>
+       * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+       * The server refuses the commit when the table tip has moved past it.
+       * </pre>
+       *
+       * <code>optional int64 base_snapshot_id = 7;</code>
+       * @return The baseSnapshotId.
+       */
+      @java.lang.Override
+      public long getBaseSnapshotId() {
+        return baseSnapshotId_;
+      }
+
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -13259,6 +13457,9 @@ public final class RecordIngest {
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(payload_)) {
           com.google.protobuf.GeneratedMessageV3.writeString(output, 6, payload_);
         }
+        if (((bitField0_ & 0x00000002) != 0)) {
+          output.writeInt64(7, baseSnapshotId_);
+        }
         getUnknownFields().writeTo(output);
       }
 
@@ -13284,6 +13485,10 @@ public final class RecordIngest {
         }
         if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(payload_)) {
           size += com.google.protobuf.GeneratedMessageV3.computeStringSize(6, payload_);
+        }
+        if (((bitField0_ & 0x00000002) != 0)) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeInt64Size(7, baseSnapshotId_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -13313,6 +13518,11 @@ public final class RecordIngest {
         }
         if (!getPayload()
             .equals(other.getPayload())) return false;
+        if (hasBaseSnapshotId() != other.hasBaseSnapshotId()) return false;
+        if (hasBaseSnapshotId()) {
+          if (getBaseSnapshotId()
+              != other.getBaseSnapshotId()) return false;
+        }
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -13338,6 +13548,11 @@ public final class RecordIngest {
         }
         hash = (37 * hash) + PAYLOAD_FIELD_NUMBER;
         hash = (53 * hash) + getPayload().hashCode();
+        if (hasBaseSnapshotId()) {
+          hash = (37 * hash) + BASE_SNAPSHOT_ID_FIELD_NUMBER;
+          hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+              getBaseSnapshotId());
+        }
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -13489,6 +13704,7 @@ public final class RecordIngest {
             fileUploadBuilder_ = null;
           }
           payload_ = "";
+          baseSnapshotId_ = 0L;
           return this;
         }
 
@@ -13550,6 +13766,10 @@ public final class RecordIngest {
           }
           if (((from_bitField0_ & 0x00000010) != 0)) {
             result.payload_ = payload_;
+          }
+          if (((from_bitField0_ & 0x00000020) != 0)) {
+            result.baseSnapshotId_ = baseSnapshotId_;
+            to_bitField0_ |= 0x00000002;
           }
           result.bitField0_ |= to_bitField0_;
         }
@@ -13642,6 +13862,9 @@ public final class RecordIngest {
             bitField0_ |= 0x00000010;
             onChanged();
           }
+          if (other.hasBaseSnapshotId()) {
+            setBaseSnapshotId(other.getBaseSnapshotId());
+          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -13703,6 +13926,11 @@ public final class RecordIngest {
                   bitField0_ |= 0x00000010;
                   break;
                 } // case 50
+                case 56: {
+                  baseSnapshotId_ = input.readInt64();
+                  bitField0_ |= 0x00000020;
+                  break;
+                } // case 56
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -14291,6 +14519,66 @@ public final class RecordIngest {
           checkByteStringIsUtf8(value);
           payload_ = value;
           bitField0_ |= 0x00000010;
+          onChanged();
+          return this;
+        }
+
+        private long baseSnapshotId_ ;
+        /**
+         * <pre>
+         * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+         * The server refuses the commit when the table tip has moved past it.
+         * </pre>
+         *
+         * <code>optional int64 base_snapshot_id = 7;</code>
+         * @return Whether the baseSnapshotId field is set.
+         */
+        @java.lang.Override
+        public boolean hasBaseSnapshotId() {
+          return ((bitField0_ & 0x00000020) != 0);
+        }
+        /**
+         * <pre>
+         * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+         * The server refuses the commit when the table tip has moved past it.
+         * </pre>
+         *
+         * <code>optional int64 base_snapshot_id = 7;</code>
+         * @return The baseSnapshotId.
+         */
+        @java.lang.Override
+        public long getBaseSnapshotId() {
+          return baseSnapshotId_;
+        }
+        /**
+         * <pre>
+         * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+         * The server refuses the commit when the table tip has moved past it.
+         * </pre>
+         *
+         * <code>optional int64 base_snapshot_id = 7;</code>
+         * @param value The baseSnapshotId to set.
+         * @return This builder for chaining.
+         */
+        public Builder setBaseSnapshotId(long value) {
+          
+          baseSnapshotId_ = value;
+          bitField0_ |= 0x00000020;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+         * The server refuses the commit when the table tip has moved past it.
+         * </pre>
+         *
+         * <code>optional int64 base_snapshot_id = 7;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearBaseSnapshotId() {
+          bitField0_ = (bitField0_ & ~0x00000020);
+          baseSnapshotId_ = 0L;
           onChanged();
           return this;
         }
@@ -19866,13 +20154,13 @@ java.lang.String defaultValue) {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\337\t\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\223\n\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
       "ebergPayload.Metadata\022I\n\007records\030\003 \003(\01328" +
       ".io.debezium.server.iceberg.rpc.IcebergP" +
-      "ayload.IceRecord\032\343\002\n\010Metadata\022\027\n\017dest_ta" +
+      "ayload.IceRecord\032\227\003\n\010Metadata\022\027\n\017dest_ta" +
       "ble_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022\035\n\020ide" +
       "ntifier_field\030\003 \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\013" +
       "2:.io.debezium.server.iceberg.rpc.Iceber" +
@@ -19880,88 +20168,91 @@ java.lang.String defaultValue) {
       "\tnamespace\030\007 \001(\t\022\016\n\006upsert\030\010 \001(\010\022\036\n\026use_" +
       "positional_deletes\030\t \001(\010\022W\n\020partition_fi" +
       "elds\030\n \003(\0132=.io.debezium.server.iceberg." +
-      "rpc.IcebergPayload.PartitionFieldB\023\n\021_id" +
-      "entifier_field\032,\n\013SchemaField\022\020\n\010ice_typ" +
-      "e\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\0322\n\016PartitionField\022\r" +
-      "\n\005field\030\001 \001(\t\022\021\n\ttransform\030\002 \001(\t\032\222\003\n\tIce" +
-      "Record\022S\n\006fields\030\001 \003(\0132C.io.debezium.ser" +
-      "ver.iceberg.rpc.IcebergPayload.IceRecord" +
-      ".FieldValue\022\023\n\013record_type\030\002 \001(\t\022\035\n\020dele" +
-      "te_file_path\030\003 \001(\tH\000\210\001\001\022\034\n\017delete_positi" +
-      "on\030\004 \001(\003H\001\210\001\001\032\264\001\n\nFieldValue\022\026\n\014string_v" +
-      "alue\030\001 \001(\tH\000\022\023\n\tint_value\030\002 \001(\005H\000\022\024\n\nlon" +
-      "g_value\030\003 \001(\003H\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026" +
-      "\n\014double_value\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001" +
-      "(\010H\000\022\025\n\013bytes_value\030\007 \001(\014H\000B\007\n\005valueB\023\n\021" +
-      "_delete_file_pathB\022\n\020_delete_position\"\217\001" +
-      "\n\013PayloadType\022\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021" +
-      "\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET" +
-      "_OR_CREATE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHE" +
-      "MA\020\005\022\021\n\rCLOSE_SESSION\020\006\"\301\001\n\024RecordIngest" +
-      "Response\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 \001(" +
-      "\010\022\027\n\017olake_2pc_state\030\003 \001(\t\022\023\n\013snapshot_i" +
-      "d\030\004 \001(\003\022\034\n\024has_equality_deletes\030\005 \001(\010\022<\n" +
-      "\nwrite_runs\030\006 \003(\0132(.io.debezium.server.i" +
-      "ceberg.rpc.WriteRun\"]\n\010WriteRun\022\021\n\tfile_" +
-      "path\030\001 \001(\t\022\027\n\017batch_start_idx\030\002 \001(\005\022\026\n\016s" +
-      "tart_position\030\003 \001(\003\022\r\n\005count\030\004 \001(\005\"\214\007\n\014A" +
-      "rrowPayload\022F\n\004type\030\001 \001(\01628.io.debezium." +
-      "server.iceberg.rpc.ArrowPayload.PayloadT" +
-      "ype\022G\n\010metadata\030\002 \001(\01325.io.debezium.serv" +
-      "er.iceberg.rpc.ArrowPayload.Metadata\032\322\002\n" +
-      "\014FileMetadata\022\021\n\tfile_type\030\001 \001(\t\022\021\n\tfile" +
-      "_path\030\002 \001(\t\022\024\n\014record_count\030\003 \001(\003\022b\n\020par" +
-      "tition_values\030\005 \003(\0132H.io.debezium.server" +
-      ".iceberg.rpc.ArrowPayload.FileMetadata.P" +
-      "artitionValue\032\241\001\n\016PartitionValue\022\023\n\tint_" +
-      "value\030\001 \001(\005H\000\022\024\n\nlong_value\030\002 \001(\003H\000\022\026\n\014s" +
-      "tring_value\030\003 \001(\tH\000\022\025\n\013float_value\030\004 \001(\002" +
-      "H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n\nbool_value" +
-      "\030\006 \001(\010H\000B\007\n\005value\0329\n\021FileUploadRequest\022\021" +
-      "\n\tfile_data\030\001 \001(\014\022\021\n\tfile_path\030\002 \001(\t\032\203\002\n" +
-      "\010Metadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tth" +
-      "read_id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\01329.i" +
-      "o.debezium.server.iceberg.rpc.ArrowPaylo" +
-      "ad.FileMetadata\022X\n\013file_upload\030\004 \001(\0132>.i" +
-      "o.debezium.server.iceberg.rpc.ArrowPaylo" +
-      "ad.FileUploadRequestH\000\210\001\001\022\017\n\007payload\030\006 \001" +
-      "(\tB\016\n\014_file_upload\"U\n\013PayloadType\022\017\n\013UPL" +
-      "OAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT\020\001\022\016\n\nJ" +
-      "SONSCHEMA\020\002\022\014\n\010FILEPATH\020\003\"\347\001\n\023ArrowInges" +
-      "tResponse\022\016\n\006result\030\001 \001(\t\022_\n\016icebergSche" +
-      "mas\030\002 \003(\0132G.io.debezium.server.iceberg.r" +
-      "pc.ArrowIngestResponse.IcebergSchemasEnt" +
-      "ry\022\030\n\013snapshot_id\030\003 \001(\003H\000\210\001\001\0325\n\023IcebergS" +
-      "chemasEntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:" +
-      "\0028\001B\016\n\014_snapshot_id\"\\\n\023RowIndexScanReque" +
-      "st\022\021\n\tthread_id\030\001 \001(\t\022\035\n\020from_snapshot_i" +
-      "d\030\002 \001(\003H\000\210\001\001B\023\n\021_from_snapshot_id\"\366\001\n\021Ro" +
-      "wIndexScanBatch\022H\n\007entries\030\001 \003(\01327.io.de" +
-      "bezium.server.iceberg.rpc.RowIndexScanBa" +
-      "tch.Entry\022\023\n\013snapshot_id\030\002 \001(\003\022\032\n\022requir" +
-      "es_full_scan\030\003 \001(\010\032f\n\005Entry\022\020\n\010olake_id\030" +
-      "\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\020\n\010position\030\003 \001" +
-      "(\003\022\017\n\007deleted\030\004 \001(\010J\004\010\005\020\006R\017sequence_numb" +
-      "er\"2\n\035MigrateEqualityDeletesRequest\022\021\n\tt" +
-      "hread_id\030\001 \001(\t\"y\n\036MigrateEqualityDeletes" +
-      "Response\022\023\n\013snapshot_id\030\001 \001(\003\022\036\n\026rewritt" +
-      "en_delete_files\030\002 \001(\003\022\"\n\032positional_dele" +
-      "tes_written\030\003 \001(\0032\212\001\n\023RecordIngestServic" +
-      "e\022s\n\013SendRecords\022..io.debezium.server.ic" +
-      "eberg.rpc.IcebergPayload\0324.io.debezium.s" +
-      "erver.iceberg.rpc.RecordIngestResponse2\205" +
-      "\001\n\022ArrowIngestService\022o\n\nIcebergAPI\022,.io" +
-      ".debezium.server.iceberg.rpc.ArrowPayloa" +
-      "d\0323.io.debezium.server.iceberg.rpc.Arrow" +
-      "IngestResponse2\245\002\n\017RowIndexService\022x\n\014Sc" +
-      "anRowIndex\0223.io.debezium.server.iceberg." +
-      "rpc.RowIndexScanRequest\0321.io.debezium.se" +
-      "rver.iceberg.rpc.RowIndexScanBatch0\001\022\227\001\n" +
-      "\026MigrateEqualityDeletes\022=.io.debezium.se" +
-      "rver.iceberg.rpc.MigrateEqualityDeletesR" +
-      "equest\032>.io.debezium.server.iceberg.rpc." +
-      "MigrateEqualityDeletesResponseB\035B\014Record" +
-      "IngestZ\riceberg/protob\006proto3"
+      "rpc.IcebergPayload.PartitionField\022\035\n\020bas" +
+      "e_snapshot_id\030\013 \001(\003H\001\210\001\001B\023\n\021_identifier_" +
+      "fieldB\023\n\021_base_snapshot_id\032,\n\013SchemaFiel" +
+      "d\022\020\n\010ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\0322\n\016Part" +
+      "itionField\022\r\n\005field\030\001 \001(\t\022\021\n\ttransform\030\002" +
+      " \001(\t\032\222\003\n\tIceRecord\022S\n\006fields\030\001 \003(\0132C.io." +
+      "debezium.server.iceberg.rpc.IcebergPaylo" +
+      "ad.IceRecord.FieldValue\022\023\n\013record_type\030\002" +
+      " \001(\t\022\035\n\020delete_file_path\030\003 \001(\tH\000\210\001\001\022\034\n\017d" +
+      "elete_position\030\004 \001(\003H\001\210\001\001\032\264\001\n\nFieldValue" +
+      "\022\026\n\014string_value\030\001 \001(\tH\000\022\023\n\tint_value\030\002 " +
+      "\001(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022\025\n\013float_val" +
+      "ue\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n\nbo" +
+      "ol_value\030\006 \001(\010H\000\022\025\n\013bytes_value\030\007 \001(\014H\000B" +
+      "\007\n\005valueB\023\n\021_delete_file_pathB\022\n\020_delete" +
+      "_position\"\217\001\n\013PayloadType\022\013\n\007RECORDS\020\000\022\n" +
+      "\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_TA" +
+      "BLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REFRES" +
+      "H_TABLE_SCHEMA\020\005\022\021\n\rCLOSE_SESSION\020\006\"\301\001\n\024" +
+      "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
+      "success\030\002 \001(\010\022\027\n\017olake_2pc_state\030\003 \001(\t\022\023" +
+      "\n\013snapshot_id\030\004 \001(\003\022\034\n\024has_equality_dele" +
+      "tes\030\005 \001(\010\022<\n\nwrite_runs\030\006 \003(\0132(.io.debez" +
+      "ium.server.iceberg.rpc.WriteRun\"]\n\010Write" +
+      "Run\022\021\n\tfile_path\030\001 \001(\t\022\027\n\017batch_start_id" +
+      "x\030\002 \001(\005\022\026\n\016start_position\030\003 \001(\003\022\r\n\005count" +
+      "\030\004 \001(\005\"\300\007\n\014ArrowPayload\022F\n\004type\030\001 \001(\01628." +
+      "io.debezium.server.iceberg.rpc.ArrowPayl" +
+      "oad.PayloadType\022G\n\010metadata\030\002 \001(\01325.io.d" +
+      "ebezium.server.iceberg.rpc.ArrowPayload." +
+      "Metadata\032\322\002\n\014FileMetadata\022\021\n\tfile_type\030\001" +
+      " \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record_count\030" +
+      "\003 \001(\003\022b\n\020partition_values\030\005 \003(\0132H.io.deb" +
+      "ezium.server.iceberg.rpc.ArrowPayload.Fi" +
+      "leMetadata.PartitionValue\032\241\001\n\016PartitionV" +
+      "alue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong_value\030" +
+      "\002 \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025\n\013float" +
+      "_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024" +
+      "\n\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021FileUpl" +
+      "oadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\tfile_pa" +
+      "th\030\002 \001(\t\032\267\002\n\010Metadata\022\027\n\017dest_table_name" +
+      "\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile_metada" +
+      "ta\030\003 \003(\01329.io.debezium.server.iceberg.rp" +
+      "c.ArrowPayload.FileMetadata\022X\n\013file_uplo" +
+      "ad\030\004 \001(\0132>.io.debezium.server.iceberg.rp" +
+      "c.ArrowPayload.FileUploadRequestH\000\210\001\001\022\017\n" +
+      "\007payload\030\006 \001(\t\022\035\n\020base_snapshot_id\030\007 \001(\003" +
+      "H\001\210\001\001B\016\n\014_file_uploadB\023\n\021_base_snapshot_" +
+      "id\"U\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023RE" +
+      "GISTER_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010F" +
+      "ILEPATH\020\003\"\347\001\n\023ArrowIngestResponse\022\016\n\006res" +
+      "ult\030\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.d" +
+      "ebezium.server.iceberg.rpc.ArrowIngestRe" +
+      "sponse.IcebergSchemasEntry\022\030\n\013snapshot_i" +
+      "d\030\003 \001(\003H\000\210\001\001\0325\n\023IcebergSchemasEntry\022\013\n\003k" +
+      "ey\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001B\016\n\014_snapshot" +
+      "_id\"\\\n\023RowIndexScanRequest\022\021\n\tthread_id\030" +
+      "\001 \001(\t\022\035\n\020from_snapshot_id\030\002 \001(\003H\000\210\001\001B\023\n\021" +
+      "_from_snapshot_id\"\366\001\n\021RowIndexScanBatch\022" +
+      "H\n\007entries\030\001 \003(\01327.io.debezium.server.ic" +
+      "eberg.rpc.RowIndexScanBatch.Entry\022\023\n\013sna" +
+      "pshot_id\030\002 \001(\003\022\032\n\022requires_full_scan\030\003 \001" +
+      "(\010\032f\n\005Entry\022\020\n\010olake_id\030\001 \001(\t\022\021\n\tfile_pa" +
+      "th\030\002 \001(\t\022\020\n\010position\030\003 \001(\003\022\017\n\007deleted\030\004 " +
+      "\001(\010J\004\010\005\020\006R\017sequence_number\"2\n\035MigrateEqu" +
+      "alityDeletesRequest\022\021\n\tthread_id\030\001 \001(\t\"y" +
+      "\n\036MigrateEqualityDeletesResponse\022\023\n\013snap" +
+      "shot_id\030\001 \001(\003\022\036\n\026rewritten_delete_files\030" +
+      "\002 \001(\003\022\"\n\032positional_deletes_written\030\003 \001(" +
+      "\0032\212\001\n\023RecordIngestService\022s\n\013SendRecords" +
+      "\022..io.debezium.server.iceberg.rpc.Iceber" +
+      "gPayload\0324.io.debezium.server.iceberg.rp" +
+      "c.RecordIngestResponse2\205\001\n\022ArrowIngestSe" +
+      "rvice\022o\n\nIcebergAPI\022,.io.debezium.server" +
+      ".iceberg.rpc.ArrowPayload\0323.io.debezium." +
+      "server.iceberg.rpc.ArrowIngestResponse2\245" +
+      "\002\n\017RowIndexService\022x\n\014ScanRowIndex\0223.io." +
+      "debezium.server.iceberg.rpc.RowIndexScan" +
+      "Request\0321.io.debezium.server.iceberg.rpc" +
+      ".RowIndexScanBatch0\001\022\227\001\n\026MigrateEquality" +
+      "Deletes\022=.io.debezium.server.iceberg.rpc" +
+      ".MigrateEqualityDeletesRequest\032>.io.debe" +
+      "zium.server.iceberg.rpc.MigrateEqualityD" +
+      "eletesResponseB\035B\014RecordIngestZ\riceberg/" +
+      "protob\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -19978,7 +20269,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "Payload", "Namespace", "Upsert", "UsePositionalDeletes", "PartitionFields", "IdentifierField", });
+        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "Payload", "Namespace", "Upsert", "UsePositionalDeletes", "PartitionFields", "BaseSnapshotId", "IdentifierField", "BaseSnapshotId", });
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_fieldAccessorTable = new
@@ -20044,7 +20335,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "FileMetadata", "FileUpload", "Payload", "FileUpload", });
+        new java.lang.String[] { "DestTableName", "ThreadId", "FileMetadata", "FileUpload", "Payload", "BaseSnapshotId", "FileUpload", "BaseSnapshotId", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor =
       getDescriptor().getMessageTypes().get(4);
     internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_fieldAccessorTable = new

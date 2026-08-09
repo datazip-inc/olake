@@ -35,6 +35,10 @@ message IcebergPayload {
     // (fed by the caller's row index) instead of equality deleteKey.
     bool use_positional_deletes = 9;
     repeated PartitionField partition_fields = 10;
+    // COMMIT: snapshot the caller's row index is checkpointed at. The server
+    // refreshes the table and refuses the commit when the tip has moved, so
+    // positional deletes built from a stale index cannot be published.
+    optional int64 base_snapshot_id = 11;
   }
 
   message SchemaField {
@@ -145,6 +149,9 @@ message ArrowPayload {
     repeated FileMetadata file_metadata = 3;
     optional FileUploadRequest file_upload = 4;
     string payload = 6;
+    // REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+    // The server refuses the commit when the table tip has moved past it.
+    optional int64 base_snapshot_id = 7;
   }
 
   Metadata metadata = 2;
