@@ -65,7 +65,7 @@ public class OlakeRpcServer {
 
         int port = Integer.parseInt(stringConfigMap.getOrDefault("port", "50051"));
         int maxMessageSize = Integer.parseInt(
-            stringConfigMap.getOrDefault("max-message-size", "" + (1024 * 1024 * 1024)));
+            stringConfigMap.getOrDefault("max-message-size", String.valueOf(Integer.MAX_VALUE)));
 
         ServerBuilder<?> serverBuilder = ServerBuilder.forPort(port)
                     .maxInboundMessageSize(maxMessageSize);
