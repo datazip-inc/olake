@@ -316,9 +316,6 @@
                     "OAuth2",
                     "Token"
                   ],
-                  "default": [
-                    "None"
-                  ],
                   "description": "Authentication types supported by the catalog"
                 },
                 "rest_catalog_url": {
@@ -414,9 +411,6 @@
                     "None",
                     "OAuth2",
                     "Token"
-                  ],
-                  "default": [
-                    "None"
                   ],
                   "description": "Authentication types supported by the catalog"
                 },
@@ -527,9 +521,6 @@
                   "type": "string",
                   "title": "Authentication Type",
                   "enum": [
-                    "sigv4"
-                  ],
-                  "default": [
                     "sigv4"
                   ],
                   "description": "Authentication types supported by the catalog"
@@ -825,9 +816,6 @@
                   "type": "string",
                   "title": "Authentication Type",
                   "enum": [
-                    "GCP"
-                  ],
-                  "default": [
                     "GCP"
                   ],
                   "description": "Authentication types supported by the catalog"
