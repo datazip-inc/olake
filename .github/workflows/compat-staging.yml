@@ -1,0 +1,176 @@
+name: Staging Compat Check
+
+# On every PR into staging, run the backward-compat suite with the PR's BASE commit as the
+# baseline and the merge result as the candidate. This is the upgrade that merging the PR would
+# ship: both images are adjacent builds, so the harness runs today's input shape with full
+# assertions on every column, and any diff is a behaviour change this PR introduces.
+#
+# The released-version sweep is compat-tests.yml, on pushes to master. Here the baseline is BUILT,
+# not pulled: the harness's commit-sha path (tests/testutils/compat.go, buildBaselineFromCommit)
+# checks out a detached worktree at the base sha, builds its own writer jar (dockerized Maven when
+# mvn is absent) and its own image -- which is why this job needs the full git history.
+on:
+  pull_request:
+    branches:
+      - "staging"
+    paths:
+      - '**/*.go'
+      - '**/*.java'
+      - '**/go.mod'
+      - 'go.work'
+      - 'Dockerfile'
+      - 'Makefile'
+      - 'drivers/*/driver.mk'
+      - '.github/workflows/compat-staging.yml'
+
+# A new push to the PR supersedes the running check; two runs of this matrix per PR would just
+# queue on the runner pool.
+concurrency:
+  group: compat-staging-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Ungated and cheap, like integration-tests.yml's preflight: the approval sits on the job that
+  # actually spends a 16gb runner.
+  resolve:
+    name: Resolve drivers
+    runs-on: ubuntu-latest
+    outputs:
+      drivers: ${{ steps.drivers.outputs.drivers }}
+    steps:
+      - uses: actions/checkout@v3
+      - id: drivers
+        run: |
+          set -euo pipefail
+          drivers=$(make -s print.compat-drivers | tr ' ' '\n' | jq -Rc '[., inputs] | map(select(. != ""))')
+          echo "drivers=$drivers" >> "$GITHUB_OUTPUT"
+          echo "Staging compat matrix: $drivers"
+
+  compat-staging:
+    name: ${{ fromJSON('{"mysql":"MySQL","postgres":"PostgreSQL","mongodb":"MongoDB","mssql":"SQL Server","db2":"IBM Db2","oracle":"Oracle","kafka":"Kafka"}')[matrix.driver] }} compat vs base
+    needs: resolve
+    if: needs.resolve.outputs.drivers != '[]'
+    runs-on: 16gb-runner
+    # On the matrix job, not a standalone approve job, so "Re-run failed jobs" re-enters the gate.
+    environment: integration_tests
+    # Longer than compat-tests.yml's 75: this job builds the baseline image from a worktree on top
+    # of running the two suites.
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: ${{ fromJSON(needs.resolve.outputs.drivers) }}
+    steps:
+      # Full history: the harness resolves the base sha with git cat-file and builds it in a
+      # detached worktree, neither of which survives a shallow clone.
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # The iceberg catalog's postgres runs as uid 999 and has to own its bind mount.
+      - name: Set up Data Directories
+        run: |
+          sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
+          sudo chown -R 999:999 destination/iceberg/local-test/data
+          sudo chmod -R 777 destination/iceberg/local-test/data
+
+      - name: Start containers
+        id: containers
+        background: true
+        timeout-minutes: 15
+        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "go.mod"
+          # setup-go's own cache keys on go.sum, which this repo does not track; the explicit
+          # cache below replaces it, keyed on go.mod.
+          cache: false
+
+      - name: Cache Go modules + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ matrix.driver }}-${{ hashFiles('tests/testutils/go.mod', format('tests/{0}/go.mod', matrix.driver)) }}
+          restore-keys: |
+            ${{ runner.os }}-go-${{ matrix.driver }}-
+            ${{ runner.os }}-go-
+
+      - name: Install Dependencies
+        id: go-build
+        background: true
+        timeout-minutes: 15
+        run: make test.build.${{ matrix.driver }}
+
+      # Authenticated when credentials exist, anonymous otherwise: this job pulls base images for
+      # two driver-image builds from a shared-egress runner pool.
+      - name: Log in to Docker Hub
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          if [ -n "$DOCKER_USERNAME" ]; then
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+          else
+            echo "::notice::no Docker Hub credentials configured; pulling anonymously"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Expose GitHub Actions cache token
+        uses: crazy-max/ghaction-github-runtime@v3
+
+      # Best effort, unlike compat-tests.yml: on a miss, make rebuilds the jar with dockerized
+      # Maven (the iceberg.jar rule's fallback), which the baseline worktree build uses anyway.
+      - name: Restore Iceberg writer jar
+        id: jar
+        uses: actions/cache/restore@v4
+        with:
+          path: destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
+          key: ${{ runner.os }}-iceberg-jar-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml', 'destination/iceberg/olake-iceberg-java-writer/src/**') }}
+
+      # The cache preserves the jar's original mtime while checkout stamps the writer sources with
+      # now, so make would rebuild a jar the key already proves matches the sources.
+      - name: Mark the restored jar up to date
+        if: steps.jar.outputs.cache-hit == 'true'
+        run: touch destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
+
+      - name: Build driver image
+        run: make docker.${{ matrix.driver }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ matrix.driver }} --load"
+
+      - name: Wait for background jobs
+        wait: [containers, go-build]
+
+      - name: Wait for source + destination readiness
+        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
+
+      # Same serial catalog bootstrap as compat-tests.yml: the suite starts two concurrent syncs
+      # against a freshly created JdbcCatalog, which race each other's CREATE TABLE on the
+      # catalog's bookkeeping tables without it.
+      - name: Check destination (bootstrap Iceberg catalog)
+        run: |
+          set -euo pipefail
+          host_dir="tests/${{ matrix.driver }}/testdata"
+          cfg=$(find "$host_dir" -name iceberg_destination.json | sort | head -1)
+          rel=${cfg#"$host_dir/"}
+          echo "Bootstrapping Iceberg catalog via '${{ matrix.driver }}' ($rel)..."
+          docker run --rm \
+            -v "$PWD/$host_dir:/testdata" \
+            --add-host host.docker.internal:host-gateway \
+            -e TELEMETRY_DISABLED=true \
+            "olake/source-${{ matrix.driver }}:local" \
+            check --destination "/testdata/$rel"
+
+      # The baseline is the PR's base commit; the candidate is the merge-ref image built above and
+      # pinned by OLAKE_DRIVER_IMAGE. Both are modern builds, so the harness runs the current input
+      # generation with no column rules active -- full assertions on everything.
+      - name: Run compat tests
+        env:
+          OLAKE_DRIVER_IMAGE: olake/source-${{ matrix.driver }}:local
+          OLAKE_COMPAT_REQUIRE_BASELINE: "1"
+        run: make test.compat.${{ matrix.driver }} COMPAT_BASELINE='${{ github.event.pull_request.base.sha }}'

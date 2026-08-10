@@ -1,0 +1,20 @@
+{
+  "aws_region": "us-east-1",
+  "database": "postgres",
+  "default_mode": "cdc",
+  "host": "host.docker.internal",
+  "max_threads": 30,
+  "password": "secret1234",
+  "port": 5433,
+  "reader_batch_size": 1,
+  "split_column": "",
+  "ssl": {
+    "mode": "disable"
+  },
+  "update_method": {
+    "initial_wait_time": 120,
+    "publication": "olake_publication",
+    "replication_slot": "postgres_test_table_olake_upg"
+  },
+  "username": "postgres"
+}

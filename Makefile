@@ -158,9 +158,20 @@ HELP_TARGETS :=
 # A driver is any drivers/ subdir with its own go.mod; the ones that also have
 # a docker-compose.yml get olake.* stacks and test targets (s3 has no local stack).
 SOURCE_DRIVERS := $(filter $(DRIVERS),$(notdir $(patsubst %/docker-compose.yml,%,$(wildcard drivers/*/docker-compose.yml))))
+
+# The drivers the backward-compat suite covers. A driver earns its place here (and in compat.go)
+# once its seed data is known to be deterministic across two independent runs, which is what the
+# comparison in tests/testutils/compat.go assumes (see volatileColumns for the escape hatch).
+COMPAT_DRIVERS ?= postgres mysql mongodb
+# The baselines the compat sweep fans out to on a merge to master: the newest release still on
+# each state version (map in docs/backward-compatibility.md), extended when LatestStateVersion is
+# bumped. Keep every entry at v0.3.17 or newer: below that the shared Iceberg writer had the P1/P2
+# regressions (COMPAT_RESULTS_v2.md), which no per-column rule can express.
+COMPAT_SWEEP_BASELINES ?= v0.4.0 v0.6.1 v0.6.5 latest
 CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
 INTEGRATION_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
 CDC_PKGS := $(addsuffix /...,$(addprefix ./,$(CDC_DRIVERS)))
+COMPAT_PKGS := $(addsuffix /...,$(addprefix ./,$(COMPAT_DRIVERS)))
 
 # The drivers the integration suites cover, queried by CI (integration-tests.yml) so the list
 # lives in this file only: it is what the driver matrix fans out to on a push to master.
@@ -173,6 +184,16 @@ print.source-drivers:
 .PHONY: print.drivers
 print.drivers:
 	@echo $(DRIVERS)
+
+# The drivers with a backward-compat entry point, queried by compat-tests.yml for its matrix.
+.PHONY: print.compat-drivers
+print.compat-drivers:
+	@echo $(COMPAT_DRIVERS)
+
+# The baseline versions the compat sweep runs, queried by compat-tests.yml for its matrix.
+.PHONY: print.compat-baselines
+print.compat-baselines:
+	@echo $(COMPAT_SWEEP_BASELINES)
 
 # --- prepare ------------------------------------------------------------------
 # prepare.<d> provisions whatever driver d needs before it can compile; the
@@ -328,12 +349,14 @@ $(foreach d,$(SOURCE_DRIVERS),$(eval $(call TEST_BUILD_template,$(d))))
 test.build.all: $(addprefix test.build.,$(SOURCE_DRIVERS))
 
 # The whole CI surface for one driver -- Integration, 2PC and (kafka) Rebalance in one `go test`.
-# Performance is excluded: it needs external infra and has its own workflow.
+# Performance is excluded: it needs external infra and has its own workflow. Compat is excluded
+# too: it pulls a released baseline image and runs two full suites concurrently, which belongs in
+# its own workflow rather than inside every PR's driver job.
 define DRIVER_TEST_template
 .PHONY: test.driver.$(1)
 test.driver.$(1): prepare.$(1)
 	@$$(call driver_test_setup,$(1))
-	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -skip 'Performance'
+	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -skip 'Performance|Compat'
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_TEST_template,$(d))))
 
@@ -363,6 +386,19 @@ test.performance.$(1): prepare.$(1) $$(ICEBERG_JAR)
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call PERFORMANCE_TEST_template,$(d))))
 
+# Backward compatibility: this build against a released baseline image, two suites in parallel,
+# compared against each other. COMPAT_BASELINE picks the baseline (a release tag, a full image ref
+# or a commit sha); left empty, compat.go defaults to the newest published release, which pins
+# destination continuity but no version gate -- pass an older tag for that.
+COMPAT_BASELINE ?=
+define COMPAT_TEST_template
+.PHONY: test.compat.$(1)
+test.compat.$(1): prepare.$(1)
+	@$$(call driver_test_setup,$(1))
+	$$(GO_ENV.$(1)) cd tests && OLAKE_COMPAT_BASELINE=$$(COMPAT_BASELINE) go test -v ./$(1)/... -timeout 0 -count=1 -run 'Compat'
+endef
+$(foreach d,$(COMPAT_DRIVERS),$(eval $(call COMPAT_TEST_template,$(d))))
+
 test.integration: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
 	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(INTEGRATION_PKGS) -timeout 0 -count=1 -run 'Integration'
 
@@ -370,11 +406,14 @@ test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .s
 	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
 
 
+test.compat: $(addprefix prepare.,$(COMPAT_DRIVERS)) $(addprefix olake.,$(addsuffix .start,$(COMPAT_DRIVERS))) olake.destination.all.start $(IMAGE_JAR_DEP)
+	$(foreach d,$(COMPAT_DRIVERS),$(GO_ENV.$(d))) cd tests && OLAKE_COMPAT_BASELINE=$(COMPAT_BASELINE) go test -v -p $(or $(TEST_JOBS),$(words $(COMPAT_DRIVERS))) $(COMPAT_PKGS) -timeout 0 -count=1 -run 'Compat'
+
 # Unit tests across every module in the go.work workspace. Directory patterns
 # ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
 # like <module>/... prefix-matches into sibling modules.
 test.unit: $(addprefix prepare.,$(DRIVERS))
-	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -skip 'Integration|2PC|Performance|Rebalance'
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -skip 'Integration|2PC|Performance|Rebalance|Compat'
 
 define print_help_targets
 $(foreach t,$(HELP_TARGETS), \
@@ -421,6 +460,7 @@ help:
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.integration.$(d)" "integration suite for $(d)";)
 	@$(foreach d,$(CDC_DRIVERS),printf "  %-44s %s\n" "test.2pc.$(d)" "2PC recovery suite for $(d)";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.performance.$(d)" "benchmark suite for $(d) (remote instances, no local stack)";)
+	@$(foreach d,$(COMPAT_DRIVERS),printf "  %-44s %s\n" "test.compat.$(d)" "backward-compat suite for $(d) (COMPAT_BASELINE=<tag|image|sha>)";)
 	@printf "  %-44s %s\n" "test.integration | test.2pc | test.unit" "aggregate runs (all drivers at once)"
 	@printf "  %-44s %s\n" "test.build.all" "compile every driver's test binary (CI cache warm)"
 	@if [ -n "$(strip $(HELP_TARGETS))" ]; then \
@@ -429,7 +469,7 @@ help:
 		$(call print_help_targets) \
 	fi
 	@echo ""
-	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG"
+	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG COMPAT_BASELINE"
 
 .PHONY: lint test.lint build \
 	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \

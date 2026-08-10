@@ -37,6 +37,8 @@ package constants
 //     * Previously, numeric values returned as byte slices (common in some SQL drivers) caused errors
 //     * Now these byte slices are parsed and converted into int64
 
+// When bumping, append the newest release still on the OLD version to COMPAT_SWEEP_BASELINES in
+// the Makefile, so the compat sweep keeps exercising the gate the bump introduced.
 const LatestStateVersion = 6
 
 // Used as the current version of the state when the program is running

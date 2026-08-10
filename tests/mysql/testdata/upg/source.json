@@ -1,0 +1,12 @@
+{
+  "backoff_retry_count": 4,
+  "database": "olake_mysql_test",
+  "hosts": "host.docker.internal",
+  "max_threads": 30,
+  "password": "secret1234",
+  "port": 3306,
+  "update_method": {
+    "initial_wait_time": 10
+  },
+  "username": "mysql"
+}

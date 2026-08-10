@@ -53,6 +53,22 @@ func TestPostgres2PC(t *testing.T) {
 	postgresBaseConfig(t).Test2PCIntegration(t)
 }
 
+// TestPostgresCompat pins the backward-compatibility contract: the same scenarios run twice in
+// parallel -- once entirely on a released baseline image, once handing off to this build after the
+// initial load -- and the two destinations must match. The baseline defaults to the newest
+// release; OLAKE_COMPAT_BASELINE picks another tag, image or commit. See tests/testutils/compat.go.
+func TestPostgresCompat(t *testing.T) {
+	t.Parallel()
+	testutils.RunBackwardCompat(t, func(t *testing.T) *testutils.IntegrationTest {
+		cfg := postgresBaseConfig(t)
+		cfg.ExpectedUpdatedData = ExpectedUpdatedData
+		cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+		// No column rules: postgres compares clean on every reachable baseline (COMPAT_RESULTS_v2.md).
+		// The OLAKE_COMPAT_EXCLUDE_COLUMNS sweep hook lives in RunBackwardCompat now.
+		return cfg
+	})
+}
+
 func TestPostgresPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(t, string(constants.Postgres)),

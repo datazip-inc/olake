@@ -1,0 +1,18 @@
+{
+  "type": "ICEBERG",
+  "writer": {
+    "arrow_writes": true,
+    "aws_access_key": "admin",
+    "aws_region": "us-east-1",
+    "aws_secret_key": "password",
+    "catalog_type": "jdbc",
+    "iceberg_db": "olake_iceberg",
+    "iceberg_s3_path": "s3a://warehouse",
+    "jdbc_password": "password",
+    "jdbc_url": "jdbc:postgresql://host.docker.internal:5432/iceberg",
+    "jdbc_username": "iceberg",
+    "s3_endpoint": "http://host.docker.internal:9000",
+    "s3_path_style": true,
+    "s3_use_ssl": false
+  }
+}

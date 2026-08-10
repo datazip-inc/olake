@@ -51,6 +51,44 @@ type IntegrationTest struct {
 	PartitionRegex                   string
 	FilterConfig                     string
 	ColumnToExclude                  string
+
+	// The fields below exist for the backward-compatibility suite (compat.go) and are zero for
+	// every other suite, which keeps their behavior identical to before they existed.
+
+	// SyncImage picks the driver image for each sync a suite body runs, keyed on whether that
+	// sync passes --state. Every body's initial load is stateless and every continuation sync
+	// passes --state, so useState IS the before/after-the-upgrade boundary.
+	SyncImage func(useState bool) string
+	// VerifyDisabled turns runSyncAndVerify into run-only: the sync still has to exit 0, but the
+	// destination is not checked against ExpectedData / DestinationDataTypeSchema. Both compat
+	// runs set it -- the baseline binary predates the current expectations, and the candidate runs
+	// at the baseline's state version -- so their only assertion is the cross-run comparison.
+	VerifyDisabled bool
+	// PreserveDestination suppresses the bodies' destination-clearing calls so a later step can
+	// read the table back, and so the candidate binary writes into a table the baseline created.
+	// Every other suite must keep clearing: a surviving Iceberg table leaks the incremental cursor
+	// in its olake_2pc property into the next run.
+	PreserveDestination bool
+	// ExtraExcludedColumns drops columns from the compat runs' catalogs entirely, on both sides.
+	// For columns a baseline image simply cannot produce -- e.g. mysql's ucs2/utf16le/latin1
+	// columns, which before #940 (first released in v0.7.2) reach the Iceberg writer as invalid
+	// UTF-8 and fail the gRPC marshal. Without this the baseline sync fails and retries with a
+	// doubling backoff, which reads as a hang rather than an error.
+	ExtraExcludedColumns []string
+	// ExtraVolatileColumns names further columns that cannot match across two independent runs,
+	// and so are compared by type but not by value. Applied after the defaults, so it can also put
+	// _olake_id back into the volatile set for a driver whose primary key is server-generated
+	// (mongodb's _id). See volatileColumns.
+	ExtraVolatileColumns []string
+	// CompatColumnRules is the driver's per-baseline assertion policy: which columns to drop from
+	// the seed data below a release, and which to compare by type only. See CompatColumnRule.
+	CompatColumnRules []CompatColumnRule
+	// SeedExcludedColumns is derived from CompatColumnRules by RunBackwardCompat. A driver's
+	// ExecuteQuery wrapper reads it at call time to keep these columns out of its DDL and DML.
+	SeedExcludedColumns []string
+	// SupportsSeedExclusion declares that the driver's fixture honours SeedExcludedColumns. A rule
+	// needing seed exclusion on a driver without it is a hard failure, never a silent no-op.
+	SupportsSeedExclusion bool
 }
 
 type PerformanceTest struct {
@@ -73,6 +111,15 @@ type TestConfig struct {
 	// ImagePlatform overrides the platform the driver image runs under, for images that exist
 	// only for amd64 and run emulated elsewhere.
 	ImagePlatform string
+	// DriverImage pins the image this config runs, overriding both OLAKE_DRIVER_IMAGE and the
+	// conventional olake/source-<driver>:local, and suppressing the build-if-missing step. The
+	// compat suite rewrites it per sync to hand a scenario off from a released baseline image to
+	// the locally built candidate; every other suite leaves it empty.
+	DriverImage string
+	// InputGeneration pins the streams.json shape written for this config. The compat suite sets
+	// it to the generation its baseline shipped with, so both sides run on an era-correct catalog;
+	// nil, which is every other suite, means the current shape.
+	InputGeneration *inputGeneration
 
 	// Host-side paths, read and written directly by the harness.
 	HostRootPath             string // repo root, used to `make docker.<driver>.build` when the image is missing
@@ -82,6 +129,8 @@ type TestConfig struct {
 	HostStatePath            string
 	HostStateCheckpointPath  string // backup of state.json used in 2PC recovery tests
 	HostPerformanceStatePath string // committed pre-chunked seed state, copied over state.json by the performance suite
+	HostIcebergDestPath      string // working copy of iceberg_destination.json; rewritten by toggleArrowIcebergWrites
+	HostParquetDestPath      string
 	HostSourcePath           string // working copy of source.json; variantSourceOverride edits it per suite
 	HostStatsPath            string
 	BenchmarksPath           string
@@ -469,6 +518,8 @@ func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConf
 		HostStatePath:            hostPath("state.json"),
 		HostStateCheckpointPath:  hostPath("state_checkpoint.json"),
 		HostPerformanceStatePath: fixturePath("performance_state.json"),
+		HostIcebergDestPath:      hostPath("iceberg_destination.json"),
+		HostParquetDestPath:      hostPath("parquet_destination.json"),
 		HostSourcePath:           hostPath("source.json"),
 		HostStatsPath:            hostPath("stats.json"),
 		BenchmarksPath:           fixturePath("benchmarks.json"),
@@ -529,7 +580,11 @@ func normalizeStreamName(driver, streamName string) string {
 
 // updateSelectedStreams rewrites selected_streams so only the given streams stay selected, with
 // normalization enabled and the partition regex, filter config and excluded column applied.
-func updateSelectedStreams(config *TestConfig, namespace, partitionRegex, filterConfig string, streams []string, columnToExclude string) error {
+//
+// extraExcluded drops further columns on top of columnToExclude. The compat suite uses it to keep
+// columns a baseline image cannot handle out of BOTH runs, so the comparison stays about the gate
+// under test rather than about an unrelated bug fixed since that release.
+func updateSelectedStreams(config *TestConfig, namespace, partitionRegex, filterConfig string, streams []string, columnToExclude string, extraExcluded ...string) error {
 	if len(streams) == 0 {
 		return nil
 	}
@@ -557,18 +612,30 @@ func updateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 			stream["normalization"] = true
 			stream["partition_regex"] = partitionRegex
 			stream["filter_config"] = filter
+			drop := make(map[string]bool, len(extraExcluded)+1)
 			if columnToExclude != "" {
+				drop[columnToExclude] = true
+			}
+			for _, col := range extraExcluded {
+				drop[col] = true
+			}
+			if len(drop) > 0 {
 				if selectedColumns, ok := stream["selected_columns"].(map[string]interface{}); ok {
 					if columns, ok := selectedColumns["columns"].([]interface{}); ok {
 						remaining := make([]interface{}, 0, len(columns))
 						for _, col := range columns {
-							if fmt.Sprint(col) != columnToExclude {
+							if !drop[fmt.Sprint(col)] {
 								remaining = append(remaining, col)
 							}
 						}
 						selectedColumns["columns"] = remaining
 					}
 				}
+			}
+			// Last, so the era-correct shape is what actually reaches disk: everything above
+			// writes today's keys, and this rewrites them into the baseline's generation.
+			if err := applyInputGeneration(config.InputGeneration, stream); err != nil {
+				return err
 			}
 			kept = append(kept, stream)
 		}
@@ -604,6 +671,14 @@ func updateStreamConfig(config *TestConfig, namespace, streamName, syncMode, cur
 
 // resetStateFile clears state.json so incremental can perform its initial load
 // (equivalent to a full load on first run), irrespective of any previous CDC run.
+//
+// Every call site must keep this BEFORE a stateless (useState=false) sync, which is where they
+// all sit today. The version written here is the TEST MODULE's LatestStateVersion -- the current
+// one -- and the stateless load that follows overwrites the file with whatever version the binary
+// that ran it stamps (protocol/root.go writes state next to --config even with no --state flag).
+// The compat suite depends on that overwrite: it is how a baseline image's own state version ends
+// up pinning the candidate's syncs. Call this after a compat run's initial load instead and the
+// pipeline is silently promoted to latest semantics -- the suite would pass while testing nothing.
 func resetStateFile(config *TestConfig) error {
 	return writeHostFile(config.HostStatePath, fmt.Appendf(nil, `{"version": %d}`, constants.LatestStateVersion))
 }
@@ -743,6 +818,16 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	schema map[string]interface{},
 	isCDC bool,
 ) error {
+	// Hand this sync to the image the suite selected for it. The compat suite runs the stateless
+	// initial load on the baseline image and every --state sync after it on the candidate, which
+	// is the upgrade under test; restore afterwards so the field never outlives the call.
+	if cfg.SyncImage != nil {
+		prev := cfg.TestConfig.DriverImage
+		cfg.TestConfig.DriverImage = cfg.SyncImage(useState)
+		t.Logf("running %s sync on image %s", Ternary(useState, "stateful", "stateless").(string), cfg.TestConfig.DriverImage)
+		defer func() { cfg.TestConfig.DriverImage = prev }()
+	}
+
 	destDBPrefix := destinationDBPrefix(cfg.TestConfig)
 	cmd := syncArgs(*cfg.TestConfig, useState, destinationType, "--destination-database-prefix", destDBPrefix)
 
@@ -765,6 +850,13 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 	}
 
 	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
+
+	if cfg.VerifyDisabled {
+		// The sync exiting 0 is still asserted above -- a binary that fails to start is a finding,
+		// not noise. Only the expectation-based checks are skipped.
+		t.Log("verification disabled for this run; the destination is checked by the cross-run comparison")
+		return nil
+	}
 
 	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
 	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
@@ -875,9 +967,11 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 
 	testCases := Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
 
-	// Run each test case
+	// Run each test case. t.Fatalf below ends only its own subtest, so stop the loop explicitly:
+	// every case after the first failure is a stateful sync built on state the failed one never
+	// wrote, and it costs a full sync each to learn nothing.
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+		if !t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
 				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" && cfg.TestConfig.Driver != "kafka" {
@@ -898,14 +992,19 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
-		})
+		}) {
+			t.Logf("stopping this scenario after %q failed; the remaining cases depend on the state it did not write", tc.name)
+			break
+		}
 	}
 
 	t.Log("Iceberg Full load + CDC tests completed successfully")
 
 	// Drop the Iceberg table after all tests are finished
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
-	t.Logf("Dropped Iceberg table: %s", testTable)
+	if !cfg.PreserveDestination {
+		dropIcebergTable(t, testTable, cfg.DestinationDB)
+		t.Logf("Dropped Iceberg table: %s", testTable)
+	}
 
 	return nil
 }
@@ -972,9 +1071,10 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 
 	testCases := Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
 
-	// Run each test case
+	// Run each test case, stopping at the first failure -- see the same loop in
+	// testIcebergFullLoadAndCDC for why continuing only burns syncs.
 	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+		if !t.Run(tc.name, func(t *testing.T) {
 			// schema evolution
 			if tc.operation == "update" {
 				if cfg.TestConfig.Driver != "mongodb" && cfg.TestConfig.Driver != "mssql" && cfg.TestConfig.Driver != "kafka" {
@@ -982,7 +1082,14 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 				}
 			}
 
-			// Delete parquet files before next operation to avoid error due to schema changes
+			// Delete parquet files before next operation to avoid error due to schema changes.
+			// Kept even for the compat suite (unlike the Iceberg drops), because the files are
+			// genuinely unreadable together: successive syncs write the same column with different
+			// types -- measured on postgres, col_float4 FLOAT then DOUBLE and col_int INT then
+			// BIGINT -- so Spark rejects the directory with CANNOT_MERGE_SCHEMAS, mergeSchema or
+			// not. That is F2 in docs/backward-compatibility.md (parquet has no schema evolution;
+			// the break surfaces in the reader). The consequence for compat is that a parquet
+			// variant compares only its LAST case's output; see compareVariant.
 			if err := DeleteParquetFiles(t, cfg.DestinationDB, testTable); err != nil {
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
 			}
@@ -1000,7 +1107,10 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
 			}
-		})
+		}) {
+			t.Logf("stopping this scenario after %q failed; the remaining cases depend on the state it did not write", tc.name)
+			break
+		}
 	}
 
 	t.Log("Parquet Full load + CDC tests completed successfully")
@@ -1065,9 +1175,12 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 				}
 			}
 
-			// drop iceberg table before sync
-			dropIcebergTable(t, testTable, cfg.DestinationDB)
-			t.Logf("Dropped Iceberg table: %s", testTable)
+			// drop iceberg table before sync. The compat suite must NOT: its candidate binary has
+			// to meet the table the baseline binary created, which is the continuity being tested.
+			if !cfg.PreserveDestination {
+				dropIcebergTable(t, testTable, cfg.DestinationDB)
+				t.Logf("Dropped Iceberg table: %s", testTable)
+			}
 
 			if err := cfg.runSyncAndVerify(
 				ctx,
@@ -1089,9 +1202,13 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 
 	// Drop the Iceberg table after all tests are finished, so the incremental
 	// cursor state left in the table's olake_2pc property is not read back as
-	// CDC state by a later run.
-	dropIcebergTable(t, testTable, cfg.DestinationDB)
-	t.Logf("Dropped Iceberg table: %s", testTable)
+	// CDC state by a later run. The compat suite keeps the table for its comparison; it isolates
+	// its scenarios from each other by giving each one its own destination namespace, and clears
+	// them once up front instead (see compatRun.runScenarios).
+	if !cfg.PreserveDestination {
+		dropIcebergTable(t, testTable, cfg.DestinationDB)
+		t.Logf("Dropped Iceberg table: %s", testTable)
+	}
 
 	return nil
 }
@@ -1153,7 +1270,14 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 				}
 			}
 
-			// Delete parquet files before next operation to avoid error due to schema changes
+			// Delete parquet files before next operation to avoid error due to schema changes.
+			// Kept even for the compat suite (unlike the Iceberg drops), because the files are
+			// genuinely unreadable together: successive syncs write the same column with different
+			// types -- measured on postgres, col_float4 FLOAT then DOUBLE and col_int INT then
+			// BIGINT -- so Spark rejects the directory with CANNOT_MERGE_SCHEMAS, mergeSchema or
+			// not. That is F2 in docs/backward-compatibility.md (parquet has no schema evolution;
+			// the break surfaces in the reader). The consequence for compat is that a parquet
+			// variant compares only its LAST case's output; see compareVariant.
 			if err := DeleteParquetFiles(t, cfg.DestinationDB, testTable); err != nil {
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
 			}
@@ -2157,8 +2281,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 	// runPerfOlake runs the driver image with host networking so the perf run reaches the
 	// external benchmark databases directly, exactly as a deployed sync would.
 	runPerfOlake := func(olakeArgs ...string) (int, []byte, error) {
-		getOrBuildDriverImage(t, cfg.TestConfig)
-		args := dockerRunArgs(cfg.TestConfig, []string{"--network", "host"}, olakeArgs)
+		args := dockerRunArgs(cfg.TestConfig, getOrBuildDriverImage(t, cfg.TestConfig), []string{"--network", "host"}, olakeArgs)
 		out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 		return dockerExitResult(out, err, olakeArgs[0])
 	}
@@ -2170,7 +2293,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 		_ = exec.Command("docker", "rm", "-f", name).Run() // drop any stale container from a previous run
 		timedCtx, cancel := context.WithTimeout(ctx, SyncTimeout)
 		defer cancel()
-		args := dockerRunArgs(cfg.TestConfig, []string{"--network", "host", "--name", name}, olakeArgs)
+		args := dockerRunArgs(cfg.TestConfig, imageRef(cfg.TestConfig), []string{"--network", "host", "--name", name}, olakeArgs)
 		out, err := exec.CommandContext(timedCtx, "docker", args...).CombinedOutput()
 		if timedCtx.Err() == context.DeadlineExceeded {
 			_ = exec.Command("docker", "kill", name).Run()

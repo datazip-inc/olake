@@ -52,6 +52,29 @@ func TestMongodb2PC(t *testing.T) {
 	mongodbBaseConfig(t).Test2PCIntegration(t)
 }
 
+// TestMongodbCompat pins the backward-compatibility contract for the driver owning the v5 gate
+// (BSON DateTime decoded as UTC time.Time at any depth, constants/state_version.go). v0.6.1 is
+// the newest release still on state version 4, so it is the one that exercises it.
+//
+// _id and _olake_id are volatile here, unlike every other driver: the seed inserts documents
+// without an _id, so the server generates a fresh ObjectID per run and _olake_id, which hashes the
+// primary key, follows it. Both are still compared by TYPE -- only their values are exempt.
+func TestMongodbCompat(t *testing.T) {
+	t.Parallel()
+	testutils.RunBackwardCompat(t, func(t *testing.T) *testutils.IntegrationTest {
+		cfg := mongodbBaseConfig(t)
+		cfg.ExpectedUpdatedData = ExpectedUpdatedData
+		cfg.UpdatedDestinationDataTypeSchema = UpdatedMongoToDestinationSchema
+		cfg.ExtraVolatileColumns = []string{"_id", "_olake_id"}
+		// G1 (COMPAT_RESULTS_v2.md): BSON regex serialised with Go field names, not lowercase
+		// keys, until #657 -- an ungated value change, so older baselines are type-only on it.
+		cfg.CompatColumnRules = []testutils.CompatColumnRule{
+			{Column: "id_regex", AssertValueFrom: "v0.3.14"},
+		}
+		return cfg
+	})
+}
+
 func TestMongodbPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
 		TestConfig:      testutils.GetTestConfig(t, string(constants.MongoDB)),
