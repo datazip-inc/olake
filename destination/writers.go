@@ -208,17 +208,16 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, source
 	default:
 		wt.stats.ReadCount.Add(1)
 		wt.recordsPushed.Add(1)
+		if sourceBytes != 0 {
+			wt.stats.BytesRead.Add(sourceBytes)
+			wt.bytesPushed.Add(sourceBytes)
+		}
 		if len(wt.buffer) > 0 && wt.bufferBytes+sourceBytes > constants.MaxDestinationBatchBytes {
 			wt.pushBufferFlush()
 		}
 
 		wt.buffer = append(wt.buffer, record)
 		wt.bufferBytes += sourceBytes
-		if sourceBytes != 0 {
-			wt.stats.BytesRead.Add(sourceBytes)
-			wt.bytesPushed.Add(sourceBytes)
-		}
-
 		if len(wt.buffer) >= int(wt.batchSize) || wt.bufferBytes >= constants.MaxDestinationBatchBytes {
 			wt.pushBufferFlush()
 		}
