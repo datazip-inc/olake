@@ -76,20 +76,92 @@
             "description": "Enable this option to use IAM-based authentication instead of username and password",
             "default": false
         },
-        "tls_ca_cert": {
-            "type": "string",
-            "title": "TLS CA Certificate",
-            "description": "CA certificate content in PEM format for verifying the MongoDB server. Use this instead of tlsCAFile in Additional Connection Parameters — file paths are not supported in UI/Docker deployments."
-        },
-        "tls_certificate_key": {
-            "type": "string",
-            "title": "TLS Client Certificate & Key",
-            "description": "Client certificate and private key in PEM format (combined in one field). Required for mutual TLS or MONGODB-X509 authentication. Use this instead of tlsCertificateKeyFile in Additional Connection Parameters."
+        "ssl": {
+            "type": "object",
+            "description": "SSL/TLS configuration for secure database connections",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "title": "SSL Configuration",
+                    "enum": [
+                        "disable",
+                        "require",
+                        "verify-ca",
+                        "verify-full"
+                    ],
+                    "default": "disable"
+                }
+            },
+            "required": [],
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "mode": {
+                                "const": "verify-ca"
+                            }
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "server_ca": {
+                                "type": "string",
+                                "title": "Server CA Certificate",
+                                "description": "CA certificate content (PEM format) for server verification"
+                            },
+                            "client_cert": {
+                                "type": "string",
+                                "title": "Client Certificate",
+                                "description": "Client certificate content (PEM format) for mutual TLS authentication"
+                            },
+                            "client_key": {
+                                "type": "string",
+                                "title": "Client Key",
+                                "description": "Client private key content (PEM format) for mutual TLS authentication"
+                            }
+                        },
+                        "required": [
+                            "server_ca"
+                        ]
+                    }
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "mode": {
+                                "const": "verify-full"
+                            }
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "server_ca": {
+                                "type": "string",
+                                "title": "Server CA Certificate",
+                                "description": "CA certificate content (PEM format) for server verification"
+                            },
+                            "client_cert": {
+                                "type": "string",
+                                "title": "Client Certificate",
+                                "description": "Client certificate content (PEM format) for mutual TLS authentication"
+                            },
+                            "client_key": {
+                                "type": "string",
+                                "title": "Client Key",
+                                "description": "Client private key content (PEM format) for mutual TLS authentication"
+                            }
+                        },
+                        "required": [
+                            "server_ca"
+                        ]
+                    }
+                }
+            ]
         },
         "additional_params": {
             "type": "object",
             "title": "Additional Connection Parameters",
-            "description": "Additional MongoDB connection string parameters (e.g., tls, connectTimeout). Each parameter will be added to the connection URI. File-path TLS parameters (tlsCAFile, tlsCertificateKeyFile) are not supported in UI/Docker — use the TLS CA Certificate and TLS Client Certificate & Key fields instead.",
+            "description": "Additional MongoDB connection string parameters (e.g., authMechanism). Each parameter will be added to the connection URI.",
             "additionalProperties": true
         },
         "ssh_config": {

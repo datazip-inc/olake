@@ -3,21 +3,24 @@ package driver
 import (
 	"crypto/tls"
 	"net/url"
-	"strings"
 	"testing"
 
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/testutils"
 )
 
-func TestConfigURI_StripsTLSFileParamsWhenInlinePEMConfigured(t *testing.T) {
+func TestConfigURI_StripsTLSFileParamsWhenSSLEnabled(t *testing.T) {
 	certs := testutils.GenerateTestCerts()
 
 	cfg := &Config{
-		Hosts:     []string{"mongo.example.com:27017"},
-		AuthDB:    "admin",
-		Username:  "user",
-		Password:  "pass",
-		TLSCACert: certs.CACert,
+		Hosts:    []string{"mongo.example.com:27017"},
+		AuthDB:   "admin",
+		Username: "user",
+		Password: "pass",
+		SSLConfiguration: &utils.SSLConfig{
+			Mode:     utils.SSLModeVerifyCA,
+			ServerCA: certs.CACert,
+		},
 		AdditionalParams: map[string]string{
 			"tls":                   "true",
 			"tlsCAFile":             "/certs/root-ca.crt",
@@ -46,7 +49,7 @@ func TestConfigURI_StripsTLSFileParamsWhenInlinePEMConfigured(t *testing.T) {
 	}
 }
 
-func TestConfigURI_PreservesTLSFileParamsWithoutInlinePEM(t *testing.T) {
+func TestConfigURI_PreservesTLSFileParamsWithoutSSL(t *testing.T) {
 	cfg := &Config{
 		Hosts:    []string{"mongo.example.com:27017"},
 		AuthDB:   "admin",
@@ -68,15 +71,18 @@ func TestConfigURI_PreservesTLSFileParamsWithoutInlinePEM(t *testing.T) {
 	}
 }
 
-func TestConfigURI_AddsTLSWhenInlinePEMConfigured(t *testing.T) {
+func TestConfigURI_AddsTLSWhenSSLEnabled(t *testing.T) {
 	certs := testutils.GenerateTestCerts()
 
 	cfg := &Config{
-		Hosts:     []string{"mongo.example.com:27017"},
-		AuthDB:    "admin",
-		Username:  "user",
-		Password:  "pass",
-		TLSCACert: certs.CACert,
+		Hosts:    []string{"mongo.example.com:27017"},
+		AuthDB:   "admin",
+		Username: "user",
+		Password: "pass",
+		SSLConfiguration: &utils.SSLConfig{
+			Mode:     utils.SSLModeVerifyCA,
+			ServerCA: certs.CACert,
+		},
 	}
 
 	query, err := url.Parse(cfg.URI())
@@ -91,7 +97,6 @@ func TestConfigURI_AddsTLSWhenInlinePEMConfigured(t *testing.T) {
 
 func TestConfigBuildTLSConfig(t *testing.T) {
 	certs := testutils.GenerateTestCerts()
-	clientBundle := certs.ClientCert + certs.ClientKey
 
 	tests := []struct {
 		name       string
@@ -100,17 +105,30 @@ func TestConfigBuildTLSConfig(t *testing.T) {
 		assertions func(t *testing.T, tlsCfg *tls.Config)
 	}{
 		{
-			name: "no inline tls returns nil",
+			name: "no ssl returns nil",
 			config: &Config{
 				Hosts: []string{"mongo.example.com:27017"},
 			},
 			wantNil: true,
 		},
 		{
-			name: "ca cert only uses verify-ca semantics",
+			name: "ssl disabled returns nil",
 			config: &Config{
-				Hosts:     []string{"mongo.example.com:27017"},
-				TLSCACert: certs.CACert,
+				Hosts: []string{"mongo.example.com:27017"},
+				SSLConfiguration: &utils.SSLConfig{
+					Mode: utils.SSLModeDisable,
+				},
+			},
+			wantNil: true,
+		},
+		{
+			name: "verify-ca uses verify-ca semantics",
+			config: &Config{
+				Hosts: []string{"mongo.example.com:27017"},
+				SSLConfiguration: &utils.SSLConfig{
+					Mode:     utils.SSLModeVerifyCA,
+					ServerCA: certs.CACert,
+				},
 			},
 			assertions: func(t *testing.T, tlsCfg *tls.Config) {
 				if !tlsCfg.InsecureSkipVerify {
@@ -125,11 +143,15 @@ func TestConfigBuildTLSConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "client cert bundle enables mTLS",
+			name: "client cert enables mTLS",
 			config: &Config{
-				Hosts:             []string{"mongo.example.com:27017"},
-				TLSCACert:         certs.CACert,
-				TLSCertificateKey: clientBundle,
+				Hosts: []string{"mongo.example.com:27017"},
+				SSLConfiguration: &utils.SSLConfig{
+					Mode:       utils.SSLModeVerifyCA,
+					ServerCA:   certs.CACert,
+					ClientCert: certs.ClientCert,
+					ClientKey:  certs.ClientKey,
+				},
 			},
 			assertions: func(t *testing.T, tlsCfg *tls.Config) {
 				if len(tlsCfg.Certificates) == 0 {
@@ -159,29 +181,29 @@ func TestConfigBuildTLSConfig(t *testing.T) {
 	}
 }
 
-func TestSplitCertificateKeyPEM(t *testing.T) {
-	certs := testutils.GenerateTestCerts()
-	bundle := certs.ClientCert + certs.ClientKey
-
-	certPEM, keyPEM, err := splitCertificateKeyPEM(bundle)
-	if err != nil {
-		t.Fatalf("splitCertificateKeyPEM() error = %v", err)
-	}
-	if !strings.Contains(certPEM, "BEGIN CERTIFICATE") {
-		t.Fatalf("expected certificate PEM, got %q", certPEM)
-	}
-	if !strings.Contains(keyPEM, "BEGIN RSA PRIVATE KEY") {
-		t.Fatalf("expected private key PEM, got %q", keyPEM)
-	}
-}
-
-func TestConfigValidate_RejectsInvalidTLSPEM(t *testing.T) {
+func TestConfigValidate_RejectsInvalidSSLPEM(t *testing.T) {
 	cfg := &Config{
-		Hosts:     []string{"mongo.example.com:27017"},
-		TLSCACert: "not-a-pem-block",
+		Hosts: []string{"mongo.example.com:27017"},
+		SSLConfiguration: &utils.SSLConfig{
+			Mode:     utils.SSLModeVerifyCA,
+			ServerCA: "not-a-pem-block",
+		},
 	}
 
 	if err := cfg.Validate(); err == nil {
-		t.Fatalf("expected validation error for invalid tls_ca_cert")
+		t.Fatalf("expected validation error for invalid ssl.server_ca")
+	}
+}
+
+func TestConfigValidate_RequiresServerCAForVerifyCA(t *testing.T) {
+	cfg := &Config{
+		Hosts: []string{"mongo.example.com:27017"},
+		SSLConfiguration: &utils.SSLConfig{
+			Mode: utils.SSLModeVerifyCA,
+		},
+	}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected validation error for missing ssl.server_ca")
 	}
 }

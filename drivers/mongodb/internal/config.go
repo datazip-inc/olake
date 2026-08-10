@@ -1,6 +1,8 @@
 package driver
 
 import (
+	"crypto/tls"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -10,23 +12,22 @@ import (
 )
 
 type Config struct {
-	Hosts             []string          `json:"hosts"`
-	Username          string            `json:"username"`
-	Password          string            `json:"password"`
-	AuthDB            string            `json:"authdb"`
-	ReplicaSet        string            `json:"replica_set"`
-	ReadPreference    string            `json:"read_preference"`
-	Srv               bool              `json:"srv"`
-	ServerRAM         uint              `json:"server_ram"`
-	MaxThreads        int               `json:"max_threads"`
-	Database          string            `json:"database"`
-	RetryCount        int               `json:"backoff_retry_count"`
-	ChunkingStrategy  string            `json:"chunking_strategy"`
-	UseIAM            bool              `json:"use_iam"`
-	TLSCACert         string            `json:"tls_ca_cert"`
-	TLSCertificateKey string            `json:"tls_certificate_key"`
-	SSHConfig         *utils.SSHConfig  `json:"ssh_config"`
-	AdditionalParams  map[string]string `json:"additional_params"`
+	Hosts            []string          `json:"hosts"`
+	Username         string            `json:"username"`
+	Password         string            `json:"password"`
+	AuthDB           string            `json:"authdb"`
+	ReplicaSet       string            `json:"replica_set"`
+	ReadPreference   string            `json:"read_preference"`
+	Srv              bool              `json:"srv"`
+	ServerRAM        uint              `json:"server_ram"`
+	MaxThreads       int               `json:"max_threads"`
+	Database         string            `json:"database"`
+	RetryCount       int               `json:"backoff_retry_count"`
+	ChunkingStrategy string            `json:"chunking_strategy"`
+	UseIAM           bool              `json:"use_iam"`
+	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
+	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
+	AdditionalParams map[string]string `json:"additional_params"`
 }
 
 func (c *Config) URI() string {
@@ -61,8 +62,15 @@ func (c *Config) URI() string {
 
 	host := strings.Join(c.Hosts, ",")
 
-	for key, value := range c.uriAdditionalParams() {
+	sslEnabled := c.SSLConfiguration != nil && c.SSLConfiguration.Mode != utils.SSLModeDisable
+	for key, value := range c.AdditionalParams {
+		if sslEnabled && (key == "tlsCAFile" || key == "tlsCertificateKeyFile") {
+			continue
+		}
 		query.Set(key, value)
+	}
+	if sslEnabled && query.Get("tls") == "" {
+		query.Set("tls", "true")
 	}
 
 	// Construct final URI using url.URL
@@ -80,8 +88,34 @@ func (c *Config) URI() string {
 	return u.String()
 }
 
+func mongoTLSHost(hosts []string) string {
+	if len(hosts) == 0 {
+		return ""
+	}
+
+	host := hosts[0]
+	if h, _, ok := strings.Cut(host, ":"); ok {
+		return h
+	}
+	return host
+}
+
+func (c *Config) buildTLSConfig() (*tls.Config, error) {
+	if c.SSLConfiguration == nil || c.SSLConfiguration.Mode == utils.SSLModeDisable {
+		return nil, nil
+	}
+
+	return utils.BuildTLSConfig(mongoTLSHost(c.Hosts), c.SSLConfiguration)
+}
+
 // TODO: Add go struct validation in Config
 func (c *Config) Validate() error {
+	if c.SSLConfiguration != nil {
+		if err := c.SSLConfiguration.Validate(); err != nil {
+			return fmt.Errorf("failed to validate ssl config: %w", err)
+		}
+	}
+
 	if _, err := c.buildTLSConfig(); err != nil {
 		return err
 	}
