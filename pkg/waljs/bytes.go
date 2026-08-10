@@ -3,7 +3,7 @@ package waljs
 import (
 	"strings"
 
-	"github.com/jackc/pgtype"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 // NumericBinaryBytes returns the size (in bytes) of a PostgreSQL NUMERIC value from
