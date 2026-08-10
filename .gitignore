@@ -19,3 +19,5 @@ tests/*/testdata/**/logs
 tests/*/testdata/**/state.json
 tests/*/testdata/**/stats.json
 tests/*/testdata/**/streams.json
+.cocoindex_code/
+CLAUDE.local.md
