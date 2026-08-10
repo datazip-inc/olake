@@ -450,23 +450,28 @@ const IcebergUISchema = `{
   },
   "writer": {
     "ui:grid": [
-      { "catalog_type": 12, "catalog_name": 12 },
-      { "rest_catalog_url": 12, "hive_uri": 12 },
-      { "jdbc_url": 12, "jdbc_username": 12, "jdbc_password": 12 },
-      { "iceberg_s3_path": 12, "hive_clients": 12 },
-      { "s3_use_ssl": 12, "hive_sasl_enabled": 12 },
-      { "s3_path_style": 12, "rest_auth_type": 12 },
-      { "token": 12, "oauth2_uri": 12 },
-      { "credential": 12, "no_identifier_fields": 12 },
+      { "catalog_type": 12, "rest_auth_type": 12 },
+      { "catalog_name": 12, "rest_catalog_url": 12 }, 
+      { "jdbc_url": 24},
+      { "jdbc_username": 12, "jdbc_password": 12},
+      { "hive_uri": 12, "hive_clients": 12 },
+      { "hive_sasl_enabled": 24 }, 
+      { "iceberg_s3_path": 12, "s3_endpoint": 12},
+      { "credential": 12, "oauth2_uri": 12 },
+      { "scope": 12, "token": 12 },
+      { "no_identifier_fields": 24 },
+      { "aws_access_key": 12, "aws_secret_key": 12 },
+      { "aws_region": 12, "s3_path_style": 12 },
+      { "s3_use_ssl": 12 },
       { "rest_signing_name": 12, "rest_signing_region": 12 },
-      { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
+      { "rest_signing_v_4": 24 },
       { "gcp_service_account_json": 12, "gcp_auth_scopes": 12 },
       { "gcp_project_id": 12 },
-      { "aws_access_key": 12, "aws_secret_key": 12 },
-      { "aws_region": 12, "glue_additional_config": 12 },
-	 { "glue_catalog_id": 12, "glue_access_key": 12, "glue_secret_key": 12 },
-      { "glue_endpoint": 12, "glue_region": 12 },
-      { "arrow_writes": 12 }
+      { "glue_additional_config": 24 },
+      { "glue_catalog_id": 12, "glue_endpoint": 12},
+	    { "glue_access_key": 12, "glue_secret_key": 12 }, 
+      { "glue_region": 12 },
+      { "arrow_writes": 24 }
     ],
     "gcp_service_account_json": {
       "ui:widget": "textarea",
@@ -500,7 +505,13 @@ const IcebergUISchema = `{
         "AWS Glue",
         "JDBC",
         "Hive",
-        "REST"
+        "Generic REST",
+        "Lakekeeper",
+        "Nessie",
+        "S3 Tables",
+        "Unity",
+        "Polaris",
+        "Big Lake"
       ]
     },
     "ui:options": {
