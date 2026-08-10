@@ -86,6 +86,18 @@ const S3FilterConfig = `{
 	]
 }`
 
+// S3XMLFilterConfig is XML variant filter (string-only)
+const S3XMLFilterConfig = `{
+	"logical_operator": "And",
+	"conditions": [
+		{
+			"column": "str_col",
+			"operator": "!=",
+			"value": ""
+		}
+	]
+}`
+
 // rowValues are the business-column values shared by every row of one seeded file. Only
 // "id" varies per row, so each record hashes to a distinct _olake_id (S3 streams have no
 // primary key, so the whole record is hashed).
@@ -233,6 +245,25 @@ var (
 	S3CSVUpdatedDestinationSchema  = evolvedSchema(S3CSVToDestinationSchema)
 	S3JSONUpdatedDestinationSchema = evolvedSchema(S3JSONToDestinationSchema)
 
+	// S3XMLToDestinationSchema - leaf fields are strings, date/ts columns are still inferred as timestamps
+	S3XMLToDestinationSchema = s3TextDestinationSchema(map[string]string{
+		"id":                  "string",
+		"str_col":             "string",
+		"bool_col":            "string",
+		"float_col":           "string",
+		"int_col":             "string",
+		"mixed_col":           "string",
+		"optional_col":        "string",
+		"date_col":            "timestamp",
+		"ts_col":              "timestamp",
+		"ts_milli_col":        "timestamp",
+		"ts_micro_col":        "timestamp",
+		"ts_nano_col":         "timestamp",
+		"_last_modified_time": "string",
+	})
+
+	S3XMLUpdatedDestinationSchema = evolvedSchema(S3XMLToDestinationSchema)
+
 	// S3ParquetToDestinationSchema is the expected destination schema for Parquet sources,
 	// which carry their own schema rather than having one inferred from text. Keys are the
 	// driver-side type names testutils.GlobalTypeMapping resolves to an Iceberg type.
@@ -360,6 +391,18 @@ func expectedJSONData(v rowValues) map[string]interface{} {
 	data["object_col"] = v.JSON
 	data["array_col"] = mustJSON(v.List)
 	return data
+}
+
+func expectedXMLData(v rowValues) map[string]interface{} {
+	return map[string]interface{}{
+		"str_col":      v.Str,
+		"bool_col":     fmt.Sprintf("%t", v.Bool),
+		"float_col":    fmt.Sprintf("%v", v.Float),
+		"int_col":      fmt.Sprintf("%d", v.Int64),
+		"date_col":     arrow.Timestamp(v.TS.UTC().Truncate(24 * time.Hour).UnixMicro()),
+		"ts_col":       arrow.Timestamp(v.TS.Truncate(time.Second).UnixMicro()),
+		"ts_milli_col": arrow.Timestamp(v.TSMilli.UnixMicro()),
+	}
 }
 
 // textWriterExpectedData is the writer-dependent slice of the CSV and JSON expectations:
@@ -555,6 +598,19 @@ var S3TestVariants = []S3TestVariant{
 		ExpectedUpdatedData:      expectedParquetData(updatedValues),
 		WriterExpectedData:       parquetWriterExpectedData,
 		ParquetStreaming:         true,
+	},
+	{
+		Name:                     "XML",
+		DataFormat:               "xml",
+		PlainExt:                 ".xml",
+		Gzipped:                  true,
+		BuildFile:                buildXMLFile,
+		BuildEvolvedFile:         buildEvolvedXMLFile,
+		DestinationSchema:        S3XMLToDestinationSchema,
+		UpdatedDestinationSchema: S3XMLUpdatedDestinationSchema,
+		ExpectedData:             expectedXMLData(seedValues),
+		ExpectedUpdatedData:      expectedXMLData(updatedValues),
+		WriterExpectedData:       textWriterExpectedData,
 	},
 }
 
@@ -862,6 +918,46 @@ func jsonlFile(startID int64, vals rowValues, evolved bool) []byte {
 		b.WriteString(strings.Join(fields, ", "))
 		b.WriteString("}\n")
 	}
+	return []byte(b.String())
+}
+
+func buildXMLFile(_ *testing.T, startID int64, vals rowValues) []byte {
+	return xmlFile(startID, vals, false)
+}
+
+func buildEvolvedXMLFile(_ *testing.T, startID int64, vals rowValues) []byte {
+	return xmlFile(startID, vals, true)
+}
+
+func xmlFile(startID int64, vals rowValues, evolved bool) []byte {
+	var b strings.Builder
+	b.WriteString("<orders>\n")
+	for i := int64(0); i < rowsPerFile; i++ {
+		id := startID + i
+		mixed, _ := mixedValue(id)
+		b.WriteString("  <order>\n")
+		fmt.Fprintf(&b, "    <id>%d</id>\n", id)
+		fmt.Fprintf(&b, "    <str_col>%s</str_col>\n", vals.Str)
+		fmt.Fprintf(&b, "    <bool_col>%t</bool_col>\n", vals.Bool)
+		fmt.Fprintf(&b, "    <float_col>%v</float_col>\n", vals.Float)
+		fmt.Fprintf(&b, "    <int_col>%d</int_col>\n", vals.Int64)
+		fmt.Fprintf(&b, "    <mixed_col>%s</mixed_col>\n", mixed)
+		fmt.Fprintf(&b, "    <date_col>%s</date_col>\n", vals.TS.UTC().Format(time.DateOnly))
+		fmt.Fprintf(&b, "    <ts_col>%s</ts_col>\n", vals.TS.Format(time.RFC3339))
+		fmt.Fprintf(&b, "    <ts_milli_col>%s</ts_milli_col>\n", vals.TSMilli.Format(tsMilliLayout))
+		fmt.Fprintf(&b, "    <ts_micro_col>%s</ts_micro_col>\n", vals.TSMicro.Format(tsMicroLayout))
+		fmt.Fprintf(&b, "    <ts_nano_col>%s</ts_nano_col>\n", vals.TSNano.Format(tsNanoLayout))
+		fmt.Fprintf(&b, "    <excluded_col>%s</excluded_col>\n", excludedColumnValue)
+
+		if id%3 != 0 {
+			fmt.Fprintf(&b, "    <optional_col>%s</optional_col>\n", vals.Str)
+		}
+		if evolved {
+			fmt.Fprintf(&b, "    <%s>%s</%s>\n", evolvedColumn, evolvedColumnValue, evolvedColumn)
+		}
+		b.WriteString("  </order>\n")
+	}
+	b.WriteString("</orders>\n")
 	return []byte(b.String())
 }
 
