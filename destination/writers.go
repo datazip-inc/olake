@@ -212,27 +212,19 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, source
 			wt.stats.BytesRead.Add(sourceBytes)
 			wt.bytesPushed.Add(sourceBytes)
 		}
-		if len(wt.buffer) > 0 && wt.bufferBytes+sourceBytes > constants.MaxDestinationBatchBytes {
-			wt.pushBufferFlush()
-		}
-
 		wt.buffer = append(wt.buffer, record)
 		wt.bufferBytes += sourceBytes
 		if len(wt.buffer) >= int(wt.batchSize) || wt.bufferBytes >= constants.MaxDestinationBatchBytes {
-			wt.pushBufferFlush()
+			buf := make([]types.RawRecord, len(wt.buffer))
+			copy(buf, wt.buffer)
+			wt.buffer = wt.buffer[:0]
+			wt.bufferBytes = 0
+			wt.group.Add(func(ctx context.Context) error {
+				return wt.flush(ctx, buf)
+			})
 		}
 		return nil
 	}
-}
-
-func (wt *WriterThread) pushBufferFlush() {
-	buf := make([]types.RawRecord, len(wt.buffer))
-	copy(buf, wt.buffer)
-	wt.buffer = wt.buffer[:0]
-	wt.bufferBytes = 0
-	wt.group.Add(func(ctx context.Context) error {
-		return wt.flush(ctx, buf)
-	})
 }
 
 func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err error) {
