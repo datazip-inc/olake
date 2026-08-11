@@ -38,12 +38,12 @@ func connectionString(config testutils.SourceConfig) string {
 	)
 }
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
 	var connStr string
-	if fileConfig {
-		connStr = connectionString(testutils.ReadSourceConfig(t, "./testdata/source.json"))
+	if conf.SourceBaseConfig != nil {
+		connStr = connectionString(conf.SourceBaseConfig)
 	} else {
 		// #nosec G101 -- the fixture password from drivers/oracle/docker-compose.yml, not a secret
 		connStr = "oracle://myuser:secret1234@localhost:1521/orcl"
@@ -55,7 +55,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		require.NoError(t, db.Close())
 	}()
 
-	integrationTestTable := streams[0]
+	integrationTestTable := testutils.TestTableName(conf)
 	var query string
 
 	switch operation {
@@ -86,6 +86,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	case "drop":
 		query = fmt.Sprintf(`DROP TABLE IF EXISTS %s;`, integrationTestTable)
+
+	case "drop-all":
+		query = `
+			BEGIN
+				FOR t IN (SELECT table_name FROM user_tables) LOOP
+					EXECUTE IMMEDIATE 'DROP TABLE "' || t.table_name || '" CASCADE CONSTRAINTS PURGE';
+				END LOOP;
+			END;`
 
 	case "clean":
 		query = fmt.Sprintf("TRUNCATE TABLE %s", integrationTestTable)

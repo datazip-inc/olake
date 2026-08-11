@@ -27,9 +27,12 @@ print.platforms.%:
 # Drivers with an explicit entry in drivers/platforms.conf are pinned to it.
 # Concrete (non-pattern) targets so they are phony and shells can autocomplete them.
 IMAGE_TAG ?= local
+# DOCKER_BUILD lets CI swap in buildx and a shared layer cache without changing local behaviour,
+# where it stays a plain `docker build`.
+DOCKER_BUILD ?= docker build
 .PHONY: $(addsuffix .build,$(addprefix docker.,$(DRIVERS)))
 $(addsuffix .build,$(addprefix docker.,$(DRIVERS))): docker.%.build:
-	docker build $(addprefix --platform ,$(call local_driver_platforms,$*)) \
+	$(DOCKER_BUILD) $(addprefix --platform ,$(call local_driver_platforms,$*)) \
 		--build-arg DRIVER_NAME=$* \
 		-t olake/source-$*:$(IMAGE_TAG) .
 
@@ -37,7 +40,7 @@ gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
 golangci.install:
-	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	@test -x $(GOPATH)/bin/golangci-lint || GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 
 # One golangci-lint run over every product module in go.work. Relative patterns on purpose: an
 # absolute <dir>/... for the root module sweeps into tests/, while ./... stays module-scoped.
@@ -56,32 +59,6 @@ pre-commit:
 	chmod +x .githooks/pre-commit
 	chmod +x .githooks/commit-msg
 	git config core.hooksPath .githooks
-
-BASE_NO_CACHE ?=
-BASE_CACHE_FLAG = $(if $(BASE_NO_CACHE),--no-cache --pull)
-GO_VERSION_NUM = $(shell echo $(GO_VERSION) | sed 's/go//')
-
-BASE_IMAGE_TAG ?= build-$(GO_VERSION)
-BASE_IMAGE ?= olakego/base:$(BASE_IMAGE_TAG)
-
-# Queried by CI (integration-tests-runner.yml) to run the bootstrap check in the base image.
-.PHONY: print.base-image
-print.base-image:
-	@echo $(BASE_IMAGE)
-
-# The integration-test base image. Unlike the driver images this one is never pushed, so it takes
-# the host platform by default rather than the release set in drivers/platforms.conf: a build for
-# two platforms at once produces an image index, which only the containerd image store can hold,
-# and the GitHub runners still use the classic one. Pass PLATFORMS=<single platform> to cross-build
-# it -- what the harness does for drivers that pin ContainerRequest.ImagePlatform (see
-# ensureTestBaseImage).
-.PHONY: docker.base.build
-docker.base.build:
-	@if [ -z "$(strip $(GO_VERSION_NUM))" ]; then \
-		echo "ERROR: could not read the go version from go.mod."; \
-		exit 1; \
-	fi
-	docker build $(addprefix --platform ,$(PLATFORMS)) --target build $(BASE_CACHE_FLAG) --build-arg GO_VERSION=$(GO_VERSION_NUM) -t $(BASE_IMAGE) -f base.Dockerfile .
 
 test.lint: golangci.install prepare.all
 	cd tests && $(foreach m,$(TEST_MODULES),($(GO_ENV.$(m)) $(GOPATH)/bin/golangci-lint run ./$(m)/...) &&) true
@@ -108,9 +85,6 @@ build:
 # --- overridables -----------------------------------------------------------
 COMPOSE ?= docker compose
 MVN_IMAGE ?= maven:3.9-eclipse-temurin-17
-GIT_VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
-GIT_COMMITSHA ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
-RELEASE_CHANNEL ?= dev
 
 # --- destination stack / iceberg writer JAR ---------------------------------
 DEST_COMPOSE := destination/iceberg/local-test/docker-compose.yml
@@ -123,7 +97,9 @@ ICEBERG_JAR := $(ICEBERG_WRITER_DIR)/target/olake-iceberg-java-writer-0.0.1-SNAP
 ICEBERG_JAR_SRCS := $(ICEBERG_WRITER_DIR)/pom.xml $(shell find $(ICEBERG_WRITER_DIR)/src -type f 2>/dev/null)
 ROOT_JAR := olake-iceberg-java-writer.jar
 
-# --- readiness probes (mirroring .github/workflows/integration-tests-runner.yml)
+IMAGE_JAR_DEP = $(if $(OLAKE_DRIVER_IMAGE),,$(ICEBERG_JAR))
+
+# --- readiness probes (polled by olake.<d>.wait / olake.destination.all.wait, incl. in CI)
 # Defaults only; per-driver probes and overrides live in drivers/<d>/driver.mk.
 WAIT_RETRIES := 30
 WAIT_SLEEP := 5
@@ -188,8 +164,20 @@ HELP_TARGETS :=
 # a docker-compose.yml get olake.* stacks and test targets.
 SOURCE_DRIVERS := $(filter $(DRIVERS),$(notdir $(patsubst %/docker-compose.yml,%,$(wildcard drivers/*/docker-compose.yml))))
 CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
-INTEGRATION_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
+SOURCE_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
 CDC_PKGS := $(addsuffix /...,$(addprefix ./,$(CDC_DRIVERS)))
+
+# The drivers the integration suites cover, queried by CI (integration-tests.yml) so the list
+# lives in this file only: it is what the driver matrix fans out to on a push to master.
+.PHONY: print.source-drivers
+print.source-drivers:
+	@echo $(SOURCE_DRIVERS)
+
+# Every driver module, suite or not. CI subtracts the two lists to tell a driver with no suite
+# apart from shared code, so a PR touching only that driver runs nothing instead of everything.
+.PHONY: print.drivers
+print.drivers:
+	@echo $(DRIVERS)
 
 # --- prepare ------------------------------------------------------------------
 # prepare.<d> provisions whatever driver d needs before it can compile; the
@@ -308,6 +296,10 @@ $(ICEBERG_JAR): $(ICEBERG_JAR_SRCS)
 .PHONY: iceberg.jar
 iceberg.jar: $(ICEBERG_JAR)
 
+# The Dockerfile COPYs the writer JAR, so every image build gets it as a prerequisite here. Separate
+# from the docker.%.build rule above only because $(ICEBERG_JAR) is defined further down.
+$(addsuffix .build,$(addprefix docker.,$(DRIVERS))): $(ICEBERG_JAR)
+
 # --- dev builds (generated per driver, incl. s3) ------------------------------
 # CGO_ENABLED=0 is set here, not left to the environment: db2 is the one driver that needs cgo
 # and GO_ENV.db2 turns it back on right after (it is appended to this same recipe line). Without
@@ -316,25 +308,49 @@ iceberg.jar: $(ICEBERG_JAR)
 define DEV_BUILD_template
 .PHONY: dev.$(1).build
 dev.$(1).build: prepare.$(1)
-	export CGO_ENABLED=0; $$(GO_ENV.$(1)) cd drivers/$(1) && go mod tidy && go build -ldflags="-w -s -X constants/constants.version=$$(GIT_VERSION) -X constants/constants.commitsha=$$(GIT_COMMITSHA) -X constants/constants.releasechannel=$$(RELEASE_CHANNEL)" -o olake main.go
-	@echo "Built drivers/$(1)/olake (version $$(GIT_VERSION), commit $$(GIT_COMMITSHA))"
+	export CGO_ENABLED=0; $$(GO_ENV.$(1)) cd drivers/$(1) && go build -o olake main.go
+	@echo "Built drivers/$(1)/olake"
 endef
 $(foreach d,$(DRIVERS),$(eval $(call DEV_BUILD_template,$(d))))
 
 # --- tests --------------------------------------------------------------------
-define INTEGRATION_TEST_template
-.PHONY: test.integration.$(1)
-test.integration.$(1): prepare.$(1) olake.$(1).start olake.destination.all.start $$(ICEBERG_JAR)
-	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run 'Integration'
-endef
-$(foreach d,$(SOURCE_DRIVERS),$(eval $(call INTEGRATION_TEST_template,$(d))))
+# Everything one driver's suites need, brought up concurrently. A recursive -j sub-make, since plain
+# prerequisites only run in parallel when the caller passes -j; every goal is idempotent.
+driver_test_setup = $(MAKE) --no-print-directory -j3 olake.$(1).start olake.destination.all.start $(IMAGE_JAR_DEP)
 
-define TWO_PC_TEST_template
-.PHONY: test.2pc.$(1)
-test.2pc.$(1): prepare.$(1) olake.$(1).start olake.destination.all.start $$(ICEBERG_JAR)
-	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run '2PC'
+# Compile the driver's test binary without running it, so CI pays the cold build while its container
+# pull and image build are still in flight. Through make, for db2's clidriver and cgo env.
+define TEST_BUILD_template
+.PHONY: test.build.$(1)
+test.build.$(1): prepare.$(1)
+	$$(GO_ENV.$(1)) cd tests && go test -c -o /dev/null ./$(1)/...
 endef
-$(foreach d,$(CDC_DRIVERS),$(eval $(call TWO_PC_TEST_template,$(d))))
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call TEST_BUILD_template,$(d))))
+
+# Every driver's test binary at once. `cd tests && go build ./...` cannot do this: tests/ is a
+# workspace root, not a module, so ./... matches nothing there.
+.PHONY: test.build.all
+test.build.all: $(addprefix test.build.,$(SOURCE_DRIVERS))
+
+# The whole CI surface for one driver -- Discover, Sync, 2PC and (kafka) Rebalance in one `go test`.
+# Performance is excluded: it needs external infra and has its own workflow.
+define DRIVER_TEST_template
+.PHONY: test.integration.$(1)
+test.integration.$(1): prepare.$(1)
+	@$$(call driver_test_setup,$(1))
+	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -skip 'Performance'
+endef
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_TEST_template,$(d))))
+
+define DRIVER_SUITE_template
+.PHONY: test.$(2).$(1)
+test.$(2).$(1): prepare.$(1)
+	@$$(call driver_test_setup,$(1))
+	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run '$(3)'
+endef
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_SUITE_template,$(d),discover,Discover)))
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_SUITE_template,$(d),sync,Sync)))
+$(foreach d,$(CDC_DRIVERS),$(eval $(call DRIVER_SUITE_template,$(d),2pc,2PC)))
 
 # Benchmarks. Deliberately no stack prerequisites: these run against the remote instances named
 # in the driver's testdata/source.json (CI reaches them over a VPN), never the local compose
@@ -346,17 +362,21 @@ test.performance.$(1): prepare.$(1) $$(ICEBERG_JAR)
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call PERFORMANCE_TEST_template,$(d))))
 
-test.integration: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(ICEBERG_JAR)
-	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(INTEGRATION_PKGS) -timeout 0 -count=1 -run 'Integration'
+test.discover: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
+	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(SOURCE_PKGS) -timeout 0 -count=1 -run 'Discover'
 
-test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .start,$(CDC_DRIVERS))) olake.destination.all.start $(ICEBERG_JAR)
+test.sync: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
+	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(SOURCE_PKGS) -timeout 0 -count=1 -run 'Sync'
+
+test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .start,$(CDC_DRIVERS))) olake.destination.all.start $(IMAGE_JAR_DEP)
 	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
+
 
 # Unit tests across every module in the go.work workspace. Directory patterns
 # ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
 # like <module>/... prefix-matches into sibling modules.
 test.unit: $(addprefix prepare.,$(DRIVERS))
-	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -skip 'Integration|2PC|Performance|Rebalance'
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -skip '^Test.*(Discover|Sync|2PC|Performance|Rebalance)$$'
 
 define print_help_targets
 $(foreach t,$(HELP_TARGETS), \
@@ -399,10 +419,14 @@ help:
 	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "docker.$(d).build" "build the $(d) driver image (olake/source-$(d):$(IMAGE_TAG))";)
 	@echo ""
 	@echo "Tests (auto-provision the stacks they need):"
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.integration.$(d)" "integration suite for $(d)";)
+	@printf "  %-44s %s\n" "iceberg.jar" "build the Iceberg writer JAR (skips maven when up to date)"
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.integration.$(d)" "every suite for $(d) (what the matrix job runs)";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.discover.$(d)" "discover suite for $(d) (catalog equality check)";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.sync.$(d)" "sync suite for $(d) (full load, CDC, incremental)";)
 	@$(foreach d,$(CDC_DRIVERS),printf "  %-44s %s\n" "test.2pc.$(d)" "2PC recovery suite for $(d)";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.performance.$(d)" "benchmark suite for $(d) (remote instances, no local stack)";)
-	@printf "  %-44s %s\n" "test.integration | test.2pc | test.unit" "aggregate runs (CI-equivalent)"
+	@printf "  %-44s %s\n" "test.discover | test.sync | test.2pc | test.unit" "aggregate runs (all drivers at once)"
+	@printf "  %-44s %s\n" "test.build.all" "compile every driver's test binary (CI cache warm)"
 	@if [ -n "$(strip $(HELP_TARGETS))" ]; then \
 		echo ""; \
 		echo "Driver-specific:"; \
@@ -415,4 +439,4 @@ help:
 	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \
 	olake.destination.all.start olake.destination.all.stop olake.destination.all.teardown olake.destination.all.restart olake.destination.all.refresh \
 	olake.all.start olake.all.stop olake.all.teardown olake.all.restart olake.all.refresh \
-	test.integration test.2pc test.unit help
+	test.discover test.sync test.2pc test.unit test.build.all help
