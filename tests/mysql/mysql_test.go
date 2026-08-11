@@ -8,10 +8,10 @@ import (
 )
 
 // mysqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// between TestMySQLIntegration and TestMySQL2PC.
-func mysqlBaseConfig() *testutils.IntegrationTest {
+// by the mysql suites.
+func mysqlBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
-		TestConfig:                testutils.GetTestConfig(string(constants.MySQL)),
+		TestConfig:                testutils.GetTestConfig(t, string(constants.MySQL)),
 		Namespace:                 "olake_mysql_test",
 		ExpectedData:              ExpectedMySQLData,
 		DestinationDataTypeSchema: MySQLToDestinationSchema,
@@ -39,25 +39,29 @@ func mysqlBaseConfig() *testutils.IntegrationTest {
 	}
 }
 
-func TestMySQLIntegration(t *testing.T) {
+func TestMySQLDiscover(t *testing.T) {
+	mysqlBaseConfig(t).TestDiscover(t)
+}
+
+func TestMySQLSync(t *testing.T) {
 	t.Parallel()
-	cfg := mysqlBaseConfig()
+	cfg := mysqlBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
-	cfg.TestIntegration(t)
+	cfg.TestSync(t)
 }
 
 func TestMySQL2PC(t *testing.T) {
 	t.Parallel()
-	mysqlBaseConfig().Test2PCIntegration(t)
+	mysqlBaseConfig(t).Test2PCIntegration(t)
 }
 
 func TestMySQLPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:      testutils.GetTestConfig(string(constants.MySQL)),
+		TestConfig:      testutils.GetTestConfig(t, string(constants.MySQL)),
 		Namespace:       "benchmark",
-		BackfillStreams: []string{"trips", "fhv_trips"},
-		CDCStreams:      []string{"trips_cdc", "fhv_trips_cdc"},
+		BackfillStreams: testutils.GetBackfillStreamsFromCDC(performanceCDCStreams),
+		CDCStreams:      performanceCDCStreams,
 		ExecuteQuery:    ExecuteQuery,
 	}
 
