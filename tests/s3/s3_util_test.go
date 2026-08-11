@@ -576,6 +576,19 @@ func (v S3TestVariant) source(t *testing.T) s3Source {
 	return s3Source{client: client, bucket: config.String("bucket_name"), prefix: config.String("path_prefix")}
 }
 
+// removeUnder deletes every object under prefix, tolerating a bucket that does not exist yet
+// (a "drop" can run before the first "create").
+func (s s3Source) removeUnder(ctx context.Context, t *testing.T, prefix string) {
+	t.Helper()
+	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		if minio.ToErrorResponse(obj.Err).Code == "NoSuchBucket" {
+			return
+		}
+		require.NoError(t, obj.Err, "failed to list objects under %s", prefix)
+		require.NoError(t, s.client.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}), "failed to remove %s", obj.Key)
+	}
+}
+
 // s3DestinationWriter identifies the destination writer a sync runs through, as far as
 // the variant can tell from its destination config.
 type s3DestinationWriter string
@@ -593,14 +606,14 @@ const (
 	writerArrow s3DestinationWriter = "arrow"
 )
 
-// currentDestinationWriter reads the live arrow_writes flag from the variant's
-// iceberg_destination.json and reports which writer the next sync will use.
-func (v S3TestVariant) currentDestinationWriter(t *testing.T) s3DestinationWriter {
+// currentDestinationWriter reads the live arrow_writes flag from the destination config the
+// next sync will run with, and reports which writer that is.
+func (v S3TestVariant) currentDestinationWriter(t *testing.T, config *testutils.TestConfig) s3DestinationWriter {
 	t.Helper()
 
-	// The test process runs with the package directory as its working directory, so the
-	// host side of the mounted testdata tree sits right below it.
-	destPath := filepath.Join("testdata", v.DataFormat, "iceberg_destination.json")
+	// The harness picks a writer by swapping IcebergDestinationPath between two files in its
+	// private working directory (see testIcebergWriter)
+	destPath := filepath.Join(config.HostTestDataPath, filepath.Base(config.IcebergDestinationPath))
 	data, err := os.ReadFile(destPath)
 	require.NoError(t, err, "failed to read %s", destPath)
 	var destConfig struct {
@@ -621,13 +634,13 @@ func (v S3TestVariant) currentDestinationWriter(t *testing.T) s3DestinationWrite
 // iceberg_destination.json before each Iceberg writer block but asserts every block against
 // the same ExpectedData maps, so this hook -- the only variant-owned code that runs between
 // the toggle and the verification -- reads the live flag and updates the maps in place.
-func (v S3TestVariant) applyWriterExpectations(t *testing.T) {
+func (v S3TestVariant) applyWriterExpectations(t *testing.T, config *testutils.TestConfig) {
 	t.Helper()
 	if v.WriterExpectedData == nil {
 		return
 	}
 
-	writer := v.currentDestinationWriter(t)
+	writer := v.currentDestinationWriter(t, config)
 	maps.Copy(v.ExpectedData, v.WriterExpectedData(seedValues, writer))
 	maps.Copy(v.ExpectedUpdatedData, v.WriterExpectedData(updatedValues, writer))
 }
@@ -637,19 +650,26 @@ func (v S3TestVariant) applyWriterExpectations(t *testing.T) {
 // the variant's path prefix: "create" ensures the bucket exists, "add" seeds the stream,
 // "insert"/"update" upload a further file each, and "clean"/"drop" remove everything under
 // the prefix.
-func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
-	return func(ctx context.Context, t *testing.T, streams []string, operation string, _ bool) {
+func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
+	return func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 		t.Helper()
 
 		// Every destination block starts by re-seeding the source through this hook, so
 		// refreshing the expectations here keeps them aligned with whichever writer the
-		// harness toggled the destination to since the last operation.
-		variant.applyWriterExpectations(t)
+		// harness pointed the destination at since the last operation.
+		variant.applyWriterExpectations(t, conf)
 
 		src := variant.source(t)
-		prefix := src.prefix + "/" + streams[0] + "/"
+		prefix := src.prefix + "/" + testutils.TestTableName(conf) + "/"
 
 		switch operation {
+		case "drop-all":
+			// Everything under the variant's path prefix, not just this stream's folder:
+			// discover enumerates one stream per folder, so a folder an aborted run left
+			// behind would show up as an extra stream. Variants own disjoint prefixes
+			// (see each testdata/<format>/source.json), so this never crosses variants.
+			src.removeUnder(ctx, t, src.prefix+"/")
+
 		case "create":
 			if err := src.client.MakeBucket(ctx, src.bucket, minio.MakeBucketOptions{}); err != nil {
 				code := minio.ToErrorResponse(err).Code
@@ -659,13 +679,7 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 			}
 
 		case "clean", "drop":
-			for obj := range src.client.ListObjects(ctx, src.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
-				if minio.ToErrorResponse(obj.Err).Code == "NoSuchBucket" {
-					break
-				}
-				require.NoError(t, obj.Err, "failed to list objects under %s", prefix)
-				require.NoError(t, src.client.RemoveObject(ctx, src.bucket, obj.Key, minio.RemoveObjectOptions{}), "failed to remove %s", obj.Key)
-			}
+			src.removeUnder(ctx, t, prefix)
 
 		case "add":
 			// One plain file and, where the format allows it, one gzipped: a single stream
