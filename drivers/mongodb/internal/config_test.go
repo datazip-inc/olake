@@ -183,7 +183,11 @@ func TestConfigBuildTLSConfig(t *testing.T) {
 
 func TestConfigValidate_RejectsInvalidSSLPEM(t *testing.T) {
 	cfg := &Config{
-		Hosts: []string{"mongo.example.com:27017"},
+		Hosts:    []string{"mongo.example.com:27017"},
+		Database: "testdb",
+		Username: "user",
+		Password: "pass",
+		AuthDB:   "admin",
 		SSLConfiguration: &utils.SSLConfig{
 			Mode:     utils.SSLModeVerifyCA,
 			ServerCA: "not-a-pem-block",
@@ -197,7 +201,11 @@ func TestConfigValidate_RejectsInvalidSSLPEM(t *testing.T) {
 
 func TestConfigValidate_RequiresServerCAForVerifyCA(t *testing.T) {
 	cfg := &Config{
-		Hosts: []string{"mongo.example.com:27017"},
+		Hosts:    []string{"mongo.example.com:27017"},
+		Database: "testdb",
+		Username: "user",
+		Password: "pass",
+		AuthDB:   "admin",
 		SSLConfiguration: &utils.SSLConfig{
 			Mode: utils.SSLModeVerifyCA,
 		},
@@ -205,5 +213,93 @@ func TestConfigValidate_RequiresServerCAForVerifyCA(t *testing.T) {
 
 	if err := cfg.Validate(); err == nil {
 		t.Fatalf("expected validation error for missing ssl.server_ca")
+	}
+}
+
+func TestConfigValidate_RequiresHostsDatabaseAndAuth(t *testing.T) {
+	cfg := &Config{
+		Hosts:    []string{},
+		Database: "",
+		Username: "",
+		Password: "",
+		AuthDB:   "",
+	}
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatalf("expected validation error for missing required fields")
+	}
+}
+
+func TestConfigValidate_SetsDefaults(t *testing.T) {
+	cfg := &Config{
+		Hosts:    []string{"mongo.example.com:27017"},
+		Database: "testdb",
+		Username: "user",
+		Password: "pass",
+		AuthDB:   "admin",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if cfg.MaxThreads == 0 {
+		t.Fatalf("expected MaxThreads default to be set")
+	}
+	if cfg.RetryCount == 0 {
+		t.Fatalf("expected RetryCount default to be set")
+	}
+	if cfg.SSLConfiguration == nil || cfg.SSLConfiguration.Mode != utils.SSLModeDisable {
+		t.Fatalf("expected default ssl mode disable, got %#v", cfg.SSLConfiguration)
+	}
+}
+
+func TestConfigBuildTLSConfig_VerifyFullLeavesServerNameEmpty(t *testing.T) {
+	certs := testutils.GenerateTestCerts()
+
+	tests := []struct {
+		name  string
+		hosts []string
+	}{
+		{
+			name:  "single host",
+			hosts: []string{"mongo1.internal:27017"},
+		},
+		{
+			name: "multi host replica set",
+			hosts: []string{
+				"mongo1.internal:27017",
+				"mongo2.internal:27017",
+				"mongo3.internal:27017",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{
+				Hosts: tt.hosts,
+				SSLConfiguration: &utils.SSLConfig{
+					Mode:     utils.SSLModeVerifyFull,
+					ServerCA: certs.CACert,
+				},
+			}
+
+			tlsCfg, err := cfg.buildTLSConfig()
+			if err != nil {
+				t.Fatalf("buildTLSConfig() error = %v", err)
+			}
+			if tlsCfg.InsecureSkipVerify {
+				t.Fatalf("expected InsecureSkipVerify=false for verify-full")
+			}
+			if tlsCfg.ServerName != "" {
+				t.Fatalf("expected empty ServerName so mongo-driver can set dialed hostname, got %q", tlsCfg.ServerName)
+			}
+			if tlsCfg.RootCAs == nil {
+				t.Fatalf("expected root CAs to be configured")
+			}
+			if tlsCfg.VerifyPeerCertificate != nil {
+				t.Fatalf("expected no custom VerifyPeerCertificate; hostname verify is left to the driver")
+			}
+		})
 	}
 }

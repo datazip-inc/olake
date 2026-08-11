@@ -8,7 +8,6 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type Config struct {
@@ -34,12 +33,6 @@ func (c *Config) URI() string {
 	connectionPrefix := "mongodb"
 	if c.Srv {
 		connectionPrefix = "mongodb+srv"
-	}
-
-	if c.MaxThreads == 0 {
-		// set default threads
-		logger.Info("setting max threads to default[%d]", constants.DefaultThreadCount)
-		c.MaxThreads = constants.DefaultThreadCount
 	}
 
 	// Build query parameters
@@ -88,32 +81,50 @@ func (c *Config) URI() string {
 	return u.String()
 }
 
-func mongoTLSHost(hosts []string) string {
-	if len(hosts) == 0 {
-		return ""
-	}
-
-	host := hosts[0]
-	if h, _, ok := strings.Cut(host, ":"); ok {
-		return h
-	}
-	return host
-}
-
 func (c *Config) buildTLSConfig() (*tls.Config, error) {
 	if c.SSLConfiguration == nil || c.SSLConfiguration.Mode == utils.SSLModeDisable {
 		return nil, nil
 	}
-
-	return utils.BuildTLSConfig(mongoTLSHost(c.Hosts), c.SSLConfiguration)
+	return utils.BuildTLSConfig("", c.SSLConfiguration)
 }
 
-// TODO: Add go struct validation in Config
 func (c *Config) Validate() error {
-	if c.SSLConfiguration != nil {
-		if err := c.SSLConfiguration.Validate(); err != nil {
-			return fmt.Errorf("failed to validate ssl config: %w", err)
+	if !c.Srv && len(c.Hosts) == 0 {
+		return fmt.Errorf("hosts is required")
+	}
+
+	if c.Database == "" {
+		return fmt.Errorf("database is required")
+	}
+
+	if !c.UseIAM {
+		if c.Username == "" {
+			return fmt.Errorf("username is required")
 		}
+		if c.Password == "" {
+			return fmt.Errorf("password is required")
+		}
+		if c.AuthDB == "" {
+			return fmt.Errorf("authdb is required")
+		}
+	}
+
+	if c.MaxThreads <= 0 {
+		c.MaxThreads = constants.DefaultThreadCount
+	}
+
+	if c.RetryCount <= 0 {
+		c.RetryCount = constants.DefaultRetryCount
+	}
+
+	if c.SSLConfiguration == nil {
+		c.SSLConfiguration = &utils.SSLConfig{
+			Mode: utils.SSLModeDisable,
+		}
+	}
+
+	if err := c.SSLConfiguration.Validate(); err != nil {
+		return fmt.Errorf("failed to validate ssl config: %w", err)
 	}
 
 	if _, err := c.buildTLSConfig(); err != nil {
