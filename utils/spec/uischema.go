@@ -385,7 +385,7 @@ const S3UISchema = `{
       "description": false
     },
     "ui:grid": [
-      { "record_tag": 12 }
+      { "row_identifier": 12 }
     ]
   }
 }`

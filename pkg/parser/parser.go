@@ -44,5 +44,5 @@ type ParquetConfig struct {
 
 // XMLConfig holds XML-specific parsing configuration
 type XMLConfig struct {
-	RecordTag string `json:"record_tag"` //Default: ""
+	RowIdentifier string `json:"row_identifier"` //Default: ""
 }

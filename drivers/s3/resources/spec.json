@@ -177,9 +177,9 @@
               "title": "XML Configuration",
               "description": "XML format-specific settings",
               "properties": {
-                "record_tag": {
+                "row_identifier": {
                   "type":"string",
-                  "title": "Record Tag",
+                  "title": "Row Identifier",
                   "description": "XML tag that encloses each record (e.g., <record> or <item>)" 
                 }
               }

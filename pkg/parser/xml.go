@@ -38,7 +38,7 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 	var data []byte
 	var err error
 
-	if p.config.RecordTag == "" {
+	if p.config.RowIdentifier == "" {
 		data, err = io.ReadAll(reader)
 	} else {
 		// Limit data read for schema inference to prevent OOM on large files
@@ -80,7 +80,7 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) error {
 	recordCount := 0
 
-	if p.config.RecordTag == "" {
+	if p.config.RowIdentifier == "" {
 		// check for context cancellation
 		select {
 		case <-ctx.Done():
@@ -118,7 +118,7 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 
 			// Process only start elements that match the specified record tag
 			startElement, ok := token.(xml.StartElement)
-			if !ok || startElement.Name.Local != p.config.RecordTag {
+			if !ok || startElement.Name.Local != p.config.RowIdentifier {
 				continue
 			}
 
@@ -149,7 +149,7 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 
 // parseXMLContent parses XML data and returns a slice of records based on specified record tag or entire document
 func (p *XMLParser) parseXMLContent(data []byte, maxSamples int) ([]map[string]any, error) {
-	if p.config.RecordTag == "" {
+	if p.config.RowIdentifier == "" {
 		record, err := p.parseXMLDocumentAsMap(bytes.NewReader(data))
 		if err != nil {
 			return nil, err
@@ -157,7 +157,7 @@ func (p *XMLParser) parseXMLContent(data []byte, maxSamples int) ([]map[string]a
 		return []map[string]any{record}, nil
 	}
 
-	logger.Debug("Parsing XML records by record_tag")
+	logger.Debug("Parsing XML records by row_identifier")
 
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	records := make([]map[string]any, 0, maxSamples)
@@ -179,7 +179,7 @@ func (p *XMLParser) parseXMLContent(data []byte, maxSamples int) ([]map[string]a
 
 		// process start elements matching record tag
 		startElement, ok := token.(xml.StartElement)
-		if !ok || startElement.Name.Local != p.config.RecordTag {
+		if !ok || startElement.Name.Local != p.config.RowIdentifier {
 			continue
 		}
 

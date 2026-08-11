@@ -17,7 +17,7 @@ func TestXMLParser_InferSchema_WholeDocument(t *testing.T) {
 	</root>`
 
 	config := XMLConfig{
-		RecordTag: "",
+		RowIdentifier: "",
 	}
 
 	stream := types.NewStream("test", "test", nil)
@@ -35,7 +35,7 @@ func TestXMLParser_InferSchema_WholeDocument(t *testing.T) {
 	assert.Equal(t, types.Object, rootType, "root should be inferred as Map")
 }
 
-func TestXMLParser_InferSchema_RecordTag(t *testing.T) {
+func TestXMLParser_InferSchema_RowIdentifier(t *testing.T) {
 	xmlData := `<root>
 	<order id="1001" status="NEW">
 		<order_date>2024-08-01</order_date>
@@ -47,7 +47,7 @@ func TestXMLParser_InferSchema_RecordTag(t *testing.T) {
 	</root>`
 
 	config := XMLConfig{
-		RecordTag: "order",
+		RowIdentifier: "order",
 	}
 
 	stream := types.NewStream("test", "test", nil)
@@ -82,7 +82,7 @@ func TestXMLParser_InferSchema_EmptyFile(t *testing.T) {
 	xmlData := `	`
 
 	config := XMLConfig{
-		RecordTag: "",
+		RowIdentifier: "",
 	}
 	stream := types.NewStream("test", "test", nil)
 	parser := NewXMLParser(config, stream)
@@ -96,13 +96,13 @@ func TestXMLParser_InferSchema_EmptyFile(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty XML file")
 }
 
-func TestXMLParser_InferSchema_NoMatchingRecordTag(t *testing.T) {
+func TestXMLParser_InferSchema_NoMatchingRowIdentifier(t *testing.T) {
 	xmlData := `<root>
 	<name>Alice</name>
 	</root>`
 
 	config := XMLConfig{
-		RecordTag: "item",
+		RowIdentifier: "item",
 	}
 
 	stream := types.NewStream("test", "test", nil)
@@ -111,7 +111,7 @@ func TestXMLParser_InferSchema_NoMatchingRecordTag(t *testing.T) {
 	ctx := context.Background()
 	reader := strings.NewReader(xmlData)
 
-	// record_tag with no matching elements - no records
+	// row_identifier with no matching elements - no records
 	_, err := parser.InferSchema(ctx, reader)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no records found")
@@ -125,7 +125,7 @@ func TestXMLParser_InferSchema_Attributes(t *testing.T) {
 	</root>`
 
 	config := XMLConfig{
-		RecordTag: "item",
+		RowIdentifier: "item",
 	}
 	stream := types.NewStream("test", "test", nil)
 	parser := NewXMLParser(config, stream)
@@ -157,7 +157,7 @@ func TestXMLParser_StreamRecords_WholeDocument(t *testing.T) {
 	</root>`
 
 	config := XMLConfig{
-		RecordTag: "",
+		RowIdentifier: "",
 	}
 
 	stream := types.NewStream("test", "test", nil)
@@ -181,7 +181,7 @@ func TestXMLParser_StreamRecords_WholeDocument(t *testing.T) {
 	assert.Equal(t, "Alice", root["name"])
 }
 
-func TestXMLParser_StreamRecords_RecordTag(t *testing.T) {
+func TestXMLParser_StreamRecords_RowIdentifier(t *testing.T) {
 	xmlData := `<root>
 	<order id="1001" status="NEW">
 		<order_date>2024-08-01</order_date>
@@ -193,7 +193,7 @@ func TestXMLParser_StreamRecords_RecordTag(t *testing.T) {
 	</root>`
 
 	config := XMLConfig{
-		RecordTag: "order",
+		RowIdentifier: "order",
 	}
 
 	stream := types.NewStream("test", "test", nil)
@@ -219,13 +219,13 @@ func TestXMLParser_StreamRecords_RecordTag(t *testing.T) {
 	assert.Equal(t, "Alice", customer["name"])
 }
 
-func TestXMLParser_StreamRecords_NoMatchingRecordTag(t *testing.T) {
+func TestXMLParser_StreamRecords_NoMatchingRowIdentifier(t *testing.T) {
 	xmlData := `<root>
 	<name>Alice</name>
 	</root>`
 
 	config := XMLConfig{
-		RecordTag: "item",
+		RowIdentifier: "item",
 	}
 
 	stream := types.NewStream("test", "test", nil)
@@ -252,7 +252,7 @@ func TestXMLParser_StreamRecords_Attributes(t *testing.T) {
 	</root>`
 
 	config := XMLConfig{
-		RecordTag: "item",
+		RowIdentifier: "item",
 	}
 	stream := types.NewStream("test", "test", nil)
 	parser := NewXMLParser(config, stream)

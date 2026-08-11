@@ -47,7 +47,7 @@ Use the `json` block to override parsing of JSON files.
 Use the `xml` block to control how records are split.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `record_tag` | string | `""` | Local element name for one row. When empty, parse whole document as one record |
+| `row_identifier` | string | `""` | Local element name for one row. When empty, parse whole document as one record |
 
 ## Commands
 Run the driver binaries through the repository root `build.sh` helper:
@@ -105,7 +105,7 @@ Use these as a starting point; substitute your bucket, path, and authentication 
   "region": "us-east-1",
   "path_prefix": "data/xml/",
   "file_format": "xml",
-  "xml": { "record_tag": "order" },
+  "xml": { "row_identifier": "order" },
   "compression": "none",
   "max_threads": 5,
   "retry_count": 3
