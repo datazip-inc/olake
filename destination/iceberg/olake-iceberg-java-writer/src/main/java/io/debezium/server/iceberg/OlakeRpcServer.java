@@ -64,8 +64,11 @@ public class OlakeRpcServer {
             stringConfigMap.getOrDefault("arrow-writer-enabled", "false"));
 
         int port = Integer.parseInt(stringConfigMap.getOrDefault("port", "50051"));
+        // Set the gRPC message size to the maximum value supported by an int (2 GB - 1),
+        // while the writer buffer is limited to 1 GB, allowing the server to handle the
+        // entire contents of the writer buffer as a single message.
         int maxMessageSize = Integer.parseInt(
-            stringConfigMap.getOrDefault("max-message-size", "" + (1024 * 1024 * 1024)));
+            stringConfigMap.getOrDefault("max-message-size", String.valueOf(Integer.MAX_VALUE)));
 
         ServerBuilder<?> serverBuilder = ServerBuilder.forPort(port)
                     .maxInboundMessageSize(maxMessageSize);
