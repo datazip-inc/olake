@@ -215,20 +215,6 @@ var (
 		List:      []string{"x", "y"},
 	}
 
-	// ExpectedCSVS3Data and ExpectedUpdatedCSVS3Data are the values every synced row of
-	// the CSV variant must carry; the JSON pair is the same for the JSON variant. "id"
-	// varies per row and is not asserted.
-	ExpectedCSVS3Data        = expectedCSVData(seedValues)
-	ExpectedUpdatedCSVS3Data = expectedCSVData(updatedValues)
-
-	ExpectedJSONS3Data        = expectedJSONData(seedValues)
-	ExpectedUpdatedJSONS3Data = expectedJSONData(updatedValues)
-
-	// ExpectedParquetS3Data and ExpectedUpdatedParquetS3Data are the same for the Parquet
-	// variant, which carries the full type matrix rather than the shared text columns.
-	ExpectedParquetS3Data        = expectedParquetData(seedValues)
-	ExpectedUpdatedParquetS3Data = expectedParquetData(updatedValues)
-
 	// S3CSVToDestinationSchema and S3JSONToDestinationSchema are the expected destination
 	// schemas for the two text variants, whose parsers infer every number as double. They
 	// share the text columns and differ where the formats do: only CSV can carry an
@@ -524,8 +510,8 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedCSVFile,
 		DestinationSchema:        S3CSVToDestinationSchema,
 		UpdatedDestinationSchema: S3CSVUpdatedDestinationSchema,
-		ExpectedData:             ExpectedCSVS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedCSVS3Data,
+		ExpectedData:             expectedCSVData(seedValues),
+		ExpectedUpdatedData:      expectedCSVData(updatedValues),
 		WriterExpectedData:       textWriterExpectedData,
 	},
 	{
@@ -537,8 +523,8 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedJSONLFile,
 		DestinationSchema:        S3JSONToDestinationSchema,
 		UpdatedDestinationSchema: S3JSONUpdatedDestinationSchema,
-		ExpectedData:             ExpectedJSONS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedJSONS3Data,
+		ExpectedData:             expectedJSONData(seedValues),
+		ExpectedUpdatedData:      expectedJSONData(updatedValues),
 		WriterExpectedData:       textWriterExpectedData,
 	},
 	{
@@ -551,8 +537,8 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedParquetFile,
 		DestinationSchema:        S3ParquetToDestinationSchema,
 		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
-		ExpectedData:             ExpectedParquetS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedParquetS3Data,
+		ExpectedData:             expectedParquetData(seedValues),
+		ExpectedUpdatedData:      expectedParquetData(updatedValues),
 		WriterExpectedData:       parquetWriterExpectedData,
 	},
 	{
@@ -565,8 +551,8 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedParquetFile,
 		DestinationSchema:        S3ParquetToDestinationSchema,
 		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
-		ExpectedData:             ExpectedParquetS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedParquetS3Data,
+		ExpectedData:             expectedParquetData(seedValues),
+		ExpectedUpdatedData:      expectedParquetData(updatedValues),
 		WriterExpectedData:       parquetWriterExpectedData,
 		ParquetStreaming:         true,
 	},
