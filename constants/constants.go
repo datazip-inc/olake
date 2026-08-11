@@ -53,6 +53,9 @@ const (
 
 	// CdcTimestamp is the column name olake writes the CDC event timestamp into.
 	CdcTimestamp = "_cdc_timestamp"
+
+	// MaxDestinationBatchBytes is the maximum source bytes held in a writer thread buffer before flush.
+	MaxDestinationBatchBytes = int64(1) * 1024 * 1024 * 1024 // 1 GB
 )
 
 // DriverType identifies a source/destination driver.
@@ -79,3 +82,13 @@ var ErrGlobalContextGroup = fmt.Errorf("global context group error")
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
+
+var RESTCatalogs = []string{
+	"rest",
+	"lakekeeper",
+	"nessie",
+	"s3tables",
+	"unity",
+	"polaris",
+	"biglake",
+}

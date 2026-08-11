@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -59,6 +60,7 @@ type (
 		recordsPushed   atomic.Int64
 		recordsFiltered atomic.Int64
 		bytesPushed     atomic.Int64
+		bufferBytes     int64 // source bytes currently held in buffer (for byte-based flush)
 	}
 )
 
@@ -193,8 +195,9 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 }
 
 // Push appends a record to the thread buffer and updates the live stats. sourceBytes
-// is the record's source read size (0 if the driver does not report it). Both the read
-// count and the bytes-read count are added live and rolled back by Close if the chunk/run fails (see rollbackStats).
+// is the record's source read size (0 if the driver does not report it). Buffer batching
+// flushes when buffered source bytes would exceed MaxDestinationBatchBytes. sourceBytes
+// is added live to stats and rolled back by Close if the chunk/run fails (see rollbackStats).
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, sourceBytes int64) error {
 	select {
 	case <-ctx.Done():
@@ -210,10 +213,12 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, source
 			wt.bytesPushed.Add(sourceBytes)
 		}
 		wt.buffer = append(wt.buffer, record)
-		if len(wt.buffer) >= int(wt.batchSize) {
+		wt.bufferBytes += sourceBytes
+		if len(wt.buffer) >= int(wt.batchSize) || wt.bufferBytes >= constants.MaxDestinationBatchBytes {
 			buf := make([]types.RawRecord, len(wt.buffer))
 			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
+			wt.bufferBytes = 0
 			wt.group.Add(func(ctx context.Context) error {
 				return wt.flush(ctx, buf)
 			})
