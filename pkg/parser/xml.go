@@ -91,7 +91,6 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 			return fmt.Errorf("failed to process record: %s", err)
 		}
 		recordCount++
-
 	} else {
 		// Stream XML records based on specified record tag
 		decoder := xml.NewDecoder(reader)
@@ -108,7 +107,7 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 			if err == io.EOF {
 				break
 			} else if err != nil {
-				return fmt.Errorf("Error reading XML token at record %d: %v", recordCount, err)
+				return fmt.Errorf("error reading XML token at record %d: %v", recordCount, err)
 			}
 
 			// Process only start elements that match the specified record tag
@@ -137,7 +136,6 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 			}
 			recordCount++
 		}
-
 	}
 	logger.Infof("Processed %d records from XML file", recordCount)
 	return nil
@@ -241,7 +239,6 @@ func (p *XMLParser) parseXMLDocumentAsMap(reader io.Reader) (map[string]any, err
 // parseXMLElement recursively parses an XML element and its children into a map or string
 // Attributes are added as fields
 func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.StartElement) (any, error) {
-
 	fields := make(map[string]any)
 
 	for _, attr := range startElement.Attr {
@@ -254,7 +251,6 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 	hasChildren := false
 
 	for {
-
 		token, err := decoder.Token()
 		if err == io.EOF {
 			return nil, fmt.Errorf("unexpected EOF while parsing <%s>", startElement.Name.Local)

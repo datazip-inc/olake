@@ -33,7 +33,6 @@ func TestXMLParser_InferSchema_WholeDocument(t *testing.T) {
 	rootType, err := result.Schema.GetType("root")
 	require.NoError(t, err)
 	assert.Equal(t, types.Object, rootType, "root should be inferred as Map")
-
 }
 
 func TestXMLParser_InferSchema_RecordTag(t *testing.T) {
