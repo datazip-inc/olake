@@ -35,12 +35,18 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 	//TODO : implement sampling of records from first and last files to get more accurate schema
 	maxSamples := 100
 
-	// Limit data read for schema inference to prevent OOM on large files
-	// 10MB should be enough to get 100 sample records for most XML files
-	const maxBytesForInference = 10 * 1024 * 1024 // 10MB
-	limitedReader := io.LimitReader(reader, maxBytesForInference)
+	var data []byte
+	var err error
 
-	data, err := io.ReadAll(limitedReader)
+	if p.config.RecordTag == "" {
+		data, err = io.ReadAll(reader)
+	} else {
+		// Limit data read for schema inference to prevent OOM on large files
+		// 10MB should be enough to get 100 sample records for most XML files
+		const maxBytesForInference = 10 * 1024 * 1024 // 10MB
+		limitedReader := io.LimitReader(reader, maxBytesForInference)
+		data, err = io.ReadAll(limitedReader)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to read XML file: %s", err)
 	}

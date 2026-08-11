@@ -96,7 +96,7 @@ func TestConfigValidate(t *testing.T) {
 				Region:          "us-east-1",
 				AccessKeyID:     "test-access-key",
 				SecretAccessKey: "test-secret-key",
-				FileFormat:      "yaml",
+				FileFormat:      "invalid-format",
 			},
 			wantErr: true,
 			errMsg:  "invalid file_format",
