@@ -1,11 +1,12 @@
 name: Integration Tests
 
 on:
-  # No path filter on master: a merge there is a release, so it runs every driver regardless of
-  # what the diff touched.
+  # Pushes run the cache jobs only -- the matrix below is gated to pull requests. A branch ref is
+  # the one scope every PR can restore from, and only a push writes one.
   push:
     branches:
       - "master"
+      - "staging"
   pull_request:
     branches:
       - "*"
@@ -86,19 +87,11 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Set up Java for Maven
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('destination/iceberg/olake-iceberg-java-writer/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
+          cache: maven
 
       - name: Build Iceberg writer jar
         run: make iceberg.jar
@@ -146,7 +139,6 @@ jobs:
   go-cache:
     name: Go checks + cache
     needs: preflight
-    if: needs.preflight.outputs.go-cached != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -201,7 +193,7 @@ jobs:
     # this too -- so gate on "not failed" rather than on success. go-cache is exempt entirely: its
     # cache warm and db2 clidriver download must not block seven drivers, and its lint and gosec
     # failures already surface as their own check.
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
     runs-on: 16gb-runner
     # The whole workflow's approval, deliberately on the only job that spends a 16gb runner: one
     # prompt releases every driver, and "Re-run failed jobs" re-enters it so a replay costs another.
