@@ -44,6 +44,9 @@ jobs:
       with:
         go-version-file: "go.mod"
 
+    - name: Restore driver external dependencies
+      uses: ./.github/actions/driver-deps
+
     - name: Set up Java for Maven
       uses: actions/setup-java@v3
       with:
@@ -94,8 +97,10 @@ jobs:
       working-directory: ./destination/iceberg/olake-iceberg-java-writer
       run: mvn clean package -DskipTests
 
-    - name: Build Test Base Image
-      run: make docker.base.build
+    # The image the suite runs against. Built here rather than left to the harness, which would
+    # otherwise build it inside `go test` where it is invisible in the step timings.
+    - name: Build Driver Image
+      run: make docker.${{ matrix.driver }}.build
 
     - name: Create source
       run: |
@@ -126,7 +131,10 @@ jobs:
         run-id: ${{ steps.last_run.outputs.id }}
         github-token: ${{ github.token }}
 
+    # Points the harness at the image built above; without it getOrBuildDriverImage rebuilds it.
     - name: Run Performance Tests
+      env:
+        OLAKE_DRIVER_IMAGE: olake/source-${{ matrix.driver }}:local
       run: make test.performance.${{ matrix.driver }}
 
     - name: Upload Benchmarks History

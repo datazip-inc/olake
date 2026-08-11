@@ -7,9 +7,21 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
-func kafkaJSONBaseConfig() *testutils.IntegrationTest {
+type kafkaFormat struct {
+	name string
+	cfg  *testutils.IntegrationTest
+}
+
+func kafkaFormats(t *testing.T) []kafkaFormat {
+	return []kafkaFormat{
+		{name: "JSON-Format", cfg: kafkaJSONBaseConfig(t)},
+		{name: "AVRO-Format", cfg: kafkaAvroBaseConfig(t)},
+	}
+}
+
+func kafkaJSONBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "json"),
+		TestConfig:                       testutils.GetTestConfig(t, string(constants.Kafka), "json"),
 		Namespace:                        "topics",
 		ExpectedData:                     ExpectedKafkaJSONData,
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
@@ -38,9 +50,9 @@ func kafkaJSONBaseConfig() *testutils.IntegrationTest {
 	}
 }
 
-func kafkaAvroBaseConfig() *testutils.IntegrationTest {
+func kafkaAvroBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
-		TestConfig:                       testutils.GetTestConfig(string(constants.Kafka), "avro"),
+		TestConfig:                       testutils.GetTestConfig(t, string(constants.Kafka), "avro"),
 		Namespace:                        "topics",
 		ExpectedData:                     ExpectedKafkaAvroData,
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
@@ -69,37 +81,30 @@ func kafkaAvroBaseConfig() *testutils.IntegrationTest {
 	}
 }
 
-func TestKafkaIntegration(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name string
-		cfg  *testutils.IntegrationTest
-	}{
-		{
-			name: "JSON-Format",
-			cfg:  kafkaJSONBaseConfig(),
-		},
-		{
-			name: "AVRO-Format",
-			cfg:  kafkaAvroBaseConfig(),
-		},
+func TestKafkaDiscover(t *testing.T) {
+	for _, format := range kafkaFormats(t) {
+		t.Run(format.name, func(t *testing.T) {
+			format.cfg.TestDiscover(t)
+		})
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			// Had to remove parallelism here as concurrent discover throws error
-			// /test-olake/build.sh: line 23: ./olake: Text file busy
-			// t.Parallel()
-			test.cfg.TestIntegration(t)
+}
+
+func TestKafkaSync(t *testing.T) {
+	t.Parallel()
+	for _, format := range kafkaFormats(t) {
+		t.Run(format.name, func(t *testing.T) {
+			t.Parallel()
+			format.cfg.TestSync(t)
 		})
 	}
 }
 
 func TestKafka2PC(t *testing.T) {
 	t.Parallel()
-	kafkaJSONBaseConfig().Test2PCIntegration(t)
+	kafkaJSONBaseConfig(t).Test2PCIntegration(t)
 }
 
 func TestKafkaRebalance(t *testing.T) {
-	kafkaJSONBaseConfig().TestRebalance(t)
+	t.Parallel()
+	kafkaJSONBaseConfig(t).TestRebalance(t)
 }
