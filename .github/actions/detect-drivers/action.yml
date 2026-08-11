@@ -1,0 +1,28 @@
+name: Detect affected drivers
+description: >
+  Resolves which drivers a change touches. Both driver lists come from the Makefile, so adding a
+  driver never needs an edit here. Requires the repo to be checked out already (it runs `make`),
+  and `pull-requests: read` on the calling job to list a PR's files.
+
+inputs:
+  token:
+    description: Token used to list the pull request's changed files.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  drivers:
+    description: JSON array of drivers to run; empty when a change touches no tested driver.
+    value: ${{ steps.resolve.outputs.drivers }}
+
+runs:
+  using: composite
+  steps:
+    # Selection rules live in the script; PR_NUMBER has no default env var, so it rides in here.
+    - name: Resolve affected drivers
+      id: resolve
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: ${{ github.action_path }}/detect-drivers.sh

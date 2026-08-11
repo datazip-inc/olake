@@ -22,7 +22,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     make dev.${DRIVER_NAME}.build OVERLAY_DIR=/runtime-overlay
 
-FROM eclipse-temurin:17-jre-noble
+FROM eclipse-temurin:17-jre-noble AS runtime-base
 
 # Install runtime dependencies. The JRE comes from the base image: installing
 # Debian's openjdk-*-jre-headless pulls ca-certificates-java, whose postinst is
@@ -44,9 +44,13 @@ RUN apt-get update && \
     ca-certificates-java \
     libpam-modules \
     libcrypt1 \
+    iproute2 \
+    lsof \
     && ln -sf /etc/ssl/certs/java/cacerts "$JAVA_HOME/lib/security/cacerts" \
     && update-ca-certificates -f \
     && rm -rf /var/lib/apt/lists/*
+
+FROM runtime-base
 
 # Driver metadata
 ARG DRIVER_VERSION=dev

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,21 +16,55 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+// cdcMetadataMu serializes CDC enable/disable: both write the server-wide msdb.dbo.cdc_jobs, so two
+// suites doing it at once deadlock there (error 1205).
+var cdcMetadataMu sync.Mutex
+
+// execCDCMetadata runs a CDC metadata statement, retrying while SQL Server reports it as the
+// deadlock victim (error 1205, which asks the caller to rerun). Returns the last error otherwise.
+func execCDCMetadata(ctx context.Context, t *testing.T, db *sqlx.DB, query string) error {
+	t.Helper()
+	cdcMetadataMu.Lock()
+	defer cdcMetadataMu.Unlock()
+
+	var err error
+	for attempt := 1; attempt <= 5; attempt++ {
+		if _, err = db.ExecContext(ctx, query); err == nil {
+			return nil
+		}
+		if !strings.Contains(err.Error(), "was deadlocked on lock resources") {
+			return err
+		}
+		t.Logf("CDC metadata statement lost a deadlock (attempt %d/5), retrying: %s", attempt, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt) * time.Second):
+		}
+	}
+	return err
+}
+
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
+	// The suite picks the database, not just the table: separate tables still race on DDL like
+	// DROP/CREATE TABLE, which modify database-scoped shared metadata (system catalog, cdc schema)
+	// and fail the loser as the deadlock victim. This has to resolve to the same name
+	// variantSourceOverride writes into the suite's source.json, or olake and these queries end up
+	// in different databases. 01-init.sql provisions each with CDC enabled.
 	var connStr string
-	if fileConfig {
-		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
+	if config := conf.SourceBaseConfig; config != nil {
 		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable",
 			config.String("username"),
 			config.String("password"),
 			config.String("host"),
 			config.Int("port"),
-			config.String("database"),
+			testutils.SuiteDatabase(config.String("database"), conf.Suite),
 		)
 	} else {
-		connStr = "sqlserver://sa:Password!123@localhost:1433?database=olake_mssql_test&encrypt=disable"
+		connStr = fmt.Sprintf("sqlserver://sa:Password!123@localhost:1433?database=%s&encrypt=disable",
+			testutils.SuiteDatabase("olake_mssql_test", conf.Suite))
 	}
 
 	db, err := sqlx.ConnectContext(ctx, "sqlserver", connStr)
@@ -38,7 +74,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := streams[0]
+	integrationTestTable := testutils.TestTableName(conf)
 
 	// A capture instance is SQL Server’s logical CDC stream for a table.
 	captureInstance := fmt.Sprintf("dbo_%s", integrationTestTable)
@@ -114,7 +150,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 					@capture_instance = N'%s';
 			END;
 		`, captureInstance, integrationTestTable, captureInstance)
-		_, _ = db.ExecContext(ctx, dropExistingCDC)
+		_ = execCDCMetadata(ctx, t, db, dropExistingCDC)
 
 		// Enable CDC for table - always create fresh capture instance
 		enableTableCDC := fmt.Sprintf(`
@@ -124,11 +160,36 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				@capture_instance = N'%s',
 				@role_name     = NULL
 		`, integrationTestTable, captureInstance)
-		_, err = db.ExecContext(ctx, enableTableCDC)
-		require.NoError(t, err, "failed to enable CDC on integration test table")
+		require.NoError(t, execCDCMetadata(ctx, t, db, enableTableCDC), "failed to enable CDC on integration test table")
 
 		// Wait until current_max_lsn >= start_lsn of the capture instance so CDC is ready for sync
 		verifyCDCEnabled(ctx, t, db, captureInstance)
+
+	case "drop-all":
+		require.NoError(t, execCDCMetadata(ctx, t, db, `
+			DECLARE @schema SYSNAME, @table SYSNAME, @capture SYSNAME, @drop NVARCHAR(MAX);
+			DECLARE tables CURSOR LOCAL FAST_FORWARD FOR
+				SELECT TABLE_SCHEMA, TABLE_NAME FROM INFORMATION_SCHEMA.TABLES
+				WHERE TABLE_TYPE = 'BASE TABLE'
+				AND TABLE_SCHEMA NOT IN ('INFORMATION_SCHEMA', 'sys', 'cdc')
+				AND NOT (TABLE_SCHEMA = 'dbo' AND TABLE_NAME = 'systranschemas');
+			OPEN tables;
+			FETCH NEXT FROM tables INTO @schema, @table;
+			WHILE @@FETCH_STATUS = 0
+			BEGIN
+				SET @capture = NULL;
+				IF OBJECT_ID('cdc.change_tables') IS NOT NULL
+					SELECT @capture = capture_instance FROM cdc.change_tables
+					WHERE source_object_id = OBJECT_ID(QUOTENAME(@schema) + '.' + QUOTENAME(@table));
+				IF @capture IS NOT NULL
+					EXEC sys.sp_cdc_disable_table
+						@source_schema = @schema, @source_name = @table, @capture_instance = @capture;
+				SET @drop = N'DROP TABLE ' + QUOTENAME(@schema) + N'.' + QUOTENAME(@table);
+				EXEC sys.sp_executesql @drop;
+				FETCH NEXT FROM tables INTO @schema, @table;
+			END
+			CLOSE tables;
+			DEALLOCATE tables;`), "failed to drop all tables")
 
 	case "drop":
 		// Disable CDC before dropping table to ensure capture instance is cleaned up
@@ -146,7 +207,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 					@capture_instance = N'%s';
 			END;
 		`, captureInstance, integrationTestTable, captureInstance)
-		if _, err = db.ExecContext(ctx, disableTableCDC); err != nil {
+		if err = execCDCMetadata(ctx, t, db, disableTableCDC); err != nil {
 			t.Logf("failed to disable CDC on integration test table: %s", err)
 		}
 

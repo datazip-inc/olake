@@ -3,6 +3,8 @@ package db2
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,6 +13,11 @@ import (
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	dbConnsMu sync.Mutex
+	dbConns   = map[string]*sqlx.DB{}
 )
 
 // buildDSN builds the go_ibm_db DSN from source.json. It mirrors the db2 driver's own DSN
@@ -38,27 +45,63 @@ func buildDSN(config testutils.SourceConfig) string {
 	return dsn
 }
 
-// TODO: need to perfect db2 integration testing on local environment. recommended cpu architecture to be used is amd64.
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func getDB(ctx context.Context, t *testing.T, dsn string) *sqlx.DB {
+	t.Helper()
+
+	dbConnsMu.Lock()
+	defer dbConnsMu.Unlock()
+	if db, ok := dbConns[dsn]; ok {
+		return db
+	}
+	db, err := sqlx.ConnectContext(ctx, "go_ibm_db", dsn)
+	require.NoError(t, err, "failed to connect to db2")
+	dbConns[dsn] = db
+	return db
+}
+
+// exec runs one autocommit statement, retrying only the DB2 deadlock victim (SQL0911N,
+// SQLSTATE 40001): TestDB2Sync and TestDB22PC run in parallel and their DDL contends
+// on the system catalog, so either side can be rolled back and has to replay the statement.
+func exec(ctx context.Context, db *sqlx.DB, query string) error {
+	var err error
+	for attempt := range 3 {
+		if _, err = db.ExecContext(ctx, query); err == nil || !strings.Contains(err.Error(), "SQLSTATE=40001") {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(attempt+1) * time.Second):
+		}
+	}
+	return err
+}
+
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
 	var dsn string
-	if fileConfig {
-		dsn = buildDSN(testutils.ReadSourceConfig(t, "./testdata/source.json"))
+	if conf.SourceBaseConfig != nil {
+		dsn = buildDSN(conf.SourceBaseConfig)
 	} else {
 		dsn = "HOSTNAME=localhost;PORT=50000;DATABASE=testdb;UID=db2inst1;PWD=secret1234;"
 	}
 
-	db, err := sqlx.ConnectContext(ctx, "go_ibm_db", dsn)
-	require.NoError(t, err, "failed to connect to db2")
-	defer func() {
-		require.NoError(t, db.Close())
-	}()
+	db := getDB(ctx, t, dsn)
+	var err error
 
-	integrationTestTable := streams[0]
+	integrationTestTable := testutils.TestTableName(conf)
 	var query string
 
 	switch operation {
+	case "drop-all":
+		query = `
+			BEGIN
+				FOR t AS SELECT TABNAME FROM SYSCAT.TABLES WHERE TYPE = 'T' AND TABSCHEMA = CURRENT SCHEMA DO
+					EXECUTE IMMEDIATE 'DROP TABLE "' || t.TABNAME || '"';
+				END FOR;
+			END`
+
 	case "create":
 		query = fmt.Sprintf(`
 			CREATE TABLE %s (
@@ -84,10 +127,19 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				col_vargraphic VARGRAPHIC(14),
 				excludedColumn INT NULL
 			)`, integrationTestTable)
+		// DB2 has no CREATE TABLE IF NOT EXISTS; tolerate an existing table (SQL0601N,
+		// SQLSTATE 42710) to match the other drivers' create semantics.
+		if cerr := exec(ctx, db, query); cerr != nil && !strings.Contains(cerr.Error(), "SQL0601N") {
+			require.NoError(t, cerr, "Failed to execute create operation")
+		}
+		requireEmptyTable(ctx, t, db, integrationTestTable, operation)
+		return
 
 	case "drop":
-		query = fmt.Sprintf(`DROP TABLE %s`, integrationTestTable)
-		_, _ = db.ExecContext(ctx, query) // Ignore error if table doesn't exist
+		err = exec(ctx, db, fmt.Sprintf(`DROP TABLE %s`, integrationTestTable))
+		if err != nil && !strings.Contains(err.Error(), "SQL0204N") {
+			require.NoError(t, err, "failed to drop %s", integrationTestTable)
+		}
 		return
 
 	case "clean":
@@ -117,7 +169,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				TRUE,
 				101
 			)`, integrationTestTable)
-		_, err = db.ExecContext(ctx, query)
+		err = exec(ctx, db, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 		// insert a filtered row — timestamp is before the filter threshold, so it won't be synced
 		filteredQuery := fmt.Sprintf(`
@@ -139,7 +191,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				FALSE,
 				200
 			)`, integrationTestTable)
-		_, err = db.ExecContext(ctx, filteredQuery)
+		err = exec(ctx, db, filteredQuery)
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
 
@@ -178,11 +230,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	case "evolve-schema":
 		evolveQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ALTER COLUMN COL_SMALLINT SET DATA TYPE BIGINT`, integrationTestTable)
-		_, err = db.ExecContext(ctx, evolveQuery)
+		err = exec(ctx, db, evolveQuery)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 		// Add new column
 		addColumnQuery := fmt.Sprintf(`ALTER TABLE DB2INST1.%s ADD COLUMN includedColumn INTEGER`, integrationTestTable)
-		_, err = db.ExecContext(ctx, addColumnQuery)
+		err = exec(ctx, db, addColumnQuery)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 
 		// to clear REORG pending state of DB2 after schema evolution
@@ -196,8 +248,21 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
 
-	_, err = db.ExecContext(ctx, query)
+	err = exec(ctx, db, query)
 	require.NoError(t, err, "Failed to execute %s operation", operation)
+
+	if operation == "clean" {
+		requireEmptyTable(ctx, t, db, integrationTestTable, operation)
+	}
+}
+
+// requireEmptyTable fails when a reset left rows behind, at the operation that caused it.
+func requireEmptyTable(ctx context.Context, t *testing.T, db *sqlx.DB, table, operation string) {
+	t.Helper()
+	var rows int
+	require.NoError(t, db.GetContext(ctx, &rows, fmt.Sprintf("SELECT COUNT(*) FROM %s", table)),
+		"failed to count rows after %s", operation)
+	require.Zerof(t, rows, "%s left %d rows in %s", operation, rows, table)
 }
 
 func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string) {
@@ -224,8 +289,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			100
 		)`, tableName, i)
 
-		_, err := db.ExecContext(ctx, query)
-		require.NoError(t, err, "Failed to insert test data")
+		require.NoError(t, exec(ctx, db, query), "Failed to insert test data")
 	}
 	// insert a filtered row — timestamp is before the filter threshold, so it won't be synced
 	filteredQuery := fmt.Sprintf(`
@@ -247,8 +311,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			FALSE,
 			200
 		)`, tableName)
-	_, err := db.ExecContext(ctx, filteredQuery)
-	require.NoError(t, err, "Failed to insert filtered test data row")
+	require.NoError(t, exec(ctx, db, filteredQuery), "Failed to insert filtered test data row")
 }
 
 var ExpectedDB2Data = map[string]interface{}{

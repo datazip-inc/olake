@@ -1,0 +1,8 @@
+name: Docker Buildx with the Actions cache
+description: Sets up Docker Buildx with the token its gha cache backend needs on self-hosted runners.
+
+runs:
+  using: composite
+  steps:
+    - uses: docker/setup-buildx-action@v3
+    - uses: crazy-max/ghaction-github-runtime@v3

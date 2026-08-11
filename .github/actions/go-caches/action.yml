@@ -1,0 +1,47 @@
+name: Shared Go caches
+description: Restores, looks up or publishes the Go module and build caches shared by every driver job.
+
+inputs:
+  mode:
+    description: lookup, restore or save.
+    required: false
+    default: restore
+
+outputs:
+  cache-hit:
+    description: true when this exact dependency set is already published.
+    value: ${{ steps.lookup.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - id: lookup
+      if: inputs.mode == 'lookup'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/go/bin
+        key: ${{ runner.os }}-gobase-${{ hashFiles('tests/**/go.mod', 'tests/go.work', 'tests/**/*.go') }}
+        lookup-only: true
+
+    - if: inputs.mode == 'restore'
+      uses: actions/cache/restore@v4
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/go/bin
+        key: ${{ runner.os }}-gobase-${{ hashFiles('tests/**/go.mod', 'tests/go.work', 'tests/**/*.go') }}
+        restore-keys: ${{ runner.os }}-gobase-
+
+    - if: inputs.mode == 'save'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/go/pkg/mod
+          ~/.cache/go-build
+          ~/go/bin
+        key: ${{ runner.os }}-gobase-${{ hashFiles('tests/**/go.mod', 'tests/go.work', 'tests/**/*.go') }}
+        restore-keys: ${{ runner.os }}-gobase-

@@ -107,7 +107,10 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 		batchSize:  batchSize,
 	}
 
-	if err := adapter.Check(ctx); err != nil {
+	stopCheck := logger.TrackTiming("destination", "check")
+	err = adapter.Check(ctx)
+	stopCheck()
+	if err != nil {
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 

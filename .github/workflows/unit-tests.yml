@@ -14,5 +14,11 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version-file: "go.mod"
+
+      - name: Cache driver external dependencies
+        uses: ./.github/actions/driver-deps
+        with:
+          save: "true"
+
       - name: Run All Unit Tests
         run: make test.unit

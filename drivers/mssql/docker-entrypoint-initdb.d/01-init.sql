@@ -79,3 +79,24 @@ IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'olake_mssql_test' AND is_cd
 BEGIN
     EXEC sys.sp_cdc_enable_db;
 END;
+GO
+
+-------------------------------------------------------------------------------
+-- 2PC suite. Its own database, not just its own table: table separation alone
+-- races -- DROP/CREATE TABLE modify database-scoped shared metadata (system
+-- catalog, cdc schema) even for separate tables, and the loser transaction
+-- fails as the deadlock victim (error 1205).
+-------------------------------------------------------------------------------
+IF DB_ID('olake_mssql_test_2pc') IS NULL
+BEGIN
+    CREATE DATABASE olake_mssql_test_2pc;
+END;
+GO
+
+USE olake_mssql_test_2pc;
+GO
+
+IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'olake_mssql_test_2pc' AND is_cdc_enabled = 0)
+BEGIN
+    EXEC sys.sp_cdc_enable_db;
+END;

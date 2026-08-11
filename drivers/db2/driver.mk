@@ -38,7 +38,8 @@ prepare.db2:
 		esac; \
 		echo "Downloading DB2 clidriver ($$f) to $(CLIDRIVER_DIR) ..."; \
 		mkdir -p "$(dir $(CLIDRIVER_DIR))"; \
-		curl -fL "$(CLIDRIVER_URL)/$$f" | tar -xz -C "$(dir $(CLIDRIVER_DIR))"; \
+		curl -fL --retry 5 --retry-delay 5 --retry-all-errors --connect-timeout 30 \
+			"$(CLIDRIVER_URL)/$$f" | tar -xz -C "$(dir $(CLIDRIVER_DIR))"; \
 	fi
 	@if [ "$$(uname -s)" = Darwin ] && [ "$$(otool -D "$(CLIDRIVER_DIR)/lib/libdb2.dylib" | tail -1)" = "libdb2.dylib" ]; then \
 		echo "Baking absolute install name into libdb2.dylib (IBM's bare name is unresolvable under SIP)"; \

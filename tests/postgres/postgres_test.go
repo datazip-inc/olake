@@ -9,10 +9,10 @@ import (
 )
 
 // postgresBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// between TestPostgresIntegration and TestPostgres2PC.
-func postgresBaseConfig() *testutils.IntegrationTest {
+// by the postgres suites.
+func postgresBaseConfig(t *testing.T) *testutils.IntegrationTest {
 	return &testutils.IntegrationTest{
-		TestConfig:                testutils.GetTestConfig(string(constants.Postgres)),
+		TestConfig:                testutils.GetTestConfig(t, string(constants.Postgres)),
 		Namespace:                 "public",
 		ExpectedData:              ExpectedPostgresData,
 		DestinationDataTypeSchema: PostgresToDestinationSchema,
@@ -40,25 +40,29 @@ func postgresBaseConfig() *testutils.IntegrationTest {
 	}
 }
 
-func TestPostgresIntegration(t *testing.T) {
+func TestPostgresDiscover(t *testing.T) {
+	postgresBaseConfig(t).TestDiscover(t)
+}
+
+func TestPostgresSync(t *testing.T) {
 	t.Parallel()
-	cfg := postgresBaseConfig()
+	cfg := postgresBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
-	cfg.TestIntegration(t)
+	cfg.TestSync(t)
 }
 
 func TestPostgres2PC(t *testing.T) {
 	t.Parallel()
-	postgresBaseConfig().Test2PCIntegration(t)
+	postgresBaseConfig(t).Test2PCIntegration(t)
 }
 
 func TestPostgresPerformance(t *testing.T) {
 	config := &testutils.PerformanceTest{
-		TestConfig:      testutils.GetTestConfig(string(constants.Postgres)),
+		TestConfig:      testutils.GetTestConfig(t, string(constants.Postgres)),
 		Namespace:       "public",
-		BackfillStreams: []string{"trips", "fhv_trips"},
-		CDCStreams:      []string{"trips_cdc", "fhv_trips_cdc"},
+		BackfillStreams: testutils.GetBackfillStreamsFromCDC(performanceCDCStreams),
+		CDCStreams:      performanceCDCStreams,
 		ExecuteQuery:    ExecuteQuery,
 	}
 

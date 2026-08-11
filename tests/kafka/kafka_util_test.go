@@ -8,12 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
-	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/linkedin/goavro/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -28,8 +28,10 @@ const (
 	rebalanceBulkPartition     = int32(0)
 	rebalanceBulkBatchSize     = 500
 	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
-	KafkaJSONConsumerGroupID   = "kafka-Json-integration-test-group"
 	avroSchemaRegistryURL      = "http://127.0.0.1:8081"
+	schemaRegistryTopic        = "_schemas"
+	topicDeletionAttempts      = 8
+	topicDeletionBackoff       = 200 * time.Millisecond
 
 	// Base Avro schema
 	avroSchema = `{
@@ -124,13 +126,13 @@ var (
 )
 
 // ExecuteQueryJSON executes Kafka queries for testing based on the operation type
-func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
+	topic := testutils.TestTableName(conf)
 	var kafkaJSONBroker string
-	if fileConfig {
-		config := testutils.ReadSourceConfig(t, "./testdata/json/source.json")
-		kafkaJSONBroker = config.String("bootstrap_servers")
+	if conf.SourceBaseConfig != nil {
+		kafkaJSONBroker = conf.SourceBaseConfig.String("bootstrap_servers")
 	} else {
 		kafkaJSONBroker = kafkaJSONIntegrationBroker
 	}
@@ -138,7 +140,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 	// kafka client
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(kafkaJSONBroker),
-		kgo.DefaultProduceTopic(streams[0]),
+		kgo.DefaultProduceTopic(topic),
 		kgo.RecordPartitioner(kgo.ManualPartitioner()),
 	)
 	require.NoError(t, err)
@@ -146,14 +148,17 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 
 	switch operation {
 	case "create":
-		createKafkaTopic(ctx, t, client, streams[0])
+		createKafkaTopic(ctx, t, client, topic)
 
 	case "clean":
-		deleteKafkaTopic(ctx, t, client, streams[0])
-		createKafkaTopic(ctx, t, client, streams[0])
+		deleteKafkaTopic(ctx, t, client, topic)
+		createKafkaTopic(ctx, t, client, topic)
 
 	case "drop":
-		deleteKafkaTopic(ctx, t, client, streams[0])
+		deleteKafkaTopic(ctx, t, client, topic)
+
+	case "drop-all":
+		deleteAllKafkaTopics(ctx, t, client)
 
 	case "add":
 		// 5 messages inserted with different partitions
@@ -161,24 +166,25 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, streams []string, opera
 			writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: partition})
 		}
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonFilterValue})
-		t.Logf("Added 6 messages to topic '%s' (one per partition and one for filters)", streams[0])
+		t.Logf("Added 6 messages to topic '%s' (one per partition and one for filters)", topic)
 
 	case "update":
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonUpdatedValue})
-		t.Logf("Added 1 updated message to topic '%s'", streams[0])
+		t.Logf("Added 1 updated message to topic '%s'", topic)
 
 	case "insert_2pc":
-		// simulate 2PC failure after destination commit: consumer offset on partition 0 lags at 1
-		commitConsumerGroupOffset(ctx, t, client, KafkaJSONConsumerGroupID, streams[0], 0, 1)
+		// Simulate a 2PC failure after destination commit: the consumer offset on partition 0 lags
+		// at 1. Roll back the suite's own group.
+		commitConsumerGroupOffset(ctx, t, client, suiteConsumerGroup(t, conf), topic, 0, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 0})
 		// add a new partition with one message to simulate evolution of schema map in destination metadata
-		addKafkaPartitions(ctx, t, client, streams[0], 1)
+		addKafkaPartitions(ctx, t, client, topic, 1)
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: jsonKey, Value: jsonValue, Partition: 5})
-		t.Logf("Rolled back partition %d, added partition %d with 1 message, and added 1 message on partition %d for topic '%s'", 0, 5, 0, streams[0])
+		t.Logf("Rolled back partition %d, added partition %d with 1 message, and added 1 message on partition %d for topic '%s'", 0, 5, 0, topic)
 
 	case "insert_rebalance":
-		addRebalanceBulkMessages(ctx, t, client, streams[0])
-		startRebalanceTrigger(ctx, t, streams[0])
+		addRebalanceBulkMessages(ctx, t, client, topic)
+		startRebalanceTrigger(ctx, t, suiteConsumerGroup(t, conf), topic, conf.HostStatsPath)
 
 	case "stop_rebalance":
 		stopRebalanceTrigger()
@@ -212,9 +218,16 @@ func addRebalanceBulkMessages(ctx context.Context, t *testing.T, client *kgo.Cli
 	t.Logf("Added %d messages to topic '%s' on partition %d", rebalanceBulkMessageCount, topic, rebalanceBulkPartition)
 }
 
+func suiteConsumerGroup(t *testing.T, conf *testutils.TestConfig) string {
+	t.Helper()
+	consumerGroupID := testutils.ReadSourceConfig(t, conf.HostSourcePath).String("consumer_group_id")
+	require.NotEmpty(t, consumerGroupID, "no consumer_group_id in %s", conf.HostSourcePath)
+	return consumerGroupID
+}
+
 // startRebalanceTrigger waits for sync progress, then joins a competing consumer group member in the
 // background to force a rebalance while olake is still syncing.
-func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
+func startRebalanceTrigger(ctx context.Context, t *testing.T, consumerGroupID, topic, statsPath string) {
 	t.Helper()
 
 	rebalanceCtx, cancel := context.WithCancel(ctx)
@@ -227,12 +240,12 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		defer func() {
 			if client != nil {
 				client.Close()
-				t.Logf("rebalance trigger consumer exited (group=%s instanceID=%s)", KafkaJSONConsumerGroupID, instanceID)
+				t.Logf("rebalance trigger consumer exited (consumerGroupID=%s instanceID=%s)", consumerGroupID, instanceID)
 			}
 			close(done)
 		}()
 
-		waitForSyncProgress(rebalanceCtx, t)
+		testutils.WaitForSyncProgress(rebalanceCtx, t, statsPath)
 		if rebalanceCtx.Err() != nil {
 			return
 		}
@@ -240,7 +253,9 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		var err error
 		client, err = kgo.NewClient(
 			kgo.SeedBrokers(kafkaJSONIntegrationBroker),
-			kgo.ConsumerGroup(KafkaJSONConsumerGroupID),
+			// Same group the suite's sync joined, which is what makes this consumer's
+			// arrival trigger a rebalance for it.
+			kgo.ConsumerGroup(consumerGroupID),
 			kgo.ClientID(instanceID),
 			kgo.InstanceID(instanceID),
 			kgo.ConsumeTopics(topic),
@@ -249,35 +264,11 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, topic string) {
 		)
 		require.NoError(t, err)
 
-		t.Logf("joined rebalance trigger consumer (group=%s topic=%s)", KafkaJSONConsumerGroupID, topic)
+		t.Logf("joined rebalance trigger consumer (consumerGroupID=%s topic=%s)", consumerGroupID, topic)
 		for rebalanceCtx.Err() == nil {
 			client.PollFetches(rebalanceCtx)
 		}
 	}()
-}
-
-// waitForSyncProgress waits for sync progress to start.
-func waitForSyncProgress(ctx context.Context, t *testing.T) {
-	t.Helper()
-
-	statsPath := testutils.GetTestConfig(string(constants.Kafka), "json").HostStatsPath
-	require.Eventually(t, func() bool {
-		if ctx.Err() != nil {
-			return true
-		}
-
-		var stats struct {
-			SyncedRecords int64 `json:"Synced Records"`
-		}
-		if err := testutils.UnmarshalFile(statsPath, &stats, false); err != nil {
-			return false
-		}
-		if stats.SyncedRecords > 0 {
-			t.Logf("sync started: %d records synced", stats.SyncedRecords)
-			return true
-		}
-		return false
-	}, 20*time.Minute, time.Second)
 }
 
 // stopRebalanceTrigger stops the rebalance trigger consumer.
@@ -296,20 +287,20 @@ func stopRebalanceTrigger() {
 }
 
 // ExecuteQueryAvro executes Kafka queries for testing based on the operation type
-func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQueryAvro(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
+	topic := testutils.TestTableName(conf)
 	var kafkaAvroBroker string
-	if fileConfig {
-		config := testutils.ReadSourceConfig(t, "./testdata/avro/source.json")
-		kafkaAvroBroker = config.String("bootstrap_servers")
+	if conf.SourceBaseConfig != nil {
+		kafkaAvroBroker = conf.SourceBaseConfig.String("bootstrap_servers")
 	} else {
 		kafkaAvroBroker = "127.0.0.1:29192"
 	}
 	// kafka client
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(kafkaAvroBroker),
-		kgo.DefaultProduceTopic(streams[0]),
+		kgo.DefaultProduceTopic(topic),
 		kgo.RecordPartitioner(kgo.RoundRobinPartitioner()),
 	)
 	require.NoError(t, err)
@@ -317,34 +308,37 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, streams []string, opera
 
 	switch operation {
 	case "create":
-		createKafkaTopic(ctx, t, client, streams[0])
+		createKafkaTopic(ctx, t, client, topic)
 
 	case "clean":
-		deleteKafkaTopic(ctx, t, client, streams[0])
-		createKafkaTopic(ctx, t, client, streams[0])
+		deleteKafkaTopic(ctx, t, client, topic)
+		createKafkaTopic(ctx, t, client, topic)
 
 	case "drop":
-		deleteKafkaTopic(ctx, t, client, streams[0])
+		deleteKafkaTopic(ctx, t, client, topic)
+
+	case "drop-all":
+		deleteAllKafkaTopics(ctx, t, client)
 
 	case "add":
 		// avro codec
 		codec, err := goavro.NewCodec(avroSchema)
 		require.NoError(t, err)
-		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, streams[0], avroSchema)
+		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, topic, avroSchema)
 
 		// avro messages written
-		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroValue, streams[0])
-		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroFilterValue, streams[0])
-		t.Logf("Added 2 messages to topic '%s' (one valid for sync and one filtered out)", streams[0])
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroValue, topic)
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroFilterValue, topic)
+		t.Logf("Added 2 messages to topic '%s' (one valid for sync and one filtered out)", topic)
 
 	case "update":
 		codec, err := goavro.NewCodec(updatedAvroSchema)
 		require.NoError(t, err)
-		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, streams[0], updatedAvroSchema)
+		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, topic, updatedAvroSchema)
 
 		// avro message written with new schema
-		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroUpdatedValue, streams[0])
-		t.Logf("Added 1 updated message to topic '%s'", streams[0])
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroUpdatedValue, topic)
+		t.Logf("Added 1 updated message to topic '%s'", topic)
 
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
@@ -360,7 +354,29 @@ func deleteKafkaTopic(ctx context.Context, t *testing.T, client *kgo.Client, top
 		err = res[topic].Err
 	}
 	require.NoError(t, err, "failed to delete topic '%s'", topic)
-	time.Sleep(5 * time.Second)
+
+	ensureTopicDeletion(ctx, t, client, topic)
+}
+
+// deleteAllKafkaTopics deletes every topic kafka discover would enumerate. Kafka has no delete-all,
+// but DeleteTopics takes the whole set at once. kadm.ListTopics already hides kafka's own internal
+// topics; _schemas is the schema registry's own and the driver skips it too (InternalKafkaTopics).
+func deleteAllKafkaTopics(ctx context.Context, t *testing.T, client *kgo.Client) {
+	t.Helper()
+
+	adm := kadm.NewClient(client)
+	topics, err := adm.ListTopics(ctx)
+	require.NoError(t, err, "failed to list kafka topics")
+	// _schemas is a regular topic, so it survives ListTopics' internal-topic filter.
+	names := slices.DeleteFunc(topics.Names(), func(topic string) bool { return topic == schemaRegistryTopic })
+	if len(names) == 0 {
+		return
+	}
+
+	res, err := adm.DeleteTopics(ctx, names...)
+	require.NoError(t, err, "failed to delete kafka topics")
+	require.NoError(t, res.Error(), "kafka topic deletion returned errors")
+	ensureTopicDeletion(ctx, t, client, names...)
 }
 
 // createTopic creates the test topic with a fixed partition count and replication factor 1.
@@ -384,7 +400,12 @@ func addKafkaPartitions(ctx context.Context, t *testing.T, client *kgo.Client, t
 	topicRes, topicErr := res.On(topic, nil)
 	require.NoError(t, topicErr, "no partition expansion response for topic '%s'", topic)
 	require.NoError(t, topicRes.Err, "failed to add %d partition(s) to topic '%s'", add, topic)
-	t.Logf("Added %d partition(s) to topic '%s'", add, topic)
+
+	// Without this, a produce to a new partition blocks inside ProduceSync until the periodic
+	// metadata refresh (franz-go default 5 min) notices the expansion.
+	client.ForceMetadataRefresh()
+
+	t.Logf("Added %d partition(s) to topic '%s' (forced metadata refresh)", add, topic)
 }
 
 // commitConsumerGroupOffset rolls back a consumer group offset for 2PC recovery tests.
@@ -400,17 +421,17 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Cl
 		if describeErr != nil {
 			return describeErr
 		}
-		group := groups[consumerGroupID]
-		if group.Err != nil && !errors.Is(group.Err, kerr.GroupIDNotFound) {
-			return group.Err
+		consumerGroup := groups[consumerGroupID]
+		if consumerGroup.Err != nil && !errors.Is(consumerGroup.Err, kerr.GroupIDNotFound) {
+			return consumerGroup.Err
 		}
-		if len(group.Members) == 0 {
+		if len(consumerGroup.Members) == 0 {
 			return nil
 		}
 
 		leaveReq := kmsg.NewPtrLeaveGroupRequest()
 		leaveReq.Group = consumerGroupID
-		for _, member := range group.Members {
+		for _, member := range consumerGroup.Members {
 			leaveReq.Members = append(leaveReq.Members, kmsg.LeaveGroupRequestMember{
 				MemberID:   member.MemberID,
 				InstanceID: member.InstanceID,
@@ -423,11 +444,11 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Cl
 		if leaveResp.ErrorCode != 0 {
 			return fmt.Errorf("leave group %s error code %d", consumerGroupID, leaveResp.ErrorCode)
 		}
-		return fmt.Errorf("consumer group %s still has %d active member(s)", consumerGroupID, len(group.Members))
-	}))
+		return fmt.Errorf("consumer group %s still has %d active member(s)", consumerGroupID, len(consumerGroup.Members))
+	}), "force-leave consumer group %q", consumerGroupID)
 
 	fetched, err := adm.FetchOffsets(ctx, consumerGroupID)
-	require.NoError(t, err)
+	require.NoError(t, err, "fetch offsets for consumer group %q", consumerGroupID)
 
 	toCommit := fetched.Offsets()
 	toCommit.Delete(topic, partition)
@@ -435,11 +456,11 @@ func commitConsumerGroupOffset(ctx context.Context, t *testing.T, client *kgo.Cl
 
 	// Delete and re-seed offsets admin-side; avoids joining Olake's multi-member consumer group.
 	_, err = adm.DeleteGroup(ctx, consumerGroupID)
-	require.NoError(t, err)
+	require.NoError(t, err, "delete consumer group %q", consumerGroupID)
 
 	committed, err := adm.CommitOffsets(ctx, consumerGroupID, toCommit)
-	require.NoError(t, err)
-	require.NoError(t, committed.Error())
+	require.NoError(t, err, "commit offsets for consumer group %q", consumerGroupID)
+	require.NoError(t, committed.Error(), "commit offsets for consumer group %q", consumerGroupID)
 	t.Logf("committed consumer group %s on %s:%d at offset %d", consumerGroupID, topic, partition, nextOffset)
 }
 
@@ -474,7 +495,7 @@ func registerSchemaWithRetry(t *testing.T, url, topic, schema string) uint32 {
 	var schemaID uint32
 
 	// retry for schema registration
-	err = testutils.RetryOnBackoff(context.Background(), 5, 2*time.Second, func(_ context.Context) error {
+	err = testutils.RetryOnBackoff(t.Context(), 5, 2*time.Second, func(_ context.Context) error {
 		// get schema response
 		response, err := client.Post(
 			fmt.Sprintf("%s/subjects/%s-value/versions", url, topic),
@@ -519,6 +540,22 @@ func encodeAndWriteAvro(ctx context.Context, t *testing.T, writer *kgo.Client, c
 
 	// write message
 	writeMessagesWithRetry(ctx, t, writer, &kgo.Record{Key: key, Value: msg})
+}
+
+func ensureTopicDeletion(ctx context.Context, t *testing.T, client *kgo.Client, topics ...string) {
+	t.Helper()
+
+	adm := kadm.NewClient(client)
+	start := time.Now()
+	err := testutils.RetryOnBackoff(ctx, topicDeletionAttempts, topicDeletionBackoff, func(ctx context.Context) error {
+		res, err := adm.ValidateCreateTopics(ctx, int32(partitionCount), 1, nil, topics...)
+		if err != nil {
+			return err
+		}
+		return res.Error()
+	})
+	require.NoError(t, err, "deletion of topic(s) %v did not complete", topics)
+	t.Logf("deletion of %d topic(s) completed after %s", len(topics), time.Since(start).Round(time.Millisecond))
 }
 
 // JSON data format resources

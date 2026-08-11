@@ -22,12 +22,15 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version-file: "go.mod"
+
+      - name: Cache driver external dependencies
+        uses: ./.github/actions/driver-deps
+        with:
+          save: "true"
+
       - name: golangci-lint
         run: make olake.lint
 
-      # TODO: move this on integration test workflow in PR 1037
-      - name: golangci-lint tests modules
-        run: make test.lint
   build-check:
     name: Build
     runs-on: ubuntu-latest
