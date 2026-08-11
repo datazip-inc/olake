@@ -19,6 +19,7 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'Makefile'
+      - '.golangci.yml'
       - 'drivers/**.conf'
       - 'drivers/*/driver.mk'
       - 'drivers/*/docker-compose.yml'
@@ -26,6 +27,8 @@ on:
       - 'tests/**'
       - '.github/workflows/integration-tests.yml'
       - '.github/actions/detect-drivers/action.yml'
+      - '.github/actions/go-caches/action.yml'
+      - '.github/scripts/changed-in-paths.sh'
 
 jobs:
   # Ungated, like the three cache jobs below it: the environment prompts once per wave of jobs that
@@ -41,6 +44,7 @@ jobs:
       drivers: ${{ steps.drivers.outputs.drivers }}
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
+      go-checks-changed: ${{ steps.go-checks.outputs.changed }}
       apt-warmed: ${{ steps.apt-cache.outputs.cache-hit }}
     steps:
       - name: Checkout code
@@ -51,6 +55,22 @@ jobs:
       - name: Resolve driver matrix
         id: drivers
         uses: ./.github/actions/detect-drivers
+
+      - name: Detect go-check input changes
+        id: go-checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GO_CHECK_PATHS: |
+            Makefile
+            drivers/*/driver.mk
+            .golangci.yml
+            .github/workflows/integration-tests.yml
+            .github/actions/go-caches/**
+        run: |
+          changed=$(.github/scripts/changed-in-paths.sh <<<"$GO_CHECK_PATHS")
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "Go-check inputs changed: $changed"
 
       - name: Look up Iceberg writer jar cache
         id: jar-cache
@@ -134,11 +154,11 @@ jobs:
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
 
   # The modules and compiled shared deps every driver job restores, plus the tests modules' lint
-  # and gosec. The gate makes both the publish and the checks run exactly when tests Go code or
-  # deps changed; an unchanged tree keeps its green from the run that published the cache.
+  # and gosec; skipped when the cache is published and no go-check input changed in the PR.
   go-cache:
     name: Go checks + cache
     needs: preflight
+    if: needs.preflight.outputs.go-cached != 'true' || needs.preflight.outputs.go-checks-changed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
