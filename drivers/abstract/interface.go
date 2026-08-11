@@ -14,6 +14,12 @@ type Config interface {
 	Validate() error
 }
 
+// CursorFormatter is an optional hook for drivers that need driver specific
+// formatting of cursor values before they are saved in state.
+type CursorFormatter interface {
+	FormatCursorValue(cursorValue any) any
+}
+
 type DriverInterface interface {
 	GetConfigRef() Config
 	Spec() any
