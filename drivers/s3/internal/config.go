@@ -18,6 +18,15 @@ const (
 	FormatXML     FileFormat = "xml"
 )
 
+var supportedFileFormats = []FileFormat{FormatCSV, FormatJSON, FormatParquet, FormatXML}
+
+var formatExtensions = map[FileFormat][]string{
+	FormatCSV:     {".csv"},
+	FormatJSON:    {".json", ".jsonl"},
+	FormatParquet: {".parquet"},
+	FormatXML:     {".xml"},
+}
+
 // CompressionType represents the compression type of files
 type CompressionType string
 
@@ -82,7 +91,7 @@ func (c *Config) Validate() error {
 	}
 
 	validFormat := false
-	for _, format := range []FileFormat{FormatCSV, FormatJSON, FormatParquet, FormatXML} {
+	for _, format := range supportedFileFormats {
 		if c.FileFormat == format {
 			validFormat = true
 			break
@@ -135,10 +144,7 @@ func (c *Config) Validate() error {
 	}
 
 	if c.FileFormat == FormatXML && c.XML == nil {
-		// Initialize with defaults if not provided
-		c.XML = &parser.XMLConfig{
-			RecordTag: "",
-		}
+		c.XML = &parser.XMLConfig{}
 	}
 	// Set default thread count
 	if c.MaxThreads <= 0 {

@@ -281,7 +281,7 @@ func TestConfigPathPrefixNormalization(t *testing.T) {
 }
 
 func TestConfigAllFileFormats(t *testing.T) {
-	formats := []FileFormat{FormatCSV, FormatJSON, FormatParquet, FormatXML}
+	formats := supportedFileFormats
 
 	for _, format := range formats {
 		t.Run(string(format), func(t *testing.T) {

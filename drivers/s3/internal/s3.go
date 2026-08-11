@@ -206,22 +206,21 @@ func (s *S3) extractStreamName(key string) string {
 func (s *S3) matchesFileFormat(key string) bool {
 	lowerKey := strings.ToLower(key)
 
-	switch s.config.FileFormat {
-	case FormatCSV:
-		return strings.HasSuffix(lowerKey, ".csv") ||
-			(s.config.Compression == CompressionGzip && strings.HasSuffix(lowerKey, ".csv.gz"))
-	case FormatJSON:
-		return strings.HasSuffix(lowerKey, ".json") ||
-			strings.HasSuffix(lowerKey, ".jsonl") ||
-			(s.config.Compression == CompressionGzip && (strings.HasSuffix(lowerKey, ".json.gz") || strings.HasSuffix(lowerKey, ".jsonl.gz")))
-	case FormatParquet:
-		return strings.HasSuffix(lowerKey, ".parquet")
-	case FormatXML:
-		return strings.HasSuffix(lowerKey, ".xml") ||
-			(s.config.Compression == CompressionGzip && strings.HasSuffix(lowerKey, ".xml.gz"))
-	default:
+	extensions, ok := formatExtensions[s.config.FileFormat]
+	if !ok {
 		return false
 	}
+	for _, extension := range extensions {
+		if strings.HasSuffix(lowerKey, extension) {
+			return true
+		}
+		if s.config.FileFormat != FormatParquet &&
+			s.config.Compression == CompressionGzip &&
+			strings.HasSuffix(lowerKey, extension+".gz") {
+			return true
+		}
+	}
+	return false
 }
 
 // ProduceSchema generates schema for a given stream (folder or file)
