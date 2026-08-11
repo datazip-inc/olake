@@ -663,14 +663,14 @@ func (v S3TestVariant) applyWriterExpectations(t *testing.T, config *testutils.T
 	maps.Copy(v.ExpectedUpdatedData, v.WriterExpectedData(updatedValues, writer))
 }
 
-// applyParquetStreamingMode pins parquet.streaming_enabled in the shared parquet source.json
+// applyParquetStreamingMode pins parquet.streaming_enabled in this config's source.json
 func (v S3TestVariant) applyParquetStreamingMode(t *testing.T, config *testutils.TestConfig) {
 	t.Helper()
 	if v.DataFormat != "parquet" {
 		return
 	}
 
-	path := filepath.Join(config.HostTestDataPath, v.DataFormat, "source.json")
+	path := config.HostSourcePath
 	data, err := os.ReadFile(path)
 	require.NoError(t, err, "failed to read %s", path)
 
@@ -707,8 +707,8 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 		case "drop-all":
 			// Everything under the variant's path prefix, not just this stream's folder:
 			// discover enumerates one stream per folder, so a folder an aborted run left
-			// behind would show up as an extra stream. Variants own disjoint prefixes
-			// (see each testdata/<format>/source.json), so this never crosses variants.
+			// behind would show up as an extra stream. Safe only in the serial discover
+			// suite -- variants sharing a DataFormat share this prefix (see TestDiscover).
 			src.removeUnder(ctx, t, src.prefix+"/")
 
 		case "create":
