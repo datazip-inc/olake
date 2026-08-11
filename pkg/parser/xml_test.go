@@ -76,7 +76,6 @@ func TestXMLParser_InferSchema_RecordTag(t *testing.T) {
 	orderDateType, err := result.Schema.GetType("order_date")
 	require.NoError(t, err)
 	assert.Equal(t, types.Timestamp, orderDateType)
-
 }
 
 func TestXMLParser_InferSchema_EmptyFile(t *testing.T) {
