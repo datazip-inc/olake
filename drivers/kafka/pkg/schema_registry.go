@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/drivers/kafka/pkg/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/linkedin/goavro/v2"

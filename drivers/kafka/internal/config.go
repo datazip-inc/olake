@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/pkg/kafka"
+	kafka "github.com/datazip-inc/olake/drivers/kafka/pkg"
 	"github.com/datazip-inc/olake/utils"
 )
 

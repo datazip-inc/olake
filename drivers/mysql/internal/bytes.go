@@ -3,7 +3,7 @@ package driver
 import (
 	"database/sql"
 
-	"github.com/datazip-inc/olake/pkg/binlog"
+	"github.com/datazip-inc/olake/drivers/mysql/pkg/binlog"
 )
 
 // mysqlColumnSizer returns a function that sizes a single non-NULL value of the given

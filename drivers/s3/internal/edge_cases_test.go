@@ -3,7 +3,7 @@ package driver
 import (
 	"testing"
 
-	"github.com/datazip-inc/olake/pkg/parser"
+	"github.com/datazip-inc/olake/drivers/s3/pkg/parser"
 	"github.com/stretchr/testify/assert"
 )
 
