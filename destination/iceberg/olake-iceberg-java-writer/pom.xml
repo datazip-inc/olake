@@ -382,7 +382,7 @@
     <dependency>
       <groupId>com.amazonaws</groupId>
       <artifactId>aws-java-sdk-bundle</artifactId>
-      <version>1.11.1026</version>
+      <version>1.12.797</version>
       <scope>test</scope>
     </dependency>
     <!-- Hadoop -->
