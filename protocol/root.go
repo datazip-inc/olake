@@ -68,8 +68,8 @@ var RootCmd = &cobra.Command{
 			viper.Set(constants.EncryptionKey, encryptionKey)
 		}
 
-		// logger uses CONFIG_FOLDER
-		logger.Init()
+		// logger uses CONFIG_FOLDER; S3 jobs get JSON stdout matching olake.log
+		logger.Init(s3JobBucket != "")
 		telemetry.Init()
 
 		// Checked last so a resolution failure is reported through the
