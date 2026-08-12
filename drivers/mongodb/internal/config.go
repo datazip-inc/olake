@@ -82,9 +82,6 @@ func (c *Config) URI() string {
 }
 
 func (c *Config) buildTLSConfig() (*tls.Config, error) {
-	if c.SSLConfiguration == nil || c.SSLConfiguration.Mode == utils.SSLModeDisable {
-		return nil, nil
-	}
 	// Pass "" so we don't hardcode one hostname for TLS verify-full. The mongo
 	// driver fills ServerName from whichever host this connection is dialing.
 	return utils.BuildTLSConfig("", c.SSLConfiguration)
