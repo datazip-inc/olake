@@ -37,7 +37,7 @@ const MongoDBUISchema = `{
     },
     "ssl": {
         "ui:options": {
-            "title": false
+            "title": false, "label": false, "description": false
         },
         "ui:grid": [
             { "mode": 24 },
