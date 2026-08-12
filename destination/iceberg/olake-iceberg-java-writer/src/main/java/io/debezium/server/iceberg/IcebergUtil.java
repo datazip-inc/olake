@@ -10,8 +10,6 @@ package io.debezium.server.iceberg;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.primitives.Ints;
-import jakarta.enterprise.inject.Instance;
-import jakarta.enterprise.inject.literal.NamedLiteral;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -26,9 +24,6 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.relocated.com.google.common.collect.Sets;
 import org.apache.iceberg.types.TypeUtil;
-import org.eclipse.microprofile.config.Config;
-import org.eclipse.microprofile.config.ConfigProvider;
-import org.eclipse.microprofile.config.ConfigValue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +31,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.List;
 import java.util.Map;
@@ -58,71 +52,25 @@ public class IcebergUtil {
   protected static final DateTimeFormatter dtFormater = DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneOffset.UTC);
 
 
-  public static Map<String, String> getConfigSubset(Config config, String prefix) {
-    final Map<String, String> ret = new HashMap<>();
-
-    for (String propName : config.getPropertyNames()) {
-      if (propName.startsWith(prefix)) {
-        final String newPropName = propName.substring(prefix.length());
-        ret.put(newPropName, config.getValue(propName, String.class));
-      }
+  /** Creates the namespace if it does not already exist, ignoring transient catalog conflicts. */
+  private static void ensureNamespace(Catalog icebergCatalog, TableIdentifier tableIdentifier) {
+    if (((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
+      return;
     }
-
-    return ret;
-  }
-
-
-  public static boolean configIncludesUnwrapSmt() {
-    return configIncludesUnwrapSmt(ConfigProvider.getConfig());
-  }
-
-  //@TestingOnly
-  static boolean configIncludesUnwrapSmt(Config config) {
-    // first lets find the config value for debezium statements
-    ConfigValue stms = config.getConfigValue("debezium.transforms");
-    if (stms == null || stms.getValue() == null || stms.getValue().isEmpty() || stms.getValue().isBlank()) {
-      return false;
+    // multiple threads can try to create the namespace concurrently;
+    // AlreadyExists means another thread won the race, which is fine.
+    try {
+      ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
+      LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
+    } catch (AlreadyExistsException e) {
+      LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
+    } catch (software.amazon.awssdk.services.glue.model.ConcurrentModificationException e) {
+      LOGGER.debug("Namespace '{}' is being created concurrently, proceeding", tableIdentifier.namespace());
     }
-
-    String[] stmsList = stms.getValue().split(",");
-    final String regexVal = "^io\\.debezium\\..*transforms\\.ExtractNew.*State$";
-    // we have debezium statements configured! let's check if we have event flattening config is set.
-    for (String stmName : stmsList) {
-      ConfigValue stmVal = config.getConfigValue("debezium.transforms." + stmName + ".type");
-      if (stmVal != null && stmVal.getValue() != null && !stmVal.getValue().isEmpty() && !stmVal.getValue().isBlank() && stmVal.getValue().matches(regexVal)) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-
-  public static <T> T selectInstance(Instance<T> instances, String name) {
-
-    Instance<T> instance = instances.select(NamedLiteral.of(name));
-    if (instance.isAmbiguous()) {
-      throw new RuntimeException("Multiple batch size wait class named '" + name + "' were found");
-    } else if (instance.isUnsatisfied()) {
-      throw new RuntimeException("No batch size wait class named '" + name + "' is available");
-    }
-
-    LOGGER.info("Using {}", instance.getClass().getName());
-    return instance.get();
   }
 
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier, Schema schema) {
-
-    if (!((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
-      // multiple threads can try to create the namespace concurrently
-      // if table was already created, this will avoid the error of already exists
-      try {
-        ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
-        LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
-      } catch (AlreadyExistsException e) {
-        LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
-      }
-    }
+    ensureNamespace(icebergCatalog, tableIdentifier);
     return icebergCatalog.createTable(tableIdentifier, schema);
   }
 
@@ -137,23 +85,16 @@ public class IcebergUtil {
     LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}", tableIdentifier, schema,
         schema.identifierFieldNames());
 
-    if (!((SupportsNamespaces) icebergCatalog).namespaceExists(tableIdentifier.namespace())) {
-      try {
-        ((SupportsNamespaces) icebergCatalog).createNamespace(tableIdentifier.namespace());
-        LOGGER.warn("Created namespace:'{}'", tableIdentifier.namespace());
-      } catch (AlreadyExistsException e) {
-        LOGGER.debug("Namespace '{}' already exists", tableIdentifier.namespace());
-      }
-    }
+    ensureNamespace(icebergCatalog, tableIdentifier);
 
     // If we have partition transforms, create a PartitionSpec
     if (partitionTransforms.isEmpty()) {
       // No partitioning - create a table as before
       return icebergCatalog.buildTable(tableIdentifier, schema)
-          .withProperty(FORMAT_VERSION, "2")
-          .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
-          .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
-          .create();
+              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
+              .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
+              .create();
     } else {
       // Create a table with partitioning
       LOGGER.info("Creating table with partitioning: {}", partitionTransforms);
@@ -210,11 +151,11 @@ public class IcebergUtil {
       
       // Create the table with the partition spec
       return icebergCatalog.buildTable(tableIdentifier, schema)
-          .withProperty(FORMAT_VERSION, "2")
-          .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
-          .withPartitionSpec(specBuilder.build())
-          .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
-          .create();
+              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
+              .withPartitionSpec(specBuilder.build())
+              .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
+              .create();
     }
   }
 

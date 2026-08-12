@@ -50,9 +50,11 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 		} else if err = cursor.Decode(&doc); err != nil {
 			return fmt.Errorf("backfill decoding document: %s", err)
 		}
+		// BSON wire-format size of this document, read before the cursor advances.
+		docBytes := int64(len(cursor.Current))
 		// filter mongo object
 		filterMongoObject(doc)
-		if err := OnMessage(ctx, doc); err != nil {
+		if err := OnMessage(ctx, doc, docBytes); err != nil {
 			return fmt.Errorf("failed to send message to writer: %s", err)
 		}
 	}
@@ -94,7 +96,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		// (embeds a timestamp and provide monotonically increasing values, useful in sharded clusters).
 		// Other _id types (e.g., strings, integers) do not guarantee this ordering or timestamp metadata,
 		// leading to uneven splits, overlaps, or gaps.
-		logger.Infof("using split vector strategy for stream: %s", stream.ID())
+		logger.Debugf("using split vector strategy for stream: %s", stream.ID())
 		getID := func(order int) (primitive.ObjectID, error) {
 			var doc bson.M
 			objectIDBson := bson.D{{Key: "_id", Value: bson.D{{Key: "$type", Value: 7}}}}
@@ -157,7 +159,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 	bucketAutoStrategy := func(storageSize float64) ([]types.Chunk, error) {
-		logger.Infof("using bucket auto strategy for stream: %s", stream.ID())
+		logger.Debugf("using bucket auto strategy for stream: %s", stream.ID())
 		// Use $bucketAuto for chunking
 		numberOfBuckets := int(math.Ceil(storageSize / float64(constants.EffectiveParquetSize)))
 		pipeline := mongo.Pipeline{
@@ -195,21 +197,21 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		var chunks []types.Chunk
 		for idx, bucket := range buckets {
 			// converts value according to _id string repr.
-			min, err := reformatID(bucket.ID.Min)
+			minVal, err := reformatID(bucket.ID.Min)
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert bucket min value to required type: %s", err)
 			}
-			var max interface{}
+			var maxVal interface{}
 			// for last bucket, max will be nil
 			if idx != len(buckets)-1 {
-				max, err = reformatID(bucket.ID.Max)
+				maxVal, err = reformatID(bucket.ID.Max)
 				if err != nil {
 					return nil, fmt.Errorf("failed to convert bucket max value to required type: %s", err)
 				}
 			}
 			chunks = append(chunks, types.Chunk{
-				Min: min,
-				Max: max,
+				Min: minVal,
+				Max: maxVal,
 			})
 		}
 		return chunks, nil

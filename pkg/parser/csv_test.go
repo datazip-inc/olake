@@ -429,3 +429,45 @@ func TestCSVParser_StreamRecords_TypeConversion(t *testing.T) {
 	assert.IsType(t, float32(0), firstRecord["score"], "score should be float32")
 	assert.IsType(t, false, firstRecord["is_active"], "is_active should be bool")
 }
+
+func TestCSVParser_StreamRecords_ColumnMissingFromSchema(t *testing.T) {
+	csvData := `id,name,new_col,amount,count,active,created
+1,Alice,hello,42.5,100,true,2024-06-15T13:45:30Z
+2,Bob,,,,,`
+
+	config := CSVConfig{
+		Delimiter: ",",
+		HasHeader: true,
+		SkipRows:  0,
+	}
+
+	// new_col/amount/count/active/created are deliberately absent from the schema: columns
+	// that appeared in the file after discover built it. Their cells are typed by inference
+	// rather than forced to string, so the destination can evolve the real type.
+	stream := types.NewStream("test", "test", nil)
+	stream.UpsertField("id", types.Int64, true, false)
+	stream.UpsertField("name", types.String, true, false)
+
+	parser := NewCSVParser(config, stream)
+
+	records := []map[string]any{}
+	err := parser.StreamRecords(context.Background(), strings.NewReader(csvData), func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+
+	assert.Equal(t, "hello", records[0]["new_col"], "non-numeric unknown cell stays a string")
+	assert.Equal(t, 42.5, records[0]["amount"], "numeric unknown cell is inferred as float64")
+	assert.Equal(t, float64(100), records[0]["count"], "integer unknown cell is inferred as float64, matching sampled numeric columns")
+	assert.Equal(t, true, records[0]["active"], "boolean unknown cell is inferred as bool")
+	created, ok := records[0]["created"].(time.Time)
+	require.True(t, ok, "timestamp unknown cell is inferred as time.Time, got %T", records[0]["created"])
+	assert.True(t, created.Equal(time.Date(2024, 6, 15, 13, 45, 30, 0, time.UTC)), "created instant matches, got %s", created)
+
+	assert.Nil(t, records[1]["new_col"], "empty cell of an unknown column is null")
+	assert.Nil(t, records[1]["amount"], "empty numeric unknown cell is null")
+	assert.Nil(t, records[1]["active"], "empty boolean unknown cell is null")
+	assert.Nil(t, records[1]["created"], "empty timestamp unknown cell is null")
+}

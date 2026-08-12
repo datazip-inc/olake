@@ -44,7 +44,7 @@ func (m *MSSQL) ChangeStreamConfig() (bool, bool, bool) {
 	return false, false, true // concurrent change streams supported, stream can start after finishing full load
 }
 
-// PreCDC initialises CDC state and starting LSN per stream.
+// PreCDC initializes CDC state and starting LSN per stream.
 func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	if !m.cdcSupported {
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
@@ -119,7 +119,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 
 	// No changes yet
 	if lsnInState >= targetLSN {
-		return nil, nil
+		return nil, err
 	}
 
 	// prepare capture instance
@@ -366,8 +366,10 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 	for rows.Next() {
 		// Use MapScan to properly convert data types including binary types
 		// TODO: check if we can use MapScanConcurrent for mssql
+		// rowBytes is the after-image data-column byte sum (excludes __$* metadata columns), attached to the emitted change below.
 		record := make(map[string]interface{})
-		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
+		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mssqlCDCColumnSizer)
+		if err != nil {
 			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
 		}
 
@@ -375,7 +377,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		// For updates, CDC emits "before" (3) and "after" (4); we skip "before".
 		var operationType string
 		if val, ok := record["__$operation"]; ok {
-			var opCode int32 = val.(int32)
+			var opCode = val.(int32)
 			if opCode == 3 {
 				continue
 			}
@@ -391,13 +393,8 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		delete(record, "__$update_mask")
 
 		// Emit one normalized CDC change event.
-		if err := processFn(ctx, abstract.CDCChange{
-			Stream:       stream,
-			Timestamp:    time.Now().UTC(),
-			Kind:         operationType,
-			Data:         record,
-			ExtraColumns: extraColumns,
-		}); err != nil {
+		if err := processFn(ctx, abstract.NewCDCChange(stream, time.Now().UTC(), operationType, record,
+			extraColumns, rowBytes)); err != nil {
 			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}
 	}

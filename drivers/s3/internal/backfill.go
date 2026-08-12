@@ -22,7 +22,7 @@ import (
 // GetOrSplitChunks returns chunks for parallel processing of files
 // Groups multiple small files into ~2GB chunks to reduce state size
 // Large files (>2GB) are kept as individual chunks
-func (s *S3) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (s *S3) GetOrSplitChunks(_ context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	streamName := stream.Name()
 	files, exists := s.discoveredFiles[streamName]
 
@@ -205,9 +205,11 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterface, key string, reader io.Reader, lastModified string, processFn abstract.BackfillMsgFn) error {
 	// Create callback adapter - add _last_modified_time field to each record
 	callback := func(ctx context.Context, record map[string]any) error {
+		// Per-record uncompressed source-data size (computed on the source data, before injecting the _last_modified_time metadata column).
+		recBytes := recordDataBytes(record)
 		// Inject LastModified timestamp into each record
 		record[lastModifiedField] = lastModified
-		return processFn(ctx, record)
+		return processFn(ctx, record, recBytes)
 	}
 
 	// Convert StreamInterface to underlying Stream for parser

@@ -36,7 +36,6 @@ import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.parquet.ParquetUtil;
 import org.apache.iceberg.util.Pair;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,15 +46,12 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
-import jakarta.enterprise.context.Dependent;
-import jakarta.inject.Inject;
 
 /**
  * Wrapper to perform operations on iceberg tables
  *
  * @author Rafael Acevedo
  */
-@Dependent
 public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
@@ -68,10 +64,10 @@ public class IcebergTableOperator {
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
     writerFactory2.upsert = upsert_records;
-    allowFieldAddition = true;
-    upsert = upsert_records;
-    cdcOpField = "_op_type";
-    cdcSourceTsMsField = "_cdc_timestamp";
+    this.allowFieldAddition = true;
+    this.upsert = upsert_records;
+    this.cdcOpField = "_op_type";
+    this.cdcSourceTsMsField = "_cdc_timestamp";
   }
 
   static final ImmutableMap<Operation, Integer> CDC_OPERATION_PRIORITY = ImmutableMap.of(
@@ -86,18 +82,12 @@ public class IcebergTableOperator {
   private static final String STATE_FIELD_DEDUP_INSERTS = "dedup_inserts";
 
 
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-dedup-column", defaultValue = "_cdc_timestamp")
+  // Fields are plain (no @ConfigProperty) because each operator instance lives
+  // inside a shared JVM and may have different upsert/identifier flags. The
+  // OlakeRowsIngester/OlakeArrowIngester construct each operator explicitly.
   String cdcSourceTsMsField;
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert-op-field", defaultValue = "_op_type")
   String cdcOpField;
-  @ConfigProperty(name = "debezium.sink.iceberg.allow-field-addition", defaultValue = "true")
   boolean allowFieldAddition;
-  @ConfigProperty(name = "debezium.sink.iceberg.create-identifier-fields", defaultValue = "true")
-  boolean createIdentifierFields;
-  @Inject
-  IcebergTableWriterFactory writerFactory;
-
-  @ConfigProperty(name = "debezium.sink.iceberg.upsert", defaultValue = "true")
   boolean upsert;
   /**
    * If given schema contains new fields compared to target table schema then it
@@ -109,7 +99,7 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param newSchema
    */
-  public void applyFieldAddition(Table icebergTable, Schema newSchema) {
+  public void applyFieldAddition(Table icebergTable, Schema newSchema, boolean createIdentifierFields) {
     icebergTable.refresh(); // for safe case
     UpdateSchema us = icebergTable.updateSchema().unionByNameWith(newSchema);
     if (createIdentifierFields) {
@@ -123,6 +113,7 @@ public class IcebergTableOperator {
       us.commit();
     }
   }
+
   /**
    * Commits data files for a specific thread
    * 
@@ -270,7 +261,13 @@ public class IcebergTableOperator {
       writer = writerFactory2.create(icebergTable);
     }
     try {
+      io.grpc.Context grpcContext = io.grpc.Context.current();
       for (RecordWrapper record : events) {
+        // Cooperative cancel: check on every record to stop processing early if client disconnects
+        if (grpcContext.isCancelled()) {
+          LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
+          return;
+        }
         try{
           // Normalise _op_type "i" → "c" before routing to any writer.
           //   - Delta writers (upsert=true):  op() == INSERT, field == "i" → both would work
@@ -463,8 +460,8 @@ public class IcebergTableOperator {
               JsonNode payloadNode = mapper.readTree(payload);
               rootNode.put(STATE_FIELD_LATEST_THREAD_ID, threadId);
               if (payloadNode.isObject()) {
-                  // Merge payload directly into root node
-                  payloadNode.fields().forEachRemaining(entry -> rootNode.set(entry.getKey(), entry.getValue()));
+                  // One-level merge payload into root node
+                  mergePayloadIntoRoot(rootNode, payloadNode);
               }
           } else {
               // No payload => backfill/snapshot style: append threadId to full_refresh_committed_ids
@@ -483,6 +480,33 @@ public class IcebergTableOperator {
       } catch (JsonProcessingException e) {
           LOGGER.error("Failed to update JSON state for key: " + STATE_KEY_2PC, e);
           throw new RuntimeException("Failed to update JSON state", e);
+      }
+  }
+
+  // Some drivers (e.g. Kafka) can have multiple writers updating metadata for the same stream.
+  // Perform a one-level merge to preserve fields written by other writers.
+  private void mergePayloadIntoRoot(ObjectNode rootNode, JsonNode payloadNode) {
+      payloadNode.fields().forEachRemaining(entry -> {
+          String incomingStateKey = entry.getKey();
+          ObjectNode incomingStateValue = parseJSONObject(entry.getValue());
+          ObjectNode storedStateValue = parseJSONObject(rootNode.get(incomingStateKey));
+
+          if (incomingStateValue != null && storedStateValue != null) {
+              storedStateValue.setAll(incomingStateValue);
+              rootNode.put(incomingStateKey, storedStateValue.toString());
+          } else {
+              rootNode.set(incomingStateKey, entry.getValue());
+          }
+      });
+  }
+
+  private ObjectNode parseJSONObject(JsonNode node) {
+      if (node == null || !node.isTextual()) return null;
+      try {
+          JsonNode parsedNode = mapper.readTree(node.asText());
+          return parsedNode.isObject() ? (ObjectNode) parsedNode : null;
+      } catch (JsonProcessingException ignored) {
+          return null;
       }
   }
 

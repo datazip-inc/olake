@@ -118,7 +118,7 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 		}
 
 		if hasNext {
-			if err := m.handleChangeDoc(ctx, cursor, stream, prevResumeToken.(string), OnMessage); err != nil {
+			if err := m.handleChangeDoc(ctx, cursor, stream, OnMessage); err != nil {
 				return nil, err
 			}
 		}
@@ -163,11 +163,16 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 	return token, nil
 }
 
-func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, startingResumeToken string, OnMessage abstract.CDCMsgFn) error {
+func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
 	var record CDCDocument
 	if err := cursor.Decode(&record); err != nil {
 		return fmt.Errorf("error while decoding: %s", err)
 	}
+
+	// Count the BSON bytes of the actual document payload, not the full
+	// change-event envelope (which adds operationType, clusterTime, ns,
+	// documentKey, updateDescription, resumeToken on top of the doc).
+	docBytes := cdcDocBytes(cursor.Current, record.OperationType)
 
 	record.OperationType = normalizeOperationType(record.OperationType)
 
@@ -194,15 +199,8 @@ func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream,
 	if err != nil {
 		return err
 	}
-	change := abstract.CDCChange{
-		Stream:    stream,
-		Timestamp: ts,
-		Data:      record.FullDocument,
-		Kind:      record.OperationType,
-		ExtraColumns: map[string]any{
-			CDCResumeToken: token,
-		},
-	}
+	change := abstract.NewCDCChange(stream, ts, record.OperationType, record.FullDocument,
+		map[string]any{CDCResumeToken: token}, docBytes)
 
 	if err := OnMessage(ctx, change); err != nil {
 		return err
@@ -319,5 +317,25 @@ func normalizeOperationType(opType string) string {
 		return "update"
 	default:
 		return opType
+	}
+}
+
+// cdcDocBytes returns the BSON byte size of the document payload inside a MongoDB change event
+func cdcDocBytes(event bson.Raw, operationType string) int64 {
+	switch operationType {
+	case "delete":
+		if v, err := event.LookupErr("fullDocumentBeforeChange"); err == nil && v.Type != bson.TypeNull {
+			return int64(len(v.Value))
+		}
+		// No pre-image: MongoDB only sent the key, not the deleted document.
+		if v, err := event.LookupErr("documentKey"); err == nil {
+			return int64(len(v.Value))
+		}
+		return 0
+	default:
+		if v, err := event.LookupErr("fullDocument"); err == nil && v.Type != bson.TypeNull {
+			return int64(len(v.Value))
+		}
+		return 0
 	}
 }

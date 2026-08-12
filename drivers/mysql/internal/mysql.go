@@ -91,7 +91,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 
 		// Allows mysql driver to use the SSH client to connect to the database
 		cfg.Net = "mysqlTcp"
-		mysql.RegisterDialContext(cfg.Net, func(ctx context.Context, addr string) (net.Conn, error) {
+		mysql.RegisterDialContext(cfg.Net, func(_ context.Context, addr string) (net.Conn, error) {
 			return m.sshClient.Dial("tcp", addr)
 		})
 
@@ -181,7 +181,7 @@ func (m *MySQL) MaxRetries() int {
 	return m.config.RetryCount
 }
 
-func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m MySQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for MySQL database %s", m.config.Database)
 	query := jdbc.MySQLDiscoverTablesQuery()
 	rows, err := m.client.QueryContext(ctx, query, m.config.Database)
@@ -190,25 +190,21 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var tableNames []string
+	var tableNames []types.StreamID
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&tableName, &schemaName); err != nil {
 			return nil, fmt.Errorf("failed to scan table: %s", err)
 		}
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
+		tableNames = append(tableNames, types.StreamID{Namespace: schemaName, Name: tableName})
 	}
 	return tableNames, nil
 }
 
-func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	produceTableSchema := func(ctx context.Context, streamName string) (*types.Stream, error) {
+func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
+	produceTableSchema := func(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
-		parts := strings.Split(streamName, ".")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-		}
-		schemaName, tableName := parts[0], parts[1]
+		schemaName, tableName := streamName.Namespace, streamName.Name
 		stream := types.NewStream(tableName, schemaName, nil)
 		query := jdbc.MySQLTableSchemaQuery()
 
@@ -224,7 +220,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 				return nil, fmt.Errorf("failed to scan column: %s", err)
 			}
 			stream.WithCursorField(columnName)
-			datatype := types.Unknown
+			var datatype types.DataType
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
 				datatype = val
 			} else {
@@ -279,19 +275,20 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		switch strings.ToLower(columnType) {
 		case "unsigned tinyint":
 			if v, ok := value.(int8); ok {
-				value = uint8(v)
+				value = uint8(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
 		case "unsigned smallint":
 			if v, ok := value.(int16); ok {
-				value = uint16(v)
+				value = uint16(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
 		case "unsigned mediumint", "unsigned int", "unsigned integer":
+			// TODO: unsigned mediumint conversion is broken... -1 value from mysql binlog should be unsigned mediumint max but currently it goes to int32 max which gives -1 as final output in destination
 			if v, ok := value.(int32); ok {
-				value = uint32(v)
+				value = uint32(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
 		case "unsigned bigint":
 			if v, ok := value.(int64); ok {
-				value = uint64(v)
+				value = uint64(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
 			}
 		}
 	} else {

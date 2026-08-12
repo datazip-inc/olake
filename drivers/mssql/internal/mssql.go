@@ -26,7 +26,6 @@ type MSSQL struct {
 	client        *sqlx.DB
 	config        *Config
 	state         *types.State
-	capturesMap   map[string][]captureInstance
 	lsnMap        sync.Map
 	streams       []types.StreamInterface
 	cdcSupported  bool
@@ -55,18 +54,18 @@ func (m *MSSQL) CDCSupported() bool {
 	return m.cdcSupported
 }
 
-// Setup establishes the database connection and initialises CDC settings.
+// Setup establishes the database connection and initializes CDC settings.
 func (m *MSSQL) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
 		return fmt.Errorf("failed to validate config: %s", err)
 	}
 
 	var err error
-	m.sshClient, err = setupSSH(m.config.SSHConfig)
-	if err != nil {
-		return fmt.Errorf("failed to setup SSH connection: %s", err)
-	}
-	if m.sshClient != nil {
+	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
+		m.sshClient, err = setupSSH(m.config.SSHConfig)
+		if err != nil {
+			return fmt.Errorf("failed to setup SSH connection: %s", err)
+		}
 		logger.Info("Connecting to MSSQL via SSH tunnel")
 	}
 
@@ -145,10 +144,6 @@ func (m *MSSQL) Close() error {
 }
 
 func setupSSH(sshCfg *utils.SSHConfig) (*ssh.Client, error) {
-	if sshCfg == nil || sshCfg.Host == "" {
-		return nil, nil
-	}
-
 	sshClient, err := sshCfg.SetupSSHConnection()
 	if err != nil {
 		return nil, err
@@ -187,7 +182,7 @@ func (d *mssqlSSHDialer) DialContext(ctx context.Context, network, addr string) 
 	return d.sshClient.DialContext(ctx, network, addr)
 }
 
-// HostName implements go-mssqldb's HostDialer interface, signalling that DNS
+// HostName implements go-mssqldb's HostDialer interface, signaling that DNS
 // resolution should happen on the remote (SSH) side rather than locally.
 func (d *mssqlSSHDialer) HostName() string {
 	return d.host
@@ -206,7 +201,7 @@ func (m *MSSQL) MaxRetries() int {
 	return m.config.RetryCount
 }
 
-func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m *MSSQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for MSSQL database %s", m.config.Database)
 
 	query := jdbc.MSSQLDiscoverTablesQuery()
@@ -216,13 +211,13 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	}
 	defer rows.Close()
 
-	var tableNames []string
+	var tableNames []types.StreamID
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&schemaName, &tableName); err != nil {
 			return nil, fmt.Errorf("failed to scan table: %s", err)
 		}
-		tableNames = append(tableNames, fmt.Sprintf("%s.%s", schemaName, tableName))
+		tableNames = append(tableNames, types.StreamID{Namespace: schemaName, Name: tableName})
 	}
 
 	// Check for any errors that occurred while iterating over the rows
@@ -233,14 +228,10 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]string, error) {
 	return tableNames, nil
 }
 
-func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	produceTableSchema := func(ctx context.Context, streamName string) (*types.Stream, error) {
+func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
+	produceTableSchema := func(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
-		parts := strings.Split(streamName, ".")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-		}
-		schemaName, tableName := parts[0], parts[1]
+		schemaName, tableName := streamName.Namespace, streamName.Name
 		stream := types.NewStream(tableName, schemaName, &m.config.Database)
 
 		columnQuery := jdbc.MSSQLTableSchemaQuery()
@@ -272,7 +263,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName string) (*types.St
 		for _, column := range columns {
 			stream.WithCursorField(column.name)
 
-			datatype := types.Unknown
+			var datatype types.DataType
 			if val, found := mssqlTypeToDataTypes[strings.ToLower(column.dataType)]; found {
 				datatype = val
 			} else {

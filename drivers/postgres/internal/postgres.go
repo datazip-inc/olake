@@ -110,7 +110,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		pgCfg.DialFunc = func(_ context.Context, _, addr string) (net.Conn, error) {
 			return p.sshClient.Dial("tcp", addr)
 		}
-
 	}
 
 	db = stdlib.OpenDB(*pgCfg)
@@ -199,7 +198,7 @@ func (p *Postgres) CloseConnection() {
 	}
 }
 
-func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
+func (p *Postgres) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for Postgres database %s", p.config.Database)
 
 	var (
@@ -218,17 +217,16 @@ func (p *Postgres) GetStreamNames(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("failed to retrieve table names: %s", err)
 	}
 
-	tablesNames := make([]string, 0, len(tableNamesOutput))
+	tablesNames := make([]types.StreamID, 0, len(tableNamesOutput))
 	for _, table := range tableNamesOutput {
-		tablesNames = append(tablesNames, fmt.Sprintf("%s.%s", table.Schema, table.Name))
+		tablesNames = append(tablesNames, types.StreamID{Namespace: table.Schema, Name: table.Name})
 	}
 	return tablesNames, nil
 }
 
-func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	populateStream := func(streamName string) (*types.Stream, error) {
-		streamParts := strings.Split(streamName, ".")
-		schemaName, streamName := streamParts[0], streamParts[1]
+func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
+	populateStream := func(streamID types.StreamID) (*types.Stream, error) {
+		schemaName, streamName := streamID.Namespace, streamID.Name
 		stream := types.NewStream(streamName, schemaName, &p.config.Database)
 		var columnSchemaOutput []ColumnDetails
 		err := p.client.SelectContext(ctx, &columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
@@ -249,7 +247,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 
 		for _, column := range columnSchemaOutput {
 			stream.WithCursorField(column.Name)
-			datatype := types.Unknown
+			var datatype types.DataType
 			if val, found := pgTypeToDataTypes[*column.DataType]; found {
 				datatype = val
 			} else {
@@ -274,7 +272,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamName string) (*types
 		return stream, nil
 	}
 
-	stream, err := populateStream(streamName)
+	stream, err := populateStream(streamID)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())

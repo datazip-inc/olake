@@ -15,8 +15,10 @@ jobs:
         with:
           go-version-file: "go.mod"
 
-      - name: Install Dependencies
-        run: go mod download
+      - name: Cache driver external dependencies
+        uses: ./.github/actions/driver-deps
+        with:
+          save: "true"
 
       - name: Run All Unit Tests
-        run: go test -v ./...
+        run: make test.unit
