@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -406,4 +407,28 @@ func TestXMLParser_StreamRecords_SkipXMLNSAttributes(t *testing.T) {
 	assert.NotContains(t, records[0], "_xmlns")
 	assert.NotContains(t, records[0], "_h")
 	assert.NotContains(t, records[0], "_f")
+}
+
+func TestXMLParser_StreamRecords_NonUTF8Encoding(t *testing.T) {
+	xmlData := []byte("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?>" +
+		"<root><item><name>Caf\xe9</name></item></root>")
+
+	config := XMLConfig{
+		RowIdentifier: "item",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := bytes.NewReader(xmlData)
+	var records []map[string]any
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+	err := parser.StreamRecords(ctx, reader, callback)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+
+	assert.Equal(t, []any{"Café"}, records[0]["name"])
 }

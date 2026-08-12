@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
+	"golang.org/x/net/html/charset"
 )
 
 // XMLParser implements the parser interface for XML files
@@ -100,7 +101,7 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 		recordCount++
 	} else {
 		// Stream XML records based on specified record tag
-		decoder := xml.NewDecoder(reader)
+		decoder := p.newXMLDecoder(reader)
 
 		for {
 			select {
@@ -163,7 +164,7 @@ func (p *XMLParser) parseXMLContent(data []byte, maxSamples int) ([]map[string]a
 
 	logger.Debug("Parsing XML records by row_identifier")
 
-	decoder := xml.NewDecoder(bytes.NewReader(data))
+	decoder := p.newXMLDecoder(bytes.NewReader(data))
 	records := make([]map[string]any, 0, maxSamples)
 
 	// Loop through XML tokens and extract records with specified record tag
@@ -214,7 +215,7 @@ func (p *XMLParser) parseXMLContent(data []byte, maxSamples int) ([]map[string]a
 
 // parseXMLDocumentAsMap parses the entire XML document as a single record and returns it as a map
 func (p *XMLParser) parseXMLDocumentAsMap(reader io.Reader) (map[string]any, error) {
-	decoder := xml.NewDecoder(reader)
+	decoder := p.newXMLDecoder(reader)
 
 	// find root element and parse it as a single record
 	for {
@@ -339,14 +340,6 @@ func (p *XMLParser) setXMLField(fields map[string]any, key string, value any) {
 	}
 }
 
-// isXMLNSAttribute checks if the attribute is a xml namespace attribute
-func (p *XMLParser) isXMLNSAttribute(attr xml.Attr) bool {
-	if attr.Name.Space == "" && attr.Name.Local == "xmlns" {
-		return true
-	}
-	return attr.Name.Space == "xmlns"
-}
-
 // parseXMLRecordAsMap converts a parsed XML record into a map[string]any
 func (p *XMLParser) parseXMLRecordAsMap(value any, tag string) (map[string]any, error) {
 	switch v := value.(type) {
@@ -362,4 +355,19 @@ func (p *XMLParser) parseXMLRecordAsMap(value any, tag string) (map[string]any, 
 	default:
 		return nil, fmt.Errorf("invalid XML value type %T", value)
 	}
+}
+
+// isXMLNSAttribute checks if the attribute is a xml namespace attribute
+func (p *XMLParser) isXMLNSAttribute(attr xml.Attr) bool {
+	if attr.Name.Space == "" && attr.Name.Local == "xmlns" {
+		return true
+	}
+	return attr.Name.Space == "xmlns"
+}
+
+// newXMLDecoder creates a new XML decoder with a charset reader
+func (p *XMLParser) newXMLDecoder(r io.Reader) *xml.Decoder {
+	decoder := xml.NewDecoder(r)
+	decoder.CharsetReader = charset.NewReaderLabel
+	return decoder
 }
