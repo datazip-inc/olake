@@ -180,7 +180,7 @@
                 "row_identifier": {
                   "type":"string",
                   "title": "Row Identifier",
-                  "description": "XML tag that encloses each record (e.g., <record> or <item>)" 
+                  "description": "XML tag that encloses each record (e.g., <record> or <item>), Used when stream normalization is ON" 
                 }
               }
             }

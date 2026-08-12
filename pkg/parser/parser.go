@@ -44,5 +44,5 @@ type ParquetConfig struct {
 
 // XMLConfig holds XML-specific parsing configuration
 type XMLConfig struct {
-	RowIdentifier string `json:"row_identifier"` //Default: ""
+	RowIdentifier string `json:"row_identifier"` //Default: "" - applied when stream normalization ON
 }

@@ -239,7 +239,11 @@ func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterfa
 		parquetParser := parser.NewParquetParser(*s.config.GetParquetConfig(), underlyingStream)
 		parseErr = parquetParser.StreamRecords(ctx, reader, callback)
 	case FormatXML:
-		xmlParser := parser.NewXMLParser(*s.config.GetXMLConfig(), underlyingStream)
+		xmlCfg := *s.config.GetXMLConfig()
+		if !stream.NormalizationEnabled() {
+			xmlCfg.RowIdentifier = ""
+		}
+		xmlParser := parser.NewXMLParser(xmlCfg, underlyingStream)
 		parseErr = xmlParser.StreamRecords(ctx, reader, callback)
 	default:
 		return fmt.Errorf("unsupported file format: %s", s.config.FileFormat)

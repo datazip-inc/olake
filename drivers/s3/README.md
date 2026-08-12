@@ -47,7 +47,7 @@ Use the `json` block to override parsing of JSON files.
 Use the `xml` block to control how records are split.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `row_identifier` | string | `""` | Local element name for one row. When empty, parse whole document as one record |
+| `row_identifier` | string | `""` | Local element name for one row. Used when stream normalization is ON, when OFF or empty whole document is one record |
 
 ## Commands
 Run the driver binaries through the repository root `build.sh` helper:
