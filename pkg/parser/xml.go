@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -125,8 +126,11 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 			// Parse XML element into a record
 			record, err := p.parseXMLElement(decoder, startElement)
 			if err != nil {
-				logger.Warnf("Error reading XML record %d: %v", recordCount, err)
-				continue
+				if !errors.Is(err, errNullValue) {
+					logger.Warnf("Error reading XML record %d: %v", recordCount, err)
+					continue
+				}
+				record = nil
 			}
 
 			// Convert parsed record to a map
@@ -186,11 +190,14 @@ func (p *XMLParser) parseXMLContent(data []byte, maxSamples int) ([]map[string]a
 		// parse XML element into a record
 		record, err := p.parseXMLElement(decoder, startElement)
 		if err != nil {
-			if len(records) > 0 {
+			if errors.Is(err, errNullValue) {
+				record = nil
+			} else if len(records) > 0 {
 				logger.Warnf("stopped reading XML after %d records due to error: %v", len(records), err)
 				break
+			} else {
+				return nil, err
 			}
-			return nil, err
 		}
 
 		// convert parsed record to a map
@@ -226,6 +233,9 @@ func (p *XMLParser) parseXMLDocumentAsMap(reader io.Reader) (map[string]any, err
 
 		record, err := p.parseXMLElement(decoder, startElement)
 		if err != nil {
+			if errors.Is(err, errNullValue) {
+				return map[string]any{startElement.Name.Local: nil}, nil
+			}
 			return nil, err
 		}
 
@@ -248,7 +258,7 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 	fields := make(map[string]any)
 
 	for _, attr := range startElement.Attr {
-		fields[attr.Name.Local] = attr.Value
+		fields["_"+attr.Name.Local] = attr.Value
 	}
 	hasAttributes := len(startElement.Attr) > 0
 
@@ -272,7 +282,10 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 			hasChildren = true
 			child, err := p.parseXMLElement(decoder, t)
 			if err != nil {
-				return nil, err
+				if !errors.Is(err, errNullValue) {
+					return nil, err
+				}
+				child = nil
 			}
 			p.setXMLField(fields, t.Name.Local, child)
 
@@ -294,6 +307,9 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 					fields[startElement.Name.Local] = textValue
 				}
 				return fields, nil
+			}
+			if textValue == "" {
+				return nil, errNullValue
 			}
 			return textValue, nil
 
@@ -322,6 +338,8 @@ func (p *XMLParser) setXMLField(fields map[string]any, key string, value any) {
 // parseXMLRecordAsMap converts a parsed XML record into a map[string]any
 func (p *XMLParser) parseXMLRecordAsMap(value any, tag string) (map[string]any, error) {
 	switch v := value.(type) {
+	case nil:
+		return map[string]any{}, nil
 	case map[string]any:
 		return v, nil
 	case string:
