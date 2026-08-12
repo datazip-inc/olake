@@ -68,14 +68,14 @@ func TestXMLParser_InferSchema_RowIdentifier(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.String, statusType)
 
-	//check nested object
+	//check nested children
 	customerType, err := result.Schema.GetType("customer")
 	require.NoError(t, err)
-	assert.Equal(t, types.Object, customerType)
+	assert.Equal(t, types.Array, customerType)
 
 	orderDateType, err := result.Schema.GetType("order_date")
 	require.NoError(t, err)
-	assert.Equal(t, types.Timestamp, orderDateType)
+	assert.Equal(t, types.Array, orderDateType)
 }
 
 func TestXMLParser_InferSchema_EmptyFile(t *testing.T) {
@@ -147,7 +147,7 @@ func TestXMLParser_InferSchema_Attributes(t *testing.T) {
 
 	titleType, err := result.Schema.GetType("title")
 	require.NoError(t, err)
-	assert.Equal(t, types.String, titleType)
+	assert.Equal(t, types.Array, titleType)
 }
 
 func TestXMLParser_StreamRecords_WholeDocument(t *testing.T) {
@@ -177,8 +177,8 @@ func TestXMLParser_StreamRecords_WholeDocument(t *testing.T) {
 	//one record under root name
 	root, ok := records[0]["root"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "1", root["id"])
-	assert.Equal(t, "Alice", root["name"])
+	assert.Equal(t, []any{"1"}, root["id"])
+	assert.Equal(t, []any{"Alice"}, root["name"])
 }
 
 func TestXMLParser_StreamRecords_RowIdentifier(t *testing.T) {
@@ -210,13 +210,16 @@ func TestXMLParser_StreamRecords_RowIdentifier(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 
-	//one row per order, attributes and nested columns as fields
+	//one row per order; attrs scalar, children always arrays
 	assert.Equal(t, "1001", records[0]["_id"])
 	assert.Equal(t, "NEW", records[0]["_status"])
-	assert.Equal(t, "2024-08-01", records[0]["order_date"])
-	customer, ok := records[0]["customer"].(map[string]any)
+	assert.Equal(t, []any{"2024-08-01"}, records[0]["order_date"])
+	customers, ok := records[0]["customer"].([]any)
 	require.True(t, ok)
-	assert.Equal(t, "Alice", customer["name"])
+	require.Len(t, customers, 1)
+	customer, ok := customers[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"Alice"}, customer["name"])
 }
 
 func TestXMLParser_StreamRecords_NoMatchingRowIdentifier(t *testing.T) {
@@ -268,10 +271,9 @@ func TestXMLParser_StreamRecords_Attributes(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 
-	//Attribute values as level 0 record fields
 	assert.Equal(t, "1", records[0]["_id"])
 	assert.Equal(t, "a", records[0]["_type"])
-	assert.Equal(t, "orders", records[0]["title"])
+	assert.Equal(t, []any{"orders"}, records[0]["title"])
 }
 
 func TestXMLParser_StreamRecords_AttrChildNameCollision(t *testing.T) {
@@ -301,7 +303,7 @@ func TestXMLParser_StreamRecords_AttrChildNameCollision(t *testing.T) {
 
 	//attr and child with same local name stay separate (_id, id)
 	assert.Equal(t, "attrval", records[0]["_id"])
-	assert.Equal(t, "childval", records[0]["id"])
+	assert.Equal(t, []any{"childval"}, records[0]["id"])
 }
 
 func TestXMLParser_StreamRecords_AttrSameNameAsElementWithText(t *testing.T) {
@@ -331,9 +333,45 @@ func TestXMLParser_StreamRecords_AttrSameNameAsElementWithText(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 
-	//child <name> map: attr is _name, text is name
-	nameVal, ok := records[0]["name"].(map[string]any)
+	//child <name> always array of maps: attr is _name, text is name
+	names, ok := records[0]["name"].([]any)
+	require.True(t, ok)
+	require.Len(t, names, 1)
+	nameVal, ok := names[0].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "attr", nameVal["_name"])
 	assert.Equal(t, "textval", nameVal["name"])
+}
+
+func TestXMLParser_StreamRecords_AlwaysArrayForSiblings(t *testing.T) {
+	xmlData := `<root>
+	<item>
+		<tag>a</tag>
+	</item>
+	<item>
+		<tag>a</tag>
+		<tag>b</tag>
+	</item>
+	</root>`
+
+	config := XMLConfig{
+		RowIdentifier: "item",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+	var records []map[string]any
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+	err := parser.StreamRecords(ctx, reader, callback)
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+
+	//single and repeated siblings both []any
+	assert.Equal(t, []any{"a"}, records[0]["tag"])
+	assert.Equal(t, []any{"a", "b"}, records[1]["tag"])
 }

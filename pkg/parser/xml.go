@@ -323,7 +323,7 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 func (p *XMLParser) setXMLField(fields map[string]any, key string, value any) {
 	existing, ok := fields[key]
 	if !ok {
-		fields[key] = value
+		fields[key] = []any{value}
 		return
 	}
 
