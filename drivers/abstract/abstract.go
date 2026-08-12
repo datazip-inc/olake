@@ -3,6 +3,7 @@ package abstract
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -113,9 +114,11 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 			convStream.SyncMode = types.CDC
 		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
 			convStream.SyncMode = types.INCREMENTAL
-			// If availableCursorFields exist, cursorField defaults to first availableCursorField.
+			// If availableCursorFields exist, cursorField defaults to the lexicographically
+			// smallest one. Set.Array() iterates a map, so sorting is required to keep the
+			// discovered catalog identical across runs.
 			if convStream.AvailableCursorFields.Len() > 0 {
-				convStream.CursorField = convStream.AvailableCursorFields.Array()[0]
+				convStream.CursorField = slices.Min(convStream.AvailableCursorFields.Array())
 			}
 		} else if convStream.SupportedSyncModes.Exists(types.STRICTCDC) {
 			convStream.SyncMode = types.STRICTCDC
