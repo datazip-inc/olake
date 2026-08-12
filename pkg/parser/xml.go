@@ -257,10 +257,14 @@ func (p *XMLParser) parseXMLDocumentAsMap(reader io.Reader) (map[string]any, err
 func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.StartElement) (any, error) {
 	fields := make(map[string]any)
 
+	hasAttributes := false
 	for _, attr := range startElement.Attr {
+		if p.isXMLNSAttribute(attr) {
+			continue
+		}
 		fields["_"+attr.Name.Local] = attr.Value
+		hasAttributes = true
 	}
-	hasAttributes := len(startElement.Attr) > 0
 
 	// process attributes of XML element and add them to fields map
 	var text strings.Builder
@@ -333,6 +337,14 @@ func (p *XMLParser) setXMLField(fields map[string]any, key string, value any) {
 	default:
 		fields[key] = []any{existing, value}
 	}
+}
+
+// isXMLNSAttribute checks if the attribute is a xml namespace attribute
+func (p *XMLParser) isXMLNSAttribute(attr xml.Attr) bool {
+	if attr.Name.Space == "" && attr.Name.Local == "xmlns" {
+		return true
+	}
+	return attr.Name.Space == "xmlns"
 }
 
 // parseXMLRecordAsMap converts a parsed XML record into a map[string]any

@@ -375,3 +375,35 @@ func TestXMLParser_StreamRecords_AlwaysArrayForSiblings(t *testing.T) {
 	assert.Equal(t, []any{"a"}, records[0]["tag"])
 	assert.Equal(t, []any{"a", "b"}, records[1]["tag"])
 }
+
+func TestXMLParser_StreamRecords_SkipXMLNSAttributes(t *testing.T) {
+	xmlData := `<root>
+	<h:order xmlns:h="http://h.ns" id="1">
+		<h:price>10</h:price>
+		<f:price xmlns:f="http://f.ns">20</f:price>
+	</h:order>
+	</root>`
+
+	config := XMLConfig{
+		RowIdentifier: "order",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+	var records []map[string]any
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+	err := parser.StreamRecords(ctx, reader, callback)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+
+	assert.Equal(t, "1", records[0]["_id"])
+	assert.Equal(t, []any{"10", "20"}, records[0]["price"])
+	assert.NotContains(t, records[0], "_xmlns")
+	assert.NotContains(t, records[0], "_h")
+	assert.NotContains(t, records[0], "_f")
+}
