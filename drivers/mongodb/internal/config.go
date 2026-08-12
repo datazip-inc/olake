@@ -85,11 +85,13 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 	if c.SSLConfiguration == nil || c.SSLConfiguration.Mode == utils.SSLModeDisable {
 		return nil, nil
 	}
+	// Pass "" so we don't hardcode one hostname for TLS verify-full. The mongo
+	// driver fills ServerName from whichever host this connection is dialing.
 	return utils.BuildTLSConfig("", c.SSLConfiguration)
 }
 
 func (c *Config) Validate() error {
-	if !c.Srv && len(c.Hosts) == 0 {
+	if len(c.Hosts) == 0 {
 		return fmt.Errorf("hosts is required")
 	}
 
@@ -127,8 +129,5 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %w", err)
 	}
 
-	if _, err := c.buildTLSConfig(); err != nil {
-		return err
-	}
 	return utils.Validate(c)
 }
