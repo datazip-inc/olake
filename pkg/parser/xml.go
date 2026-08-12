@@ -234,22 +234,13 @@ func (p *XMLParser) parseXMLDocumentAsMap(reader io.Reader) (map[string]any, err
 
 		record, err := p.parseXMLElement(decoder, startElement)
 		if err != nil {
-			if errors.Is(err, errNullValue) {
-				return map[string]any{startElement.Name.Local: nil}, nil
+			if !errors.Is(err, errNullValue) {
+				return nil, err
 			}
-			return nil, err
+			record = nil
 		}
 
-		if s, ok := record.(string); ok {
-			return map[string]any{startElement.Name.Local: s}, nil
-		}
-
-		content, err := p.parseXMLRecordAsMap(record, startElement.Name.Local)
-		if err != nil {
-			return nil, err
-		}
-
-		return map[string]any{startElement.Name.Local: content}, nil
+		return p.documentRootAsMap(record, startElement.Name.Local)
 	}
 }
 
@@ -354,6 +345,22 @@ func (p *XMLParser) parseXMLRecordAsMap(value any, tag string) (map[string]any, 
 		return map[string]any{tag: v}, nil
 	default:
 		return nil, fmt.Errorf("invalid XML value type %T", value)
+	}
+}
+
+// documentRootAsMap converts a parsed XML document root into a map[string]any
+func (p *XMLParser) documentRootAsMap(record any, tag string) (map[string]any, error) {
+	switch v := record.(type) {
+	case nil:
+		return map[string]any{tag: nil}, nil
+	case string:
+		return map[string]any{tag: v}, nil
+	default:
+		content, err := p.parseXMLRecordAsMap(record, tag)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{tag: content}, nil
 	}
 }
 
