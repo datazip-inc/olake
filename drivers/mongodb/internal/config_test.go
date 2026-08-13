@@ -3,7 +3,6 @@ package driver
 import (
 	"crypto/tls"
 	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/datazip-inc/olake/utils"
@@ -14,10 +13,12 @@ func TestConfig_URI(t *testing.T) {
 	certs := testutils.GenerateTestCerts()
 
 	tests := []struct {
-		name             string
-		config           *Config
-		expectedContains []string
-		notExpected      []string
+		name           string
+		config         *Config
+		expectedScheme string
+		expectedHost   string
+		expectedQuery  map[string]string
+		absentQuery    []string
 	}{
 		{
 			name: "strips tls file params when ssl enabled",
@@ -37,14 +38,14 @@ func TestConfig_URI(t *testing.T) {
 					"connectTimeoutMS":      "5000",
 				},
 			},
-			expectedContains: []string{
-				"tls=true",
-				"connectTimeoutMS=5000",
+			expectedScheme: "mongodb",
+			expectedHost:   "mongo.example.com:27017",
+			expectedQuery: map[string]string{
+				"tls":              "true",
+				"connectTimeoutMS": "5000",
+				"authSource":       "admin",
 			},
-			notExpected: []string{
-				"tlsCAFile",
-				"tlsCertificateKeyFile",
-			},
+			absentQuery: []string{"tlsCAFile", "tlsCertificateKeyFile"},
 		},
 		{
 			name: "preserves tls file params without ssl",
@@ -58,8 +59,12 @@ func TestConfig_URI(t *testing.T) {
 					"tlsCAFile": "/certs/root-ca.crt",
 				},
 			},
-			expectedContains: []string{
-				"tlsCAFile",
+			expectedScheme: "mongodb",
+			expectedHost:   "mongo.example.com:27017",
+			expectedQuery: map[string]string{
+				"tls":        "true",
+				"tlsCAFile":  "/certs/root-ca.crt",
+				"authSource": "admin",
 			},
 		},
 		{
@@ -74,8 +79,11 @@ func TestConfig_URI(t *testing.T) {
 					ServerCA: certs.CACert,
 				},
 			},
-			expectedContains: []string{
-				"tls=true",
+			expectedScheme: "mongodb",
+			expectedHost:   "mongo.example.com:27017",
+			expectedQuery: map[string]string{
+				"tls":        "true",
+				"authSource": "admin",
 			},
 		},
 	}
@@ -87,24 +95,22 @@ func TestConfig_URI(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse uri: %v", err)
 			}
-			query := parsed.Query()
+			if parsed.Scheme != tt.expectedScheme {
+				t.Fatalf("scheme = %q, want %q (uri: %s)", parsed.Scheme, tt.expectedScheme, uri)
+			}
+			if parsed.Host != tt.expectedHost {
+				t.Fatalf("host = %q, want %q (uri: %s)", parsed.Host, tt.expectedHost, uri)
+			}
 
-			for _, expected := range tt.expectedContains {
-				switch {
-				case strings.Contains(expected, "="):
-					parts := strings.SplitN(expected, "=", 2)
-					if query.Get(parts[0]) != parts[1] && !strings.Contains(uri, expected) {
-						t.Fatalf("expected URI/query to contain %q, got %s", expected, uri)
-					}
-				default:
-					if query.Get(expected) == "" && !strings.Contains(uri, expected) {
-						t.Fatalf("expected URI/query to contain %q, got %s", expected, uri)
-					}
+			query := parsed.Query()
+			for k, v := range tt.expectedQuery {
+				if got := query.Get(k); got != v {
+					t.Fatalf("query[%q] = %q, want %q (uri: %s)", k, got, v, uri)
 				}
 			}
-			for _, unexpected := range tt.notExpected {
-				if query.Get(unexpected) != "" {
-					t.Fatalf("expected %q to be absent from query, got %q in %s", unexpected, query.Get(unexpected), uri)
+			for _, k := range tt.absentQuery {
+				if query.Get(k) != "" {
+					t.Fatalf("query[%q] should be absent, got %q (uri: %s)", k, query.Get(k), uri)
 				}
 			}
 		})
