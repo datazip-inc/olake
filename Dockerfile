@@ -66,10 +66,10 @@ ENV DRIVER_VERSION=${DRIVER_VERSION}
 # First try to copy from the source location (works after Maven build)
 COPY destination/iceberg/olake-iceberg-java-writer/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar /home/olake-iceberg-java-writer.jar
 
-# Copy driver and destination spec files
-COPY --from=builder /home/app/drivers/${DRIVER_NAME}/resources/spec.json /drivers/${DRIVER_NAME}/resources/spec.json
-COPY --from=builder /home/app/destination/iceberg/resources/spec.json /destination/iceberg/resources/spec.json
-COPY --from=builder /home/app/destination/parquet/resources/spec.json /destination/parquet/resources/spec.json
+# Copy driver and destination spec resources (spec.json + uischema.json)
+COPY --from=builder /home/app/drivers/${DRIVER_NAME}/resources/ /drivers/${DRIVER_NAME}/resources/
+COPY --from=builder /home/app/destination/iceberg/resources/ /destination/iceberg/resources/
+COPY --from=builder /home/app/destination/parquet/resources/ /destination/parquet/resources/
 
 # Driver-specific runtime files staged by `make prepare.<driver>`. Empty for every driver except
 # db2, which stages the IBM clidriver its cgo build links against.
