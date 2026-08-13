@@ -90,7 +90,7 @@ jobs:
       # that the runtime-base stage was warmed. Eviction can outdate it, and a miss is only a slow build.
       - name: Look up base docker layer marker
         id: apt-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
@@ -150,7 +150,7 @@ jobs:
       # Only on success, so a failed warm leaves the marker missing and the next run retries.
       - name: Save base layer marker
         if: hashFiles('.apt-warmed') != ''
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
