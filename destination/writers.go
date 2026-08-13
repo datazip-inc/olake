@@ -286,28 +286,38 @@ func (wt *WriterThread) rollbackStats() {
 	wt.stats.BytesRead.Add(-wt.bytesPushed.Load())
 }
 
-func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
+func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) (err error) {
 	select {
-	case <-ctx.Done():
+	case <-closeCtx.Done():
 		// Wait for in-flight flushes so rollback below can't race their stat updates.
 		// Block's error is ctx cancellation that brought us here, so ignored.
 		_ = wt.group.Block()
 		// Aborted before commit: writer.Close releases resources without committing,
 		// so nothing this thread pushed reaches the destination — roll its stats back.
 		wt.rollbackStats()
-		if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
+		if closeErr := wt.writer.Close(closeCtx, finalMetadataState); closeErr != nil {
 			return fmt.Errorf("failed to close writer: %s", closeErr)
 		}
 		return nil
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
+
+		// for canceling on flush error
+		ctx, cancel := context.WithCancel(closeCtx)
+		defer cancel()
+
 		defer func() {
+			if err != nil {
+				cancel()
+			}
+
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
 
 			if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
 			}
+
 			// Commit is successful only when both the final flush and writer.Close (dest
 			// COMMIT) returned no error. All source bytes were already added live via
 			// Push, so success needs no action; on any failure roll back this thread's
@@ -324,6 +334,7 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 		if err := wt.group.Block(); err != nil {
 			return fmt.Errorf("failed to flush data while closing: %s", err)
 		}
+
 		return nil
 	}
 }
