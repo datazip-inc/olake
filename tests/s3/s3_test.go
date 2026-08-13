@@ -38,6 +38,7 @@ func TestS3Sync(t *testing.T) {
 		t.Run(variant.Name, func(t *testing.T) {
 			t.Parallel()
 			cfg := s3BaseConfig(t, variant)
+			cfg.IsolateSuite(t, variant.Name)
 			cfg.ExpectedUpdatedData = variant.ExpectedUpdatedData
 			// The "evolve-schema" operation ships a file carrying a column discover has not
 			// seen (see S3TestVariant.BuildEvolvedFile), so the update sync must land it in
