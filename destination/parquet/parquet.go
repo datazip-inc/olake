@@ -452,10 +452,6 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 
 	dataFiles := p.pendingDataFiles()
 	if !p.options.Backfill && len(dataFiles) == 0 {
-		if err := p.closePqFiles(true); err != nil {
-			return err
-		}
-		p.partitionedFiles = make(map[string][]*FileMetadata)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
