@@ -124,6 +124,10 @@ func (m *Mongo) CDCSupported() bool {
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {
+	if err := m.config.Validate(); err != nil {
+		return fmt.Errorf("failed to validate config: %s", err)
+	}
+
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		sshClient, err := m.config.SSHConfig.SetupSSHConnection()
@@ -136,6 +140,13 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 
 	opts.ApplyURI(m.config.URI())
+	tlsConfig, err := m.config.buildTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build tls config: %s", err)
+	}
+	if tlsConfig != nil {
+		opts.SetTLSConfig(tlsConfig)
+	}
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {

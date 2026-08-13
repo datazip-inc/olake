@@ -1,12 +1,13 @@
 package driver
 
 import (
+	"crypto/tls"
+	"fmt"
 	"net/url"
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type Config struct {
@@ -23,20 +24,20 @@ type Config struct {
 	RetryCount       int               `json:"backoff_retry_count"`
 	ChunkingStrategy string            `json:"chunking_strategy"`
 	UseIAM           bool              `json:"use_iam"`
+	SSLConfiguration *utils.SSLConfig  `json:"ssl"`
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
 	AdditionalParams map[string]string `json:"additional_params"`
 }
+
+const (
+	AuthMechanismX509 = "MONGODB-X509"
+	AuthMechanismOIDC = "MONGODB-OIDC"
+)
 
 func (c *Config) URI() string {
 	connectionPrefix := "mongodb"
 	if c.Srv {
 		connectionPrefix = "mongodb+srv"
-	}
-
-	if c.MaxThreads == 0 {
-		// set default threads
-		logger.Info("setting max threads to default[%d]", constants.DefaultThreadCount)
-		c.MaxThreads = constants.DefaultThreadCount
 	}
 
 	// Build query parameters
@@ -59,8 +60,15 @@ func (c *Config) URI() string {
 
 	host := strings.Join(c.Hosts, ",")
 
+	sslEnabled := c.SSLConfiguration != nil && c.SSLConfiguration.Mode != utils.SSLModeDisable
 	for key, value := range c.AdditionalParams {
+		if sslEnabled && (key == "tlsCAFile" || key == "tlsCertificateKeyFile") {
+			continue
+		}
 		query.Set(key, value)
+	}
+	if sslEnabled && query.Get("tls") == "" {
+		query.Set("tls", "true")
 	}
 
 	// Construct final URI using url.URL
@@ -78,7 +86,49 @@ func (c *Config) URI() string {
 	return u.String()
 }
 
-// TODO: Add go struct validation in Config
+func (c *Config) buildTLSConfig() (*tls.Config, error) {
+	// Pass "" so we don't hardcode one hostname for TLS verify-full. The mongo
+	// driver fills ServerName from whichever host this connection is dialing.
+	return utils.BuildTLSConfig("", c.SSLConfiguration)
+}
+
 func (c *Config) Validate() error {
+	if len(c.Hosts) == 0 {
+		return fmt.Errorf("hosts is required")
+	}
+
+	if c.Database == "" {
+		return fmt.Errorf("database is required")
+	}
+
+	if !c.UseIAM {
+		if c.Username == "" {
+			return fmt.Errorf("username is required")
+		}
+		if c.AuthDB == "" {
+			return fmt.Errorf("authdb is required")
+		}
+		// Password is optional — staging allowed password-less URIs (X509, OIDC, username-only).
+		// MongoDB rejects at connect time if the mechanism actually needs a password.
+	}
+
+	if c.MaxThreads <= 0 {
+		c.MaxThreads = constants.DefaultThreadCount
+	}
+
+	if c.RetryCount <= 0 {
+		c.RetryCount = constants.DefaultRetryCount
+	}
+
+	if c.SSLConfiguration == nil {
+		c.SSLConfiguration = &utils.SSLConfig{
+			Mode: utils.SSLModeDisable,
+		}
+	}
+
+	if err := c.SSLConfiguration.Validate(); err != nil {
+		return fmt.Errorf("failed to validate ssl config: %w", err)
+	}
+
 	return utils.Validate(c)
 }
