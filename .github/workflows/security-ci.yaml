@@ -10,6 +10,8 @@ on:
       - '**/go.mod'
       - '**/*.yml'
       - '**/*.yaml'
+      - '**/pom.xml'
+      - '**/.trivyignore'
   pull_request:
     branches:
       - "*"
@@ -19,6 +21,8 @@ on:
       - '**/go.mod'
       - '**/*.yml'
       - '**/*.yaml'
+      - '**/pom.xml'
+      - '**/.trivyignore'
   workflow_dispatch:
     inputs:
       logLevel:
