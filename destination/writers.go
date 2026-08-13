@@ -302,7 +302,7 @@ func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) 
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
 
-		// for cancelling on flush error
+		// for canceling on flush error
 		ctx, cancel := context.WithCancel(closeCtx)
 		defer cancel()
 
