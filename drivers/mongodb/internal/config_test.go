@@ -2,9 +2,10 @@ package driver
 
 import (
 	"crypto/tls"
-	"net/url"
+	"strings"
 	"testing"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/testutils"
 )
@@ -13,12 +14,10 @@ func TestConfig_URI(t *testing.T) {
 	certs := testutils.GenerateTestCerts()
 
 	tests := []struct {
-		name           string
-		config         *Config
-		expectedScheme string
-		expectedHost   string
-		expectedQuery  map[string]string
-		absentQuery    []string
+		name        string
+		config      *Config
+		wantURI     string
+		notContains []string
 	}{
 		{
 			name: "strips tls file params when ssl enabled",
@@ -38,14 +37,11 @@ func TestConfig_URI(t *testing.T) {
 					"connectTimeoutMS":      "5000",
 				},
 			},
-			expectedScheme: "mongodb",
-			expectedHost:   "mongo.example.com:27017",
-			expectedQuery: map[string]string{
-				"tls":              "true",
-				"connectTimeoutMS": "5000",
-				"authSource":       "admin",
+			wantURI: "mongodb://user:pass@mongo.example.com:27017/?authSource=admin&connectTimeoutMS=5000&tls=true",
+			notContains: []string{
+				"tlsCAFile",
+				"tlsCertificateKeyFile",
 			},
-			absentQuery: []string{"tlsCAFile", "tlsCertificateKeyFile"},
 		},
 		{
 			name: "preserves tls file params without ssl",
@@ -59,13 +55,7 @@ func TestConfig_URI(t *testing.T) {
 					"tlsCAFile": "/certs/root-ca.crt",
 				},
 			},
-			expectedScheme: "mongodb",
-			expectedHost:   "mongo.example.com:27017",
-			expectedQuery: map[string]string{
-				"tls":        "true",
-				"tlsCAFile":  "/certs/root-ca.crt",
-				"authSource": "admin",
-			},
+			wantURI: "mongodb://user:pass@mongo.example.com:27017/?authSource=admin&tls=true&tlsCAFile=%2Fcerts%2Froot-ca.crt",
 		},
 		{
 			name: "adds tls when ssl enabled",
@@ -79,38 +69,19 @@ func TestConfig_URI(t *testing.T) {
 					ServerCA: certs.CACert,
 				},
 			},
-			expectedScheme: "mongodb",
-			expectedHost:   "mongo.example.com:27017",
-			expectedQuery: map[string]string{
-				"tls":        "true",
-				"authSource": "admin",
-			},
+			wantURI: "mongodb://user:pass@mongo.example.com:27017/?authSource=admin&tls=true",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			uri := tt.config.URI()
-			parsed, err := url.Parse(uri)
-			if err != nil {
-				t.Fatalf("parse uri: %v", err)
+			got := tt.config.URI()
+			if got != tt.wantURI {
+				t.Fatalf("URI() = %q, want %q", got, tt.wantURI)
 			}
-			if parsed.Scheme != tt.expectedScheme {
-				t.Fatalf("scheme = %q, want %q (uri: %s)", parsed.Scheme, tt.expectedScheme, uri)
-			}
-			if parsed.Host != tt.expectedHost {
-				t.Fatalf("host = %q, want %q (uri: %s)", parsed.Host, tt.expectedHost, uri)
-			}
-
-			query := parsed.Query()
-			for k, v := range tt.expectedQuery {
-				if got := query.Get(k); got != v {
-					t.Fatalf("query[%q] = %q, want %q (uri: %s)", k, got, v, uri)
-				}
-			}
-			for _, k := range tt.absentQuery {
-				if query.Get(k) != "" {
-					t.Fatalf("query[%q] should be absent, got %q (uri: %s)", k, query.Get(k), uri)
+			for _, s := range tt.notContains {
+				if strings.Contains(got, s) {
+					t.Fatalf("URI() = %q, must not contain %q", got, s)
 				}
 			}
 		})
@@ -119,10 +90,12 @@ func TestConfig_URI(t *testing.T) {
 
 func TestConfig_Validate(t *testing.T) {
 	tests := []struct {
-		name      string
-		config    *Config
-		expectErr bool
-		after     func(t *testing.T, cfg *Config)
+		name           string
+		config         *Config
+		expectErr      bool
+		wantMaxThreads int
+		wantRetryCount int
+		wantSSLMode    string
 	}{
 		{
 			name: "empty hosts",
@@ -188,18 +161,10 @@ func TestConfig_Validate(t *testing.T) {
 				Password: "pass",
 				AuthDB:   "admin",
 			},
-			expectErr: false,
-			after: func(t *testing.T, cfg *Config) {
-				if cfg.MaxThreads == 0 {
-					t.Fatalf("expected MaxThreads default to be set")
-				}
-				if cfg.RetryCount == 0 {
-					t.Fatalf("expected RetryCount default to be set")
-				}
-				if cfg.SSLConfiguration == nil || cfg.SSLConfiguration.Mode != utils.SSLModeDisable {
-					t.Fatalf("expected default ssl mode disable, got %#v", cfg.SSLConfiguration)
-				}
-			},
+			expectErr:      false,
+			wantMaxThreads: constants.DefaultThreadCount,
+			wantRetryCount: constants.DefaultRetryCount,
+			wantSSLMode:    utils.SSLModeDisable,
 		},
 	}
 
@@ -215,28 +180,49 @@ func TestConfig_Validate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("expected no error but got: %v", err)
 			}
-			if tt.after != nil {
-				tt.after(t, tt.config)
+			if tt.wantMaxThreads != 0 && tt.config.MaxThreads != tt.wantMaxThreads {
+				t.Fatalf("MaxThreads = %d, want %d", tt.config.MaxThreads, tt.wantMaxThreads)
+			}
+			if tt.wantRetryCount != 0 && tt.config.RetryCount != tt.wantRetryCount {
+				t.Fatalf("RetryCount = %d, want %d", tt.config.RetryCount, tt.wantRetryCount)
+			}
+			if tt.wantSSLMode != "" {
+				if tt.config.SSLConfiguration == nil {
+					t.Fatalf("SSLConfiguration is nil, want mode %q", tt.wantSSLMode)
+				}
+				if tt.config.SSLConfiguration.Mode != tt.wantSSLMode {
+					t.Fatalf("SSL mode = %q, want %q", tt.config.SSLConfiguration.Mode, tt.wantSSLMode)
+				}
 			}
 		})
 	}
+}
+
+type wantTLS struct {
+	nilConfig          bool
+	insecureSkipVerify bool
+	serverName         string
+	minVersion         uint16
+	hasRootCAs         bool
+	hasVerifyPeerCert  bool
+	certCount          int
 }
 
 func TestConfig_buildTLSConfig(t *testing.T) {
 	certs := testutils.GenerateTestCerts()
 
 	tests := []struct {
-		name       string
-		config     *Config
-		wantNil    bool
-		assertions func(t *testing.T, tlsCfg *tls.Config)
+		name    string
+		config  *Config
+		wantErr bool
+		want    wantTLS
 	}{
 		{
 			name: "no ssl returns nil",
 			config: &Config{
 				Hosts: []string{"mongo.example.com:27017"},
 			},
-			wantNil: true,
+			want: wantTLS{nilConfig: true},
 		},
 		{
 			name: "ssl disabled returns nil",
@@ -246,7 +232,7 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 					Mode: utils.SSLModeDisable,
 				},
 			},
-			wantNil: true,
+			want: wantTLS{nilConfig: true},
 		},
 		{
 			name: "verify-ca uses verify-ca semantics",
@@ -257,16 +243,11 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 					ServerCA: certs.CACert,
 				},
 			},
-			assertions: func(t *testing.T, tlsCfg *tls.Config) {
-				if !tlsCfg.InsecureSkipVerify {
-					t.Fatalf("expected verify-ca to skip hostname verification")
-				}
-				if tlsCfg.VerifyPeerCertificate == nil {
-					t.Fatalf("expected custom peer certificate verification")
-				}
-				if tlsCfg.RootCAs == nil {
-					t.Fatalf("expected root CAs to be configured")
-				}
+			want: wantTLS{
+				insecureSkipVerify: true,
+				minVersion:         tls.VersionTLS12,
+				hasRootCAs:         true,
+				hasVerifyPeerCert:  true,
 			},
 		},
 		{
@@ -280,10 +261,12 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 					ClientKey:  certs.ClientKey,
 				},
 			},
-			assertions: func(t *testing.T, tlsCfg *tls.Config) {
-				if len(tlsCfg.Certificates) == 0 {
-					t.Fatalf("expected client certificate to be configured")
-				}
+			want: wantTLS{
+				insecureSkipVerify: true,
+				minVersion:         tls.VersionTLS12,
+				hasRootCAs:         true,
+				hasVerifyPeerCert:  true,
+				certCount:          1,
 			},
 		},
 		{
@@ -295,8 +278,11 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 					ServerCA: certs.CACert,
 				},
 			},
-			assertions: func(t *testing.T, tlsCfg *tls.Config) {
-				assertVerifyFullEmptyServerName(t, tlsCfg)
+			want: wantTLS{
+				serverName:        "",
+				minVersion:        tls.VersionTLS12,
+				hasRootCAs:        true,
+				hasVerifyPeerCert: false,
 			},
 		},
 		{
@@ -312,44 +298,60 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 					ServerCA: certs.CACert,
 				},
 			},
-			assertions: func(t *testing.T, tlsCfg *tls.Config) {
-				assertVerifyFullEmptyServerName(t, tlsCfg)
+			want: wantTLS{
+				serverName:        "",
+				minVersion:        tls.VersionTLS12,
+				hasRootCAs:        true,
+				hasVerifyPeerCert: false,
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tlsCfg, err := tt.config.buildTLSConfig()
-			if err != nil {
-				t.Fatalf("buildTLSConfig() error = %v", err)
-			}
-			if tt.wantNil {
-				if tlsCfg != nil {
-					t.Fatalf("expected nil tls config, got %#v", tlsCfg)
+			got, err := tt.config.buildTLSConfig()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("buildTLSConfig() expected error, got nil")
 				}
 				return
 			}
-			if tlsCfg == nil {
+			if err != nil {
+				t.Fatalf("buildTLSConfig() error = %v", err)
+			}
+			if tt.want.nilConfig {
+				if got != nil {
+					t.Fatalf("expected nil tls config, got %#v", got)
+				}
+				return
+			}
+			if got == nil {
 				t.Fatalf("expected tls config, got nil")
 			}
-			tt.assertions(t, tlsCfg)
+			if got.InsecureSkipVerify != tt.want.insecureSkipVerify {
+				t.Fatalf("InsecureSkipVerify = %v, want %v", got.InsecureSkipVerify, tt.want.insecureSkipVerify)
+			}
+			if got.ServerName != tt.want.serverName {
+				t.Fatalf("ServerName = %q, want %q", got.ServerName, tt.want.serverName)
+			}
+			if tt.want.minVersion != 0 && got.MinVersion != tt.want.minVersion {
+				t.Fatalf("MinVersion = %#x, want %#x", got.MinVersion, tt.want.minVersion)
+			}
+			if tt.want.hasRootCAs && got.RootCAs == nil {
+				t.Fatalf("expected root CAs to be configured")
+			}
+			if !tt.want.hasRootCAs && got.RootCAs != nil {
+				t.Fatalf("expected no root CAs, got %#v", got.RootCAs)
+			}
+			if tt.want.hasVerifyPeerCert && got.VerifyPeerCertificate == nil {
+				t.Fatalf("expected custom peer certificate verification")
+			}
+			if !tt.want.hasVerifyPeerCert && got.VerifyPeerCertificate != nil {
+				t.Fatalf("expected no custom VerifyPeerCertificate")
+			}
+			if len(got.Certificates) != tt.want.certCount {
+				t.Fatalf("len(Certificates) = %d, want %d", len(got.Certificates), tt.want.certCount)
+			}
 		})
-	}
-}
-
-func assertVerifyFullEmptyServerName(t *testing.T, tlsCfg *tls.Config) {
-	t.Helper()
-	if tlsCfg.InsecureSkipVerify {
-		t.Fatalf("expected InsecureSkipVerify=false for verify-full")
-	}
-	if tlsCfg.ServerName != "" {
-		t.Fatalf("expected empty ServerName so mongo-driver can set dialed hostname, got %q", tlsCfg.ServerName)
-	}
-	if tlsCfg.RootCAs == nil {
-		t.Fatalf("expected root CAs to be configured")
-	}
-	if tlsCfg.VerifyPeerCertificate != nil {
-		t.Fatalf("expected no custom VerifyPeerCertificate; hostname verify is left to the driver")
 	}
 }
