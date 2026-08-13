@@ -13,22 +13,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// performanceCDCStreams is the CDC stream set the performance suite drives, shared between the
+// PerformanceTest config and the perf operations below.
+var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
+
 // ExecuteQuery executes MySQL queries for testing based on the operation type
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	var connStr string
-	if fileConfig {
-		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
+	var connStr, database string
+	if config := conf.SourceBaseConfig; config != nil {
+		database = config.String("database")
 		// the mysql driver spells its single host "hosts"
 		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
 			config.String("username"),
 			config.String("password"),
 			config.String("hosts"),
 			config.Int("port"),
-			config.String("database"))
+			database)
 	} else {
-		connStr = "mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true"
+		database = "olake_mysql_test"
+		connStr = fmt.Sprintf("mysql:secret1234@tcp(localhost:3306)/%s?parseTime=true", database)
 	}
 	db, err := sqlx.ConnectContext(ctx, "mysql", connStr)
 	require.NoError(t, err, "failed to connect to  mysql")
@@ -37,7 +42,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := streams[0]
+	integrationTestTable := testutils.TestTableName(conf)
 	var query string
 
 	switch operation {
@@ -94,6 +99,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
+
+	case "drop-all":
+		_, err = db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", database))
+		require.NoError(t, err, "failed to drop database %s", database)
+		query = fmt.Sprintf("CREATE DATABASE `%s`", database)
 
 	case "clean":
 		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
@@ -246,9 +256,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "setup_cdc":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
 		// truncate the cdc tables
-		for idx, cdcStream := range streams {
+		for idx, cdcStream := range performanceCDCStreams {
 			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 			// mysql chunking strategy does not support 0 record sync
@@ -270,9 +280,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		return
 
 	case "bulk_cdc_data_insert":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
 		// insert the data into the cdc tables concurrently
-		err := testutils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+		err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s LIMIT 15000000", cdcStream, backfillStreams[executionNumber]))
 			if err != nil {
 				return err
