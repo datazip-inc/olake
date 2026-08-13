@@ -1,7 +1,7 @@
 package kafka
 
 import (
-	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/drivers/kafka/pkg/types"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )

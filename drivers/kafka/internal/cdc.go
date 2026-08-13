@@ -11,7 +11,8 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
-	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
+	kafkapkg "github.com/datazip-inc/olake/drivers/kafka/pkg"
+	kafkatypes "github.com/datazip-inc/olake/drivers/kafka/pkg/types"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -95,10 +96,10 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	}
 
 	// track processing state
-	lastMessages := make(map[types.PartitionKey]*kgo.Record)
+	lastMessages := make(map[kafkatypes.PartitionKey]*kgo.Record)
 	// maintain completed partitions and observed partitions to track loop termination (for the current reader)
-	completedPartitions := make(map[types.PartitionKey]struct{}) // completed partitions by the current reader
-	observedPartitions := make(map[types.PartitionKey]struct{})  // cached partitions which are observed by the current reader
+	completedPartitions := make(map[kafkatypes.PartitionKey]struct{}) // completed partitions by the current reader
+	observedPartitions := make(map[kafkatypes.PartitionKey]struct{})  // cached partitions which are observed by the current reader
 
 	defer func() {
 		if len(lastMessages) > 0 {
@@ -106,9 +107,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 	}()
 
-	err = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
+	err = k.processKafkaMessages(ctx, reader, func(record kafkatypes.KafkaRecord) (bool, error) {
 		// get current partition metadata and key
-		currentPartitionKey := types.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
+		currentPartitionKey := kafkatypes.PartitionKey{Topic: record.Message.Topic, Partition: record.Message.Partition}
 		currentPartitionMeta, exists := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(record.Message.Topic, record.Message.Partition))
 		if !exists {
 			return false, fmt.Errorf("missing partition Metadata for topic %s partition %d", record.Message.Topic, record.Message.Partition)
@@ -182,7 +183,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 		}
 
 		// Type assert and validate messages
-		lastMessages, isValid := lastMessagesMeta.(map[types.PartitionKey]*kgo.Record)
+		lastMessages, isValid := lastMessagesMeta.(map[kafkatypes.PartitionKey]*kgo.Record)
 		if !isValid || len(lastMessages) == 0 {
 			logger.Infof("reader %s has no accumulated offsets to commit", readerID)
 			return nil
@@ -235,7 +236,7 @@ func (k *Kafka) PostCDC(ctx context.Context, readerIdx int) error {
 
 // processKafkaMessages processes messages from a Kafka reader
 // until stopProcessFn signals stop, a rebalance is detected, or the poll times out (reader caught up).
-func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record types.KafkaRecord) (bool, error)) error {
+func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, stopProcessFn func(record kafkatypes.KafkaRecord) (bool, error)) error {
 	var iter *kgo.FetchesRecordIter
 
 	for {
@@ -290,7 +291,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 				}
 			}
 
-			stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
+			stopProcessing, err := stopProcessFn(kafkatypes.KafkaRecord{Data: data, Message: message})
 			if err != nil {
 				return err
 			}
@@ -321,9 +322,9 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 
 			// decode data based on format
 			switch schema.SchemaType {
-			case types.SchemaTypeAvro:
+			case kafkatypes.SchemaTypeAvro:
 				return decodeAvroMessage(data[5:], schema.Codec)
-			case types.SchemaTypeJSON:
+			case kafkatypes.SchemaTypeJSON:
 				return decodeJSONMessage(data[5:])
 			default:
 				return nil, fmt.Errorf("unsupported schema type: %s", schema.SchemaType)
@@ -404,7 +405,7 @@ func decodeAvroMessage(data []byte, codec *goavro.Codec) (interface{}, error) {
 
 // syncCommittedOffsetsWithMetadata ensures consumer group offsets match destination metadata.
 // Returns true if a recovery sync was performed for this reader.
-func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID int, reader *kgo.Client, metadataStates map[string]any, assignedPartitions []types.PartitionKey) (bool, error) {
+func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID int, reader *kgo.Client, metadataStates map[string]any, assignedPartitions []kafkatypes.PartitionKey) (bool, error) {
 	streamMetadata := make(map[string]map[string]any)
 	var recordsToCommit []*kgo.Record
 

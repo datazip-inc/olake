@@ -15,7 +15,6 @@ import (
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/encoding/wkb"
 	"github.com/stretchr/testify/assert"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // TestReformatRecord tests the ReformatRecord function
@@ -1017,39 +1016,6 @@ func TestReformatDate(t *testing.T) {
 			isTimestampInDB: true,
 			expected:        time.Time{},
 			expectedErr:     fmt.Errorf("string does not start with date pattern (YYYY-MM-DD)"),
-		},
-
-		// ===== primitive.DateTime =====
-		{
-			name:            "primitive datetime",
-			v:               primitive.NewDateTimeFromTime(now),
-			isTimestampInDB: true,
-			expected:        primitive.NewDateTimeFromTime(now).Time(),
-			expectedErr:     nil,
-		},
-		{
-			name:            "primitive datetime year zero",
-			v:               primitive.NewDateTimeFromTime(time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)),
-			isTimestampInDB: true,
-			expected:        time.Unix(0, 0).UTC(),
-			expectedErr:     nil,
-		},
-		{
-			name:            "primitive datetime negative year",
-			v:               primitive.NewDateTimeFromTime(time.Date(-1, 1, 1, 0, 0, 0, 0, time.UTC)),
-			isTimestampInDB: true,
-			expected:        time.Unix(0, 0).UTC(),
-			expectedErr:     nil,
-		},
-		{
-			name:            "primitive datetime year above max",
-			v:               primitive.NewDateTimeFromTime(time.Date(22000, 5, 10, 0, 0, 0, 0, time.UTC)),
-			isTimestampInDB: true,
-			expected: func() time.Time {
-				parsed := primitive.NewDateTimeFromTime(time.Date(22000, 5, 10, 0, 0, 0, 0, time.UTC)).Time()
-				return parsed.AddDate(-(parsed.Year() - 9999), 0, 0)
-			}(),
-			expectedErr: nil,
 		},
 
 		// ===== *any recursion =====

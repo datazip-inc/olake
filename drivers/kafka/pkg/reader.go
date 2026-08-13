@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	kafkatypes "github.com/datazip-inc/olake/drivers/kafka/pkg/types"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -20,13 +21,13 @@ func NewReaderManager(config ReaderConfig) *ReaderManager {
 	return &ReaderManager{
 		config:        config,
 		readers:       make([]*kafkaReader, 0),
-		partitionMeta: make(map[string]types.PartitionMetaData),
+		partitionMeta: make(map[string]kafkatypes.PartitionMetaData),
 	}
 }
 
 // CreateReaders creates Kafka readers based on the provided streams and configuration
 func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.StreamInterface) error {
-	r.partitionMeta = make(map[string]types.PartitionMetaData)
+	r.partitionMeta = make(map[string]kafkatypes.PartitionMetaData)
 	for _, stream := range streams {
 		// populate topics from streams
 		r.topics = append(r.topics, stream.Name())
@@ -83,7 +84,7 @@ func (r *ReaderManager) GetReaderCount() int {
 }
 
 // GetPartitionMeta returns the partition metadata
-func (r *ReaderManager) GetPartitionMeta(partitionMetadataKey string) (types.PartitionMetaData, bool) {
+func (r *ReaderManager) GetPartitionMeta(partitionMetadataKey string) (kafkatypes.PartitionMetaData, bool) {
 	partitionMeta, exists := r.partitionMeta[partitionMetadataKey]
 	return partitionMeta, exists
 }
@@ -99,7 +100,7 @@ func (r *ReaderManager) GetReaderIDAndClientID(readerIndex int) (string, string)
 }
 
 // PartitionsForStream returns partitions that need to be synced for a stream.
-func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.StreamInterface) (map[string]types.PartitionMetaData, error) {
+func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.StreamInterface) (map[string]kafkatypes.PartitionMetaData, error) {
 	topic := stream.Name()
 	topicDetail, topicDetailErr := r.GetTopicMetadata(ctx, topic)
 	if topicDetailErr != nil {
@@ -117,7 +118,7 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 		return nil, fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, committedOffsetsErr)
 	}
 
-	partitionsMetadata := make(map[string]types.PartitionMetaData)
+	partitionsMetadata := make(map[string]kafkatypes.PartitionMetaData)
 	for _, partitionDetail := range topicDetail.Partitions {
 		startOffsetDetail, endOffsetDetail, offsetsFound := r.GetPartitionOffsets(startOffsets, endOffsets, topic, partitionDetail.Partition)
 		if !offsetsFound {
@@ -141,7 +142,7 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 			continue
 		}
 
-		partitionsMetadata[PartitionMetadataKey(topic, partitionDetail.Partition)] = types.PartitionMetaData{
+		partitionsMetadata[PartitionMetadataKey(topic, partitionDetail.Partition)] = kafkatypes.PartitionMetaData{
 			Stream:          stream,
 			PartitionID:     partitionDetail.Partition,
 			EndOffset:       endOffsetDetail.Offset,
