@@ -44,7 +44,7 @@ func (m *MSSQL) ChangeStreamConfig() (bool, bool, bool) {
 	return false, false, true // concurrent change streams supported, stream can start after finishing full load
 }
 
-// PreCDC initialises CDC state and starting LSN per stream.
+// PreCDC initializes CDC state and starting LSN per stream.
 func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	if !m.cdcSupported {
 		return fmt.Errorf("invalid call; %s not running in CDC mode", m.Type())
@@ -119,7 +119,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 
 	// No changes yet
 	if lsnInState >= targetLSN {
-		return nil, nil
+		return nil, err
 	}
 
 	// prepare capture instance
@@ -366,7 +366,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		// For updates, CDC emits "before" (3) and "after" (4); we skip "before".
 		var operationType string
 		if val, ok := record["__$operation"]; ok {
-			var opCode int32 = val.(int32)
+			var opCode = val.(int32)
 			if opCode == 3 {
 				return nil
 			}

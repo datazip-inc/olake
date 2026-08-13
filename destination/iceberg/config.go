@@ -3,8 +3,10 @@ package iceberg
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
@@ -80,6 +82,8 @@ type Config struct {
 	// GCP auth for GoogleAuthManager (e.g. BigLake). Inline SA key JSON;
 	GCPServiceAccountJSON string `json:"gcp_service_account_json,omitempty"`
 	GCPAuthScopes         string `json:"gcp_auth_scopes,omitempty"`
+	// Required by BigLake for request routing/billing (sent as the x-goog-user-project header).
+	GCPProjectID string `json:"gcp_project_id,omitempty"`
 
 	UseArrowWrites bool `json:"arrow_writes,omitempty"`
 }
@@ -96,6 +100,22 @@ func (c *Config) Validate() error {
 
 	if c.CatalogName == "" {
 		c.CatalogName = "olake_iceberg"
+	}
+	//S3 tables use SigV4 authentication and require signing name to be set to "s3tables"
+	if c.CatalogType == "s3tables" {
+		c.RestSigningV4 = true
+		c.RestSigningName = "s3tables"
+	}
+	//Unity Catalog doesn't support identifier fields (disable them)
+	if c.CatalogType == "unity" {
+		c.NoIdentifierFields = true
+	}
+	// BigLake requires GoogleAuthManager for authentication
+	if c.CatalogType == "biglake" {
+		c.RestAuthType = "org.apache.iceberg.gcp.auth.GoogleAuthManager"
+	}
+	if slices.Contains(constants.RESTCatalogs, string(c.CatalogType)) {
+		c.CatalogType = RestCatalog
 	}
 
 	// Default to path-style access for S3-compatible services

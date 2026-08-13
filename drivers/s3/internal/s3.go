@@ -9,13 +9,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/pkg/objstorage"
 	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -26,7 +24,7 @@ const (
 
 // S3 represents the S3 source driver
 type S3 struct {
-	client          *s3.Client
+	store           objstorage.Store
 	config          *Config
 	state           *types.State
 	filePattern     *regexp.Regexp
@@ -66,55 +64,22 @@ func (s *S3) Setup(ctx context.Context) error {
 		logger.Infof("Using file pattern filter: %s", s.config.FilePattern)
 	}
 
-	// Configure AWS SDK - supports both static credentials and default credential chain
-	var cfg aws.Config
-	var err error
-
-	// Build config options
-	configOpts := []func(*config.LoadOptions) error{
-		config.WithRegion(s.config.Region),
-	}
-
-	// Use static credentials if provided, otherwise fall back to default credential chain
-	// Default chain includes: IAM roles, instance profiles, environment variables, shared config
-	if s.config.AccessKeyID != "" && s.config.SecretAccessKey != "" {
-		logger.Info("Using static credentials for S3 authentication")
-		configOpts = append(configOpts, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(
-				s.config.AccessKeyID,
-				s.config.SecretAccessKey,
-				"",
-			),
-		))
-	} else {
-		logger.Info("Using default credential chain (IAM role, instance profile, env vars, or shared config)")
-	}
-
-	// Load configuration
-	cfg, err = config.LoadDefaultConfig(ctx, configOpts...)
-
+	// Build the storage client (AWS S3 or any S3-compatible endpoint)
+	store, err := objstorage.NewS3Store(ctx, objstorage.S3Config{
+		Bucket:          s.config.BucketName,
+		Region:          s.config.Region,
+		AccessKeyID:     s.config.AccessKeyID,
+		SecretAccessKey: s.config.SecretAccessKey,
+		Endpoint:        s.config.Endpoint,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %s", err)
+		return err
 	}
-
-	// Create S3 client
-	if s.config.Endpoint != "" {
-		logger.Infof("Connecting to S3-compatible endpoint: %s", s.config.Endpoint)
-		s.client = s3.NewFromConfig(cfg, func(o *s3.Options) {
-			o.BaseEndpoint = aws.String(s.config.Endpoint)
-			o.UsePathStyle = true // Required for MinIO and some S3-compatible services
-		})
-	} else {
-		logger.Infof("Connecting to AWS S3 in region: %s", s.config.Region)
-		s.client = s3.NewFromConfig(cfg)
-	}
+	s.store = store
 
 	// Test connection by checking if bucket exists and is accessible
 	logger.Infof("Testing connection to bucket: %s", s.config.BucketName)
-	_, err = s.client.HeadBucket(ctx, &s3.HeadBucketInput{
-		Bucket: aws.String(s.config.BucketName),
-	})
-	if err != nil {
+	if err := s.store.Check(ctx); err != nil {
 		return fmt.Errorf("failed to access bucket %s: %s", s.config.BucketName, err)
 	}
 
@@ -148,71 +113,49 @@ func (s *S3) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 
 	// Initialize the map for grouped files
 	filesByStream := make(map[string][]FileObject)
-	var continuationToken *string
-	pageCount := 0
 	totalDiscovered := 0
 
-	// List all objects with the given prefix (paginated)
+	// List all objects with the given prefix (pagination handled by the store)
 	// Note: We accumulate all file metadata before processing because:
 	// 1. File metadata is small (~200 bytes per file, 1M files = ~200MB)
 	// 2. Chunking requires full file list to group files into ~2GB chunks
 	// 3. Incremental sync needs to filter across all files by LastModified
-	for {
-		pageCount++
-		input := &s3.ListObjectsV2Input{
-			Bucket:            aws.String(s.config.BucketName),
-			Prefix:            aws.String(s.config.PathPrefix),
-			ContinuationToken: continuationToken,
+	err := s.store.List(ctx, s.config.PathPrefix, func(obj objstorage.ObjectInfo) error {
+		// Skip directories (keys ending with /)
+		if strings.HasSuffix(obj.Key, "/") {
+			return nil
 		}
 
-		result, err := s.client.ListObjectsV2(ctx, input)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list objects in bucket: %s", err)
+		// Apply file pattern filter if configured
+		if s.filePattern != nil && !s.filePattern.MatchString(obj.Key) {
+			logger.Debugf("Skipping file %s (does not match pattern)", obj.Key)
+			return nil
 		}
 
-		logger.Debugf("Processing S3 list page %d (%d objects in this page)", pageCount, len(result.Contents))
-
-		// Filter and collect matching files
-		for _, obj := range result.Contents {
-			key := aws.ToString(obj.Key)
-
-			// Skip directories (keys ending with /)
-			if strings.HasSuffix(key, "/") {
-				continue
-			}
-
-			// Apply file pattern filter if configured
-			if s.filePattern != nil && !s.filePattern.MatchString(key) {
-				logger.Debugf("Skipping file %s (does not match pattern)", key)
-				continue
-			}
-
-			// Filter by file extension based on format
-			if !s.matchesFileFormat(key) {
-				logger.Debugf("Skipping file %s (does not match format)", key)
-				continue
-			}
-
-			fileObj := FileObject{
-				FileKey:      key,
-				Size:         aws.ToInt64(obj.Size),
-				LastModified: obj.LastModified.Format("2006-01-02T15:04:05Z"),
-				ETag:         strings.Trim(aws.ToString(obj.ETag), "\""),
-			}
-
-			// Group files by stream name (folder or individual file)
-			streamName := s.extractStreamName(key)
-			filesByStream[streamName] = append(filesByStream[streamName], fileObj)
-			totalDiscovered++
+		// Filter by file extension based on format
+		if !s.matchesFileFormat(obj.Key) {
+			logger.Debugf("Skipping file %s (does not match format)", obj.Key)
+			return nil
 		}
 
-		// Check if there are more results
-		if !aws.ToBool(result.IsTruncated) {
-			logger.Infof("Completed S3 discovery: processed %d pages, discovered %d files", pageCount, totalDiscovered)
-			break
+		fileObj := FileObject{
+			FileKey:      obj.Key,
+			Size:         obj.Size,
+			LastModified: obj.LastModified.UTC().Format("2006-01-02T15:04:05Z"),
+			ETag:         obj.ETag,
 		}
-		continuationToken = result.NextContinuationToken
+
+		// Group files by stream name (folder or individual file)
+		streamName := s.extractStreamName(obj.Key)
+		filesByStream[streamName] = append(filesByStream[streamName], fileObj)
+		totalDiscovered++
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list objects in bucket: %s", err)
 	}
+
+	logger.Infof("Completed S3 discovery: discovered %d files", totalDiscovered)
 
 	// Store grouped files
 	s.discoveredFiles = filesByStream
@@ -325,15 +268,11 @@ func (s *S3) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types
 // withFileReader is a helper that manages file reader lifecycle for CSV/JSON formats
 // It acquires a reader, ensures cleanup, and executes the provided callback
 func (s *S3) withFileReader(ctx context.Context, fileKey string, callback func(io.Reader) (*types.Stream, error)) (*types.Stream, error) {
-	reader, _, err := s.getFileReader(ctx, fileKey)
+	reader, err := s.getFileReader(ctx, fileKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file reader: %s", err)
 	}
-	defer func() {
-		if closer, ok := reader.(io.Closer); ok {
-			closer.Close()
-		}
-	}()
+	defer reader.Close()
 
 	return callback(reader)
 }
@@ -380,32 +319,23 @@ func (s *S3) inferSchemaForParquet(ctx context.Context, file FileObject, stream 
 	})
 }
 
-// getFileReader returns a reader for an S3 file with decompression applied (S3-specific logic)
-// Returns (reader, fileSize, error)
-func (s *S3) getFileReader(ctx context.Context, key string) (io.Reader, int64, error) {
-	// Get the object from S3
-	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.config.BucketName),
-		Key:    aws.String(key),
-	})
+// getFileReader returns a reader for a file with decompression applied.
+// Closing the returned reader also closes the underlying object body.
+func (s *S3) getFileReader(ctx context.Context, key string) (io.ReadCloser, error) {
+	// Get the object from storage (%w keeps objstorage.ErrNotFound matchable)
+	body, err := s.store.Open(ctx, key)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get object from S3: %s", err)
-	}
-
-	// Get file size
-	fileSize := int64(0)
-	if result.ContentLength != nil {
-		fileSize = *result.ContentLength
+		return nil, fmt.Errorf("failed to get object from S3: %w", err)
 	}
 
 	// Apply decompression if needed (auto-detect from file extension)
-	reader, err := getDecompressedReader(result.Body, key)
+	reader, err := getDecompressedReader(body, key)
 	if err != nil {
-		result.Body.Close()
-		return nil, 0, fmt.Errorf("failed to create decompressed reader: %s", err)
+		body.Close()
+		return nil, fmt.Errorf("failed to create decompressed reader: %s", err)
 	}
 
-	return reader, fileSize, nil
+	return reader, nil
 }
 
 // getParquetReaderAt returns a reader suitable for Parquet files (io.ReaderAt)
@@ -415,24 +345,25 @@ func (s *S3) getParquetReaderAt(ctx context.Context, key string, fileSize int64)
 	parquetConfig := s.config.GetParquetConfig()
 
 	if parquetConfig.StreamingEnabled && fileSize > 0 {
-		// Use S3 range requests for streaming (memory-efficient)
+		// Use S3 range requests for streaming (memory-efficient). Ranged reads
+		// live on RangeOpener, not the core Store, so assert the capability.
+		ranger, ok := s.store.(objstorage.RangeOpener)
+		if !ok {
+			return nil, 0, fmt.Errorf("configured store does not support ranged reads required for streaming Parquet")
+		}
 		logger.Debugf("Using S3 range requests for Parquet file: %s", key)
-		rangeReader := NewS3RangeReader(ctx, s.client, s.config.BucketName, key, fileSize)
-		return rangeReader, fileSize, nil
+		return objstorage.NewReaderAt(ctx, ranger, key, fileSize), fileSize, nil
 	}
 
-	// Fallback: Load entire file into memory
+	// Fallback: Load entire file into memory (%w keeps objstorage.ErrNotFound matchable)
 	logger.Debugf("Loading Parquet file into memory: %s", key)
-	result, err := s.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.config.BucketName),
-		Key:    aws.String(key),
-	})
+	body, err := s.store.Open(ctx, key)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get object from S3: %s", err)
+		return nil, 0, fmt.Errorf("failed to get object from S3: %w", err)
 	}
-	defer result.Body.Close()
+	defer body.Close()
 
-	data, err := io.ReadAll(result.Body)
+	data, err := io.ReadAll(body)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to read Parquet file: %s", err)
 	}
@@ -442,7 +373,8 @@ func (s *S3) getParquetReaderAt(ctx context.Context, key string, fileSize int64)
 
 // getDecompressedReader returns an appropriate reader based on file extension
 // Auto-detects compression from file extension (.gz)
-func getDecompressedReader(body io.Reader, key string) (io.Reader, error) {
+// Closing the returned reader closes both the decompressor and the body
+func getDecompressedReader(body io.ReadCloser, key string) (io.ReadCloser, error) {
 	lowerKey := strings.ToLower(key)
 
 	// Check if file has gzip extension
@@ -452,7 +384,8 @@ func getDecompressedReader(body io.Reader, key string) (io.Reader, error) {
 			return nil, fmt.Errorf("failed to create gzip reader: %s", err)
 		}
 		logger.Debugf("Using gzip decompression for file: %s", key)
-		return gzipReader, nil
+		// gzip.Reader.Close does not close the underlying body; close both
+		return utils.NewCompositeReadCloser(gzipReader, gzipReader, body), nil
 	}
 
 	// No compression detected, return body as-is
