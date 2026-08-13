@@ -1,8 +1,6 @@
 package driver
 
 import (
-	"math"
-
 	"github.com/datazip-inc/olake/types"
 )
 
@@ -73,33 +71,4 @@ var mysqlTypeToDataTypes = map[string]types.DataType{
 	"multilinestring":    types.String,
 	"multipolygon":       types.String,
 	"geometrycollection": types.String,
-}
-
-// MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
-const maxUint24 = 1<<24 - 1
-
-// stripSignExtension masks an UNSIGNED column's value back to its storage width, undoing the sign
-// extension the binlog parser applies. The result comes back in the narrowest signed Go type that
-// holds the column's whole range, so no case widens further than its own values need.
-// UNSIGNED BIGINT is absent on purpose: it has no spare width, so its bits are already final.
-func stripSignExtension(value any, columnType string) any {
-	switch columnType {
-	case "unsigned tinyint":
-		if v, ok := value.(int8); ok {
-			return int16(v) & math.MaxUint8
-		}
-	case "unsigned smallint":
-		if v, ok := value.(int16); ok {
-			return int32(v) & math.MaxUint16
-		}
-	case "unsigned mediumint":
-		if v, ok := value.(int32); ok {
-			return v & maxUint24
-		}
-	case "unsigned int", "unsigned integer":
-		if v, ok := value.(int32); ok {
-			return int64(v) & math.MaxUint32
-		}
-	}
-	return value
 }

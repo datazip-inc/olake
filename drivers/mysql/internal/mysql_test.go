@@ -45,41 +45,41 @@ func TestDataTypeConverter(t *testing.T) {
 		{
 			name:       "unsigned tinyint signed max",
 			columnType: "unsigned tinyint",
-			value:      int8(127),
-			expected:   int32(127),
+			value:      int8(math.MaxInt8),
+			expected:   int32(math.MaxInt8),
 		},
 		// the sign bit alone is the midpoint of the unsigned range
 		{
 			name:       "unsigned tinyint sign bit",
 			columnType: "unsigned tinyint",
-			value:      int8(-128),
-			expected:   int32(128),
+			value:      int8(math.MinInt8),
+			expected:   int32(-math.MinInt8),
 		},
 		{
 			name:       "unsigned tinyint max",
 			columnType: "unsigned tinyint",
 			value:      int8(-1),
-			expected:   int32(255),
+			expected:   int32(math.MaxUint8),
 		},
 
 		// ===== unsigned smallint: int16 bits read back as 0-65535, mapped to Int32 =====
 		{
 			name:       "unsigned smallint signed max",
 			columnType: "unsigned smallint",
-			value:      int16(32767),
-			expected:   int32(32767),
+			value:      int16(math.MaxInt16),
+			expected:   int32(math.MaxInt16),
 		},
 		{
 			name:       "unsigned smallint sign bit",
 			columnType: "unsigned smallint",
-			value:      int16(-32768),
-			expected:   int32(32768),
+			value:      int16(math.MinInt16),
+			expected:   int32(-math.MinInt16),
 		},
 		{
 			name:       "unsigned smallint max",
 			columnType: "unsigned smallint",
 			value:      int16(-1),
-			expected:   int32(65535),
+			expected:   int32(math.MaxUint16),
 		},
 
 		// ===== unsigned mediumint: 3-byte range, still mapped to Int32 =====
@@ -134,33 +134,33 @@ func TestDataTypeConverter(t *testing.T) {
 		{
 			name:       "unsigned int signed max",
 			columnType: "unsigned int",
-			value:      int32(2147483647),
-			expected:   int64(2147483647),
+			value:      int32(math.MaxInt32),
+			expected:   int64(math.MaxInt32),
 		},
 		{
 			name:       "unsigned int sign bit",
 			columnType: "unsigned int",
-			value:      int32(-2147483648),
-			expected:   int64(2147483648),
+			value:      int32(math.MinInt32),
+			expected:   int64(-math.MinInt32),
 		},
 		{
 			name:       "unsigned int max",
 			columnType: "unsigned int",
 			value:      int32(-1),
-			expected:   int64(4294967295),
+			expected:   int64(math.MaxUint32),
 		},
 		{
 			name:       "unsigned integer max",
 			columnType: "unsigned integer",
 			value:      int32(-1),
-			expected:   int64(4294967295),
+			expected:   int64(math.MaxUint32),
 		},
 		// column types arrive in mixed case from some code paths
 		{
 			name:       "unsigned int uppercase column type",
 			columnType: "UNSIGNED INT",
 			value:      int32(-1),
-			expected:   int64(4294967295),
+			expected:   int64(math.MaxUint32),
 		},
 
 		// ===== unsigned bigint: no int64 headroom left, so the bits survive as-is =====
@@ -170,7 +170,8 @@ func TestDataTypeConverter(t *testing.T) {
 			value:      int64(42),
 			expected:   int64(42),
 		},
-		// beyond MaxInt64 the value wraps back to its signed form: Int64 is the mapped type
+		// TODO: olake has no uint64 data type, so BIGINT UNSIGNED past MaxInt64 stays wrapped
+		// negative -- the cases below pin that loss, they are not the values MySQL stored
 		{
 			name:       "unsigned bigint above max int64",
 			columnType: "unsigned bigint",
@@ -188,8 +189,8 @@ func TestDataTypeConverter(t *testing.T) {
 		{
 			name:       "unsigned tinyint already uint8",
 			columnType: "unsigned tinyint",
-			value:      uint8(255),
-			expected:   int32(255),
+			value:      uint8(math.MaxUint8),
+			expected:   int32(math.MaxUint8),
 		},
 		// the server applies signedness itself on the backfill path, so values come back widened
 		// and correct and never reach the mask
@@ -202,8 +203,8 @@ func TestDataTypeConverter(t *testing.T) {
 		{
 			name:       "unsigned int already widened to int64",
 			columnType: "unsigned int",
-			value:      int64(4294967295),
-			expected:   int64(4294967295),
+			value:      int64(math.MaxUint32),
+			expected:   int64(math.MaxUint32),
 		},
 		{
 			name:       "unsigned bigint already uint64",
@@ -218,7 +219,7 @@ func TestDataTypeConverter(t *testing.T) {
 			columnType:   "unsigned tinyint",
 			value:        int8(-1),
 			stateVersion: intPtr(4),
-			expected:     int32(255),
+			expected:     int32(math.MaxUint8),
 		},
 		// v3 and below drop the unsigned prefix and keep the signed value
 		{
