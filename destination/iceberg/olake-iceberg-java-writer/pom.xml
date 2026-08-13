@@ -42,7 +42,7 @@
              own 1.67.x grpc modules that this does not reach -->
     <version.grpc>1.69.0</version.grpc>
     <!-- AWS SDK v2, managed by its BOM (AWS's documented pattern). -->
-    <version.awssdk>2.49.6</version.awssdk>
+    <version.awssdk>2.51.3</version.awssdk>
     <!-- iceberg-core 1.10.2 ships httpclient5 5.5, whose httpcore5 5.3.4 has
              CVE-2026-54399 (fixed in httpcore5 5.4.3). Bumping the parent client
              pulls the fixed core transitively; Apache Iceberg main pins this same
