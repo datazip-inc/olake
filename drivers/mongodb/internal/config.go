@@ -29,6 +29,11 @@ type Config struct {
 	AdditionalParams map[string]string `json:"additional_params"`
 }
 
+const (
+	AuthMechanismX509 = "MONGODB-X509"
+	AuthMechanismOIDC = "MONGODB-OIDC"
+)
+
 func (c *Config) URI() string {
 	connectionPrefix := "mongodb"
 	if c.Srv {
@@ -100,12 +105,11 @@ func (c *Config) Validate() error {
 		if c.Username == "" {
 			return fmt.Errorf("username is required")
 		}
-		if c.Password == "" {
-			return fmt.Errorf("password is required")
-		}
 		if c.AuthDB == "" {
 			return fmt.Errorf("authdb is required")
 		}
+		// Password is optional — staging allowed password-less URIs (X509, OIDC, username-only).
+		// MongoDB rejects at connect time if the mechanism actually needs a password.
 	}
 
 	if c.MaxThreads <= 0 {

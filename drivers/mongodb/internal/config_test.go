@@ -71,6 +71,40 @@ func TestConfig_URI(t *testing.T) {
 			},
 			wantURI: "mongodb://user:pass@mongo.example.com:27017/?authSource=admin&tls=true",
 		},
+		{
+			name: "x509 client cert auth has no password",
+			config: &Config{
+				Hosts:    []string{"mongo.internal:27017"},
+				AuthDB:   "$external",
+				Username: "CN=olake-client,OU=Data,O=Acme",
+				AdditionalParams: map[string]string{
+					"authMechanism": AuthMechanismX509,
+					"tls":           "true",
+				},
+			},
+			wantURI: "mongodb://CN=olake-client,OU=Data,O=Acme@mongo.internal:27017/?authMechanism=MONGODB-X509&authSource=%24external&tls=true",
+		},
+		{
+			name: "username without password",
+			config: &Config{
+				Hosts:    []string{"mongo.internal:27017"},
+				AuthDB:   "admin",
+				Username: "appuser",
+			},
+			wantURI: "mongodb://appuser@mongo.internal:27017/?authSource=admin",
+		},
+		{
+			name: "MONGODB-OIDC without password via additional_params",
+			config: &Config{
+				Hosts:    []string{"mongo.internal:27017"},
+				AuthDB:   "$external",
+				Username: "olake-oidc-client",
+				AdditionalParams: map[string]string{
+					"authMechanism": AuthMechanismOIDC,
+				},
+			},
+			wantURI: "mongodb://olake-oidc-client@mongo.internal:27017/?authMechanism=MONGODB-OIDC&authSource=%24external",
+		},
 	}
 
 	for _, tt := range tests {
@@ -165,6 +199,43 @@ func TestConfig_Validate(t *testing.T) {
 			wantMaxThreads: constants.DefaultThreadCount,
 			wantRetryCount: constants.DefaultRetryCount,
 			wantSSLMode:    utils.SSLModeDisable,
+		},
+		{
+			name: "x509 without password passes validate",
+			config: &Config{
+				Hosts:    []string{"mongo.internal:27017"},
+				Database: "analytics",
+				AuthDB:   "$external",
+				Username: "CN=olake-client,OU=Data,O=Acme",
+				AdditionalParams: map[string]string{
+					"authMechanism": AuthMechanismX509,
+					"tls":           "true",
+				},
+			},
+			expectErr: false,
+		},
+		{
+			name: "username without password passes validate",
+			config: &Config{
+				Hosts:    []string{"mongo.internal:27017"},
+				Database: "analytics",
+				AuthDB:   "admin",
+				Username: "appuser",
+			},
+			expectErr: false,
+		},
+		{
+			name: "MONGODB-OIDC without password passes validate",
+			config: &Config{
+				Hosts:    []string{"mongo.internal:27017"},
+				Database: "analytics",
+				AuthDB:   "$external",
+				Username: "olake-oidc-client",
+				AdditionalParams: map[string]string{
+					"authMechanism": AuthMechanismOIDC,
+				},
+			},
+			expectErr: false,
 		},
 	}
 
