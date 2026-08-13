@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - "master"
-    paths:
+    paths: &security-paths
       - '**/*.go'
       - '**/*.java'
       - '**/go.mod'
@@ -15,14 +15,7 @@ on:
   pull_request:
     branches:
       - "*"
-    paths:
-      - '**/*.go'
-      - '**/*.java'
-      - '**/go.mod'
-      - '**/*.yml'
-      - '**/*.yaml'
-      - '**/pom.xml'
-      - '**/.trivyignore'
+    paths: *security-paths
   workflow_dispatch:
     inputs:
       logLevel:
