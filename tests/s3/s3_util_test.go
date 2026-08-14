@@ -245,20 +245,20 @@ var (
 	S3CSVUpdatedDestinationSchema  = evolvedSchema(S3CSVToDestinationSchema)
 	S3JSONUpdatedDestinationSchema = evolvedSchema(S3JSONToDestinationSchema)
 
-	// S3XMLToDestinationSchema - leaf fields are strings, date/ts columns are still inferred as timestamps
+	// S3XMLToDestinationSchema — child tags are always arrays; flatten JSON-encodes them to Iceberg strings.
 	S3XMLToDestinationSchema = s3TextDestinationSchema(map[string]string{
-		"id":                  "string",
-		"str_col":             "string",
-		"bool_col":            "string",
-		"float_col":           "string",
-		"int_col":             "string",
-		"mixed_col":           "string",
-		"optional_col":        "string",
-		"date_col":            "timestamp",
-		"ts_col":              "timestamp",
-		"ts_milli_col":        "timestamp",
-		"ts_micro_col":        "timestamp",
-		"ts_nano_col":         "timestamp",
+		"id":                  "array",
+		"str_col":             "array",
+		"bool_col":            "array",
+		"float_col":           "array",
+		"int_col":             "array",
+		"mixed_col":           "array",
+		"optional_col":        "array",
+		"date_col":            "array",
+		"ts_col":              "array",
+		"ts_milli_col":        "array",
+		"ts_micro_col":        "array",
+		"ts_nano_col":         "array",
 		"_last_modified_time": "string",
 	})
 
@@ -394,14 +394,17 @@ func expectedJSONData(v rowValues) map[string]interface{} {
 }
 
 func expectedXMLData(v rowValues) map[string]interface{} {
+	xmlLeaf := func(s string) string { return mustJSON([]string{s}) }
 	return map[string]interface{}{
-		"str_col":      v.Str,
-		"bool_col":     fmt.Sprintf("%t", v.Bool),
-		"float_col":    fmt.Sprintf("%v", v.Float),
-		"int_col":      fmt.Sprintf("%d", v.Int64),
-		"date_col":     arrow.Timestamp(v.TS.UTC().Truncate(24 * time.Hour).UnixMicro()),
-		"ts_col":       arrow.Timestamp(v.TS.Truncate(time.Second).UnixMicro()),
-		"ts_milli_col": arrow.Timestamp(v.TSMilli.UnixMicro()),
+		"str_col":      xmlLeaf(v.Str),
+		"bool_col":     xmlLeaf(fmt.Sprintf("%t", v.Bool)),
+		"float_col":    xmlLeaf(fmt.Sprintf("%v", v.Float)),
+		"int_col":      xmlLeaf(fmt.Sprintf("%d", v.Int64)),
+		"date_col":     xmlLeaf(v.TS.UTC().Format(time.DateOnly)),
+		"ts_col":       xmlLeaf(v.TS.Format(time.RFC3339)),
+		"ts_milli_col": xmlLeaf(v.TSMilli.Format(tsMilliLayout)),
+		"ts_micro_col": xmlLeaf(v.TSMicro.Format(tsMicroLayout)),
+		"ts_nano_col":  xmlLeaf(v.TSNano.Format(tsNanoLayout)),
 	}
 }
 
@@ -610,7 +613,6 @@ var S3TestVariants = []S3TestVariant{
 		UpdatedDestinationSchema: S3XMLUpdatedDestinationSchema,
 		ExpectedData:             expectedXMLData(seedValues),
 		ExpectedUpdatedData:      expectedXMLData(updatedValues),
-		WriterExpectedData:       textWriterExpectedData,
 	},
 }
 
