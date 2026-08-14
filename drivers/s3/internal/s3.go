@@ -14,6 +14,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -51,14 +52,14 @@ func (s *S3) Type() string {
 func (s *S3) Setup(ctx context.Context) error {
 	// Validate configuration
 	if err := s.config.Validate(); err != nil {
-		return fmt.Errorf("failed to validate config: %s", err)
+		return fmt.Errorf("failed to validate config: %w", err)
 	}
 
 	// Compile file pattern regex if provided
 	if s.config.FilePattern != "" {
 		pattern, err := regexp.Compile(s.config.FilePattern)
 		if err != nil {
-			return fmt.Errorf("failed to compile file_pattern regex: %s", err)
+			return fmt.Errorf("failed to compile file_pattern regex: %w", err)
 		}
 		s.filePattern = pattern
 		logger.Infof("Using file pattern filter: %s", s.config.FilePattern)
@@ -80,7 +81,7 @@ func (s *S3) Setup(ctx context.Context) error {
 	// Test connection by checking if bucket exists and is accessible
 	logger.Infof("Testing connection to bucket: %s", s.config.BucketName)
 	if err := s.store.Check(ctx); err != nil {
-		return fmt.Errorf("failed to access bucket %s: %s", s.config.BucketName, err)
+		return fmt.Errorf("failed to access bucket %s: %w", s.config.BucketName, err)
 	}
 
 	logger.Info("Successfully connected to S3")
@@ -152,7 +153,7 @@ func (s *S3) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to list objects in bucket: %s", err)
+		return nil, fmt.Errorf("failed to list objects in bucket: %w", err)
 	}
 
 	logger.Infof("Completed S3 discovery: discovered %d files", totalDiscovered)
@@ -228,7 +229,8 @@ func (s *S3) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types
 	// Get files for this stream
 	files, exists := s.discoveredFiles[streamID.Name]
 	if !exists || len(files) == 0 {
-		return nil, fmt.Errorf("no files found for stream: %s", streamID.Name)
+		return nil, errs.Precondition(errs.ObjectNotFound, codeNoFilesForStream,
+			fmt.Errorf("no files found for stream: %s", streamID.Name))
 	}
 
 	// Create stream
@@ -250,11 +252,12 @@ func (s *S3) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types
 	case FormatParquet:
 		inferredStream, err = s.inferSchemaForParquet(ctx, firstFile, stream)
 	default:
-		return nil, fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
+		return nil, errs.Precondition(errs.ConfigInvalid, codeUnsupportedFileFormat,
+			fmt.Errorf("unsupported file format: %s", s.config.FileFormat))
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to infer schema: %s", err)
+		return nil, fmt.Errorf("failed to infer schema: %w", err)
 	}
 
 	// Add _last_modified_time as a cursor field for incremental sync
@@ -270,7 +273,7 @@ func (s *S3) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types
 func (s *S3) withFileReader(ctx context.Context, fileKey string, callback func(io.Reader) (*types.Stream, error)) (*types.Stream, error) {
 	reader, err := s.getFileReader(ctx, fileKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get file reader: %s", err)
+		return nil, fmt.Errorf("failed to get file reader: %w", err)
 	}
 	defer reader.Close()
 
@@ -282,7 +285,7 @@ func (s *S3) withFileReader(ctx context.Context, fileKey string, callback func(i
 func (s *S3) withParquetReader(ctx context.Context, fileKey string, fileSize int64, callback func(io.Reader) (*types.Stream, error)) (*types.Stream, error) {
 	parquetReader, parquetSize, err := s.getParquetReaderAt(ctx, fileKey, fileSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get Parquet reader: %s", err)
+		return nil, fmt.Errorf("failed to get Parquet reader: %w", err)
 	}
 	defer func() {
 		if closer, ok := parquetReader.(io.Closer); ok {
@@ -332,7 +335,7 @@ func (s *S3) getFileReader(ctx context.Context, key string) (io.ReadCloser, erro
 	reader, err := getDecompressedReader(body, key)
 	if err != nil {
 		body.Close()
-		return nil, fmt.Errorf("failed to create decompressed reader: %s", err)
+		return nil, fmt.Errorf("failed to create decompressed reader: %w", err)
 	}
 
 	return reader, nil
@@ -365,7 +368,7 @@ func (s *S3) getParquetReaderAt(ctx context.Context, key string, fileSize int64)
 
 	data, err := io.ReadAll(body)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read Parquet file: %s", err)
+		return nil, 0, fmt.Errorf("failed to read Parquet file: %w", err)
 	}
 
 	return bytes.NewReader(data), int64(len(data)), nil
@@ -381,7 +384,7 @@ func getDecompressedReader(body io.ReadCloser, key string) (io.ReadCloser, error
 	if strings.HasSuffix(lowerKey, ".gz") {
 		gzipReader, err := gzip.NewReader(body)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create gzip reader: %s", err)
+			return nil, fmt.Errorf("failed to create gzip reader: %w", err)
 		}
 		logger.Debugf("Using gzip decompression for file: %s", key)
 		// gzip.Reader.Close does not close the underlying body; close both

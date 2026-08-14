@@ -7,11 +7,13 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
@@ -153,4 +155,52 @@ func init() {
 	if err != nil {
 		logger.Fatal(err)
 	}
+}
+
+// telemetryFlushTimeout bounds how long a failing command waits for its report to leave the
+// process. Long enough for one HTTP round trip, short enough that a hung endpoint does not
+// noticeably delay an exit that is already reporting a failure.
+const telemetryFlushTimeout = 5 * time.Second
+
+// ReportFailure classifies a failed run, reports it, and waits for the report to be
+// delivered.
+//
+// The wait is the point. check and discover leave through logger.Fatal, which calls
+// os.Exit, and telemetry hands events to a background sender — so without flushing here the
+// event is built and then discarded as the process dies. sync only reported anything today
+// because of an unrelated five-second sleep in its defer.
+func ReportFailure(err error) {
+	if err == nil {
+		return
+	}
+	// Classified here rather than inside each command, because this is the only point every
+	// failure reaches. A command's RunE misses anything raised in its PreRunE hooks — where
+	// the config is read and decrypted — and spec and clear-destination have no classifying
+	// wrapper of their own at all.
+	f := errs.From(errs.Classify(err))
+
+	if telemetry.Disabled() {
+		return
+	}
+	// The connector name comes straight off the driver, which is the only thing that knows
+	// it: build.sh consumes "driver-postgres" to choose a binary and the process only sees
+	// ["./olake" "sync" ...], and in Docker the identity is in the image name. Whether a
+	// better source exists is worth revisiting; connector is set before any command runs,
+	// so the nil check is only so a report can never panic.
+	connectorName := ""
+	if connector != nil {
+		connectorName = connector.Type()
+	}
+	telemetry.TrackFailure(executedCommand(), connectorName, f)
+	telemetry.Flush(telemetryFlushTimeout)
+}
+
+// executedCommand names the subcommand that ran, for reporting. Asking cobra keeps it
+// correct when flags precede the command.
+func executedCommand() string {
+	cmd, _, err := RootCmd.Find(os.Args[1:])
+	if err != nil || cmd == nil || cmd == RootCmd {
+		return "unknown"
+	}
+	return cmd.Name()
 }

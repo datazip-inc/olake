@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/goccy/go-json"
 	"github.com/oklog/ulid"
@@ -167,25 +168,33 @@ func CheckIfFilesExists(files ...string) error {
 // }
 
 func UnmarshalFile(file string, dest any, credsFile bool) error {
+	// These three are the failures a user actually hits when a run will not start, so they
+	// are classified where they happen: nothing further up can tell a missing file from an
+	// unreadable one from a wrong encryption key.
 	if err := CheckIfFilesExists(file); err != nil {
-		return err
+		return errs.Precondition(errs.ConfigInvalid, "config.file_unreadable", err)
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {
-		return fmt.Errorf("file not found : %s", err)
+		return errs.Precondition(errs.ConfigInvalid, "config.file_unreadable",
+			fmt.Errorf("file not found : %w", err))
 	}
 	decryptedJSON := data
 	// Use the encryption package to decrypt JSON
 	if credsFile && viper.GetString(constants.EncryptionKey) != "" {
 		dConfig, err := Decrypt(string(data))
 		if err != nil {
-			return fmt.Errorf("failed to decrypt config file[%s]: %s", file, err)
+			// A wrong or missing --encryption-key, not a malformed config: the file is
+			// fine, the platform handed us the wrong key.
+			return errs.Precondition(errs.ConfigDecryptFailed, "config.decrypt_failed",
+				fmt.Errorf("failed to decrypt config file[%s]: %w", file, err))
 		}
 		decryptedJSON = []byte(dConfig)
 	}
 	err = json.Unmarshal(decryptedJSON, dest)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal file[%s]: %s", file, err)
+		return errs.Precondition(errs.ConfigInvalid, "config.malformed_json",
+			fmt.Errorf("failed to unmarshal file[%s]: %w", file, err))
 	}
 	return nil
 }

@@ -26,6 +26,8 @@ type StreamClassification struct {
 	IncrementalStreams []types.StreamInterface
 	FullLoadStreams    []types.StreamInterface
 	NewStreamsState    []*types.StreamState
+	// Mix is telemetry-only: the stream breakdown of this run, counted alongside the classification itself.
+	Mix types.StreamMix
 }
 
 // syncCmd represents the read command
@@ -102,7 +104,7 @@ var syncCmd = &cobra.Command{
 		// get all types of selected streams
 		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
 		if err != nil {
-			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
+			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
 
 		if streams == nil {
@@ -117,10 +119,10 @@ var syncCmd = &cobra.Command{
 			// get the state for modification in clearstate
 			connector.SetupState(state)
 			if state, err = connector.ClearState(dropStreams); err != nil {
-				return fmt.Errorf("error clearing state for full refresh streams: %s", err)
+				return fmt.Errorf("error clearing state for full refresh streams: %w", err)
 			}
 			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
-				return fmt.Errorf("failed to clear destination: %s", cerr)
+				return fmt.Errorf("failed to clear destination: %w", cerr)
 			}
 		}
 
@@ -151,10 +153,10 @@ var syncCmd = &cobra.Command{
 
 		// Added this check to avoid the sleep when tracking telemetry is disabled
 		if !telemetry.Disabled() {
-			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
+			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.Mix, connector.Type(), destinationConfig, len(catalog.Streams))
 			defer func() {
 				stats := pool.GetStats()
-				telemetry.TrackSyncCompleted(syncID, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
+				telemetry.TrackSyncCompleted(syncID, selectedStreamsMetadata.Mix, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
 				logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 				time.Sleep(5 * time.Second)
 			}()
@@ -164,7 +166,7 @@ var syncCmd = &cobra.Command{
 		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
 		stopRead()
 		if err != nil {
-			return fmt.Errorf("error occurred while reading records: %s", err)
+			return fmt.Errorf("error occurred while reading records: %w", err)
 		}
 
 		state.LogWithLock()
@@ -258,20 +260,37 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		}
 
 		classifications.SelectedStreams = append(classifications.SelectedStreams, elem.ID())
+		// Counted here, past every skip branch above, so the mix describes the streams
+		// this run actually syncs rather than everything the catalog configured.
+		classifications.Mix.Selected++
+		if elem.StreamMetadata.Normalization {
+			classifications.Mix.Normalized++
+		}
+		if elem.StreamMetadata.PartitionRegex != "" {
+			classifications.Mix.Partitioned++
+		}
 		switch elem.Stream.SyncMode {
 		case types.CDC, types.STRICTCDC:
+			// Both modes share one read path, so they stay in one bucket for the sync while being counted apart for telemetry.
+			if elem.Stream.SyncMode == types.STRICTCDC {
+				classifications.Mix.StrictCDC++
+			} else {
+				classifications.Mix.CDC++
+			}
 			classifications.CDCStreams = append(classifications.CDCStreams, elem)
 			streamState, exists := stateStreamMap[elem.ID()]
 			if exists {
 				classifications.NewStreamsState = append(classifications.NewStreamsState, streamState)
 			}
 		case types.INCREMENTAL:
+			classifications.Mix.Incremental++
 			classifications.IncrementalStreams = append(classifications.IncrementalStreams, elem)
 			streamState, exists := stateStreamMap[elem.ID()]
 			if exists {
 				classifications.NewStreamsState = append(classifications.NewStreamsState, streamState)
 			}
 		default:
+			classifications.Mix.FullRefresh++
 			classifications.FullLoadStreams = append(classifications.FullLoadStreams, elem)
 		}
 
