@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/pkg/parser"
+	"github.com/datazip-inc/olake/drivers/s3/internal/pkg/parser"
 )
 
 // FileFormat represents the format of files in S3
