@@ -398,8 +398,8 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
-// TODO: olake has no uint64 data type, so the id_bigint_unsigned_* expectations here and in
-// ExpectedUpdatedData are wrapped negative past MaxInt64: 2^63 -> MinInt64, 2^64-1 -> -1.
+// TODO: olake has no uint64 data type, so the id_bigint_unsigned_* values past MaxInt64 pin what
+// olake writes today, not what MySQL stored.
 var ExpectedMySQLData = map[string]interface{}{
 	"id_bigint":             int64(123456789012345),
 	"id_int":                int32(100),
@@ -421,8 +421,8 @@ var ExpectedMySQLData = map[string]interface{}{
 	"id_mediumint_unsigned_signbit": int32(8388608),
 	"id_int_unsigned_max":           int64(4294967295),
 	"id_bigint_unsigned":            int64(5003),
-	"id_bigint_unsigned_signbit":    int64(math.MinInt64),
-	"id_bigint_unsigned_max":        int64(-1),
+	"id_bigint_unsigned_signbit":    int64(math.MinInt64), // should be 9223372036854775808 (2^63)
+	"id_bigint_unsigned_max":        int64(-1),            // should be 18446744073709551615 (2^64-1)
 	"price_decimal":                 float64(123.45),
 	"amount_decimal_9_2":            float64(5330197.27),
 	"price_double":                  float64(123.456),
@@ -451,6 +451,8 @@ var ExpectedMySQLData = map[string]interface{}{
 	"permissions":                   "read,write",
 }
 
+// TODO: olake has no uint64 data type, so the id_bigint_unsigned_* values past MaxInt64 pin what
+// olake writes today, not what MySQL stored.
 var ExpectedUpdatedData = map[string]interface{}{
 	"id_bigint":                     int64(987654321098765),
 	"id_int":                        int64(200),
@@ -469,8 +471,8 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"id_mediumint_unsigned_signbit": int32(8388609),
 	"id_int_unsigned_max":           int64(4294967294),
 	"id_bigint_unsigned":            int64(6003),
-	"id_bigint_unsigned_signbit":    int64(math.MinInt64 + 1),
-	"id_bigint_unsigned_max":        int64(-2),
+	"id_bigint_unsigned_signbit":    int64(math.MinInt64 + 1), // should be 9223372036854775809 (2^63+1)
+	"id_bigint_unsigned_max":        int64(-2),                // should be 18446744073709551614 (2^64-2)
 	"price_decimal":                 float64(543.21),
 	"amount_decimal_9_2":            float64(1234567.89),
 	"price_double":                  float64(654.321),

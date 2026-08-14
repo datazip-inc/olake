@@ -173,12 +173,14 @@ func TestDataTypeConverter(t *testing.T) {
 		// TODO: olake has no uint64 data type, so BIGINT UNSIGNED past MaxInt64 stays wrapped
 		// negative -- the cases below pin that loss, they are not the values MySQL stored
 		{
+			// should be uint64(math.MaxUint64): these bits are BIGINT UNSIGNED's 2^64-1
 			name:       "unsigned bigint above max int64",
 			columnType: "unsigned bigint",
 			value:      int64(-1),
 			expected:   int64(-1),
 		},
 		{
+			// should be uint64(1<<63): the sign bit alone is 2^63, the midpoint of the range
 			name:       "unsigned bigint min int64",
 			columnType: "unsigned bigint",
 			value:      int64(math.MinInt64),
@@ -207,6 +209,7 @@ func TestDataTypeConverter(t *testing.T) {
 			expected:   int64(math.MaxUint32),
 		},
 		{
+			// should be uint64(math.MaxUint64): the value arrives correct and only the cast loses it
 			name:       "unsigned bigint already uint64",
 			columnType: "unsigned bigint",
 			value:      uint64(math.MaxUint64),
