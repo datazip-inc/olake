@@ -215,20 +215,6 @@ var (
 		List:      []string{"x", "y"},
 	}
 
-	// ExpectedCSVS3Data and ExpectedUpdatedCSVS3Data are the values every synced row of
-	// the CSV variant must carry; the JSON pair is the same for the JSON variant. "id"
-	// varies per row and is not asserted.
-	ExpectedCSVS3Data        = expectedCSVData(seedValues)
-	ExpectedUpdatedCSVS3Data = expectedCSVData(updatedValues)
-
-	ExpectedJSONS3Data        = expectedJSONData(seedValues)
-	ExpectedUpdatedJSONS3Data = expectedJSONData(updatedValues)
-
-	// ExpectedParquetS3Data and ExpectedUpdatedParquetS3Data are the same for the Parquet
-	// variant, which carries the full type matrix rather than the shared text columns.
-	ExpectedParquetS3Data        = expectedParquetData(seedValues)
-	ExpectedUpdatedParquetS3Data = expectedParquetData(updatedValues)
-
 	// S3CSVToDestinationSchema and S3JSONToDestinationSchema are the expected destination
 	// schemas for the two text variants, whose parsers infer every number as double. They
 	// share the text columns and differ where the formats do: only CSV can carry an
@@ -508,6 +494,9 @@ type S3TestVariant struct {
 	// ExpectedData/ExpectedUpdatedData by applyWriterExpectations; nil when every column
 	// of the variant syncs identically across destinations.
 	WriterExpectedData func(v rowValues, writer s3DestinationWriter) map[string]interface{}
+	// ParquetStreaming is the parquet.streaming_enabled value every sync of the variant
+	// runs with; meaningful only when DataFormat is "parquet" (see applyParquetStreamingMode).
+	ParquetStreaming bool
 }
 
 // S3TestVariants lists every source format covered by TestS3Integration.
@@ -521,8 +510,8 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedCSVFile,
 		DestinationSchema:        S3CSVToDestinationSchema,
 		UpdatedDestinationSchema: S3CSVUpdatedDestinationSchema,
-		ExpectedData:             ExpectedCSVS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedCSVS3Data,
+		ExpectedData:             expectedCSVData(seedValues),
+		ExpectedUpdatedData:      expectedCSVData(updatedValues),
 		WriterExpectedData:       textWriterExpectedData,
 	},
 	{
@@ -534,9 +523,23 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedJSONLFile,
 		DestinationSchema:        S3JSONToDestinationSchema,
 		UpdatedDestinationSchema: S3JSONUpdatedDestinationSchema,
-		ExpectedData:             ExpectedJSONS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedJSONS3Data,
+		ExpectedData:             expectedJSONData(seedValues),
+		ExpectedUpdatedData:      expectedJSONData(updatedValues),
 		WriterExpectedData:       textWriterExpectedData,
+	},
+	{
+		// Identical to Parquet except streaming_enabled=false: every sync loads whole files
+		// into memory. Listed first so the suite ends at the committed streaming=true.
+		Name:                     "ParquetInMemory",
+		DataFormat:               "parquet",
+		PlainExt:                 ".parquet",
+		BuildFile:                buildParquetFile,
+		BuildEvolvedFile:         buildEvolvedParquetFile,
+		DestinationSchema:        S3ParquetToDestinationSchema,
+		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
+		ExpectedData:             expectedParquetData(seedValues),
+		ExpectedUpdatedData:      expectedParquetData(updatedValues),
+		WriterExpectedData:       parquetWriterExpectedData,
 	},
 	{
 		// The driver's file matcher recognizes no gzip variant for Parquet, so this stream
@@ -548,9 +551,10 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedParquetFile,
 		DestinationSchema:        S3ParquetToDestinationSchema,
 		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
-		ExpectedData:             ExpectedParquetS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedParquetS3Data,
+		ExpectedData:             expectedParquetData(seedValues),
+		ExpectedUpdatedData:      expectedParquetData(updatedValues),
 		WriterExpectedData:       parquetWriterExpectedData,
+		ParquetStreaming:         true,
 	},
 }
 
@@ -645,6 +649,28 @@ func (v S3TestVariant) applyWriterExpectations(t *testing.T, config *testutils.T
 	maps.Copy(v.ExpectedUpdatedData, v.WriterExpectedData(updatedValues, writer))
 }
 
+// applyParquetStreamingMode pins parquet.streaming_enabled in this config's source.json
+func (v S3TestVariant) applyParquetStreamingMode(t *testing.T, config *testutils.TestConfig) {
+	t.Helper()
+	if v.DataFormat != "parquet" {
+		return
+	}
+
+	path := config.HostSourcePath
+	data, err := os.ReadFile(path)
+	require.NoError(t, err, "failed to read %s", path)
+
+	want := fmt.Sprintf(`"streaming_enabled": %t`, v.ParquetStreaming)
+	if bytes.Contains(data, []byte(want)) {
+		return
+	}
+	stale := fmt.Sprintf(`"streaming_enabled": %t`, !v.ParquetStreaming)
+	require.Contains(t, string(data), stale, "%s lost its streaming_enabled key", path)
+	data = bytes.ReplaceAll(data, []byte(stale), []byte(want))
+	require.NoError(t, os.WriteFile(path, data, 0o600), "failed to write %s", path)
+	t.Logf("parquet source streaming_enabled=%t for upcoming syncs", v.ParquetStreaming)
+}
+
 // ExecuteQueryFactory returns the harness ExecuteQuery hook for one S3 format variant.
 // Unlike database drivers, operations here manage files in the shared source bucket under
 // the variant's path prefix: "create" ensures the bucket exists, "add" seeds the stream,
@@ -656,8 +682,9 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 
 		// Every destination block starts by re-seeding the source through this hook, so
 		// refreshing the expectations here keeps them aligned with whichever writer the
-		// harness pointed the destination at since the last operation.
+		// harness toggled the destination to since the last operation.
 		variant.applyWriterExpectations(t, conf)
+		variant.applyParquetStreamingMode(t, conf)
 
 		src := variant.source(t)
 		prefix := src.prefix + "/" + testutils.TestTableName(conf) + "/"
@@ -666,8 +693,8 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 		case "drop-all":
 			// Everything under the variant's path prefix, not just this stream's folder:
 			// discover enumerates one stream per folder, so a folder an aborted run left
-			// behind would show up as an extra stream. Variants own disjoint prefixes
-			// (see each testdata/<format>/source.json), so this never crosses variants.
+			// behind would show up as an extra stream. Safe only in the serial discover
+			// suite -- variants sharing a DataFormat share this prefix (see TestDiscover).
 			src.removeUnder(ctx, t, src.prefix+"/")
 
 		case "create":

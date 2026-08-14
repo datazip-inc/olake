@@ -104,11 +104,22 @@ func applySuite(t *testing.T, c *TestConfig, suite string) {
 	if suite == "" {
 		return
 	}
-	c.Suite = suite
+	c.Suite = strings.ToLower(suite)
 	if edit := variantSourceOverride(c); edit != nil {
 		require.NoError(t, editJSONFile(c.HostSourcePath, edit),
 			"failed to derive the source config for suite %q", suite)
 	}
+}
+
+// IsolateSuite scopes a whole test to a concurrent suite: its table and namespace names, and the
+// DestinationDB verify and drop target, all pick up the suite the sync will write under.
+func (cfg *IntegrationTest) IsolateSuite(t *testing.T, suite string) {
+	t.Helper()
+	if suite == "" {
+		return
+	}
+	applySuite(t, cfg.TestConfig, suite)
+	cfg.DestinationDB = withSuite(cfg.DestinationDB, cfg.TestConfig.Suite)
 }
 
 // copyJSONWithEdit reads the JSON at srcHost, applies edit, and writes the result to dstHost --
@@ -1441,10 +1452,7 @@ func seedCatalog(cfg *TestConfig) error {
 // independently of the happy-path integration tests, allowing them to be scheduled and
 // reported separately.
 func (cfg *IntegrationTest) Test2PCIntegration(t *testing.T) {
-	applySuite(t, cfg.TestConfig, "2pc")
-	// Match the per-suite destination_database seedCatalogFromTestStreams appends, so verify/drop
-	// target the namespace the sync actually wrote to.
-	cfg.DestinationDB = withSuite(cfg.DestinationDB, cfg.TestConfig.Suite)
+	cfg.IsolateSuite(t, "2pc")
 	ctx := t.Context()
 	cfg.ExecuteQuery = timedExecuteQuery(cfg.TestConfig.Driver, cfg.ExecuteQuery)
 
@@ -1606,10 +1614,7 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 
 // TestRebalance runs the Kafka consumer-group rebalance recovery integration test in an isolated container.
 func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
-	applySuite(t, cfg.TestConfig, "rebalance")
-	// Suffix the destination namespace to match the seed's per-suite destination_database, as
-	// Test2PCIntegration does.
-	cfg.DestinationDB = withSuite(cfg.DestinationDB, cfg.TestConfig.Suite)
+	cfg.IsolateSuite(t, "rebalance")
 	ctx := t.Context()
 
 	t.Logf("Root Project directory: %s", cfg.TestConfig.HostRootPath)
