@@ -667,7 +667,12 @@ func (v S3TestVariant) applyParquetStreamingMode(t *testing.T, config *testutils
 	stale := fmt.Sprintf(`"streaming_enabled": %t`, !v.ParquetStreaming)
 	require.Contains(t, string(data), stale, "%s lost its streaming_enabled key", path)
 	data = bytes.ReplaceAll(data, []byte(stale), []byte(want))
-	require.NoError(t, os.WriteFile(path, data, 0o600), "failed to write %s", path)
+
+	// Written through an os.Root scoped to the config dir, so the write cannot address a file outside it.
+	root, err := os.OpenRoot(filepath.Dir(path))
+	require.NoError(t, err, "failed to open %s", filepath.Dir(path))
+	defer func() { _ = root.Close() }()
+	require.NoError(t, root.WriteFile(filepath.Base(path), data, 0o600), "failed to write %s", path)
 	t.Logf("parquet source streaming_enabled=%t for upcoming syncs", v.ParquetStreaming)
 }
 

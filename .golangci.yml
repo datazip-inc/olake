@@ -128,6 +128,12 @@ linters:
         linters:
           - mnd
 
+      # Fixture connection strings in test tables spell out fake credentials
+      - path: _test\.go
+        linters:
+          - gosec
+        text: "G101:"
+
       # https://github.com/go-critic/go-critic/issues/926
       - linters:
           - gocritic
