@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -40,6 +41,19 @@ type Telemetry struct {
 
 var telemetry *Telemetry
 
+var (
+	disabledOnce sync.Once
+	disabled     bool
+)
+
+// Disabled reports whether telemetry is turned off via the TELEMETRY_DISABLED env var.
+func Disabled() bool {
+	disabledOnce.Do(func() {
+		disabled, _ = strconv.ParseBool(os.Getenv("TELEMETRY_DISABLED"))
+	})
+	return disabled
+}
+
 type platformInfo struct {
 	OS           string
 	Arch         string
@@ -56,8 +70,7 @@ type LocationInfo struct {
 func Init() {
 	go func() {
 		// check for disable
-		disabled, _ := strconv.ParseBool(viper.GetString("TELEMETRY_DISABLED"))
-		if disabled {
+		if Disabled() {
 			return
 		}
 		ip := getOutboundIP()
@@ -135,7 +148,7 @@ func TrackSyncStarted(syncID string, selectedStreams []string, fullLoadStreams, 
 	}()
 }
 
-func TrackSyncCompleted(syncID string, status bool, records int64) {
+func TrackSyncCompleted(syncID string, status bool, records, bytesRead int64) {
 	go func() {
 		if telemetry == nil {
 			return
@@ -145,6 +158,7 @@ func TrackSyncCompleted(syncID string, status bool, records int64) {
 			"sync_end":       time.Now(),
 			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
 			"records_synced": records,
+			"bytes_read":     bytesRead,
 		}
 
 		if err := telemetry.sendEvent("Sync Completed - CLI", props); err != nil {

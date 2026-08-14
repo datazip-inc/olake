@@ -26,13 +26,45 @@ const MongoDBUISchema = `{
         { "read_preference": 12, "srv": 12 },
         { "max_threads": 12, "backoff_retry_count": 12 },
         { "chunking_strategy": 12, "use_iam": 12 },
-        { "additional_params": 12, "ssh_config": 12 }
+        { "ssl": 12, "additional_params": 12 },
+        { "ssh_config": 12 }
     ],
     "srv": {
         "ui:widget": "boolean"
     },
     "use_iam": {
         "ui:widget": "boolean"
+    },
+    "ssl": {
+        "ui:options": {
+            "title": false, "label": false, "description": false
+        },
+        "ui:grid": [
+            { "mode": 24 },
+            { "server_ca": 24 },
+            { "client_cert": 12, "client_key": 12 }
+        ],
+        "mode": {
+            "ui:widget": "select"
+        },
+        "server_ca": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_cert": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_key": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        }
     },
     "hosts": {
         "ui:options": {
@@ -435,7 +467,8 @@ const ParquetUISchema = `{
     "ui:grid": [
       { "s3_bucket": 12, "s3_region": 12 },
       { "s3_endpoint": 12, "s3_access_key": 12 },
-      { "s3_secret_key": 12, "s3_path": 12 }
+      { "s3_secret_key": 12, "s3_path": 12 },
+      { "max_file_size_mb": 12 }
     ],
     "ui:options": {
       "label": false
@@ -449,22 +482,35 @@ const IcebergUISchema = `{
   },
   "writer": {
     "ui:grid": [
-      { "catalog_type": 12, "catalog_name": 12 },
-      { "rest_catalog_url": 12, "hive_uri": 12 },
-      { "jdbc_url": 12, "jdbc_username": 12, "jdbc_password": 12 },
-      { "iceberg_s3_path": 12, "hive_clients": 12 },
-      { "s3_use_ssl": 12, "hive_sasl_enabled": 12 },
-      { "s3_path_style": 12, "rest_auth_type": 12 },
-      { "token": 12, "oauth2_uri": 12 },
-      { "credential": 12, "no_identifier_fields": 12 },
-      { "rest_signing_name": 12, "rest_signing_region": 12 },
-      { "rest_signing_v_4": 12, "scope": 12, "s3_endpoint": 12 },
+      { "catalog_type": 12, "rest_auth_type": 12 },
+      { "catalog_name": 12, "rest_catalog_url": 12 }, 
+      { "jdbc_url": 24},
+      { "jdbc_username": 12, "jdbc_password": 12},
+      { "hive_uri": 12, "hive_clients": 12 },
+      { "hive_sasl_enabled": 24 }, 
+      { "iceberg_s3_path": 12, "s3_endpoint": 12},
+      { "credential": 12, "oauth2_uri": 12 },
+      { "scope": 12, "token": 12 },
+      { "no_identifier_fields": 24 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
-      { "aws_region": 12, "glue_additional_config": 12 },
-	 { "glue_catalog_id": 12, "glue_access_key": 12, "glue_secret_key": 12 },
-      { "glue_endpoint": 12, "glue_region": 12 },
-      { "arrow_writes": 12 }
+      { "aws_region": 12, "s3_path_style": 12 },
+      { "s3_use_ssl": 12 },
+      { "rest_signing_name": 12, "rest_signing_region": 12 },
+      { "rest_signing_v_4": 24 },
+      { "gcp_service_account_json": 12, "gcp_auth_scopes": 12 },
+      { "gcp_project_id": 12 },
+      { "glue_additional_config": 24 },
+      { "glue_catalog_id": 12, "glue_endpoint": 12},
+	    { "glue_access_key": 12, "glue_secret_key": 12 }, 
+      { "glue_region": 12 },
+      { "arrow_writes": 24 }
     ],
+    "gcp_service_account_json": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 1
+      }
+    },
     "no_identifier_fields": {
       "ui:widget": "boolean"
     },
@@ -491,7 +537,13 @@ const IcebergUISchema = `{
         "AWS Glue",
         "JDBC",
         "Hive",
-        "REST"
+        "Generic REST",
+        "Lakekeeper",
+        "Nessie",
+        "S3 Tables",
+        "Unity",
+        "Polaris",
+        "Big Lake"
       ]
     },
     "ui:options": {

@@ -1,0 +1,15 @@
+go 1.25.13
+
+toolchain go1.25.13
+
+use (
+	./db2
+	./kafka
+	./mongodb
+	./mssql
+	./mysql
+	./oracle
+	./postgres
+	./s3
+	./testutils
+)

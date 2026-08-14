@@ -19,7 +19,6 @@ const (
 	OlakeID                = "_olake_id"
 	OlakeTimestamp         = "_olake_timestamp"
 	OpType                 = "_op_type"
-	CdcTimestamp           = "_cdc_timestamp"
 	StringifiedData        = "data"
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
@@ -52,8 +51,15 @@ const (
 	// ~10 sample points to pick a boundary from, producing even spacing even when
 	// blocks/pages are clustered (e.g. freshly inserted rows land on adjacent pages).
 	SampleRowsPerChunkMultiplier = int64(10)
+
+	// CdcTimestamp is the column name olake writes the CDC event timestamp into.
+	CdcTimestamp = "_cdc_timestamp"
+
+	// MaxDestinationBatchBytes is the maximum source bytes held in a writer thread buffer before flush.
+	MaxDestinationBatchBytes = int64(1) * 1024 * 1024 * 1024 // 1 GB
 )
 
+// DriverType identifies a source/destination driver.
 type DriverType string
 
 const (
@@ -74,7 +80,16 @@ var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
 var ErrGlobalContextGroup = fmt.Errorf("global context group error")
-var SkipCDCDrivers = []DriverType{Oracle, DB2}
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
+
+var RESTCatalogs = []string{
+	"rest",
+	"lakekeeper",
+	"nessie",
+	"s3tables",
+	"unity",
+	"polaris",
+	"biglake",
+}

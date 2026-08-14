@@ -98,7 +98,7 @@ type MongoSSHDialer struct {
 	sshClient *ssh.Client
 }
 
-func (d *MongoSSHDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+func (d *MongoSSHDialer) DialContext(ctx context.Context, _, address string) (net.Conn, error) {
 	if d.sshClient == nil {
 		return nil, fmt.Errorf("SSH client is not initialized")
 	}
@@ -124,6 +124,9 @@ func (m *Mongo) CDCSupported() bool {
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {
+	if err := m.config.Validate(); err != nil {
+		return fmt.Errorf("failed to validate config: %s", err)
+	}
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
@@ -137,12 +140,21 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 
 	opts.ApplyURI(m.config.URI())
+	tlsConfig, err := m.config.buildTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build tls config: %s", err)
+	}
+	if tlsConfig != nil {
+		opts.SetTLSConfig(tlsConfig)
+	}
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}
-	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
+	if maxPoolSize := m.config.MaxThreads; maxPoolSize > 0 {
+		opts.SetMaxPoolSize(uint64(maxPoolSize))
+	}
 	connectCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
@@ -247,7 +259,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 		}
 
-		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, _ int) error {
 			cursor, err := collection.Find(ctx, bson.D{}, findOpt)
 			if err != nil {
 				return err
@@ -280,7 +292,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamID.Name, err)
 	}
 	// Add all discovered fields as potential cursor fields
-	stream.Schema.Properties.Range(func(key, value interface{}) bool {
+	stream.Schema.Properties.Range(func(key, _ interface{}) bool {
 		if fieldName, ok := key.(string); ok {
 			stream.WithCursorField(fieldName)
 		}

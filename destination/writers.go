@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -31,6 +32,7 @@ type (
 		ReadCount          atomic.Int64 // records that got read
 		RecordsFiltered    atomic.Int64 // records that got filtered
 		ThreadCount        atomic.Int64 // total number of writer threads
+		BytesRead          atomic.Int64 // source bytes read (added live per record via Push, rolled back on chunk/run failure)
 	}
 
 	WriterPool struct {
@@ -50,6 +52,15 @@ type (
 		batchSize      int64
 		streamArtifact *writerSchema
 		group          *utils.CxGroup
+		// recordsPushed / recordsFiltered / bytesPushed track this thread's own
+		// contribution to the pool-wide ReadCount / RecordsFiltered / BytesRead
+		// stats. The stats are updated live as records are read; if the chunk/run
+		// fails (or is retried), Close rolls these contributions back so the stats —
+		// and the RPS derived from them — reflect only committed data.
+		recordsPushed   atomic.Int64
+		recordsFiltered atomic.Int64
+		bytesPushed     atomic.Int64
+		bufferBytes     int64 // source bytes currently held in buffer (for byte-based flush)
 	}
 )
 
@@ -96,7 +107,10 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 		batchSize:  batchSize,
 	}
 
-	if err := adapter.Check(ctx); err != nil {
+	stopCheck := logger.TrackTiming("destination", "check")
+	err = adapter.Check(ctx)
+	stopCheck()
+	if err != nil {
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
@@ -183,7 +197,11 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	}, prevStreamState, nil
 }
 
-func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error {
+// Push appends a record to the thread buffer and updates the live stats. sourceBytes
+// is the record's source read size (0 if the driver does not report it). Buffer batching
+// flushes when buffered source bytes would exceed MaxDestinationBatchBytes. sourceBytes
+// is added live to stats and rolled back by Close if the chunk/run fails (see rollbackStats).
+func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, sourceBytes int64) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -192,11 +210,18 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord) error 
 		return wt.group.Block()
 	default:
 		wt.stats.ReadCount.Add(1)
+		wt.recordsPushed.Add(1)
+		if sourceBytes != 0 {
+			wt.stats.BytesRead.Add(sourceBytes)
+			wt.bytesPushed.Add(sourceBytes)
+		}
 		wt.buffer = append(wt.buffer, record)
-		if len(wt.buffer) >= int(wt.batchSize) {
+		wt.bufferBytes += sourceBytes
+		if len(wt.buffer) >= int(wt.batchSize) || wt.bufferBytes >= constants.MaxDestinationBatchBytes {
 			buf := make([]types.RawRecord, len(wt.buffer))
 			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
+			wt.bufferBytes = 0
 			wt.group.Add(func(ctx context.Context) error {
 				return wt.flush(ctx, buf)
 			})
@@ -227,7 +252,9 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	if err != nil {
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
-	wt.stats.RecordsFiltered.Add(int64(recordsCountBeforeFiltering - len(buf)))
+	filtered := int64(recordsCountBeforeFiltering - len(buf))
+	wt.stats.RecordsFiltered.Add(filtered)
+	wt.recordsFiltered.Add(filtered)
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
 		wt.streamArtifact.mu.Lock()
@@ -249,23 +276,54 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	return nil
 }
 
-func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
+// rollbackStats removes this thread's live contribution to the pool-wide
+// read/filtered/byte counters. Called when the chunk/run does not commit (failure,
+// retry or abort) so the stats reflect only committed data and retried attempts are
+// not double-counted.
+func (wt *WriterThread) rollbackStats() {
+	wt.stats.ReadCount.Add(-wt.recordsPushed.Load())
+	wt.stats.RecordsFiltered.Add(-wt.recordsFiltered.Load())
+	wt.stats.BytesRead.Add(-wt.bytesPushed.Load())
+}
+
+func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) (err error) {
 	select {
-	case <-ctx.Done():
-		err := wt.writer.Close(ctx, finalMetadataState)
-		if err != nil {
-			return fmt.Errorf("failed to close writer: %s", err)
+	case <-closeCtx.Done():
+		// Wait for in-flight flushes so rollback below can't race their stat updates.
+		// Block's error is ctx cancellation that brought us here, so ignored.
+		_ = wt.group.Block()
+		// Aborted before commit: writer.Close releases resources without committing,
+		// so nothing this thread pushed reaches the destination — roll its stats back.
+		wt.rollbackStats()
+		if closeErr := wt.writer.Close(closeCtx, finalMetadataState); closeErr != nil {
+			return fmt.Errorf("failed to close writer: %s", closeErr)
 		}
 		return nil
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
+
+		// for canceling on flush error
+		ctx, cancel := context.WithCancel(closeCtx)
+		defer cancel()
+
 		defer func() {
+			if err != nil {
+				cancel()
+			}
+
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
 
-			closeErr := wt.writer.Close(ctx, finalMetadataState)
-			if closeErr != nil {
+			if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
+			}
+
+			// Commit is successful only when both the final flush and writer.Close (dest
+			// COMMIT) returned no error. All source bytes were already added live via
+			// Push, so success needs no action; on any failure roll back this thread's
+			// live read/filtered/byte stats so they count committed data only.
+			if err != nil {
+				wt.rollbackStats()
 			}
 		}()
 
@@ -276,6 +334,7 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 		if err := wt.group.Block(); err != nil {
 			return fmt.Errorf("failed to flush data while closing: %s", err)
 		}
+
 		return nil
 	}
 }

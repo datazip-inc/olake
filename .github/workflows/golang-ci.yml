@@ -22,12 +22,15 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version-file: "go.mod"
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+
+      - name: Cache driver external dependencies
+        uses: ./.github/actions/driver-deps
         with:
-          # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
-          version: latest
-          install-mode: goinstall
+          save: "true"
+
+      - name: golangci-lint
+        run: make olake.lint
+
   build-check:
     name: Build
     runs-on: ubuntu-latest
