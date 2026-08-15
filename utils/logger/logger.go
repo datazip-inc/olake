@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -241,7 +242,10 @@ func Init(s3Mode bool) {
 
 	if s3Mode {
 		// S3 jobs capture stdout; JSON matches olake.log format.
-		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+		var seq uint64
+		logger = zerolog.New(os.Stdout).Hook(zerolog.HookFunc(func(e *zerolog.Event, _ zerolog.Level, _ string) {
+			e.Uint64("seq", atomic.AddUint64(&seq, 1))
+		})).With().Timestamp().Logger()
 		return
 	}
 
