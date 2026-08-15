@@ -68,19 +68,31 @@ public class IcebergTableOperator {
    * only if it is told which files the deletes depend on.
    */
   final CharSequenceSet referencedDataFiles = CharSequenceSet.empty();
+  /**
+   * Delete files this commit supersedes. Only deletion vectors produce these: a data
+   * file may carry one vector, so publishing a new one for a file that already had it
+   * must retire the old, or the table ends up with two vectors for the same file.
+   */
+  final ArrayList<DeleteFile> rewrittenDeleteFiles = new ArrayList<>();
 
   public IcebergTableOperator(boolean upsert_records) {
     this(upsert_records, false);
   }
 
   public IcebergTableOperator(boolean upsert_records, boolean usePositionalDeletes) {
+    this(upsert_records, usePositionalDeletes ? DeleteMode.POSITION : DeleteMode.EQUALITY);
+  }
+
+  public IcebergTableOperator(boolean upsert_records, DeleteMode deleteMode) {
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
     writerFactory2.upsert = upsert_records;
-    writerFactory2.usePositionalDeletes = usePositionalDeletes;
+    writerFactory2.deleteMode = deleteMode;
+    writerFactory2.usePositionalDeletes = deleteMode.addressesPositions();
     this.allowFieldAddition = true;
     this.upsert = upsert_records;
-    this.usePositionalDeletes = usePositionalDeletes;
+    this.deleteMode = deleteMode;
+    this.usePositionalDeletes = deleteMode.addressesPositions();
     this.cdcOpField = "_op_type";
     this.cdcSourceTsMsField = "_cdc_timestamp";
   }
@@ -105,6 +117,7 @@ public class IcebergTableOperator {
   boolean allowFieldAddition;
   boolean upsert;
   boolean usePositionalDeletes;
+  DeleteMode deleteMode = DeleteMode.EQUALITY;
   /**
    * If given schema contains new fields compared to target table schema then it
    * adds new fields to target iceberg
@@ -183,6 +196,7 @@ public class IcebergTableOperator {
       LOGGER.info("No files to commit for thread: {}", threadId);
       filesToCommit.clear();
       referencedDataFiles.clear();
+      rewrittenDeleteFiles.clear();
       if (table.currentSnapshot() != null) {
         return table.currentSnapshot().snapshotId();
       }
@@ -231,6 +245,10 @@ public class IcebergTableOperator {
           }
         }
         
+        for (DeleteFile replaced : rewrittenDeleteFiles) {
+          rowDelta.removeDeletes(replaced);
+        }
+
         applyRowIndexValidations(rowDelta, baseSnapshotId);
         rowDelta.commit();
       }
@@ -251,6 +269,7 @@ public class IcebergTableOperator {
   
       filesToCommit.clear();
       referencedDataFiles.clear();
+      rewrittenDeleteFiles.clear();
       
       return snapshotId;
   
@@ -315,6 +334,7 @@ public class IcebergTableOperator {
       ArrayList<DataFile> dataFiles = new ArrayList<>(Arrays.asList(writerResult.dataFiles()));
       filesToCommit.add(filesToCommit.size(), Pair.of(deleteFiles, dataFiles));
       referencedDataFiles.addAll(Arrays.asList(writerResult.referencedDataFiles()));
+      rewrittenDeleteFiles.addAll(Arrays.asList(writerResult.rewrittenDeleteFiles()));
     } catch (IOException e) {
       LOGGER.error("Failed to complete writer", e);
       throw new RuntimeException("Failed to complete writer", e);

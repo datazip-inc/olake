@@ -29,10 +29,12 @@ public class IcebergTableWriterFactory {
   public boolean upsert = true;
   public boolean keepDeletes = true;
   public boolean usePositionalDeletes = false;
+  public DeleteMode deleteMode = DeleteMode.EQUALITY;
 
-  // One positional delete file per referenced data file. Matches the granularity the
-  // equality path has always used. PARTITION trades reader-side skipping for far fewer
-  // delete files, which matters once deletes can reference arbitrary historical files.
+  // One positional delete file per referenced data file. Keeping deletes file-scoped is
+  // what lets Iceberg match them to data files by path instead of by partition, so a
+  // row that moves partitions is still superseded. PARTITION granularity would trade
+  // that away for fewer delete files.
   private static final DeleteGranularity DELETE_GRANULARITY = DeleteGranularity.FILE;
 
   public BaseTaskWriter<Record> create(Table icebergTable) {
@@ -76,14 +78,27 @@ public class IcebergTableWriterFactory {
     }
   }
 
+  private PositionalDeleteSink deleteSink(Table icebergTable, FileFormat format,
+      GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory) {
+    if (deleteMode == DeleteMode.DELETION_VECTOR) {
+      // A vector replaces the data file's previous one, so it has to be seeded with the
+      // positions already deleted or this commit would resurrect them.
+      return new PositionalDeleteSink.DeletionVectors(
+          fileFactory, new PreviousDeleteLoader(icebergTable));
+    }
+    return new PositionalDeleteSink.PositionalFiles(
+        format, appenderFactory, fileFactory, DELETE_GRANULARITY);
+  }
+
   private BaseTaskWriter<Record> deltaWriter(Table icebergTable, FileFormat format, GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory, long targetFileSize) {
 
-    if (usePositionalDeletes) {
+    if (deleteMode.addressesPositions()) {
       // One writer for both layouts: an unpartitioned table is a single entry keyed
       // on the empty partition struct, so there is no partitioned/unpartitioned split.
       return new PositionalDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
           icebergTable.io(),
-          targetFileSize, icebergTable.schema(), keepDeletes, DELETE_GRANULARITY);
+          targetFileSize, icebergTable.schema(), keepDeletes,
+          deleteSink(icebergTable, format, appenderFactory, fileFactory));
     }
 
     Set<Integer> identifierFieldIds = icebergTable.schema().identifierFieldIds();

@@ -19,6 +19,8 @@ type (
 		Backfill    bool
 		ThreadID    string
 		ApplyFilter bool
+		// DeleteMode tells the destination how to represent a superseded row.
+		DeleteMode types.DeleteMode
 		// RowIndex maps _olake_id to the row's location in the destination table.
 		// Set only when the destination's delete mode cannot be served without it.
 		RowIndex types.TableIndex
@@ -182,6 +184,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	// Threads of one stream share the stream's index; it is nil in equality mode.
 	// TODO: can we pass things through contexts like streamContext ?
 	opts.RowIndex = streamArtifact.rowIndex
+	opts.DeleteMode = w.deleteMode
 
 	writerThread, prevStreamState, err := func() (Writer, *types.MetadataState, error) {
 		// init writer and point it at the config parsed once at pool creation,

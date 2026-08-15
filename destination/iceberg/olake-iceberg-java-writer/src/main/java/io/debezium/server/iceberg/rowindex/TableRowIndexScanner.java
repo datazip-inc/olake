@@ -3,7 +3,6 @@ package io.debezium.server.iceberg.rowindex;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -18,16 +17,16 @@ import java.util.Set;
 import org.apache.avro.generic.GenericRecord;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.data.BaseDeleteLoader;
+import org.apache.iceberg.deletes.PositionDeleteIndex;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.CloseableIterable;
-import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Types.NestedField;
 import org.slf4j.Logger;
@@ -47,7 +46,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class TableRowIndexScanner {
   private static final Logger LOGGER = LoggerFactory.getLogger(TableRowIndexScanner.class);
-  private static final BitSet EMPTY_POSITIONS = new BitSet(0);
+  private static final PositionDeleteIndex EMPTY_POSITIONS = PositionDeleteIndex.empty();
 
   private TableRowIndexScanner() {
   }
@@ -132,7 +131,7 @@ public final class TableRowIndexScanner {
 
     consumer.begin(current.snapshotId());
     Schema projection = identifierProjection(table, identifierField);
-    Map<String, BitSet> deletedPositions = deletedPositions(table);
+    DeletedPositions deletedPositions = new DeletedPositions(table);
     long entries = 0L;
 
     // first remove index of removed data files (if exist)
@@ -143,7 +142,7 @@ public final class TableRowIndexScanner {
       entries += emitFile(table, file, projection, identifierField, EMPTY_POSITIONS, true, consumer);
     }
     for (DataFile file : addedFiles) {
-      BitSet deleted = deletedPositions.getOrDefault(file.location(), EMPTY_POSITIONS);
+      PositionDeleteIndex deleted = deletedPositions.forFile(file.location());
       entries += emitFile(table, file, projection, identifierField, deleted, false, consumer);
     }
 
@@ -164,34 +163,41 @@ public final class TableRowIndexScanner {
   }
 
   /**
-   * Positions already removed by positional delete files, keyed by data file path.
-   * Skipping these keeps the index proportional to the number of live rows rather
-   * than to everything the table has ever held.
-   */ 
-  private static Map<String, BitSet> deletedPositions(Table table) throws IOException {
-    Map<String, BitSet> byFile = new HashMap<>();
-    Schema pathPos = DeleteSchemaUtil.pathPosSchema();
+   * Positions already removed from each data file, whether by positional delete files
+   * or by a deletion vector. Skipping them keeps the index proportional to the number
+   * of live rows rather than to everything the table has ever held.
+   *
+   * <p>Iceberg's loader reads both representations, so a table part way through a
+   * migration reports every deleted position without this having to know which form it
+   * is in. The table is planned once and each file's deletes are loaded on demand.
+   */
+  private static final class DeletedPositions {
+    private final Table table;
+    private final Map<String, List<DeleteFile>> byDataFile = new HashMap<>();
+    private final BaseDeleteLoader loader;
 
-    for (DeleteFile delete : deleteFiles(table, FileContent.POSITION_DELETES)) {
-      try (CloseableIterable<Object> rows = openParquet(table, delete.location(), pathPos)) {
-        for (Object row : rows) {
-          Object path = getFieldValue(row, MetadataColumns.DELETE_FILE_PATH.name());
-          Object position = getFieldValue(row, MetadataColumns.DELETE_FILE_POS.name());
-          if (path == null || position == null) {
+    private DeletedPositions(Table table) throws IOException {
+      this.table = table;
+      this.loader = new BaseDeleteLoader(file -> table.io().newInputFile(file.location()));
+      try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+        for (FileScanTask task : tasks) {
+          if (task.deletes().isEmpty()) {
             continue;
           }
-          long ordinal = position instanceof Number n ? n.longValue() : Long.parseLong(position.toString());
-          if (ordinal > Integer.MAX_VALUE) {
-            // No realistic data file holds this many rows. Treating such a row as
-            // live only costs a redundant positional delete later on.
-            continue;
-          }
-          byFile.computeIfAbsent(path.toString(), key -> new BitSet()).set((int) ordinal);
+          // planFiles can split one file across several tasks; merge their delete lists.
+          byDataFile.computeIfAbsent(task.file().location(), path -> new ArrayList<>())
+              .addAll(task.deletes());
         }
       }
     }
 
-    return byFile;
+    private PositionDeleteIndex forFile(String path) {
+      List<DeleteFile> deletes = byDataFile.get(path);
+      if (deletes == null || deletes.isEmpty()) {
+        return EMPTY_POSITIONS;
+      }
+      return loader.loadPositionDeletes(deletes, path);
+    }
   }
 
   /** Every data file visible in the table's current snapshot, oldest first. */
@@ -312,7 +318,7 @@ public final class TableRowIndexScanner {
    * Returns the number of entries emitted.
    */
   private static long emitFile(Table table, DataFile file, Schema projection, String identifierField,
-      BitSet deleted, boolean isDeletedFile, EntryConsumer consumer) throws Exception {
+      PositionDeleteIndex deleted, boolean isDeletedFile, EntryConsumer consumer) throws Exception {
     String path = file.location();
     long position = 0L;
     long emitted = 0L;
@@ -320,7 +326,7 @@ public final class TableRowIndexScanner {
     try (CloseableIterable<Object> rows = openRows(table, file, projection)) {
       for (Object row : rows) {
         Object identifier = getFieldValue(row, identifierField);
-        if (identifier != null && !isDeleted(deleted, position)) {
+        if (identifier != null && !deleted.isDeleted(position)) {
           consumer.accept(identifier.toString(), path, position, isDeletedFile);
           emitted++;
         }
@@ -331,10 +337,6 @@ public final class TableRowIndexScanner {
     return emitted;
   }
 
-  /** BitSet indexes by int, so ordinals beyond its range count as live. */
-  private static boolean isDeleted(BitSet deleted, long position) {
-    return position <= Integer.MAX_VALUE && deleted.get((int) position);
-  }
 
   /** Extracts a field value from either an Iceberg Record or an Avro GenericRecord. */
   public static Object getFieldValue(Object row, String fieldName) {

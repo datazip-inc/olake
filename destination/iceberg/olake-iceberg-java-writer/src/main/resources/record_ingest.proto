@@ -35,6 +35,10 @@ message IcebergPayload {
     // (fed by the caller's row index) instead of equality deleteKey.
     bool use_positional_deletes = 9;
     repeated PartitionField partition_fields = 10;
+    // Delete representation the writer should use: "eq" (equality deletes),
+    // "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+    // back to use_positional_deletes so older callers keep working.
+    string delete_mode = 12;
     // COMMIT: snapshot the caller's row index is checkpointed at. The server
     // refreshes the table and refuses the commit when the tip has moved, so
     // positional deletes built from a stale index cannot be published.
@@ -209,6 +213,9 @@ message RowIndexScanBatch {
 
 message MigrateEqualityDeletesRequest {
   string thread_id = 1;
+  // Representation the equality deletes should be rewritten into: "pos" or "dv".
+  // Empty means "pos", which is what callers predating deletion vectors expect.
+  string target_mode = 2;
 }
 
 message MigrateEqualityDeletesResponse {

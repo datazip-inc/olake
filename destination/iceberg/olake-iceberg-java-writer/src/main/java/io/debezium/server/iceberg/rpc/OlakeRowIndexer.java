@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 
 import io.debezium.server.iceberg.rowindex.EqualityDeleteMigrator;
 import io.debezium.server.iceberg.rowindex.TableRowIndexScanner;
+import io.debezium.server.iceberg.tableoperator.DeleteMode;
 import io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest;
 import io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse;
 import io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch;
@@ -72,8 +73,10 @@ public class OlakeRowIndexer extends RowIndexServiceGrpc.RowIndexServiceImplBase
       StreamObserver<MigrateEqualityDeletesResponse> responseObserver) {
     try {
       IcebergSession session = requireSession(request.getThreadId());
+      // Empty target means positional, which is what callers predating vectors expect.
+      DeleteMode targetMode = DeleteMode.resolve(request.getTargetMode(), true);
       EqualityDeleteMigrator.Result result = EqualityDeleteMigrator.migrate(
-          session.icebergTable, session.identifierField, session.fileFactory);
+          session.icebergTable, session.identifierField, session.fileFactory, targetMode);
 
       responseObserver.onNext(MigrateEqualityDeletesResponse.newBuilder()
           .setSnapshotId(result.snapshotId)

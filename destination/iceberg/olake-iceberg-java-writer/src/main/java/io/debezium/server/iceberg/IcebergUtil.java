@@ -81,6 +81,17 @@ public class IcebergUtil {
 
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
                                          Schema schema, String writeFormat, List<Map<String, String>> partitionTransforms) {
+    return createIcebergTable(icebergCatalog, tableIdentifier, schema, writeFormat, partitionTransforms, 2);
+  }
+
+  /**
+   * Creates the table at {@code formatVersion}. Deletion vectors are a v3 construct, so
+   * a table that will receive them has to be created as v3 up front; everything else
+   * stays on v2, which is what every reader understands.
+   */
+  public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
+                                         Schema schema, String writeFormat, List<Map<String, String>> partitionTransforms,
+                                         int formatVersion) {
 
     LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}", tableIdentifier, schema,
         schema.identifierFieldNames());
@@ -91,7 +102,7 @@ public class IcebergUtil {
     if (partitionTransforms.isEmpty()) {
       // No partitioning - create a table as before
       return icebergCatalog.buildTable(tableIdentifier, schema)
-              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(FORMAT_VERSION, String.valueOf(formatVersion))
               .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
               .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
               .create();
@@ -151,7 +162,7 @@ public class IcebergUtil {
       
       // Create the table with the partition spec
       return icebergCatalog.buildTable(tableIdentifier, schema)
-              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(FORMAT_VERSION, String.valueOf(formatVersion))
               .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
               .withPartitionSpec(specBuilder.build())
               .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
@@ -166,6 +177,22 @@ public class IcebergUtil {
     }
 
     return sob.build();
+  }
+
+  /**
+   * Raises an existing table to {@code formatVersion} when it sits below it. Iceberg
+   * only moves format versions forward, so this is one-way: a table upgraded for
+   * deletion vectors cannot be read by anything that speaks only the older version.
+   */
+  public static void ensureFormatVersion(Table table, int formatVersion) {
+    int current = ((org.apache.iceberg.BaseTable) table).operations().current().formatVersion();
+    if (current >= formatVersion) {
+      return;
+    }
+    LOGGER.warn("Upgrading {} from format version {} to {}; this cannot be undone",
+        table.name(), current, formatVersion);
+    table.updateProperties().set(FORMAT_VERSION, String.valueOf(formatVersion)).commit();
+    table.refresh();
   }
 
   public static Optional<Table> loadIcebergTable(Catalog icebergCatalog, TableIdentifier tableId) {
