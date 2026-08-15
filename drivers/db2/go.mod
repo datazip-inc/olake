@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/db2
 
-go 1.25.12
+go 1.25.13
 
 replace (
 	cloud.google.com/go/compute => cloud.google.com/go/compute v1.23.3
