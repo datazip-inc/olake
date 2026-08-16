@@ -121,15 +121,9 @@ func (c *SchemaRegistryClient) Validate() error {
 	return nil
 }
 
-// registryStatusFailure classifies a schema-registry response by its HTTP status.
-//
-// The registry is plain HTTP with no typed errors, so the status is the only structured
-// evidence it produces — and it is gone by the time the error reaches the command, which is
-// why the classification is attached here rather than in the driver's classifier. The
-// message is untouched; only a category and a code travel alongside it.
-//
-// A status with no mapping is returned unchanged and reports as unclassified, so the gap
-// stays visible rather than being guessed at.
+// registryStatusFailure classifies a schema-registry response by its HTTP status. The registry
+// is plain HTTP with no typed errors, and the status is gone by the time the error reaches the
+// command, so it is classified here rather than in the driver. Unmapped statuses pass through.
 func registryStatusFailure(status int, err error) error {
 	var category errs.Category
 	switch {
@@ -151,8 +145,8 @@ func registryStatusFailure(status int, err error) error {
 	return errs.Attach(err, errs.Failure{
 		Category:     category,
 		ClassifiedBy: errs.ClassifiedByVendor,
-		// Prefixed so a registry status can never be read as a Kafka protocol code, which is
-		// a bare number and shares the same telemetry field.
+		// Prefixed so it cannot be read as a Kafka protocol code, which is a bare number in
+		// the same telemetry field.
 		Code: fmt.Sprintf("schema_registry.http_%d", status),
 	})
 }

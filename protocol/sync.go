@@ -26,7 +26,7 @@ type StreamClassification struct {
 	IncrementalStreams []types.StreamInterface
 	FullLoadStreams    []types.StreamInterface
 	NewStreamsState    []*types.StreamState
-	// Mix is telemetry-only: the stream breakdown of this run, counted alongside the classification itself.
+	// Telemetry-only: the stream breakdown of this run, counted as streams are classified.
 	Mix types.StreamMix
 }
 
@@ -260,8 +260,8 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		}
 
 		classifications.SelectedStreams = append(classifications.SelectedStreams, elem.ID())
-		// Counted here, past every skip branch above, so the mix describes the streams
-		// this run actually syncs rather than everything the catalog configured.
+		// Past every skip branch, so the mix describes what this run actually syncs rather
+		// than everything the catalog configured.
 		classifications.Mix.Selected++
 		if elem.StreamMetadata.Normalization {
 			classifications.Mix.Normalized++
@@ -271,7 +271,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		}
 		switch elem.Stream.SyncMode {
 		case types.CDC, types.STRICTCDC:
-			// Both modes share one read path, so they stay in one bucket for the sync while being counted apart for telemetry.
+			// One read path, two counters: the sync treats them alike, telemetry does not.
 			if elem.Stream.SyncMode == types.STRICTCDC {
 				classifications.Mix.StrictCDC++
 			} else {

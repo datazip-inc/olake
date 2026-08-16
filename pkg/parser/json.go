@@ -28,7 +28,9 @@ func NewJSONParser(config JSONConfig, stream *types.Stream) *JSONParser {
 
 // InferSchema reads the first few records of a JSON file to infer the schema
 // Supports JSONL (line-delimited), JSON Array, and single JSON object formats
-func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
+func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (_ *types.Stream, err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	logger.Debug("Inferring JSON schema from sample data")
 	//TODO : implement sampling of records from first and last files to get a more accurate schema
 	// Collect sample records using smart JSON format detection
@@ -71,7 +73,9 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 }
 
 // StreamRecords reads and streams JSON records with context support
-func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) error {
+func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) (err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	recordCount := 0
 
 	if p.config.LineDelimited {

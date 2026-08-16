@@ -158,45 +158,38 @@ func init() {
 }
 
 // telemetryFlushTimeout bounds how long a failing command waits for its report to leave the
-// process. Long enough for one HTTP round trip, short enough that a hung endpoint does not
-// noticeably delay an exit that is already reporting a failure.
+// process: one HTTP round trip, and no more, so a hung endpoint cannot delay the exit.
 const telemetryFlushTimeout = 5 * time.Second
 
-// ReportFailure classifies a failed run, reports it, and waits for the report to be
-// delivered.
-//
-// The wait is the point. check and discover leave through logger.Fatal, which calls
-// os.Exit, and telemetry hands events to a background sender — so without flushing here the
-// event is built and then discarded as the process dies. sync only reported anything today
-// because of an unrelated five-second sleep in its defer.
+// ReportFailure classifies a failed run, reports it, and waits for the report to be delivered.
+// The wait is the point: check and discover leave through logger.Fatal, and telemetry sends in
+// the background, so without flushing the event is built and then discarded as the process dies.
 func ReportFailure(err error) {
 	if err == nil {
 		return
 	}
-	// Classified here rather than inside each command, because this is the only point every
-	// failure reaches. A command's RunE misses anything raised in its PreRunE hooks — where
-	// the config is read and decrypted — and spec and clear-destination have no classifying
-	// wrapper of their own at all.
+	// Classified here because this is the only point every failure reaches. A command's RunE
+	// misses its own PreRunE hooks, where the config is read and decrypted, and spec and
+	// clear-destination have no wrapper at all.
 	f := errs.From(errs.Classify(err))
 
 	if telemetry.Disabled() {
 		return
 	}
-	// The connector name comes straight off the driver, which is the only thing that knows
-	// it: build.sh consumes "driver-postgres" to choose a binary and the process only sees
-	// ["./olake" "sync" ...], and in Docker the identity is in the image name. Whether a
-	// better source exists is worth revisiting; connector is set before any command runs,
-	// so the nil check is only so a report can never panic.
-	connectorName := ""
-	if connector != nil {
-		connectorName = connector.Type()
+	// The classifier that recognized the error names itself. Where none did — the shared rules
+	// cannot know whose endpoint was on the far end — this falls back to the connector that
+	// ran, which a consumer tells apart by classified_by: "stdlib".
+	errorSource := f.Component
+	if errorSource == "" && connector != nil {
+		errorSource = connector.Type()
 	}
-	telemetry.TrackFailure(executedCommand(), connectorName, f)
+	// Set only by sync, which is what makes this event joinable to the rest of the run's shape.
+	telemetry.TrackFailure(executedCommand(), errorSource, syncID, f)
 	telemetry.Flush(telemetryFlushTimeout)
 }
 
-// executedCommand names the subcommand that ran, for reporting. Asking cobra keeps it
-// correct when flags precede the command.
+// executedCommand names the subcommand that ran. Asking cobra keeps it correct when flags
+// precede the command.
 func executedCommand() string {
 	cmd, _, err := RootCmd.Find(os.Args[1:])
 	if err != nil || cmd == nil || cmd == RootCmd {

@@ -10,7 +10,9 @@ import (
 
 	"github.com/aws/smithy-go"
 	"github.com/datazip-inc/olake/pkg/objstorage"
+	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/utils/errs"
+	pq "github.com/parquet-go/parquet-go"
 )
 
 // Codes for conditions this driver detects itself, where no API error exists to read.
@@ -20,61 +22,12 @@ const (
 	codeNoFilesForStream      = "s3.no_files_for_stream"
 )
 
-// apiCodeCategories maps an S3 API error code to a failure category.
-//
-// The AWS SDK routes every service error through one interface, smithy.APIError, whose
-// ErrorCode() returns the string S3 put in the response. That is the service's own identifier,
-// so it is reported unchanged.
-//
-//	https://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html
-var apiCodeCategories = map[string]errs.Category{
-	// The request was not signed by anyone the service recognizes.
-	"InvalidAccessKeyId":    errs.AuthFailed,
-	"SignatureDoesNotMatch": errs.AuthFailed,
-	"InvalidSecurity":       errs.AuthFailed,
-	"ExpiredToken":          errs.AuthFailed,
-	"InvalidToken":          errs.AuthFailed,
-	"TokenRefreshRequired":  errs.AuthFailed,
+// Registered so ReportFailure can classify without knowing which connector ran. Only S3 evidence
+// lives here; DNS, TLS and socket failures are shared and belong to utils/errs.
+func init() { errs.Register("s3", classify) }
 
-	// The identity is known and the policy says no.
-	"AccessDenied":      errs.PermissionDenied,
-	"AllAccessDisabled": errs.PermissionDenied,
-	"Forbidden":         errs.PermissionDenied, // HeadBucket answers 403 with no body
-
-	// The object does not exist.
-	"NoSuchBucket": errs.ObjectNotFound,
-	"NoSuchKey":    errs.ObjectNotFound,
-	"NotFound":     errs.ObjectNotFound, // HeadBucket answers 404 with no body
-
-	// The request reached the wrong endpoint for this bucket, or named it illegally. Both are
-	// fixed in the config, not on the service.
-	"PermanentRedirect":                  errs.ConfigInvalid,
-	"AuthorizationHeaderMalformed":       errs.ConfigInvalid,
-	"IllegalLocationConstraintException": errs.ConfigInvalid,
-	"InvalidBucketName":                  errs.ConfigInvalid,
-
-	// Throttled. Nothing is wrong; the request rate was too high.
-	"SlowDown":             errs.ResourceExhausted,
-	"RequestLimitExceeded": errs.ResourceExhausted,
-	"ThrottlingException":  errs.ResourceExhausted,
-
-	// The service is not serving the request.
-	"ServiceUnavailable": errs.NetworkUnreachable,
-	"InternalError":      errs.NetworkUnreachable,
-
-	"RequestTimeout": errs.Timeout,
-}
-
-// Register so ReportFailure can classify without knowing which connector ran. Only S3 evidence
-// is handled here — DNS, TLS, refused connections and deadlines look the same for every
-// connector and belong to utils/errs.
-func init() { errs.Register(classify) }
-
-// classify reads S3's API code, the response status, or a decoder failure. Returns nil for
-// anything else.
-//
-// The category comes from the error, never from the call site: one call can fail on a revoked
-// policy, a deleted key, throttling or a dropped connection.
+// classify reads S3's API code, the response status, or a decoder failure, returning nil for
+// anything else. The category comes from the error, never the call site.
 func classify(err error) *errs.Failure {
 	if f := fromAPIError(err); f != nil {
 		return f
@@ -83,9 +36,14 @@ func classify(err error) *errs.Failure {
 		return f
 	}
 
-	// pkg/objstorage joins its own sentinel alongside the service error rather than replacing
-	// it, so the checks above answer first and keep the service code. This covers a sentinel
-	// that arrives alone.
+	// Checked last: a dropped connection and a throttled request fail inside the parser too,
+	// and both have better answers than "the file is unreadable".
+	if parser.IsDecodeFailure(err) {
+		return &errs.Failure{Category: errs.SourceReadError, ClassifiedBy: errs.ClassifiedByPrecondition}
+	}
+
+	// objstorage joins this sentinel alongside the service error rather than replacing it, so
+	// the checks above keep the service code. This covers one arriving alone.
 	if errors.Is(err, objstorage.ErrNotFound) {
 		return &errs.Failure{
 			Category:     errs.ObjectNotFound,
@@ -96,11 +54,9 @@ func classify(err error) *errs.Failure {
 	return nil
 }
 
-// fromAPIError classifies anything the service answered with.
-//
-// Two layers, in order. The API code is preferred because it is specific. Where there is none —
-// S3 answers several requests with a bare status and no body, and S3-compatible services are
-// looser still — the response status stands in.
+// fromAPIError classifies anything the service answered with. The API code is preferred; where
+// there is none — S3 answers several requests with a bare status and no body — the status
+// stands in, which is also what makes S3-compatible endpoints classify at all.
 func fromAPIError(err error) *errs.Failure {
 	var apiErr smithy.APIError
 	if !errors.As(err, &apiErr) {
@@ -108,26 +64,25 @@ func fromAPIError(err error) *errs.Failure {
 	}
 
 	code := apiErr.ErrorCode()
-	if category, ok := apiCodeCategories[code]; ok {
+	if category, ok := objstorage.ServiceCodeCategories[code]; ok {
 		return &errs.Failure{Category: category, ClassifiedBy: errs.ClassifiedByVendor, Code: code}
 	}
 
-	// The status is read through an interface rather than a concrete type: the SDK has two
-	// response-error types, in smithy and in the AWS transport layer, and both answer it.
+	// Read through an interface, not a concrete type: the SDK has two response-error types and
+	// both answer it.
 	var httpErr interface{ HTTPStatusCode() int }
 	if errors.As(err, &httpErr) {
 		if category := categoryForStatus(httpErr.HTTPStatusCode()); category != "" {
 			if code == "" {
-				// A bare status carries the http_ prefix so it cannot be read as a service
-				// code; both share one telemetry field.
+				// Prefixed so a bare status cannot be read as a service code; both share
+				// one telemetry field.
 				code = fmt.Sprintf("http_%d", httpErr.HTTPStatusCode())
 			}
 			return &errs.Failure{Category: category, ClassifiedBy: errs.ClassifiedByVendor, Code: code}
 		}
 	}
 
-	// A service code with no mapping and no usable status. The code identifies the gap, so it
-	// travels without a category being guessed at.
+	// No mapping and no usable status; the code alone makes the gap actionable.
 	return &errs.Failure{Category: errs.Unclassified, ClassifiedBy: errs.ClassifiedByDefault, Code: code}
 }
 
@@ -151,26 +106,29 @@ func categoryForStatus(status int) errs.Category {
 	return ""
 }
 
-// fromDecoder classifies a file that arrived intact and could not be read.
-//
-// Keyed on the decoder's own types, never on "raised inside pkg/parser": a connection dropped
-// mid-object fails inside the parser too, and a call-site rule would report a healthy file as
-// corrupt. These types are produced only by a decoder, so the two cannot be confused.
-//
-// No code accompanies them — nothing issued one.
+// fromDecoder classifies a file that arrived intact and could not be read. Keyed on the decoder's
+// own types, never on "raised inside pkg/parser": a connection dropped mid-object fails inside
+// the parser too, and a call-site rule would report a healthy file as corrupt.
 func fromDecoder(err error) *errs.Failure {
 	var (
-		csvErr     *csv.ParseError
-		jsonSyntax *json.SyntaxError
-		jsonType   *json.UnmarshalTypeError
+		csvErr       *csv.ParseError
+		jsonSyntax   *json.SyntaxError
+		jsonType     *json.UnmarshalTypeError
+		parquetValue *pq.ConvertError
 	)
 	switch {
 	case errors.As(err, &csvErr),
 		errors.As(err, &jsonSyntax),
 		errors.As(err, &jsonType),
 		errors.Is(err, gzip.ErrHeader), errors.Is(err, gzip.ErrChecksum),
-		errors.Is(err, zip.ErrFormat), errors.Is(err, zip.ErrChecksum):
+		errors.Is(err, zip.ErrFormat), errors.Is(err, zip.ErrChecksum),
+		errors.Is(err, pq.ErrCorrupted), errors.Is(err, pq.ErrMissingPageHeader),
+		errors.Is(err, pq.ErrMissingRootColumn), errors.Is(err, pq.ErrSeekOutOfRange):
 		return &errs.Failure{Category: errs.SourceReadError, ClassifiedBy: errs.ClassifiedByVendor}
+
+	case errors.As(err, &parquetValue):
+		// A value the file holds does not fit the column type it declares.
+		return &errs.Failure{Category: errs.SchemaUnsupported, ClassifiedBy: errs.ClassifiedByVendor}
 	}
 	return nil
 }

@@ -46,14 +46,12 @@ var (
 	disabledOnce sync.Once
 	disabled     bool
 
-	// initDone closes once Init's background setup has finished, successfully or not.
-	// Init performs network calls, so an event sent immediately after start would
-	// otherwise find telemetry still nil and be dropped silently.
+	// initDone closes once Init's background setup finishes. Init does network calls, so an
+	// event sent right after start would otherwise find telemetry nil and be dropped silently.
 	initDone = make(chan struct{})
 	initOnce sync.Once
 
-	// inflight tracks events that have been handed off but not yet sent, so a command
-	// that is about to exit can wait for them.
+	// inflight tracks handed-off events so a command about to exit can wait for them.
 	inflight sync.WaitGroup
 )
 
@@ -116,8 +114,8 @@ func Init() {
 	}()
 }
 
-// send runs an event in the background, recording it so Flush can wait for it. A panic
-// here would otherwise terminate the command being reported on, so it is contained.
+// send runs an event in the background, recording it so Flush can wait for it. Panics are
+// contained: one here would otherwise kill the command being reported on.
 func send(name string, build func()) {
 	inflight.Add(1)
 	go func() {
@@ -135,10 +133,8 @@ func send(name string, build func()) {
 	}()
 }
 
-// Flush waits for Init to finish and for any handed-off events to be sent, bounded by
-// timeout. Commands call it before exiting: check and discover leave through
-// logger.Fatal -> os.Exit, which would otherwise drop every event before it left the
-// process.
+// Flush waits for Init and for handed-off events, bounded by timeout. Commands call it before
+// exiting: check and discover leave through logger.Fatal, dropping anything still in flight.
 func Flush(timeout time.Duration) {
 	if Disabled() {
 		return
@@ -168,9 +164,8 @@ func TrackDiscover(streamCount int, sourceType string) {
 	})
 }
 
-// addStreamMix copies the per-sync stream breakdown onto an event. It rides on both
-// sync events: the two are lost independently, and seven integers are cheap next to a
-// completion event that cannot be segmented by sync mode.
+// addStreamMix copies the per-sync stream breakdown onto an event. It rides on both sync
+// events, which are lost independently, and seven integers are cheap.
 func addStreamMix(props map[string]interface{}, mix types.StreamMix) {
 	props["full_refresh_streams_count"] = mix.FullRefresh
 	props["incremental_streams_count"] = mix.Incremental
@@ -182,10 +177,9 @@ func addStreamMix(props map[string]interface{}, mix types.StreamMix) {
 }
 
 func TrackSyncStarted(syncID string, mix types.StreamMix, sourceType string, destinationConfig *types.WriterConfig, configuredStreams int) {
-	// The destination config is read here rather than inside the closure: the writer pool
-	// owns it for the rest of the run, and reading it from another goroutine later would race
-	// with that. catalog_type is optional — the Iceberg writer fills its default in after
-	// unmarshalling — so both assertions are checked.
+	// Read here rather than inside the closure: the writer pool owns this config for the rest
+	// of the run, so reading it from another goroutine would race. catalog_type is optional —
+	// the Iceberg writer fills its default in later — so both assertions are checked.
 	destinationType, catalogType := "", ""
 	if destinationConfig != nil {
 		destinationType = string(destinationConfig.Type)
@@ -230,22 +224,23 @@ func TrackSyncCompleted(syncID string, mix types.StreamMix, status bool, records
 	})
 }
 
-// TrackFailure reports why a command failed.
-//
-// The payload is a classification, not a description: every field is either a constant
-// from this repository or a code the vendor defines, so nothing read from a config, a
-// server message or a user's input can reach it. Absent fields are normal — several
-// drivers cannot supply a vendor code at all.
-func TrackFailure(command, sourceType string, f errs.Failure) {
-	send("failure", func() {
+// TrackFailure reports why a command failed. The payload is a classification, not a
+// description: every field is a constant from this repo or a code the vendor defines, so no
+// config value, server message or user input can reach it. Absent fields are normal.
+func TrackFailure(command, errorSource, syncID string, f errs.Failure) {
+	send("failure - cli", func() {
+		// The rest of the run's shape is on the sync events, reachable through sync_id.
 		props := map[string]interface{}{
 			"command":       command,
-			"source_type":   sourceType,
+			"error_source":  errorSource,
 			"category":      string(f.Category),
 			"classified_by": f.ClassifiedBy,
 		}
-		// Only send what exists. An absent code is a legitimate slice in the data, not a
-		// value to be faked.
+		// Absent for every command except sync.
+		if syncID != "" {
+			props["sync_id"] = syncID
+		}
+		// Only send what exists: an absent code is a legitimate slice, not a value to fake.
 		if f.Code != "" {
 			props["code"] = f.Code
 		}

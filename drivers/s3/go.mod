@@ -10,6 +10,7 @@ replace (
 require (
 	github.com/aws/smithy-go v1.24.2
 	github.com/datazip-inc/olake v0.2.6
+	github.com/parquet-go/parquet-go v0.29.0
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -67,7 +68,6 @@ require (
 	github.com/oklog/ulid v1.3.1 // indirect
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
-	github.com/parquet-go/parquet-go v0.29.0 // indirect
 	github.com/paulmach/orb v0.12.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.3 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect

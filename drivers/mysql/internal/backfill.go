@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -17,6 +18,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
@@ -89,6 +91,12 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	tableStatsQuery := jdbc.MySQLTableStatsQuery()
 	err := m.client.QueryRowContext(ctx, tableStatsQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize, &approxTableSize)
 	if err != nil {
+		// information_schema hides rows the user has no privilege on, so a dropped table and an
+		// ungranted one are the same empty result. MySQL raises no error number for either.
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errs.Precondition(errs.ObjectNotFound, codeTableNotVisible,
+				fmt.Errorf("failed to fetch TableStats query for table=%s: %w", stream.Name(), err))
+		}
 		return nil, fmt.Errorf("failed to fetch TableStats query for table=%s: %w", stream.Name(), err)
 	}
 

@@ -168,9 +168,8 @@ func CheckIfFilesExists(files ...string) error {
 // }
 
 func UnmarshalFile(file string, dest any, credsFile bool) error {
-	// These three are the failures a user actually hits when a run will not start, so they
-	// are classified where they happen: nothing further up can tell a missing file from an
-	// unreadable one from a wrong encryption key.
+	// Classified here because nothing further up can tell a missing file from an unreadable
+	// one from a wrong encryption key.
 	if err := CheckIfFilesExists(file); err != nil {
 		return errs.Precondition(errs.ConfigInvalid, "config.file_unreadable", err)
 	}
@@ -184,8 +183,7 @@ func UnmarshalFile(file string, dest any, credsFile bool) error {
 	if credsFile && viper.GetString(constants.EncryptionKey) != "" {
 		dConfig, err := Decrypt(string(data))
 		if err != nil {
-			// A wrong or missing --encryption-key, not a malformed config: the file is
-			// fine, the platform handed us the wrong key.
+			// A wrong or missing --encryption-key, not a malformed config.
 			return errs.Precondition(errs.ConfigDecryptFailed, "config.decrypt_failed",
 				fmt.Errorf("failed to decrypt config file[%s]: %w", file, err))
 		}

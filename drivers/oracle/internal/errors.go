@@ -9,36 +9,27 @@ import (
 )
 
 // oraCodeCategories maps an Oracle error number to a failure category. Entries marked "go-ora"
-// come from the driver's own two tables — translate(), which spells out the codes it knows, and
-// Bad(), its definition of an unusable connection. Both ship with the dependency.
-//
-//	github.com/sijms/go-ora/v2@v2.8.24/network/oracle_error.go
-//	https://docs.oracle.com/en/error-help/db/
-//
-// ErrCode rather than the message: translate() derives the message *from* this field, so the
-// number is the stable half and is identical before and after anything renders the error.
+// are taken from the driver's own translate() and Bad() tables, so telemetry agrees with what
+// the library treats as an unusable connection.
 var oraCodeCategories = map[int]errs.Category{
-	// Identity. The server rejected the credentials or the account itself.
+	// The server rejected the credentials or the account itself.
 	1017:  errs.AuthFailed, // invalid username/password; logon denied
 	1005:  errs.AuthFailed, // null password given; logon denied
 	28000: errs.AuthFailed, // the account is locked
 	28001: errs.AuthFailed, // the password has expired
 
-	// Rights. The logon succeeded and the grant is missing.
+	// The logon succeeded; the grant is missing.
 	1031: errs.PermissionDenied, // insufficient privileges
 	1039: errs.PermissionDenied, // insufficient privileges on underlying objects of the view
 
-	// The object does not exist. The last two are the listener's equivalent: the service or
-	// SID named in the config is not one it serves.
+	// Missing object. The last two are the listener's equivalent: a service or SID it does not serve.
 	942:   errs.ObjectNotFound, // table or view does not exist
 	904:   errs.ObjectNotFound, // invalid identifier (go-ora) — a column vanished from under a sync
 	1918:  errs.ObjectNotFound, // user does not exist
 	12514: errs.ObjectNotFound, // TNS:listener does not currently know of service requested (go-ora)
 	12505: errs.ObjectNotFound, // TNS:listener does not currently know of SID given
 
-	// The SQL *OLake generated* is wrong. The user never writes this SQL, so a failure here
-	// is ours, not a misconfiguration — which is why they are source_read_error (owner:
-	// olake) rather than config_invalid.
+	// The SQL *OLake generated* is wrong. The user never writes it, so this is our defect.
 	900: errs.SourceReadError, // invalid SQL statement (go-ora)
 	903: errs.SourceReadError, // invalid table name (go-ora)
 	905: errs.SourceReadError, // missing keyword (go-ora)
@@ -48,18 +39,17 @@ var oraCodeCategories = map[int]errs.Category{
 	933: errs.SourceReadError, // SQL command not properly ended
 	936: errs.SourceReadError, // missing expression
 
-	// A type OLake asked the server to read or convert in a way it cannot. The statement is
-	// well-formed; the data is the problem.
+	// Well-formed statement; the data is what the server cannot convert.
 	902:  errs.SchemaUnsupported, // invalid data type (go-ora)
 	932:  errs.SchemaUnsupported, // inconsistent datatypes
 	1722: errs.SchemaUnsupported, // invalid number
 	1858: errs.SchemaUnsupported, // a non-numeric character was found where a numeric was expected
 
-	// Contention. Two sessions collided; retrying usually works.
+	// Two sessions collided; a retry usually clears it.
 	60: errs.ConcurrencyConflict, // deadlock detected while waiting for resource
 	54: errs.ConcurrencyConflict, // resource busy and acquire with NOWAIT specified
 
-	// Capacity. Nothing is misconfigured; the server ran out of something.
+	// Nothing is misconfigured; the server ran out.
 	257:   errs.ResourceExhausted, // archiver error; connect internal only, until freed
 	4030:  errs.ResourceExhausted, // out of process memory
 	4031:  errs.ResourceExhausted, // unable to allocate bytes of shared memory
@@ -67,8 +57,8 @@ var oraCodeCategories = map[int]errs.Category{
 	1555:  errs.ResourceExhausted, // snapshot too old — undo was recycled under a long read
 	12516: errs.ResourceExhausted, // TNS:listener could not find available handler (go-ora)
 
-	// The connection is dead or the instance is not serving. The first ten are go-ora's own
-	// Bad() set — the codes the driver itself treats as an unusable connection.
+	// Dead connection, or an instance that is not serving. The "Bad" entries are go-ora's own
+	// unusable-connection set.
 	28:    errs.NetworkUnreachable, // your session has been killed (go-ora Bad)
 	1012:  errs.NetworkUnreachable, // not logged on (go-ora Bad)
 	1033:  errs.NetworkUnreachable, // ORACLE initialization or shutdown in progress (go-ora Bad)
@@ -84,27 +74,21 @@ var oraCodeCategories = map[int]errs.Category{
 	12560: errs.NetworkUnreachable, // TNS:protocol adapter error
 	12564: errs.NetworkUnreachable, // TNS connection refused (go-ora)
 
-	// Deadlines and interruption.
 	12170: errs.Timeout,  // TNS:Connect timeout occurred
 	1013:  errs.Canceled, // user requested cancel of current operation (go-ora)
 }
 
-// Register so ReportFailure can classify without knowing which connector ran. Only Oracle
-// evidence is handled here — DNS, TLS, refused connections and deadlines look the same for
-// every connector and belong to utils/errs.
-func init() { errs.Register(classify) }
+// Registered so ReportFailure can classify without knowing which connector ran. Only Oracle
+// evidence lives here; DNS, TLS and socket failures are shared and belong to utils/errs.
+func init() { errs.Register("oracle", classify) }
 
-// classify reads Oracle's error number. Returns nil for anything else, leaving it to the
-// shared standard-library rules.
-//
-// The category comes from the error, never from the call site: one call can fail on a revoked
-// grant, a missing object, contention or a dropped connection.
+// classify reads Oracle's error number, returning nil for anything else so the shared rules get
+// their chance. The category comes from the error, never the call site.
 func classify(err error) *errs.Failure {
 	var oraErr *network.OracleError
 	if !errors.As(err, &oraErr) {
-		// go-ora replaces the error with this sentinel when a context deadline breaks the
-		// connection mid-request, and the deadline itself does not always survive with it.
-		// Without this rule those failures report as unclassified.
+		// go-ora swaps in this sentinel when a deadline breaks the connection mid-request, and
+		// the deadline does not always survive with it.
 		if errors.Is(err, network.ErrConnReset) {
 			return &errs.Failure{
 				Category:     errs.Timeout,
@@ -115,19 +99,15 @@ func classify(err error) *errs.Failure {
 		return nil
 	}
 
-	// The server answered and said what was wrong. Its number travels with the failure
-	// whether or not it is mapped, so an unmapped number is still identifiable.
-	//
-	// ErrCode is read directly rather than through Error(): the message is translated lazily
-	// and the translation is derived *from* this field, so the number is the stable half.
+	// ErrCode rather than Error(): the message is translated lazily from this field, so the
+	// number is the stable half. It travels whether or not it is mapped.
 	f := errs.Failure{Code: strconv.Itoa(oraErr.ErrCode)}
 	if category, ok := oraCodeCategories[oraErr.ErrCode]; ok {
 		f.Category = category
 		f.ClassifiedBy = errs.ClassifiedByVendor
 		return &f
 	}
-	// A real Oracle code with no mapping yet. The number identifies it precisely, so the gap
-	// is actionable without guessing at a category.
+	// A real Oracle code with no rule yet; the number alone makes the gap actionable.
 	f.Category = errs.Unclassified
 	f.ClassifiedBy = errs.ClassifiedByDefault
 	return &f

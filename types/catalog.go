@@ -66,9 +66,8 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
-// StreamMix is the per-sync breakdown of the streams a run actually syncs, counted
-// once while streams are being classified. Every counter covers only streams that
-// survived selection and validation, so the sync-mode counters always sum to Selected.
+// StreamMix is the per-sync breakdown of the streams a run actually syncs. Only streams that
+// survived selection and validation are counted, so the sync-mode counters sum to Selected.
 type StreamMix struct {
 	FullRefresh int `json:"full_refresh_streams_count"`
 	Incremental int `json:"incremental_streams_count"`

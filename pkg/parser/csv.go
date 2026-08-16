@@ -36,7 +36,9 @@ func NewCSVParser(config CSVConfig, stream *types.Stream) *CSVParser {
 
 // InferSchema reads the first few rows of a CSV file to infer the schema
 // Uses small samples to avoid loading entire file into memory
-func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
+func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (_ *types.Stream, err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	logger.Debug("Inferring CSV schema from sample data")
 
 	// Create CSV reader
@@ -55,7 +57,6 @@ func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 	}
 
 	var headers []string
-	var err error
 	if p.config.HasHeader {
 		// Read header row
 		headers, err = csvReader.Read()
@@ -100,7 +101,9 @@ func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 }
 
 // StreamRecords reads and streams CSV records with context support
-func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) error {
+func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) (err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	csvReader := csv.NewReader(reader)
 	csvReader.Comma = rune(p.config.Delimiter[0])
 	if p.config.QuoteCharacter != "" {

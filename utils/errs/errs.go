@@ -1,16 +1,9 @@
-// Package errs carries a failure classification alongside an error.
+// Package errs carries a failure classification alongside an error, so telemetry can report why
+// a run failed without shipping customer data: categories and codes are constants in this repo.
 //
-// The classification exists so telemetry can report why a run failed without shipping
-// any customer data: a category and a code are constants written in this repository, so a
-// failure event contains nothing read from a config, a server message, or a user's input.
-//
-// The category is a property of the error, never of the line that raised it. One
-// statement fails for unrelated reasons — a query can fail on a syntax error, a revoked
-// grant, a dropped connection or an expired deadline — so a call site cannot decide the
-// category. Classify walks the error chain and lets the innermost evidence win.
-//
-// Nothing here performs I/O, starts a goroutine, or returns an error of its own. It runs
-// on a path that is already failing and must not add a second failure to it.
+// The category belongs to the error, never to the line that raised it, so Classify walks the
+// chain and lets the innermost evidence win. Nothing here does I/O or returns an error of its
+// own: it runs on a path that is already failing.
 package errs
 
 import (
@@ -20,13 +13,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"syscall"
 )
 
-// Category is the closed set of failure buckets. Values are contract: they appear in
-// telemetry and in dashboard queries, so adding, removing or renaming one is a breaking
-// change.
+// Category is the closed set of failure buckets. Values are contract — they appear in telemetry
+// and dashboard queries — so adding, removing or renaming one is a breaking change.
 type Category string
 
 const (
@@ -70,8 +63,8 @@ const (
 	InternalError Category = "internal_error"
 )
 
-// How a category was decided. The share arriving as ClassifiedByDefault is the coverage
-// metric: a rise means rules are missing, not that failures changed.
+// How a category was decided. The share arriving as ClassifiedByDefault is the coverage metric:
+// a rise means rules are missing, not that failures changed.
 const (
 	ClassifiedByPrecondition = "precondition" // a condition OLake detected itself
 	ClassifiedByVendor       = "vendor"       // from the vendor's own error code
@@ -79,49 +72,42 @@ const (
 	ClassifiedByDefault      = "default"      // nothing matched
 )
 
-// Failure is what telemetry reports.
-//
-// Category and ClassifiedBy are always set and answer different questions: Category is what
-// went wrong, ClassifiedBy is how that was decided — the second is how coverage is measured,
-// since a rise in "default" means rules are missing rather than that failures changed.
-//
-// Code and ErrorType are optional
+// Failure is what telemetry reports. Category and ClassifiedBy are always set and answer
+// different questions — what went wrong, and on what evidence. The rest are optional.
 type Failure struct {
 	Category     Category `json:"category"`
 	ClassifiedBy string   `json:"classified_by"`
 
-	// Code identifies the specific failure. It is the vendor's own code where the server
-	// gave one ("28P01", "1045", "AccessDenied"), otherwise a constant naming a condition
-	// the driver detected itself ("postgres.replication_slot_missing"). One field rather
-	// than two because the two are mutually exclusive, and ClassifiedBy already says which
-	// kind it is.
+	// Code is the vendor's own code where the server gave one ("28P01", "AccessDenied"),
+	// otherwise a constant for a condition the driver detected itself
+	// ("postgres.replication_slot_missing"). One field: the two are mutually exclusive.
 	Code string `json:"code,omitempty"`
 
-	// ErrorType is the root cause's concrete type, recorded only when nothing classified
-	// the error — it is the sole remaining clue about what rule to write next.
+	// ErrorType is the root cause's concrete type, recorded only when nothing classified the
+	// error — the sole remaining clue about which rule to write next.
 	ErrorType string `json:"error_type,omitempty"`
+
+	// Component names the connector that classified the failure — "postgres", "iceberg". A run
+	// has a source and a destination and which one failed is not otherwise recoverable. Empty
+	// where the shared rules matched, since they cannot know whose endpoint was on the far end.
+	Component string `json:"component,omitempty"`
 }
 
-// Error carries a Failure alongside the error it describes. The Failure is embedded so a
-// classification reads as e.Category rather than e.Failure.Category.
+// Error carries a Failure alongside the error it describes.
 type Error struct {
 	Failure
 	err error
 }
 
-// Error returns the wrapped error's message, unchanged. Classification must not alter what an
-// operator reads in the console or in olake.log, or what any caller matching on message text
-// sees.
+// Error returns the wrapped error's message unchanged: classification must not alter what an
+// operator reads, or what a caller matching on message text sees.
 func (e *Error) Error() string { return e.err.Error() }
 
 // Unwrap keeps errors.Is and errors.As reaching the cause through the classification.
 func (e *Error) Unwrap() error { return e.err }
 
-// Attach records a classification for an error that already exists, keeping the original as
-// the cause so its message and type stay intact for anything that inspects them.
-//
-// Returns error rather than *Error so a nil error cannot become a non-nil interface holding a
-// nil pointer.
+// Attach records a classification for an existing error, keeping the original as the cause. It
+// returns error rather than *Error so nil cannot become a non-nil interface holding a nil pointer.
 func Attach(err error, f Failure) error {
 	if err == nil {
 		return nil
@@ -131,24 +117,21 @@ func Attach(err error, f Failure) error {
 
 // Precondition classifies a condition a connector detected itself, where no vendor error exists
 // to read — a missing replication slot, an unparseable resume token, a jar that is not on disk.
-//
-// These are classified at the raise site, the one place that knows what the check was for, so
-// they win over anything inferred later: From takes the innermost answer.
+// Classified at the raise site, the only place that knows what the check was for.
 func Precondition(category Category, code string, err error) error {
+	// Codes are written "<component>.<condition>", so no second argument can disagree with them.
+	component, _, _ := strings.Cut(code, ".")
 	return Attach(err, Failure{
 		Category:     category,
 		ClassifiedBy: ClassifiedByPrecondition,
 		Code:         code,
+		Component:    component,
 	})
 }
 
-// From reports the classification of err.
-//
-// It returns the innermost classification in the chain: the root cause outranks anything
-// a caller added on the way up. An unclassified error is reported as Unclassified rather
-// than InternalError, so a missing rule stays distinguishable from a genuine bug.
-//
-// It never panics. A failure here would otherwise replace the error being reported.
+// From reports the innermost classification in err's chain: the root cause outranks anything a
+// caller added above it. Unmatched errors report Unclassified rather than InternalError, keeping
+// a missing rule distinguishable from a bug. It never panics — that would replace the real error.
 func From(err error) (f Failure) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -166,18 +149,12 @@ func From(err error) (f Failure) {
 	return Failure{Category: Unclassified, ClassifiedBy: ClassifiedByDefault}
 }
 
-// maxUnwrapDepth bounds the walk. Error chains are a handful of links deep in practice;
-// the limit exists only so a cyclic or pathological chain cannot hang a failure report.
+// maxUnwrapDepth bounds the walk so a cyclic chain cannot hang a failure report.
 const maxUnwrapDepth = 100
 
-// classificationOf finds the classification closest to the root cause.
-//
-// Two shapes have to be handled. A chain built with %w unwraps one error at a time, and
-// the walk keeps descending, so the deepest classification wins — the root cause outranks
-// any context a caller added above it. A chain built with errors.Join or go-multierror
-// unwraps to a slice, which errors.Unwrap does not follow at all; without the branch
-// below, a classified error joined with anything else would be invisible and every such
-// failure would report as unclassified.
+// classificationOf finds the classification closest to the root cause. Two chain shapes exist:
+// %w unwraps one error at a time, so the walk keeps descending and the deepest wins; errors.Join
+// unwraps to a slice, which errors.Unwrap does not follow, so branches are searched by hand.
 func classificationOf(err error, depth int) (Failure, bool) {
 	var found Failure
 	var ok bool
@@ -187,8 +164,7 @@ func classificationOf(err error, depth int) (Failure, bool) {
 			found, ok = classified.Failure, true
 		}
 		if joined, isJoined := e.(interface{ Unwrap() []error }); isJoined {
-			// Branches are searched in order and the first classified one wins, so the
-			// result does not depend on map iteration or goroutine scheduling.
+			// First classified branch wins, so the result is deterministic.
 			for _, branch := range joined.Unwrap() {
 				if f, branchOK := classificationOf(branch, depth+1); branchOK {
 					return f, true
@@ -200,42 +176,35 @@ func classificationOf(err error, depth int) (Failure, bool) {
 	return found, ok
 }
 
-// VendorClassifier recognizes errors from one library. It returns nil for anything it does
-// not recognize, leaving the error for another classifier or for the standard-library
-// rules below.
+// VendorClassifier recognizes errors from one library, returning nil for anything else so the
+// error falls through to another classifier or to the shared rules.
 type VendorClassifier func(err error) *Failure
+
+type registeredClassifier struct {
+	component string
+	classify  VendorClassifier
+}
 
 var (
 	classifiersMu sync.RWMutex
-	classifiers   []VendorClassifier
+	classifiers   []registeredClassifier
 )
 
-// Register adds a classifier for a source or destination's own error types.
-//
-// Each connector binary contains exactly one source driver and the destinations it
-// supports, and registration happens from their init functions, so the set is fixed before
-// any command runs. A classifier that does not recognize an error returns nil, so
-// registering several is safe: an Iceberg error simply falls past the Postgres classifier.
-func Register(c VendorClassifier) {
+// Register adds a classifier for a source or destination's own error types. Each binary holds
+// one source plus its destinations and registers from init, so the set is fixed before any
+// command runs; classifiers return nil for errors they do not recognize, so several are safe.
+func Register(component string, c VendorClassifier) {
 	if c == nil {
 		return
 	}
 	classifiersMu.Lock()
 	defer classifiersMu.Unlock()
-	classifiers = append(classifiers, c)
+	classifiers = append(classifiers, registeredClassifier{component: component, classify: c})
 }
 
-// Classify attaches a failure classification to err.
-//
-// Commands call this once, where the error is finally handled. Classification reads the
-// error's own structure rather than the call site, so a single call at the top covers every
-// failure underneath it, whatever path produced it — a rejected password from Setup, a
-// revoked grant from a chunk read, an unreachable catalog from a destination.
-//
-// The error itself is untouched: its message and its chain are preserved exactly, and only
-// a classification travels alongside it.
-//
-// It never panics. A failure here would otherwise replace the error being reported.
+// Classify attaches a failure classification to err. Called once, where the error is finally
+// handled: it reads the error's structure rather than the call site, so one call at the top
+// covers everything underneath. The message and chain are untouched, and it never panics.
 func Classify(err error) (out error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -246,8 +215,7 @@ func Classify(err error) (out error) {
 	if err == nil {
 		return nil
 	}
-	// Already classified deeper in the chain — a precondition a driver detected, or a
-	// classification attached by a lower layer. The root cause outranks anything here.
+	// Already classified deeper in the chain; the root cause outranks anything here.
 	if From(err).Category != Unclassified {
 		return err
 	}
@@ -256,24 +224,33 @@ func Classify(err error) (out error) {
 	registered := classifiers
 	classifiersMu.RUnlock()
 
-	for _, classify := range registered {
-		if f := classify(err); f != nil {
+	for _, rc := range registered {
+		if f := rc.classify(err); f != nil {
+			f.Component = rc.component
 			return Attach(err, *f)
 		}
 	}
 	return Attach(err, standard(err))
 }
 
-// standard classifies failures that never reached a server, so carry no vendor code. These
-// rules are identical for every connector — a refused connection is a refused connection
-// whether it was Postgres or an Iceberg catalog on the other end — so they live here rather
-// than being repeated in each driver.
+// Standard applies only the shared rules, skipping every registered classifier. It exists for
+// libraries that hold their cause in a field rather than the chain — a topology description, an
+// SDK's OrigErr — which classifiers pull out by hand and pass here.
+func Standard(err error) Failure {
+	if err == nil {
+		return Failure{Category: Unclassified, ClassifiedBy: ClassifiedByDefault}
+	}
+	return standard(err)
+}
+
+// standard classifies failures that never reached a server, so carry no vendor code. Identical
+// for every connector, which is why they live here rather than in each driver.
 func standard(err error) Failure {
 	stdlib := func(category Category) Failure {
 		return Failure{Category: category, ClassifiedBy: ClassifiedByStdlib}
 	}
 
-	// Cancellation is not a failure. Checked before deadlines, which are timeouts.
+	// Checked before deadlines, which are timeouts.
 	if errors.Is(err, context.Canceled) {
 		return stdlib(Canceled)
 	}
@@ -281,8 +258,8 @@ func standard(err error) Failure {
 		return stdlib(Timeout)
 	}
 
-	// Certificate and handshake failures, before the generic network case: a TLS failure
-	// arrives wrapped in a network error and would otherwise be misread as unreachable.
+	// Before the generic network case: a TLS failure arrives wrapped in a network error and
+	// would otherwise be misread as unreachable.
 	var certErr *tls.CertificateVerificationError
 	var unknownAuthority x509.UnknownAuthorityError
 	var hostnameErr x509.HostnameError
@@ -295,9 +272,8 @@ func standard(err error) Failure {
 		return stdlib(TLSFailed)
 	}
 
-	// Resolution failures split into two different fixes: a name that does not exist is
-	// usually a typo in the config, while a resolver that timed out is an infrastructure
-	// problem. The category alone cannot say which.
+	// Two different fixes: a name that does not exist is usually a typo, a resolver that timed
+	// out is infrastructure. The category alone cannot say which.
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		f := stdlib(DNSResolutionFailed)
@@ -310,8 +286,7 @@ func standard(err error) Failure {
 		return f
 	}
 
-	// A network timeout reports itself as one; check it before treating the error as a
-	// refused connection.
+	// A network timeout reports itself as one; checked before the refused-connection case.
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return stdlib(Timeout)
@@ -324,10 +299,8 @@ func standard(err error) Failure {
 		return f
 	}
 
-	// Nothing matched. Unclassified rather than InternalError: a missing rule is not a bug,
-	// and keeping them apart is what makes either number meaningful. The concrete type is
-	// the only clue left, so it is worth reporting here — everywhere above, the category
-	// already says what the type would.
+	// Unclassified rather than InternalError: a missing rule is not a bug, and keeping them
+	// apart is what makes either number meaningful. The concrete type is the only clue left.
 	return Failure{
 		Category:     Unclassified,
 		ClassifiedBy: ClassifiedByDefault,
@@ -335,14 +308,9 @@ func standard(err error) Failure {
 	}
 }
 
-// syscallCode names the operating system error behind a network failure, so
-// network_unreachable can be split by what actually happened: a refused connection is a
-// wrong port or a stopped server, an unreachable host is a routing or firewall problem, and
-// a reset is a peer that hung up mid-conversation. Different fixes, same category.
-//
-// The names are ours rather than the raw numbers, which differ between Linux and macOS, and
-// rather than the messages, which are prose. An errno with no entry here reports nothing —
-// the category still stands on its own.
+// syscallCode splits network_unreachable by what actually happened: a wrong port, a firewall, a
+// peer that hung up — different fixes, same category. Names rather than raw errno numbers, which
+// differ between Linux and macOS; an errno with no entry here simply reports nothing.
 func syscallCode(err error) string {
 	var errno syscall.Errno
 	if !errors.As(err, &errno) {
@@ -369,15 +337,22 @@ func syscallCode(err error) string {
 	return ""
 }
 
-// rootType names the concrete type at the bottom of the chain.
-//
-// The outermost type is almost always *fmt.wrapError, which says nothing about what went
-// wrong. The root is what identifies the failure — *status.Error for something the Iceberg
-// JVM returned, *net.OpError for a socket — and it is the field someone reads when deciding
-// which rule to add next.
+// rootType names the concrete type at the bottom of the chain. The outermost is almost always
+// *fmt.wrapError, which says nothing; the root identifies the failure and is what someone reads
+// when deciding which rule to add next.
 func rootType(err error) string {
 	root := err
 	for range maxUnwrapDepth {
+		// errors.Join and two %w verbs unwrap to a slice errors.Unwrap does not follow, and the
+		// wrapper's own type says nothing, so the first branch is followed instead.
+		if joined, ok := root.(interface{ Unwrap() []error }); ok {
+			branches := joined.Unwrap()
+			if len(branches) == 0 || branches[0] == nil {
+				break
+			}
+			root = branches[0]
+			continue
+		}
 		next := errors.Unwrap(root)
 		if next == nil {
 			break
