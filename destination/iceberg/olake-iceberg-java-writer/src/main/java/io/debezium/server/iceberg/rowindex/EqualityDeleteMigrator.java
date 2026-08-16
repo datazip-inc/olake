@@ -25,6 +25,8 @@ import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.GenericAppenderFactory;
 import org.apache.iceberg.data.Record;
+import org.apache.iceberg.deletes.BaseDVFileWriter;
+import org.apache.iceberg.deletes.DVFileWriter;
 import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.deletes.PositionDeleteWriter;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
@@ -34,6 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.debezium.server.iceberg.IcebergUtil;
+import io.debezium.server.iceberg.tableoperator.DeleteMode;
 
 /**
  * Replaces a table's equality delete files with positional delete files that
@@ -68,6 +71,19 @@ public final class EqualityDeleteMigrator {
   }
 
   public static Result migrate(Table table, String identifierField, OutputFileFactory fileFactory) throws Exception {
+    return migrate(table, identifierField, fileFactory, DeleteMode.POSITION);
+  }
+
+  /**
+   * Rewrites the table's equality deletes into {@code targetMode}.
+   *
+   * <p>The exchange stays a single {@link RewriteFiles} commit whichever form is
+   * produced, so a reader never observes the affected rows as undeleted. Only the
+   * representation differs: positional mode writes delete files sorted by path and
+   * offset, deletion vector mode writes one Puffin bitmap per data file.
+   */
+  public static Result migrate(Table table, String identifierField, OutputFileFactory fileFactory,
+      DeleteMode targetMode) throws Exception {
     table.refresh();
 
     Snapshot current = table.currentSnapshot();
@@ -102,7 +118,7 @@ public final class EqualityDeleteMigrator {
       posConvCount += collectPositions(table, entry.dataFile, projection, identifierField, deletedKeys, group);
     }
 
-    List<DeleteFile> written = writePositionDeletes(table, fileFactory, groups);
+    List<DeleteFile> written = writeDeletes(table, fileFactory, groups, targetMode);
 
     RewriteFiles rewrite = table.newRewrite();
     for (DeleteFile deleteFile : replaced) {
@@ -191,6 +207,45 @@ public final class EqualityDeleteMigrator {
     }
 
     return matched;
+  }
+
+  private static List<DeleteFile> writeDeletes(Table table, OutputFileFactory fileFactory,
+      Map<String, PartitionGroup> groups, DeleteMode targetMode) throws IOException {
+    if (targetMode == DeleteMode.DELETION_VECTOR) {
+      return writeDeletionVectors(table, fileFactory, groups);
+    }
+    return writePositionDeletes(table, fileFactory, groups);
+  }
+
+  /**
+   * One Puffin vector per data file. The migration replaces the table's equality
+   * deletes wholesale, so nothing has been deleted positionally yet and there is no
+   * previous vector to merge with; that is why a null loader is correct here, and why
+   * it would not be if a table could be migrated a second time.
+   */
+  private static List<DeleteFile> writeDeletionVectors(Table table, OutputFileFactory fileFactory,
+      Map<String, PartitionGroup> groups) throws IOException {
+    PartitionSpec spec = table.spec();
+    List<DeleteFile> written = new ArrayList<>();
+
+    DVFileWriter writer = new BaseDVFileWriter(fileFactory, path -> null);
+    try {
+      for (PartitionGroup group : groups.values()) {
+        if (group.positions.isEmpty()) {
+          LOGGER.info("No positions to write for partition {}", group.partition);
+          continue;
+        }
+        StructLike partition = spec.isUnpartitioned() ? null : group.partition;
+        for (RowPosition row : group.positions) {
+          writer.delete(row.path, row.position, spec, partition);
+        }
+      }
+    } finally {
+      writer.close();
+    }
+
+    written.addAll(writer.result().deleteFiles());
+    return written;
   }
 
   private static List<DeleteFile> writePositionDeletes(Table table, OutputFileFactory fileFactory,

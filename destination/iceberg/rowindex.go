@@ -26,6 +26,9 @@ func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.TableIndex,
 		// first check for equality deletes and migrate them to positional deletes
 		migrated, err := i.server.rowIndexClient.MigrateEqualityDeletes(ctx, &proto.MigrateEqualityDeletesRequest{
 			ThreadId: i.options.ThreadID,
+			// Rewrite straight into the mode this sync writes, so a table switching
+			// from equality deletes lands on its target representation in one commit.
+			TargetMode: string(i.options.DeleteMode),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to migrate equality deletes of table[%s]: %s", table, err)

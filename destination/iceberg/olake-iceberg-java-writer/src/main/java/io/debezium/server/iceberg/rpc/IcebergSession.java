@@ -1,6 +1,7 @@
 package io.debezium.server.iceberg.rpc;
 
 import org.apache.iceberg.FileFormat;
+import io.debezium.server.iceberg.tableoperator.DeleteMode;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.io.OutputFileFactory;
 
@@ -14,13 +15,15 @@ public class IcebergSession {
     public final String identifierField;
     public final boolean upsert;
     public final boolean usePositionalDeletes;
+    public final DeleteMode deleteMode;
 
-    public IcebergSession(Table icebergTable, boolean upsert, String identifierField, boolean usePositionalDeletes) {
+    public IcebergSession(Table icebergTable, boolean upsert, String identifierField, DeleteMode deleteMode) {
         this.icebergTable = icebergTable;
-        this.op = new IcebergTableOperator(upsert, usePositionalDeletes);
+        this.op = new IcebergTableOperator(upsert, deleteMode);
         this.identifierField = identifierField;
         this.upsert = upsert;
-        this.usePositionalDeletes = usePositionalDeletes;
+        this.deleteMode = deleteMode;
+        this.usePositionalDeletes = deleteMode.addressesPositions();
 
         FileFormat fileFormat = IcebergUtil.getTableFileFormat(icebergTable);
         this.fileFactory = IcebergUtil.getTableOutputFileFactory(icebergTable, fileFormat);

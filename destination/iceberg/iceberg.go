@@ -107,7 +107,10 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 			Namespace:            stream.GetDestinationDatabase(&i.config.IcebergDatabase),
 			Upsert:               upsertMode,
 			UsePositionalDeletes: options.RowIndex != nil,
-			PartitionFields:      icebergPartFields,
+			// Named mode drives the writer; the boolean above stays for servers
+			// built before deletion vectors existed.
+			DeleteMode:      string(options.DeleteMode),
+			PartitionFields: icebergPartFields,
 		},
 	}
 

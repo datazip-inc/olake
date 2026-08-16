@@ -92,11 +92,6 @@ public final class RecordIngest {
       return new IcebergPayload();
     }
 
-    @java.lang.Override
-    public final com.google.protobuf.UnknownFieldSet
-    getUnknownFields() {
-      return this.unknownFields;
-    }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor;
@@ -407,6 +402,30 @@ public final class RecordIngest {
 
       /**
        * <pre>
+       * Delete representation the writer should use: "eq" (equality deletes),
+       * "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+       * back to use_positional_deletes so older callers keep working.
+       * </pre>
+       *
+       * <code>string delete_mode = 12;</code>
+       * @return The deleteMode.
+       */
+      java.lang.String getDeleteMode();
+      /**
+       * <pre>
+       * Delete representation the writer should use: "eq" (equality deletes),
+       * "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+       * back to use_positional_deletes so older callers keep working.
+       * </pre>
+       *
+       * <code>string delete_mode = 12;</code>
+       * @return The bytes for deleteMode.
+       */
+      com.google.protobuf.ByteString
+          getDeleteModeBytes();
+
+      /**
+       * <pre>
        * COMMIT: snapshot the caller's row index is checkpointed at. The server
        * refreshes the table and refuses the commit when the tip has moved, so
        * positional deletes built from a stale index cannot be published.
@@ -448,6 +467,7 @@ public final class RecordIngest {
         payload_ = "";
         namespace_ = "";
         partitionFields_ = java.util.Collections.emptyList();
+        deleteMode_ = "";
       }
 
       @java.lang.Override
@@ -457,11 +477,6 @@ public final class RecordIngest {
         return new Metadata();
       }
 
-      @java.lang.Override
-      public final com.google.protobuf.UnknownFieldSet
-      getUnknownFields() {
-        return this.unknownFields;
-      }
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor;
@@ -796,6 +811,57 @@ public final class RecordIngest {
         return partitionFields_.get(index);
       }
 
+      public static final int DELETE_MODE_FIELD_NUMBER = 12;
+      @SuppressWarnings("serial")
+      private volatile java.lang.Object deleteMode_ = "";
+      /**
+       * <pre>
+       * Delete representation the writer should use: "eq" (equality deletes),
+       * "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+       * back to use_positional_deletes so older callers keep working.
+       * </pre>
+       *
+       * <code>string delete_mode = 12;</code>
+       * @return The deleteMode.
+       */
+      @java.lang.Override
+      public java.lang.String getDeleteMode() {
+        java.lang.Object ref = deleteMode_;
+        if (ref instanceof java.lang.String) {
+          return (java.lang.String) ref;
+        } else {
+          com.google.protobuf.ByteString bs = 
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          deleteMode_ = s;
+          return s;
+        }
+      }
+      /**
+       * <pre>
+       * Delete representation the writer should use: "eq" (equality deletes),
+       * "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+       * back to use_positional_deletes so older callers keep working.
+       * </pre>
+       *
+       * <code>string delete_mode = 12;</code>
+       * @return The bytes for deleteMode.
+       */
+      @java.lang.Override
+      public com.google.protobuf.ByteString
+          getDeleteModeBytes() {
+        java.lang.Object ref = deleteMode_;
+        if (ref instanceof java.lang.String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          deleteMode_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+
       public static final int BASE_SNAPSHOT_ID_FIELD_NUMBER = 11;
       private long baseSnapshotId_ = 0L;
       /**
@@ -871,6 +937,9 @@ public final class RecordIngest {
         if (((bitField0_ & 0x00000002) != 0)) {
           output.writeInt64(11, baseSnapshotId_);
         }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(deleteMode_)) {
+          com.google.protobuf.GeneratedMessageV3.writeString(output, 12, deleteMode_);
+        }
         getUnknownFields().writeTo(output);
       }
 
@@ -915,6 +984,9 @@ public final class RecordIngest {
           size += com.google.protobuf.CodedOutputStream
             .computeInt64Size(11, baseSnapshotId_);
         }
+        if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(deleteMode_)) {
+          size += com.google.protobuf.GeneratedMessageV3.computeStringSize(12, deleteMode_);
+        }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
         return size;
@@ -951,6 +1023,8 @@ public final class RecordIngest {
             != other.getUsePositionalDeletes()) return false;
         if (!getPartitionFieldsList()
             .equals(other.getPartitionFieldsList())) return false;
+        if (!getDeleteMode()
+            .equals(other.getDeleteMode())) return false;
         if (hasBaseSnapshotId() != other.hasBaseSnapshotId()) return false;
         if (hasBaseSnapshotId()) {
           if (getBaseSnapshotId()
@@ -993,6 +1067,8 @@ public final class RecordIngest {
           hash = (37 * hash) + PARTITION_FIELDS_FIELD_NUMBER;
           hash = (53 * hash) + getPartitionFieldsList().hashCode();
         }
+        hash = (37 * hash) + DELETE_MODE_FIELD_NUMBER;
+        hash = (53 * hash) + getDeleteMode().hashCode();
         if (hasBaseSnapshotId()) {
           hash = (37 * hash) + BASE_SNAPSHOT_ID_FIELD_NUMBER;
           hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
@@ -1047,11 +1123,13 @@ public final class RecordIngest {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input, extensionRegistry);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.Metadata parseDelimitedFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.Metadata parseDelimitedFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -1148,6 +1226,7 @@ public final class RecordIngest {
             partitionFieldsBuilder_.clear();
           }
           bitField0_ = (bitField0_ & ~0x00000100);
+          deleteMode_ = "";
           baseSnapshotId_ = 0L;
           return this;
         }
@@ -1228,6 +1307,9 @@ public final class RecordIngest {
             result.usePositionalDeletes_ = usePositionalDeletes_;
           }
           if (((from_bitField0_ & 0x00000200) != 0)) {
+            result.deleteMode_ = deleteMode_;
+          }
+          if (((from_bitField0_ & 0x00000400) != 0)) {
             result.baseSnapshotId_ = baseSnapshotId_;
             to_bitField0_ |= 0x00000002;
           }
@@ -1361,6 +1443,11 @@ public final class RecordIngest {
               }
             }
           }
+          if (!other.getDeleteMode().isEmpty()) {
+            deleteMode_ = other.deleteMode_;
+            bitField0_ |= 0x00000200;
+            onChanged();
+          }
           if (other.hasBaseSnapshotId()) {
             setBaseSnapshotId(other.getBaseSnapshotId());
           }
@@ -1453,9 +1540,14 @@ public final class RecordIngest {
                 } // case 82
                 case 88: {
                   baseSnapshotId_ = input.readInt64();
-                  bitField0_ |= 0x00000200;
+                  bitField0_ |= 0x00000400;
                   break;
                 } // case 88
+                case 98: {
+                  deleteMode_ = input.readStringRequireUtf8();
+                  bitField0_ |= 0x00000200;
+                  break;
+                } // case 98
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -2115,7 +2207,7 @@ public final class RecordIngest {
          * @return This builder for chaining.
          */
         public Builder setUpsert(boolean value) {
-          
+
           upsert_ = value;
           bitField0_ |= 0x00000040;
           onChanged();
@@ -2157,7 +2249,7 @@ public final class RecordIngest {
          * @return This builder for chaining.
          */
         public Builder setUsePositionalDeletes(boolean value) {
-          
+
           usePositionalDeletes_ = value;
           bitField0_ |= 0x00000080;
           onChanged();
@@ -2419,6 +2511,108 @@ public final class RecordIngest {
           return partitionFieldsBuilder_;
         }
 
+        private java.lang.Object deleteMode_ = "";
+        /**
+         * <pre>
+         * Delete representation the writer should use: "eq" (equality deletes),
+         * "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+         * back to use_positional_deletes so older callers keep working.
+         * </pre>
+         *
+         * <code>string delete_mode = 12;</code>
+         * @return The deleteMode.
+         */
+        public java.lang.String getDeleteMode() {
+          java.lang.Object ref = deleteMode_;
+          if (!(ref instanceof java.lang.String)) {
+            com.google.protobuf.ByteString bs =
+                (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            deleteMode_ = s;
+            return s;
+          } else {
+            return (java.lang.String) ref;
+          }
+        }
+        /**
+         * <pre>
+         * Delete representation the writer should use: "eq" (equality deletes),
+         * "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+         * back to use_positional_deletes so older callers keep working.
+         * </pre>
+         *
+         * <code>string delete_mode = 12;</code>
+         * @return The bytes for deleteMode.
+         */
+        public com.google.protobuf.ByteString
+            getDeleteModeBytes() {
+          java.lang.Object ref = deleteMode_;
+          if (ref instanceof String) {
+            com.google.protobuf.ByteString b = 
+                com.google.protobuf.ByteString.copyFromUtf8(
+                    (java.lang.String) ref);
+            deleteMode_ = b;
+            return b;
+          } else {
+            return (com.google.protobuf.ByteString) ref;
+          }
+        }
+        /**
+         * <pre>
+         * Delete representation the writer should use: "eq" (equality deletes),
+         * "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+         * back to use_positional_deletes so older callers keep working.
+         * </pre>
+         *
+         * <code>string delete_mode = 12;</code>
+         * @param value The deleteMode to set.
+         * @return This builder for chaining.
+         */
+        public Builder setDeleteMode(
+            java.lang.String value) {
+          if (value == null) { throw new NullPointerException(); }
+          deleteMode_ = value;
+          bitField0_ |= 0x00000200;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * Delete representation the writer should use: "eq" (equality deletes),
+         * "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+         * back to use_positional_deletes so older callers keep working.
+         * </pre>
+         *
+         * <code>string delete_mode = 12;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearDeleteMode() {
+          deleteMode_ = getDefaultInstance().getDeleteMode();
+          bitField0_ = (bitField0_ & ~0x00000200);
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * Delete representation the writer should use: "eq" (equality deletes),
+         * "pos" (positional delete files) or "dv" (v3 deletion vectors). Empty falls
+         * back to use_positional_deletes so older callers keep working.
+         * </pre>
+         *
+         * <code>string delete_mode = 12;</code>
+         * @param value The bytes for deleteMode to set.
+         * @return This builder for chaining.
+         */
+        public Builder setDeleteModeBytes(
+            com.google.protobuf.ByteString value) {
+          if (value == null) { throw new NullPointerException(); }
+          checkByteStringIsUtf8(value);
+          deleteMode_ = value;
+          bitField0_ |= 0x00000200;
+          onChanged();
+          return this;
+        }
+
         private long baseSnapshotId_ ;
         /**
          * <pre>
@@ -2432,7 +2626,7 @@ public final class RecordIngest {
          */
         @java.lang.Override
         public boolean hasBaseSnapshotId() {
-          return ((bitField0_ & 0x00000200) != 0);
+          return ((bitField0_ & 0x00000400) != 0);
         }
         /**
          * <pre>
@@ -2460,9 +2654,9 @@ public final class RecordIngest {
          * @return This builder for chaining.
          */
         public Builder setBaseSnapshotId(long value) {
-          
+
           baseSnapshotId_ = value;
-          bitField0_ |= 0x00000200;
+          bitField0_ |= 0x00000400;
           onChanged();
           return this;
         }
@@ -2477,7 +2671,7 @@ public final class RecordIngest {
          * @return This builder for chaining.
          */
         public Builder clearBaseSnapshotId() {
-          bitField0_ = (bitField0_ & ~0x00000200);
+          bitField0_ = (bitField0_ & ~0x00000400);
           baseSnapshotId_ = 0L;
           onChanged();
           return this;
@@ -2598,11 +2792,6 @@ public final class RecordIngest {
         return new SchemaField();
       }
 
-      @java.lang.Override
-      public final com.google.protobuf.UnknownFieldSet
-      getUnknownFields() {
-        return this.unknownFields;
-      }
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_descriptor;
@@ -2812,11 +3001,13 @@ public final class RecordIngest {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input, extensionRegistry);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField parseDelimitedFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.SchemaField parseDelimitedFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -3301,11 +3492,6 @@ public final class RecordIngest {
         return new PartitionField();
       }
 
-      @java.lang.Override
-      public final com.google.protobuf.UnknownFieldSet
-      getUnknownFields() {
-        return this.unknownFields;
-      }
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_PartitionField_descriptor;
@@ -3515,11 +3701,13 @@ public final class RecordIngest {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input, extensionRegistry);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.PartitionField parseDelimitedFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.PartitionField parseDelimitedFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -4075,11 +4263,6 @@ public final class RecordIngest {
         return new IceRecord();
       }
 
-      @java.lang.Override
-      public final com.google.protobuf.UnknownFieldSet
-      getUnknownFields() {
-        return this.unknownFields;
-      }
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_descriptor;
@@ -4180,7 +4363,7 @@ public final class RecordIngest {
          */
         com.google.protobuf.ByteString getBytesValue();
 
-        public io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.ValueCase getValueCase();
+        io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue.ValueCase getValueCase();
       }
       /**
        * <pre>
@@ -4208,11 +4391,6 @@ public final class RecordIngest {
           return new FieldValue();
         }
 
-        @java.lang.Override
-        public final com.google.protobuf.UnknownFieldSet
-        getUnknownFields() {
-          return this.unknownFields;
-        }
         public static final com.google.protobuf.Descriptors.Descriptor
             getDescriptor() {
           return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_IceRecord_FieldValue_descriptor;
@@ -4227,6 +4405,7 @@ public final class RecordIngest {
         }
 
         private int valueCase_ = 0;
+        @SuppressWarnings("serial")
         private java.lang.Object value_;
         public enum ValueCase
             implements com.google.protobuf.Internal.EnumLite,
@@ -4684,11 +4863,13 @@ public final class RecordIngest {
           return com.google.protobuf.GeneratedMessageV3
               .parseWithIOException(PARSER, input, extensionRegistry);
         }
+
         public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseDelimitedFrom(java.io.InputStream input)
             throws java.io.IOException {
           return com.google.protobuf.GeneratedMessageV3
               .parseDelimitedWithIOException(PARSER, input);
         }
+
         public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord.FieldValue parseDelimitedFrom(
             java.io.InputStream input,
             com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -5100,7 +5281,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setIntValue(int value) {
-            
+
             valueCase_ = 2;
             value_ = value;
             onChanged();
@@ -5142,7 +5323,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setLongValue(long value) {
-            
+
             valueCase_ = 3;
             value_ = value;
             onChanged();
@@ -5184,7 +5365,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setFloatValue(float value) {
-            
+
             valueCase_ = 4;
             value_ = value;
             onChanged();
@@ -5226,7 +5407,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setDoubleValue(double value) {
-            
+
             valueCase_ = 5;
             value_ = value;
             onChanged();
@@ -5268,7 +5449,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setBoolValue(boolean value) {
-            
+
             valueCase_ = 6;
             value_ = value;
             onChanged();
@@ -5718,11 +5899,13 @@ public final class RecordIngest {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input, extensionRegistry);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord parseDelimitedFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.IceRecord parseDelimitedFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -6497,7 +6680,7 @@ public final class RecordIngest {
          * @return This builder for chaining.
          */
         public Builder setDeletePosition(long value) {
-          
+
           deletePosition_ = value;
           bitField0_ |= 0x00000008;
           onChanged();
@@ -6799,11 +6982,13 @@ public final class RecordIngest {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -7710,11 +7895,6 @@ public final class RecordIngest {
       return new RecordIngestResponse();
     }
 
-    @java.lang.Override
-    public final com.google.protobuf.UnknownFieldSet
-    getUnknownFields() {
-      return this.unknownFields;
-    }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_descriptor;
@@ -8095,11 +8275,13 @@ public final class RecordIngest {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -8515,7 +8697,7 @@ public final class RecordIngest {
        * @return This builder for chaining.
        */
       public Builder setSuccess(boolean value) {
-        
+
         success_ = value;
         bitField0_ |= 0x00000002;
         onChanged();
@@ -8655,7 +8837,7 @@ public final class RecordIngest {
        * @return This builder for chaining.
        */
       public Builder setSnapshotId(long value) {
-        
+
         snapshotId_ = value;
         bitField0_ |= 0x00000008;
         onChanged();
@@ -8703,7 +8885,7 @@ public final class RecordIngest {
        * @return This builder for chaining.
        */
       public Builder setHasEqualityDeletes(boolean value) {
-        
+
         hasEqualityDeletes_ = value;
         bitField0_ |= 0x00000010;
         onChanged();
@@ -9181,11 +9363,6 @@ public final class RecordIngest {
       return new WriteRun();
     }
 
-    @java.lang.Override
-    public final com.google.protobuf.UnknownFieldSet
-    getUnknownFields() {
-      return this.unknownFields;
-    }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_WriteRun_descriptor;
@@ -9413,11 +9590,13 @@ public final class RecordIngest {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -9758,7 +9937,7 @@ public final class RecordIngest {
        * @return This builder for chaining.
        */
       public Builder setBatchStartIdx(int value) {
-        
+
         batchStartIdx_ = value;
         bitField0_ |= 0x00000002;
         onChanged();
@@ -9790,7 +9969,7 @@ public final class RecordIngest {
        * @return This builder for chaining.
        */
       public Builder setStartPosition(long value) {
-        
+
         startPosition_ = value;
         bitField0_ |= 0x00000004;
         onChanged();
@@ -9822,7 +10001,7 @@ public final class RecordIngest {
        * @return This builder for chaining.
        */
       public Builder setCount(int value) {
-        
+
         count_ = value;
         bitField0_ |= 0x00000008;
         onChanged();
@@ -9955,11 +10134,6 @@ public final class RecordIngest {
       return new ArrowPayload();
     }
 
-    @java.lang.Override
-    public final com.google.protobuf.UnknownFieldSet
-    getUnknownFields() {
-      return this.unknownFields;
-    }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor;
@@ -10182,11 +10356,6 @@ public final class RecordIngest {
         return new FileMetadata();
       }
 
-      @java.lang.Override
-      public final com.google.protobuf.UnknownFieldSet
-      getUnknownFields() {
-        return this.unknownFields;
-      }
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_descriptor;
@@ -10276,7 +10445,7 @@ public final class RecordIngest {
          */
         boolean getBoolValue();
 
-        public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.ValueCase getValueCase();
+        io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue.ValueCase getValueCase();
       }
       /**
        * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue}
@@ -10300,11 +10469,6 @@ public final class RecordIngest {
           return new PartitionValue();
         }
 
-        @java.lang.Override
-        public final com.google.protobuf.UnknownFieldSet
-        getUnknownFields() {
-          return this.unknownFields;
-        }
         public static final com.google.protobuf.Descriptors.Descriptor
             getDescriptor() {
           return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileMetadata_PartitionValue_descriptor;
@@ -10319,6 +10483,7 @@ public final class RecordIngest {
         }
 
         private int valueCase_ = 0;
+        @SuppressWarnings("serial")
         private java.lang.Object value_;
         public enum ValueCase
             implements com.google.protobuf.Internal.EnumLite,
@@ -10736,11 +10901,13 @@ public final class RecordIngest {
           return com.google.protobuf.GeneratedMessageV3
               .parseWithIOException(PARSER, input, extensionRegistry);
         }
+
         public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseDelimitedFrom(java.io.InputStream input)
             throws java.io.IOException {
           return com.google.protobuf.GeneratedMessageV3
               .parseDelimitedWithIOException(PARSER, input);
         }
+
         public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue parseDelimitedFrom(
             java.io.InputStream input,
             com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -11046,7 +11213,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setIntValue(int value) {
-            
+
             valueCase_ = 1;
             value_ = value;
             onChanged();
@@ -11088,7 +11255,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setLongValue(long value) {
-            
+
             valueCase_ = 2;
             value_ = value;
             onChanged();
@@ -11223,7 +11390,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setFloatValue(float value) {
-            
+
             valueCase_ = 4;
             value_ = value;
             onChanged();
@@ -11265,7 +11432,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setDoubleValue(double value) {
-            
+
             valueCase_ = 5;
             value_ = value;
             onChanged();
@@ -11307,7 +11474,7 @@ public final class RecordIngest {
            * @return This builder for chaining.
            */
           public Builder setBoolValue(boolean value) {
-            
+
             valueCase_ = 6;
             value_ = value;
             onChanged();
@@ -11662,11 +11829,13 @@ public final class RecordIngest {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input, extensionRegistry);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata parseDelimitedFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata parseDelimitedFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -12122,7 +12291,7 @@ public final class RecordIngest {
          * @return This builder for chaining.
          */
         public Builder setRecordCount(long value) {
-          
+
           recordCount_ = value;
           bitField0_ |= 0x00000004;
           onChanged();
@@ -12488,11 +12657,6 @@ public final class RecordIngest {
         return new FileUploadRequest();
       }
 
-      @java.lang.Override
-      public final com.google.protobuf.UnknownFieldSet
-      getUnknownFields() {
-        return this.unknownFields;
-      }
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_FileUploadRequest_descriptor;
@@ -12675,11 +12839,13 @@ public final class RecordIngest {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input, extensionRegistry);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest parseDelimitedFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileUploadRequest parseDelimitedFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -13196,11 +13362,6 @@ public final class RecordIngest {
         return new Metadata();
       }
 
-      @java.lang.Override
-      public final com.google.protobuf.UnknownFieldSet
-      getUnknownFields() {
-        return this.unknownFields;
-      }
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor;
@@ -13602,11 +13763,13 @@ public final class RecordIngest {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input, extensionRegistry);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.Metadata parseDelimitedFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.Metadata parseDelimitedFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -14561,7 +14724,7 @@ public final class RecordIngest {
          * @return This builder for chaining.
          */
         public Builder setBaseSnapshotId(long value) {
-          
+
           baseSnapshotId_ = value;
           bitField0_ |= 0x00000020;
           onChanged();
@@ -14814,11 +14977,13 @@ public final class RecordIngest {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -15377,11 +15542,6 @@ java.lang.String defaultValue);
       return new ArrowIngestResponse();
     }
 
-    @java.lang.Override
-    public final com.google.protobuf.UnknownFieldSet
-    getUnknownFields() {
-      return this.unknownFields;
-    }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_descriptor;
@@ -15702,11 +15862,13 @@ java.lang.String defaultValue) {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowIngestResponse parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.ArrowIngestResponse parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -16209,7 +16371,7 @@ java.lang.String defaultValue) {
        * @return This builder for chaining.
        */
       public Builder setSnapshotId(long value) {
-        
+
         snapshotId_ = value;
         bitField0_ |= 0x00000004;
         onChanged();
@@ -16358,11 +16520,6 @@ java.lang.String defaultValue) {
       return new RowIndexScanRequest();
     }
 
-    @java.lang.Override
-    public final com.google.protobuf.UnknownFieldSet
-    getUnknownFields() {
-      return this.unknownFields;
-    }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_descriptor;
@@ -16574,11 +16731,13 @@ java.lang.String defaultValue) {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -16921,7 +17080,7 @@ java.lang.String defaultValue) {
        * @return This builder for chaining.
        */
       public Builder setFromSnapshotId(long value) {
-        
+
         fromSnapshotId_ = value;
         bitField0_ |= 0x00000002;
         onChanged();
@@ -17081,11 +17240,6 @@ java.lang.String defaultValue) {
       return new RowIndexScanBatch();
     }
 
-    @java.lang.Override
-    public final com.google.protobuf.UnknownFieldSet
-    getUnknownFields() {
-      return this.unknownFields;
-    }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_descriptor;
@@ -17163,11 +17317,6 @@ java.lang.String defaultValue) {
         return new Entry();
       }
 
-      @java.lang.Override
-      public final com.google.protobuf.UnknownFieldSet
-      getUnknownFields() {
-        return this.unknownFields;
-      }
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
         return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_descriptor;
@@ -17423,11 +17572,13 @@ java.lang.String defaultValue) {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input, extensionRegistry);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseDelimitedFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input);
       }
+
       public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseDelimitedFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -17836,7 +17987,7 @@ java.lang.String defaultValue) {
          * @return This builder for chaining.
          */
         public Builder setPosition(long value) {
-          
+
           position_ = value;
           bitField0_ |= 0x00000004;
           onChanged();
@@ -17868,7 +18019,7 @@ java.lang.String defaultValue) {
          * @return This builder for chaining.
          */
         public Builder setDeleted(boolean value) {
-          
+
           deleted_ = value;
           bitField0_ |= 0x00000008;
           onChanged();
@@ -18156,11 +18307,13 @@ java.lang.String defaultValue) {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -18706,7 +18859,7 @@ java.lang.String defaultValue) {
        * @return This builder for chaining.
        */
       public Builder setSnapshotId(long value) {
-        
+
         snapshotId_ = value;
         bitField0_ |= 0x00000002;
         onChanged();
@@ -18753,7 +18906,7 @@ java.lang.String defaultValue) {
        * @return This builder for chaining.
        */
       public Builder setRequiresFullScan(boolean value) {
-        
+
         requiresFullScan_ = value;
         bitField0_ |= 0x00000004;
         onChanged();
@@ -18853,6 +19006,28 @@ java.lang.String defaultValue) {
      */
     com.google.protobuf.ByteString
         getThreadIdBytes();
+
+    /**
+     * <pre>
+     * Representation the equality deletes should be rewritten into: "pos" or "dv".
+     * Empty means "pos", which is what callers predating deletion vectors expect.
+     * </pre>
+     *
+     * <code>string target_mode = 2;</code>
+     * @return The targetMode.
+     */
+    java.lang.String getTargetMode();
+    /**
+     * <pre>
+     * Representation the equality deletes should be rewritten into: "pos" or "dv".
+     * Empty means "pos", which is what callers predating deletion vectors expect.
+     * </pre>
+     *
+     * <code>string target_mode = 2;</code>
+     * @return The bytes for targetMode.
+     */
+    com.google.protobuf.ByteString
+        getTargetModeBytes();
   }
   /**
    * Protobuf type {@code io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest}
@@ -18868,6 +19043,7 @@ java.lang.String defaultValue) {
     }
     private MigrateEqualityDeletesRequest() {
       threadId_ = "";
+      targetMode_ = "";
     }
 
     @java.lang.Override
@@ -18877,11 +19053,6 @@ java.lang.String defaultValue) {
       return new MigrateEqualityDeletesRequest();
     }
 
-    @java.lang.Override
-    public final com.google.protobuf.UnknownFieldSet
-    getUnknownFields() {
-      return this.unknownFields;
-    }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesRequest_descriptor;
@@ -18934,6 +19105,55 @@ java.lang.String defaultValue) {
       }
     }
 
+    public static final int TARGET_MODE_FIELD_NUMBER = 2;
+    @SuppressWarnings("serial")
+    private volatile java.lang.Object targetMode_ = "";
+    /**
+     * <pre>
+     * Representation the equality deletes should be rewritten into: "pos" or "dv".
+     * Empty means "pos", which is what callers predating deletion vectors expect.
+     * </pre>
+     *
+     * <code>string target_mode = 2;</code>
+     * @return The targetMode.
+     */
+    @java.lang.Override
+    public java.lang.String getTargetMode() {
+      java.lang.Object ref = targetMode_;
+      if (ref instanceof java.lang.String) {
+        return (java.lang.String) ref;
+      } else {
+        com.google.protobuf.ByteString bs = 
+            (com.google.protobuf.ByteString) ref;
+        java.lang.String s = bs.toStringUtf8();
+        targetMode_ = s;
+        return s;
+      }
+    }
+    /**
+     * <pre>
+     * Representation the equality deletes should be rewritten into: "pos" or "dv".
+     * Empty means "pos", which is what callers predating deletion vectors expect.
+     * </pre>
+     *
+     * <code>string target_mode = 2;</code>
+     * @return The bytes for targetMode.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getTargetModeBytes() {
+      java.lang.Object ref = targetMode_;
+      if (ref instanceof java.lang.String) {
+        com.google.protobuf.ByteString b = 
+            com.google.protobuf.ByteString.copyFromUtf8(
+                (java.lang.String) ref);
+        targetMode_ = b;
+        return b;
+      } else {
+        return (com.google.protobuf.ByteString) ref;
+      }
+    }
+
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -18951,6 +19171,9 @@ java.lang.String defaultValue) {
       if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(threadId_)) {
         com.google.protobuf.GeneratedMessageV3.writeString(output, 1, threadId_);
       }
+      if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(targetMode_)) {
+        com.google.protobuf.GeneratedMessageV3.writeString(output, 2, targetMode_);
+      }
       getUnknownFields().writeTo(output);
     }
 
@@ -18962,6 +19185,9 @@ java.lang.String defaultValue) {
       size = 0;
       if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(threadId_)) {
         size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, threadId_);
+      }
+      if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(targetMode_)) {
+        size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, targetMode_);
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -18980,6 +19206,8 @@ java.lang.String defaultValue) {
 
       if (!getThreadId()
           .equals(other.getThreadId())) return false;
+      if (!getTargetMode()
+          .equals(other.getTargetMode())) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -18993,6 +19221,8 @@ java.lang.String defaultValue) {
       hash = (19 * hash) + getDescriptor().hashCode();
       hash = (37 * hash) + THREAD_ID_FIELD_NUMBER;
       hash = (53 * hash) + getThreadId().hashCode();
+      hash = (37 * hash) + TARGET_MODE_FIELD_NUMBER;
+      hash = (53 * hash) + getTargetMode().hashCode();
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -19042,11 +19272,13 @@ java.lang.String defaultValue) {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -19123,6 +19355,7 @@ java.lang.String defaultValue) {
         super.clear();
         bitField0_ = 0;
         threadId_ = "";
+        targetMode_ = "";
         return this;
       }
 
@@ -19158,6 +19391,9 @@ java.lang.String defaultValue) {
         int from_bitField0_ = bitField0_;
         if (((from_bitField0_ & 0x00000001) != 0)) {
           result.threadId_ = threadId_;
+        }
+        if (((from_bitField0_ & 0x00000002) != 0)) {
+          result.targetMode_ = targetMode_;
         }
       }
 
@@ -19210,6 +19446,11 @@ java.lang.String defaultValue) {
           bitField0_ |= 0x00000001;
           onChanged();
         }
+        if (!other.getTargetMode().isEmpty()) {
+          targetMode_ = other.targetMode_;
+          bitField0_ |= 0x00000002;
+          onChanged();
+        }
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -19241,6 +19482,11 @@ java.lang.String defaultValue) {
                 bitField0_ |= 0x00000001;
                 break;
               } // case 10
+              case 18: {
+                targetMode_ = input.readStringRequireUtf8();
+                bitField0_ |= 0x00000002;
+                break;
+              } // case 18
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -19326,6 +19572,103 @@ java.lang.String defaultValue) {
         checkByteStringIsUtf8(value);
         threadId_ = value;
         bitField0_ |= 0x00000001;
+        onChanged();
+        return this;
+      }
+
+      private java.lang.Object targetMode_ = "";
+      /**
+       * <pre>
+       * Representation the equality deletes should be rewritten into: "pos" or "dv".
+       * Empty means "pos", which is what callers predating deletion vectors expect.
+       * </pre>
+       *
+       * <code>string target_mode = 2;</code>
+       * @return The targetMode.
+       */
+      public java.lang.String getTargetMode() {
+        java.lang.Object ref = targetMode_;
+        if (!(ref instanceof java.lang.String)) {
+          com.google.protobuf.ByteString bs =
+              (com.google.protobuf.ByteString) ref;
+          java.lang.String s = bs.toStringUtf8();
+          targetMode_ = s;
+          return s;
+        } else {
+          return (java.lang.String) ref;
+        }
+      }
+      /**
+       * <pre>
+       * Representation the equality deletes should be rewritten into: "pos" or "dv".
+       * Empty means "pos", which is what callers predating deletion vectors expect.
+       * </pre>
+       *
+       * <code>string target_mode = 2;</code>
+       * @return The bytes for targetMode.
+       */
+      public com.google.protobuf.ByteString
+          getTargetModeBytes() {
+        java.lang.Object ref = targetMode_;
+        if (ref instanceof String) {
+          com.google.protobuf.ByteString b = 
+              com.google.protobuf.ByteString.copyFromUtf8(
+                  (java.lang.String) ref);
+          targetMode_ = b;
+          return b;
+        } else {
+          return (com.google.protobuf.ByteString) ref;
+        }
+      }
+      /**
+       * <pre>
+       * Representation the equality deletes should be rewritten into: "pos" or "dv".
+       * Empty means "pos", which is what callers predating deletion vectors expect.
+       * </pre>
+       *
+       * <code>string target_mode = 2;</code>
+       * @param value The targetMode to set.
+       * @return This builder for chaining.
+       */
+      public Builder setTargetMode(
+          java.lang.String value) {
+        if (value == null) { throw new NullPointerException(); }
+        targetMode_ = value;
+        bitField0_ |= 0x00000002;
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * Representation the equality deletes should be rewritten into: "pos" or "dv".
+       * Empty means "pos", which is what callers predating deletion vectors expect.
+       * </pre>
+       *
+       * <code>string target_mode = 2;</code>
+       * @return This builder for chaining.
+       */
+      public Builder clearTargetMode() {
+        targetMode_ = getDefaultInstance().getTargetMode();
+        bitField0_ = (bitField0_ & ~0x00000002);
+        onChanged();
+        return this;
+      }
+      /**
+       * <pre>
+       * Representation the equality deletes should be rewritten into: "pos" or "dv".
+       * Empty means "pos", which is what callers predating deletion vectors expect.
+       * </pre>
+       *
+       * <code>string target_mode = 2;</code>
+       * @param value The bytes for targetMode to set.
+       * @return This builder for chaining.
+       */
+      public Builder setTargetModeBytes(
+          com.google.protobuf.ByteString value) {
+        if (value == null) { throw new NullPointerException(); }
+        checkByteStringIsUtf8(value);
+        targetMode_ = value;
+        bitField0_ |= 0x00000002;
         onChanged();
         return this;
       }
@@ -19442,11 +19785,6 @@ java.lang.String defaultValue) {
       return new MigrateEqualityDeletesResponse();
     }
 
-    @java.lang.Override
-    public final com.google.protobuf.UnknownFieldSet
-    getUnknownFields() {
-      return this.unknownFields;
-    }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
       return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesResponse_descriptor;
@@ -19632,11 +19970,13 @@ java.lang.String defaultValue) {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
+
     public static io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
@@ -19895,7 +20235,7 @@ java.lang.String defaultValue) {
        * @return This builder for chaining.
        */
       public Builder setSnapshotId(long value) {
-        
+
         snapshotId_ = value;
         bitField0_ |= 0x00000001;
         onChanged();
@@ -19932,7 +20272,7 @@ java.lang.String defaultValue) {
        * @return This builder for chaining.
        */
       public Builder setRewrittenDeleteFiles(long value) {
-        
+
         rewrittenDeleteFiles_ = value;
         bitField0_ |= 0x00000002;
         onChanged();
@@ -19964,7 +20304,7 @@ java.lang.String defaultValue) {
        * @return This builder for chaining.
        */
       public Builder setPositionalDeletesWritten(long value) {
-        
+
         positionalDeletesWritten_ = value;
         bitField0_ |= 0x00000004;
         onChanged();
@@ -20154,13 +20494,13 @@ java.lang.String defaultValue) {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\223\n\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\250\n\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
       "ebergPayload.Metadata\022I\n\007records\030\003 \003(\01328" +
       ".io.debezium.server.iceberg.rpc.IcebergP" +
-      "ayload.IceRecord\032\227\003\n\010Metadata\022\027\n\017dest_ta" +
+      "ayload.IceRecord\032\254\003\n\010Metadata\022\027\n\017dest_ta" +
       "ble_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022\035\n\020ide" +
       "ntifier_field\030\003 \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\013" +
       "2:.io.debezium.server.iceberg.rpc.Iceber" +
@@ -20168,91 +20508,92 @@ java.lang.String defaultValue) {
       "\tnamespace\030\007 \001(\t\022\016\n\006upsert\030\010 \001(\010\022\036\n\026use_" +
       "positional_deletes\030\t \001(\010\022W\n\020partition_fi" +
       "elds\030\n \003(\0132=.io.debezium.server.iceberg." +
-      "rpc.IcebergPayload.PartitionField\022\035\n\020bas" +
-      "e_snapshot_id\030\013 \001(\003H\001\210\001\001B\023\n\021_identifier_" +
-      "fieldB\023\n\021_base_snapshot_id\032,\n\013SchemaFiel" +
-      "d\022\020\n\010ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\0322\n\016Part" +
-      "itionField\022\r\n\005field\030\001 \001(\t\022\021\n\ttransform\030\002" +
-      " \001(\t\032\222\003\n\tIceRecord\022S\n\006fields\030\001 \003(\0132C.io." +
-      "debezium.server.iceberg.rpc.IcebergPaylo" +
-      "ad.IceRecord.FieldValue\022\023\n\013record_type\030\002" +
-      " \001(\t\022\035\n\020delete_file_path\030\003 \001(\tH\000\210\001\001\022\034\n\017d" +
-      "elete_position\030\004 \001(\003H\001\210\001\001\032\264\001\n\nFieldValue" +
-      "\022\026\n\014string_value\030\001 \001(\tH\000\022\023\n\tint_value\030\002 " +
-      "\001(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022\025\n\013float_val" +
-      "ue\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n\nbo" +
-      "ol_value\030\006 \001(\010H\000\022\025\n\013bytes_value\030\007 \001(\014H\000B" +
-      "\007\n\005valueB\023\n\021_delete_file_pathB\022\n\020_delete" +
-      "_position\"\217\001\n\013PayloadType\022\013\n\007RECORDS\020\000\022\n" +
-      "\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_TA" +
-      "BLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REFRES" +
-      "H_TABLE_SCHEMA\020\005\022\021\n\rCLOSE_SESSION\020\006\"\301\001\n\024" +
-      "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
-      "success\030\002 \001(\010\022\027\n\017olake_2pc_state\030\003 \001(\t\022\023" +
-      "\n\013snapshot_id\030\004 \001(\003\022\034\n\024has_equality_dele" +
-      "tes\030\005 \001(\010\022<\n\nwrite_runs\030\006 \003(\0132(.io.debez" +
-      "ium.server.iceberg.rpc.WriteRun\"]\n\010Write" +
-      "Run\022\021\n\tfile_path\030\001 \001(\t\022\027\n\017batch_start_id" +
-      "x\030\002 \001(\005\022\026\n\016start_position\030\003 \001(\003\022\r\n\005count" +
-      "\030\004 \001(\005\"\300\007\n\014ArrowPayload\022F\n\004type\030\001 \001(\01628." +
-      "io.debezium.server.iceberg.rpc.ArrowPayl" +
-      "oad.PayloadType\022G\n\010metadata\030\002 \001(\01325.io.d" +
-      "ebezium.server.iceberg.rpc.ArrowPayload." +
-      "Metadata\032\322\002\n\014FileMetadata\022\021\n\tfile_type\030\001" +
-      " \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record_count\030" +
-      "\003 \001(\003\022b\n\020partition_values\030\005 \003(\0132H.io.deb" +
-      "ezium.server.iceberg.rpc.ArrowPayload.Fi" +
-      "leMetadata.PartitionValue\032\241\001\n\016PartitionV" +
-      "alue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong_value\030" +
-      "\002 \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025\n\013float" +
-      "_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024" +
-      "\n\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021FileUpl" +
-      "oadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\tfile_pa" +
-      "th\030\002 \001(\t\032\267\002\n\010Metadata\022\027\n\017dest_table_name" +
-      "\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile_metada" +
-      "ta\030\003 \003(\01329.io.debezium.server.iceberg.rp" +
-      "c.ArrowPayload.FileMetadata\022X\n\013file_uplo" +
-      "ad\030\004 \001(\0132>.io.debezium.server.iceberg.rp" +
-      "c.ArrowPayload.FileUploadRequestH\000\210\001\001\022\017\n" +
-      "\007payload\030\006 \001(\t\022\035\n\020base_snapshot_id\030\007 \001(\003" +
-      "H\001\210\001\001B\016\n\014_file_uploadB\023\n\021_base_snapshot_" +
-      "id\"U\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023RE" +
-      "GISTER_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010F" +
-      "ILEPATH\020\003\"\347\001\n\023ArrowIngestResponse\022\016\n\006res" +
-      "ult\030\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.d" +
-      "ebezium.server.iceberg.rpc.ArrowIngestRe" +
-      "sponse.IcebergSchemasEntry\022\030\n\013snapshot_i" +
-      "d\030\003 \001(\003H\000\210\001\001\0325\n\023IcebergSchemasEntry\022\013\n\003k" +
-      "ey\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001B\016\n\014_snapshot" +
-      "_id\"\\\n\023RowIndexScanRequest\022\021\n\tthread_id\030" +
-      "\001 \001(\t\022\035\n\020from_snapshot_id\030\002 \001(\003H\000\210\001\001B\023\n\021" +
-      "_from_snapshot_id\"\366\001\n\021RowIndexScanBatch\022" +
-      "H\n\007entries\030\001 \003(\01327.io.debezium.server.ic" +
-      "eberg.rpc.RowIndexScanBatch.Entry\022\023\n\013sna" +
-      "pshot_id\030\002 \001(\003\022\032\n\022requires_full_scan\030\003 \001" +
-      "(\010\032f\n\005Entry\022\020\n\010olake_id\030\001 \001(\t\022\021\n\tfile_pa" +
-      "th\030\002 \001(\t\022\020\n\010position\030\003 \001(\003\022\017\n\007deleted\030\004 " +
-      "\001(\010J\004\010\005\020\006R\017sequence_number\"2\n\035MigrateEqu" +
-      "alityDeletesRequest\022\021\n\tthread_id\030\001 \001(\t\"y" +
-      "\n\036MigrateEqualityDeletesResponse\022\023\n\013snap" +
-      "shot_id\030\001 \001(\003\022\036\n\026rewritten_delete_files\030" +
-      "\002 \001(\003\022\"\n\032positional_deletes_written\030\003 \001(" +
-      "\0032\212\001\n\023RecordIngestService\022s\n\013SendRecords" +
-      "\022..io.debezium.server.iceberg.rpc.Iceber" +
-      "gPayload\0324.io.debezium.server.iceberg.rp" +
-      "c.RecordIngestResponse2\205\001\n\022ArrowIngestSe" +
-      "rvice\022o\n\nIcebergAPI\022,.io.debezium.server" +
-      ".iceberg.rpc.ArrowPayload\0323.io.debezium." +
-      "server.iceberg.rpc.ArrowIngestResponse2\245" +
-      "\002\n\017RowIndexService\022x\n\014ScanRowIndex\0223.io." +
-      "debezium.server.iceberg.rpc.RowIndexScan" +
-      "Request\0321.io.debezium.server.iceberg.rpc" +
-      ".RowIndexScanBatch0\001\022\227\001\n\026MigrateEquality" +
-      "Deletes\022=.io.debezium.server.iceberg.rpc" +
-      ".MigrateEqualityDeletesRequest\032>.io.debe" +
-      "zium.server.iceberg.rpc.MigrateEqualityD" +
-      "eletesResponseB\035B\014RecordIngestZ\riceberg/" +
-      "protob\006proto3"
+      "rpc.IcebergPayload.PartitionField\022\023\n\013del" +
+      "ete_mode\030\014 \001(\t\022\035\n\020base_snapshot_id\030\013 \001(\003" +
+      "H\001\210\001\001B\023\n\021_identifier_fieldB\023\n\021_base_snap" +
+      "shot_id\032,\n\013SchemaField\022\020\n\010ice_type\030\001 \001(\t" +
+      "\022\013\n\003key\030\002 \001(\t\0322\n\016PartitionField\022\r\n\005field" +
+      "\030\001 \001(\t\022\021\n\ttransform\030\002 \001(\t\032\222\003\n\tIceRecord\022" +
+      "S\n\006fields\030\001 \003(\0132C.io.debezium.server.ice" +
+      "berg.rpc.IcebergPayload.IceRecord.FieldV" +
+      "alue\022\023\n\013record_type\030\002 \001(\t\022\035\n\020delete_file" +
+      "_path\030\003 \001(\tH\000\210\001\001\022\034\n\017delete_position\030\004 \001(" +
+      "\003H\001\210\001\001\032\264\001\n\nFieldValue\022\026\n\014string_value\030\001 " +
+      "\001(\tH\000\022\023\n\tint_value\030\002 \001(\005H\000\022\024\n\nlong_value" +
+      "\030\003 \001(\003H\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014doubl" +
+      "e_value\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025\n" +
+      "\013bytes_value\030\007 \001(\014H\000B\007\n\005valueB\023\n\021_delete" +
+      "_file_pathB\022\n\020_delete_position\"\217\001\n\013Paylo" +
+      "adType\022\013\n\007RECORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLV" +
+      "E_SCHEMA\020\002\022\016\n\nDROP_TABLE\020\003\022\027\n\023GET_OR_CRE" +
+      "ATE_TABLE\020\004\022\030\n\024REFRESH_TABLE_SCHEMA\020\005\022\021\n" +
+      "\rCLOSE_SESSION\020\006\"\301\001\n\024RecordIngestRespons" +
+      "e\022\016\n\006result\030\001 \001(\t\022\017\n\007success\030\002 \001(\010\022\027\n\017ol" +
+      "ake_2pc_state\030\003 \001(\t\022\023\n\013snapshot_id\030\004 \001(\003" +
+      "\022\034\n\024has_equality_deletes\030\005 \001(\010\022<\n\nwrite_" +
+      "runs\030\006 \003(\0132(.io.debezium.server.iceberg." +
+      "rpc.WriteRun\"]\n\010WriteRun\022\021\n\tfile_path\030\001 " +
+      "\001(\t\022\027\n\017batch_start_idx\030\002 \001(\005\022\026\n\016start_po" +
+      "sition\030\003 \001(\003\022\r\n\005count\030\004 \001(\005\"\300\007\n\014ArrowPay" +
+      "load\022F\n\004type\030\001 \001(\01628.io.debezium.server." +
+      "iceberg.rpc.ArrowPayload.PayloadType\022G\n\010" +
+      "metadata\030\002 \001(\01325.io.debezium.server.iceb" +
+      "erg.rpc.ArrowPayload.Metadata\032\322\002\n\014FileMe" +
+      "tadata\022\021\n\tfile_type\030\001 \001(\t\022\021\n\tfile_path\030\002" +
+      " \001(\t\022\024\n\014record_count\030\003 \001(\003\022b\n\020partition_" +
+      "values\030\005 \003(\0132H.io.debezium.server.iceber" +
+      "g.rpc.ArrowPayload.FileMetadata.Partitio" +
+      "nValue\032\241\001\n\016PartitionValue\022\023\n\tint_value\030\001" +
+      " \001(\005H\000\022\024\n\nlong_value\030\002 \001(\003H\000\022\026\n\014string_v" +
+      "alue\030\003 \001(\tH\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n\014d" +
+      "ouble_value\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(\010H" +
+      "\000B\007\n\005value\0329\n\021FileUploadRequest\022\021\n\tfile_" +
+      "data\030\001 \001(\014\022\021\n\tfile_path\030\002 \001(\t\032\267\002\n\010Metada" +
+      "ta\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tthread_id" +
+      "\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\01329.io.debez" +
+      "ium.server.iceberg.rpc.ArrowPayload.File" +
+      "Metadata\022X\n\013file_upload\030\004 \001(\0132>.io.debez" +
+      "ium.server.iceberg.rpc.ArrowPayload.File" +
+      "UploadRequestH\000\210\001\001\022\017\n\007payload\030\006 \001(\t\022\035\n\020b" +
+      "ase_snapshot_id\030\007 \001(\003H\001\210\001\001B\016\n\014_file_uplo" +
+      "adB\023\n\021_base_snapshot_id\"U\n\013PayloadType\022\017" +
+      "\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT\020\001" +
+      "\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEPATH\020\003\"\347\001\n\023Arrow" +
+      "IngestResponse\022\016\n\006result\030\001 \001(\t\022_\n\016iceber" +
+      "gSchemas\030\002 \003(\0132G.io.debezium.server.iceb" +
+      "erg.rpc.ArrowIngestResponse.IcebergSchem" +
+      "asEntry\022\030\n\013snapshot_id\030\003 \001(\003H\000\210\001\001\0325\n\023Ice" +
+      "bergSchemasEntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002" +
+      " \001(\t:\0028\001B\016\n\014_snapshot_id\"\\\n\023RowIndexScan" +
+      "Request\022\021\n\tthread_id\030\001 \001(\t\022\035\n\020from_snaps" +
+      "hot_id\030\002 \001(\003H\000\210\001\001B\023\n\021_from_snapshot_id\"\366" +
+      "\001\n\021RowIndexScanBatch\022H\n\007entries\030\001 \003(\01327." +
+      "io.debezium.server.iceberg.rpc.RowIndexS" +
+      "canBatch.Entry\022\023\n\013snapshot_id\030\002 \001(\003\022\032\n\022r" +
+      "equires_full_scan\030\003 \001(\010\032f\n\005Entry\022\020\n\010olak" +
+      "e_id\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\020\n\010positio" +
+      "n\030\003 \001(\003\022\017\n\007deleted\030\004 \001(\010J\004\010\005\020\006R\017sequence" +
+      "_number\"G\n\035MigrateEqualityDeletesRequest" +
+      "\022\021\n\tthread_id\030\001 \001(\t\022\023\n\013target_mode\030\002 \001(\t" +
+      "\"y\n\036MigrateEqualityDeletesResponse\022\023\n\013sn" +
+      "apshot_id\030\001 \001(\003\022\036\n\026rewritten_delete_file" +
+      "s\030\002 \001(\003\022\"\n\032positional_deletes_written\030\003 " +
+      "\001(\0032\212\001\n\023RecordIngestService\022s\n\013SendRecor" +
+      "ds\022..io.debezium.server.iceberg.rpc.Iceb" +
+      "ergPayload\0324.io.debezium.server.iceberg." +
+      "rpc.RecordIngestResponse2\205\001\n\022ArrowIngest" +
+      "Service\022o\n\nIcebergAPI\022,.io.debezium.serv" +
+      "er.iceberg.rpc.ArrowPayload\0323.io.debeziu" +
+      "m.server.iceberg.rpc.ArrowIngestResponse" +
+      "2\245\002\n\017RowIndexService\022x\n\014ScanRowIndex\0223.i" +
+      "o.debezium.server.iceberg.rpc.RowIndexSc" +
+      "anRequest\0321.io.debezium.server.iceberg.r" +
+      "pc.RowIndexScanBatch0\001\022\227\001\n\026MigrateEquali" +
+      "tyDeletes\022=.io.debezium.server.iceberg.r" +
+      "pc.MigrateEqualityDeletesRequest\032>.io.de" +
+      "bezium.server.iceberg.rpc.MigrateEqualit" +
+      "yDeletesResponseB\035B\014RecordIngestZ\riceber" +
+      "g/protob\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -20269,7 +20610,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "Payload", "Namespace", "Upsert", "UsePositionalDeletes", "PartitionFields", "BaseSnapshotId", "IdentifierField", "BaseSnapshotId", });
+        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "Payload", "Namespace", "Upsert", "UsePositionalDeletes", "PartitionFields", "DeleteMode", "BaseSnapshotId", "IdentifierField", "BaseSnapshotId", });
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_fieldAccessorTable = new
@@ -20371,7 +20712,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesRequest_descriptor,
-        new java.lang.String[] { "ThreadId", });
+        new java.lang.String[] { "ThreadId", "TargetMode", });
     internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesResponse_descriptor =
       getDescriptor().getMessageTypes().get(8);
     internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesResponse_fieldAccessorTable = new

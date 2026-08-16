@@ -18,6 +18,7 @@ import org.slf4j.LoggerFactory;
 import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.SchemaConvertor;
 import io.debezium.server.iceberg.rowindex.TableRowIndexScanner;
+import io.debezium.server.iceberg.tableoperator.DeleteMode;
 import io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
@@ -117,7 +118,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 }
                 String identifierField = metadata.getIdentifierField();
                 boolean upsert = metadata.getUpsert();
-                boolean usePositionalDeletes = metadata.getUsePositionalDeletes();
+                DeleteMode deleteMode = DeleteMode.resolve(
+                        metadata.getDeleteMode(), metadata.getUsePositionalDeletes());
                 List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
                 List<Map<String, String>> partitionTransforms = toPartitionList(metadata.getPartitionFieldsList());
                 TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
@@ -129,8 +131,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 session = sessions.computeIfAbsent(threadId,
                         k -> {
                             Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
-                            Table icebergTable = loadOrCreateTable(tid, schema, partitionTransforms);
-                            return new IcebergSession(icebergTable, upsert, identifierField, usePositionalDeletes);
+                            Table icebergTable = loadOrCreateTable(tid, schema, partitionTransforms,
+                                    deleteMode.minimumFormatVersion());
+                            // An existing table predating this mode may still be v2.
+                            IcebergUtil.ensureFormatVersion(icebergTable, deleteMode.minimumFormatVersion());
+                            return new IcebergSession(icebergTable, upsert, identifierField, deleteMode);
                         });
             } else {
                 // RECORDS / COMMIT / EVOLVE_SCHEMA / REFRESH_TABLE_SCHEMA: the
@@ -251,11 +256,12 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         responseObserver.onCompleted();
     }
 
-    private Table loadOrCreateTable(TableIdentifier tableId, Schema schema, List<Map<String, String>> partitionTransforms) {
+    private Table loadOrCreateTable(TableIdentifier tableId, Schema schema, List<Map<String, String>> partitionTransforms,
+            int formatVersion) {
         return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
             try {
                 // no need to check if the table already exists, because the table is created by the thread that calls the get_or_create_table method
-                return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms);
+                return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms, formatVersion);
             } catch (Exception e) {
                 String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s",
                                                     tableId, e.getMessage());
