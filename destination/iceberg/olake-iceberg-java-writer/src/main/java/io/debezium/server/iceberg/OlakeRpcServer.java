@@ -1,6 +1,5 @@
 package io.debezium.server.iceberg;
 
-import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -8,22 +7,17 @@ import java.util.concurrent.ConcurrentMap;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
-import org.apache.kafka.common.serialization.Deserializer;
-import org.apache.kafka.common.serialization.Serde;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import io.debezium.serde.DebeziumSerdes;
 import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
 import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
 import io.debezium.server.iceberg.rpc.IcebergSession;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
-import jakarta.enterprise.context.Dependent;
 
 /**
  * Shared-JVM entry point. Catalog config is parsed once at startup; per-stream
@@ -31,17 +25,12 @@ import jakarta.enterprise.context.Dependent;
  * on every gRPC request, so a single JVM can serve all streams and chunks of an
  * OLake sync.
  */
-@Dependent
 public class OlakeRpcServer {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRpcServer.class);
-    protected static final Serde<JsonNode> valSerde = DebeziumSerdes.payloadJson(JsonNode.class);
-    protected static final Serde<JsonNode> keySerde = DebeziumSerdes.payloadJson(JsonNode.class);
     final static Configuration hadoopConf = new Configuration();
     final static Map<String, String> icebergProperties = new ConcurrentHashMap<>();
     static Catalog icebergCatalog;
-    static Deserializer<JsonNode> valDeserializer;
-    static Deserializer<JsonNode> keyDeserializer;
 
     public static void main(String[] args) throws Exception {
         if (args.length < 1) {
@@ -71,17 +60,15 @@ public class OlakeRpcServer {
 
         icebergCatalog = CatalogUtil.buildIcebergCatalog(catalogName, icebergProperties, hadoopConf);
 
-        valSerde.configure(Collections.emptyMap(), false);
-        valDeserializer = valSerde.deserializer();
-        keySerde.configure(Collections.emptyMap(), true);
-        keyDeserializer = keySerde.deserializer();
-
         boolean arrowWriterEnabled = Boolean.parseBoolean(
             stringConfigMap.getOrDefault("arrow-writer-enabled", "false"));
 
         int port = Integer.parseInt(stringConfigMap.getOrDefault("port", "50051"));
+        // Set the gRPC message size to the maximum value supported by an int (2 GB - 1),
+        // while the writer buffer is limited to 1 GB, allowing the server to handle the
+        // entire contents of the writer buffer as a single message.
         int maxMessageSize = Integer.parseInt(
-            stringConfigMap.getOrDefault("max-message-size", "" + (1024 * 1024 * 1024)));
+            stringConfigMap.getOrDefault("max-message-size", String.valueOf(Integer.MAX_VALUE)));
 
         ServerBuilder<?> serverBuilder = ServerBuilder.forPort(port)
                     .maxInboundMessageSize(maxMessageSize);

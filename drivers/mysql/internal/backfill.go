@@ -70,10 +70,10 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 			stmt = jdbc.MysqlLimitOffsetScanQuery(stream, chunk, filter)
 		}
 		logger.Debugf("Executing chunk query: %s", stmt)
-		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+		setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 			return tx.QueryContext(ctx, query, args...)
 		})
-		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage)
+		return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, OnMessage, mysqlColumnSizer)
 	})
 }
 
@@ -129,7 +129,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if len(pkColumns) > 0 {
 		minVal, maxVal, err = m.getTableExtremes(ctx, stream, pkColumns)
 		if err != nil {
-			return nil, fmt.Errorf("Stream %s: Failed to get table extremes: %s", stream.ID(), err)
+			return nil, fmt.Errorf("stream %s: Failed to get table extremes: %s", stream.ID(), err)
 		}
 	}
 
@@ -425,10 +425,10 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 	return chunks, nil
 }
 
-func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {
+func (m *MySQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (minVal, maxVal any, err error) {
 	query := jdbc.MinMaxQueryMySQL(stream, pkColumns)
-	err = m.client.QueryRowContext(ctx, query).Scan(&min, &max)
-	return min, max, err
+	err = m.client.QueryRowContext(ctx, query).Scan(&minVal, &maxVal)
+	return minVal, maxVal, err
 }
 
 // isNumericAndEvenDistributed checks if the pk column is numeric and evenly distributed
@@ -533,7 +533,7 @@ func buildCharsetMaps() (map[rune]int64, map[int64]rune) {
 func encodeCharsetStringToBigInt(s string) (*big.Int, error) {
 	val := big.NewInt(0)
 
-	for _, ch := range []rune(s) {
+	for _, ch := range s {
 		idx, ok := charToIndex[ch]
 		if !ok {
 			return big.NewInt(0), fmt.Errorf("unsupported character: %s", string(ch))

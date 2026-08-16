@@ -82,7 +82,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 	// A successful recovery stops processing for this reader so the next run starts from the recovered offsets.
 	if isRecoveryPerformed {
 		logger.Infof("reader[%d]: recovery performed for this sync, skipping this reader", readerID)
-		return nil, nil
+		return nil, err
 	}
 
 	// Restart the reader to create a fresh franz-go client for each StreamChanges attempt.
@@ -116,12 +116,10 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 
 		// process the change if data is present
 		if record.Data != nil {
-			err := processFn(ctx, abstract.CDCChange{
-				Stream:    currentPartitionMeta.Stream,
-				Timestamp: record.Message.Timestamp,
-				Kind:      "create",
-				Data:      record.Data,
-			})
+			// Raw wire bytes: len(Key) + len(Value). Headers are excluded — they
+			// carry protocol metadata (schema IDs, trace context), not user data.
+			err := processFn(ctx, abstract.NewCDCChange(currentPartitionMeta.Stream, record.Message.Timestamp, "create",
+				record.Data, nil, int64(len(record.Message.Key)+len(record.Message.Value))))
 			if err != nil {
 				return false, err
 			}

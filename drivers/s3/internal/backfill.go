@@ -2,13 +2,14 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/pkg/objstorage"
 	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -22,7 +23,7 @@ import (
 // GetOrSplitChunks returns chunks for parallel processing of files
 // Groups multiple small files into ~2GB chunks to reduce state size
 // Large files (>2GB) are kept as individual chunks
-func (s *S3) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
+func (s *S3) GetOrSplitChunks(_ context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 	streamName := stream.Name()
 	files, exists := s.discoveredFiles[streamName]
 
@@ -168,34 +169,40 @@ func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, ch
 // processFile handles the processing of a single S3 file using the parser package
 // lastModified is passed as parameter to avoid redundant file metadata lookups
 func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key string, fileSize int64, lastModified string, processFn abstract.BackfillMsgFn) error {
-	// For Parquet streaming, use S3 range requests (no need to load entire file into memory)
+	// Parquet requires io.ReaderAt: stream via range requests when possible,
+	// otherwise load the file into memory
 	if s.config.FileFormat == FormatParquet {
 		parquetConfig := s.config.GetParquetConfig()
 		if parquetConfig.StreamingEnabled && fileSize > 0 {
-			// Create S3 range reader for streaming
 			logger.Infof("Processing Parquet file with streaming (S3 range requests): %s (size: %.2f MB)",
 				key, float64(fileSize)/(1024*1024))
-			rangeReader := NewS3RangeReader(ctx, s.client, s.config.BucketName, key, fileSize)
-			wrapper := parser.NewParquetReaderWrapper(rangeReader, fileSize)
-			return s.parseFileWithReader(ctx, stream, key, wrapper, lastModified, processFn)
+		} else {
+			logger.Infof("Processing Parquet file in memory: %s", key)
 		}
+		readerAt, size, err := s.getParquetReaderAt(ctx, key, fileSize)
+		if err != nil {
+			// Check if file was deleted between discovery and processing
+			if errors.Is(err, objstorage.ErrNotFound) {
+				logger.Warnf("File %s was deleted or not found, skipping", key)
+				return nil // Don't fail the entire sync for a missing file
+			}
+			return fmt.Errorf("failed to get reader: %s", err)
+		}
+		wrapper := parser.NewParquetReaderWrapper(readerAt, size)
+		return s.parseFileWithReader(ctx, stream, key, wrapper, lastModified, processFn)
 	}
 
-	// For non-streaming paths, get reader for the file (S3-specific: handles S3 API, decompression)
-	reader, _, err := s.getFileReader(ctx, key)
+	// For CSV/JSON, get a streaming reader (handles storage access, decompression)
+	reader, err := s.getFileReader(ctx, key)
 	if err != nil {
 		// Check if file was deleted between discovery and processing
-		if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "NotFound") {
+		if errors.Is(err, objstorage.ErrNotFound) {
 			logger.Warnf("File %s was deleted or not found, skipping", key)
 			return nil // Don't fail the entire sync for a missing file
 		}
 		return fmt.Errorf("failed to get reader: %s", err)
 	}
-	defer func() {
-		if closer, ok := reader.(io.Closer); ok {
-			closer.Close()
-		}
-	}()
+	defer reader.Close()
 
 	return s.parseFileWithReader(ctx, stream, key, reader, lastModified, processFn)
 }
@@ -205,9 +212,11 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterface, key string, reader io.Reader, lastModified string, processFn abstract.BackfillMsgFn) error {
 	// Create callback adapter - add _last_modified_time field to each record
 	callback := func(ctx context.Context, record map[string]any) error {
+		// Per-record uncompressed source-data size (computed on the source data, before injecting the _last_modified_time metadata column).
+		recBytes := recordDataBytes(record)
 		// Inject LastModified timestamp into each record
 		record[lastModifiedField] = lastModified
-		return processFn(ctx, record)
+		return processFn(ctx, record, recBytes)
 	}
 
 	// Convert StreamInterface to underlying Stream for parser
