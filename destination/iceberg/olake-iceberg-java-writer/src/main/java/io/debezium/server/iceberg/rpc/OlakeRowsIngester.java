@@ -176,7 +176,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.icebergTable.refresh();
                     String commitState = session.op.getCommitState(session.icebergTable);
                     sendTableResponse(responseObserver, session.icebergTable.schema().toString(),
-                            commitState != null ? commitState : "", session.icebergTable);
+                            commitState != null ? commitState : "", session);
                     break;
 
                 case RECORDS:
@@ -230,16 +230,21 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
      * needs both to decide between reusing, refreshing, and rebuilding it.
      */
     private void sendTableResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver,
-            String message, String olake2pcState, Table table) throws Exception {
+            String message, String olake2pcState, IcebergSession session) throws Exception {
         RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder()
                 .setResult(message)
                 .setOlake2PcState(olake2pcState);
 
+        Table table = session.icebergTable;
         Snapshot current = table.currentSnapshot();
         if (current != null) {
             builder.setSnapshotId(current.snapshotId());
-            builder.setHasEqualityDeletes(
-                    !TableRowIndexScanner.deleteFiles(table, FileContent.EQUALITY_DELETES).isEmpty());
+            // Only a caller keeping a row index acts on this, and answering it costs a
+            // full scan of the table's manifests.
+            if (session.usePositionalDeletes) {
+                builder.setHasEqualityDeletes(
+                        !TableRowIndexScanner.deleteFiles(table, FileContent.EQUALITY_DELETES).isEmpty());
+            }
         }
 
         responseObserver.onNext(builder.build());

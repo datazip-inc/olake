@@ -36,6 +36,7 @@ import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.parquet.ParquetUtil;
+import org.apache.iceberg.util.CharSequenceSet;
 import org.apache.iceberg.util.Pair;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -60,6 +61,13 @@ public class IcebergTableOperator {
   BaseTaskWriter<Record> writer;
 
   ArrayList<Pair<ArrayList<DeleteFile>, ArrayList<DataFile>>> filesToCommit = new ArrayList<>();
+  /**
+   * Data files the pending positional deletes address. Positional deletes point at
+   * rows in files committed by earlier snapshots, so a concurrent rewrite of one of
+   * those files silently turns the delete into a no-op. Iceberg can refuse that, but
+   * only if it is told which files the deletes depend on.
+   */
+  final CharSequenceSet referencedDataFiles = CharSequenceSet.empty();
 
   public IcebergTableOperator(boolean upsert_records) {
     this(upsert_records, false);
@@ -174,6 +182,7 @@ public class IcebergTableOperator {
     if (totalDataFiles == 0 && totalDeleteFiles == 0) {
       LOGGER.info("No files to commit for thread: {}", threadId);
       filesToCommit.clear();
+      referencedDataFiles.clear();
       if (table.currentSnapshot() != null) {
         return table.currentSnapshot().snapshotId();
       }
@@ -222,6 +231,7 @@ public class IcebergTableOperator {
           }
         }
         
+        applyRowIndexValidations(rowDelta, baseSnapshotId);
         rowDelta.commit();
       }
 
@@ -240,6 +250,7 @@ public class IcebergTableOperator {
           totalDataFiles, totalDeleteFiles, threadId, snapshotId);
   
       filesToCommit.clear();
+      referencedDataFiles.clear();
       
       return snapshotId;
   
@@ -256,6 +267,30 @@ public class IcebergTableOperator {
    * between write and commit and our positional deletes would target stale
    * locations while still succeeding.
    */
+  /**
+   * Makes Iceberg reject the commit when a concurrent writer invalidated what the
+   * positional deletes address, instead of publishing deletes that resolve to nothing.
+   *
+   * <p>Only positional mode needs this. Equality deletes match on key and reference no
+   * data file, and the positional deletes the equality path occasionally emits address
+   * rows written in this same commit, which no concurrent operation can have rewritten.
+   * Enabling it there would only add conflict failures existing users do not have today.
+   */
+  private void applyRowIndexValidations(RowDelta rowDelta, Long baseSnapshotId) {
+    if (!usePositionalDeletes || baseSnapshotId == null || baseSnapshotId == 0L) {
+      return;
+    }
+
+    // Conflicts are judged against the snapshot the caller's row index was built at.
+    rowDelta.validateFromSnapshot(baseSnapshotId);
+    // Fail if a concurrent commit removed data files this delta expects to be present.
+    rowDelta.validateDeletedFiles();
+    if (!referencedDataFiles.isEmpty()) {
+      // Fail if the exact files our positions point into are gone, e.g. compacted away.
+      rowDelta.validateDataFilesExist(referencedDataFiles);
+    }
+  }
+
   private static void assertRowIndexCurrent(String threadId, Table table, Long baseSnapshotId) {
     if (baseSnapshotId == null) {
       return;
@@ -279,6 +314,7 @@ public class IcebergTableOperator {
       ArrayList<DeleteFile> deleteFiles = new ArrayList<>(Arrays.asList(writerResult.deleteFiles()));
       ArrayList<DataFile> dataFiles = new ArrayList<>(Arrays.asList(writerResult.dataFiles()));
       filesToCommit.add(filesToCommit.size(), Pair.of(deleteFiles, dataFiles));
+      referencedDataFiles.addAll(Arrays.asList(writerResult.referencedDataFiles()));
     } catch (IOException e) {
       LOGGER.error("Failed to complete writer", e);
       throw new RuntimeException("Failed to complete writer", e);
@@ -310,8 +346,14 @@ public class IcebergTableOperator {
     List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> runs = new ArrayList<>();
     try {
       io.grpc.Context grpcContext = io.grpc.Context.current();
-      
-      PositionTrackableWriter trackable = (PositionTrackableWriter) writer;
+
+      // Only the row index consumes write runs, and only positional mode keeps one.
+      // Tracking them otherwise costs an extra partition-key evaluation per record and
+      // ships a response the caller throws away.
+      PositionTrackableWriter trackable =
+          usePositionalDeletes && writer instanceof PositionTrackableWriter
+              ? (PositionTrackableWriter) writer
+              : null;
       String currentPath = null;
       int runStartIdx = -1;
       long runStartPos = -1;
@@ -322,7 +364,8 @@ public class IcebergTableOperator {
         // Cooperative cancel: check on every record to stop processing early if client disconnects
         if (grpcContext.isCancelled()) {
           LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
-          return runs;
+          // The writer is discarded below, so anything recorded so far never lands.
+          return new ArrayList<>();
         }
         try{
           // Normalise _op_type "i" → "c" before routing to any writer.
@@ -330,25 +373,39 @@ public class IcebergTableOperator {
             record.setField("_op_type", "c");
           }
 
-          CharSequence pathCs = trackable.currentPath(record);
-          long pos = trackable.currentRows(record);
-          String path = pathCs != null ? pathCs.toString() : null;
+          // A row the writer will not append occupies no position, so recording one
+          // would point the index at a slot the next row takes.
+          if (trackable != null && trackable.willWrite(record)) {
+            CharSequence pathCs = trackable.currentPath(record);
+            long pos = trackable.currentRows(record);
+            String path = pathCs != null ? pathCs.toString() : null;
 
-          if (currentPath == null || !currentPath.equals(path) || pos != runStartPos + runCount) {
-              if (currentPath != null) {
-                  runs.add(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.newBuilder()
-                      .setFilePath(currentPath)
-                      .setBatchStartIdx(runStartIdx)
-                      .setStartPosition(runStartPos)
-                      .setCount(runCount)
-                      .build());
-              }
-              currentPath = path;
-              runStartIdx = i;
-              runStartPos = pos;
-              runCount = 1;
-          } else {
-              runCount++;
+            if (currentPath == null || !currentPath.equals(path) || pos != runStartPos + runCount) {
+                if (currentPath != null) {
+                    runs.add(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.newBuilder()
+                        .setFilePath(currentPath)
+                        .setBatchStartIdx(runStartIdx)
+                        .setStartPosition(runStartPos)
+                        .setCount(runCount)
+                        .build());
+                }
+                currentPath = path;
+                runStartIdx = i;
+                runStartPos = pos;
+                runCount = 1;
+            } else {
+                runCount++;
+            }
+          } else if (currentPath != null) {
+            // A skipped record breaks batch-index contiguity even though the file
+            // positions either side of it stay contiguous, so the run has to end here.
+            runs.add(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.newBuilder()
+                .setFilePath(currentPath)
+                .setBatchStartIdx(runStartIdx)
+                .setStartPosition(runStartPos)
+                .setCount(runCount)
+                .build());
+            currentPath = null;
           }
 
           writer.write(record);
@@ -357,7 +414,7 @@ public class IcebergTableOperator {
           throw ex;
         }
       }
-      
+
       if (currentPath != null) {
           runs.add(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.newBuilder()
               .setFilePath(currentPath)
@@ -366,7 +423,13 @@ public class IcebergTableOperator {
               .setCount(runCount)
               .build());
       }
-      
+
+      if (trackable != null) {
+        // The runs below tell the caller where these rows landed, so any per-batch
+        // state the writer kept to resolve repeats within the batch is now stale.
+        trackable.batchCompleted();
+      }
+
       LOGGER.info("Successfully wrote {} events for thread: {} in {} runs", events.size(), threadID, runs.size());
       return runs;
 
