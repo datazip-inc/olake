@@ -30,16 +30,15 @@ func newS3Client(ctx context.Context) (*s3.Client, error) {
 	// Load the AWS config.
 	configOpts := []func(*config.LoadOptions) error{}
 
-	if region := envFirst("OLAKE_S3_REGION", "AWS_REGION"); region != "" {
+	if region := os.Getenv("OLAKE_S3_REGION"); region != "" {
 		configOpts = append(configOpts, config.WithRegion(region))
 	}
 
-	accessKey := envFirst("OLAKE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID")
-	secretKey := envFirst("OLAKE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY")
+	accessKey := os.Getenv("OLAKE_S3_ACCESS_KEY_ID")
+	secretKey := os.Getenv("OLAKE_S3_SECRET_ACCESS_KEY")
 	if accessKey != "" && secretKey != "" {
-		sessionToken := envFirst("OLAKE_S3_SESSION_TOKEN", "AWS_SESSION_TOKEN")
 		configOpts = append(configOpts, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(accessKey, secretKey, sessionToken),
+			credentials.NewStaticCredentialsProvider(accessKey, secretKey, os.Getenv("OLAKE_S3_SESSION_TOKEN")),
 		))
 	}
 
@@ -49,7 +48,7 @@ func newS3Client(ctx context.Context) (*s3.Client, error) {
 	}
 
 	opts := []func(*s3.Options){}
-	if endpoint := envFirst("OLAKE_S3_ENDPOINT", "AWS_ENDPOINT_URL"); endpoint != "" {
+	if endpoint := os.Getenv("OLAKE_S3_ENDPOINT"); endpoint != "" {
 		opts = append(opts, func(o *s3.Options) {
 			o.BaseEndpoint = aws.String(endpoint)
 			o.UsePathStyle = true
@@ -57,16 +56,6 @@ func newS3Client(ctx context.Context) (*s3.Client, error) {
 	}
 
 	return s3.NewFromConfig(cfg, opts...), nil
-}
-
-// envFirst returns the first non-empty environment variable value from the given keys.
-func envFirst(keys ...string) string {
-	for _, key := range keys {
-		if value := os.Getenv(key); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 // ResolveS3Path downloads an s3:// path to a local temp file. Local paths are returned unchanged.
