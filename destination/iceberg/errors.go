@@ -15,15 +15,13 @@ import (
 // Stamped by the writer on every ErrorInfo it attaches, so details from other libraries
 // passing through are ignored.
 const (
-	javaErrorDomain  = "olake.iceberg"
-	javaMetadataCode = "code"
-)
-
-const (
+	javaErrorDomain            = "olake.iceberg"
+	javaMetadataCode           = "code"
 	codeCatalogConfigInvalid   = "iceberg.catalog_config_invalid"
 	codeUnsupportedCatalogType = "iceberg.unsupported_catalog_type"
 	codeJarNotFound            = "iceberg.jar_not_found"
 	codeJVMStartFailed         = "iceberg.jvm_start_failed"
+	codePartitionRegexNoMatch  = "iceberg.partition_regex_no_match"
 )
 
 // javaExceptions maps the exception the Iceberg JVM caught to a failure category.

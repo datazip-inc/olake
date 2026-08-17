@@ -157,9 +157,14 @@ func init() {
 	}
 }
 
-// telemetryFlushTimeout bounds how long a failing command waits for its report to leave the
-// process: one HTTP round trip, and no more, so a hung endpoint cannot delay the exit.
-const telemetryFlushTimeout = 5 * time.Second
+const (
+	// Codes for conditions the CLI detects itself, before any connector is reached.
+	codeFlagMissing    = "config.flag_missing"
+	codeNoValidStreams = "catalog.no_valid_streams"
+	// telemetryFlushTimeout bounds how long a failing command waits for its report to leave the
+	// process: one HTTP round trip, and no more, so a hung endpoint cannot delay the exit.
+	telemetryFlushTimeout = 5 * time.Second
+)
 
 // ReportFailure classifies a failed run, reports it, and waits for the report to be delivered.
 // The wait is the point: check and discover leave through logger.Fatal, and telemetry sends in

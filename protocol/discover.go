@@ -9,6 +9,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/datazip-inc/olake/utils/version"
@@ -24,7 +25,7 @@ var discoverCmd = &cobra.Command{
 			return nil
 		}
 		if configPath == "" {
-			return fmt.Errorf("--config not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
 		}
 
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {

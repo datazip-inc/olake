@@ -2,6 +2,9 @@ package destination
 
 import "errors"
 
+// codeDestinationTypeInvalid names a destination type the config asked for and no writer serves.
+const codeDestinationTypeInvalid = "destination.type_invalid"
+
 // writeFailure marks an error raised by the writer itself — a record that could not be encoded,
 // flushed or committed. It carries no category on purpose: classification takes the innermost
 // answer, so each writer's classifier checks this marker last, after its own vendor rules.

@@ -9,6 +9,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -88,7 +89,8 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []string, batchSize int64) (*WriterPool, error) {
 	initWriter, found := RegisteredWriters[config.Type]
 	if !found {
-		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
+		return nil, errs.Precondition(errs.ConfigInvalid, codeDestinationTypeInvalid,
+			fmt.Errorf("invalid destination type has been passed [%s]", config.Type))
 	}
 
 	adapter, shutdown, err := initWriter(config.WriterConfig)
@@ -346,7 +348,8 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []
 
 	initWriter, found := RegisteredWriters[config.Type]
 	if !found {
-		return fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
+		return errs.Precondition(errs.ConfigInvalid, codeDestinationTypeInvalid,
+			fmt.Errorf("invalid destination type has been passed [%s]", config.Type))
 	}
 
 	adapter, shutdown, err := initWriter(config.WriterConfig)

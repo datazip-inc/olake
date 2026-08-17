@@ -6,6 +6,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
@@ -15,9 +16,9 @@ var clearCmd = &cobra.Command{
 	Short: "Olake clear command to clear destination data and state for selected streams",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 		if destinationConfigPath == "" {
-			return fmt.Errorf("--destination not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
 		} else if streamsPath == "" {
-			return fmt.Errorf("--streams not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--streams not passed"))
 		}
 
 		destinationConfig = &types.WriterConfig{}

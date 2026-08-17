@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 type CDCChange struct {
@@ -190,7 +191,9 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 				return fmt.Errorf("failed to run change stream: %w", err)
 			}
 		} else {
-			return fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type())
+			return errs.Precondition(errs.CDCPreconditionFailed,
+				fmt.Sprintf("%s.cdc_not_configured", a.driver.Type()),
+				fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type()))
 		}
 	}
 

@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -36,11 +37,11 @@ var syncCmd = &cobra.Command{
 	Short: "Olake sync command",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 		if configPath == "" {
-			return fmt.Errorf("--config not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
 		} else if destinationConfigPath == "" {
-			return fmt.Errorf("--destination not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
 		} else if streamsPath == "" {
-			return fmt.Errorf("--catalog not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--catalog not passed"))
 		}
 
 		// unmarshal source config
@@ -302,7 +303,8 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		state.Streams = classifications.NewStreamsState
 	}
 	if len(classifications.SelectedStreams) == 0 {
-		return nil, fmt.Errorf("no valid streams found in catalog")
+		return nil, errs.Precondition(errs.ConfigInvalid, codeNoValidStreams,
+			fmt.Errorf("no valid streams found in catalog"))
 	}
 
 	logger.Infof("Valid selected streams are %s", strings.Join(classifications.SelectedStreams, ", "))

@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -103,7 +104,9 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			if prevMetadataState != nil && threadID == prevMetadataState.ID && prevMetadataState.State != nil {
 				stateString, ok := prevMetadataState.State.(string)
 				if !ok {
-					return fmt.Errorf("failed to unmarshal previous metadata state of type[%T]", prevMetadataState.State)
+					return errs.Precondition(errs.StateInvalid,
+						fmt.Sprintf("%s.metadata_state_invalid", a.driver.Type()),
+						fmt.Errorf("failed to unmarshal previous metadata state of type[%T]", prevMetadataState.State))
 				}
 
 				var mtState map[string]any
@@ -113,7 +116,9 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 				// detect cursor value difference
 				if mtState[primaryCursor] == nil || (secondaryCursor != "" && mtState[secondaryCursor] == nil) {
-					return fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID)
+					return errs.Precondition(errs.StateInvalid,
+						fmt.Sprintf("%s.cursor_field_changed", a.driver.Type()),
+						fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID))
 				}
 
 				logger.Infof("Stream[%s] cursor(s) mismatch, updating cursor(s) in state", stream.ID())

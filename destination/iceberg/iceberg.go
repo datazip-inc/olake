@@ -19,6 +19,7 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/spf13/viper"
@@ -474,7 +475,8 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 	patternRegex := regexp.MustCompile(constants.PartitionRegexIceberg)
 	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("no matches found for partition regex: %s", pattern)
+		return nil, errs.Precondition(errs.ConfigInvalid, codePartitionRegexNoMatch,
+			fmt.Errorf("no matches found for partition regex: %s", pattern))
 	}
 
 	for _, match := range matches {
