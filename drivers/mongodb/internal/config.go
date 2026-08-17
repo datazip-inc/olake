@@ -126,6 +126,9 @@ func (c *Config) Validate() error {
 		}
 		// Password is optional — password-less URIs (X509, OIDC, username-only) are valid.
 		// MongoDB rejects at connect time if the mechanism actually needs a password.
+		if c.AuthMechanism != "" && !slices.Contains(SupportedAuthMechanisms, c.AuthMechanism) {
+			return fmt.Errorf("unsupported auth_mechanism %q", c.AuthMechanism)
+		}
 	}
 
 	if c.MaxThreads <= 0 {

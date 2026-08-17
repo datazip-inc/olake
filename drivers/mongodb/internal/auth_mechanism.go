@@ -12,7 +12,6 @@ const (
 )
 
 // externalAuthMechanisms lists MongoDB auth mechanisms that require authSource="$external".
-// This slice is independent of downstream logic and should include all such mechanisms.
 var externalAuthMechanisms = []string{
 	AuthMechanismPLAIN,
 	AuthMechanismX509,
@@ -27,8 +26,7 @@ var passwordlessAuthMechanisms = []string{
 }
 
 // SupportedAuthMechanisms lists values exposed in spec.json auth_mechanism enum (excluding default "").
-// GSSAPI is intentionally excluded due to very low market adoption, not because OLake cannot build
-// with Kerberos support (see drivers.mk for CGO/GSSAPI build configuration).
+// GSSAPI is intentionally excluded due to very low market adoption
 var SupportedAuthMechanisms = []string{
 	AuthMechanismSCRAMSHA1,
 	AuthMechanismSCRAMSHA256,
