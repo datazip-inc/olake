@@ -58,7 +58,7 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 		return nil, fmt.Errorf("empty XML file")
 	}
 
-	sampleRecords, err := p.parseXMLContent(trimmed, maxSamples)
+	sampleRecords, err := p.parseSampleXMLContent(trimmed, maxSamples)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse XML: %s", err)
 	}
@@ -74,7 +74,7 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 		}
 	}
 
-	logger.Infof("Inferred schema from XML file")
+	logger.Debugf("Inferred schema from XML file")
 	return p.stream, nil
 }
 
@@ -88,17 +88,16 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-		}
+			record, err := p.parseXMLDocumentAsMap(reader)
+			if err != nil {
+				return fmt.Errorf("failed to parse XML document: %s", err)
+			}
 
-		record, err := p.parseXMLDocumentAsMap(reader)
-		if err != nil {
-			return fmt.Errorf("failed to parse XML document: %s", err)
+			if err := callback(ctx, record); err != nil {
+				return fmt.Errorf("failed to process record: %s", err)
+			}
+			recordCount++
 		}
-
-		if err := callback(ctx, record); err != nil {
-			return fmt.Errorf("failed to process record: %s", err)
-		}
-		recordCount++
 	} else {
 		// Stream XML records based on specified record tag
 		decoder := p.newXMLDecoder(reader)
@@ -128,7 +127,7 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 			record, err := p.parseXMLElement(decoder, startElement)
 			if err != nil {
 				if !errors.Is(err, errNullValue) {
-					logger.Warnf("Error reading XML record %d: %v", recordCount, err)
+					logger.Warnf("skipping XML record %d due to %v", recordCount, err)
 					continue
 				}
 				record = nil
@@ -152,8 +151,8 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 	return nil
 }
 
-// parseXMLContent parses XML data and returns a slice of records based on specified record tag or entire document
-func (p *XMLParser) parseXMLContent(data []byte, maxSamples int) ([]map[string]any, error) {
+// parseSampleXMLContent parses XML data and returns a slice of records based on specified record tag or entire document
+func (p *XMLParser) parseSampleXMLContent(data []byte, maxSamples int) ([]map[string]any, error) {
 	if p.config.RowIdentifier == "" {
 		record, err := p.parseXMLDocumentAsMap(bytes.NewReader(data))
 		if err != nil {
