@@ -275,7 +275,7 @@ type wantTLS struct {
 	serverName         string
 	minVersion         uint16
 	hasRootCAs         bool
-	hasVerifyPeerCert  bool
+	hasVerifyConn      bool
 	certCount          int
 }
 
@@ -318,7 +318,7 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 				insecureSkipVerify: true,
 				minVersion:         tls.VersionTLS12,
 				hasRootCAs:         true,
-				hasVerifyPeerCert:  true,
+				hasVerifyConn:      true,
 			},
 		},
 		{
@@ -336,7 +336,7 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 				insecureSkipVerify: true,
 				minVersion:         tls.VersionTLS12,
 				hasRootCAs:         true,
-				hasVerifyPeerCert:  true,
+				hasVerifyConn:      true,
 				certCount:          1,
 			},
 		},
@@ -350,10 +350,10 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 				},
 			},
 			want: wantTLS{
-				serverName:        "",
-				minVersion:        tls.VersionTLS12,
-				hasRootCAs:        true,
-				hasVerifyPeerCert: false,
+				serverName:    "",
+				minVersion:    tls.VersionTLS12,
+				hasRootCAs:    true,
+				hasVerifyConn: false,
 			},
 		},
 		{
@@ -370,10 +370,10 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 				},
 			},
 			want: wantTLS{
-				serverName:        "",
-				minVersion:        tls.VersionTLS12,
-				hasRootCAs:        true,
-				hasVerifyPeerCert: false,
+				serverName:    "",
+				minVersion:    tls.VersionTLS12,
+				hasRootCAs:    true,
+				hasVerifyConn: false,
 			},
 		},
 	}
@@ -414,11 +414,11 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 			if !tt.want.hasRootCAs && got.RootCAs != nil {
 				t.Fatalf("expected no root CAs, got %#v", got.RootCAs)
 			}
-			if tt.want.hasVerifyPeerCert && got.VerifyPeerCertificate == nil {
+			if tt.want.hasVerifyConn && got.VerifyConnection == nil {
 				t.Fatalf("expected custom peer certificate verification")
 			}
-			if !tt.want.hasVerifyPeerCert && got.VerifyPeerCertificate != nil {
-				t.Fatalf("expected no custom VerifyPeerCertificate")
+			if !tt.want.hasVerifyConn && got.VerifyConnection != nil {
+				t.Fatalf("expected no custom VerifyConnection")
 			}
 			if len(got.Certificates) != tt.want.certCount {
 				t.Fatalf("len(Certificates) = %d, want %d", len(got.Certificates), tt.want.certCount)

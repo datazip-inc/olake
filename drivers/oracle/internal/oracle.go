@@ -187,6 +187,9 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName types.StreamID) (
 
 		stream.UpsertField(columnName, datatype, strings.EqualFold("Y", isNullable), false)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to iterate column information: %s", err)
+	}
 
 	query = jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)
 	pkRows, err := o.client.QueryContext(ctx, query)
