@@ -87,7 +87,7 @@ func (c *Config) Validate() error {
 
 	// Validate file format
 	if c.FileFormat == "" {
-		return fmt.Errorf("file_format is required (csv, json, parquet, or xml)")
+		return fmt.Errorf("file_format is required (%v)", supportedFileFormats)
 	}
 
 	validFormat := false
@@ -98,7 +98,7 @@ func (c *Config) Validate() error {
 		}
 	}
 	if !validFormat {
-		return fmt.Errorf("invalid file_format: must be csv, json, parquet, or xml")
+		return fmt.Errorf("invalid file_format: must be %v", supportedFileFormats)
 	}
 
 	// Set default values
