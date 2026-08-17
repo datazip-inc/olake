@@ -248,6 +248,7 @@ var (
 	// S3XMLToDestinationSchema — child tags are always arrays; flatten JSON-encodes them to Iceberg strings.
 	S3XMLToDestinationSchema = s3TextDestinationSchema(map[string]string{
 		"id":                  "array",
+		"order":               "array",
 		"str_col":             "array",
 		"bool_col":            "array",
 		"float_col":           "array",
@@ -259,6 +260,10 @@ var (
 		"ts_milli_col":        "array",
 		"ts_micro_col":        "array",
 		"ts_nano_col":         "array",
+		"null_col":            "array",
+		"empty_col":           "array",
+		"whitespace_col":      "array",
+		"_empty":              "string",
 		"_last_modified_time": "string",
 	})
 
@@ -396,15 +401,20 @@ func expectedJSONData(v rowValues) map[string]interface{} {
 func expectedXMLData(v rowValues) map[string]interface{} {
 	xmlLeaf := func(s string) string { return mustJSON([]string{s}) }
 	return map[string]interface{}{
-		"str_col":      xmlLeaf(v.Str),
-		"bool_col":     xmlLeaf(fmt.Sprintf("%t", v.Bool)),
-		"float_col":    xmlLeaf(fmt.Sprintf("%v", v.Float)),
-		"int_col":      xmlLeaf(fmt.Sprintf("%d", v.Int64)),
-		"date_col":     xmlLeaf(v.TS.UTC().Format(time.DateOnly)),
-		"ts_col":       xmlLeaf(v.TS.Format(time.RFC3339)),
-		"ts_milli_col": xmlLeaf(v.TSMilli.Format(tsMilliLayout)),
-		"ts_micro_col": xmlLeaf(v.TSMicro.Format(tsMicroLayout)),
-		"ts_nano_col":  xmlLeaf(v.TSNano.Format(tsNanoLayout)),
+		"order":          xmlLeaf("inner"),
+		"str_col":        xmlLeaf(v.Str),
+		"bool_col":       xmlLeaf(fmt.Sprintf("%t", v.Bool)),
+		"float_col":      xmlLeaf(fmt.Sprintf("%v", v.Float)),
+		"int_col":        xmlLeaf(fmt.Sprintf("%d", v.Int64)),
+		"date_col":       xmlLeaf(v.TS.UTC().Format(time.DateOnly)),
+		"ts_col":         xmlLeaf(v.TS.Format(time.RFC3339)),
+		"ts_milli_col":   xmlLeaf(v.TSMilli.Format(tsMilliLayout)),
+		"ts_micro_col":   xmlLeaf(v.TSMicro.Format(tsMicroLayout)),
+		"ts_nano_col":    xmlLeaf(v.TSNano.Format(tsNanoLayout)),
+		"null_col":       mustJSON([]any{nil}),
+		"empty_col":      mustJSON([]any{nil}),
+		"whitespace_col": mustJSON([]any{nil}),
+		"_empty":         "",
 	}
 }
 
@@ -933,11 +943,13 @@ func buildEvolvedXMLFile(_ *testing.T, startID int64, vals rowValues) []byte {
 
 func xmlFile(startID int64, vals rowValues, evolved bool) []byte {
 	var b strings.Builder
-	b.WriteString("<orders>\n")
+	b.WriteString("<root>\n")
+	b.WriteString("<batch>\n")
 	for i := int64(0); i < rowsPerFile; i++ {
 		id := startID + i
 		mixed, _ := mixedValue(id)
-		b.WriteString("  <order>\n")
+		b.WriteString("  <order empty=''>\n")
+		b.WriteString("	    <order>inner</order>\n")
 		fmt.Fprintf(&b, "    <id>%d</id>\n", id)
 		fmt.Fprintf(&b, "    <str_col>%s</str_col>\n", vals.Str)
 		fmt.Fprintf(&b, "    <bool_col>%t</bool_col>\n", vals.Bool)
@@ -950,7 +962,9 @@ func xmlFile(startID int64, vals rowValues, evolved bool) []byte {
 		fmt.Fprintf(&b, "    <ts_micro_col>%s</ts_micro_col>\n", vals.TSMicro.Format(tsMicroLayout))
 		fmt.Fprintf(&b, "    <ts_nano_col>%s</ts_nano_col>\n", vals.TSNano.Format(tsNanoLayout))
 		fmt.Fprintf(&b, "    <excluded_col>%s</excluded_col>\n", excludedColumnValue)
-
+		b.WriteString("		<null_col/>\n")
+		b.WriteString(" 	<empty_col></empty_col>\n")
+		b.WriteString(" 	<whitespace_col>	</whitespace_col>\n")
 		if id%3 != 0 {
 			fmt.Fprintf(&b, "    <optional_col>%s</optional_col>\n", vals.Str)
 		}
@@ -959,7 +973,8 @@ func xmlFile(startID int64, vals rowValues, evolved bool) []byte {
 		}
 		b.WriteString("  </order>\n")
 	}
-	b.WriteString("</orders>\n")
+	b.WriteString("</batch>\n")
+	b.WriteString("</root>\n")
 	return []byte(b.String())
 }
 

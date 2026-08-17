@@ -24,7 +24,12 @@
                         "ts_nano_col",
                         "mixed_col",
                         "str_col",
-                        "date_col"
+                        "date_col",
+                        "order",
+                        "null_col",
+                        "empty_col",
+                        "whitespace_col",
+                        "_empty"
                     ],
                     "sync_new_columns": true
                 }
@@ -67,6 +72,12 @@
                             ],
                             "destination_column_name": "_op_type",
                             "olake_column": true
+                        },
+                        "order": {
+                            "type": [
+                                "array"
+                            ],
+                            "destination_column_name": "order"
                         },
                         "bool_col": {
                             "type": [
@@ -145,6 +156,30 @@
                                 "array"
                             ],
                             "destination_column_name": "ts_nano_col"
+                        },
+                        "null_col": {
+                            "type": [
+                                "array"
+                            ],
+                            "destination_column_name": "null_col"
+                        },
+                        "empty_col": {
+                            "type": [
+                                "array"
+                            ],
+                            "destination_column_name": "empty_col"
+                        },
+                        "whitespace_col": {
+                            "type": [
+                                "array"
+                            ],
+                            "destination_column_name": "whitespace_col"
+                        },
+                        "_empty": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "_empty"
                         }
                     }
                 },

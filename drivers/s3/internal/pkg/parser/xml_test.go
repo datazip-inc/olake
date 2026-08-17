@@ -432,3 +432,126 @@ func TestXMLParser_StreamRecords_NonUTF8Encoding(t *testing.T) {
 
 	assert.Equal(t, []any{"Café"}, records[0]["name"])
 }
+
+func TestXMLParser_StreamRecords_EmptyLeavesAsNull(t *testing.T) {
+	// array wraps null as []any{nil}
+	xmlData := `<root>
+	<item>
+		<str_col/>
+		<empty_col></empty_col>
+		<whitespace_col>   </whitespace_col>
+		<empty_timestamp_col/>
+	</item>
+	</root>`
+
+	config := XMLConfig{
+		RowIdentifier: "item",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+	var records []map[string]any
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+	err := parser.StreamRecords(ctx, reader, callback)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+
+	assert.Equal(t, []any{nil}, records[0]["str_col"])
+	assert.Equal(t, []any{nil}, records[0]["empty_col"])
+	assert.Equal(t, []any{nil}, records[0]["whitespace_col"])
+	assert.Equal(t, []any{nil}, records[0]["empty_timestamp_col"])
+}
+
+func TestXMLParser_StreamRecords_EmptyTimestampIsNull(t *testing.T) {
+	xmlData := `<root>
+	<item>
+		<created>2026-08-17T14:45:30Z</created>
+	</item>
+	<item>
+		<created></created>
+	</item>
+	</root>`
+
+	config := XMLConfig{
+		RowIdentifier: "item",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+	var records []map[string]any
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+	err := parser.StreamRecords(ctx, reader, callback)
+	require.NoError(t, err)
+	require.Len(t, records, 2)
+
+	assert.Equal(t, []any{"2026-08-17T14:45:30Z"}, records[0]["created"])
+	assert.Equal(t, []any{nil}, records[1]["created"])
+	assert.NotEqual(t, []any{""}, records[1]["created"])
+}
+
+func TestXMLParser_StreamRecords_EmptyAttributeAsEmptyString(t *testing.T) {
+	xmlData := `<root>
+	<item id="">
+		<name>a</name>
+	</item>
+	</root>`
+
+	config := XMLConfig{
+		RowIdentifier: "item",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+	var records []map[string]any
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+	err := parser.StreamRecords(ctx, reader, callback)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+
+	assert.Equal(t, "", records[0]["_id"])
+	assert.Equal(t, []any{"a"}, records[0]["name"])
+}
+
+func TestXMLParser_StreamRecords_EmptyRecordMidFile(t *testing.T) {
+	xmlData := `<root>
+	<item><name>a</name></item>
+	<item/>
+	<item><name>b</name></item>
+	</root>`
+
+	config := XMLConfig{
+		RowIdentifier: "item",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+	var records []map[string]any
+	callback := func(_ context.Context, record map[string]any) error {
+		records = append(records, record)
+		return nil
+	}
+	err := parser.StreamRecords(ctx, reader, callback)
+	require.NoError(t, err)
+	require.Len(t, records, 3)
+
+	assert.Equal(t, []any{"a"}, records[0]["name"])
+	assert.Empty(t, records[1])
+	assert.Equal(t, []any{"b"}, records[2]["name"])
+}
