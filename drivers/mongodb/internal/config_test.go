@@ -105,6 +105,78 @@ func TestConfig_URI(t *testing.T) {
 			},
 			wantURI: "mongodb://olake-oidc-client@mongo.internal:27017/?authMechanism=MONGODB-OIDC&authSource=%24external",
 		},
+		{
+			name: "explicit SCRAM-SHA-256",
+			config: &Config{
+				Hosts:         []string{"localhost:27017"},
+				AuthDB:        "admin",
+				Username:      "user",
+				Password:      "pass",
+				AuthMechanism: AuthMechanismSCRAMSHA256,
+			},
+			wantURI: "mongodb://user:pass@localhost:27017/?authMechanism=SCRAM-SHA-256&authSource=admin",
+		},
+		{
+			name: "PLAIN uses external auth source",
+			config: &Config{
+				Hosts:         []string{"localhost:27017"},
+				AuthDB:        "admin",
+				Username:      "user",
+				Password:      "pass",
+				AuthMechanism: AuthMechanismPLAIN,
+			},
+			wantURI: "mongodb://user:pass@localhost:27017/?authMechanism=PLAIN&authSource=%24external",
+		},
+		{
+			name: "MONGODB-X509 without password via auth_mechanism",
+			config: &Config{
+				Hosts:         []string{"localhost:27017"},
+				AuthDB:        "admin",
+				Username:      "CN=user",
+				AuthMechanism: AuthMechanismX509,
+			},
+			wantURI: "mongodb://CN=user@localhost:27017/?authMechanism=MONGODB-X509&authSource=%24external",
+		},
+		{
+			name: "MONGODB-OIDC without password via auth_mechanism",
+			config: &Config{
+				Hosts:         []string{"localhost:27017"},
+				AuthDB:        "admin",
+				Username:      "oidc-user",
+				AuthMechanism: AuthMechanismOIDC,
+			},
+			wantURI: "mongodb://oidc-user@localhost:27017/?authMechanism=MONGODB-OIDC&authSource=%24external",
+		},
+		{
+			name: "IAM authentication",
+			config: &Config{
+				Hosts:  []string{"cluster.mongodb.net"},
+				UseIAM: true,
+			},
+			wantURI: "mongodb://cluster.mongodb.net/?authMechanism=MONGODB-AWS&authSource=%24external",
+		},
+		{
+			name: "replica set with default read preference",
+			config: &Config{
+				Hosts:      []string{"localhost:27017"},
+				AuthDB:     "admin",
+				Username:   "user",
+				Password:   "pass",
+				ReplicaSet: "rs0",
+			},
+			wantURI: "mongodb://user:pass@localhost:27017/?authSource=admin&readPreference=secondaryPreferred&replicaSet=rs0",
+		},
+		{
+			name: "SRV connection",
+			config: &Config{
+				Hosts:    []string{"cluster.mongodb.net"},
+				AuthDB:   "admin",
+				Username: "user",
+				Password: "pass",
+				Srv:      true,
+			},
+			wantURI: "mongodb+srv://user:pass@cluster.mongodb.net/?authSource=admin",
+		},
 	}
 
 	for _, tt := range tests {
@@ -236,6 +308,36 @@ func TestConfig_Validate(t *testing.T) {
 				},
 			},
 			expectErr: false,
+		},
+		{
+			name: "x509 via auth_mechanism without password passes validate",
+			config: &Config{
+				Hosts:         []string{"localhost:27017"},
+				Database:      "testdb",
+				AuthDB:        "admin",
+				Username:      "CN=user",
+				AuthMechanism: AuthMechanismX509,
+			},
+			expectErr: false,
+		},
+		{
+			name: "valid IAM config",
+			config: &Config{
+				Hosts:    []string{"cluster.mongodb.net"},
+				Database: "testdb",
+				UseIAM:   true,
+			},
+			expectErr: false,
+		},
+		{
+			name: "conflicting IAM and auth mechanism",
+			config: &Config{
+				Hosts:         []string{"cluster.mongodb.net"},
+				Database:      "testdb",
+				UseIAM:        true,
+				AuthMechanism: AuthMechanismSCRAMSHA256,
+			},
+			expectErr: true,
 		},
 	}
 

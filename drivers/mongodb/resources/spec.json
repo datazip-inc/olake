@@ -7,6 +7,20 @@
             "description": "Authentication database (mostly admin)",
             "default": "admin"
         },
+        "auth_mechanism": {
+            "type": "string",
+            "title": "Authentication Mechanism",
+            "description": "MongoDB authentication mechanism. Leave empty for default (SCRAM). Use PLAIN for LDAP, SCRAM-SHA-256 for explicit SCRAM, MONGODB-X509 for certificate auth, or MONGODB-OIDC for OpenID Connect (requires passing ENVIRONMENT and TOKEN_RESOURCE in Additional Connection Parameters). For MONGODB-AWS authentication, use the 'IAM Authentication' toggle instead. GSSAPI (Kerberos) is not currently supported.",
+            "enum": [
+                "",
+                "SCRAM-SHA-1",
+                "SCRAM-SHA-256",
+                "PLAIN",
+                "MONGODB-X509",
+                "MONGODB-OIDC"
+            ],
+            "default": ""
+        },
         "backoff_retry_count": {
             "type": "integer",
             "title": "Retry Count",
@@ -161,7 +175,7 @@
         "additional_params": {
             "type": "object",
             "title": "Additional Connection Parameters",
-            "description": "Additional MongoDB connection string parameters (e.g., authMechanism). Each parameter will be added to the connection URI.",
+            "description": "Additional MongoDB connection string parameters (e.g., tls, connectTimeout). Each parameter will be added to the connection URI.",
             "additionalProperties": true
         },
         "ssh_config": {
@@ -272,14 +286,47 @@
                     "properties": {
                         "use_iam": {
                             "const": false
-                        },
-                        "password": { "type": "string", "minLength": 1 }
+                        }
                     },
                     "required": [
                         "authdb",
-                        "username",
-                        "password"
-                    ]
+                        "username"
+                    ],
+                    "dependencies": {
+                        "auth_mechanism": {
+                            "oneOf": [
+                                {
+                                    "properties": {
+                                        "auth_mechanism": {
+                                            "enum": [
+                                                "",
+                                                "SCRAM-SHA-1",
+                                                "SCRAM-SHA-256",
+                                                "PLAIN"
+                                            ]
+                                        },
+                                        "password": {
+                                            "type": "string",
+                                            "minLength": 1
+                                        }
+                                    },
+                                    "required": [
+                                        "password"
+                                    ]
+                                },
+                                {
+                                    "properties": {
+                                        "auth_mechanism": {
+                                            "enum": [
+                                                "MONGODB-X509",
+                                                "MONGODB-OIDC"
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
                 },
                 {
                     "properties": {
