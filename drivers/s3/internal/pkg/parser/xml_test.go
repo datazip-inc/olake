@@ -151,6 +151,70 @@ func TestXMLParser_InferSchema_Attributes(t *testing.T) {
 	assert.Equal(t, types.Array, titleType)
 }
 
+func TestXMLParser_InferSchema_TruncatedAfterCompleteRecord(t *testing.T) {
+	xmlData := `<root>
+	<item>
+		<name>a</name>
+	</item>
+	<item>
+		<name>partial`
+
+	config := XMLConfig{
+		RowIdentifier: "item",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+
+	result, err := parser.InferSchema(ctx, reader)
+	require.NoError(t, err)
+
+	nameType, err := result.Schema.GetType("name")
+	require.NoError(t, err)
+	assert.Equal(t, types.Array, nameType)
+}
+
+func TestXMLParser_InferSchema_MalformedAfterCompleteRecord(t *testing.T) {
+	xmlData := `<root>
+	<item>
+		<name>Alice</name>
+	</item>
+	</not-root>
+	`
+
+	config := XMLConfig{
+		RowIdentifier: "item",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+
+	_, err := parser.InferSchema(ctx, reader)
+	require.Error(t, err)
+}
+
+func TestXMLParser_InferSchema_TruncatedBeforeAnyRecord(t *testing.T) {
+	xmlData := `<root>
+	<item>
+		<name>partial`
+
+	config := XMLConfig{
+		RowIdentifier: "item",
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+
+	_, err := parser.InferSchema(ctx, reader)
+	require.Error(t, err)
+}
+
 func TestXMLParser_StreamRecords_WholeDocument(t *testing.T) {
 	xmlData := `<root>
 	<id>1</id>

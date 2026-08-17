@@ -174,8 +174,8 @@ func (p *XMLParser) parseSampleXMLContent(data []byte, maxSamples int) ([]map[st
 		}
 		if err != nil {
 			// check if we have some records, enough for schema inference - break
-			if len(records) > 0 {
-				logger.Warnf("Stopped reading XML after %d records due to error: %v", len(records), err)
+			if len(records) > 0 && strings.Contains(strings.ToLower(err.Error()), "unexpected eof") {
+				logger.Warnf("Stopped reading XML after %d records (truncated): %v", len(records), err)
 				break
 			}
 			return nil, fmt.Errorf("xml token error: %s", err)
@@ -192,8 +192,8 @@ func (p *XMLParser) parseSampleXMLContent(data []byte, maxSamples int) ([]map[st
 		if err != nil {
 			if errors.Is(err, errNullValue) {
 				record = nil
-			} else if len(records) > 0 {
-				logger.Warnf("stopped reading XML after %d records due to error: %v", len(records), err)
+			} else if len(records) > 0 && strings.Contains(strings.ToLower(err.Error()), "unexpected eof") {
+				logger.Warnf("stopped reading XML after %d records (truncated): %v", len(records), err)
 				break
 			} else {
 				return nil, err
