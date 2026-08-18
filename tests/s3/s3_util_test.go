@@ -245,26 +245,21 @@ var (
 	S3CSVUpdatedDestinationSchema  = evolvedSchema(S3CSVToDestinationSchema)
 	S3JSONUpdatedDestinationSchema = evolvedSchema(S3JSONToDestinationSchema)
 
-	// S3XMLToDestinationSchema — child tags are always arrays; flatten JSON-encodes them to Iceberg strings.
+	// S3XMLToDestinationSchema — XML leaves as strings. Date/ts text infers as timestamps
+	// Empty child tags are null
 	S3XMLToDestinationSchema = s3TextDestinationSchema(map[string]string{
-		"id":                  "array",
-		"order":               "array",
-		"str_col":             "array",
-		"bool_col":            "array",
-		"float_col":           "array",
-		"int_col":             "array",
-		"mixed_col":           "array",
-		"optional_col":        "array",
-		"date_col":            "array",
-		"ts_col":              "array",
-		"ts_milli_col":        "array",
-		"ts_micro_col":        "array",
-		"ts_nano_col":         "array",
-		"null_col":            "array",
-		"empty_col":           "array",
-		"whitespace_col":      "array",
-		"_empty":              "string",
-		"_last_modified_time": "string",
+		"id":             "string",
+		"order":          "string",
+		"str_col":        "string",
+		"bool_col":       "string",
+		"float_col":      "string",
+		"int_col":        "string",
+		"mixed_col":      "string",
+		"optional_col":   "string",
+		"null_col":       "string",
+		"empty_col":      "string",
+		"whitespace_col": "string",
+		"_empty":         "string",
 	})
 
 	S3XMLUpdatedDestinationSchema = evolvedSchema(S3XMLToDestinationSchema)
@@ -337,7 +332,7 @@ func evolvedSchema(base map[string]string) map[string]string {
 	return schema
 }
 
-// s3TextDestinationSchema is the destination schema shared by the CSV and JSON variants,
+// s3TextDestinationSchema is the destination schema shared by the CSV, JSON, and XML variants,
 // extended with the given format-specific columns.
 func s3TextDestinationSchema(formatSpecific map[string]string) map[string]string {
 	schema := map[string]string{
@@ -398,27 +393,27 @@ func expectedJSONData(v rowValues) map[string]interface{} {
 	return data
 }
 
+// Leaves stay the source strings (bool/number text is not coerced).
+// Date/ts columns are Iceberg timestamps, same as expectedTextData
+// Empty child tags are nil; empty attributes stay "".
 func expectedXMLData(v rowValues) map[string]interface{} {
-	xmlLeaf := func(s string) string { return mustJSON([]string{s}) }
 	return map[string]interface{}{
-		"order":          xmlLeaf("inner"),
-		"str_col":        xmlLeaf(v.Str),
-		"bool_col":       xmlLeaf(fmt.Sprintf("%t", v.Bool)),
-		"float_col":      xmlLeaf(fmt.Sprintf("%v", v.Float)),
-		"int_col":        xmlLeaf(fmt.Sprintf("%d", v.Int64)),
-		"date_col":       xmlLeaf(v.TS.UTC().Format(time.DateOnly)),
-		"ts_col":         xmlLeaf(v.TS.Format(time.RFC3339)),
-		"ts_milli_col":   xmlLeaf(v.TSMilli.Format(tsMilliLayout)),
-		"ts_micro_col":   xmlLeaf(v.TSMicro.Format(tsMicroLayout)),
-		"ts_nano_col":    xmlLeaf(v.TSNano.Format(tsNanoLayout)),
-		"null_col":       mustJSON([]any{nil}),
-		"empty_col":      mustJSON([]any{nil}),
-		"whitespace_col": mustJSON([]any{nil}),
+		"order":          "inner",
+		"str_col":        v.Str,
+		"bool_col":       fmt.Sprintf("%t", v.Bool),
+		"float_col":      fmt.Sprintf("%v", v.Float),
+		"int_col":        fmt.Sprintf("%d", v.Int64),
+		"date_col":       arrow.Timestamp(v.TS.UTC().Truncate(24 * time.Hour).UnixMicro()),
+		"ts_col":         arrow.Timestamp(v.TS.Truncate(time.Second).UnixMicro()),
+		"ts_milli_col":   arrow.Timestamp(v.TSMilli.UnixMicro()),
+		"null_col":       nil,
+		"empty_col":      nil,
+		"whitespace_col": nil,
 		"_empty":         "",
 	}
 }
 
-// textWriterExpectedData is the writer-dependent slice of the CSV and JSON expectations:
+// textWriterExpectedData is the writer-dependent slice of the CSV, JSON, and XML expectations:
 // below the millisecond the destinations part ways, the legacy Iceberg writer truncating
 // every timestamptz to epoch millis where the Arrow writer and the Parquet destination
 // keep micros. applyWriterExpectations merges it over the variant's expected data before
@@ -623,6 +618,7 @@ var S3TestVariants = []S3TestVariant{
 		UpdatedDestinationSchema: S3XMLUpdatedDestinationSchema,
 		ExpectedData:             expectedXMLData(seedValues),
 		ExpectedUpdatedData:      expectedXMLData(updatedValues),
+		WriterExpectedData:       textWriterExpectedData,
 	},
 }
 

@@ -69,14 +69,14 @@ func TestXMLParser_InferSchema_RowIdentifier(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.String, statusType)
 
-	//check nested children
+	// nested object is a JSON string, date leaf infers timestamp
 	customerType, err := result.Schema.GetType("customer")
 	require.NoError(t, err)
-	assert.Equal(t, types.Array, customerType)
+	assert.Equal(t, types.String, customerType)
 
 	orderDateType, err := result.Schema.GetType("order_date")
 	require.NoError(t, err)
-	assert.Equal(t, types.Array, orderDateType)
+	assert.Equal(t, types.Timestamp, orderDateType)
 }
 
 func TestXMLParser_InferSchema_EmptyFile(t *testing.T) {
@@ -148,7 +148,7 @@ func TestXMLParser_InferSchema_Attributes(t *testing.T) {
 
 	titleType, err := result.Schema.GetType("title")
 	require.NoError(t, err)
-	assert.Equal(t, types.Array, titleType)
+	assert.Equal(t, types.String, titleType)
 }
 
 func TestXMLParser_InferSchema_TruncatedAfterCompleteRecord(t *testing.T) {
@@ -173,7 +173,7 @@ func TestXMLParser_InferSchema_TruncatedAfterCompleteRecord(t *testing.T) {
 
 	nameType, err := result.Schema.GetType("name")
 	require.NoError(t, err)
-	assert.Equal(t, types.Array, nameType)
+	assert.Equal(t, types.String, nameType)
 }
 
 func TestXMLParser_InferSchema_MalformedAfterCompleteRecord(t *testing.T) {
@@ -242,8 +242,8 @@ func TestXMLParser_StreamRecords_WholeDocument(t *testing.T) {
 	//one record under root name
 	root, ok := records[0]["root"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, []any{"1"}, root["id"])
-	assert.Equal(t, []any{"Alice"}, root["name"])
+	assert.Equal(t, "1", root["id"])
+	assert.Equal(t, "Alice", root["name"])
 }
 
 func TestXMLParser_StreamRecords_RowIdentifier(t *testing.T) {
@@ -275,16 +275,11 @@ func TestXMLParser_StreamRecords_RowIdentifier(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 
-	//one row per order; attrs scalar, children always arrays
+	//one row per order- attrs scalar, unique children strings, nested JSON string
 	assert.Equal(t, "1001", records[0]["_id"])
 	assert.Equal(t, "NEW", records[0]["_status"])
-	assert.Equal(t, []any{"2024-08-01"}, records[0]["order_date"])
-	customers, ok := records[0]["customer"].([]any)
-	require.True(t, ok)
-	require.Len(t, customers, 1)
-	customer, ok := customers[0].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, []any{"Alice"}, customer["name"])
+	assert.Equal(t, "2024-08-01", records[0]["order_date"])
+	assert.Equal(t, `{"id":"CUST_55","name":"Alice"}`, records[0]["customer"])
 }
 
 func TestXMLParser_StreamRecords_NoMatchingRowIdentifier(t *testing.T) {
@@ -338,7 +333,7 @@ func TestXMLParser_StreamRecords_Attributes(t *testing.T) {
 
 	assert.Equal(t, "1", records[0]["_id"])
 	assert.Equal(t, "a", records[0]["_type"])
-	assert.Equal(t, []any{"orders"}, records[0]["title"])
+	assert.Equal(t, "orders", records[0]["title"])
 }
 
 func TestXMLParser_StreamRecords_AttrChildNameCollision(t *testing.T) {
@@ -368,7 +363,7 @@ func TestXMLParser_StreamRecords_AttrChildNameCollision(t *testing.T) {
 
 	//attr and child with same local name stay separate (_id, id)
 	assert.Equal(t, "attrval", records[0]["_id"])
-	assert.Equal(t, []any{"childval"}, records[0]["id"])
+	assert.Equal(t, "childval", records[0]["id"])
 }
 
 func TestXMLParser_StreamRecords_AttrSameNameAsElementWithText(t *testing.T) {
@@ -398,17 +393,11 @@ func TestXMLParser_StreamRecords_AttrSameNameAsElementWithText(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 
-	//child <name> always array of maps: attr is _name, text is name
-	names, ok := records[0]["name"].([]any)
-	require.True(t, ok)
-	require.Len(t, names, 1)
-	nameVal, ok := names[0].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "attr", nameVal["_name"])
-	assert.Equal(t, "textval", nameVal["name"])
+	// nested <name> with attr+text is a JSON string
+	assert.Equal(t, `{"_name":"attr","name":"textval"}`, records[0]["name"])
 }
 
-func TestXMLParser_StreamRecords_AlwaysArrayForSiblings(t *testing.T) {
+func TestXMLParser_StreamRecords_OverwriteSiblings(t *testing.T) {
 	xmlData := `<root>
 	<item>
 		<tag>a</tag>
@@ -436,9 +425,9 @@ func TestXMLParser_StreamRecords_AlwaysArrayForSiblings(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 
-	//single and repeated siblings both []any
-	assert.Equal(t, []any{"a"}, records[0]["tag"])
-	assert.Equal(t, []any{"a", "b"}, records[1]["tag"])
+	// unique tag is a string, a second sibling overwrites
+	assert.Equal(t, "a", records[0]["tag"])
+	assert.Equal(t, "b", records[1]["tag"])
 }
 
 func TestXMLParser_StreamRecords_SkipXMLNSAttributes(t *testing.T) {
@@ -467,7 +456,9 @@ func TestXMLParser_StreamRecords_SkipXMLNSAttributes(t *testing.T) {
 	require.Len(t, records, 1)
 
 	assert.Equal(t, "1", records[0]["_id"])
-	assert.Equal(t, []any{"10", "20"}, records[0]["price"])
+	assert.Equal(t, "10", records[0]["h_price"])
+	assert.Equal(t, "20", records[0]["f_price"])
+	assert.NotContains(t, records[0], "price")
 	assert.NotContains(t, records[0], "_xmlns")
 	assert.NotContains(t, records[0], "_h")
 	assert.NotContains(t, records[0], "_f")
@@ -494,11 +485,11 @@ func TestXMLParser_StreamRecords_NonUTF8Encoding(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 
-	assert.Equal(t, []any{"Café"}, records[0]["name"])
+	assert.Equal(t, "Café", records[0]["name"])
 }
 
 func TestXMLParser_StreamRecords_EmptyLeavesAsNull(t *testing.T) {
-	// array wraps null as []any{nil}
+	// empty / self-close / whitespace leaf is nil
 	xmlData := `<root>
 	<item>
 		<str_col/>
@@ -525,10 +516,10 @@ func TestXMLParser_StreamRecords_EmptyLeavesAsNull(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 
-	assert.Equal(t, []any{nil}, records[0]["str_col"])
-	assert.Equal(t, []any{nil}, records[0]["empty_col"])
-	assert.Equal(t, []any{nil}, records[0]["whitespace_col"])
-	assert.Equal(t, []any{nil}, records[0]["empty_timestamp_col"])
+	assert.Equal(t, nil, records[0]["str_col"])
+	assert.Equal(t, nil, records[0]["empty_col"])
+	assert.Equal(t, nil, records[0]["whitespace_col"])
+	assert.Equal(t, nil, records[0]["empty_timestamp_col"])
 }
 
 func TestXMLParser_StreamRecords_EmptyTimestampIsNull(t *testing.T) {
@@ -558,9 +549,9 @@ func TestXMLParser_StreamRecords_EmptyTimestampIsNull(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 2)
 
-	assert.Equal(t, []any{"2026-08-17T14:45:30Z"}, records[0]["created"])
-	assert.Equal(t, []any{nil}, records[1]["created"])
-	assert.NotEqual(t, []any{""}, records[1]["created"])
+	assert.Equal(t, "2026-08-17T14:45:30Z", records[0]["created"])
+	assert.Equal(t, nil, records[1]["created"])
+	assert.NotEqual(t, "", records[1]["created"])
 }
 
 func TestXMLParser_StreamRecords_EmptyAttributeAsEmptyString(t *testing.T) {
@@ -588,7 +579,7 @@ func TestXMLParser_StreamRecords_EmptyAttributeAsEmptyString(t *testing.T) {
 	require.Len(t, records, 1)
 
 	assert.Equal(t, "", records[0]["_id"])
-	assert.Equal(t, []any{"a"}, records[0]["name"])
+	assert.Equal(t, "a", records[0]["name"])
 }
 
 func TestXMLParser_StreamRecords_EmptyRecordMidFile(t *testing.T) {
@@ -615,7 +606,7 @@ func TestXMLParser_StreamRecords_EmptyRecordMidFile(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, records, 3)
 
-	assert.Equal(t, []any{"a"}, records[0]["name"])
+	assert.Equal(t, "a", records[0]["name"])
 	assert.Empty(t, records[1])
-	assert.Equal(t, []any{"b"}, records[2]["name"])
+	assert.Equal(t, "b", records[2]["name"])
 }

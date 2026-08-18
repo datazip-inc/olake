@@ -3,6 +3,7 @@ package parser
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -124,7 +125,7 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 			}
 
 			// Parse XML element into a record
-			record, err := p.parseXMLElement(decoder, startElement)
+			record, err := p.parseXMLElement(decoder, startElement, nil)
 			if err != nil {
 				if !errors.Is(err, errNullValue) {
 					logger.Warnf("skipping XML record %d due to %v", recordCount, err)
@@ -188,7 +189,7 @@ func (p *XMLParser) parseSampleXMLContent(data []byte, maxSamples int) ([]map[st
 		}
 
 		// parse XML element into a record
-		record, err := p.parseXMLElement(decoder, startElement)
+		record, err := p.parseXMLElement(decoder, startElement, nil)
 		if err != nil {
 			if errors.Is(err, errNullValue) {
 				record = nil
@@ -231,7 +232,7 @@ func (p *XMLParser) parseXMLDocumentAsMap(reader io.Reader) (map[string]any, err
 			continue
 		}
 
-		record, err := p.parseXMLElement(decoder, startElement)
+		record, err := p.parseXMLElement(decoder, startElement, nil)
 		if err != nil {
 			if !errors.Is(err, errNullValue) {
 				return nil, err
@@ -243,9 +244,11 @@ func (p *XMLParser) parseXMLDocumentAsMap(reader io.Reader) (map[string]any, err
 	}
 }
 
-// parseXMLElement recursively parses an XML element and its children into a map or string
-// Attributes are added as fields
-func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.StartElement) (any, error) {
+// parseXMLElement recursively parses an XML element into a map or string.
+// Unique children overwrite; nested elements are stored as JSON strings.
+// Attributes become sibling fields with a _ prefix; xmlns attributes are skipped.
+func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.StartElement, ns map[string]string) (any, error) {
+	ns = p.withNameSpace(ns, startElement)
 	fields := make(map[string]any)
 
 	hasAttributes := false
@@ -253,11 +256,10 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 		if p.isXMLNSAttribute(attr) {
 			continue
 		}
-		fields["_"+attr.Name.Local] = attr.Value
+		fields["_"+p.xmlName(attr.Name, ns)] = attr.Value
 		hasAttributes = true
 	}
 
-	// process attributes of XML element and add them to fields map
 	var text strings.Builder
 	hasChildren := false
 
@@ -275,14 +277,21 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 		switch t := token.(type) {
 		case xml.StartElement:
 			hasChildren = true
-			child, err := p.parseXMLElement(decoder, t)
+			child, err := p.parseXMLElement(decoder, t, ns)
 			if err != nil {
 				if !errors.Is(err, errNullValue) {
 					return nil, err
 				}
 				child = nil
 			}
-			p.setXMLField(fields, t.Name.Local, child)
+			if nested, ok := child.(map[string]any); ok {
+				nestedJSON, err := json.Marshal(nested)
+				if err != nil {
+					return nil, err
+				}
+				child = string(nestedJSON)
+			}
+			fields[p.xmlName(t.Name, p.withNameSpace(ns, t))] = child
 
 		case xml.CharData:
 			if !hasChildren {
@@ -299,7 +308,7 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 			textValue := strings.TrimSpace(text.String())
 			if hasAttributes {
 				if textValue != "" {
-					fields[startElement.Name.Local] = textValue
+					fields[p.xmlName(startElement.Name, ns)] = textValue
 				}
 				return fields, nil
 			}
@@ -311,22 +320,6 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 		case xml.Comment, xml.Directive, xml.ProcInst:
 			// ignore
 		}
-	}
-}
-
-// setXMLField adds a value to the fields map for a given key, handling multiple values as slices
-func (p *XMLParser) setXMLField(fields map[string]any, key string, value any) {
-	existing, ok := fields[key]
-	if !ok {
-		fields[key] = []any{value}
-		return
-	}
-
-	switch e := existing.(type) {
-	case []any:
-		fields[key] = append(e, value)
-	default:
-		fields[key] = []any{existing, value}
 	}
 }
 
@@ -369,6 +362,28 @@ func (p *XMLParser) isXMLNSAttribute(attr xml.Attr) bool {
 		return true
 	}
 	return attr.Name.Space == "xmlns"
+}
+
+// xmlName returns prefix_local when the URI is in ns, otherwise Local.
+func (p *XMLParser) xmlName(name xml.Name, ns map[string]string) string {
+	if prefix := ns[name.Space]; prefix != "" {
+		return prefix + "_" + name.Local
+	}
+	return name.Local
+}
+
+// withNameSpace copies parent prefixes and adds xmlns:prefix declarations from the element.
+func (p *XMLParser) withNameSpace(namespace map[string]string, element xml.StartElement) map[string]string {
+	out := make(map[string]string, len(namespace)+2)
+	for k, v := range namespace {
+		out[k] = v
+	}
+	for _, attr := range element.Attr {
+		if attr.Name.Space == "xmlns" {
+			out[attr.Value] = attr.Name.Local
+		}
+	}
+	return out
 }
 
 // newXMLDecoder creates a new XML decoder with a charset reader
