@@ -176,19 +176,23 @@ func addStreamMix(props map[string]interface{}, mix types.StreamMix) {
 	props["partitioned_streams_count"] = mix.Partitioned
 }
 
-func TrackSyncStarted(syncID string, mix types.StreamMix, sourceType string, destinationConfig *types.WriterConfig, configuredStreams int) {
-	// Read here rather than inside the closure: the writer pool owns this config for the rest
-	// of the run, so reading it from another goroutine would race. catalog_type is optional —
-	// the Iceberg writer fills its default in later — so both assertions are checked.
-	destinationType, catalogType := "", ""
-	if destinationConfig != nil {
-		destinationType = string(destinationConfig.Type)
-		if destinationType == "ICEBERG" {
-			if writerConfig, ok := destinationConfig.WriterConfig.(map[string]interface{}); ok {
-				catalogType, _ = writerConfig["catalog_type"].(string)
-			}
-		}
+// destinationShape reads the destination type and catalog type from the destination config
+func destinationShape(destinationConfig *types.WriterConfig) (destinationType, catalogType string) {
+	if destinationConfig == nil {
+		return "", ""
 	}
+	destinationType = string(destinationConfig.Type)
+	if destinationConfig.Type != types.Iceberg {
+		return destinationType, ""
+	}
+	if writerConfig, ok := destinationConfig.WriterConfig.(map[string]interface{}); ok {
+		catalogType, _ = writerConfig["catalog_type"].(string)
+	}
+	return destinationType, catalogType
+}
+
+func TrackSyncStarted(syncID string, mix types.StreamMix, sourceType string, destinationConfig *types.WriterConfig, configuredStreams int) {
+	destinationType, catalogType := destinationShape(destinationConfig)
 
 	send("sync started", func() {
 		props := map[string]interface{}{
@@ -207,14 +211,18 @@ func TrackSyncStarted(syncID string, mix types.StreamMix, sourceType string, des
 	})
 }
 
-func TrackSyncCompleted(syncID string, mix types.StreamMix, status bool, records, bytesRead int64) {
+func TrackSyncCompleted(syncID string, mix types.StreamMix, destinationConfig *types.WriterConfig, status bool, records, bytesRead int64) {
+	destinationType, catalogType := destinationShape(destinationConfig)
+
 	send("sync completed", func() {
 		props := map[string]interface{}{
-			"sync_id":        syncID,
-			"sync_end":       time.Now(),
-			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
-			"records_synced": records,
-			"bytes_read":     bytesRead,
+			"sync_id":          syncID,
+			"sync_end":         time.Now(),
+			"sync_status":      utils.Ternary(status, "SUCCESS", "FAILED").(string),
+			"records_synced":   records,
+			"bytes_read":       bytesRead,
+			"destination_type": destinationType,
+			"catalog_type":     catalogType,
 		}
 		addStreamMix(props, mix)
 
