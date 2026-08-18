@@ -45,5 +45,5 @@ type ParquetConfig struct {
 // XMLConfig holds XML-specific parsing configuration
 type XMLConfig struct {
 	RowIdentifier        string `json:"row_identifier"` //Default: "" - applied when stream normalization ON
-	MaxBytesForInference int64  `json:"-"`              //Default: 10MB
+	MaxBytesForInference int64  //Default: 10MB
 }

@@ -96,7 +96,7 @@ func (d DataType) ToNewParquet() parquet.Node {
 		n = parquet.Leaf(parquet.Int64Type)
 	case Float64:
 		n = parquet.Leaf(parquet.DoubleType)
-	case String, Null:
+	case String:
 		n = parquet.String()
 	case Bool:
 		n = parquet.Leaf(parquet.BooleanType)

@@ -159,18 +159,21 @@
                         },
                         "null_col": {
                             "type": [
+                                "string",
                                 "null"
                             ],
                             "destination_column_name": "null_col"
                         },
                         "empty_col": {
                             "type": [
+                                "string",
                                 "null"
                             ],
                             "destination_column_name": "empty_col"
                         },
                         "whitespace_col": {
                             "type": [
+                                "string",
                                 "null"
                             ],
                             "destination_column_name": "whitespace_col"

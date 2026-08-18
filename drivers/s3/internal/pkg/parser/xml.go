@@ -74,6 +74,13 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 		}
 	}
 
+	// empty-only leaves stay nil; string type so parquet dest is not Spark binary
+	for _, col := range p.stream.Schema.ColumnNames() {
+		if ok, prop := p.stream.Schema.GetProperty(col); ok && prop.DataType() == types.Null {
+			p.stream.UpsertField(col, types.String, true, false)
+		}
+	}
+
 	logger.Debugf("Inferred schema from XML file")
 	return p.stream, nil
 }
