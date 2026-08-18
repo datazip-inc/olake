@@ -128,11 +128,17 @@ var syncCmd = &cobra.Command{
 		// Build the writer pool up front: it starts destination-owned resources
 		// (e.g. the Iceberg shared JVM) and validates the connection. pool.Close
 		// tears them down on exit (normal return or signal-canceled context).
+		stopInit := logger.TrackTiming("sync", "writer pool init")
 		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, deleteMode, selectedStreamsMetadata.SelectedStreams, batchSize)
+		stopInit()
 		if err != nil {
 			return err
 		}
-		defer pool.Shutdown(context.Background())
+		defer func() {
+			// Commits land here, not in Read, so this is where a destination's flush cost shows.
+			defer logger.TrackTiming("sync", "pool shutdown")()
+			pool.Shutdown(context.Background())
+		}()
 
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64, int64) {
@@ -143,15 +149,21 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 		// Sync Telemetry tracking
-		telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
-		defer func() {
-			stats := pool.GetStats()
-			telemetry.TrackSyncCompleted(syncID, deleteType, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
-			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
-			time.Sleep(5 * time.Second)
-		}()
 
+		// Added this check to avoid the sleep when tracking telemetry is disabled
+		if !telemetry.Disabled() {
+			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
+			defer func() {
+				stats := pool.GetStats()
+				telemetry.TrackSyncCompleted(syncID, deleteType, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
+				logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
+				time.Sleep(5 * time.Second)
+			}()
+		}
+
+		stopRead := logger.TrackTiming("sync", "read records")
 		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
+		stopRead()
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}

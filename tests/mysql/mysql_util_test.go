@@ -3,6 +3,7 @@ package mysql
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -13,22 +14,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// performanceCDCStreams is the CDC stream set the performance suite drives, shared between the
+// PerformanceTest config and the perf operations below.
+var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
+
 // ExecuteQuery executes MySQL queries for testing based on the operation type
-func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	var connStr string
-	if fileConfig {
-		config := testutils.ReadSourceConfig(t, "./testdata/source.json")
+	var connStr, database string
+	if config := conf.SourceBaseConfig; config != nil {
+		database = config.String("database")
 		// the mysql driver spells its single host "hosts"
 		connStr = fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true",
 			config.String("username"),
 			config.String("password"),
 			config.String("hosts"),
 			config.Int("port"),
-			config.String("database"))
+			database)
 	} else {
-		connStr = "mysql:secret1234@tcp(localhost:3306)/olake_mysql_test?parseTime=true"
+		database = "olake_mysql_test"
+		connStr = fmt.Sprintf("mysql:secret1234@tcp(localhost:3306)/%s?parseTime=true", database)
 	}
 	db, err := sqlx.ConnectContext(ctx, "mysql", connStr)
 	require.NoError(t, err, "failed to connect to  mysql")
@@ -37,7 +43,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := streams[0]
+	integrationTestTable := testutils.TestTableName(conf)
 	var query string
 
 	switch operation {
@@ -57,6 +63,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				id_smallint_unsigned SMALLINT UNSIGNED,
 				id_tinyint TINYINT,
 				id_tinyint_unsigned TINYINT UNSIGNED,
+				id_tinyint_unsigned_max TINYINT UNSIGNED,
+				id_smallint_unsigned_max SMALLINT UNSIGNED,
+				id_mediumint_unsigned_max MEDIUMINT UNSIGNED,
+				id_mediumint_unsigned_signbit MEDIUMINT UNSIGNED,
+				id_int_unsigned_max INT UNSIGNED,
+				id_bigint_unsigned BIGINT UNSIGNED,
+				id_bigint_unsigned_signbit BIGINT UNSIGNED,
+				id_bigint_unsigned_max BIGINT UNSIGNED,
 				price_decimal DECIMAL(10,2),
 				amount_decimal_9_2 DECIMAL(9,2),
 				price_double DOUBLE,
@@ -90,6 +104,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
 
+	case "drop-all":
+		_, err = db.ExecContext(ctx, fmt.Sprintf("DROP DATABASE IF EXISTS `%s`", database))
+		require.NoError(t, err, "failed to drop database %s", database)
+		query = fmt.Sprintf("CREATE DATABASE `%s`", database)
+
 	case "clean":
 		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
@@ -103,7 +122,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			id_cursor, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			id_tinyint, id_tinyint_unsigned,
+			id_tinyint_unsigned_max, id_smallint_unsigned_max,
+			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
+			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
+			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
@@ -117,6 +140,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			100, 101, 102, 103,
 			5001, 5002, 101, 102,
 			50, 51,
+			255, 65535,
+			16777215, 8388608, 4294967295,
+			5003, 9223372036854775808, 18446744073709551615,
 			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
@@ -135,7 +161,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			id_cursor, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			id_tinyint, id_tinyint_unsigned,
+			id_tinyint_unsigned_max, id_smallint_unsigned_max,
+			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
+			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
+			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
@@ -149,6 +179,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			0, 0, 0, 0,
 			0, 0, 0, 0,
 			0, 0,
+			0, 0,
+			0, 0, 0,
+			0, 0, 0,
 			50.123, 50.12, 50.123,
 			50.123, 50.0, 50.123, 50.123,
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
@@ -169,7 +202,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			id_cursor, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			id_tinyint, id_tinyint_unsigned,
+			id_tinyint_unsigned_max, id_smallint_unsigned_max,
+			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
+			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
+			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
@@ -182,6 +219,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 			100, 101, 102, 103,
 			5001, 5002, 101, 102,
 			50, 51,
+			255, 65535,
+			16777215, 8388608, 4294967295,
+			5003, 9223372036854775808, 18446744073709551615,
 			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
@@ -202,6 +242,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 				id_mediumint = 6001, id_mediumint_unsigned = 6002,
 				id_smallint = 201, id_smallint_unsigned = 202,
 				id_tinyint = 60, id_tinyint_unsigned = 61,
+				id_tinyint_unsigned_max = 254, id_smallint_unsigned_max = 65534,
+				id_mediumint_unsigned_max = 16777214, id_mediumint_unsigned_signbit = 8388609,
+				id_int_unsigned_max = 4294967294,
+				id_bigint_unsigned = 6003,
+				id_bigint_unsigned_signbit = 9223372036854775809,
+				id_bigint_unsigned_max = 18446744073709551614,
 				price_decimal = 543.21, amount_decimal_9_2 = 1234567.89, price_double = 654.321,
 				price_double_precision = 654.321, price_float = 543.21,
 				price_numeric = 543.21, price_real = 654.321,
@@ -223,9 +269,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "setup_cdc":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
 		// truncate the cdc tables
-		for idx, cdcStream := range streams {
+		for idx, cdcStream := range performanceCDCStreams {
 			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
 			require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
 			// mysql chunking strategy does not support 0 record sync
@@ -247,9 +293,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, streams []string, operation
 		return
 
 	case "bulk_cdc_data_insert":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(streams)
+		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
 		// insert the data into the cdc tables concurrently
-		err := testutils.Concurrent(ctx, streams, len(streams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+		err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s LIMIT 15000000", cdcStream, backfillStreams[executionNumber]))
 			if err != nil {
 				return err
@@ -280,7 +326,11 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			id_cursor, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			id_tinyint, id_tinyint_unsigned,
+			id_tinyint_unsigned_max, id_smallint_unsigned_max,
+			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
+			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
+			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
@@ -293,6 +343,9 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			100, 101, 102, 103,
 			5001, 5002, 101, 102,
 			50, 51,
+			255, 65535,
+			16777215, 8388608, 4294967295,
+			5003, 9223372036854775808, 18446744073709551615,
 			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
@@ -312,7 +365,11 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			id_cursor, id, id_bigint,
 			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
 			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned, price_decimal, amount_decimal_9_2, price_double,
+			id_tinyint, id_tinyint_unsigned,
+			id_tinyint_unsigned_max, id_smallint_unsigned_max,
+			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
+			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
+			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
@@ -325,6 +382,9 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			0, 0, 0, 0,
 			0, 0, 0, 0,
 			0, 0,
+			0, 0,
+			0, 0, 0,
+			0, 0, 0,
 			500234.123, 500234.12, 500234.123,
 			500234.123, 500234.0, 500234.123, 500234.123,
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
@@ -338,167 +398,208 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
+// TODO: olake has no uint64 data type, so the id_bigint_unsigned_* values past MaxInt64 pin what
+// olake writes today, not what MySQL stored.
 var ExpectedMySQLData = map[string]interface{}{
-	"id_bigint":              int64(123456789012345),
-	"id_int":                 int32(100),
-	"id_int_unsigned":        int64(101),
-	"id_integer":             int32(102),
-	"id_integer_unsigned":    int64(103),
-	"id_mediumint":           int32(5001),
-	"id_mediumint_unsigned":  int32(5002),
-	"id_smallint":            int32(101),
-	"id_smallint_unsigned":   int32(102),
-	"id_tinyint":             int32(50),
-	"id_tinyint_unsigned":    int32(51),
-	"price_decimal":          float64(123.45),
-	"amount_decimal_9_2":     float64(5330197.27),
-	"price_double":           float64(123.456),
-	"price_double_precision": float64(123.456),
-	"price_float":            float32(123.45),
-	"price_numeric":          float64(123.45),
-	"price_real":             float64(123.456),
-	"name_char":              "c",
-	"name_varchar":           "varchar_val",
-	"name_text":              "text_val",
-	"name_tinytext":          "tinytext_val",
-	"name_mediumtext":        "mediumtext_val",
-	"name_longtext":          "longtext_val",
-	"created_date":           arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"created_timestamp":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"is_active":              int32(1),
-	"long_varchar":           "long_varchar_val",
-	"name_bool":              int32(1),
-	"status":                 "active",
-	"priority":               "high",
-	"name_latin1":            "latin1_val",
-	"name_ucs2":              "ucs2_val",
-	"name_utf16le":           "utf16le_val",
-	"grade":                  "naïve",
-	"tags":                   "sports,reading",
-	"permissions":            "read,write",
+	"id_bigint":             int64(123456789012345),
+	"id_int":                int32(100),
+	"id_int_unsigned":       int64(101),
+	"id_integer":            int32(102),
+	"id_integer_unsigned":   int64(103),
+	"id_mediumint":          int32(5001),
+	"id_mediumint_unsigned": int32(5002),
+	"id_smallint":           int32(101),
+	"id_smallint_unsigned":  int32(102),
+	"id_tinyint":            int32(50),
+	"id_tinyint_unsigned":   int32(51),
+	// unsigned maxima: the binlog reports these as negative signed ints (255 -> int8(-1)), so they
+	// only survive if the driver masks the sign extension back off. mediumint is the odd one out:
+	// it is 3 bytes wide inside a 4-byte int32, so everything from 8388608 up is sign-extended too
+	"id_tinyint_unsigned_max":       int32(255),
+	"id_smallint_unsigned_max":      int32(65535),
+	"id_mediumint_unsigned_max":     int32(16777215),
+	"id_mediumint_unsigned_signbit": int32(8388608),
+	"id_int_unsigned_max":           int64(4294967295),
+	"id_bigint_unsigned":            int64(5003),
+	"id_bigint_unsigned_signbit":    int64(math.MinInt64), // should be 9223372036854775808 (2^63)
+	"id_bigint_unsigned_max":        int64(-1),            // should be 18446744073709551615 (2^64-1)
+	"price_decimal":                 float64(123.45),
+	"amount_decimal_9_2":            float64(5330197.27),
+	"price_double":                  float64(123.456),
+	"price_double_precision":        float64(123.456),
+	"price_float":                   float32(123.45),
+	"price_numeric":                 float64(123.45),
+	"price_real":                    float64(123.456),
+	"name_char":                     "c",
+	"name_varchar":                  "varchar_val",
+	"name_text":                     "text_val",
+	"name_tinytext":                 "tinytext_val",
+	"name_mediumtext":               "mediumtext_val",
+	"name_longtext":                 "longtext_val",
+	"created_date":                  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_timestamp":             arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"is_active":                     int32(1),
+	"long_varchar":                  "long_varchar_val",
+	"name_bool":                     int32(1),
+	"status":                        "active",
+	"priority":                      "high",
+	"name_latin1":                   "latin1_val",
+	"name_ucs2":                     "ucs2_val",
+	"name_utf16le":                  "utf16le_val",
+	"grade":                         "naïve",
+	"tags":                          "sports,reading",
+	"permissions":                   "read,write",
 }
 
+// TODO: olake has no uint64 data type, so the id_bigint_unsigned_* values past MaxInt64 pin what
+// olake writes today, not what MySQL stored.
 var ExpectedUpdatedData = map[string]interface{}{
-	"id_bigint":              int64(987654321098765),
-	"id_int":                 int64(200),
-	"id_int_unsigned":        int64(201),
-	"id_integer":             int32(202),
-	"id_integer_unsigned":    int64(203),
-	"id_mediumint":           int32(6001),
-	"id_mediumint_unsigned":  int32(6002),
-	"id_smallint":            int32(201),
-	"id_smallint_unsigned":   int32(202),
-	"id_tinyint":             int32(60),
-	"id_tinyint_unsigned":    int32(61),
-	"price_decimal":          float64(543.21),
-	"amount_decimal_9_2":     float64(1234567.89),
-	"price_double":           float64(654.321),
-	"price_double_precision": float64(654.321),
-	"price_float":            float64(543.21),
-	"price_numeric":          float64(543.21),
-	"price_real":             float64(654.321),
-	"name_char":              "X",
-	"name_varchar":           "updated varchar",
-	"name_text":              "updated text",
-	"name_tinytext":          "upd tiny",
-	"name_mediumtext":        "upd medium",
-	"name_longtext":          "upd long",
-	"created_date":           arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"created_timestamp":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"is_active":              int32(0),
-	"long_varchar":           "updated long...",
-	"name_bool":              int32(0),
-	"status":                 "pending",
-	"priority":               "low",
-	"name_latin1":            "updated latin1",
-	"name_ucs2":              "updated ucs2",
-	"name_utf16le":           "updated utf16le",
-	"grade":                  "café",
-	"tags":                   "gaming,reading",
-	"permissions":            "read,write,execute",
-	"includedcolumn":         int32(202),
+	"id_bigint":                     int64(987654321098765),
+	"id_int":                        int64(200),
+	"id_int_unsigned":               int64(201),
+	"id_integer":                    int32(202),
+	"id_integer_unsigned":           int64(203),
+	"id_mediumint":                  int32(6001),
+	"id_mediumint_unsigned":         int32(6002),
+	"id_smallint":                   int32(201),
+	"id_smallint_unsigned":          int32(202),
+	"id_tinyint":                    int32(60),
+	"id_tinyint_unsigned":           int32(61),
+	"id_tinyint_unsigned_max":       int32(254),
+	"id_smallint_unsigned_max":      int32(65534),
+	"id_mediumint_unsigned_max":     int32(16777214),
+	"id_mediumint_unsigned_signbit": int32(8388609),
+	"id_int_unsigned_max":           int64(4294967294),
+	"id_bigint_unsigned":            int64(6003),
+	"id_bigint_unsigned_signbit":    int64(math.MinInt64 + 1), // should be 9223372036854775809 (2^63+1)
+	"id_bigint_unsigned_max":        int64(-2),                // should be 18446744073709551614 (2^64-2)
+	"price_decimal":                 float64(543.21),
+	"amount_decimal_9_2":            float64(1234567.89),
+	"price_double":                  float64(654.321),
+	"price_double_precision":        float64(654.321),
+	"price_float":                   float64(543.21),
+	"price_numeric":                 float64(543.21),
+	"price_real":                    float64(654.321),
+	"name_char":                     "X",
+	"name_varchar":                  "updated varchar",
+	"name_text":                     "updated text",
+	"name_tinytext":                 "upd tiny",
+	"name_mediumtext":               "upd medium",
+	"name_longtext":                 "upd long",
+	"created_date":                  arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_timestamp":             arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"is_active":                     int32(0),
+	"long_varchar":                  "updated long...",
+	"name_bool":                     int32(0),
+	"status":                        "pending",
+	"priority":                      "low",
+	"name_latin1":                   "updated latin1",
+	"name_ucs2":                     "updated ucs2",
+	"name_utf16le":                  "updated utf16le",
+	"grade":                         "café",
+	"tags":                          "gaming,reading",
+	"permissions":                   "read,write,execute",
+	"includedcolumn":                int32(202),
 }
 
 var MySQLToDestinationSchema = map[string]string{
-	"id":                     "bigint",
-	"id_bigint":              "bigint",
-	"id_int":                 "int",
-	"id_int_unsigned":        "bigint",
-	"id_integer":             "int",
-	"id_integer_unsigned":    "bigint",
-	"id_mediumint":           "mediumint",
-	"id_mediumint_unsigned":  "unsigned mediumint",
-	"id_smallint":            "smallint",
-	"id_smallint_unsigned":   "unsigned smallint",
-	"id_tinyint":             "tinyint",
-	"id_tinyint_unsigned":    "unsigned tinyint",
-	"price_decimal":          "decimal",
-	"price_double":           "double",
-	"price_double_precision": "double",
-	"price_float":            "float",
-	"price_numeric":          "decimal",
-	"price_real":             "double",
-	"name_char":              "char",
-	"name_varchar":           "varchar",
-	"name_text":              "text",
-	"name_tinytext":          "tinytext",
-	"name_mediumtext":        "mediumtext",
-	"name_longtext":          "longtext",
-	"created_date":           "datetime",
-	"created_timestamp":      "timestamp",
-	"is_active":              "tinyint",
-	"long_varchar":           "mediumtext",
-	"name_bool":              "tinyint",
-	"status":                 "enum",
-	"priority":               "enum",
-	"name_latin1":            "varchar",
-	"name_ucs2":              "varchar",
-	"name_utf16le":           "varchar",
-	"grade":                  "enum",
-	"tags":                   "set",
-	"permissions":            "set",
+	"id":                    "bigint",
+	"id_bigint":             "bigint",
+	"id_int":                "int",
+	"id_int_unsigned":       "bigint",
+	"id_integer":            "int",
+	"id_integer_unsigned":   "bigint",
+	"id_mediumint":          "mediumint",
+	"id_mediumint_unsigned": "unsigned mediumint",
+	"id_smallint":           "smallint",
+	"id_smallint_unsigned":  "unsigned smallint",
+	"id_tinyint":            "tinyint",
+	"id_tinyint_unsigned":   "unsigned tinyint",
+	// the unsigned maxima only fit their mapped type once the sign extension is masked off
+	"id_tinyint_unsigned_max":       "unsigned tinyint",
+	"id_smallint_unsigned_max":      "unsigned smallint",
+	"id_mediumint_unsigned_max":     "unsigned mediumint",
+	"id_mediumint_unsigned_signbit": "unsigned mediumint",
+	"id_int_unsigned_max":           "bigint",
+	"id_bigint_unsigned":            "bigint",
+	"id_bigint_unsigned_signbit":    "bigint",
+	"id_bigint_unsigned_max":        "bigint",
+	"price_decimal":                 "decimal",
+	"price_double":                  "double",
+	"price_double_precision":        "double",
+	"price_float":                   "float",
+	"price_numeric":                 "decimal",
+	"price_real":                    "double",
+	"name_char":                     "char",
+	"name_varchar":                  "varchar",
+	"name_text":                     "text",
+	"name_tinytext":                 "tinytext",
+	"name_mediumtext":               "mediumtext",
+	"name_longtext":                 "longtext",
+	"created_date":                  "datetime",
+	"created_timestamp":             "timestamp",
+	"is_active":                     "tinyint",
+	"long_varchar":                  "mediumtext",
+	"name_bool":                     "tinyint",
+	"status":                        "enum",
+	"priority":                      "enum",
+	"name_latin1":                   "varchar",
+	"name_ucs2":                     "varchar",
+	"name_utf16le":                  "varchar",
+	"grade":                         "enum",
+	"tags":                          "set",
+	"permissions":                   "set",
 }
 
 var EvolvedMySQLToDestinationSchema = map[string]string{
-	"id":                     "bigint",
-	"id_bigint":              "bigint",
-	"id_int":                 "bigint",
-	"id_int_unsigned":        "bigint",
-	"id_integer":             "int",
-	"id_integer_unsigned":    "bigint",
-	"id_mediumint":           "mediumint",
-	"id_mediumint_unsigned":  "unsigned mediumint",
-	"id_smallint":            "smallint",
-	"id_smallint_unsigned":   "unsigned smallint",
-	"id_tinyint":             "tinyint",
-	"id_tinyint_unsigned":    "unsigned tinyint",
-	"price_decimal":          "decimal",
-	"amount_decimal_9_2":     "decimal",
-	"price_double":           "double",
-	"price_double_precision": "double",
-	"price_float":            "double",
-	"price_numeric":          "decimal",
-	"price_real":             "double",
-	"name_char":              "char",
-	"name_varchar":           "varchar",
-	"name_text":              "text",
-	"name_tinytext":          "tinytext",
-	"name_mediumtext":        "mediumtext",
-	"name_longtext":          "longtext",
-	"created_date":           "datetime",
-	"created_timestamp":      "timestamp",
-	"is_active":              "tinyint",
-	"long_varchar":           "mediumtext",
-	"name_bool":              "tinyint",
-	"status":                 "enum",
-	"priority":               "enum",
-	"name_latin1":            "varchar",
-	"name_ucs2":              "varchar",
-	"name_utf16le":           "varchar",
-	"grade":                  "enum",
-	"tags":                   "set",
-	"permissions":            "set",
-	"includedcolumn":         "int",
+	"id":                    "bigint",
+	"id_bigint":             "bigint",
+	"id_int":                "bigint",
+	"id_int_unsigned":       "bigint",
+	"id_integer":            "int",
+	"id_integer_unsigned":   "bigint",
+	"id_mediumint":          "mediumint",
+	"id_mediumint_unsigned": "unsigned mediumint",
+	"id_smallint":           "smallint",
+	"id_smallint_unsigned":  "unsigned smallint",
+	"id_tinyint":            "tinyint",
+	"id_tinyint_unsigned":   "unsigned tinyint",
+	// the unsigned maxima only fit their mapped type once the sign extension is masked off
+	"id_tinyint_unsigned_max":       "unsigned tinyint",
+	"id_smallint_unsigned_max":      "unsigned smallint",
+	"id_mediumint_unsigned_max":     "unsigned mediumint",
+	"id_mediumint_unsigned_signbit": "unsigned mediumint",
+	"id_int_unsigned_max":           "bigint",
+	"id_bigint_unsigned":            "bigint",
+	"id_bigint_unsigned_signbit":    "bigint",
+	"id_bigint_unsigned_max":        "bigint",
+	"price_decimal":                 "decimal",
+	"amount_decimal_9_2":            "decimal",
+	"price_double":                  "double",
+	"price_double_precision":        "double",
+	"price_float":                   "double",
+	"price_numeric":                 "decimal",
+	"price_real":                    "double",
+	"name_char":                     "char",
+	"name_varchar":                  "varchar",
+	"name_text":                     "text",
+	"name_tinytext":                 "tinytext",
+	"name_mediumtext":               "mediumtext",
+	"name_longtext":                 "longtext",
+	"created_date":                  "datetime",
+	"created_timestamp":             "timestamp",
+	"is_active":                     "tinyint",
+	"long_varchar":                  "mediumtext",
+	"name_bool":                     "tinyint",
+	"status":                        "enum",
+	"priority":                      "enum",
+	"name_latin1":                   "varchar",
+	"name_ucs2":                     "varchar",
+	"name_utf16le":                  "varchar",
+	"grade":                         "enum",
+	"tags":                          "set",
+	"permissions":                   "set",
+	"includedcolumn":                "int",
 }
 var ExpectedMySQLDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_timestamp":        "timestamp",

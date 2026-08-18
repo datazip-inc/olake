@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/pkg/indexdb"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -64,6 +65,7 @@ type (
 		recordsPushed   atomic.Int64
 		recordsFiltered atomic.Int64
 		bytesPushed     atomic.Int64
+		bufferBytes     int64 // source bytes currently held in buffer (for byte-based flush)
 	}
 )
 
@@ -111,7 +113,10 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 		batchSize:  batchSize,
 	}
 
-	if err := adapter.Check(ctx); err != nil {
+	stopCheck := logger.TrackTiming("destination", "check")
+	err = adapter.Check(ctx)
+	stopCheck()
+	if err != nil {
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
@@ -226,8 +231,9 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 }
 
 // Push appends a record to the thread buffer and updates the live stats. sourceBytes
-// is the record's source read size (0 if the driver does not report it). Both the read
-// count and the bytes-read count are added live and rolled back by Close if the chunk/run fails (see rollbackStats).
+// is the record's source read size (0 if the driver does not report it). Buffer batching
+// flushes when buffered source bytes would exceed MaxDestinationBatchBytes. sourceBytes
+// is added live to stats and rolled back by Close if the chunk/run fails (see rollbackStats).
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, sourceBytes int64) error {
 	select {
 	case <-ctx.Done():
@@ -243,10 +249,12 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, source
 			wt.bytesPushed.Add(sourceBytes)
 		}
 		wt.buffer = append(wt.buffer, record)
-		if len(wt.buffer) >= int(wt.batchSize) {
+		wt.bufferBytes += sourceBytes
+		if len(wt.buffer) >= int(wt.batchSize) || wt.bufferBytes >= constants.MaxDestinationBatchBytes {
 			buf := make([]types.RawRecord, len(wt.buffer))
 			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
+			wt.bufferBytes = 0
 			wt.group.Add(func(ctx context.Context) error {
 				return wt.flush(ctx, buf)
 			})
@@ -327,10 +335,15 @@ func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) 
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
 
+		// for canceling on flush error
 		ctx, cancel := context.WithCancel(closeCtx)
 		defer cancel()
 
 		defer func() {
+			if err != nil {
+				cancel()
+			}
+
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
 
@@ -342,6 +355,7 @@ func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) 
 			if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
 			}
+
 			// Commit is successful only when both the final flush and writer.Close (dest
 			// COMMIT) returned no error. All source bytes were already added live via
 			// Push, so success needs no action; on any failure roll back this thread's
@@ -358,6 +372,7 @@ func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) 
 		if err := wt.group.Block(); err != nil {
 			return fmt.Errorf("failed to flush data while closing: %s", err)
 		}
+
 		return nil
 	}
 }

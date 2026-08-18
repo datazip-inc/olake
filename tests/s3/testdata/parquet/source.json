@@ -6,5 +6,8 @@
   "secret_access_key": "password",
   "endpoint": "http://host.docker.internal:9000",
   "file_format": "parquet",
-  "compression": "none"
+  "compression": "none",
+  "parquet": {
+    "streaming_enabled": true
+  }
 }
