@@ -1,6 +1,8 @@
 package driver
 
-import "github.com/datazip-inc/olake/types"
+import (
+	"github.com/datazip-inc/olake/types"
+)
 
 // Define a mapping of MySQL data types to internal data types
 var mysqlTypeToDataTypes = map[string]types.DataType{
