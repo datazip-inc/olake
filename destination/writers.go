@@ -20,15 +20,14 @@ type (
 		ThreadID    string
 		ApplyFilter bool
 		// RowIndex maps _olake_id to the row's location in the destination table.
-		// Set only when the destination's delete mode cannot be served without it.
-		RowIndex types.TableIndex
+		RowIndex types.StreamIndex
 	}
 
 	ThreadOptions func(opt *Options)
 	writerSchema  struct {
-		mu       sync.RWMutex
-		schema   any
-		rowIndex types.TableIndex
+		mu          sync.RWMutex
+		schema      any
+		streamIndex types.StreamIndex
 	}
 
 	Stats struct {
@@ -123,12 +122,12 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 		}
 
 		if deleteMode.NeedsRowIndex(config.Type) && !stream.Self().StreamMetadata.AppendMode {
-			rowIndex, err := indexdb.Open(stream.ID())
+			streamIndex, err := indexdb.Open(stream.ID())
 			if err != nil {
 				pool.Shutdown(ctx)
 				return nil, err
 			}
-			artifact.rowIndex = rowIndex
+			artifact.streamIndex = streamIndex
 		}
 
 		pool.writerSchema.Store(stream.ID(), artifact)
@@ -140,9 +139,9 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 // Shutdown tears down destination-level process resources (like the Iceberg Java server)
 func (w *WriterPool) Shutdown(ctx context.Context) {
 	w.writerSchema.Range(func(key, value any) bool {
-		if artifact, ok := value.(*writerSchema); ok && artifact.rowIndex != nil {
-			if err := artifact.rowIndex.Close(); err != nil {
-				logger.Errorf("failed to close row index for stream[%v]: %s", key, err)
+		if artifact, ok := value.(*writerSchema); ok && artifact.streamIndex != nil {
+			if err := artifact.streamIndex.Close(); err != nil {
+				logger.Errorf("failed to close stream index for stream[%v]: %s", key, err)
 			}
 		}
 		return true
@@ -181,7 +180,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	// Threads of one stream share the stream's index; it is nil in equality mode.
 	// TODO: can we pass things through contexts like streamContext ?
-	opts.RowIndex = streamArtifact.rowIndex
+	opts.RowIndex = streamArtifact.streamIndex
 
 	writerThread, prevStreamState, err := func() (Writer, *types.MetadataState, error) {
 		// init writer and point it at the config parsed once at pool creation,
@@ -312,24 +311,33 @@ func (wt *WriterThread) rollbackStats() {
 	wt.stats.BytesRead.Add(-wt.bytesPushed.Load())
 }
 
-func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
+func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) (err error) {
 	select {
-	case <-ctx.Done():
+	case <-closeCtx.Done():
 		// Wait for in-flight flushes so rollback below can't race their stat updates.
 		// Block's error is ctx cancellation that brought us here, so ignored.
 		_ = wt.group.Block()
 		// Aborted before commit: writer.Close releases resources without committing,
 		// so nothing this thread pushed reaches the destination — roll its stats back.
 		wt.rollbackStats()
-		if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
+		if closeErr := wt.writer.Close(closeCtx, finalMetadataState); closeErr != nil {
 			return fmt.Errorf("failed to close writer: %s", closeErr)
 		}
 		return nil
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
+
+		ctx, cancel := context.WithCancel(closeCtx)
+		defer cancel()
+
 		defer func() {
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
+
+			// if error occurred, cancel the context
+			if err != nil {
+				cancel()
+			}
 
 			if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
@@ -343,8 +351,8 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 			}
 		}()
 
-		wt.group.Add(func(ctx context.Context) error {
-			return wt.flush(ctx, wt.buffer)
+		wt.group.Add(func(flushCtx context.Context) error {
+			return wt.flush(flushCtx, wt.buffer)
 		})
 
 		if err := wt.group.Block(); err != nil {

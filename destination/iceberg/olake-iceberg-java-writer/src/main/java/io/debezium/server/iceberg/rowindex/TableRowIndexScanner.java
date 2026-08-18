@@ -61,20 +61,17 @@ public final class TableRowIndexScanner {
      */
     void begin(long snapshotId);
 
-    void accept(String identifier, String filePath, long position, boolean deleted) throws Exception;
+    void accept(String identifier, String filePath, long position) throws Exception;
   }
 
   /** Outcome of a scan request. */
   public static final class ScanResult {
     public final long snapshotId;
     public final long entries;
-    /** True when an incremental scan was asked for but cannot be served. */
-    public final boolean requiresFullScan;
 
-    private ScanResult(long snapshotId, long entries, boolean requiresFullScan) {
+    private ScanResult(long snapshotId, long entries) {
       this.snapshotId = snapshotId;
       this.entries = entries;
-      this.requiresFullScan = requiresFullScan;
     }
   }
 
@@ -82,9 +79,7 @@ public final class TableRowIndexScanner {
    * Streams the identifier and location of the table's rows to {@code consumer}.
    *
    * @param fromSnapshotId when non-null, only files added after this snapshot are
-   *                       read. If any snapshot in the range removed a data file
-   *                       the caller's positions are no longer trustworthy, and
-   *                       the returned result asks for a full scan instead.
+   *                       read.
    */
   public static ScanResult scan(Table table, String identifierField, Long fromSnapshotId, EntryConsumer consumer)
       throws Exception {
@@ -94,40 +89,23 @@ public final class TableRowIndexScanner {
     if (current == null) {
       // Nothing has been committed yet, so there is nothing to index.
       consumer.begin(0L);
-      return new ScanResult(0L, 0L, false);
+      return new ScanResult(0L, 0L);
     }
 
     List<DataFile> addedFiles;
-    List<DataFile> removedFiles = List.of();
 
     if (fromSnapshotId == null) {
       addedFiles = currentDataFiles(table);
     } else if (fromSnapshotId == current.snapshotId()) {
       addedFiles = List.of();
     } else {
-      DataFileChanges changes = dataFileChangesSince(table, fromSnapshotId, current.snapshotId());
+      List<DataFile> changes = dataFileChangesSince(table, fromSnapshotId, current.snapshotId());
       if (changes == null) {
-        // Nothing is streamed; the caller has to start from an empty index.
-        return new ScanResult(current.snapshotId(), 0L, true);
+        throw new IllegalStateException(String.format(
+            "cannot catch up stream index for table %s: snapshot %d is not an ancestor of current snapshot %d",
+            table.name(), fromSnapshotId, current.snapshotId()));
       }
-      addedFiles = changes.added;
-      removedFiles = changes.removed;
-    }
-
-    // A removed file is read before any added one, so that a row a compaction
-    // moved is unindexed at its old location before being indexed at its new one.
-    // Reading a removed file is best effort: expiry may already have collected
-    // it, and then the positions the caller holds for it cannot be identified.
-    List<DataFile> unindexable = new ArrayList<>();
-    for (DataFile file : removedFiles) {
-      if (!isReadable(table, file)) {
-        unindexable.add(file);
-      }
-    }
-    if (!unindexable.isEmpty()) {
-      LOGGER.info("{} of the {} data files removed from {} can no longer be read, "
-          + "a full row index scan is required", unindexable.size(), removedFiles.size(), table.name());
-      return new ScanResult(current.snapshotId(), 0L, true);
+      addedFiles = changes;
     }
 
     consumer.begin(current.snapshotId());
@@ -135,32 +113,15 @@ public final class TableRowIndexScanner {
     Map<String, BitSet> deletedPositions = deletedPositions(table);
     long entries = 0L;
 
-    // first remove index of removed data files (if exist)
-    for (DataFile file : removedFiles) {
-      // A removed file has no positional deletes left pointing at it, so every
-      // row it holds is offered for unindexing and the caller drops the ones it
-      // still resolves to this file.
-      entries += emitFile(table, file, projection, identifierField, EMPTY_POSITIONS, true, consumer);
-    }
     for (DataFile file : addedFiles) {
       BitSet deleted = deletedPositions.getOrDefault(file.location(), EMPTY_POSITIONS);
-      entries += emitFile(table, file, projection, identifierField, deleted, false, consumer);
+      entries += emitFile(table, file, projection, identifierField, deleted, consumer);
     }
 
-    LOGGER.info("row index scan of {} covered {} added and {} removed files, {} row entries, up to snapshot {}",
-        table.name(), addedFiles.size(), removedFiles.size(), entries, current.snapshotId());
+    LOGGER.info("table index scan of {} covered {} added files, {} row entries, up to snapshot {}",
+        table.name(), addedFiles.size(), entries, current.snapshotId());
 
-    return new ScanResult(current.snapshotId(), entries, false);
-  }
-
-  /** Whether a data file is still present and can be opened for reading. */
-  private static boolean isReadable(Table table, DataFile file) {
-    try {
-      return table.io().newInputFile(file.location()).exists();
-    } catch (RuntimeException e) {
-      LOGGER.debug("data file {} of {} cannot be reached", file.location(), table.name(), e);
-      return false;
-    }
+    return new ScanResult(current.snapshotId(), entries);
   }
 
   /**
@@ -182,8 +143,7 @@ public final class TableRowIndexScanner {
           }
           long ordinal = position instanceof Number n ? n.longValue() : Long.parseLong(position.toString());
           if (ordinal > Integer.MAX_VALUE) {
-            // No realistic data file holds this many rows. Treating such a row as
-            // live only costs a redundant positional delete later on.
+            // No realistic data file holds this many rows.
             continue;
           }
           byFile.computeIfAbsent(path.toString(), key -> new BitSet()).set((int) ordinal);
@@ -206,43 +166,20 @@ public final class TableRowIndexScanner {
     return sortedOldestFirst(unique.values());
   }
 
-  /** The data files a range of snapshots put into and took out of a table. */
-  private static final class DataFileChanges {
-    final List<DataFile> added;
-    final List<DataFile> removed;
-
-    private DataFileChanges(List<DataFile> added, List<DataFile> removed) {
-      this.added = added;
-      this.removed = removed;
-    }
-  }
-
   /**
-   * What changed between two snapshots, or null when the range cannot be read and
-   * the caller therefore has to fall back to a full scan.
-   *
-   * <p>A file that the range both adds and removes is left out of each list. It
-   * is invisible to a caller indexed at {@code fromSnapshotId} and gone by
-   * {@code toSnapshotId}, so neither indexing nor unindexing its rows is right.
-   * reason to read deleted: Just reading the added files not work out, 
-   * there can be a transaction that query engine did to delete records
-   *  and compaction just removed all those delete files. 
+   * What changed between two snapshots, returning added data files
    */
-  private static DataFileChanges dataFileChangesSince(Table table, long fromSnapshotId, long toSnapshotId) {
+  private static List<DataFile> dataFileChangesSince(Table table, long fromSnapshotId, long toSnapshotId) {
     List<Snapshot> range = snapshotRange(table, fromSnapshotId, toSnapshotId);
     if (range == null) {
-      LOGGER.info("snapshot {} is no longer an ancestor of {} in {}, a full row index scan is required",
+      LOGGER.info("snapshot {} is no longer an ancestor of {} in {}, a full table index scan is required",
           fromSnapshotId, toSnapshotId, table.name());
       return null;
     }
 
     Map<String, DataFile> added = new LinkedHashMap<>();
-    Map<String, DataFile> removed = new LinkedHashMap<>();
     try {
       for (Snapshot snapshot : range) {
-        for (DataFile file : snapshot.removedDataFiles(table.io())) {
-          removed.putIfAbsent(file.location(), file);
-        }
         for (DataFile file : snapshot.addedDataFiles(table.io())) {
           added.putIfAbsent(file.location(), file);
         }
@@ -250,16 +187,11 @@ public final class TableRowIndexScanner {
     } catch (RuntimeException e) {
       // Reading a snapshot's manifests can fail once expiry has collected them.
       LOGGER.info("cannot read the data file changes of {} between snapshots {} and {}, "
-          + "a full row index scan is required", table.name(), fromSnapshotId, toSnapshotId, e);
+          + "a full table index scan is required", table.name(), fromSnapshotId, toSnapshotId, e);
       return null;
     }
 
-    Set<String> addedAndRemoved = new HashSet<>(added.keySet());
-    addedAndRemoved.retainAll(removed.keySet());
-    added.keySet().removeAll(addedAndRemoved);
-    removed.keySet().removeAll(addedAndRemoved);
-
-    return new DataFileChanges(sortedOldestFirst(added.values()), sortedOldestFirst(removed.values()));
+    return sortedOldestFirst(added.values());
   }
 
   /**
@@ -312,7 +244,7 @@ public final class TableRowIndexScanner {
    * Returns the number of entries emitted.
    */
   private static long emitFile(Table table, DataFile file, Schema projection, String identifierField,
-      BitSet deleted, boolean isDeletedFile, EntryConsumer consumer) throws Exception {
+      BitSet deleted, EntryConsumer consumer) throws Exception {
     String path = file.location();
     long position = 0L;
     long emitted = 0L;
@@ -321,7 +253,7 @@ public final class TableRowIndexScanner {
       for (Object row : rows) {
         Object identifier = getFieldValue(row, identifierField);
         if (identifier != null && !isDeleted(deleted, position)) {
-          consumer.accept(identifier.toString(), path, position, isDeletedFile);
+          consumer.accept(identifier.toString(), path, position);
           emitted++;
         }
         position++;
@@ -353,7 +285,7 @@ public final class TableRowIndexScanner {
   static CloseableIterable<Object> openRows(Table table, DataFile file, Schema projection) {
     if (file.format() != FileFormat.PARQUET) {
       throw new UnsupportedOperationException(
-          "row index scanning supports parquet data files only, found " + file.format() + " in " + table.name());
+          "table index scanning supports parquet data files only, found " + file.format() + " in " + table.name());
     }
 
     try {

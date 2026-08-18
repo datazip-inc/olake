@@ -9,12 +9,12 @@ import io.debezium.server.iceberg.rowindex.EqualityDeleteMigrator;
 import io.debezium.server.iceberg.rowindex.TableRowIndexScanner;
 import io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest;
 import io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse;
-import io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch;
-import io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest;
+import io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch;
+import io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest;
 import io.grpc.stub.StreamObserver;
 
 /**
- * Serves the row index that the Go side keeps on local disk so it can express
+ * Serves the table index that the Go side keeps on local disk so it can express
  * deletes positionally.
  *
  * <p>Entries are streamed in batches rather than returned in one message because
@@ -22,20 +22,20 @@ import io.grpc.stub.StreamObserver;
  * flat memory. Like the arrow ingester, this service reuses the session created
  * by the GET_OR_CREATE_TABLE handshake instead of loading its own table handle.
  */
-public class OlakeRowIndexer extends RowIndexServiceGrpc.RowIndexServiceImplBase {
-  private static final Logger LOGGER = LoggerFactory.getLogger(OlakeRowIndexer.class);
+public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceImplBase {
+  private static final Logger LOGGER = LoggerFactory.getLogger(OlakeTableIndexer.class);
 
   /** Entries per streamed message, a balance between round trips and message size. */
   private static final int BATCH_SIZE = 10_000;
 
   private final ConcurrentMap<String, IcebergSession> sessions;
 
-  public OlakeRowIndexer(ConcurrentMap<String, IcebergSession> sessions) {
+  public OlakeTableIndexer(ConcurrentMap<String, IcebergSession> sessions) {
     this.sessions = sessions;
   }
 
   @Override
-  public void scanRowIndex(RowIndexScanRequest request, StreamObserver<RowIndexScanBatch> responseObserver) {
+  public void scanTableForIndexing(TableIndexScanRequest request, StreamObserver<TableIndexScanBatch> responseObserver) {
     long startTime = System.currentTimeMillis();
 
     try {
@@ -46,21 +46,13 @@ public class OlakeRowIndexer extends RowIndexServiceGrpc.RowIndexServiceImplBase
       TableRowIndexScanner.ScanResult result = TableRowIndexScanner.scan(
           session.icebergTable, session.identifierField, fromSnapshotId, emitter);
 
-      if (result.requiresFullScan) {
-        // Tell the caller to discard its index; nothing useful was streamed.
-        responseObserver.onNext(RowIndexScanBatch.newBuilder()
-            .setSnapshotId(result.snapshotId)
-            .setRequiresFullScan(true)
-            .build());
-      } else {
-        emitter.finish();
-      }
+      emitter.finish();
 
       responseObserver.onCompleted();
-      LOGGER.info("streamed row index of {} entries for thread {} in {} ms",
+      LOGGER.info("streamed table index of {} entries for thread {} in {} ms",
           result.entries, request.getThreadId(), System.currentTimeMillis() - startTime);
     } catch (Exception e) {
-      String message = String.format("failed to scan row index for thread %s: %s",
+      String message = String.format("failed to scan table index for thread %s: %s",
           request.getThreadId(), e.getMessage());
       LOGGER.error(message, e);
       responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(message).asRuntimeException());
@@ -76,7 +68,6 @@ public class OlakeRowIndexer extends RowIndexServiceGrpc.RowIndexServiceImplBase
           session.icebergTable, session.identifierField, session.fileFactory);
 
       responseObserver.onNext(MigrateEqualityDeletesResponse.newBuilder()
-          .setSnapshotId(result.snapshotId)
           .setRewrittenDeleteFiles(result.rewrittenDeleteFiles)
           .setPositionalDeletesWritten(result.positionalDeletesWritten)
           .build());
@@ -91,25 +82,25 @@ public class OlakeRowIndexer extends RowIndexServiceGrpc.RowIndexServiceImplBase
 
   private IcebergSession requireSession(String threadId) throws Exception {
     if (threadId == null || threadId.isEmpty()) {
-      throw new Exception("Thread id not present in row index request");
+      throw new Exception("Thread id not present in table index request");
     }
 
     IcebergSession session = sessions.get(threadId);
     if (session == null) {
       throw new Exception("No active session for thread " + threadId
-          + "; GET_OR_CREATE_TABLE must be called before scanning the row index");
+          + "; GET_OR_CREATE_TABLE must be called before scanning the table index");
     }
     return session;
   }
 
   /** Accumulates scan entries and ships them once a batch is full. */
   private static final class BatchEmitter implements TableRowIndexScanner.EntryConsumer {
-    private final StreamObserver<RowIndexScanBatch> responseObserver;
-    private RowIndexScanBatch.Builder batch = RowIndexScanBatch.newBuilder();
+    private final StreamObserver<TableIndexScanBatch> responseObserver;
+    private TableIndexScanBatch.Builder batch = TableIndexScanBatch.newBuilder();
     private long snapshotId;
     private boolean sentAnything;
 
-    private BatchEmitter(StreamObserver<RowIndexScanBatch> responseObserver) {
+    private BatchEmitter(StreamObserver<TableIndexScanBatch> responseObserver) {
       this.responseObserver = responseObserver;
     }
 
@@ -120,12 +111,11 @@ public class OlakeRowIndexer extends RowIndexServiceGrpc.RowIndexServiceImplBase
     }
 
     @Override
-    public void accept(String identifier, String filePath, long position, boolean deleted) {
-      batch.addEntries(RowIndexScanBatch.Entry.newBuilder()
+    public void accept(String identifier, String filePath, long position) {
+      batch.addEntries(TableIndexScanBatch.Entry.newBuilder()
           .setOlakeId(identifier)
           .setFilePath(filePath)
-          .setPosition(position)
-          .setDeleted(deleted));
+          .setPosition(position));
 
       if (batch.getEntriesCount() >= BATCH_SIZE) {
         send();
@@ -144,7 +134,7 @@ public class OlakeRowIndexer extends RowIndexServiceGrpc.RowIndexServiceImplBase
 
     private void send() {
       responseObserver.onNext(batch.build());
-      batch = RowIndexScanBatch.newBuilder().setSnapshotId(snapshotId);
+      batch = TableIndexScanBatch.newBuilder().setSnapshotId(snapshotId);
       sentAnything = true;
     }
   }

@@ -11,7 +11,9 @@ package io.debezium.server.iceberg.tableoperator;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
@@ -143,14 +145,13 @@ public class IcebergTableOperator {
     if (filesToCommit.isEmpty()) {
       LOGGER.info("No files to commit for thread: {}", threadId);
       if (table.currentSnapshot() != null) {
-        return table.currentSnapshot().snapshotId();
+        return 0L;
       }
       return 0;
     }
   
     // Refresh once before committing
     table.refresh();
-    assertRowIndexCurrent(threadId, table, baseSnapshotId);
 
     boolean hasAnyDeletes = false;
     int totalDataFiles = 0;
@@ -210,20 +211,22 @@ public class IcebergTableOperator {
         RowDelta rowDelta = transaction.newRowDelta();
         
         for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
-          ArrayList<DeleteFile> eqDeletes = unit.first();
+          ArrayList<DeleteFile> deleteFiles = unit.first();
           ArrayList<DataFile> dataFiles = unit.second();
   
           if (dataFiles != null && !dataFiles.isEmpty()) {
             dataFiles.forEach(rowDelta::addRows);
           }
   
-          if (eqDeletes != null && !eqDeletes.isEmpty()) {
-            eqDeletes.forEach(rowDelta::addDeletes);
+          if (deleteFiles != null && !deleteFiles.isEmpty()) {
+            deleteFiles.forEach(rowDelta::addDeletes);
           }
         }
         
         rowDelta.commit();
       }
+
+      transaction.commitTransaction();
 
       // take transaction snapshot id as commit id
       Snapshot staged = transaction.table().currentSnapshot();
@@ -231,41 +234,22 @@ public class IcebergTableOperator {
         throw new IllegalStateException(
             "transaction for thread " + threadId + " staged no snapshot before catalog commit");
       }
-      long snapshotId = staged.snapshotId();
-
-      // 3. Final Commit to Catalog (Creates ONE metadata file)
-      transaction.commitTransaction();
 
       LOGGER.info("Successfully committed {} data files and {} delete files for thread: {} snapshot: {}",
-          totalDataFiles, totalDeleteFiles, threadId, snapshotId);
+          totalDataFiles, totalDeleteFiles, threadId,  staged.snapshotId());
   
       filesToCommit.clear();
       
-      return snapshotId;
-  
+      // check commit parent snapshot if it is not equal to base, then return 0 so that indexer will not save latest snapshot
+      if (baseSnapshotId != staged.parentId()) {
+          return 0L;
+      }
+
+      return  staged.snapshotId();
     } catch (Exception e) {
       String msg = String.format("Failed to commit for thread %s: %s", threadId, e.getMessage());
       LOGGER.error(msg, e);
       throw new RuntimeException(msg, e);
-    }
-  }
-
-  /**
-   * Refuses the commit when the table has moved past the snapshot the caller's
-   * row index was built against. Without this, an external rewrite can land
-   * between write and commit and our positional deletes would target stale
-   * locations while still succeeding.
-   */
-  private static void assertRowIndexCurrent(String threadId, Table table, Long baseSnapshotId) {
-    if (baseSnapshotId == null) {
-      return;
-    }
-    Snapshot current = table.currentSnapshot();
-    long currentId = current == null ? 0L : current.snapshotId();
-    if (currentId != baseSnapshotId) {
-      throw new IllegalStateException(String.format(
-          "row index is stale for thread %s: indexed snapshot %d but table is at %d; refusing commit",
-          threadId, baseSnapshotId, currentId));
     }
   }
 
@@ -303,15 +287,37 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  public List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
+  private void addRange(Map<String, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder> positionMap,
+                        String path, int startIdx, long startPos, int count) {
+    if (positionMap != null && path != null && count > 0) {
+      positionMap.computeIfAbsent(path, p -> io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.newBuilder().setFilePath(p))
+          .addRanges(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.newBuilder()
+              .setBatchStartIdx(startIdx)
+              .setStartPosition(startPos)
+              .setCount(count));
+    }
+  }
+
+  private List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> buildPositionMaps(
+      Map<String, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder> positionMap) {
+    List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> result = new ArrayList<>();
+    if (positionMap != null) {
+      for (io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder b : positionMap.values()) {
+        result.add(b.build());
+      }
+    }
+    return result;
+  }
+
+  public List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
     if (writer == null) {
       writer = writerFactory2.create(icebergTable);
     }
-    List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> runs = new ArrayList<>();
+    Map<String, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder> filePositionMap = usePositionalDeletes ? new LinkedHashMap<>() : null;
     try {
       io.grpc.Context grpcContext = io.grpc.Context.current();
       
-      PositionTrackableWriter trackable = (PositionTrackableWriter) writer;
+      PositionTrackableWriter trackable = usePositionalDeletes ? (PositionTrackableWriter) writer : null;
       String currentPath = null;
       int runStartIdx = -1;
       long runStartPos = -1;
@@ -322,53 +328,43 @@ public class IcebergTableOperator {
         // Cooperative cancel: check on every record to stop processing early if client disconnects
         if (grpcContext.isCancelled()) {
           LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
-          return runs;
+          addRange(filePositionMap, currentPath, runStartIdx, runStartPos, runCount);
+          return buildPositionMaps(filePositionMap);
         }
-        try{
+        try {
           // Normalise _op_type "i" → "c" before routing to any writer.
           if ("i".equals(record.getField("_op_type"))) {
             record.setField("_op_type", "c");
           }
 
-          CharSequence pathCs = trackable.currentPath(record);
-          long pos = trackable.currentRows(record);
-          String path = pathCs != null ? pathCs.toString() : null;
+          if (usePositionalDeletes && trackable != null) {
+            CharSequence pathCs = trackable.currentPath(record);
+            long pos = trackable.currentRows(record);
+            String path = pathCs != null ? pathCs.toString() : null;
 
-          if (currentPath == null || !currentPath.equals(path) || pos != runStartPos + runCount) {
-              if (currentPath != null) {
-                  runs.add(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.newBuilder()
-                      .setFilePath(currentPath)
-                      .setBatchStartIdx(runStartIdx)
-                      .setStartPosition(runStartPos)
-                      .setCount(runCount)
-                      .build());
-              }
+            if (currentPath == null || !currentPath.equals(path) || pos != runStartPos + runCount) {
+              addRange(filePositionMap, currentPath, runStartIdx, runStartPos, runCount);
               currentPath = path;
               runStartIdx = i;
               runStartPos = pos;
               runCount = 1;
-          } else {
+            } else {
               runCount++;
+            }
           }
 
           writer.write(record);
-        }catch (Exception ex) {
-          LOGGER.error("Failed to write data: {}, exception: {}", record,ex);
+        } catch (Exception ex) {
+          LOGGER.error("Failed to write data: {}, exception: {}", record, ex);
           throw ex;
         }
       }
       
-      if (currentPath != null) {
-          runs.add(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.newBuilder()
-              .setFilePath(currentPath)
-              .setBatchStartIdx(runStartIdx)
-              .setStartPosition(runStartPos)
-              .setCount(runCount)
-              .build());
-      }
-      
-      LOGGER.info("Successfully wrote {} events for thread: {} in {} runs", events.size(), threadID, runs.size());
-      return runs;
+      addRange(filePositionMap, currentPath, runStartIdx, runStartPos, runCount);
+      List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> filePositionMaps = buildPositionMaps(filePositionMap);
+
+      LOGGER.info("Successfully wrote {} events for thread: {} across {} files", events.size(), threadID, filePositionMaps.size());
+      return filePositionMaps;
 
     } catch (Exception ex) {
       LOGGER.error("Failed to write data to table: {} for thread: {}, exception: {}", icebergTable.name(), threadID, ex);

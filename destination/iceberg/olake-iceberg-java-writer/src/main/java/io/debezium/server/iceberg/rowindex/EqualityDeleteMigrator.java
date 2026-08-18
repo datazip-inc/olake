@@ -56,12 +56,10 @@ public final class EqualityDeleteMigrator {
 
   /** Outcome of a migration. */
   public static final class Result {
-    public final long snapshotId;
     public final int rewrittenDeleteFiles;
     public final long positionalDeletesWritten;
 
-    private Result(long snapshotId, int rewrittenDeleteFiles, long positionalDeletesWritten) {
-      this.snapshotId = snapshotId;
+    private Result(int rewrittenDeleteFiles, long positionalDeletesWritten) {
       this.rewrittenDeleteFiles = rewrittenDeleteFiles;
       this.positionalDeletesWritten = positionalDeletesWritten;
     }
@@ -72,13 +70,13 @@ public final class EqualityDeleteMigrator {
 
     Snapshot current = table.currentSnapshot();
     if (current == null) {
-      return new Result(0L, 0, 0L);
+      return new Result( 0, 0L);
     }
 
     Map<String, DataFileDeletes> affected = planAffectedDataFiles(table);
     if (affected.isEmpty()) {
       LOGGER.info("{} has no equality deletes to migrate", table.name());
-      return new Result(current.snapshotId(), 0, 0L);
+      return new Result( 0, 0L);
     }
 
     Schema projection = TableRowIndexScanner.identifierProjection(table, identifierField);
@@ -112,13 +110,12 @@ public final class EqualityDeleteMigrator {
       rewrite.addFile(deleteFile);
     }
 
-    long snapshotId = rewrite.apply().snapshotId();
     rewrite.commit();
 
     LOGGER.info("migrated {} equality delete files of {} into {} positional delete files covering {} rows",
         replaced.size(), table.name(), written.size(), posConvCount);
 
-    return new Result(snapshotId, replaced.size(), posConvCount);
+    return new Result(replaced.size(), posConvCount);
   }
 
   /** Data files that currently have at least one equality delete applied to them. */

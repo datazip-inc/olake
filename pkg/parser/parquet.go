@@ -179,7 +179,7 @@ func (p *ParquetParser) streamRowGroupRows(ctx context.Context, rowGroup pq.RowG
 // streamRowGroupColumns reads a flat row group column by column, materializing every column's
 // values and then reconstructing rows by index. parquet-go emits null values inline (one value
 // per row position, with the nulls carrying no data), so a column's values stay aligned to the
-// row index even when the column is nullable. It must not be used when the schema has group or
+// stream index even when the column is nullable. It must not be used when the schema has group or
 // repeated fields: those contribute a variable number of values per row, so a value's position
 // no longer identifies its row. The whole row group is held in memory, as it was before the
 // parser batched reads, which is why the caller processes row groups one at a time.

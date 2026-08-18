@@ -108,6 +108,10 @@ func (cfg *IntegrationTest) prepareRowIndexSync(ctx context.Context, t *testing.
 	if code, out, err := ExecCommand(ctx, c, resetCmd); err != nil || code != 0 {
 		return fmt.Errorf("failed resetting state file (%d): %s\n%s", code, err, out)
 	}
+
+	if code, out, err := ExecCommand(ctx, c, "rm -rf /test-olake/olake-row-index /test-olake/drivers/*/olake-row-index"); err != nil || code != 0 {
+		return fmt.Errorf("failed resetting stream index (%d): %s\n%s", code, err, out)
+	}
 	return nil
 }
 
@@ -223,7 +227,7 @@ func (cfg *IntegrationTest) testIcebergCleanTablePositionalWithPebbleIndex(ctx c
 	return nil
 }
 
-// testIcebergRebuildIndexFromScratch tests that a missing/corrupted row index is rebuilt on the next pos sync.
+// testIcebergRebuildIndexFromScratch tests that a missing/corrupted stream index is rebuilt on the next pos sync.
 func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Context, t *testing.T, c testcontainers.Container, testTable string) error {
 	destDBPrefix := Ternary(cfg.TestConfig.DataFormat != "", fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat), fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
 	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, cfg.DestinationDB, testTable)
@@ -240,7 +244,7 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 	}
 
 	if code, out, err := ExecCommand(ctx, c, "rm -rf /test-olake/olake-row-index /test-olake/drivers/*/olake-row-index"); err != nil || code != 0 {
-		return fmt.Errorf("failed deleting row index (%d): %s\n%s", code, err, out)
+		return fmt.Errorf("failed deleting stream index (%d): %s\n%s", code, err, out)
 	}
 
 	cfg.applyCDCUpdate(ctx, t, testTable)

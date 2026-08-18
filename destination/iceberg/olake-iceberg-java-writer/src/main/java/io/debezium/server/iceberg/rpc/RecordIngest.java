@@ -373,7 +373,7 @@ public final class RecordIngest {
       /**
        * <pre>
        * When true, the writer resolves superseding rows via positional deletes
-       * (fed by the caller's row index) instead of equality deleteKey.
+       * (fed by the caller's table index) instead of equality deleteKey.
        * </pre>
        *
        * <code>bool use_positional_deletes = 9;</code>
@@ -407,9 +407,9 @@ public final class RecordIngest {
 
       /**
        * <pre>
-       * COMMIT: snapshot the caller's row index is checkpointed at. The server
-       * refreshes the table and refuses the commit when the tip has moved, so
-       * positional deletes built from a stale index cannot be published.
+       * COMMIT: snapshot the caller's stream index is checkpointed at. The server
+       * checks the committed snapshot parent and matches with the stream index's snapshot,
+       * if mismatch the stream index will not get updated 
        * </pre>
        *
        * <code>optional int64 base_snapshot_id = 11;</code>
@@ -418,9 +418,9 @@ public final class RecordIngest {
       boolean hasBaseSnapshotId();
       /**
        * <pre>
-       * COMMIT: snapshot the caller's row index is checkpointed at. The server
-       * refreshes the table and refuses the commit when the tip has moved, so
-       * positional deletes built from a stale index cannot be published.
+       * COMMIT: snapshot the caller's stream index is checkpointed at. The server
+       * checks the committed snapshot parent and matches with the stream index's snapshot,
+       * if mismatch the stream index will not get updated 
        * </pre>
        *
        * <code>optional int64 base_snapshot_id = 11;</code>
@@ -744,7 +744,7 @@ public final class RecordIngest {
       /**
        * <pre>
        * When true, the writer resolves superseding rows via positional deletes
-       * (fed by the caller's row index) instead of equality deleteKey.
+       * (fed by the caller's table index) instead of equality deleteKey.
        * </pre>
        *
        * <code>bool use_positional_deletes = 9;</code>
@@ -800,9 +800,9 @@ public final class RecordIngest {
       private long baseSnapshotId_ = 0L;
       /**
        * <pre>
-       * COMMIT: snapshot the caller's row index is checkpointed at. The server
-       * refreshes the table and refuses the commit when the tip has moved, so
-       * positional deletes built from a stale index cannot be published.
+       * COMMIT: snapshot the caller's stream index is checkpointed at. The server
+       * checks the committed snapshot parent and matches with the stream index's snapshot,
+       * if mismatch the stream index will not get updated 
        * </pre>
        *
        * <code>optional int64 base_snapshot_id = 11;</code>
@@ -814,9 +814,9 @@ public final class RecordIngest {
       }
       /**
        * <pre>
-       * COMMIT: snapshot the caller's row index is checkpointed at. The server
-       * refreshes the table and refuses the commit when the tip has moved, so
-       * positional deletes built from a stale index cannot be published.
+       * COMMIT: snapshot the caller's stream index is checkpointed at. The server
+       * checks the committed snapshot parent and matches with the stream index's snapshot,
+       * if mismatch the stream index will not get updated 
        * </pre>
        *
        * <code>optional int64 base_snapshot_id = 11;</code>
@@ -2136,7 +2136,7 @@ public final class RecordIngest {
         /**
          * <pre>
          * When true, the writer resolves superseding rows via positional deletes
-         * (fed by the caller's row index) instead of equality deleteKey.
+         * (fed by the caller's table index) instead of equality deleteKey.
          * </pre>
          *
          * <code>bool use_positional_deletes = 9;</code>
@@ -2149,7 +2149,7 @@ public final class RecordIngest {
         /**
          * <pre>
          * When true, the writer resolves superseding rows via positional deletes
-         * (fed by the caller's row index) instead of equality deleteKey.
+         * (fed by the caller's table index) instead of equality deleteKey.
          * </pre>
          *
          * <code>bool use_positional_deletes = 9;</code>
@@ -2166,7 +2166,7 @@ public final class RecordIngest {
         /**
          * <pre>
          * When true, the writer resolves superseding rows via positional deletes
-         * (fed by the caller's row index) instead of equality deleteKey.
+         * (fed by the caller's table index) instead of equality deleteKey.
          * </pre>
          *
          * <code>bool use_positional_deletes = 9;</code>
@@ -2422,9 +2422,9 @@ public final class RecordIngest {
         private long baseSnapshotId_ ;
         /**
          * <pre>
-         * COMMIT: snapshot the caller's row index is checkpointed at. The server
-         * refreshes the table and refuses the commit when the tip has moved, so
-         * positional deletes built from a stale index cannot be published.
+         * COMMIT: snapshot the caller's stream index is checkpointed at. The server
+         * checks the committed snapshot parent and matches with the stream index's snapshot,
+         * if mismatch the stream index will not get updated 
          * </pre>
          *
          * <code>optional int64 base_snapshot_id = 11;</code>
@@ -2436,9 +2436,9 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * COMMIT: snapshot the caller's row index is checkpointed at. The server
-         * refreshes the table and refuses the commit when the tip has moved, so
-         * positional deletes built from a stale index cannot be published.
+         * COMMIT: snapshot the caller's stream index is checkpointed at. The server
+         * checks the committed snapshot parent and matches with the stream index's snapshot,
+         * if mismatch the stream index will not get updated 
          * </pre>
          *
          * <code>optional int64 base_snapshot_id = 11;</code>
@@ -2450,9 +2450,9 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * COMMIT: snapshot the caller's row index is checkpointed at. The server
-         * refreshes the table and refuses the commit when the tip has moved, so
-         * positional deletes built from a stale index cannot be published.
+         * COMMIT: snapshot the caller's stream index is checkpointed at. The server
+         * checks the committed snapshot parent and matches with the stream index's snapshot,
+         * if mismatch the stream index will not get updated 
          * </pre>
          *
          * <code>optional int64 base_snapshot_id = 11;</code>
@@ -2468,9 +2468,9 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * COMMIT: snapshot the caller's row index is checkpointed at. The server
-         * refreshes the table and refuses the commit when the tip has moved, so
-         * positional deletes built from a stale index cannot be published.
+         * COMMIT: snapshot the caller's stream index is checkpointed at. The server
+         * checks the committed snapshot parent and matches with the stream index's snapshot,
+         * if mismatch the stream index will not get updated 
          * </pre>
          *
          * <code>optional int64 base_snapshot_id = 11;</code>
@@ -4002,7 +4002,7 @@ public final class RecordIngest {
 
       /**
        * <pre>
-       * Prior live location of this identifier, when the caller's row index has
+       * Prior live location of this identifier, when the caller's table index has
        * one. The Java writer emits a positional delete for (path, position)
        * before writing the new row.
        * </pre>
@@ -4013,7 +4013,7 @@ public final class RecordIngest {
       boolean hasDeleteFilePath();
       /**
        * <pre>
-       * Prior live location of this identifier, when the caller's row index has
+       * Prior live location of this identifier, when the caller's table index has
        * one. The Java writer emits a positional delete for (path, position)
        * before writing the new row.
        * </pre>
@@ -4024,7 +4024,7 @@ public final class RecordIngest {
       java.lang.String getDeleteFilePath();
       /**
        * <pre>
-       * Prior live location of this identifier, when the caller's row index has
+       * Prior live location of this identifier, when the caller's table index has
        * one. The Java writer emits a positional delete for (path, position)
        * before writing the new row.
        * </pre>
@@ -5486,7 +5486,7 @@ public final class RecordIngest {
       private volatile java.lang.Object deleteFilePath_ = "";
       /**
        * <pre>
-       * Prior live location of this identifier, when the caller's row index has
+       * Prior live location of this identifier, when the caller's table index has
        * one. The Java writer emits a positional delete for (path, position)
        * before writing the new row.
        * </pre>
@@ -5500,7 +5500,7 @@ public final class RecordIngest {
       }
       /**
        * <pre>
-       * Prior live location of this identifier, when the caller's row index has
+       * Prior live location of this identifier, when the caller's table index has
        * one. The Java writer emits a positional delete for (path, position)
        * before writing the new row.
        * </pre>
@@ -5523,7 +5523,7 @@ public final class RecordIngest {
       }
       /**
        * <pre>
-       * Prior live location of this identifier, when the caller's row index has
+       * Prior live location of this identifier, when the caller's table index has
        * one. The Java writer emits a positional delete for (path, position)
        * before writing the new row.
        * </pre>
@@ -6362,7 +6362,7 @@ public final class RecordIngest {
         private java.lang.Object deleteFilePath_ = "";
         /**
          * <pre>
-         * Prior live location of this identifier, when the caller's row index has
+         * Prior live location of this identifier, when the caller's table index has
          * one. The Java writer emits a positional delete for (path, position)
          * before writing the new row.
          * </pre>
@@ -6375,7 +6375,7 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * Prior live location of this identifier, when the caller's row index has
+         * Prior live location of this identifier, when the caller's table index has
          * one. The Java writer emits a positional delete for (path, position)
          * before writing the new row.
          * </pre>
@@ -6397,7 +6397,7 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * Prior live location of this identifier, when the caller's row index has
+         * Prior live location of this identifier, when the caller's table index has
          * one. The Java writer emits a positional delete for (path, position)
          * before writing the new row.
          * </pre>
@@ -6420,7 +6420,7 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * Prior live location of this identifier, when the caller's row index has
+         * Prior live location of this identifier, when the caller's table index has
          * one. The Java writer emits a positional delete for (path, position)
          * before writing the new row.
          * </pre>
@@ -6439,7 +6439,7 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * Prior live location of this identifier, when the caller's row index has
+         * Prior live location of this identifier, when the caller's table index has
          * one. The Java writer emits a positional delete for (path, position)
          * before writing the new row.
          * </pre>
@@ -6455,7 +6455,7 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * Prior live location of this identifier, when the caller's row index has
+         * Prior live location of this identifier, when the caller's table index has
          * one. The Java writer emits a positional delete for (path, position)
          * before writing the new row.
          * </pre>
@@ -7616,7 +7616,7 @@ public final class RecordIngest {
     /**
      * <pre>
      * GET_OR_CREATE_TABLE: id of the table's current snapshot, 0 when the table has
-     * no snapshot yet. Compared against the row index's checkpoint to decide whether
+     * no snapshot yet. Compared against the table index's checkpoint to decide whether
      * the index can be reused, refreshed, or has to be rebuilt.
      * </pre>
      *
@@ -7639,50 +7639,50 @@ public final class RecordIngest {
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
-    java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> 
-        getWriteRunsList();
+    java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> 
+        getFilePositionMapsList();
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
-    io.debezium.server.iceberg.rpc.RecordIngest.WriteRun getWriteRuns(int index);
+    io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap getFilePositionMaps(int index);
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
-    int getWriteRunsCount();
+    int getFilePositionMapsCount();
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
-    java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder> 
-        getWriteRunsOrBuilderList();
+    java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder> 
+        getFilePositionMapsOrBuilderList();
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
-    io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder getWriteRunsOrBuilder(
+    io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder getFilePositionMapsOrBuilder(
         int index);
   }
   /**
@@ -7700,7 +7700,7 @@ public final class RecordIngest {
     private RecordIngestResponse() {
       result_ = "";
       olake2PcState_ = "";
-      writeRuns_ = java.util.Collections.emptyList();
+      filePositionMaps_ = java.util.Collections.emptyList();
     }
 
     @java.lang.Override
@@ -7834,7 +7834,7 @@ public final class RecordIngest {
     /**
      * <pre>
      * GET_OR_CREATE_TABLE: id of the table's current snapshot, 0 when the table has
-     * no snapshot yet. Compared against the row index's checkpoint to decide whether
+     * no snapshot yet. Compared against the table index's checkpoint to decide whether
      * the index can be reused, refreshed, or has to be rebuilt.
      * </pre>
      *
@@ -7862,70 +7862,70 @@ public final class RecordIngest {
       return hasEqualityDeletes_;
     }
 
-    public static final int WRITE_RUNS_FIELD_NUMBER = 6;
+    public static final int FILE_POSITION_MAPS_FIELD_NUMBER = 6;
     @SuppressWarnings("serial")
-    private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> writeRuns_;
+    private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> filePositionMaps_;
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
     @java.lang.Override
-    public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> getWriteRunsList() {
-      return writeRuns_;
+    public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> getFilePositionMapsList() {
+      return filePositionMaps_;
     }
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
     @java.lang.Override
-    public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder> 
-        getWriteRunsOrBuilderList() {
-      return writeRuns_;
+    public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder> 
+        getFilePositionMapsOrBuilderList() {
+      return filePositionMaps_;
     }
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
     @java.lang.Override
-    public int getWriteRunsCount() {
-      return writeRuns_.size();
+    public int getFilePositionMapsCount() {
+      return filePositionMaps_.size();
     }
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
     @java.lang.Override
-    public io.debezium.server.iceberg.rpc.RecordIngest.WriteRun getWriteRuns(int index) {
-      return writeRuns_.get(index);
+    public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap getFilePositionMaps(int index) {
+      return filePositionMaps_.get(index);
     }
     /**
      * <pre>
      * RECORDS: returned when rows are written, detailing where they landed so
-     * the sender can update its row index. Order matches the request records.
+     * the sender can update its table index. Order matches the request records.
      * </pre>
      *
-     * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
      */
     @java.lang.Override
-    public io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder getWriteRunsOrBuilder(
+    public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder getFilePositionMapsOrBuilder(
         int index) {
-      return writeRuns_.get(index);
+      return filePositionMaps_.get(index);
     }
 
     private byte memoizedIsInitialized = -1;
@@ -7957,8 +7957,8 @@ public final class RecordIngest {
       if (hasEqualityDeletes_ != false) {
         output.writeBool(5, hasEqualityDeletes_);
       }
-      for (int i = 0; i < writeRuns_.size(); i++) {
-        output.writeMessage(6, writeRuns_.get(i));
+      for (int i = 0; i < filePositionMaps_.size(); i++) {
+        output.writeMessage(6, filePositionMaps_.get(i));
       }
       getUnknownFields().writeTo(output);
     }
@@ -7987,9 +7987,9 @@ public final class RecordIngest {
         size += com.google.protobuf.CodedOutputStream
           .computeBoolSize(5, hasEqualityDeletes_);
       }
-      for (int i = 0; i < writeRuns_.size(); i++) {
+      for (int i = 0; i < filePositionMaps_.size(); i++) {
         size += com.google.protobuf.CodedOutputStream
-          .computeMessageSize(6, writeRuns_.get(i));
+          .computeMessageSize(6, filePositionMaps_.get(i));
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -8016,8 +8016,8 @@ public final class RecordIngest {
           != other.getSnapshotId()) return false;
       if (getHasEqualityDeletes()
           != other.getHasEqualityDeletes()) return false;
-      if (!getWriteRunsList()
-          .equals(other.getWriteRunsList())) return false;
+      if (!getFilePositionMapsList()
+          .equals(other.getFilePositionMapsList())) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -8042,9 +8042,9 @@ public final class RecordIngest {
       hash = (37 * hash) + HAS_EQUALITY_DELETES_FIELD_NUMBER;
       hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
           getHasEqualityDeletes());
-      if (getWriteRunsCount() > 0) {
-        hash = (37 * hash) + WRITE_RUNS_FIELD_NUMBER;
-        hash = (53 * hash) + getWriteRunsList().hashCode();
+      if (getFilePositionMapsCount() > 0) {
+        hash = (37 * hash) + FILE_POSITION_MAPS_FIELD_NUMBER;
+        hash = (53 * hash) + getFilePositionMapsList().hashCode();
       }
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
@@ -8180,11 +8180,11 @@ public final class RecordIngest {
         olake2PcState_ = "";
         snapshotId_ = 0L;
         hasEqualityDeletes_ = false;
-        if (writeRunsBuilder_ == null) {
-          writeRuns_ = java.util.Collections.emptyList();
+        if (filePositionMapsBuilder_ == null) {
+          filePositionMaps_ = java.util.Collections.emptyList();
         } else {
-          writeRuns_ = null;
-          writeRunsBuilder_.clear();
+          filePositionMaps_ = null;
+          filePositionMapsBuilder_.clear();
         }
         bitField0_ = (bitField0_ & ~0x00000020);
         return this;
@@ -8220,14 +8220,14 @@ public final class RecordIngest {
       }
 
       private void buildPartialRepeatedFields(io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse result) {
-        if (writeRunsBuilder_ == null) {
+        if (filePositionMapsBuilder_ == null) {
           if (((bitField0_ & 0x00000020) != 0)) {
-            writeRuns_ = java.util.Collections.unmodifiableList(writeRuns_);
+            filePositionMaps_ = java.util.Collections.unmodifiableList(filePositionMaps_);
             bitField0_ = (bitField0_ & ~0x00000020);
           }
-          result.writeRuns_ = writeRuns_;
+          result.filePositionMaps_ = filePositionMaps_;
         } else {
-          result.writeRuns_ = writeRunsBuilder_.build();
+          result.filePositionMaps_ = filePositionMapsBuilder_.build();
         }
       }
 
@@ -8313,29 +8313,29 @@ public final class RecordIngest {
         if (other.getHasEqualityDeletes() != false) {
           setHasEqualityDeletes(other.getHasEqualityDeletes());
         }
-        if (writeRunsBuilder_ == null) {
-          if (!other.writeRuns_.isEmpty()) {
-            if (writeRuns_.isEmpty()) {
-              writeRuns_ = other.writeRuns_;
+        if (filePositionMapsBuilder_ == null) {
+          if (!other.filePositionMaps_.isEmpty()) {
+            if (filePositionMaps_.isEmpty()) {
+              filePositionMaps_ = other.filePositionMaps_;
               bitField0_ = (bitField0_ & ~0x00000020);
             } else {
-              ensureWriteRunsIsMutable();
-              writeRuns_.addAll(other.writeRuns_);
+              ensureFilePositionMapsIsMutable();
+              filePositionMaps_.addAll(other.filePositionMaps_);
             }
             onChanged();
           }
         } else {
-          if (!other.writeRuns_.isEmpty()) {
-            if (writeRunsBuilder_.isEmpty()) {
-              writeRunsBuilder_.dispose();
-              writeRunsBuilder_ = null;
-              writeRuns_ = other.writeRuns_;
+          if (!other.filePositionMaps_.isEmpty()) {
+            if (filePositionMapsBuilder_.isEmpty()) {
+              filePositionMapsBuilder_.dispose();
+              filePositionMapsBuilder_ = null;
+              filePositionMaps_ = other.filePositionMaps_;
               bitField0_ = (bitField0_ & ~0x00000020);
-              writeRunsBuilder_ = 
+              filePositionMapsBuilder_ = 
                 com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
-                   getWriteRunsFieldBuilder() : null;
+                   getFilePositionMapsFieldBuilder() : null;
             } else {
-              writeRunsBuilder_.addAllMessages(other.writeRuns_);
+              filePositionMapsBuilder_.addAllMessages(other.filePositionMaps_);
             }
           }
         }
@@ -8391,15 +8391,15 @@ public final class RecordIngest {
                 break;
               } // case 40
               case 50: {
-                io.debezium.server.iceberg.rpc.RecordIngest.WriteRun m =
+                io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap m =
                     input.readMessage(
-                        io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.parser(),
+                        io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.parser(),
                         extensionRegistry);
-                if (writeRunsBuilder_ == null) {
-                  ensureWriteRunsIsMutable();
-                  writeRuns_.add(m);
+                if (filePositionMapsBuilder_ == null) {
+                  ensureFilePositionMapsIsMutable();
+                  filePositionMaps_.add(m);
                 } else {
-                  writeRunsBuilder_.addMessage(m);
+                  filePositionMapsBuilder_.addMessage(m);
                 }
                 break;
               } // case 50
@@ -8632,7 +8632,7 @@ public final class RecordIngest {
       /**
        * <pre>
        * GET_OR_CREATE_TABLE: id of the table's current snapshot, 0 when the table has
-       * no snapshot yet. Compared against the row index's checkpoint to decide whether
+       * no snapshot yet. Compared against the table index's checkpoint to decide whether
        * the index can be reused, refreshed, or has to be rebuilt.
        * </pre>
        *
@@ -8646,7 +8646,7 @@ public final class RecordIngest {
       /**
        * <pre>
        * GET_OR_CREATE_TABLE: id of the table's current snapshot, 0 when the table has
-       * no snapshot yet. Compared against the row index's checkpoint to decide whether
+       * no snapshot yet. Compared against the table index's checkpoint to decide whether
        * the index can be reused, refreshed, or has to be rebuilt.
        * </pre>
        *
@@ -8664,7 +8664,7 @@ public final class RecordIngest {
       /**
        * <pre>
        * GET_OR_CREATE_TABLE: id of the table's current snapshot, 0 when the table has
-       * no snapshot yet. Compared against the row index's checkpoint to decide whether
+       * no snapshot yet. Compared against the table index's checkpoint to decide whether
        * the index can be reused, refreshed, or has to be rebuilt.
        * </pre>
        *
@@ -8725,334 +8725,334 @@ public final class RecordIngest {
         return this;
       }
 
-      private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> writeRuns_ =
+      private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> filePositionMaps_ =
         java.util.Collections.emptyList();
-      private void ensureWriteRunsIsMutable() {
+      private void ensureFilePositionMapsIsMutable() {
         if (!((bitField0_ & 0x00000020) != 0)) {
-          writeRuns_ = new java.util.ArrayList<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun>(writeRuns_);
+          filePositionMaps_ = new java.util.ArrayList<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap>(filePositionMaps_);
           bitField0_ |= 0x00000020;
          }
       }
 
       private com.google.protobuf.RepeatedFieldBuilderV3<
-          io.debezium.server.iceberg.rpc.RecordIngest.WriteRun, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder, io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder> writeRunsBuilder_;
+          io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder> filePositionMapsBuilder_;
 
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> getWriteRunsList() {
-        if (writeRunsBuilder_ == null) {
-          return java.util.Collections.unmodifiableList(writeRuns_);
+      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> getFilePositionMapsList() {
+        if (filePositionMapsBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(filePositionMaps_);
         } else {
-          return writeRunsBuilder_.getMessageList();
+          return filePositionMapsBuilder_.getMessageList();
         }
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public int getWriteRunsCount() {
-        if (writeRunsBuilder_ == null) {
-          return writeRuns_.size();
+      public int getFilePositionMapsCount() {
+        if (filePositionMapsBuilder_ == null) {
+          return filePositionMaps_.size();
         } else {
-          return writeRunsBuilder_.getCount();
+          return filePositionMapsBuilder_.getCount();
         }
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.WriteRun getWriteRuns(int index) {
-        if (writeRunsBuilder_ == null) {
-          return writeRuns_.get(index);
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap getFilePositionMaps(int index) {
+        if (filePositionMapsBuilder_ == null) {
+          return filePositionMaps_.get(index);
         } else {
-          return writeRunsBuilder_.getMessage(index);
+          return filePositionMapsBuilder_.getMessage(index);
         }
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public Builder setWriteRuns(
-          int index, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun value) {
-        if (writeRunsBuilder_ == null) {
+      public Builder setFilePositionMaps(
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap value) {
+        if (filePositionMapsBuilder_ == null) {
           if (value == null) {
             throw new NullPointerException();
           }
-          ensureWriteRunsIsMutable();
-          writeRuns_.set(index, value);
+          ensureFilePositionMapsIsMutable();
+          filePositionMaps_.set(index, value);
           onChanged();
         } else {
-          writeRunsBuilder_.setMessage(index, value);
+          filePositionMapsBuilder_.setMessage(index, value);
         }
         return this;
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public Builder setWriteRuns(
-          int index, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder builderForValue) {
-        if (writeRunsBuilder_ == null) {
-          ensureWriteRunsIsMutable();
-          writeRuns_.set(index, builderForValue.build());
+      public Builder setFilePositionMaps(
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder builderForValue) {
+        if (filePositionMapsBuilder_ == null) {
+          ensureFilePositionMapsIsMutable();
+          filePositionMaps_.set(index, builderForValue.build());
           onChanged();
         } else {
-          writeRunsBuilder_.setMessage(index, builderForValue.build());
+          filePositionMapsBuilder_.setMessage(index, builderForValue.build());
         }
         return this;
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public Builder addWriteRuns(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun value) {
-        if (writeRunsBuilder_ == null) {
+      public Builder addFilePositionMaps(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap value) {
+        if (filePositionMapsBuilder_ == null) {
           if (value == null) {
             throw new NullPointerException();
           }
-          ensureWriteRunsIsMutable();
-          writeRuns_.add(value);
+          ensureFilePositionMapsIsMutable();
+          filePositionMaps_.add(value);
           onChanged();
         } else {
-          writeRunsBuilder_.addMessage(value);
+          filePositionMapsBuilder_.addMessage(value);
         }
         return this;
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public Builder addWriteRuns(
-          int index, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun value) {
-        if (writeRunsBuilder_ == null) {
+      public Builder addFilePositionMaps(
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap value) {
+        if (filePositionMapsBuilder_ == null) {
           if (value == null) {
             throw new NullPointerException();
           }
-          ensureWriteRunsIsMutable();
-          writeRuns_.add(index, value);
+          ensureFilePositionMapsIsMutable();
+          filePositionMaps_.add(index, value);
           onChanged();
         } else {
-          writeRunsBuilder_.addMessage(index, value);
+          filePositionMapsBuilder_.addMessage(index, value);
         }
         return this;
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public Builder addWriteRuns(
-          io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder builderForValue) {
-        if (writeRunsBuilder_ == null) {
-          ensureWriteRunsIsMutable();
-          writeRuns_.add(builderForValue.build());
+      public Builder addFilePositionMaps(
+          io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder builderForValue) {
+        if (filePositionMapsBuilder_ == null) {
+          ensureFilePositionMapsIsMutable();
+          filePositionMaps_.add(builderForValue.build());
           onChanged();
         } else {
-          writeRunsBuilder_.addMessage(builderForValue.build());
+          filePositionMapsBuilder_.addMessage(builderForValue.build());
         }
         return this;
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public Builder addWriteRuns(
-          int index, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder builderForValue) {
-        if (writeRunsBuilder_ == null) {
-          ensureWriteRunsIsMutable();
-          writeRuns_.add(index, builderForValue.build());
+      public Builder addFilePositionMaps(
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder builderForValue) {
+        if (filePositionMapsBuilder_ == null) {
+          ensureFilePositionMapsIsMutable();
+          filePositionMaps_.add(index, builderForValue.build());
           onChanged();
         } else {
-          writeRunsBuilder_.addMessage(index, builderForValue.build());
+          filePositionMapsBuilder_.addMessage(index, builderForValue.build());
         }
         return this;
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public Builder addAllWriteRuns(
-          java.lang.Iterable<? extends io.debezium.server.iceberg.rpc.RecordIngest.WriteRun> values) {
-        if (writeRunsBuilder_ == null) {
-          ensureWriteRunsIsMutable();
+      public Builder addAllFilePositionMaps(
+          java.lang.Iterable<? extends io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> values) {
+        if (filePositionMapsBuilder_ == null) {
+          ensureFilePositionMapsIsMutable();
           com.google.protobuf.AbstractMessageLite.Builder.addAll(
-              values, writeRuns_);
+              values, filePositionMaps_);
           onChanged();
         } else {
-          writeRunsBuilder_.addAllMessages(values);
+          filePositionMapsBuilder_.addAllMessages(values);
         }
         return this;
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public Builder clearWriteRuns() {
-        if (writeRunsBuilder_ == null) {
-          writeRuns_ = java.util.Collections.emptyList();
+      public Builder clearFilePositionMaps() {
+        if (filePositionMapsBuilder_ == null) {
+          filePositionMaps_ = java.util.Collections.emptyList();
           bitField0_ = (bitField0_ & ~0x00000020);
           onChanged();
         } else {
-          writeRunsBuilder_.clear();
+          filePositionMapsBuilder_.clear();
         }
         return this;
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public Builder removeWriteRuns(int index) {
-        if (writeRunsBuilder_ == null) {
-          ensureWriteRunsIsMutable();
-          writeRuns_.remove(index);
+      public Builder removeFilePositionMaps(int index) {
+        if (filePositionMapsBuilder_ == null) {
+          ensureFilePositionMapsIsMutable();
+          filePositionMaps_.remove(index);
           onChanged();
         } else {
-          writeRunsBuilder_.remove(index);
+          filePositionMapsBuilder_.remove(index);
         }
         return this;
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder getWriteRunsBuilder(
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder getFilePositionMapsBuilder(
           int index) {
-        return getWriteRunsFieldBuilder().getBuilder(index);
+        return getFilePositionMapsFieldBuilder().getBuilder(index);
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder getWriteRunsOrBuilder(
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder getFilePositionMapsOrBuilder(
           int index) {
-        if (writeRunsBuilder_ == null) {
-          return writeRuns_.get(index);  } else {
-          return writeRunsBuilder_.getMessageOrBuilder(index);
+        if (filePositionMapsBuilder_ == null) {
+          return filePositionMaps_.get(index);  } else {
+          return filePositionMapsBuilder_.getMessageOrBuilder(index);
         }
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder> 
-           getWriteRunsOrBuilderList() {
-        if (writeRunsBuilder_ != null) {
-          return writeRunsBuilder_.getMessageOrBuilderList();
+      public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder> 
+           getFilePositionMapsOrBuilderList() {
+        if (filePositionMapsBuilder_ != null) {
+          return filePositionMapsBuilder_.getMessageOrBuilderList();
         } else {
-          return java.util.Collections.unmodifiableList(writeRuns_);
+          return java.util.Collections.unmodifiableList(filePositionMaps_);
         }
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder addWriteRunsBuilder() {
-        return getWriteRunsFieldBuilder().addBuilder(
-            io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.getDefaultInstance());
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder addFilePositionMapsBuilder() {
+        return getFilePositionMapsFieldBuilder().addBuilder(
+            io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.getDefaultInstance());
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder addWriteRunsBuilder(
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder addFilePositionMapsBuilder(
           int index) {
-        return getWriteRunsFieldBuilder().addBuilder(
-            index, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.getDefaultInstance());
+        return getFilePositionMapsFieldBuilder().addBuilder(
+            index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.getDefaultInstance());
       }
       /**
        * <pre>
        * RECORDS: returned when rows are written, detailing where they landed so
-       * the sender can update its row index. Order matches the request records.
+       * the sender can update its table index. Order matches the request records.
        * </pre>
        *
-       * <code>repeated .io.debezium.server.iceberg.rpc.WriteRun write_runs = 6;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap file_position_maps = 6;</code>
        */
-      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder> 
-           getWriteRunsBuilderList() {
-        return getWriteRunsFieldBuilder().getBuilderList();
+      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder> 
+           getFilePositionMapsBuilderList() {
+        return getFilePositionMapsFieldBuilder().getBuilderList();
       }
       private com.google.protobuf.RepeatedFieldBuilderV3<
-          io.debezium.server.iceberg.rpc.RecordIngest.WriteRun, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder, io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder> 
-          getWriteRunsFieldBuilder() {
-        if (writeRunsBuilder_ == null) {
-          writeRunsBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
-              io.debezium.server.iceberg.rpc.RecordIngest.WriteRun, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder, io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder>(
-                  writeRuns_,
+          io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder> 
+          getFilePositionMapsFieldBuilder() {
+        if (filePositionMapsBuilder_ == null) {
+          filePositionMapsBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+              io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder>(
+                  filePositionMaps_,
                   ((bitField0_ & 0x00000020) != 0),
                   getParentForChildren(),
                   isClean());
-          writeRuns_ = null;
+          filePositionMaps_ = null;
         }
-        return writeRunsBuilder_;
+        return filePositionMapsBuilder_;
       }
       @java.lang.Override
       public final Builder setUnknownFields(
@@ -9118,8 +9118,8 @@ public final class RecordIngest {
 
   }
 
-  public interface WriteRunOrBuilder extends
-      // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.WriteRun)
+  public interface FilePositionMapOrBuilder extends
+      // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.FilePositionMap)
       com.google.protobuf.MessageOrBuilder {
 
     /**
@@ -9135,50 +9135,56 @@ public final class RecordIngest {
         getFilePathBytes();
 
     /**
-     * <code>int32 batch_start_idx = 2;</code>
-     * @return The batchStartIdx.
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
      */
-    int getBatchStartIdx();
-
+    java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range> 
+        getRangesList();
     /**
-     * <code>int64 start_position = 3;</code>
-     * @return The startPosition.
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
      */
-    long getStartPosition();
-
+    io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range getRanges(int index);
     /**
-     * <code>int32 count = 4;</code>
-     * @return The count.
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
      */
-    int getCount();
+    int getRangesCount();
+    /**
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+     */
+    java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder> 
+        getRangesOrBuilderList();
+    /**
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+     */
+    io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder getRangesOrBuilder(
+        int index);
   }
   /**
    * <pre>
-   * WriteRun describes a contiguous block of rows written to a single data file.
-   * Because Java writes records sequentially, a batch of records typically maps
-   * to just one or two runs (if a file rolled).
+   * FilePositionMap describes row ranges written to a single data file.
+   * Multiple contiguous ranges within a single batch land under the same file_path.
    * </pre>
    *
-   * Protobuf type {@code io.debezium.server.iceberg.rpc.WriteRun}
+   * Protobuf type {@code io.debezium.server.iceberg.rpc.FilePositionMap}
    */
-  public static final class WriteRun extends
+  public static final class FilePositionMap extends
       com.google.protobuf.GeneratedMessageV3 implements
-      // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.WriteRun)
-      WriteRunOrBuilder {
+      // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.FilePositionMap)
+      FilePositionMapOrBuilder {
   private static final long serialVersionUID = 0L;
-    // Use WriteRun.newBuilder() to construct.
-    private WriteRun(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+    // Use FilePositionMap.newBuilder() to construct.
+    private FilePositionMap(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
       super(builder);
     }
-    private WriteRun() {
+    private FilePositionMap() {
       filePath_ = "";
+      ranges_ = java.util.Collections.emptyList();
     }
 
     @java.lang.Override
     @SuppressWarnings({"unused"})
     protected java.lang.Object newInstance(
         UnusedPrivateParameter unused) {
-      return new WriteRun();
+      return new FilePositionMap();
     }
 
     @java.lang.Override
@@ -9188,15 +9194,639 @@ public final class RecordIngest {
     }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_WriteRun_descriptor;
+      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_WriteRun_fieldAccessorTable
+      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.class, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder.class);
+              io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.class, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder.class);
+    }
+
+    public interface RangeOrBuilder extends
+        // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.FilePositionMap.Range)
+        com.google.protobuf.MessageOrBuilder {
+
+      /**
+       * <code>int32 batch_start_idx = 1;</code>
+       * @return The batchStartIdx.
+       */
+      int getBatchStartIdx();
+
+      /**
+       * <code>int64 start_position = 2;</code>
+       * @return The startPosition.
+       */
+      long getStartPosition();
+
+      /**
+       * <code>int32 count = 3;</code>
+       * @return The count.
+       */
+      int getCount();
+    }
+    /**
+     * Protobuf type {@code io.debezium.server.iceberg.rpc.FilePositionMap.Range}
+     */
+    public static final class Range extends
+        com.google.protobuf.GeneratedMessageV3 implements
+        // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.FilePositionMap.Range)
+        RangeOrBuilder {
+    private static final long serialVersionUID = 0L;
+      // Use Range.newBuilder() to construct.
+      private Range(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+        super(builder);
+      }
+      private Range() {
+      }
+
+      @java.lang.Override
+      @SuppressWarnings({"unused"})
+      protected java.lang.Object newInstance(
+          UnusedPrivateParameter unused) {
+        return new Range();
+      }
+
+      @java.lang.Override
+      public final com.google.protobuf.UnknownFieldSet
+      getUnknownFields() {
+        return this.unknownFields;
+      }
+      public static final com.google.protobuf.Descriptors.Descriptor
+          getDescriptor() {
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_descriptor;
+      }
+
+      @java.lang.Override
+      protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+          internalGetFieldAccessorTable() {
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_fieldAccessorTable
+            .ensureFieldAccessorsInitialized(
+                io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.class, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder.class);
+      }
+
+      public static final int BATCH_START_IDX_FIELD_NUMBER = 1;
+      private int batchStartIdx_ = 0;
+      /**
+       * <code>int32 batch_start_idx = 1;</code>
+       * @return The batchStartIdx.
+       */
+      @java.lang.Override
+      public int getBatchStartIdx() {
+        return batchStartIdx_;
+      }
+
+      public static final int START_POSITION_FIELD_NUMBER = 2;
+      private long startPosition_ = 0L;
+      /**
+       * <code>int64 start_position = 2;</code>
+       * @return The startPosition.
+       */
+      @java.lang.Override
+      public long getStartPosition() {
+        return startPosition_;
+      }
+
+      public static final int COUNT_FIELD_NUMBER = 3;
+      private int count_ = 0;
+      /**
+       * <code>int32 count = 3;</code>
+       * @return The count.
+       */
+      @java.lang.Override
+      public int getCount() {
+        return count_;
+      }
+
+      private byte memoizedIsInitialized = -1;
+      @java.lang.Override
+      public final boolean isInitialized() {
+        byte isInitialized = memoizedIsInitialized;
+        if (isInitialized == 1) return true;
+        if (isInitialized == 0) return false;
+
+        memoizedIsInitialized = 1;
+        return true;
+      }
+
+      @java.lang.Override
+      public void writeTo(com.google.protobuf.CodedOutputStream output)
+                          throws java.io.IOException {
+        if (batchStartIdx_ != 0) {
+          output.writeInt32(1, batchStartIdx_);
+        }
+        if (startPosition_ != 0L) {
+          output.writeInt64(2, startPosition_);
+        }
+        if (count_ != 0) {
+          output.writeInt32(3, count_);
+        }
+        getUnknownFields().writeTo(output);
+      }
+
+      @java.lang.Override
+      public int getSerializedSize() {
+        int size = memoizedSize;
+        if (size != -1) return size;
+
+        size = 0;
+        if (batchStartIdx_ != 0) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeInt32Size(1, batchStartIdx_);
+        }
+        if (startPosition_ != 0L) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeInt64Size(2, startPosition_);
+        }
+        if (count_ != 0) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeInt32Size(3, count_);
+        }
+        size += getUnknownFields().getSerializedSize();
+        memoizedSize = size;
+        return size;
+      }
+
+      @java.lang.Override
+      public boolean equals(final java.lang.Object obj) {
+        if (obj == this) {
+         return true;
+        }
+        if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range)) {
+          return super.equals(obj);
+        }
+        io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range other = (io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range) obj;
+
+        if (getBatchStartIdx()
+            != other.getBatchStartIdx()) return false;
+        if (getStartPosition()
+            != other.getStartPosition()) return false;
+        if (getCount()
+            != other.getCount()) return false;
+        if (!getUnknownFields().equals(other.getUnknownFields())) return false;
+        return true;
+      }
+
+      @java.lang.Override
+      public int hashCode() {
+        if (memoizedHashCode != 0) {
+          return memoizedHashCode;
+        }
+        int hash = 41;
+        hash = (19 * hash) + getDescriptor().hashCode();
+        hash = (37 * hash) + BATCH_START_IDX_FIELD_NUMBER;
+        hash = (53 * hash) + getBatchStartIdx();
+        hash = (37 * hash) + START_POSITION_FIELD_NUMBER;
+        hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
+            getStartPosition());
+        hash = (37 * hash) + COUNT_FIELD_NUMBER;
+        hash = (53 * hash) + getCount();
+        hash = (29 * hash) + getUnknownFields().hashCode();
+        memoizedHashCode = hash;
+        return hash;
+      }
+
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(
+          java.nio.ByteBuffer data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(
+          java.nio.ByteBuffer data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(
+          com.google.protobuf.ByteString data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(
+          com.google.protobuf.ByteString data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(byte[] data)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(
+          byte[] data,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws com.google.protobuf.InvalidProtocolBufferException {
+        return PARSER.parseFrom(data, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseDelimitedFrom(java.io.InputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseDelimitedFrom(
+          java.io.InputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(
+          com.google.protobuf.CodedInputStream input)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input);
+      }
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range parseFrom(
+          com.google.protobuf.CodedInputStream input,
+          com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+          throws java.io.IOException {
+        return com.google.protobuf.GeneratedMessageV3
+            .parseWithIOException(PARSER, input, extensionRegistry);
+      }
+
+      @java.lang.Override
+      public Builder newBuilderForType() { return newBuilder(); }
+      public static Builder newBuilder() {
+        return DEFAULT_INSTANCE.toBuilder();
+      }
+      public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range prototype) {
+        return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
+      }
+      @java.lang.Override
+      public Builder toBuilder() {
+        return this == DEFAULT_INSTANCE
+            ? new Builder() : new Builder().mergeFrom(this);
+      }
+
+      @java.lang.Override
+      protected Builder newBuilderForType(
+          com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+        Builder builder = new Builder(parent);
+        return builder;
+      }
+      /**
+       * Protobuf type {@code io.debezium.server.iceberg.rpc.FilePositionMap.Range}
+       */
+      public static final class Builder extends
+          com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
+          // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.FilePositionMap.Range)
+          io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder {
+        public static final com.google.protobuf.Descriptors.Descriptor
+            getDescriptor() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_descriptor;
+        }
+
+        @java.lang.Override
+        protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+            internalGetFieldAccessorTable() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_fieldAccessorTable
+              .ensureFieldAccessorsInitialized(
+                  io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.class, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder.class);
+        }
+
+        // Construct using io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.newBuilder()
+        private Builder() {
+
+        }
+
+        private Builder(
+            com.google.protobuf.GeneratedMessageV3.BuilderParent parent) {
+          super(parent);
+
+        }
+        @java.lang.Override
+        public Builder clear() {
+          super.clear();
+          bitField0_ = 0;
+          batchStartIdx_ = 0;
+          startPosition_ = 0L;
+          count_ = 0;
+          return this;
+        }
+
+        @java.lang.Override
+        public com.google.protobuf.Descriptors.Descriptor
+            getDescriptorForType() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_descriptor;
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range getDefaultInstanceForType() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.getDefaultInstance();
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range build() {
+          io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range result = buildPartial();
+          if (!result.isInitialized()) {
+            throw newUninitializedMessageException(result);
+          }
+          return result;
+        }
+
+        @java.lang.Override
+        public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range buildPartial() {
+          io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range result = new io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range(this);
+          if (bitField0_ != 0) { buildPartial0(result); }
+          onBuilt();
+          return result;
+        }
+
+        private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range result) {
+          int from_bitField0_ = bitField0_;
+          if (((from_bitField0_ & 0x00000001) != 0)) {
+            result.batchStartIdx_ = batchStartIdx_;
+          }
+          if (((from_bitField0_ & 0x00000002) != 0)) {
+            result.startPosition_ = startPosition_;
+          }
+          if (((from_bitField0_ & 0x00000004) != 0)) {
+            result.count_ = count_;
+          }
+        }
+
+        @java.lang.Override
+        public Builder clone() {
+          return super.clone();
+        }
+        @java.lang.Override
+        public Builder setField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.setField(field, value);
+        }
+        @java.lang.Override
+        public Builder clearField(
+            com.google.protobuf.Descriptors.FieldDescriptor field) {
+          return super.clearField(field);
+        }
+        @java.lang.Override
+        public Builder clearOneof(
+            com.google.protobuf.Descriptors.OneofDescriptor oneof) {
+          return super.clearOneof(oneof);
+        }
+        @java.lang.Override
+        public Builder setRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            int index, java.lang.Object value) {
+          return super.setRepeatedField(field, index, value);
+        }
+        @java.lang.Override
+        public Builder addRepeatedField(
+            com.google.protobuf.Descriptors.FieldDescriptor field,
+            java.lang.Object value) {
+          return super.addRepeatedField(field, value);
+        }
+        @java.lang.Override
+        public Builder mergeFrom(com.google.protobuf.Message other) {
+          if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range) {
+            return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range)other);
+          } else {
+            super.mergeFrom(other);
+            return this;
+          }
+        }
+
+        public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range other) {
+          if (other == io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.getDefaultInstance()) return this;
+          if (other.getBatchStartIdx() != 0) {
+            setBatchStartIdx(other.getBatchStartIdx());
+          }
+          if (other.getStartPosition() != 0L) {
+            setStartPosition(other.getStartPosition());
+          }
+          if (other.getCount() != 0) {
+            setCount(other.getCount());
+          }
+          this.mergeUnknownFields(other.getUnknownFields());
+          onChanged();
+          return this;
+        }
+
+        @java.lang.Override
+        public final boolean isInitialized() {
+          return true;
+        }
+
+        @java.lang.Override
+        public Builder mergeFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws java.io.IOException {
+          if (extensionRegistry == null) {
+            throw new java.lang.NullPointerException();
+          }
+          try {
+            boolean done = false;
+            while (!done) {
+              int tag = input.readTag();
+              switch (tag) {
+                case 0:
+                  done = true;
+                  break;
+                case 8: {
+                  batchStartIdx_ = input.readInt32();
+                  bitField0_ |= 0x00000001;
+                  break;
+                } // case 8
+                case 16: {
+                  startPosition_ = input.readInt64();
+                  bitField0_ |= 0x00000002;
+                  break;
+                } // case 16
+                case 24: {
+                  count_ = input.readInt32();
+                  bitField0_ |= 0x00000004;
+                  break;
+                } // case 24
+                default: {
+                  if (!super.parseUnknownField(input, extensionRegistry, tag)) {
+                    done = true; // was an endgroup tag
+                  }
+                  break;
+                } // default:
+              } // switch (tag)
+            } // while (!done)
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.unwrapIOException();
+          } finally {
+            onChanged();
+          } // finally
+          return this;
+        }
+        private int bitField0_;
+
+        private int batchStartIdx_ ;
+        /**
+         * <code>int32 batch_start_idx = 1;</code>
+         * @return The batchStartIdx.
+         */
+        @java.lang.Override
+        public int getBatchStartIdx() {
+          return batchStartIdx_;
+        }
+        /**
+         * <code>int32 batch_start_idx = 1;</code>
+         * @param value The batchStartIdx to set.
+         * @return This builder for chaining.
+         */
+        public Builder setBatchStartIdx(int value) {
+          
+          batchStartIdx_ = value;
+          bitField0_ |= 0x00000001;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>int32 batch_start_idx = 1;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearBatchStartIdx() {
+          bitField0_ = (bitField0_ & ~0x00000001);
+          batchStartIdx_ = 0;
+          onChanged();
+          return this;
+        }
+
+        private long startPosition_ ;
+        /**
+         * <code>int64 start_position = 2;</code>
+         * @return The startPosition.
+         */
+        @java.lang.Override
+        public long getStartPosition() {
+          return startPosition_;
+        }
+        /**
+         * <code>int64 start_position = 2;</code>
+         * @param value The startPosition to set.
+         * @return This builder for chaining.
+         */
+        public Builder setStartPosition(long value) {
+          
+          startPosition_ = value;
+          bitField0_ |= 0x00000002;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>int64 start_position = 2;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearStartPosition() {
+          bitField0_ = (bitField0_ & ~0x00000002);
+          startPosition_ = 0L;
+          onChanged();
+          return this;
+        }
+
+        private int count_ ;
+        /**
+         * <code>int32 count = 3;</code>
+         * @return The count.
+         */
+        @java.lang.Override
+        public int getCount() {
+          return count_;
+        }
+        /**
+         * <code>int32 count = 3;</code>
+         * @param value The count to set.
+         * @return This builder for chaining.
+         */
+        public Builder setCount(int value) {
+          
+          count_ = value;
+          bitField0_ |= 0x00000004;
+          onChanged();
+          return this;
+        }
+        /**
+         * <code>int32 count = 3;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearCount() {
+          bitField0_ = (bitField0_ & ~0x00000004);
+          count_ = 0;
+          onChanged();
+          return this;
+        }
+        @java.lang.Override
+        public final Builder setUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.setUnknownFields(unknownFields);
+        }
+
+        @java.lang.Override
+        public final Builder mergeUnknownFields(
+            final com.google.protobuf.UnknownFieldSet unknownFields) {
+          return super.mergeUnknownFields(unknownFields);
+        }
+
+
+        // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.FilePositionMap.Range)
+      }
+
+      // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.FilePositionMap.Range)
+      private static final io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range DEFAULT_INSTANCE;
+      static {
+        DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range();
+      }
+
+      public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range getDefaultInstance() {
+        return DEFAULT_INSTANCE;
+      }
+
+      private static final com.google.protobuf.Parser<Range>
+          PARSER = new com.google.protobuf.AbstractParser<Range>() {
+        @java.lang.Override
+        public Range parsePartialFrom(
+            com.google.protobuf.CodedInputStream input,
+            com.google.protobuf.ExtensionRegistryLite extensionRegistry)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+          Builder builder = newBuilder();
+          try {
+            builder.mergeFrom(input, extensionRegistry);
+          } catch (com.google.protobuf.InvalidProtocolBufferException e) {
+            throw e.setUnfinishedMessage(builder.buildPartial());
+          } catch (com.google.protobuf.UninitializedMessageException e) {
+            throw e.asInvalidProtocolBufferException().setUnfinishedMessage(builder.buildPartial());
+          } catch (java.io.IOException e) {
+            throw new com.google.protobuf.InvalidProtocolBufferException(e)
+                .setUnfinishedMessage(builder.buildPartial());
+          }
+          return builder.buildPartial();
+        }
+      };
+
+      public static com.google.protobuf.Parser<Range> parser() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public com.google.protobuf.Parser<Range> getParserForType() {
+        return PARSER;
+      }
+
+      @java.lang.Override
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range getDefaultInstanceForType() {
+        return DEFAULT_INSTANCE;
+      }
+
     }
 
     public static final int FILE_PATH_FIELD_NUMBER = 1;
@@ -9238,37 +9868,45 @@ public final class RecordIngest {
       }
     }
 
-    public static final int BATCH_START_IDX_FIELD_NUMBER = 2;
-    private int batchStartIdx_ = 0;
+    public static final int RANGES_FIELD_NUMBER = 2;
+    @SuppressWarnings("serial")
+    private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range> ranges_;
     /**
-     * <code>int32 batch_start_idx = 2;</code>
-     * @return The batchStartIdx.
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
      */
     @java.lang.Override
-    public int getBatchStartIdx() {
-      return batchStartIdx_;
+    public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range> getRangesList() {
+      return ranges_;
     }
-
-    public static final int START_POSITION_FIELD_NUMBER = 3;
-    private long startPosition_ = 0L;
     /**
-     * <code>int64 start_position = 3;</code>
-     * @return The startPosition.
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
      */
     @java.lang.Override
-    public long getStartPosition() {
-      return startPosition_;
+    public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder> 
+        getRangesOrBuilderList() {
+      return ranges_;
     }
-
-    public static final int COUNT_FIELD_NUMBER = 4;
-    private int count_ = 0;
     /**
-     * <code>int32 count = 4;</code>
-     * @return The count.
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
      */
     @java.lang.Override
-    public int getCount() {
-      return count_;
+    public int getRangesCount() {
+      return ranges_.size();
+    }
+    /**
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+     */
+    @java.lang.Override
+    public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range getRanges(int index) {
+      return ranges_.get(index);
+    }
+    /**
+     * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+     */
+    @java.lang.Override
+    public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder getRangesOrBuilder(
+        int index) {
+      return ranges_.get(index);
     }
 
     private byte memoizedIsInitialized = -1;
@@ -9288,14 +9926,8 @@ public final class RecordIngest {
       if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
         com.google.protobuf.GeneratedMessageV3.writeString(output, 1, filePath_);
       }
-      if (batchStartIdx_ != 0) {
-        output.writeInt32(2, batchStartIdx_);
-      }
-      if (startPosition_ != 0L) {
-        output.writeInt64(3, startPosition_);
-      }
-      if (count_ != 0) {
-        output.writeInt32(4, count_);
+      for (int i = 0; i < ranges_.size(); i++) {
+        output.writeMessage(2, ranges_.get(i));
       }
       getUnknownFields().writeTo(output);
     }
@@ -9309,17 +9941,9 @@ public final class RecordIngest {
       if (!com.google.protobuf.GeneratedMessageV3.isStringEmpty(filePath_)) {
         size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, filePath_);
       }
-      if (batchStartIdx_ != 0) {
+      for (int i = 0; i < ranges_.size(); i++) {
         size += com.google.protobuf.CodedOutputStream
-          .computeInt32Size(2, batchStartIdx_);
-      }
-      if (startPosition_ != 0L) {
-        size += com.google.protobuf.CodedOutputStream
-          .computeInt64Size(3, startPosition_);
-      }
-      if (count_ != 0) {
-        size += com.google.protobuf.CodedOutputStream
-          .computeInt32Size(4, count_);
+          .computeMessageSize(2, ranges_.get(i));
       }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
@@ -9331,19 +9955,15 @@ public final class RecordIngest {
       if (obj == this) {
        return true;
       }
-      if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.WriteRun)) {
+      if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap)) {
         return super.equals(obj);
       }
-      io.debezium.server.iceberg.rpc.RecordIngest.WriteRun other = (io.debezium.server.iceberg.rpc.RecordIngest.WriteRun) obj;
+      io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap other = (io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap) obj;
 
       if (!getFilePath()
           .equals(other.getFilePath())) return false;
-      if (getBatchStartIdx()
-          != other.getBatchStartIdx()) return false;
-      if (getStartPosition()
-          != other.getStartPosition()) return false;
-      if (getCount()
-          != other.getCount()) return false;
+      if (!getRangesList()
+          .equals(other.getRangesList())) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -9357,81 +9977,78 @@ public final class RecordIngest {
       hash = (19 * hash) + getDescriptor().hashCode();
       hash = (37 * hash) + FILE_PATH_FIELD_NUMBER;
       hash = (53 * hash) + getFilePath().hashCode();
-      hash = (37 * hash) + BATCH_START_IDX_FIELD_NUMBER;
-      hash = (53 * hash) + getBatchStartIdx();
-      hash = (37 * hash) + START_POSITION_FIELD_NUMBER;
-      hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-          getStartPosition());
-      hash = (37 * hash) + COUNT_FIELD_NUMBER;
-      hash = (53 * hash) + getCount();
+      if (getRangesCount() > 0) {
+        hash = (37 * hash) + RANGES_FIELD_NUMBER;
+        hash = (53 * hash) + getRangesList().hashCode();
+      }
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
       return hash;
     }
 
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(
         java.nio.ByteBuffer data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(
         java.nio.ByteBuffer data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(
         com.google.protobuf.ByteString data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(
         com.google.protobuf.ByteString data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(byte[] data)
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(byte[] data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(
         byte[] data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(java.io.InputStream input)
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseDelimitedFrom(java.io.InputStream input)
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseDelimitedFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(
         com.google.protobuf.CodedInputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap parseFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
@@ -9444,7 +10061,7 @@ public final class RecordIngest {
     public static Builder newBuilder() {
       return DEFAULT_INSTANCE.toBuilder();
     }
-    public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun prototype) {
+    public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap prototype) {
       return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
     }
     @java.lang.Override
@@ -9461,31 +10078,30 @@ public final class RecordIngest {
     }
     /**
      * <pre>
-     * WriteRun describes a contiguous block of rows written to a single data file.
-     * Because Java writes records sequentially, a batch of records typically maps
-     * to just one or two runs (if a file rolled).
+     * FilePositionMap describes row ranges written to a single data file.
+     * Multiple contiguous ranges within a single batch land under the same file_path.
      * </pre>
      *
-     * Protobuf type {@code io.debezium.server.iceberg.rpc.WriteRun}
+     * Protobuf type {@code io.debezium.server.iceberg.rpc.FilePositionMap}
      */
     public static final class Builder extends
         com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
-        // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.WriteRun)
-        io.debezium.server.iceberg.rpc.RecordIngest.WriteRunOrBuilder {
+        // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.FilePositionMap)
+        io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMapOrBuilder {
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_WriteRun_descriptor;
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_descriptor;
       }
 
       @java.lang.Override
       protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
           internalGetFieldAccessorTable() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_WriteRun_fieldAccessorTable
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_fieldAccessorTable
             .ensureFieldAccessorsInitialized(
-                io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.class, io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.Builder.class);
+                io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.class, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder.class);
       }
 
-      // Construct using io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.newBuilder()
+      // Construct using io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.newBuilder()
       private Builder() {
 
       }
@@ -9500,26 +10116,30 @@ public final class RecordIngest {
         super.clear();
         bitField0_ = 0;
         filePath_ = "";
-        batchStartIdx_ = 0;
-        startPosition_ = 0L;
-        count_ = 0;
+        if (rangesBuilder_ == null) {
+          ranges_ = java.util.Collections.emptyList();
+        } else {
+          ranges_ = null;
+          rangesBuilder_.clear();
+        }
+        bitField0_ = (bitField0_ & ~0x00000002);
         return this;
       }
 
       @java.lang.Override
       public com.google.protobuf.Descriptors.Descriptor
           getDescriptorForType() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_WriteRun_descriptor;
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_descriptor;
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.WriteRun getDefaultInstanceForType() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.getDefaultInstance();
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap getDefaultInstanceForType() {
+        return io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.getDefaultInstance();
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.WriteRun build() {
-        io.debezium.server.iceberg.rpc.RecordIngest.WriteRun result = buildPartial();
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap build() {
+        io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap result = buildPartial();
         if (!result.isInitialized()) {
           throw newUninitializedMessageException(result);
         }
@@ -9527,26 +10147,30 @@ public final class RecordIngest {
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.WriteRun buildPartial() {
-        io.debezium.server.iceberg.rpc.RecordIngest.WriteRun result = new io.debezium.server.iceberg.rpc.RecordIngest.WriteRun(this);
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap buildPartial() {
+        io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap result = new io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap(this);
+        buildPartialRepeatedFields(result);
         if (bitField0_ != 0) { buildPartial0(result); }
         onBuilt();
         return result;
       }
 
-      private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun result) {
+      private void buildPartialRepeatedFields(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap result) {
+        if (rangesBuilder_ == null) {
+          if (((bitField0_ & 0x00000002) != 0)) {
+            ranges_ = java.util.Collections.unmodifiableList(ranges_);
+            bitField0_ = (bitField0_ & ~0x00000002);
+          }
+          result.ranges_ = ranges_;
+        } else {
+          result.ranges_ = rangesBuilder_.build();
+        }
+      }
+
+      private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap result) {
         int from_bitField0_ = bitField0_;
         if (((from_bitField0_ & 0x00000001) != 0)) {
           result.filePath_ = filePath_;
-        }
-        if (((from_bitField0_ & 0x00000002) != 0)) {
-          result.batchStartIdx_ = batchStartIdx_;
-        }
-        if (((from_bitField0_ & 0x00000004) != 0)) {
-          result.startPosition_ = startPosition_;
-        }
-        if (((from_bitField0_ & 0x00000008) != 0)) {
-          result.count_ = count_;
         }
       }
 
@@ -9584,29 +10208,46 @@ public final class RecordIngest {
       }
       @java.lang.Override
       public Builder mergeFrom(com.google.protobuf.Message other) {
-        if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.WriteRun) {
-          return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.WriteRun)other);
+        if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap) {
+          return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap)other);
         } else {
           super.mergeFrom(other);
           return this;
         }
       }
 
-      public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.WriteRun other) {
-        if (other == io.debezium.server.iceberg.rpc.RecordIngest.WriteRun.getDefaultInstance()) return this;
+      public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap other) {
+        if (other == io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.getDefaultInstance()) return this;
         if (!other.getFilePath().isEmpty()) {
           filePath_ = other.filePath_;
           bitField0_ |= 0x00000001;
           onChanged();
         }
-        if (other.getBatchStartIdx() != 0) {
-          setBatchStartIdx(other.getBatchStartIdx());
-        }
-        if (other.getStartPosition() != 0L) {
-          setStartPosition(other.getStartPosition());
-        }
-        if (other.getCount() != 0) {
-          setCount(other.getCount());
+        if (rangesBuilder_ == null) {
+          if (!other.ranges_.isEmpty()) {
+            if (ranges_.isEmpty()) {
+              ranges_ = other.ranges_;
+              bitField0_ = (bitField0_ & ~0x00000002);
+            } else {
+              ensureRangesIsMutable();
+              ranges_.addAll(other.ranges_);
+            }
+            onChanged();
+          }
+        } else {
+          if (!other.ranges_.isEmpty()) {
+            if (rangesBuilder_.isEmpty()) {
+              rangesBuilder_.dispose();
+              rangesBuilder_ = null;
+              ranges_ = other.ranges_;
+              bitField0_ = (bitField0_ & ~0x00000002);
+              rangesBuilder_ = 
+                com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders ?
+                   getRangesFieldBuilder() : null;
+            } else {
+              rangesBuilder_.addAllMessages(other.ranges_);
+            }
+          }
         }
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
@@ -9639,21 +10280,19 @@ public final class RecordIngest {
                 bitField0_ |= 0x00000001;
                 break;
               } // case 10
-              case 16: {
-                batchStartIdx_ = input.readInt32();
-                bitField0_ |= 0x00000002;
+              case 18: {
+                io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range m =
+                    input.readMessage(
+                        io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.parser(),
+                        extensionRegistry);
+                if (rangesBuilder_ == null) {
+                  ensureRangesIsMutable();
+                  ranges_.add(m);
+                } else {
+                  rangesBuilder_.addMessage(m);
+                }
                 break;
-              } // case 16
-              case 24: {
-                startPosition_ = input.readInt64();
-                bitField0_ |= 0x00000004;
-                break;
-              } // case 24
-              case 32: {
-                count_ = input.readInt32();
-                bitField0_ |= 0x00000008;
-                break;
-              } // case 32
+              } // case 18
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -9743,100 +10382,244 @@ public final class RecordIngest {
         return this;
       }
 
-      private int batchStartIdx_ ;
-      /**
-       * <code>int32 batch_start_idx = 2;</code>
-       * @return The batchStartIdx.
-       */
-      @java.lang.Override
-      public int getBatchStartIdx() {
-        return batchStartIdx_;
-      }
-      /**
-       * <code>int32 batch_start_idx = 2;</code>
-       * @param value The batchStartIdx to set.
-       * @return This builder for chaining.
-       */
-      public Builder setBatchStartIdx(int value) {
-        
-        batchStartIdx_ = value;
-        bitField0_ |= 0x00000002;
-        onChanged();
-        return this;
-      }
-      /**
-       * <code>int32 batch_start_idx = 2;</code>
-       * @return This builder for chaining.
-       */
-      public Builder clearBatchStartIdx() {
-        bitField0_ = (bitField0_ & ~0x00000002);
-        batchStartIdx_ = 0;
-        onChanged();
-        return this;
+      private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range> ranges_ =
+        java.util.Collections.emptyList();
+      private void ensureRangesIsMutable() {
+        if (!((bitField0_ & 0x00000002) != 0)) {
+          ranges_ = new java.util.ArrayList<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range>(ranges_);
+          bitField0_ |= 0x00000002;
+         }
       }
 
-      private long startPosition_ ;
-      /**
-       * <code>int64 start_position = 3;</code>
-       * @return The startPosition.
-       */
-      @java.lang.Override
-      public long getStartPosition() {
-        return startPosition_;
-      }
-      /**
-       * <code>int64 start_position = 3;</code>
-       * @param value The startPosition to set.
-       * @return This builder for chaining.
-       */
-      public Builder setStartPosition(long value) {
-        
-        startPosition_ = value;
-        bitField0_ |= 0x00000004;
-        onChanged();
-        return this;
-      }
-      /**
-       * <code>int64 start_position = 3;</code>
-       * @return This builder for chaining.
-       */
-      public Builder clearStartPosition() {
-        bitField0_ = (bitField0_ & ~0x00000004);
-        startPosition_ = 0L;
-        onChanged();
-        return this;
-      }
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder> rangesBuilder_;
 
-      private int count_ ;
       /**
-       * <code>int32 count = 4;</code>
-       * @return The count.
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
        */
-      @java.lang.Override
-      public int getCount() {
-        return count_;
+      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range> getRangesList() {
+        if (rangesBuilder_ == null) {
+          return java.util.Collections.unmodifiableList(ranges_);
+        } else {
+          return rangesBuilder_.getMessageList();
+        }
       }
       /**
-       * <code>int32 count = 4;</code>
-       * @param value The count to set.
-       * @return This builder for chaining.
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
        */
-      public Builder setCount(int value) {
-        
-        count_ = value;
-        bitField0_ |= 0x00000008;
-        onChanged();
+      public int getRangesCount() {
+        if (rangesBuilder_ == null) {
+          return ranges_.size();
+        } else {
+          return rangesBuilder_.getCount();
+        }
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range getRanges(int index) {
+        if (rangesBuilder_ == null) {
+          return ranges_.get(index);
+        } else {
+          return rangesBuilder_.getMessage(index);
+        }
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public Builder setRanges(
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range value) {
+        if (rangesBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRangesIsMutable();
+          ranges_.set(index, value);
+          onChanged();
+        } else {
+          rangesBuilder_.setMessage(index, value);
+        }
         return this;
       }
       /**
-       * <code>int32 count = 4;</code>
-       * @return This builder for chaining.
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
        */
-      public Builder clearCount() {
-        bitField0_ = (bitField0_ & ~0x00000008);
-        count_ = 0;
-        onChanged();
+      public Builder setRanges(
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder builderForValue) {
+        if (rangesBuilder_ == null) {
+          ensureRangesIsMutable();
+          ranges_.set(index, builderForValue.build());
+          onChanged();
+        } else {
+          rangesBuilder_.setMessage(index, builderForValue.build());
+        }
         return this;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public Builder addRanges(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range value) {
+        if (rangesBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRangesIsMutable();
+          ranges_.add(value);
+          onChanged();
+        } else {
+          rangesBuilder_.addMessage(value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public Builder addRanges(
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range value) {
+        if (rangesBuilder_ == null) {
+          if (value == null) {
+            throw new NullPointerException();
+          }
+          ensureRangesIsMutable();
+          ranges_.add(index, value);
+          onChanged();
+        } else {
+          rangesBuilder_.addMessage(index, value);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public Builder addRanges(
+          io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder builderForValue) {
+        if (rangesBuilder_ == null) {
+          ensureRangesIsMutable();
+          ranges_.add(builderForValue.build());
+          onChanged();
+        } else {
+          rangesBuilder_.addMessage(builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public Builder addRanges(
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder builderForValue) {
+        if (rangesBuilder_ == null) {
+          ensureRangesIsMutable();
+          ranges_.add(index, builderForValue.build());
+          onChanged();
+        } else {
+          rangesBuilder_.addMessage(index, builderForValue.build());
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public Builder addAllRanges(
+          java.lang.Iterable<? extends io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range> values) {
+        if (rangesBuilder_ == null) {
+          ensureRangesIsMutable();
+          com.google.protobuf.AbstractMessageLite.Builder.addAll(
+              values, ranges_);
+          onChanged();
+        } else {
+          rangesBuilder_.addAllMessages(values);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public Builder clearRanges() {
+        if (rangesBuilder_ == null) {
+          ranges_ = java.util.Collections.emptyList();
+          bitField0_ = (bitField0_ & ~0x00000002);
+          onChanged();
+        } else {
+          rangesBuilder_.clear();
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public Builder removeRanges(int index) {
+        if (rangesBuilder_ == null) {
+          ensureRangesIsMutable();
+          ranges_.remove(index);
+          onChanged();
+        } else {
+          rangesBuilder_.remove(index);
+        }
+        return this;
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder getRangesBuilder(
+          int index) {
+        return getRangesFieldBuilder().getBuilder(index);
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder getRangesOrBuilder(
+          int index) {
+        if (rangesBuilder_ == null) {
+          return ranges_.get(index);  } else {
+          return rangesBuilder_.getMessageOrBuilder(index);
+        }
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder> 
+           getRangesOrBuilderList() {
+        if (rangesBuilder_ != null) {
+          return rangesBuilder_.getMessageOrBuilderList();
+        } else {
+          return java.util.Collections.unmodifiableList(ranges_);
+        }
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder addRangesBuilder() {
+        return getRangesFieldBuilder().addBuilder(
+            io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder addRangesBuilder(
+          int index) {
+        return getRangesFieldBuilder().addBuilder(
+            index, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.getDefaultInstance());
+      }
+      /**
+       * <code>repeated .io.debezium.server.iceberg.rpc.FilePositionMap.Range ranges = 2;</code>
+       */
+      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder> 
+           getRangesBuilderList() {
+        return getRangesFieldBuilder().getBuilderList();
+      }
+      private com.google.protobuf.RepeatedFieldBuilderV3<
+          io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder> 
+          getRangesFieldBuilder() {
+        if (rangesBuilder_ == null) {
+          rangesBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
+              io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.Builder, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.RangeOrBuilder>(
+                  ranges_,
+                  ((bitField0_ & 0x00000002) != 0),
+                  getParentForChildren(),
+                  isClean());
+          ranges_ = null;
+        }
+        return rangesBuilder_;
       }
       @java.lang.Override
       public final Builder setUnknownFields(
@@ -9851,23 +10634,23 @@ public final class RecordIngest {
       }
 
 
-      // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.WriteRun)
+      // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.FilePositionMap)
     }
 
-    // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.WriteRun)
-    private static final io.debezium.server.iceberg.rpc.RecordIngest.WriteRun DEFAULT_INSTANCE;
+    // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.FilePositionMap)
+    private static final io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap DEFAULT_INSTANCE;
     static {
-      DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.WriteRun();
+      DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap();
     }
 
-    public static io.debezium.server.iceberg.rpc.RecordIngest.WriteRun getDefaultInstance() {
+    public static io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap getDefaultInstance() {
       return DEFAULT_INSTANCE;
     }
 
-    private static final com.google.protobuf.Parser<WriteRun>
-        PARSER = new com.google.protobuf.AbstractParser<WriteRun>() {
+    private static final com.google.protobuf.Parser<FilePositionMap>
+        PARSER = new com.google.protobuf.AbstractParser<FilePositionMap>() {
       @java.lang.Override
-      public WriteRun parsePartialFrom(
+      public FilePositionMap parsePartialFrom(
           com.google.protobuf.CodedInputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
           throws com.google.protobuf.InvalidProtocolBufferException {
@@ -9886,17 +10669,17 @@ public final class RecordIngest {
       }
     };
 
-    public static com.google.protobuf.Parser<WriteRun> parser() {
+    public static com.google.protobuf.Parser<FilePositionMap> parser() {
       return PARSER;
     }
 
     @java.lang.Override
-    public com.google.protobuf.Parser<WriteRun> getParserForType() {
+    public com.google.protobuf.Parser<FilePositionMap> getParserForType() {
       return PARSER;
     }
 
     @java.lang.Override
-    public io.debezium.server.iceberg.rpc.RecordIngest.WriteRun getDefaultInstanceForType() {
+    public io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap getDefaultInstanceForType() {
       return DEFAULT_INSTANCE;
     }
 
@@ -13151,7 +13934,7 @@ public final class RecordIngest {
 
       /**
        * <pre>
-       * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+       * REGISTER_AND_COMMIT: snapshot the caller's table index is checkpointed at.
        * The server refuses the commit when the table tip has moved past it.
        * </pre>
        *
@@ -13161,7 +13944,7 @@ public final class RecordIngest {
       boolean hasBaseSnapshotId();
       /**
        * <pre>
-       * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+       * REGISTER_AND_COMMIT: snapshot the caller's table index is checkpointed at.
        * The server refuses the commit when the table tip has moved past it.
        * </pre>
        *
@@ -13403,7 +14186,7 @@ public final class RecordIngest {
       private long baseSnapshotId_ = 0L;
       /**
        * <pre>
-       * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+       * REGISTER_AND_COMMIT: snapshot the caller's table index is checkpointed at.
        * The server refuses the commit when the table tip has moved past it.
        * </pre>
        *
@@ -13416,7 +14199,7 @@ public final class RecordIngest {
       }
       /**
        * <pre>
-       * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+       * REGISTER_AND_COMMIT: snapshot the caller's table index is checkpointed at.
        * The server refuses the commit when the table tip has moved past it.
        * </pre>
        *
@@ -14526,7 +15309,7 @@ public final class RecordIngest {
         private long baseSnapshotId_ ;
         /**
          * <pre>
-         * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+         * REGISTER_AND_COMMIT: snapshot the caller's table index is checkpointed at.
          * The server refuses the commit when the table tip has moved past it.
          * </pre>
          *
@@ -14539,7 +15322,7 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+         * REGISTER_AND_COMMIT: snapshot the caller's table index is checkpointed at.
          * The server refuses the commit when the table tip has moved past it.
          * </pre>
          *
@@ -14552,7 +15335,7 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+         * REGISTER_AND_COMMIT: snapshot the caller's table index is checkpointed at.
          * The server refuses the commit when the table tip has moved past it.
          * </pre>
          *
@@ -14569,7 +15352,7 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * REGISTER_AND_COMMIT: snapshot the caller's row index is checkpointed at.
+         * REGISTER_AND_COMMIT: snapshot the caller's table index is checkpointed at.
          * The server refuses the commit when the table tip has moved past it.
          * </pre>
          *
@@ -15336,7 +16119,7 @@ java.lang.String defaultValue);
     /**
      * <pre>
      * Snapshot the table ended up on after REGISTER_AND_COMMIT, so a caller keeping
-     * a row index can checkpoint it without reading the table back.
+     * a table index can checkpoint it without reading the table back.
      * </pre>
      *
      * <code>optional int64 snapshot_id = 3;</code>
@@ -15346,7 +16129,7 @@ java.lang.String defaultValue);
     /**
      * <pre>
      * Snapshot the table ended up on after REGISTER_AND_COMMIT, so a caller keeping
-     * a row index can checkpoint it without reading the table back.
+     * a table index can checkpoint it without reading the table back.
      * </pre>
      *
      * <code>optional int64 snapshot_id = 3;</code>
@@ -15531,7 +16314,7 @@ java.lang.String defaultValue) {
     /**
      * <pre>
      * Snapshot the table ended up on after REGISTER_AND_COMMIT, so a caller keeping
-     * a row index can checkpoint it without reading the table back.
+     * a table index can checkpoint it without reading the table back.
      * </pre>
      *
      * <code>optional int64 snapshot_id = 3;</code>
@@ -15544,7 +16327,7 @@ java.lang.String defaultValue) {
     /**
      * <pre>
      * Snapshot the table ended up on after REGISTER_AND_COMMIT, so a caller keeping
-     * a row index can checkpoint it without reading the table back.
+     * a table index can checkpoint it without reading the table back.
      * </pre>
      *
      * <code>optional int64 snapshot_id = 3;</code>
@@ -16175,7 +16958,7 @@ java.lang.String defaultValue) {
       /**
        * <pre>
        * Snapshot the table ended up on after REGISTER_AND_COMMIT, so a caller keeping
-       * a row index can checkpoint it without reading the table back.
+       * a table index can checkpoint it without reading the table back.
        * </pre>
        *
        * <code>optional int64 snapshot_id = 3;</code>
@@ -16188,7 +16971,7 @@ java.lang.String defaultValue) {
       /**
        * <pre>
        * Snapshot the table ended up on after REGISTER_AND_COMMIT, so a caller keeping
-       * a row index can checkpoint it without reading the table back.
+       * a table index can checkpoint it without reading the table back.
        * </pre>
        *
        * <code>optional int64 snapshot_id = 3;</code>
@@ -16201,7 +16984,7 @@ java.lang.String defaultValue) {
       /**
        * <pre>
        * Snapshot the table ended up on after REGISTER_AND_COMMIT, so a caller keeping
-       * a row index can checkpoint it without reading the table back.
+       * a table index can checkpoint it without reading the table back.
        * </pre>
        *
        * <code>optional int64 snapshot_id = 3;</code>
@@ -16218,7 +17001,7 @@ java.lang.String defaultValue) {
       /**
        * <pre>
        * Snapshot the table ended up on after REGISTER_AND_COMMIT, so a caller keeping
-       * a row index can checkpoint it without reading the table back.
+       * a table index can checkpoint it without reading the table back.
        * </pre>
        *
        * <code>optional int64 snapshot_id = 3;</code>
@@ -16294,8 +17077,8 @@ java.lang.String defaultValue) {
 
   }
 
-  public interface RowIndexScanRequestOrBuilder extends
-      // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.RowIndexScanRequest)
+  public interface TableIndexScanRequestOrBuilder extends
+      // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.TableIndexScanRequest)
       com.google.protobuf.MessageOrBuilder {
 
     /**
@@ -16312,10 +17095,7 @@ java.lang.String defaultValue) {
 
     /**
      * <pre>
-     * When set, only files added after this snapshot are scanned. The server
-     * answers with requires_full_scan when the range cannot be served
-     * incrementally, for instance because a compaction rewrote existing files and
-     * invalidated the positions already held by the caller.
+     * When set, only files added after this snapshot are scanned.
      * </pre>
      *
      * <code>optional int64 from_snapshot_id = 2;</code>
@@ -16324,10 +17104,7 @@ java.lang.String defaultValue) {
     boolean hasFromSnapshotId();
     /**
      * <pre>
-     * When set, only files added after this snapshot are scanned. The server
-     * answers with requires_full_scan when the range cannot be served
-     * incrementally, for instance because a compaction rewrote existing files and
-     * invalidated the positions already held by the caller.
+     * When set, only files added after this snapshot are scanned.
      * </pre>
      *
      * <code>optional int64 from_snapshot_id = 2;</code>
@@ -16336,18 +17113,18 @@ java.lang.String defaultValue) {
     long getFromSnapshotId();
   }
   /**
-   * Protobuf type {@code io.debezium.server.iceberg.rpc.RowIndexScanRequest}
+   * Protobuf type {@code io.debezium.server.iceberg.rpc.TableIndexScanRequest}
    */
-  public static final class RowIndexScanRequest extends
+  public static final class TableIndexScanRequest extends
       com.google.protobuf.GeneratedMessageV3 implements
-      // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.RowIndexScanRequest)
-      RowIndexScanRequestOrBuilder {
+      // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.TableIndexScanRequest)
+      TableIndexScanRequestOrBuilder {
   private static final long serialVersionUID = 0L;
-    // Use RowIndexScanRequest.newBuilder() to construct.
-    private RowIndexScanRequest(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+    // Use TableIndexScanRequest.newBuilder() to construct.
+    private TableIndexScanRequest(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
       super(builder);
     }
-    private RowIndexScanRequest() {
+    private TableIndexScanRequest() {
       threadId_ = "";
     }
 
@@ -16355,7 +17132,7 @@ java.lang.String defaultValue) {
     @SuppressWarnings({"unused"})
     protected java.lang.Object newInstance(
         UnusedPrivateParameter unused) {
-      return new RowIndexScanRequest();
+      return new TableIndexScanRequest();
     }
 
     @java.lang.Override
@@ -16365,15 +17142,15 @@ java.lang.String defaultValue) {
     }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_descriptor;
+      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_fieldAccessorTable
+      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest.class, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest.Builder.class);
+              io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest.class, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest.Builder.class);
     }
 
     private int bitField0_;
@@ -16420,10 +17197,7 @@ java.lang.String defaultValue) {
     private long fromSnapshotId_ = 0L;
     /**
      * <pre>
-     * When set, only files added after this snapshot are scanned. The server
-     * answers with requires_full_scan when the range cannot be served
-     * incrementally, for instance because a compaction rewrote existing files and
-     * invalidated the positions already held by the caller.
+     * When set, only files added after this snapshot are scanned.
      * </pre>
      *
      * <code>optional int64 from_snapshot_id = 2;</code>
@@ -16435,10 +17209,7 @@ java.lang.String defaultValue) {
     }
     /**
      * <pre>
-     * When set, only files added after this snapshot are scanned. The server
-     * answers with requires_full_scan when the range cannot be served
-     * incrementally, for instance because a compaction rewrote existing files and
-     * invalidated the positions already held by the caller.
+     * When set, only files added after this snapshot are scanned.
      * </pre>
      *
      * <code>optional int64 from_snapshot_id = 2;</code>
@@ -16495,10 +17266,10 @@ java.lang.String defaultValue) {
       if (obj == this) {
        return true;
       }
-      if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest)) {
+      if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest)) {
         return super.equals(obj);
       }
-      io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest other = (io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest) obj;
+      io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest other = (io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest) obj;
 
       if (!getThreadId()
           .equals(other.getThreadId())) return false;
@@ -16530,69 +17301,69 @@ java.lang.String defaultValue) {
       return hash;
     }
 
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(
         java.nio.ByteBuffer data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(
         java.nio.ByteBuffer data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(
         com.google.protobuf.ByteString data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(
         com.google.protobuf.ByteString data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(byte[] data)
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(byte[] data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(
         byte[] data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(java.io.InputStream input)
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseDelimitedFrom(java.io.InputStream input)
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseDelimitedFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(
         com.google.protobuf.CodedInputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest parseFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
@@ -16605,7 +17376,7 @@ java.lang.String defaultValue) {
     public static Builder newBuilder() {
       return DEFAULT_INSTANCE.toBuilder();
     }
-    public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest prototype) {
+    public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest prototype) {
       return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
     }
     @java.lang.Override
@@ -16621,26 +17392,26 @@ java.lang.String defaultValue) {
       return builder;
     }
     /**
-     * Protobuf type {@code io.debezium.server.iceberg.rpc.RowIndexScanRequest}
+     * Protobuf type {@code io.debezium.server.iceberg.rpc.TableIndexScanRequest}
      */
     public static final class Builder extends
         com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
-        // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.RowIndexScanRequest)
-        io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequestOrBuilder {
+        // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.TableIndexScanRequest)
+        io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequestOrBuilder {
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_descriptor;
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_descriptor;
       }
 
       @java.lang.Override
       protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
           internalGetFieldAccessorTable() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_fieldAccessorTable
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_fieldAccessorTable
             .ensureFieldAccessorsInitialized(
-                io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest.class, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest.Builder.class);
+                io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest.class, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest.Builder.class);
       }
 
-      // Construct using io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest.newBuilder()
+      // Construct using io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest.newBuilder()
       private Builder() {
 
       }
@@ -16662,17 +17433,17 @@ java.lang.String defaultValue) {
       @java.lang.Override
       public com.google.protobuf.Descriptors.Descriptor
           getDescriptorForType() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_descriptor;
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_descriptor;
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest getDefaultInstanceForType() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest.getDefaultInstance();
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest getDefaultInstanceForType() {
+        return io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest.getDefaultInstance();
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest build() {
-        io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest result = buildPartial();
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest build() {
+        io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest result = buildPartial();
         if (!result.isInitialized()) {
           throw newUninitializedMessageException(result);
         }
@@ -16680,14 +17451,14 @@ java.lang.String defaultValue) {
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest buildPartial() {
-        io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest result = new io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest(this);
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest buildPartial() {
+        io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest result = new io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest(this);
         if (bitField0_ != 0) { buildPartial0(result); }
         onBuilt();
         return result;
       }
 
-      private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest result) {
+      private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest result) {
         int from_bitField0_ = bitField0_;
         if (((from_bitField0_ & 0x00000001) != 0)) {
           result.threadId_ = threadId_;
@@ -16734,16 +17505,16 @@ java.lang.String defaultValue) {
       }
       @java.lang.Override
       public Builder mergeFrom(com.google.protobuf.Message other) {
-        if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest) {
-          return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest)other);
+        if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest) {
+          return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest)other);
         } else {
           super.mergeFrom(other);
           return this;
         }
       }
 
-      public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest other) {
-        if (other == io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest.getDefaultInstance()) return this;
+      public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest other) {
+        if (other == io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest.getDefaultInstance()) return this;
         if (!other.getThreadId().isEmpty()) {
           threadId_ = other.threadId_;
           bitField0_ |= 0x00000001;
@@ -16880,10 +17651,7 @@ java.lang.String defaultValue) {
       private long fromSnapshotId_ ;
       /**
        * <pre>
-       * When set, only files added after this snapshot are scanned. The server
-       * answers with requires_full_scan when the range cannot be served
-       * incrementally, for instance because a compaction rewrote existing files and
-       * invalidated the positions already held by the caller.
+       * When set, only files added after this snapshot are scanned.
        * </pre>
        *
        * <code>optional int64 from_snapshot_id = 2;</code>
@@ -16895,10 +17663,7 @@ java.lang.String defaultValue) {
       }
       /**
        * <pre>
-       * When set, only files added after this snapshot are scanned. The server
-       * answers with requires_full_scan when the range cannot be served
-       * incrementally, for instance because a compaction rewrote existing files and
-       * invalidated the positions already held by the caller.
+       * When set, only files added after this snapshot are scanned.
        * </pre>
        *
        * <code>optional int64 from_snapshot_id = 2;</code>
@@ -16910,10 +17675,7 @@ java.lang.String defaultValue) {
       }
       /**
        * <pre>
-       * When set, only files added after this snapshot are scanned. The server
-       * answers with requires_full_scan when the range cannot be served
-       * incrementally, for instance because a compaction rewrote existing files and
-       * invalidated the positions already held by the caller.
+       * When set, only files added after this snapshot are scanned.
        * </pre>
        *
        * <code>optional int64 from_snapshot_id = 2;</code>
@@ -16929,10 +17691,7 @@ java.lang.String defaultValue) {
       }
       /**
        * <pre>
-       * When set, only files added after this snapshot are scanned. The server
-       * answers with requires_full_scan when the range cannot be served
-       * incrementally, for instance because a compaction rewrote existing files and
-       * invalidated the positions already held by the caller.
+       * When set, only files added after this snapshot are scanned.
        * </pre>
        *
        * <code>optional int64 from_snapshot_id = 2;</code>
@@ -16957,23 +17716,23 @@ java.lang.String defaultValue) {
       }
 
 
-      // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.RowIndexScanRequest)
+      // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.TableIndexScanRequest)
     }
 
-    // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.RowIndexScanRequest)
-    private static final io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest DEFAULT_INSTANCE;
+    // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.TableIndexScanRequest)
+    private static final io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest DEFAULT_INSTANCE;
     static {
-      DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest();
+      DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest();
     }
 
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest getDefaultInstance() {
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest getDefaultInstance() {
       return DEFAULT_INSTANCE;
     }
 
-    private static final com.google.protobuf.Parser<RowIndexScanRequest>
-        PARSER = new com.google.protobuf.AbstractParser<RowIndexScanRequest>() {
+    private static final com.google.protobuf.Parser<TableIndexScanRequest>
+        PARSER = new com.google.protobuf.AbstractParser<TableIndexScanRequest>() {
       @java.lang.Override
-      public RowIndexScanRequest parsePartialFrom(
+      public TableIndexScanRequest parsePartialFrom(
           com.google.protobuf.CodedInputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
           throws com.google.protobuf.InvalidProtocolBufferException {
@@ -16992,48 +17751,48 @@ java.lang.String defaultValue) {
       }
     };
 
-    public static com.google.protobuf.Parser<RowIndexScanRequest> parser() {
+    public static com.google.protobuf.Parser<TableIndexScanRequest> parser() {
       return PARSER;
     }
 
     @java.lang.Override
-    public com.google.protobuf.Parser<RowIndexScanRequest> getParserForType() {
+    public com.google.protobuf.Parser<TableIndexScanRequest> getParserForType() {
       return PARSER;
     }
 
     @java.lang.Override
-    public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest getDefaultInstanceForType() {
+    public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest getDefaultInstanceForType() {
       return DEFAULT_INSTANCE;
     }
 
   }
 
-  public interface RowIndexScanBatchOrBuilder extends
-      // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.RowIndexScanBatch)
+  public interface TableIndexScanBatchOrBuilder extends
+      // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.TableIndexScanBatch)
       com.google.protobuf.MessageOrBuilder {
 
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
-    java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry> 
+    java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry> 
         getEntriesList();
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
-    io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry getEntries(int index);
+    io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry getEntries(int index);
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
     int getEntriesCount();
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
-    java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder> 
+    java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder> 
         getEntriesOrBuilderList();
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
-    io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder getEntriesOrBuilder(
+    io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder getEntriesOrBuilder(
         int index);
 
     /**
@@ -17046,31 +17805,24 @@ java.lang.String defaultValue) {
      * @return The snapshotId.
      */
     long getSnapshotId();
-
-    /**
-     * <pre>
-     * Set on a single empty batch when an incremental scan was requested but the
-     * caller must discard its index and ask for a full scan instead.
-     * </pre>
-     *
-     * <code>bool requires_full_scan = 3;</code>
-     * @return The requiresFullScan.
-     */
-    boolean getRequiresFullScan();
   }
   /**
-   * Protobuf type {@code io.debezium.server.iceberg.rpc.RowIndexScanBatch}
+   * <pre>
+   * TableIndexScanBatch is a batch of entries from the table to build index in go side.
+   * </pre>
+   *
+   * Protobuf type {@code io.debezium.server.iceberg.rpc.TableIndexScanBatch}
    */
-  public static final class RowIndexScanBatch extends
+  public static final class TableIndexScanBatch extends
       com.google.protobuf.GeneratedMessageV3 implements
-      // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.RowIndexScanBatch)
-      RowIndexScanBatchOrBuilder {
+      // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.TableIndexScanBatch)
+      TableIndexScanBatchOrBuilder {
   private static final long serialVersionUID = 0L;
-    // Use RowIndexScanBatch.newBuilder() to construct.
-    private RowIndexScanBatch(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
+    // Use TableIndexScanBatch.newBuilder() to construct.
+    private TableIndexScanBatch(com.google.protobuf.GeneratedMessageV3.Builder<?> builder) {
       super(builder);
     }
-    private RowIndexScanBatch() {
+    private TableIndexScanBatch() {
       entries_ = java.util.Collections.emptyList();
     }
 
@@ -17078,7 +17830,7 @@ java.lang.String defaultValue) {
     @SuppressWarnings({"unused"})
     protected java.lang.Object newInstance(
         UnusedPrivateParameter unused) {
-      return new RowIndexScanBatch();
+      return new TableIndexScanBatch();
     }
 
     @java.lang.Override
@@ -17088,19 +17840,19 @@ java.lang.String defaultValue) {
     }
     public static final com.google.protobuf.Descriptors.Descriptor
         getDescriptor() {
-      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_descriptor;
+      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_descriptor;
     }
 
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
         internalGetFieldAccessorTable() {
-      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_fieldAccessorTable
+      return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_fieldAccessorTable
           .ensureFieldAccessorsInitialized(
-              io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.class, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Builder.class);
+              io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.class, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Builder.class);
     }
 
     public interface EntryOrBuilder extends
-        // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry)
+        // @@protoc_insertion_point(interface_extends:io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry)
         com.google.protobuf.MessageOrBuilder {
 
       /**
@@ -17132,19 +17884,13 @@ java.lang.String defaultValue) {
        * @return The position.
        */
       long getPosition();
-
-      /**
-       * <code>bool deleted = 4;</code>
-       * @return The deleted.
-       */
-      boolean getDeleted();
     }
     /**
-     * Protobuf type {@code io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry}
+     * Protobuf type {@code io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry}
      */
     public static final class Entry extends
         com.google.protobuf.GeneratedMessageV3 implements
-        // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry)
+        // @@protoc_insertion_point(message_implements:io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry)
         EntryOrBuilder {
     private static final long serialVersionUID = 0L;
       // Use Entry.newBuilder() to construct.
@@ -17170,15 +17916,15 @@ java.lang.String defaultValue) {
       }
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_descriptor;
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_descriptor;
       }
 
       @java.lang.Override
       protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
           internalGetFieldAccessorTable() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_fieldAccessorTable
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_fieldAccessorTable
             .ensureFieldAccessorsInitialized(
-                io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.class, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder.class);
+                io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.class, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder.class);
       }
 
       public static final int OLAKE_ID_FIELD_NUMBER = 1;
@@ -17270,17 +18016,6 @@ java.lang.String defaultValue) {
         return position_;
       }
 
-      public static final int DELETED_FIELD_NUMBER = 4;
-      private boolean deleted_ = false;
-      /**
-       * <code>bool deleted = 4;</code>
-       * @return The deleted.
-       */
-      @java.lang.Override
-      public boolean getDeleted() {
-        return deleted_;
-      }
-
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -17304,9 +18039,6 @@ java.lang.String defaultValue) {
         if (position_ != 0L) {
           output.writeInt64(3, position_);
         }
-        if (deleted_ != false) {
-          output.writeBool(4, deleted_);
-        }
         getUnknownFields().writeTo(output);
       }
 
@@ -17326,10 +18058,6 @@ java.lang.String defaultValue) {
           size += com.google.protobuf.CodedOutputStream
             .computeInt64Size(3, position_);
         }
-        if (deleted_ != false) {
-          size += com.google.protobuf.CodedOutputStream
-            .computeBoolSize(4, deleted_);
-        }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
         return size;
@@ -17340,10 +18068,10 @@ java.lang.String defaultValue) {
         if (obj == this) {
          return true;
         }
-        if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry)) {
+        if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry)) {
           return super.equals(obj);
         }
-        io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry other = (io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry) obj;
+        io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry other = (io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry) obj;
 
         if (!getOlakeId()
             .equals(other.getOlakeId())) return false;
@@ -17351,8 +18079,6 @@ java.lang.String defaultValue) {
             .equals(other.getFilePath())) return false;
         if (getPosition()
             != other.getPosition()) return false;
-        if (getDeleted()
-            != other.getDeleted()) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -17371,77 +18097,74 @@ java.lang.String defaultValue) {
         hash = (37 * hash) + POSITION_FIELD_NUMBER;
         hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
             getPosition());
-        hash = (37 * hash) + DELETED_FIELD_NUMBER;
-        hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-            getDeleted());
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
       }
 
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(
           java.nio.ByteBuffer data)
           throws com.google.protobuf.InvalidProtocolBufferException {
         return PARSER.parseFrom(data);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(
           java.nio.ByteBuffer data,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
           throws com.google.protobuf.InvalidProtocolBufferException {
         return PARSER.parseFrom(data, extensionRegistry);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(
           com.google.protobuf.ByteString data)
           throws com.google.protobuf.InvalidProtocolBufferException {
         return PARSER.parseFrom(data);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(
           com.google.protobuf.ByteString data,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
           throws com.google.protobuf.InvalidProtocolBufferException {
         return PARSER.parseFrom(data, extensionRegistry);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(byte[] data)
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(byte[] data)
           throws com.google.protobuf.InvalidProtocolBufferException {
         return PARSER.parseFrom(data);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(
           byte[] data,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
           throws com.google.protobuf.InvalidProtocolBufferException {
         return PARSER.parseFrom(data, extensionRegistry);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(java.io.InputStream input)
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input, extensionRegistry);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseDelimitedFrom(java.io.InputStream input)
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseDelimitedFrom(java.io.InputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseDelimitedFrom(
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseDelimitedFrom(
           java.io.InputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(
           com.google.protobuf.CodedInputStream input)
           throws java.io.IOException {
         return com.google.protobuf.GeneratedMessageV3
             .parseWithIOException(PARSER, input);
       }
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry parseFrom(
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry parseFrom(
           com.google.protobuf.CodedInputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
           throws java.io.IOException {
@@ -17454,7 +18177,7 @@ java.lang.String defaultValue) {
       public static Builder newBuilder() {
         return DEFAULT_INSTANCE.toBuilder();
       }
-      public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry prototype) {
+      public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry prototype) {
         return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
       }
       @java.lang.Override
@@ -17470,26 +18193,26 @@ java.lang.String defaultValue) {
         return builder;
       }
       /**
-       * Protobuf type {@code io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry}
+       * Protobuf type {@code io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry}
        */
       public static final class Builder extends
           com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
-          // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry)
-          io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder {
+          // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry)
+          io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder {
         public static final com.google.protobuf.Descriptors.Descriptor
             getDescriptor() {
-          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_descriptor;
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_descriptor;
         }
 
         @java.lang.Override
         protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
             internalGetFieldAccessorTable() {
-          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_fieldAccessorTable
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_fieldAccessorTable
               .ensureFieldAccessorsInitialized(
-                  io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.class, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder.class);
+                  io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.class, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder.class);
         }
 
-        // Construct using io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.newBuilder()
+        // Construct using io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.newBuilder()
         private Builder() {
 
         }
@@ -17506,24 +18229,23 @@ java.lang.String defaultValue) {
           olakeId_ = "";
           filePath_ = "";
           position_ = 0L;
-          deleted_ = false;
           return this;
         }
 
         @java.lang.Override
         public com.google.protobuf.Descriptors.Descriptor
             getDescriptorForType() {
-          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_descriptor;
+          return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_descriptor;
         }
 
         @java.lang.Override
-        public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry getDefaultInstanceForType() {
-          return io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.getDefaultInstance();
+        public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry getDefaultInstanceForType() {
+          return io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.getDefaultInstance();
         }
 
         @java.lang.Override
-        public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry build() {
-          io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry result = buildPartial();
+        public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry build() {
+          io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry result = buildPartial();
           if (!result.isInitialized()) {
             throw newUninitializedMessageException(result);
           }
@@ -17531,14 +18253,14 @@ java.lang.String defaultValue) {
         }
 
         @java.lang.Override
-        public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry buildPartial() {
-          io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry result = new io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry(this);
+        public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry buildPartial() {
+          io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry result = new io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry(this);
           if (bitField0_ != 0) { buildPartial0(result); }
           onBuilt();
           return result;
         }
 
-        private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry result) {
+        private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry result) {
           int from_bitField0_ = bitField0_;
           if (((from_bitField0_ & 0x00000001) != 0)) {
             result.olakeId_ = olakeId_;
@@ -17548,9 +18270,6 @@ java.lang.String defaultValue) {
           }
           if (((from_bitField0_ & 0x00000004) != 0)) {
             result.position_ = position_;
-          }
-          if (((from_bitField0_ & 0x00000008) != 0)) {
-            result.deleted_ = deleted_;
           }
         }
 
@@ -17588,16 +18307,16 @@ java.lang.String defaultValue) {
         }
         @java.lang.Override
         public Builder mergeFrom(com.google.protobuf.Message other) {
-          if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry) {
-            return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry)other);
+          if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry) {
+            return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry)other);
           } else {
             super.mergeFrom(other);
             return this;
           }
         }
 
-        public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry other) {
-          if (other == io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.getDefaultInstance()) return this;
+        public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry other) {
+          if (other == io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.getDefaultInstance()) return this;
           if (!other.getOlakeId().isEmpty()) {
             olakeId_ = other.olakeId_;
             bitField0_ |= 0x00000001;
@@ -17610,9 +18329,6 @@ java.lang.String defaultValue) {
           }
           if (other.getPosition() != 0L) {
             setPosition(other.getPosition());
-          }
-          if (other.getDeleted() != false) {
-            setDeleted(other.getDeleted());
           }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
@@ -17655,11 +18371,6 @@ java.lang.String defaultValue) {
                   bitField0_ |= 0x00000004;
                   break;
                 } // case 24
-                case 32: {
-                  deleted_ = input.readBool();
-                  bitField0_ |= 0x00000008;
-                  break;
-                } // case 32
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -17852,38 +18563,6 @@ java.lang.String defaultValue) {
           onChanged();
           return this;
         }
-
-        private boolean deleted_ ;
-        /**
-         * <code>bool deleted = 4;</code>
-         * @return The deleted.
-         */
-        @java.lang.Override
-        public boolean getDeleted() {
-          return deleted_;
-        }
-        /**
-         * <code>bool deleted = 4;</code>
-         * @param value The deleted to set.
-         * @return This builder for chaining.
-         */
-        public Builder setDeleted(boolean value) {
-          
-          deleted_ = value;
-          bitField0_ |= 0x00000008;
-          onChanged();
-          return this;
-        }
-        /**
-         * <code>bool deleted = 4;</code>
-         * @return This builder for chaining.
-         */
-        public Builder clearDeleted() {
-          bitField0_ = (bitField0_ & ~0x00000008);
-          deleted_ = false;
-          onChanged();
-          return this;
-        }
         @java.lang.Override
         public final Builder setUnknownFields(
             final com.google.protobuf.UnknownFieldSet unknownFields) {
@@ -17897,16 +18576,16 @@ java.lang.String defaultValue) {
         }
 
 
-        // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry)
+        // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry)
       }
 
-      // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry)
-      private static final io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry DEFAULT_INSTANCE;
+      // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry)
+      private static final io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry DEFAULT_INSTANCE;
       static {
-        DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry();
+        DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry();
       }
 
-      public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry getDefaultInstance() {
+      public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry getDefaultInstance() {
         return DEFAULT_INSTANCE;
       }
 
@@ -17942,7 +18621,7 @@ java.lang.String defaultValue) {
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry getDefaultInstanceForType() {
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry getDefaultInstanceForType() {
         return DEFAULT_INSTANCE;
       }
 
@@ -17950,41 +18629,41 @@ java.lang.String defaultValue) {
 
     public static final int ENTRIES_FIELD_NUMBER = 1;
     @SuppressWarnings("serial")
-    private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry> entries_;
+    private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry> entries_;
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
     @java.lang.Override
-    public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry> getEntriesList() {
+    public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry> getEntriesList() {
       return entries_;
     }
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
     @java.lang.Override
-    public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder> 
+    public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder> 
         getEntriesOrBuilderList() {
       return entries_;
     }
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
     @java.lang.Override
     public int getEntriesCount() {
       return entries_.size();
     }
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
     @java.lang.Override
-    public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry getEntries(int index) {
+    public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry getEntries(int index) {
       return entries_.get(index);
     }
     /**
-     * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+     * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
      */
     @java.lang.Override
-    public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder getEntriesOrBuilder(
+    public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder getEntriesOrBuilder(
         int index) {
       return entries_.get(index);
     }
@@ -18003,22 +18682,6 @@ java.lang.String defaultValue) {
     @java.lang.Override
     public long getSnapshotId() {
       return snapshotId_;
-    }
-
-    public static final int REQUIRES_FULL_SCAN_FIELD_NUMBER = 3;
-    private boolean requiresFullScan_ = false;
-    /**
-     * <pre>
-     * Set on a single empty batch when an incremental scan was requested but the
-     * caller must discard its index and ask for a full scan instead.
-     * </pre>
-     *
-     * <code>bool requires_full_scan = 3;</code>
-     * @return The requiresFullScan.
-     */
-    @java.lang.Override
-    public boolean getRequiresFullScan() {
-      return requiresFullScan_;
     }
 
     private byte memoizedIsInitialized = -1;
@@ -18041,9 +18704,6 @@ java.lang.String defaultValue) {
       if (snapshotId_ != 0L) {
         output.writeInt64(2, snapshotId_);
       }
-      if (requiresFullScan_ != false) {
-        output.writeBool(3, requiresFullScan_);
-      }
       getUnknownFields().writeTo(output);
     }
 
@@ -18061,10 +18721,6 @@ java.lang.String defaultValue) {
         size += com.google.protobuf.CodedOutputStream
           .computeInt64Size(2, snapshotId_);
       }
-      if (requiresFullScan_ != false) {
-        size += com.google.protobuf.CodedOutputStream
-          .computeBoolSize(3, requiresFullScan_);
-      }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
       return size;
@@ -18075,17 +18731,15 @@ java.lang.String defaultValue) {
       if (obj == this) {
        return true;
       }
-      if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch)) {
+      if (!(obj instanceof io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch)) {
         return super.equals(obj);
       }
-      io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch other = (io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch) obj;
+      io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch other = (io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch) obj;
 
       if (!getEntriesList()
           .equals(other.getEntriesList())) return false;
       if (getSnapshotId()
           != other.getSnapshotId()) return false;
-      if (getRequiresFullScan()
-          != other.getRequiresFullScan()) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -18104,77 +18758,74 @@ java.lang.String defaultValue) {
       hash = (37 * hash) + SNAPSHOT_ID_FIELD_NUMBER;
       hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
           getSnapshotId());
-      hash = (37 * hash) + REQUIRES_FULL_SCAN_FIELD_NUMBER;
-      hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-          getRequiresFullScan());
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
       return hash;
     }
 
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(
         java.nio.ByteBuffer data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(
         java.nio.ByteBuffer data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(
         com.google.protobuf.ByteString data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(
         com.google.protobuf.ByteString data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(byte[] data)
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(byte[] data)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(
         byte[] data,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws com.google.protobuf.InvalidProtocolBufferException {
       return PARSER.parseFrom(data, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(java.io.InputStream input)
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseDelimitedFrom(java.io.InputStream input)
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseDelimitedFrom(java.io.InputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseDelimitedFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseDelimitedFrom(
         java.io.InputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseDelimitedWithIOException(PARSER, input, extensionRegistry);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(
         com.google.protobuf.CodedInputStream input)
         throws java.io.IOException {
       return com.google.protobuf.GeneratedMessageV3
           .parseWithIOException(PARSER, input);
     }
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch parseFrom(
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch parseFrom(
         com.google.protobuf.CodedInputStream input,
         com.google.protobuf.ExtensionRegistryLite extensionRegistry)
         throws java.io.IOException {
@@ -18187,7 +18838,7 @@ java.lang.String defaultValue) {
     public static Builder newBuilder() {
       return DEFAULT_INSTANCE.toBuilder();
     }
-    public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch prototype) {
+    public static Builder newBuilder(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch prototype) {
       return DEFAULT_INSTANCE.toBuilder().mergeFrom(prototype);
     }
     @java.lang.Override
@@ -18203,26 +18854,30 @@ java.lang.String defaultValue) {
       return builder;
     }
     /**
-     * Protobuf type {@code io.debezium.server.iceberg.rpc.RowIndexScanBatch}
+     * <pre>
+     * TableIndexScanBatch is a batch of entries from the table to build index in go side.
+     * </pre>
+     *
+     * Protobuf type {@code io.debezium.server.iceberg.rpc.TableIndexScanBatch}
      */
     public static final class Builder extends
         com.google.protobuf.GeneratedMessageV3.Builder<Builder> implements
-        // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.RowIndexScanBatch)
-        io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatchOrBuilder {
+        // @@protoc_insertion_point(builder_implements:io.debezium.server.iceberg.rpc.TableIndexScanBatch)
+        io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatchOrBuilder {
       public static final com.google.protobuf.Descriptors.Descriptor
           getDescriptor() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_descriptor;
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_descriptor;
       }
 
       @java.lang.Override
       protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
           internalGetFieldAccessorTable() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_fieldAccessorTable
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_fieldAccessorTable
             .ensureFieldAccessorsInitialized(
-                io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.class, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Builder.class);
+                io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.class, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Builder.class);
       }
 
-      // Construct using io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.newBuilder()
+      // Construct using io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.newBuilder()
       private Builder() {
 
       }
@@ -18244,24 +18899,23 @@ java.lang.String defaultValue) {
         }
         bitField0_ = (bitField0_ & ~0x00000001);
         snapshotId_ = 0L;
-        requiresFullScan_ = false;
         return this;
       }
 
       @java.lang.Override
       public com.google.protobuf.Descriptors.Descriptor
           getDescriptorForType() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_descriptor;
+        return io.debezium.server.iceberg.rpc.RecordIngest.internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_descriptor;
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch getDefaultInstanceForType() {
-        return io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.getDefaultInstance();
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch getDefaultInstanceForType() {
+        return io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.getDefaultInstance();
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch build() {
-        io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch result = buildPartial();
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch build() {
+        io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch result = buildPartial();
         if (!result.isInitialized()) {
           throw newUninitializedMessageException(result);
         }
@@ -18269,15 +18923,15 @@ java.lang.String defaultValue) {
       }
 
       @java.lang.Override
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch buildPartial() {
-        io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch result = new io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch(this);
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch buildPartial() {
+        io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch result = new io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch(this);
         buildPartialRepeatedFields(result);
         if (bitField0_ != 0) { buildPartial0(result); }
         onBuilt();
         return result;
       }
 
-      private void buildPartialRepeatedFields(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch result) {
+      private void buildPartialRepeatedFields(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch result) {
         if (entriesBuilder_ == null) {
           if (((bitField0_ & 0x00000001) != 0)) {
             entries_ = java.util.Collections.unmodifiableList(entries_);
@@ -18289,13 +18943,10 @@ java.lang.String defaultValue) {
         }
       }
 
-      private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch result) {
+      private void buildPartial0(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch result) {
         int from_bitField0_ = bitField0_;
         if (((from_bitField0_ & 0x00000002) != 0)) {
           result.snapshotId_ = snapshotId_;
-        }
-        if (((from_bitField0_ & 0x00000004) != 0)) {
-          result.requiresFullScan_ = requiresFullScan_;
         }
       }
 
@@ -18333,16 +18984,16 @@ java.lang.String defaultValue) {
       }
       @java.lang.Override
       public Builder mergeFrom(com.google.protobuf.Message other) {
-        if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch) {
-          return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch)other);
+        if (other instanceof io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch) {
+          return mergeFrom((io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch)other);
         } else {
           super.mergeFrom(other);
           return this;
         }
       }
 
-      public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch other) {
-        if (other == io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.getDefaultInstance()) return this;
+      public Builder mergeFrom(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch other) {
+        if (other == io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.getDefaultInstance()) return this;
         if (entriesBuilder_ == null) {
           if (!other.entries_.isEmpty()) {
             if (entries_.isEmpty()) {
@@ -18372,9 +19023,6 @@ java.lang.String defaultValue) {
         if (other.getSnapshotId() != 0L) {
           setSnapshotId(other.getSnapshotId());
         }
-        if (other.getRequiresFullScan() != false) {
-          setRequiresFullScan(other.getRequiresFullScan());
-        }
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -18402,9 +19050,9 @@ java.lang.String defaultValue) {
                 done = true;
                 break;
               case 10: {
-                io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry m =
+                io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry m =
                     input.readMessage(
-                        io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.parser(),
+                        io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.parser(),
                         extensionRegistry);
                 if (entriesBuilder_ == null) {
                   ensureEntriesIsMutable();
@@ -18419,11 +19067,6 @@ java.lang.String defaultValue) {
                 bitField0_ |= 0x00000002;
                 break;
               } // case 16
-              case 24: {
-                requiresFullScan_ = input.readBool();
-                bitField0_ |= 0x00000004;
-                break;
-              } // case 24
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -18441,22 +19084,22 @@ java.lang.String defaultValue) {
       }
       private int bitField0_;
 
-      private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry> entries_ =
+      private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry> entries_ =
         java.util.Collections.emptyList();
       private void ensureEntriesIsMutable() {
         if (!((bitField0_ & 0x00000001) != 0)) {
-          entries_ = new java.util.ArrayList<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry>(entries_);
+          entries_ = new java.util.ArrayList<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry>(entries_);
           bitField0_ |= 0x00000001;
          }
       }
 
       private com.google.protobuf.RepeatedFieldBuilderV3<
-          io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder> entriesBuilder_;
+          io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder> entriesBuilder_;
 
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
-      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry> getEntriesList() {
+      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry> getEntriesList() {
         if (entriesBuilder_ == null) {
           return java.util.Collections.unmodifiableList(entries_);
         } else {
@@ -18464,7 +19107,7 @@ java.lang.String defaultValue) {
         }
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
       public int getEntriesCount() {
         if (entriesBuilder_ == null) {
@@ -18474,9 +19117,9 @@ java.lang.String defaultValue) {
         }
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry getEntries(int index) {
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry getEntries(int index) {
         if (entriesBuilder_ == null) {
           return entries_.get(index);
         } else {
@@ -18484,10 +19127,10 @@ java.lang.String defaultValue) {
         }
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
       public Builder setEntries(
-          int index, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry value) {
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry value) {
         if (entriesBuilder_ == null) {
           if (value == null) {
             throw new NullPointerException();
@@ -18501,10 +19144,10 @@ java.lang.String defaultValue) {
         return this;
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
       public Builder setEntries(
-          int index, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder builderForValue) {
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder builderForValue) {
         if (entriesBuilder_ == null) {
           ensureEntriesIsMutable();
           entries_.set(index, builderForValue.build());
@@ -18515,9 +19158,9 @@ java.lang.String defaultValue) {
         return this;
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
-      public Builder addEntries(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry value) {
+      public Builder addEntries(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry value) {
         if (entriesBuilder_ == null) {
           if (value == null) {
             throw new NullPointerException();
@@ -18531,10 +19174,10 @@ java.lang.String defaultValue) {
         return this;
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
       public Builder addEntries(
-          int index, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry value) {
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry value) {
         if (entriesBuilder_ == null) {
           if (value == null) {
             throw new NullPointerException();
@@ -18548,10 +19191,10 @@ java.lang.String defaultValue) {
         return this;
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
       public Builder addEntries(
-          io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder builderForValue) {
+          io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder builderForValue) {
         if (entriesBuilder_ == null) {
           ensureEntriesIsMutable();
           entries_.add(builderForValue.build());
@@ -18562,10 +19205,10 @@ java.lang.String defaultValue) {
         return this;
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
       public Builder addEntries(
-          int index, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder builderForValue) {
+          int index, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder builderForValue) {
         if (entriesBuilder_ == null) {
           ensureEntriesIsMutable();
           entries_.add(index, builderForValue.build());
@@ -18576,10 +19219,10 @@ java.lang.String defaultValue) {
         return this;
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
       public Builder addAllEntries(
-          java.lang.Iterable<? extends io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry> values) {
+          java.lang.Iterable<? extends io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry> values) {
         if (entriesBuilder_ == null) {
           ensureEntriesIsMutable();
           com.google.protobuf.AbstractMessageLite.Builder.addAll(
@@ -18591,7 +19234,7 @@ java.lang.String defaultValue) {
         return this;
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
       public Builder clearEntries() {
         if (entriesBuilder_ == null) {
@@ -18604,7 +19247,7 @@ java.lang.String defaultValue) {
         return this;
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
       public Builder removeEntries(int index) {
         if (entriesBuilder_ == null) {
@@ -18617,16 +19260,16 @@ java.lang.String defaultValue) {
         return this;
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder getEntriesBuilder(
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder getEntriesBuilder(
           int index) {
         return getEntriesFieldBuilder().getBuilder(index);
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder getEntriesOrBuilder(
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder getEntriesOrBuilder(
           int index) {
         if (entriesBuilder_ == null) {
           return entries_.get(index);  } else {
@@ -18634,9 +19277,9 @@ java.lang.String defaultValue) {
         }
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
-      public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder> 
+      public java.util.List<? extends io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder> 
            getEntriesOrBuilderList() {
         if (entriesBuilder_ != null) {
           return entriesBuilder_.getMessageOrBuilderList();
@@ -18645,33 +19288,33 @@ java.lang.String defaultValue) {
         }
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder addEntriesBuilder() {
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder addEntriesBuilder() {
         return getEntriesFieldBuilder().addBuilder(
-            io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.getDefaultInstance());
+            io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.getDefaultInstance());
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
-      public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder addEntriesBuilder(
+      public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder addEntriesBuilder(
           int index) {
         return getEntriesFieldBuilder().addBuilder(
-            index, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.getDefaultInstance());
+            index, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.getDefaultInstance());
       }
       /**
-       * <code>repeated .io.debezium.server.iceberg.rpc.RowIndexScanBatch.Entry entries = 1;</code>
+       * <code>repeated .io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry entries = 1;</code>
        */
-      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder> 
+      public java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder> 
            getEntriesBuilderList() {
         return getEntriesFieldBuilder().getBuilderList();
       }
       private com.google.protobuf.RepeatedFieldBuilderV3<
-          io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder> 
+          io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder> 
           getEntriesFieldBuilder() {
         if (entriesBuilder_ == null) {
           entriesBuilder_ = new com.google.protobuf.RepeatedFieldBuilderV3<
-              io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.Entry.Builder, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.EntryOrBuilder>(
+              io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.Entry.Builder, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.EntryOrBuilder>(
                   entries_,
                   ((bitField0_ & 0x00000001) != 0),
                   getParentForChildren(),
@@ -18727,53 +19370,6 @@ java.lang.String defaultValue) {
         onChanged();
         return this;
       }
-
-      private boolean requiresFullScan_ ;
-      /**
-       * <pre>
-       * Set on a single empty batch when an incremental scan was requested but the
-       * caller must discard its index and ask for a full scan instead.
-       * </pre>
-       *
-       * <code>bool requires_full_scan = 3;</code>
-       * @return The requiresFullScan.
-       */
-      @java.lang.Override
-      public boolean getRequiresFullScan() {
-        return requiresFullScan_;
-      }
-      /**
-       * <pre>
-       * Set on a single empty batch when an incremental scan was requested but the
-       * caller must discard its index and ask for a full scan instead.
-       * </pre>
-       *
-       * <code>bool requires_full_scan = 3;</code>
-       * @param value The requiresFullScan to set.
-       * @return This builder for chaining.
-       */
-      public Builder setRequiresFullScan(boolean value) {
-        
-        requiresFullScan_ = value;
-        bitField0_ |= 0x00000004;
-        onChanged();
-        return this;
-      }
-      /**
-       * <pre>
-       * Set on a single empty batch when an incremental scan was requested but the
-       * caller must discard its index and ask for a full scan instead.
-       * </pre>
-       *
-       * <code>bool requires_full_scan = 3;</code>
-       * @return This builder for chaining.
-       */
-      public Builder clearRequiresFullScan() {
-        bitField0_ = (bitField0_ & ~0x00000004);
-        requiresFullScan_ = false;
-        onChanged();
-        return this;
-      }
       @java.lang.Override
       public final Builder setUnknownFields(
           final com.google.protobuf.UnknownFieldSet unknownFields) {
@@ -18787,23 +19383,23 @@ java.lang.String defaultValue) {
       }
 
 
-      // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.RowIndexScanBatch)
+      // @@protoc_insertion_point(builder_scope:io.debezium.server.iceberg.rpc.TableIndexScanBatch)
     }
 
-    // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.RowIndexScanBatch)
-    private static final io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch DEFAULT_INSTANCE;
+    // @@protoc_insertion_point(class_scope:io.debezium.server.iceberg.rpc.TableIndexScanBatch)
+    private static final io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch DEFAULT_INSTANCE;
     static {
-      DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch();
+      DEFAULT_INSTANCE = new io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch();
     }
 
-    public static io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch getDefaultInstance() {
+    public static io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch getDefaultInstance() {
       return DEFAULT_INSTANCE;
     }
 
-    private static final com.google.protobuf.Parser<RowIndexScanBatch>
-        PARSER = new com.google.protobuf.AbstractParser<RowIndexScanBatch>() {
+    private static final com.google.protobuf.Parser<TableIndexScanBatch>
+        PARSER = new com.google.protobuf.AbstractParser<TableIndexScanBatch>() {
       @java.lang.Override
-      public RowIndexScanBatch parsePartialFrom(
+      public TableIndexScanBatch parsePartialFrom(
           com.google.protobuf.CodedInputStream input,
           com.google.protobuf.ExtensionRegistryLite extensionRegistry)
           throws com.google.protobuf.InvalidProtocolBufferException {
@@ -18822,17 +19418,17 @@ java.lang.String defaultValue) {
       }
     };
 
-    public static com.google.protobuf.Parser<RowIndexScanBatch> parser() {
+    public static com.google.protobuf.Parser<TableIndexScanBatch> parser() {
       return PARSER;
     }
 
     @java.lang.Override
-    public com.google.protobuf.Parser<RowIndexScanBatch> getParserForType() {
+    public com.google.protobuf.Parser<TableIndexScanBatch> getParserForType() {
       return PARSER;
     }
 
     @java.lang.Override
-    public io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch getDefaultInstanceForType() {
+    public io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch getDefaultInstanceForType() {
       return DEFAULT_INSTANCE;
     }
 
@@ -20080,10 +20676,15 @@ java.lang.String defaultValue) {
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_io_debezium_server_iceberg_rpc_WriteRun_descriptor;
+    internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-      internal_static_io_debezium_server_iceberg_rpc_WriteRun_fieldAccessorTable;
+      internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_fieldAccessorTable;
+  private static final com.google.protobuf.Descriptors.Descriptor
+    internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_descriptor;
+  private static final 
+    com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
+      internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor;
   private static final 
@@ -20120,20 +20721,20 @@ java.lang.String defaultValue) {
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
       internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_descriptor;
+    internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-      internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_fieldAccessorTable;
+      internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_descriptor;
+    internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-      internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_fieldAccessorTable;
+      internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
-    internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_descriptor;
+    internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_descriptor;
   private static final 
     com.google.protobuf.GeneratedMessageV3.FieldAccessorTable
-      internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_fieldAccessorTable;
+      internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_fieldAccessorTable;
   private static final com.google.protobuf.Descriptors.Descriptor
     internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesRequest_descriptor;
   private static final 
@@ -20186,73 +20787,74 @@ java.lang.String defaultValue) {
       "_position\"\217\001\n\013PayloadType\022\013\n\007RECORDS\020\000\022\n" +
       "\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP_TA" +
       "BLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REFRES" +
-      "H_TABLE_SCHEMA\020\005\022\021\n\rCLOSE_SESSION\020\006\"\301\001\n\024" +
+      "H_TABLE_SCHEMA\020\005\022\021\n\rCLOSE_SESSION\020\006\"\320\001\n\024" +
       "RecordIngestResponse\022\016\n\006result\030\001 \001(\t\022\017\n\007" +
       "success\030\002 \001(\010\022\027\n\017olake_2pc_state\030\003 \001(\t\022\023" +
       "\n\013snapshot_id\030\004 \001(\003\022\034\n\024has_equality_dele" +
-      "tes\030\005 \001(\010\022<\n\nwrite_runs\030\006 \003(\0132(.io.debez" +
-      "ium.server.iceberg.rpc.WriteRun\"]\n\010Write" +
-      "Run\022\021\n\tfile_path\030\001 \001(\t\022\027\n\017batch_start_id" +
-      "x\030\002 \001(\005\022\026\n\016start_position\030\003 \001(\003\022\r\n\005count" +
-      "\030\004 \001(\005\"\300\007\n\014ArrowPayload\022F\n\004type\030\001 \001(\01628." +
-      "io.debezium.server.iceberg.rpc.ArrowPayl" +
-      "oad.PayloadType\022G\n\010metadata\030\002 \001(\01325.io.d" +
-      "ebezium.server.iceberg.rpc.ArrowPayload." +
-      "Metadata\032\322\002\n\014FileMetadata\022\021\n\tfile_type\030\001" +
-      " \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record_count\030" +
-      "\003 \001(\003\022b\n\020partition_values\030\005 \003(\0132H.io.deb" +
+      "tes\030\005 \001(\010\022K\n\022file_position_maps\030\006 \003(\0132/." +
+      "io.debezium.server.iceberg.rpc.FilePosit" +
+      "ionMap\"\264\001\n\017FilePositionMap\022\021\n\tfile_path\030" +
+      "\001 \001(\t\022E\n\006ranges\030\002 \003(\01325.io.debezium.serv" +
+      "er.iceberg.rpc.FilePositionMap.Range\032G\n\005" +
+      "Range\022\027\n\017batch_start_idx\030\001 \001(\005\022\026\n\016start_" +
+      "position\030\002 \001(\003\022\r\n\005count\030\003 \001(\005\"\300\007\n\014ArrowP" +
+      "ayload\022F\n\004type\030\001 \001(\01628.io.debezium.serve" +
+      "r.iceberg.rpc.ArrowPayload.PayloadType\022G" +
+      "\n\010metadata\030\002 \001(\01325.io.debezium.server.ic" +
+      "eberg.rpc.ArrowPayload.Metadata\032\322\002\n\014File" +
+      "Metadata\022\021\n\tfile_type\030\001 \001(\t\022\021\n\tfile_path" +
+      "\030\002 \001(\t\022\024\n\014record_count\030\003 \001(\003\022b\n\020partitio" +
+      "n_values\030\005 \003(\0132H.io.debezium.server.iceb" +
+      "erg.rpc.ArrowPayload.FileMetadata.Partit" +
+      "ionValue\032\241\001\n\016PartitionValue\022\023\n\tint_value" +
+      "\030\001 \001(\005H\000\022\024\n\nlong_value\030\002 \001(\003H\000\022\026\n\014string" +
+      "_value\030\003 \001(\tH\000\022\025\n\013float_value\030\004 \001(\002H\000\022\026\n" +
+      "\014double_value\030\005 \001(\001H\000\022\024\n\nbool_value\030\006 \001(" +
+      "\010H\000B\007\n\005value\0329\n\021FileUploadRequest\022\021\n\tfil" +
+      "e_data\030\001 \001(\014\022\021\n\tfile_path\030\002 \001(\t\032\267\002\n\010Meta" +
+      "data\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tthread_" +
+      "id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\01329.io.deb" +
       "ezium.server.iceberg.rpc.ArrowPayload.Fi" +
-      "leMetadata.PartitionValue\032\241\001\n\016PartitionV" +
-      "alue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong_value\030" +
-      "\002 \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025\n\013float" +
-      "_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024" +
-      "\n\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021FileUpl" +
-      "oadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\tfile_pa" +
-      "th\030\002 \001(\t\032\267\002\n\010Metadata\022\027\n\017dest_table_name" +
-      "\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022P\n\rfile_metada" +
-      "ta\030\003 \003(\01329.io.debezium.server.iceberg.rp" +
-      "c.ArrowPayload.FileMetadata\022X\n\013file_uplo" +
-      "ad\030\004 \001(\0132>.io.debezium.server.iceberg.rp" +
-      "c.ArrowPayload.FileUploadRequestH\000\210\001\001\022\017\n" +
-      "\007payload\030\006 \001(\t\022\035\n\020base_snapshot_id\030\007 \001(\003" +
-      "H\001\210\001\001B\016\n\014_file_uploadB\023\n\021_base_snapshot_" +
-      "id\"U\n\013PayloadType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023RE" +
-      "GISTER_AND_COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010F" +
-      "ILEPATH\020\003\"\347\001\n\023ArrowIngestResponse\022\016\n\006res" +
-      "ult\030\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.d" +
-      "ebezium.server.iceberg.rpc.ArrowIngestRe" +
-      "sponse.IcebergSchemasEntry\022\030\n\013snapshot_i" +
-      "d\030\003 \001(\003H\000\210\001\001\0325\n\023IcebergSchemasEntry\022\013\n\003k" +
-      "ey\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001B\016\n\014_snapshot" +
-      "_id\"\\\n\023RowIndexScanRequest\022\021\n\tthread_id\030" +
-      "\001 \001(\t\022\035\n\020from_snapshot_id\030\002 \001(\003H\000\210\001\001B\023\n\021" +
-      "_from_snapshot_id\"\366\001\n\021RowIndexScanBatch\022" +
-      "H\n\007entries\030\001 \003(\01327.io.debezium.server.ic" +
-      "eberg.rpc.RowIndexScanBatch.Entry\022\023\n\013sna" +
-      "pshot_id\030\002 \001(\003\022\032\n\022requires_full_scan\030\003 \001" +
-      "(\010\032f\n\005Entry\022\020\n\010olake_id\030\001 \001(\t\022\021\n\tfile_pa" +
-      "th\030\002 \001(\t\022\020\n\010position\030\003 \001(\003\022\017\n\007deleted\030\004 " +
-      "\001(\010J\004\010\005\020\006R\017sequence_number\"2\n\035MigrateEqu" +
-      "alityDeletesRequest\022\021\n\tthread_id\030\001 \001(\t\"y" +
-      "\n\036MigrateEqualityDeletesResponse\022\023\n\013snap" +
-      "shot_id\030\001 \001(\003\022\036\n\026rewritten_delete_files\030" +
-      "\002 \001(\003\022\"\n\032positional_deletes_written\030\003 \001(" +
-      "\0032\212\001\n\023RecordIngestService\022s\n\013SendRecords" +
-      "\022..io.debezium.server.iceberg.rpc.Iceber" +
-      "gPayload\0324.io.debezium.server.iceberg.rp" +
-      "c.RecordIngestResponse2\205\001\n\022ArrowIngestSe" +
-      "rvice\022o\n\nIcebergAPI\022,.io.debezium.server" +
-      ".iceberg.rpc.ArrowPayload\0323.io.debezium." +
-      "server.iceberg.rpc.ArrowIngestResponse2\245" +
-      "\002\n\017RowIndexService\022x\n\014ScanRowIndex\0223.io." +
-      "debezium.server.iceberg.rpc.RowIndexScan" +
-      "Request\0321.io.debezium.server.iceberg.rpc" +
-      ".RowIndexScanBatch0\001\022\227\001\n\026MigrateEquality" +
-      "Deletes\022=.io.debezium.server.iceberg.rpc" +
-      ".MigrateEqualityDeletesRequest\032>.io.debe" +
-      "zium.server.iceberg.rpc.MigrateEqualityD" +
-      "eletesResponseB\035B\014RecordIngestZ\riceberg/" +
-      "protob\006proto3"
+      "leMetadata\022X\n\013file_upload\030\004 \001(\0132>.io.deb" +
+      "ezium.server.iceberg.rpc.ArrowPayload.Fi" +
+      "leUploadRequestH\000\210\001\001\022\017\n\007payload\030\006 \001(\t\022\035\n" +
+      "\020base_snapshot_id\030\007 \001(\003H\001\210\001\001B\016\n\014_file_up" +
+      "loadB\023\n\021_base_snapshot_id\"U\n\013PayloadType" +
+      "\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT" +
+      "\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEPATH\020\003\"\347\001\n\023Arr" +
+      "owIngestResponse\022\016\n\006result\030\001 \001(\t\022_\n\016iceb" +
+      "ergSchemas\030\002 \003(\0132G.io.debezium.server.ic" +
+      "eberg.rpc.ArrowIngestResponse.IcebergSch" +
+      "emasEntry\022\030\n\013snapshot_id\030\003 \001(\003H\000\210\001\001\0325\n\023I" +
+      "cebergSchemasEntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value" +
+      "\030\002 \001(\t:\0028\001B\016\n\014_snapshot_id\"^\n\025TableIndex" +
+      "ScanRequest\022\021\n\tthread_id\030\001 \001(\t\022\035\n\020from_s" +
+      "napshot_id\030\002 \001(\003H\000\210\001\001B\023\n\021_from_snapshot_" +
+      "id\"\266\001\n\023TableIndexScanBatch\022J\n\007entries\030\001 " +
+      "\003(\01329.io.debezium.server.iceberg.rpc.Tab" +
+      "leIndexScanBatch.Entry\022\023\n\013snapshot_id\030\002 " +
+      "\001(\003\032>\n\005Entry\022\020\n\010olake_id\030\001 \001(\t\022\021\n\tfile_p" +
+      "ath\030\002 \001(\t\022\020\n\010position\030\003 \001(\003\"2\n\035MigrateEq" +
+      "ualityDeletesRequest\022\021\n\tthread_id\030\001 \001(\t\"" +
+      "y\n\036MigrateEqualityDeletesResponse\022\023\n\013sna" +
+      "pshot_id\030\001 \001(\003\022\036\n\026rewritten_delete_files" +
+      "\030\002 \001(\003\022\"\n\032positional_deletes_written\030\003 \001" +
+      "(\0032\212\001\n\023RecordIngestService\022s\n\013SendRecord" +
+      "s\022..io.debezium.server.iceberg.rpc.Icebe" +
+      "rgPayload\0324.io.debezium.server.iceberg.r" +
+      "pc.RecordIngestResponse2\205\001\n\022ArrowIngestS" +
+      "ervice\022o\n\nIcebergAPI\022,.io.debezium.serve" +
+      "r.iceberg.rpc.ArrowPayload\0323.io.debezium" +
+      ".server.iceberg.rpc.ArrowIngestResponse2" +
+      "\264\002\n\021TableIndexService\022\204\001\n\024ScanTableForIn" +
+      "dexing\0225.io.debezium.server.iceberg.rpc." +
+      "TableIndexScanRequest\0323.io.debezium.serv" +
+      "er.iceberg.rpc.TableIndexScanBatch0\001\022\227\001\n" +
+      "\026MigrateEqualityDeletes\022=.io.debezium.se" +
+      "rver.iceberg.rpc.MigrateEqualityDeletesR" +
+      "equest\032>.io.debezium.server.iceberg.rpc." +
+      "MigrateEqualityDeletesResponseB\035B\014Record" +
+      "IngestZ\riceberg/protob\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -20299,13 +20901,19 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_RecordIngestResponse_descriptor,
-        new java.lang.String[] { "Result", "Success", "Olake2PcState", "SnapshotId", "HasEqualityDeletes", "WriteRuns", });
-    internal_static_io_debezium_server_iceberg_rpc_WriteRun_descriptor =
+        new java.lang.String[] { "Result", "Success", "Olake2PcState", "SnapshotId", "HasEqualityDeletes", "FilePositionMaps", });
+    internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_descriptor =
       getDescriptor().getMessageTypes().get(2);
-    internal_static_io_debezium_server_iceberg_rpc_WriteRun_fieldAccessorTable = new
+    internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-        internal_static_io_debezium_server_iceberg_rpc_WriteRun_descriptor,
-        new java.lang.String[] { "FilePath", "BatchStartIdx", "StartPosition", "Count", });
+        internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_descriptor,
+        new java.lang.String[] { "FilePath", "Ranges", });
+    internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_descriptor =
+      internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_descriptor.getNestedTypes().get(0);
+    internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_fieldAccessorTable = new
+      com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
+        internal_static_io_debezium_server_iceberg_rpc_FilePositionMap_Range_descriptor,
+        new java.lang.String[] { "BatchStartIdx", "StartPosition", "Count", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor =
       getDescriptor().getMessageTypes().get(3);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_fieldAccessorTable = new
@@ -20348,24 +20956,24 @@ java.lang.String defaultValue) {
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowIngestResponse_IcebergSchemasEntry_descriptor,
         new java.lang.String[] { "Key", "Value", });
-    internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_descriptor =
+    internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_descriptor =
       getDescriptor().getMessageTypes().get(5);
-    internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_fieldAccessorTable = new
+    internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-        internal_static_io_debezium_server_iceberg_rpc_RowIndexScanRequest_descriptor,
+        internal_static_io_debezium_server_iceberg_rpc_TableIndexScanRequest_descriptor,
         new java.lang.String[] { "ThreadId", "FromSnapshotId", "FromSnapshotId", });
-    internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_descriptor =
+    internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_descriptor =
       getDescriptor().getMessageTypes().get(6);
-    internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_fieldAccessorTable = new
+    internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-        internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_descriptor,
-        new java.lang.String[] { "Entries", "SnapshotId", "RequiresFullScan", });
-    internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_descriptor =
-      internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_descriptor.getNestedTypes().get(0);
-    internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_fieldAccessorTable = new
+        internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_descriptor,
+        new java.lang.String[] { "Entries", "SnapshotId", });
+    internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_descriptor =
+      internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_descriptor.getNestedTypes().get(0);
+    internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
-        internal_static_io_debezium_server_iceberg_rpc_RowIndexScanBatch_Entry_descriptor,
-        new java.lang.String[] { "OlakeId", "FilePath", "Position", "Deleted", });
+        internal_static_io_debezium_server_iceberg_rpc_TableIndexScanBatch_Entry_descriptor,
+        new java.lang.String[] { "OlakeId", "FilePath", "Position", });
     internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesRequest_descriptor =
       getDescriptor().getMessageTypes().get(7);
     internal_static_io_debezium_server_iceberg_rpc_MigrateEqualityDeletesRequest_fieldAccessorTable = new

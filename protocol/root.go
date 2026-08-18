@@ -36,6 +36,7 @@ var (
 	destinationConfig         *types.WriterConfig
 	differencePath            string
 	deleteType                string
+	deleteMode                types.DeleteMode
 	commands                  = []*cobra.Command{}
 	connector                 *abstract.AbstractDriver
 )
@@ -47,7 +48,6 @@ var RootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 
 		// set global variables
-
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
@@ -65,6 +65,11 @@ var RootCmd = &cobra.Command{
 
 		if encryptionKey != "" {
 			viper.Set(constants.EncryptionKey, encryptionKey)
+		}
+
+		deleteMode = types.DeleteMode(deleteType)
+		if err := deleteMode.Validate(); err != nil {
+			return fmt.Errorf("invalid delete mode: %s", err)
 		}
 
 		// logger uses CONFIG_FOLDER

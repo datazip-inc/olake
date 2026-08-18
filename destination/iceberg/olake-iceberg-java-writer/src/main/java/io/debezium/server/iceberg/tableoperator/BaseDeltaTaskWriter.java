@@ -2,19 +2,22 @@ package io.debezium.server.iceberg.tableoperator;
 
 import com.google.common.collect.Sets;
 import org.apache.iceberg.*;
-import org.apache.iceberg.deletes.DeleteGranularity;
-import org.apache.iceberg.deletes.PositionDelete;
 import org.apache.iceberg.data.InternalRecordWrapper;
 import org.apache.iceberg.data.Record;
-import org.apache.iceberg.io.BaseTaskWriter;
-import org.apache.iceberg.io.FileAppenderFactory;
-import org.apache.iceberg.io.FileIO;
-import org.apache.iceberg.io.FileWriter;
-import org.apache.iceberg.io.OutputFileFactory;
+import org.apache.iceberg.deletes.DeleteGranularity;
+import org.apache.iceberg.deletes.EqualityDeleteWriter;
+import org.apache.iceberg.deletes.PositionDelete;
+import org.apache.iceberg.deletes.PositionDeleteWriter;
+import org.apache.iceberg.deletes.SortingPositionOnlyDeleteWriter;
+import org.apache.iceberg.encryption.EncryptedOutputFile;
+import org.apache.iceberg.io.*;
 import org.apache.iceberg.types.TypeUtil;
 
+import java.io.Closeable;
 import java.io.IOException;
-import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements PositionTrackableWriter {
@@ -26,6 +29,14 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
   private final boolean keepDeletes;
   private final boolean usePositionalDeletes;
   private final RecordProjection keyProjection;
+
+  private final FileAppenderFactory<Record> appenderFactory;
+  private final OutputFileFactory fileFactory;
+  private final FileIO io;
+  private final long targetFileSize;
+  private final FileWriterFactory<Record> fileWriterFactory;
+  private final List<DeleteFile> extraDeleteFiles = new ArrayList<>();
+  private final Set<CharSequence> extraReferencedDataFiles = new HashSet<>();
 
   BaseDeltaTaskWriter(PartitionSpec spec,
                       FileFormat format,
@@ -45,16 +56,68 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
     this.keyProjection = RecordProjection.create(schema, deleteSchema);
     this.keepDeletes = keepDeletes;
     this.usePositionalDeletes = usePositionalDeletes;
+    this.appenderFactory = appenderFactory;
+    this.fileFactory = fileFactory;
+    this.io = io;
+    this.targetFileSize = targetFileSize;
+
+    this.fileWriterFactory = new FileWriterFactory<>() {
+      @Override
+      public DataWriter<Record> newDataWriter(EncryptedOutputFile file, PartitionSpec spec, StructLike partition) {
+        return appenderFactory.newDataWriter(file, format, partition);
+      }
+
+      @Override
+      public EqualityDeleteWriter<Record> newEqualityDeleteWriter(EncryptedOutputFile file, PartitionSpec spec, StructLike partition) {
+        return appenderFactory.newEqDeleteWriter(file, format, partition);
+      }
+
+      @Override
+      public PositionDeleteWriter<Record> newPositionDeleteWriter(EncryptedOutputFile file, PartitionSpec spec, StructLike partition) {
+        return appenderFactory.newPosDeleteWriter(file, format, partition);
+      }
+    };
+  }
+
+  EncryptedOutputFile newOutputFile(StructLike partition) {
+    if (spec().isUnpartitioned() || partition == null) {
+      return fileFactory.newOutputFile();
+    }
+    return fileFactory.newOutputFile(spec(), partition);
+  }
+
+  synchronized void addExtraDeleteResult(DeleteWriteResult result) {
+    if (result != null) {
+      if (result.deleteFiles() != null && !result.deleteFiles().isEmpty()) {
+        extraDeleteFiles.addAll(result.deleteFiles());
+      }
+      if (result.referencedDataFiles() != null && !result.referencedDataFiles().isEmpty()) {
+        extraReferencedDataFiles.addAll(result.referencedDataFiles());
+      }
+    }
+  }
+
+  @Override
+  public WriteResult complete() throws IOException {
+    WriteResult result = super.complete();
+    if (!extraDeleteFiles.isEmpty()) {
+      return WriteResult.builder()
+          .add(result)
+          .addDeleteFiles(extraDeleteFiles)
+          .addReferencedDataFiles(extraReferencedDataFiles)
+          .build();
+    }
+    return result;
   }
 
   abstract RowDataDeltaWriter route(Record row);
 
   public CharSequence currentPath(Record record) {
-      return route(record).currentPath();
+    return route(record).currentPath();
   }
 
   public long currentRows(Record record) {
-      return route(record).currentRows();
+    return route(record).currentRows();
   }
 
   InternalRecordWrapper wrapper() {
@@ -74,12 +137,9 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
 
       if (rowOperation == Operation.DELETE && !keepDeletes) {
         // Hard delete: positional delete only, no tombstone row.
-        // currently we do soft deletes so we not updated our olake-index
         return;
       }
 
-      // Iceberg's write() already pos-deletes a prior insert of the same
-      // equality key within this writer session (insertedRowMap).
       writer.write(wrapped);
       return;
     }
@@ -99,52 +159,92 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> implements Pos
     }
   }
 
-  public class RowDataDeltaWriter extends BaseEqualityDeltaWriter {
-    private final RollingFileWriter cachedDataWriter;
-    private final FileWriter<PositionDelete<Record>, ?> posDeleteWriter;
+  public class RowDataDeltaWriter implements Closeable {
+    private final RollingFileWriter dataWriter;
+    private final BaseEqualityDeltaWriter eqDeltaWriter;
+    private final FileWriter<PositionDelete<Record>, DeleteWriteResult> posDeleteWriter;
     private final PositionDelete<Record> positionDelete = PositionDelete.create();
 
-    @SuppressWarnings("unchecked")
     RowDataDeltaWriter(PartitionKey partition) {
-      // create one positional delete file per referenced data file,
-      super(partition, schema, deleteSchema, DeleteGranularity.FILE);
+      if (usePositionalDeletes) {
+        this.dataWriter = new RollingFileWriter(partition);
+        this.eqDeltaWriter = null;
+        this.posDeleteWriter = new SortingPositionOnlyDeleteWriter<>(
+            () -> new RollingPositionDeleteWriter<>(
+                fileWriterFactory,
+                fileFactory,
+                io,
+                targetFileSize,
+                spec(),
+                partition
+            ),
+            DeleteGranularity.PARTITION
+        );
+      } else {
+        this.dataWriter = null;
+        this.posDeleteWriter = null;
+        this.eqDeltaWriter = new BaseEqualityDeltaWriter(partition, schema, deleteSchema, DeleteGranularity.FILE) {
+          @Override
+          protected StructLike asStructLike(Record data) {
+            return wrapper.wrap(data);
+          }
 
-      try {
-        Field dataField = BaseEqualityDeltaWriter.class.getDeclaredField("dataWriter");
-        dataField.setAccessible(true);
-        cachedDataWriter = (RollingFileWriter) dataField.get(this);
-
-        // Iceberg 1.10 keeps writePosDelete private; write through the same
-        // pos-delete writer the equality path uses so files join the close/commit.
-        Field posField = BaseEqualityDeltaWriter.class.getDeclaredField("posDeleteWriter");
-        posField.setAccessible(true);
-        posDeleteWriter = (FileWriter<PositionDelete<Record>, ?>) posField.get(this);
-      } catch (Exception e) {
-        throw new RuntimeException("Failed to access underlying equality delta writer fields", e);
+          @Override
+          protected StructLike asStructLikeKey(Record data) {
+            return keyWrapper.wrap(data);
+          }
+        };
       }
     }
 
     public CharSequence currentPath() {
-        return cachedDataWriter.currentPath();
+      return dataWriter != null ? dataWriter.currentPath() : null;
     }
 
     public long currentRows() {
-        return cachedDataWriter.currentRows();
+      return dataWriter != null ? dataWriter.currentRows() : 0L;
     }
 
-    /** Emit a positional delete for a previously committed (or indexed) row. */
-    void deletePosition(String filePath, long position) throws IOException {
-      posDeleteWriter.write(positionDelete.set(filePath, position, null));
+    public void write(Record record) throws IOException {
+      if (usePositionalDeletes) {
+        dataWriter.write(record);
+      } else {
+        eqDeltaWriter.write(record);
+      }
     }
+
+    public void deleteKey(Record key) throws IOException {
+      if (eqDeltaWriter != null) {
+        eqDeltaWriter.deleteKey(key);
+      }
+    }
+
+    public void deletePosition(String filePath, long position) throws IOException {
+      if (posDeleteWriter != null) {
+        posDeleteWriter.write(positionDelete.set(filePath, position, null));
+      }
+    }
+
+    private boolean closed = false;
 
     @Override
-    protected StructLike asStructLike(Record data) {
-      return wrapper.wrap(data);
-    }
-
-    @Override
-    protected StructLike asStructLikeKey(Record data) {
-      return keyWrapper.wrap(data);
+    public void close() throws IOException {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      if (usePositionalDeletes) {
+        if (dataWriter != null) {
+          dataWriter.close();
+        }
+        if (posDeleteWriter != null) {
+          posDeleteWriter.close();
+          DeleteWriteResult result = posDeleteWriter.result();
+          addExtraDeleteResult(result);
+        }
+      } else if (eqDeltaWriter != null) {
+        eqDeltaWriter.close();
+      }
     }
   }
 }

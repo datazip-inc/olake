@@ -176,7 +176,8 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.icebergTable.refresh();
                     String commitState = session.op.getCommitState(session.icebergTable);
                     sendTableResponse(responseObserver, session.icebergTable.schema().toString(),
-                            commitState != null ? commitState : "", session.icebergTable);
+                            commitState != null ? commitState : "", session.icebergTable,
+                            metadata.getUsePositionalDeletes());
                     break;
 
                 case RECORDS:
@@ -184,12 +185,12 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     SchemaConvertor recordsConvertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(session.upsert, session.icebergTable.schema(), request.getRecordsList());
                     
-                    List<RecordIngest.WriteRun> runs = session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords);
+                    List<RecordIngest.FilePositionMap> filePositionMaps = session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords);
                     
                     sendResponse(responseObserver, io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse.newBuilder()
                         .setResult("successfully pushed records: " + request.getRecordsCount())
                         .setSuccess(true)
-                        .addAllWriteRuns(runs)
+                        .addAllFilePositionMaps(filePositionMaps)
                         .build());
                     LOGGER.debug("{} Successfully wrote {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     break;
@@ -226,11 +227,11 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
     /**
      * Answers the GET_OR_CREATE_TABLE handshake with the table's current snapshot
-     * and whether it still carries equality deletes. A caller keeping a row index
+     * and whether it still carries equality deletes. A caller keeping a table index
      * needs both to decide between reusing, refreshing, and rebuilding it.
      */
     private void sendTableResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver,
-            String message, String olake2pcState, Table table) throws Exception {
+            String message, String olake2pcState, Table table, boolean usePositionalDeletes) throws Exception {
         RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder()
                 .setResult(message)
                 .setOlake2PcState(olake2pcState);
@@ -238,8 +239,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         Snapshot current = table.currentSnapshot();
         if (current != null) {
             builder.setSnapshotId(current.snapshotId());
-            builder.setHasEqualityDeletes(
-                    !TableRowIndexScanner.deleteFiles(table, FileContent.EQUALITY_DELETES).isEmpty());
+            if (usePositionalDeletes) {
+                builder.setHasEqualityDeletes(
+                        !TableRowIndexScanner.deleteFiles(table, FileContent.EQUALITY_DELETES).isEmpty());
+            }
         }
 
         responseObserver.onNext(builder.build());

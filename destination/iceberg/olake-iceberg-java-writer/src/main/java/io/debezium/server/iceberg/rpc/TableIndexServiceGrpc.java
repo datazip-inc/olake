@@ -4,7 +4,7 @@ import static io.grpc.MethodDescriptor.generateFullMethodName;
 
 /**
  * <pre>
- * RowIndexService populates and maintains the caller's identifier -&gt; row location
+ * TableIndexService populates and maintains the caller's identifier -&gt; row location
  * index, which is what lets deletes be expressed as positional rather than
  * equality deletes.
  * </pre>
@@ -13,42 +13,42 @@ import static io.grpc.MethodDescriptor.generateFullMethodName;
     value = "by gRPC proto compiler (version 1.53.0)",
     comments = "Source: record_ingest.proto")
 @io.grpc.stub.annotations.GrpcGenerated
-public final class RowIndexServiceGrpc {
+public final class TableIndexServiceGrpc {
 
-  private RowIndexServiceGrpc() {}
+  private TableIndexServiceGrpc() {}
 
-  public static final String SERVICE_NAME = "io.debezium.server.iceberg.rpc.RowIndexService";
+  public static final String SERVICE_NAME = "io.debezium.server.iceberg.rpc.TableIndexService";
 
   // Static method descriptors that strictly reflect the proto.
-  private static volatile io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest,
-      io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch> getScanRowIndexMethod;
+  private static volatile io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest,
+      io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch> getScanTableForIndexingMethod;
 
   @io.grpc.stub.annotations.RpcMethod(
-      fullMethodName = SERVICE_NAME + '/' + "ScanRowIndex",
-      requestType = io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest.class,
-      responseType = io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.class,
+      fullMethodName = SERVICE_NAME + '/' + "ScanTableForIndexing",
+      requestType = io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest.class,
+      responseType = io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.class,
       methodType = io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
-  public static io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest,
-      io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch> getScanRowIndexMethod() {
-    io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch> getScanRowIndexMethod;
-    if ((getScanRowIndexMethod = RowIndexServiceGrpc.getScanRowIndexMethod) == null) {
-      synchronized (RowIndexServiceGrpc.class) {
-        if ((getScanRowIndexMethod = RowIndexServiceGrpc.getScanRowIndexMethod) == null) {
-          RowIndexServiceGrpc.getScanRowIndexMethod = getScanRowIndexMethod =
-              io.grpc.MethodDescriptor.<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest, io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch>newBuilder()
+  public static io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest,
+      io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch> getScanTableForIndexingMethod() {
+    io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch> getScanTableForIndexingMethod;
+    if ((getScanTableForIndexingMethod = TableIndexServiceGrpc.getScanTableForIndexingMethod) == null) {
+      synchronized (TableIndexServiceGrpc.class) {
+        if ((getScanTableForIndexingMethod = TableIndexServiceGrpc.getScanTableForIndexingMethod) == null) {
+          TableIndexServiceGrpc.getScanTableForIndexingMethod = getScanTableForIndexingMethod =
+              io.grpc.MethodDescriptor.<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest, io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch>newBuilder()
               .setType(io.grpc.MethodDescriptor.MethodType.SERVER_STREAMING)
-              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "ScanRowIndex"))
+              .setFullMethodName(generateFullMethodName(SERVICE_NAME, "ScanTableForIndexing"))
               .setSampledToLocalTracing(true)
               .setRequestMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest.getDefaultInstance()))
+                  io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest.getDefaultInstance()))
               .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
-                  io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch.getDefaultInstance()))
-              .setSchemaDescriptor(new RowIndexServiceMethodDescriptorSupplier("ScanRowIndex"))
+                  io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch.getDefaultInstance()))
+              .setSchemaDescriptor(new TableIndexServiceMethodDescriptorSupplier("ScanTableForIndexing"))
               .build();
         }
       }
     }
-    return getScanRowIndexMethod;
+    return getScanTableForIndexingMethod;
   }
 
   private static volatile io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest,
@@ -62,10 +62,10 @@ public final class RowIndexServiceGrpc {
   public static io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest,
       io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse> getMigrateEqualityDeletesMethod() {
     io.grpc.MethodDescriptor<io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest, io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse> getMigrateEqualityDeletesMethod;
-    if ((getMigrateEqualityDeletesMethod = RowIndexServiceGrpc.getMigrateEqualityDeletesMethod) == null) {
-      synchronized (RowIndexServiceGrpc.class) {
-        if ((getMigrateEqualityDeletesMethod = RowIndexServiceGrpc.getMigrateEqualityDeletesMethod) == null) {
-          RowIndexServiceGrpc.getMigrateEqualityDeletesMethod = getMigrateEqualityDeletesMethod =
+    if ((getMigrateEqualityDeletesMethod = TableIndexServiceGrpc.getMigrateEqualityDeletesMethod) == null) {
+      synchronized (TableIndexServiceGrpc.class) {
+        if ((getMigrateEqualityDeletesMethod = TableIndexServiceGrpc.getMigrateEqualityDeletesMethod) == null) {
+          TableIndexServiceGrpc.getMigrateEqualityDeletesMethod = getMigrateEqualityDeletesMethod =
               io.grpc.MethodDescriptor.<io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest, io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse>newBuilder()
               .setType(io.grpc.MethodDescriptor.MethodType.UNARY)
               .setFullMethodName(generateFullMethodName(SERVICE_NAME, "MigrateEqualityDeletes"))
@@ -74,7 +74,7 @@ public final class RowIndexServiceGrpc {
                   io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest.getDefaultInstance()))
               .setResponseMarshaller(io.grpc.protobuf.ProtoUtils.marshaller(
                   io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse.getDefaultInstance()))
-              .setSchemaDescriptor(new RowIndexServiceMethodDescriptorSupplier("MigrateEqualityDeletes"))
+              .setSchemaDescriptor(new TableIndexServiceMethodDescriptorSupplier("MigrateEqualityDeletes"))
               .build();
         }
       }
@@ -85,64 +85,64 @@ public final class RowIndexServiceGrpc {
   /**
    * Creates a new async stub that supports all call types for the service
    */
-  public static RowIndexServiceStub newStub(io.grpc.Channel channel) {
-    io.grpc.stub.AbstractStub.StubFactory<RowIndexServiceStub> factory =
-      new io.grpc.stub.AbstractStub.StubFactory<RowIndexServiceStub>() {
+  public static TableIndexServiceStub newStub(io.grpc.Channel channel) {
+    io.grpc.stub.AbstractStub.StubFactory<TableIndexServiceStub> factory =
+      new io.grpc.stub.AbstractStub.StubFactory<TableIndexServiceStub>() {
         @java.lang.Override
-        public RowIndexServiceStub newStub(io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
-          return new RowIndexServiceStub(channel, callOptions);
+        public TableIndexServiceStub newStub(io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
+          return new TableIndexServiceStub(channel, callOptions);
         }
       };
-    return RowIndexServiceStub.newStub(factory, channel);
+    return TableIndexServiceStub.newStub(factory, channel);
   }
 
   /**
    * Creates a new blocking-style stub that supports unary and streaming output calls on the service
    */
-  public static RowIndexServiceBlockingStub newBlockingStub(
+  public static TableIndexServiceBlockingStub newBlockingStub(
       io.grpc.Channel channel) {
-    io.grpc.stub.AbstractStub.StubFactory<RowIndexServiceBlockingStub> factory =
-      new io.grpc.stub.AbstractStub.StubFactory<RowIndexServiceBlockingStub>() {
+    io.grpc.stub.AbstractStub.StubFactory<TableIndexServiceBlockingStub> factory =
+      new io.grpc.stub.AbstractStub.StubFactory<TableIndexServiceBlockingStub>() {
         @java.lang.Override
-        public RowIndexServiceBlockingStub newStub(io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
-          return new RowIndexServiceBlockingStub(channel, callOptions);
+        public TableIndexServiceBlockingStub newStub(io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
+          return new TableIndexServiceBlockingStub(channel, callOptions);
         }
       };
-    return RowIndexServiceBlockingStub.newStub(factory, channel);
+    return TableIndexServiceBlockingStub.newStub(factory, channel);
   }
 
   /**
    * Creates a new ListenableFuture-style stub that supports unary calls on the service
    */
-  public static RowIndexServiceFutureStub newFutureStub(
+  public static TableIndexServiceFutureStub newFutureStub(
       io.grpc.Channel channel) {
-    io.grpc.stub.AbstractStub.StubFactory<RowIndexServiceFutureStub> factory =
-      new io.grpc.stub.AbstractStub.StubFactory<RowIndexServiceFutureStub>() {
+    io.grpc.stub.AbstractStub.StubFactory<TableIndexServiceFutureStub> factory =
+      new io.grpc.stub.AbstractStub.StubFactory<TableIndexServiceFutureStub>() {
         @java.lang.Override
-        public RowIndexServiceFutureStub newStub(io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
-          return new RowIndexServiceFutureStub(channel, callOptions);
+        public TableIndexServiceFutureStub newStub(io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
+          return new TableIndexServiceFutureStub(channel, callOptions);
         }
       };
-    return RowIndexServiceFutureStub.newStub(factory, channel);
+    return TableIndexServiceFutureStub.newStub(factory, channel);
   }
 
   /**
    * <pre>
-   * RowIndexService populates and maintains the caller's identifier -&gt; row location
+   * TableIndexService populates and maintains the caller's identifier -&gt; row location
    * index, which is what lets deletes be expressed as positional rather than
    * equality deletes.
    * </pre>
    */
-  public static abstract class RowIndexServiceImplBase implements io.grpc.BindableService {
+  public static abstract class TableIndexServiceImplBase implements io.grpc.BindableService {
 
     /**
      * <pre>
-     * ScanRowIndex streams the identifier and location of live rows in the table.
+     * ScanTableForIndexing streams the identifier and location of live rows in the table.
      * </pre>
      */
-    public void scanRowIndex(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest request,
-        io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch> responseObserver) {
-      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getScanRowIndexMethod(), responseObserver);
+    public void scanTableForIndexing(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest request,
+        io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch> responseObserver) {
+      io.grpc.stub.ServerCalls.asyncUnimplementedUnaryCall(getScanTableForIndexingMethod(), responseObserver);
     }
 
     /**
@@ -159,12 +159,12 @@ public final class RowIndexServiceGrpc {
     @java.lang.Override public final io.grpc.ServerServiceDefinition bindService() {
       return io.grpc.ServerServiceDefinition.builder(getServiceDescriptor())
           .addMethod(
-            getScanRowIndexMethod(),
+            getScanTableForIndexingMethod(),
             io.grpc.stub.ServerCalls.asyncServerStreamingCall(
               new MethodHandlers<
-                io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest,
-                io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch>(
-                  this, METHODID_SCAN_ROW_INDEX)))
+                io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest,
+                io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch>(
+                  this, METHODID_SCAN_TABLE_FOR_INDEXING)))
           .addMethod(
             getMigrateEqualityDeletesMethod(),
             io.grpc.stub.ServerCalls.asyncUnaryCall(
@@ -178,32 +178,32 @@ public final class RowIndexServiceGrpc {
 
   /**
    * <pre>
-   * RowIndexService populates and maintains the caller's identifier -&gt; row location
+   * TableIndexService populates and maintains the caller's identifier -&gt; row location
    * index, which is what lets deletes be expressed as positional rather than
    * equality deletes.
    * </pre>
    */
-  public static final class RowIndexServiceStub extends io.grpc.stub.AbstractAsyncStub<RowIndexServiceStub> {
-    private RowIndexServiceStub(
+  public static final class TableIndexServiceStub extends io.grpc.stub.AbstractAsyncStub<TableIndexServiceStub> {
+    private TableIndexServiceStub(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       super(channel, callOptions);
     }
 
     @java.lang.Override
-    protected RowIndexServiceStub build(
+    protected TableIndexServiceStub build(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
-      return new RowIndexServiceStub(channel, callOptions);
+      return new TableIndexServiceStub(channel, callOptions);
     }
 
     /**
      * <pre>
-     * ScanRowIndex streams the identifier and location of live rows in the table.
+     * ScanTableForIndexing streams the identifier and location of live rows in the table.
      * </pre>
      */
-    public void scanRowIndex(io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest request,
-        io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch> responseObserver) {
+    public void scanTableForIndexing(io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest request,
+        io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch> responseObserver) {
       io.grpc.stub.ClientCalls.asyncServerStreamingCall(
-          getChannel().newCall(getScanRowIndexMethod(), getCallOptions()), request, responseObserver);
+          getChannel().newCall(getScanTableForIndexingMethod(), getCallOptions()), request, responseObserver);
     }
 
     /**
@@ -221,32 +221,32 @@ public final class RowIndexServiceGrpc {
 
   /**
    * <pre>
-   * RowIndexService populates and maintains the caller's identifier -&gt; row location
+   * TableIndexService populates and maintains the caller's identifier -&gt; row location
    * index, which is what lets deletes be expressed as positional rather than
    * equality deletes.
    * </pre>
    */
-  public static final class RowIndexServiceBlockingStub extends io.grpc.stub.AbstractBlockingStub<RowIndexServiceBlockingStub> {
-    private RowIndexServiceBlockingStub(
+  public static final class TableIndexServiceBlockingStub extends io.grpc.stub.AbstractBlockingStub<TableIndexServiceBlockingStub> {
+    private TableIndexServiceBlockingStub(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       super(channel, callOptions);
     }
 
     @java.lang.Override
-    protected RowIndexServiceBlockingStub build(
+    protected TableIndexServiceBlockingStub build(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
-      return new RowIndexServiceBlockingStub(channel, callOptions);
+      return new TableIndexServiceBlockingStub(channel, callOptions);
     }
 
     /**
      * <pre>
-     * ScanRowIndex streams the identifier and location of live rows in the table.
+     * ScanTableForIndexing streams the identifier and location of live rows in the table.
      * </pre>
      */
-    public java.util.Iterator<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch> scanRowIndex(
-        io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest request) {
+    public java.util.Iterator<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch> scanTableForIndexing(
+        io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest request) {
       return io.grpc.stub.ClientCalls.blockingServerStreamingCall(
-          getChannel(), getScanRowIndexMethod(), getCallOptions(), request);
+          getChannel(), getScanTableForIndexingMethod(), getCallOptions(), request);
     }
 
     /**
@@ -263,21 +263,21 @@ public final class RowIndexServiceGrpc {
 
   /**
    * <pre>
-   * RowIndexService populates and maintains the caller's identifier -&gt; row location
+   * TableIndexService populates and maintains the caller's identifier -&gt; row location
    * index, which is what lets deletes be expressed as positional rather than
    * equality deletes.
    * </pre>
    */
-  public static final class RowIndexServiceFutureStub extends io.grpc.stub.AbstractFutureStub<RowIndexServiceFutureStub> {
-    private RowIndexServiceFutureStub(
+  public static final class TableIndexServiceFutureStub extends io.grpc.stub.AbstractFutureStub<TableIndexServiceFutureStub> {
+    private TableIndexServiceFutureStub(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
       super(channel, callOptions);
     }
 
     @java.lang.Override
-    protected RowIndexServiceFutureStub build(
+    protected TableIndexServiceFutureStub build(
         io.grpc.Channel channel, io.grpc.CallOptions callOptions) {
-      return new RowIndexServiceFutureStub(channel, callOptions);
+      return new TableIndexServiceFutureStub(channel, callOptions);
     }
 
     /**
@@ -293,7 +293,7 @@ public final class RowIndexServiceGrpc {
     }
   }
 
-  private static final int METHODID_SCAN_ROW_INDEX = 0;
+  private static final int METHODID_SCAN_TABLE_FOR_INDEXING = 0;
   private static final int METHODID_MIGRATE_EQUALITY_DELETES = 1;
 
   private static final class MethodHandlers<Req, Resp> implements
@@ -301,10 +301,10 @@ public final class RowIndexServiceGrpc {
       io.grpc.stub.ServerCalls.ServerStreamingMethod<Req, Resp>,
       io.grpc.stub.ServerCalls.ClientStreamingMethod<Req, Resp>,
       io.grpc.stub.ServerCalls.BidiStreamingMethod<Req, Resp> {
-    private final RowIndexServiceImplBase serviceImpl;
+    private final TableIndexServiceImplBase serviceImpl;
     private final int methodId;
 
-    MethodHandlers(RowIndexServiceImplBase serviceImpl, int methodId) {
+    MethodHandlers(TableIndexServiceImplBase serviceImpl, int methodId) {
       this.serviceImpl = serviceImpl;
       this.methodId = methodId;
     }
@@ -313,9 +313,9 @@ public final class RowIndexServiceGrpc {
     @java.lang.SuppressWarnings("unchecked")
     public void invoke(Req request, io.grpc.stub.StreamObserver<Resp> responseObserver) {
       switch (methodId) {
-        case METHODID_SCAN_ROW_INDEX:
-          serviceImpl.scanRowIndex((io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanRequest) request,
-              (io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.RowIndexScanBatch>) responseObserver);
+        case METHODID_SCAN_TABLE_FOR_INDEXING:
+          serviceImpl.scanTableForIndexing((io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest) request,
+              (io.grpc.stub.StreamObserver<io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch>) responseObserver);
           break;
         case METHODID_MIGRATE_EQUALITY_DELETES:
           serviceImpl.migrateEqualityDeletes((io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest) request,
@@ -337,9 +337,9 @@ public final class RowIndexServiceGrpc {
     }
   }
 
-  private static abstract class RowIndexServiceBaseDescriptorSupplier
+  private static abstract class TableIndexServiceBaseDescriptorSupplier
       implements io.grpc.protobuf.ProtoFileDescriptorSupplier, io.grpc.protobuf.ProtoServiceDescriptorSupplier {
-    RowIndexServiceBaseDescriptorSupplier() {}
+    TableIndexServiceBaseDescriptorSupplier() {}
 
     @java.lang.Override
     public com.google.protobuf.Descriptors.FileDescriptor getFileDescriptor() {
@@ -348,21 +348,21 @@ public final class RowIndexServiceGrpc {
 
     @java.lang.Override
     public com.google.protobuf.Descriptors.ServiceDescriptor getServiceDescriptor() {
-      return getFileDescriptor().findServiceByName("RowIndexService");
+      return getFileDescriptor().findServiceByName("TableIndexService");
     }
   }
 
-  private static final class RowIndexServiceFileDescriptorSupplier
-      extends RowIndexServiceBaseDescriptorSupplier {
-    RowIndexServiceFileDescriptorSupplier() {}
+  private static final class TableIndexServiceFileDescriptorSupplier
+      extends TableIndexServiceBaseDescriptorSupplier {
+    TableIndexServiceFileDescriptorSupplier() {}
   }
 
-  private static final class RowIndexServiceMethodDescriptorSupplier
-      extends RowIndexServiceBaseDescriptorSupplier
+  private static final class TableIndexServiceMethodDescriptorSupplier
+      extends TableIndexServiceBaseDescriptorSupplier
       implements io.grpc.protobuf.ProtoMethodDescriptorSupplier {
     private final String methodName;
 
-    RowIndexServiceMethodDescriptorSupplier(String methodName) {
+    TableIndexServiceMethodDescriptorSupplier(String methodName) {
       this.methodName = methodName;
     }
 
@@ -377,12 +377,12 @@ public final class RowIndexServiceGrpc {
   public static io.grpc.ServiceDescriptor getServiceDescriptor() {
     io.grpc.ServiceDescriptor result = serviceDescriptor;
     if (result == null) {
-      synchronized (RowIndexServiceGrpc.class) {
+      synchronized (TableIndexServiceGrpc.class) {
         result = serviceDescriptor;
         if (result == null) {
           serviceDescriptor = result = io.grpc.ServiceDescriptor.newBuilder(SERVICE_NAME)
-              .setSchemaDescriptor(new RowIndexServiceFileDescriptorSupplier())
-              .addMethod(getScanRowIndexMethod())
+              .setSchemaDescriptor(new TableIndexServiceFileDescriptorSupplier())
+              .addMethod(getScanTableForIndexingMethod())
               .addMethod(getMigrateEqualityDeletesMethod())
               .build();
         }

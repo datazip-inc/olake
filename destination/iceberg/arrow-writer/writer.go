@@ -32,7 +32,7 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
-	indexBatch     *types.RowIndexBatch
+	indexThread    *types.StreamIndexThread
 }
 
 type Writer struct {
@@ -78,7 +78,7 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
-		indexBatch:    types.NewRowIndexBatch(options.RowIndex),
+		indexThread:   types.NewStreamIndexThread(options.RowIndex),
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -177,7 +177,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
 		filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
-		if w.indexBatch != nil {
+		if w.indexThread != nil {
 			if err := w.indexRecord(writer, recordOlakeID, recordOpType, filePosition); err != nil {
 				return err
 			}
@@ -216,7 +216,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 // search for index for the record and emmit pos when found
 func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePosition int64) error {
 	if w.upsertMode && (opType != "r") {
-		previous, found, err := w.indexBatch.Lookup(olakeID)
+		previous, found, err := w.indexThread.Lookup(olakeID)
 		if err != nil {
 			return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
 		}
@@ -228,7 +228,7 @@ func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePo
 		}
 	}
 
-	w.indexBatch.Put(olakeID, types.RowLocation{
+	w.indexThread.Put(olakeID, types.RowLocation{
 		FilePath: writer.dataWriter.filePath,
 		Position: filePosition,
 	})
@@ -249,18 +249,20 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		}
 
 		if w.upsertMode {
-			posRecord := createPositionalDeleteArrowRecord(writer.positionalDeletes, w.allocator, w.arrowSchema[fileTypePositionalDelete])
-			if err := writer.positionalDeleteWriter.currentWriter.WriteBuffered(posRecord); err != nil {
+			if len(writer.positionalDeletes) > 0 {
+				posRecord := createPositionalDeleteArrowRecord(writer.positionalDeletes, w.allocator, w.arrowSchema[fileTypePositionalDelete])
+				if err := writer.positionalDeleteWriter.currentWriter.WriteBuffered(posRecord); err != nil {
+					posRecord.Release()
+
+					return fmt.Errorf("failed to write positional delete record: %s", err)
+				}
+
+				writer.positionalDeleteWriter.currentRowCount += posRecord.NumRows()
 				posRecord.Release()
 
-				return fmt.Errorf("failed to write positional delete record: %s", err)
-			}
-
-			writer.positionalDeleteWriter.currentRowCount += posRecord.NumRows()
-			posRecord.Release()
-
-			if writer.positionalDeleteWriter, err = w.checkAndFlush(ctx, writer.positionalDeleteWriter, pKey); err != nil {
-				return err
+				if writer.positionalDeleteWriter, err = w.checkAndFlush(ctx, writer.positionalDeleteWriter, pKey); err != nil {
+					return err
+				}
 			}
 
 			if writer.equalityDeleteWriter != nil {
@@ -393,12 +395,6 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 		commitRequest.Metadata.Payload = string(payloadBytes)
 	}
 
-	baseSnapshotID, err := internal.RowIndexBaseSnapshotID(w.options.RowIndex)
-	if err != nil {
-		return err
-	}
-	commitRequest.Metadata.BaseSnapshotId = baseSnapshotID
-
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
@@ -407,13 +403,15 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 		return fmt.Errorf("failed to commit arrow files: %s", err)
 	}
 
-	// apply row index if it exists
-	if w.options.RowIndex != nil && w.indexBatch != nil {
-		committedSnapshotID := response.(*proto.ArrowIngestResponse).SnapshotId
-		batch := w.indexBatch
-		w.indexBatch = nil
+	committedSnapshotID := response.(*proto.ArrowIngestResponse).SnapshotId
+
+	// apply stream index if it exists
+	// and the committed snapshot id is not 0, can be 0 when there is external commits or there is no records to commit
+	if w.indexThread != nil && committedSnapshotID != nil && *committedSnapshotID != 0 {
+		batch := w.indexThread
+		w.indexThread = nil
 		if applyErr := w.options.RowIndex.Commit(batch, committedSnapshotID); applyErr != nil {
-			return fmt.Errorf("failed to apply row index: %s", applyErr)
+			return fmt.Errorf("failed to apply stream index: %s", applyErr)
 		}
 	}
 
@@ -422,7 +420,7 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 
 // abort index batch when thread is aborted
 func (w *ArrowWriter) Abort() {
-	w.indexBatch = nil
+	w.indexThread = nil
 }
 
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {

@@ -134,12 +134,8 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 	// set schema for current thread
 	i.schema = copySchema(schema)
 
-	// reconcile row index incrementally or from scratch based on snapshot id check
-	// only for the first thread (other threads will just read the indexes)
-	if existingSchema == nil {
-		if err := i.reconcileRowIndex(ctx, options.RowIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
-			return schema, nil, err
-		}
+	if err := i.reconcileRowIndex(ctx, options.RowIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
+		return schema, nil, err
 	}
 
 	if i.config.UseArrowWrites {
