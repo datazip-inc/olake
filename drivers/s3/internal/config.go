@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
-	"github.com/datazip-inc/olake/pkg/parser"
+	"github.com/datazip-inc/olake/drivers/s3/internal/pkg/parser"
 )
 
 // FileFormat represents the format of files in S3
@@ -15,7 +15,17 @@ const (
 	FormatCSV     FileFormat = "csv"
 	FormatJSON    FileFormat = "json"
 	FormatParquet FileFormat = "parquet"
+	FormatXML     FileFormat = "xml"
 )
+
+var supportedFileFormats = []FileFormat{FormatCSV, FormatJSON, FormatParquet, FormatXML}
+
+var formatExtensions = map[FileFormat][]string{
+	FormatCSV:     {".csv"},
+	FormatJSON:    {".json", ".jsonl"},
+	FormatParquet: {".parquet"},
+	FormatXML:     {".xml"},
+}
 
 // CompressionType represents the compression type of files
 type CompressionType string
@@ -54,6 +64,7 @@ type Config struct {
 	CSV     *parser.CSVConfig     `json:"csv,omitempty"`
 	JSON    *parser.JSONConfig    `json:"json,omitempty"`
 	Parquet *parser.ParquetConfig `json:"parquet,omitempty"`
+	XML     *parser.XMLConfig     `json:"xml,omitempty"`
 }
 
 // Validate validates the S3 configuration
@@ -76,18 +87,18 @@ func (c *Config) Validate() error {
 
 	// Validate file format
 	if c.FileFormat == "" {
-		return fmt.Errorf("file_format is required (csv, json, or parquet)")
+		return fmt.Errorf("file_format is required (%v)", supportedFileFormats)
 	}
 
 	validFormat := false
-	for _, format := range []FileFormat{FormatCSV, FormatJSON, FormatParquet} {
+	for _, format := range supportedFileFormats {
 		if c.FileFormat == format {
 			validFormat = true
 			break
 		}
 	}
 	if !validFormat {
-		return fmt.Errorf("invalid file_format: must be csv, json, or parquet")
+		return fmt.Errorf("invalid file_format: must be %v", supportedFileFormats)
 	}
 
 	// Set default values
@@ -132,6 +143,9 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if c.FileFormat == FormatXML && c.XML == nil {
+		c.XML = &parser.XMLConfig{}
+	}
 	// Set default thread count
 	if c.MaxThreads <= 0 {
 		c.MaxThreads = constants.DefaultThreadCount
@@ -171,4 +185,8 @@ func (c *Config) GetJSONConfig() *parser.JSONConfig {
 // GetParquetConfig returns the Parquet parser configuration
 func (c *Config) GetParquetConfig() *parser.ParquetConfig {
 	return c.Parquet
+}
+
+func (c *Config) GetXMLConfig() *parser.XMLConfig {
+	return c.XML
 }
