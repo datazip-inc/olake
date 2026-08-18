@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   validate-documentation:
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
     - name: Validate Documentation
