@@ -41,3 +41,9 @@ type JSONConfig struct {
 type ParquetConfig struct {
 	StreamingEnabled bool `json:"streaming_enabled"` // Default: true - use range requests
 }
+
+// XMLConfig holds XML-specific parsing configuration
+type XMLConfig struct {
+	RowIdentifier        string `json:"row_identifier"` //Default: "" - applied when stream normalization ON
+	MaxBytesForInference int64  //Default: 10MB
+}

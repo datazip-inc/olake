@@ -2,7 +2,7 @@
 Production-ready S3 source connector for Olake that ingests data directly from AWS S3 or S3-compatible storage (MinIO, LocalStack, etc.).
 
 ## Highlights
-- **Multi-format**: CSV (plain or `.gz`), JSON (JSONL/array/object), and Parquet with schema inference.
+- **Multi-format**: CSV (plain or `.gz`), JSON (JSONL/array/object), Parquet, and XML with schema inference.
 - **Incremental sync**: Tracks `_last_modified_time` per stream and processes only newer files.
 - **Parallel processing**: Chunked downloads and configurable `max_threads` keep throughput high.
 - **Stateful**: Stream-level state keeps cursor information so you can resume syncs reliably.
@@ -13,7 +13,7 @@ Production-ready S3 source connector for Olake that ingests data directly from A
 | --- | --- | --- |
 | `bucket_name` | string | Target S3 bucket name |
 | `region` | string | AWS region (e.g., `us-east-1`) |
-| `file_format` | string | `csv`, `json`, or `parquet` |
+| `file_format` | string | `csv`, `json`, `parquet`, or `xml` |
 | `path_prefix` | string | Prefix used to group files into streams |
 
 ### Optional fields
@@ -42,6 +42,12 @@ Use the `json` block to override parsing of JSON files.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `line_delimited` | boolean | `true` | When true, treat each line as a separate record; set to false for JSON arrays or single objects |
+
+### XML-specific tuning
+Use the `xml` block to control how records are split.
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `row_identifier` | string | `""` | Local element name for one row. Used when stream normalization is ON, when OFF or empty whole document is one record |
 
 ## Commands
 Run the driver binaries through the repository root `build.sh` helper:
@@ -87,6 +93,19 @@ Use these as a starting point; substitute your bucket, path, and authentication 
   "region": "us-east-1",
   "path_prefix": "data/parquet/",
   "file_format": "parquet",
+  "compression": "none",
+  "max_threads": 5,
+  "retry_count": 3
+}
+```
+### XML stream example
+```json
+{
+  "bucket_name": "your-bucket",
+  "region": "us-east-1",
+  "path_prefix": "data/xml/",
+  "file_format": "xml",
+  "xml": { "row_identifier": "order" },
   "compression": "none",
   "max_threads": 5,
   "retry_count": 3
