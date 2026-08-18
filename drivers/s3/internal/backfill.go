@@ -9,8 +9,8 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/drivers/s3/internal/pkg/parser"
 	"github.com/datazip-inc/olake/pkg/objstorage"
-	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
 )
@@ -238,6 +238,13 @@ func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterfa
 	case FormatParquet:
 		parquetParser := parser.NewParquetParser(*s.config.GetParquetConfig(), underlyingStream)
 		parseErr = parquetParser.StreamRecords(ctx, reader, callback)
+	case FormatXML:
+		xmlCfg := *s.config.GetXMLConfig()
+		if !stream.NormalizationEnabled() {
+			xmlCfg.RowIdentifier = ""
+		}
+		xmlParser := parser.NewXMLParser(xmlCfg, underlyingStream)
+		parseErr = xmlParser.StreamRecords(ctx, reader, callback)
 	default:
 		return fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
 	}
