@@ -4,11 +4,9 @@ on:
   push:
     branches:
     - "staging"
-    - "dependabot/github_actions/staging/actions/download-artifact-8"
     paths:
     - '**/*.go'
     - '**/*.java'
-    - '.github/workflows/performance-test.yml'
 
 permissions:
   actions: read
