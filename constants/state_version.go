@@ -42,6 +42,8 @@ package constants
 //     * Unsigned 32-bit: earlier read as a signed int32 and mapped to Int32, so values above 2^31-1 wrapped negative. Now widened to Int64, matching pg/mysql.
 //     * Older state keeps both previous behaviors so existing destination columns do not change type on upgrade.
 
+// tests/testutils/constants keeps a temporary copy of this value; update it there as well when bumping the version.
+// TODO: remove this file after state version is moved to secrets
 const LatestStateVersion = 7
 
 // Used as the current version of the state when the program is running
