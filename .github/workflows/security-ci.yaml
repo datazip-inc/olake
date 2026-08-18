@@ -28,7 +28,7 @@ jobs:
     name: govulncheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v4
         with:
           go-version-file: "go.mod"
@@ -63,7 +63,7 @@ jobs:
     name: GoSec Security Scanner
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v4
         with:
           go-version-file: "go.mod"
@@ -78,7 +78,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
       - name: Run Trivy Go vulnerability scanner in repo mode
         uses: aquasecurity/trivy-action@master
         with:
@@ -96,7 +96,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
