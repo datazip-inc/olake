@@ -127,9 +127,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 			convStream.SyncMode = types.CDC
 		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
 			convStream.SyncMode = types.INCREMENTAL
-			// If availableCursorFields exist, cursorField defaults to the lexicographically
-			// smallest one. Set.Array() iterates a map, so sorting is required to keep the
-			// discovered catalog identical across runs.
+			// Default cursor field: lexicographically smallest available field, for deterministic output.
 			if convStream.AvailableCursorFields.Len() > 0 {
 				convStream.CursorField = slices.Min(convStream.AvailableCursorFields.Array())
 			}
