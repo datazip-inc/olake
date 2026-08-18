@@ -16,6 +16,8 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
+const defaultMaxBytesForInference int64 = 10 * 1024 * 1024
+
 // XMLParser implements the parser interface for XML files
 type XMLParser struct {
 	config XMLConfig
@@ -44,10 +46,7 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 	if p.config.RowIdentifier == "" {
 		data, err = io.ReadAll(reader)
 	} else {
-		// Limit data read for schema inference to prevent OOM on large files
-		// 10MB should be enough to get 100 sample records for most XML files
-		const maxBytesForInference = 10 * 1024 * 1024 // 10MB
-		limitedReader := io.LimitReader(reader, maxBytesForInference)
+		limitedReader := io.LimitReader(reader, p.maxBytesForInference())
 		data, err = io.ReadAll(limitedReader)
 	}
 	if err != nil {
@@ -174,8 +173,7 @@ func (p *XMLParser) parseSampleXMLContent(data []byte, maxSamples int) ([]map[st
 			break
 		}
 		if err != nil {
-			// check if we have some records, enough for schema inference - break
-			if len(records) > 0 && strings.Contains(strings.ToLower(err.Error()), "unexpected eof") {
+			if len(records) > 0 && isTruncatedXMLErr(err) {
 				logger.Warnf("Stopped reading XML after %d records (truncated): %v", len(records), err)
 				break
 			}
@@ -193,7 +191,7 @@ func (p *XMLParser) parseSampleXMLContent(data []byte, maxSamples int) ([]map[st
 		if err != nil {
 			if errors.Is(err, errNullValue) {
 				record = nil
-			} else if len(records) > 0 && strings.Contains(strings.ToLower(err.Error()), "unexpected eof") {
+			} else if len(records) > 0 && isTruncatedXMLErr(err) {
 				logger.Warnf("stopped reading XML after %d records (truncated): %v", len(records), err)
 				break
 			} else {
@@ -266,10 +264,10 @@ func (p *XMLParser) parseXMLElement(decoder *xml.Decoder, startElement xml.Start
 	for {
 		token, err := decoder.Token()
 		if err == io.EOF {
-			return nil, fmt.Errorf("unexpected EOF while parsing <%s>", startElement.Name.Local)
+			return nil, fmt.Errorf("unexpected EOF while parsing <%s>: %w", startElement.Name.Local, io.ErrUnexpectedEOF)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("xml token error: %s", err)
+			return nil, fmt.Errorf("xml token error: %w", err)
 		}
 
 		// process XML tokens recursively - start elements, char data, end elements
@@ -354,6 +352,21 @@ func (p *XMLParser) documentRootAsMap(record any, tag string) (map[string]any, e
 		}
 		return map[string]any{tag: content}, nil
 	}
+}
+
+// maxBytesForInference returns the maximum number of bytes to read for schema inference
+func (p *XMLParser) maxBytesForInference() int64 {
+	if p.config.MaxBytesForInference > 0 {
+		return p.config.MaxBytesForInference
+	}
+	return defaultMaxBytesForInference
+}
+
+// isTruncatedXMLErr checks if the error is a truncated XML error
+func isTruncatedXMLErr(err error) bool {
+	var syntaxErr *xml.SyntaxError
+	return errors.Is(err, io.ErrUnexpectedEOF) ||
+		(errors.As(err, &syntaxErr) && strings.Contains(syntaxErr.Msg, "unexpected EOF"))
 }
 
 // isXMLNSAttribute checks if the attribute is a xml namespace attribute

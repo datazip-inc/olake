@@ -151,16 +151,19 @@ func TestXMLParser_InferSchema_Attributes(t *testing.T) {
 	assert.Equal(t, types.String, titleType)
 }
 
-func TestXMLParser_InferSchema_TruncatedAfterCompleteRecord(t *testing.T) {
+func TestXMLParser_InferSchema_NoTruncationWhenLimitCoversFile(t *testing.T) {
 	xmlData := `<root>
 	<item>
 		<name>a</name>
 	</item>
 	<item>
-		<name>partial`
+		<name>b</name>
+	</item>
+	</root>`
 
 	config := XMLConfig{
-		RowIdentifier: "item",
+		RowIdentifier:        "item",
+		MaxBytesForInference: int64(len(xmlData)),
 	}
 	stream := types.NewStream("test", "test", nil)
 	parser := NewXMLParser(config, stream)
@@ -168,6 +171,36 @@ func TestXMLParser_InferSchema_TruncatedAfterCompleteRecord(t *testing.T) {
 	ctx := context.Background()
 	reader := strings.NewReader(xmlData)
 
+	// limit covers the whole file - InferSchema succeeds
+	result, err := parser.InferSchema(ctx, reader)
+	require.NoError(t, err)
+
+	nameType, err := result.Schema.GetType("name")
+	require.NoError(t, err)
+	assert.Equal(t, types.String, nameType)
+}
+
+func TestXMLParser_InferSchema_TruncatedAfterCompleteRecord(t *testing.T) {
+	xmlData := `<root>
+	<item>
+		<name>a</name>
+	</item>
+	<item>
+		<name>b</name>
+	</item>
+	</root>`
+
+	config := XMLConfig{
+		RowIdentifier:        "item",
+		MaxBytesForInference: 40,
+	}
+	stream := types.NewStream("test", "test", nil)
+	parser := NewXMLParser(config, stream)
+
+	ctx := context.Background()
+	reader := strings.NewReader(xmlData)
+
+	// LimitReader cuts after the first complete record - InferSchema still succeeds
 	result, err := parser.InferSchema(ctx, reader)
 	require.NoError(t, err)
 
@@ -185,7 +218,8 @@ func TestXMLParser_InferSchema_MalformedAfterCompleteRecord(t *testing.T) {
 	`
 
 	config := XMLConfig{
-		RowIdentifier: "item",
+		RowIdentifier:        "item",
+		MaxBytesForInference: 100,
 	}
 	stream := types.NewStream("test", "test", nil)
 	parser := NewXMLParser(config, stream)
@@ -193,6 +227,7 @@ func TestXMLParser_InferSchema_MalformedAfterCompleteRecord(t *testing.T) {
 	ctx := context.Background()
 	reader := strings.NewReader(xmlData)
 
+	// real syntax error after a complete record still fails discover
 	_, err := parser.InferSchema(ctx, reader)
 	require.Error(t, err)
 }
@@ -200,10 +235,16 @@ func TestXMLParser_InferSchema_MalformedAfterCompleteRecord(t *testing.T) {
 func TestXMLParser_InferSchema_TruncatedBeforeAnyRecord(t *testing.T) {
 	xmlData := `<root>
 	<item>
-		<name>partial`
+		<name>a</name>
+	</item>
+	<item>
+		<name>b</name>
+	</item>
+	</root>`
 
 	config := XMLConfig{
-		RowIdentifier: "item",
+		RowIdentifier:        "item",
+		MaxBytesForInference: 5,
 	}
 	stream := types.NewStream("test", "test", nil)
 	parser := NewXMLParser(config, stream)
@@ -211,6 +252,7 @@ func TestXMLParser_InferSchema_TruncatedBeforeAnyRecord(t *testing.T) {
 	ctx := context.Background()
 	reader := strings.NewReader(xmlData)
 
+	// 5 bytes is only "<root" - InferSchema fails
 	_, err := parser.InferSchema(ctx, reader)
 	require.Error(t, err)
 }
