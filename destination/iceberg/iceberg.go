@@ -62,7 +62,7 @@ func (i *Iceberg) Spec() any {
 	return Config{}
 }
 
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, existingSchema any, options *destination.Options) (any, *types.MetadataState, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any, options *destination.Options) (any, *types.MetadataState, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]internal.PartitionInfo, 0)

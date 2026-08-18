@@ -124,7 +124,7 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 	destDBPrefix := Ternary(cfg.TestConfig.DataFormat != "", fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat), fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
 	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, cfg.DestinationDB, testTable)
 
-	defer DropIcebergTable(t, testTable, cfg.DestinationDB)
+	defer dropIcebergTable(t, testTable, cfg.DestinationDB)
 
 	if err := cfg.prepareRowIndexSync(ctx, t, testTable); err != nil {
 		return err
@@ -173,7 +173,7 @@ func (cfg *IntegrationTest) testIcebergCleanTablePositionalWithPebbleIndex(ctx c
 	destDBPrefix := Ternary(cfg.TestConfig.DataFormat != "", fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat), fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
 	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, cfg.DestinationDB, testTable)
 
-	defer DropIcebergTable(t, testTable, cfg.DestinationDB)
+	defer dropIcebergTable(t, testTable, cfg.DestinationDB)
 
 	if err := cfg.prepareRowIndexSync(ctx, t, testTable); err != nil {
 		return err
@@ -211,7 +211,7 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 	destDBPrefix := Ternary(cfg.TestConfig.DataFormat != "", fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat), fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
 	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, cfg.DestinationDB, testTable)
 
-	defer DropIcebergTable(t, testTable, cfg.DestinationDB)
+	defer dropIcebergTable(t, testTable, cfg.DestinationDB)
 
 	if err := cfg.prepareRowIndexSync(ctx, t, testTable); err != nil {
 		return err

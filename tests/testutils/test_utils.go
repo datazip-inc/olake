@@ -933,7 +933,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	t.Log("Iceberg Full load + CDC tests completed successfully")
 
 	// Drop the Iceberg table after all tests are finished
-	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil
@@ -1095,7 +1095,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 			}
 
 			// drop iceberg table before sync
-			DropIcebergTable(t, testTable, cfg.DestinationDB)
+			dropIcebergTable(t, testTable, cfg.DestinationDB)
 			t.Logf("Dropped Iceberg table: %s", testTable)
 
 			if err := cfg.runSyncAndVerify(
@@ -1119,7 +1119,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndIncremental(
 	// Drop the Iceberg table after all tests are finished, so the incremental
 	// cursor state left in the table's olake_2pc property is not read back as
 	// CDC state by a later run.
-	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil
@@ -1224,7 +1224,7 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 
 	// Drop the Iceberg table and reset state before the first sync, so stale rows and the
 	// olake_2pc table property left by a previous run can't leak into this run's recovery timeline.
-	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 	if err := resetStateFile(cfg.TestConfig); err != nil {
 		return fmt.Errorf("failed to reset state: %w", err)
 	}
@@ -1299,7 +1299,7 @@ func (cfg *IntegrationTest) testIceberg2PCCDCRecovery(
 	}
 
 	t.Log("Iceberg 2PC CDC Recovery tests completed successfully")
-	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table after 2PC CDC tests: %s", testTable)
 	return nil
 }
@@ -1323,7 +1323,7 @@ func (cfg *IntegrationTest) testIceberg2PCIncrementalRecovery(
 
 	// Drop the Iceberg table before the first sync, so stale rows and the olake_2pc table
 	// property left by a previous run can't leak into this run's recovery timeline.
-	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field
 	if err := updateStreamConfig(cfg.TestConfig, cfg.Namespace, testTable, "incremental", cfg.CursorField); err != nil {
@@ -1406,7 +1406,7 @@ func (cfg *IntegrationTest) testIceberg2PCIncrementalRecovery(
 	}
 
 	t.Log("Iceberg 2PC Incremental Recovery tests completed successfully")
-	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table after 2PC Incremental tests: %s", testTable)
 	return nil
 }
@@ -1545,7 +1545,7 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 ) error {
 	t.Log("Starting Kafka rebalance recovery test")
 
-	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 	if err := resetStateFile(cfg.TestConfig); err != nil {
 		return fmt.Errorf("failed to reset state file: %s", err)
 	}
@@ -1578,7 +1578,7 @@ func (cfg *IntegrationTest) testKafkaRebalance(
 
 	t.Log("Kafka rebalance recovery test completed successfully")
 
-	DropIcebergTable(t, testTable, cfg.DestinationDB)
+	dropIcebergTable(t, testTable, cfg.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil
@@ -1794,8 +1794,8 @@ func sparkSession(ctx context.Context, t *testing.T) (sql.SparkSession, error) {
 	return sharedSpark, sharedSparkErr
 }
 
-// DropIcebergTable drops an Iceberg table using Spark SQL
-func DropIcebergTable(t *testing.T, tableName, icebergDB string) {
+// dropIcebergTable drops an Iceberg table using Spark SQL
+func dropIcebergTable(t *testing.T, tableName, icebergDB string) {
 	t.Helper()
 	ctx := t.Context()
 	spark, err := sparkSession(ctx, t)

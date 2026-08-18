@@ -86,7 +86,7 @@ func indexDir(baseDir, streamID string) string {
 
 const (
 	prefixRow          byte = 0x01
-	prefixIdToFilePath byte = 0x02
+	prefixIDToFilePath byte = 0x02
 	prefixFileByPath   byte = 0x03
 	prefixMeta         byte = 0x04
 
@@ -286,7 +286,7 @@ func (i *pebbleIndex) Truncate() error {
 	batch := i.db.NewBatch()
 	defer batch.Close()
 
-	for _, prefix := range [][]byte{{prefixRow}, {prefixIdToFilePath}, {prefixFileByPath}, {prefixMeta}} {
+	for _, prefix := range [][]byte{{prefixRow}, {prefixIDToFilePath}, {prefixFileByPath}, {prefixMeta}} {
 		if err := batch.DeleteRange(prefix, prefixEnd(prefix), nil); err != nil {
 			return fmt.Errorf("failed to clear stream index %s: %s", i.dir, err)
 		}
@@ -438,7 +438,7 @@ func rowKey(id string) []byte {
 }
 
 func fileByIDKey(id uint64) []byte {
-	return append([]byte{prefixIdToFilePath}, be64(id)...)
+	return append([]byte{prefixIDToFilePath}, be64(id)...)
 }
 
 func fileByPathKey(path string) []byte {
