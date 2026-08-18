@@ -9,10 +9,10 @@ permissions:
 
 jobs:
   validate-documentation:
-    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
     - name: Validate Documentation
+      if: github.event.pull_request.user.login != 'dependabot[bot]'
       uses: actions/github-script@v6
       with:
         script: |
