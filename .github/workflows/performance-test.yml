@@ -138,7 +138,7 @@ jobs:
       run: make test.performance.${{ matrix.driver }}
 
     - name: Upload Benchmarks History
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: success()
       continue-on-error: true
       with:
