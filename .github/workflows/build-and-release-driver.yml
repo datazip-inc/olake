@@ -34,10 +34,10 @@ jobs:
       VERSION: ${{ inputs.version || github.event.inputs.version || 'v0.0.0.dev' }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: "17"
           distribution: "temurin"
