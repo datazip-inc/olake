@@ -363,8 +363,14 @@ func SetupProcessLogger(processName string) (*ProcessOutputReader, *ProcessOutpu
 // SetupAndStartProcess creates and starts a process with stdout and stderr logged via the logger.
 // It handles the complete process lifecycle including starting the command and managing pipes.
 func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
+	// Readiness is observed by a reader goroutine, so this span is "child ready AND a reader got
+	// scheduled to notice"; the phases below separate that from the child's own startup cost.
+	defer TrackTiming(processName, "setup+start total")()
+
 	// Set up process output capture using the logger utility
+	stopPipes := TrackTiming(processName, "setup pipes")
 	stdoutReader, stderrReader, stdoutWriter, stderrWriter, err := SetupProcessLogger(processName)
+	stopPipes()
 	if err != nil {
 		return fmt.Errorf("failed to set up process output capture: %s", err)
 	}
@@ -386,12 +392,16 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 	cmd.Stdout = stdoutWriter
 	cmd.Stderr = stderrWriter
 
-	if err := cmd.Start(); err != nil {
+	// fork+exec only: the child has run none of its own code yet, so a slow span here is the OS.
+	stopExec := TrackTiming(processName, "fork+exec")
+	startErr := cmd.Start()
+	stopExec()
+	if startErr != nil {
 		stdoutReader.Close()
 		stderrReader.Close()
 		stdoutWriter.Close()
 		stderrWriter.Close()
-		return fmt.Errorf("failed to start process: %s", err)
+		return fmt.Errorf("failed to start process: %s", startErr)
 	}
 
 	// Start reading from the process output
@@ -438,15 +448,21 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		}
 	}()
 
+	// Everything the child does (JVM launch, classloading, catalog init, port bind) plus the wait
+	// for a reader goroutine to match the readiness line.
+	stopAwait := TrackTiming(processName, "await readiness")
+
 	// Block until ready, error, or timeout
 	select {
 	case <-readyCh:
+		stopAwait()
 		close(done)
 		// Clear notification channels to avoid further sends
 		stdoutReader.readinessCh = nil
 		stderrReader.readinessCh = nil
 		return nil
 	case e := <-errCh:
+		stopAwait()
 		close(done)
 		// Attempt to stop the process if it is still running
 		if cmd.Process != nil {
@@ -459,6 +475,7 @@ func SetupAndStartProcess(processName string, cmd *exec.Cmd) error {
 		}
 		return fmt.Errorf("failed to start iceberg writer: %s: %s", e, stderrTail)
 	case <-ctx.Done():
+		stopAwait()
 		close(done)
 		if cmd.Process != nil {
 			_ = cmd.Process.Kill()

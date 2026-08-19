@@ -86,6 +86,18 @@ const S3FilterConfig = `{
 	]
 }`
 
+// S3XMLFilterConfig is XML variant filter (string-only)
+const S3XMLFilterConfig = `{
+	"logical_operator": "And",
+	"conditions": [
+		{
+			"column": "str_col",
+			"operator": "!=",
+			"value": ""
+		}
+	]
+}`
+
 // rowValues are the business-column values shared by every row of one seeded file. Only
 // "id" varies per row, so each record hashes to a distinct _olake_id (S3 streams have no
 // primary key, so the whole record is hashed).
@@ -215,20 +227,6 @@ var (
 		List:      []string{"x", "y"},
 	}
 
-	// ExpectedCSVS3Data and ExpectedUpdatedCSVS3Data are the values every synced row of
-	// the CSV variant must carry; the JSON pair is the same for the JSON variant. "id"
-	// varies per row and is not asserted.
-	ExpectedCSVS3Data        = expectedCSVData(seedValues)
-	ExpectedUpdatedCSVS3Data = expectedCSVData(updatedValues)
-
-	ExpectedJSONS3Data        = expectedJSONData(seedValues)
-	ExpectedUpdatedJSONS3Data = expectedJSONData(updatedValues)
-
-	// ExpectedParquetS3Data and ExpectedUpdatedParquetS3Data are the same for the Parquet
-	// variant, which carries the full type matrix rather than the shared text columns.
-	ExpectedParquetS3Data        = expectedParquetData(seedValues)
-	ExpectedUpdatedParquetS3Data = expectedParquetData(updatedValues)
-
 	// S3CSVToDestinationSchema and S3JSONToDestinationSchema are the expected destination
 	// schemas for the two text variants, whose parsers infer every number as double. They
 	// share the text columns and differ where the formats do: only CSV can carry an
@@ -246,6 +244,25 @@ var (
 	// schemas after the "evolve-schema" operation shipped a file carrying evolvedColumn.
 	S3CSVUpdatedDestinationSchema  = evolvedSchema(S3CSVToDestinationSchema)
 	S3JSONUpdatedDestinationSchema = evolvedSchema(S3JSONToDestinationSchema)
+
+	// S3XMLToDestinationSchema — XML leaves as strings. Date/ts text infers as timestamps
+	// Empty child tags are null
+	S3XMLToDestinationSchema = s3TextDestinationSchema(map[string]string{
+		"id":             "string",
+		"order":          "string",
+		"str_col":        "string",
+		"bool_col":       "string",
+		"float_col":      "string",
+		"int_col":        "string",
+		"mixed_col":      "string",
+		"optional_col":   "string",
+		"null_col":       "string",
+		"empty_col":      "string",
+		"whitespace_col": "string",
+		"_empty":         "string",
+	})
+
+	S3XMLUpdatedDestinationSchema = evolvedSchema(S3XMLToDestinationSchema)
 
 	// S3ParquetToDestinationSchema is the expected destination schema for Parquet sources,
 	// which carry their own schema rather than having one inferred from text. Keys are the
@@ -315,7 +332,7 @@ func evolvedSchema(base map[string]string) map[string]string {
 	return schema
 }
 
-// s3TextDestinationSchema is the destination schema shared by the CSV and JSON variants,
+// s3TextDestinationSchema is the destination schema shared by the CSV, JSON, and XML variants,
 // extended with the given format-specific columns.
 func s3TextDestinationSchema(formatSpecific map[string]string) map[string]string {
 	schema := map[string]string{
@@ -376,7 +393,27 @@ func expectedJSONData(v rowValues) map[string]interface{} {
 	return data
 }
 
-// textWriterExpectedData is the writer-dependent slice of the CSV and JSON expectations:
+// Leaves stay the source strings (bool/number text is not coerced).
+// Date/ts columns are Iceberg timestamps, same as expectedTextData
+// Empty child tags are nil; empty attributes stay "".
+func expectedXMLData(v rowValues) map[string]interface{} {
+	return map[string]interface{}{
+		"order":          "inner",
+		"str_col":        v.Str,
+		"bool_col":       fmt.Sprintf("%t", v.Bool),
+		"float_col":      fmt.Sprintf("%v", v.Float),
+		"int_col":        fmt.Sprintf("%d", v.Int64),
+		"date_col":       arrow.Timestamp(v.TS.UTC().Truncate(24 * time.Hour).UnixMicro()),
+		"ts_col":         arrow.Timestamp(v.TS.Truncate(time.Second).UnixMicro()),
+		"ts_milli_col":   arrow.Timestamp(v.TSMilli.UnixMicro()),
+		"null_col":       nil,
+		"empty_col":      nil,
+		"whitespace_col": nil,
+		"_empty":         "",
+	}
+}
+
+// textWriterExpectedData is the writer-dependent slice of the CSV, JSON, and XML expectations:
 // below the millisecond the destinations part ways, the legacy Iceberg writer truncating
 // every timestamptz to epoch millis where the Arrow writer and the Parquet destination
 // keep micros. applyWriterExpectations merges it over the variant's expected data before
@@ -508,6 +545,9 @@ type S3TestVariant struct {
 	// ExpectedData/ExpectedUpdatedData by applyWriterExpectations; nil when every column
 	// of the variant syncs identically across destinations.
 	WriterExpectedData func(v rowValues, writer s3DestinationWriter) map[string]interface{}
+	// ParquetStreaming is the parquet.streaming_enabled value every sync of the variant
+	// runs with; meaningful only when DataFormat is "parquet" (see applyParquetStreamingMode).
+	ParquetStreaming bool
 }
 
 // S3TestVariants lists every source format covered by TestS3Integration.
@@ -521,8 +561,8 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedCSVFile,
 		DestinationSchema:        S3CSVToDestinationSchema,
 		UpdatedDestinationSchema: S3CSVUpdatedDestinationSchema,
-		ExpectedData:             ExpectedCSVS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedCSVS3Data,
+		ExpectedData:             expectedCSVData(seedValues),
+		ExpectedUpdatedData:      expectedCSVData(updatedValues),
 		WriterExpectedData:       textWriterExpectedData,
 	},
 	{
@@ -534,9 +574,23 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedJSONLFile,
 		DestinationSchema:        S3JSONToDestinationSchema,
 		UpdatedDestinationSchema: S3JSONUpdatedDestinationSchema,
-		ExpectedData:             ExpectedJSONS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedJSONS3Data,
+		ExpectedData:             expectedJSONData(seedValues),
+		ExpectedUpdatedData:      expectedJSONData(updatedValues),
 		WriterExpectedData:       textWriterExpectedData,
+	},
+	{
+		// Identical to Parquet except streaming_enabled=false: every sync loads whole files
+		// into memory. Listed first so the suite ends at the committed streaming=true.
+		Name:                     "ParquetInMemory",
+		DataFormat:               "parquet",
+		PlainExt:                 ".parquet",
+		BuildFile:                buildParquetFile,
+		BuildEvolvedFile:         buildEvolvedParquetFile,
+		DestinationSchema:        S3ParquetToDestinationSchema,
+		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
+		ExpectedData:             expectedParquetData(seedValues),
+		ExpectedUpdatedData:      expectedParquetData(updatedValues),
+		WriterExpectedData:       parquetWriterExpectedData,
 	},
 	{
 		// The driver's file matcher recognizes no gzip variant for Parquet, so this stream
@@ -548,9 +602,23 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedParquetFile,
 		DestinationSchema:        S3ParquetToDestinationSchema,
 		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
-		ExpectedData:             ExpectedParquetS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedParquetS3Data,
+		ExpectedData:             expectedParquetData(seedValues),
+		ExpectedUpdatedData:      expectedParquetData(updatedValues),
 		WriterExpectedData:       parquetWriterExpectedData,
+		ParquetStreaming:         true,
+	},
+	{
+		Name:                     "XML",
+		DataFormat:               "xml",
+		PlainExt:                 ".xml",
+		Gzipped:                  true,
+		BuildFile:                buildXMLFile,
+		BuildEvolvedFile:         buildEvolvedXMLFile,
+		DestinationSchema:        S3XMLToDestinationSchema,
+		UpdatedDestinationSchema: S3XMLUpdatedDestinationSchema,
+		ExpectedData:             expectedXMLData(seedValues),
+		ExpectedUpdatedData:      expectedXMLData(updatedValues),
+		WriterExpectedData:       textWriterExpectedData,
 	},
 }
 
@@ -576,6 +644,19 @@ func (v S3TestVariant) source(t *testing.T) s3Source {
 	return s3Source{client: client, bucket: config.String("bucket_name"), prefix: config.String("path_prefix")}
 }
 
+// removeUnder deletes every object under prefix, tolerating a bucket that does not exist yet
+// (a "drop" can run before the first "create").
+func (s s3Source) removeUnder(ctx context.Context, t *testing.T, prefix string) {
+	t.Helper()
+	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		if minio.ToErrorResponse(obj.Err).Code == "NoSuchBucket" {
+			return
+		}
+		require.NoError(t, obj.Err, "failed to list objects under %s", prefix)
+		require.NoError(t, s.client.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}), "failed to remove %s", obj.Key)
+	}
+}
+
 // s3DestinationWriter identifies the destination writer a sync runs through, as far as
 // the variant can tell from its destination config.
 type s3DestinationWriter string
@@ -593,14 +674,14 @@ const (
 	writerArrow s3DestinationWriter = "arrow"
 )
 
-// currentDestinationWriter reads the live arrow_writes flag from the variant's
-// iceberg_destination.json and reports which writer the next sync will use.
-func (v S3TestVariant) currentDestinationWriter(t *testing.T) s3DestinationWriter {
+// currentDestinationWriter reads the live arrow_writes flag from the destination config the
+// next sync will run with, and reports which writer that is.
+func (v S3TestVariant) currentDestinationWriter(t *testing.T, config *testutils.TestConfig) s3DestinationWriter {
 	t.Helper()
 
-	// The test process runs with the package directory as its working directory, so the
-	// host side of the mounted testdata tree sits right below it.
-	destPath := filepath.Join("testdata", v.DataFormat, "iceberg_destination.json")
+	// The harness picks a writer by swapping IcebergDestinationPath between two files in its
+	// private working directory (see testIcebergWriter)
+	destPath := filepath.Join(config.HostTestDataPath, filepath.Base(config.IcebergDestinationPath))
 	data, err := os.ReadFile(destPath)
 	require.NoError(t, err, "failed to read %s", destPath)
 	var destConfig struct {
@@ -621,15 +702,37 @@ func (v S3TestVariant) currentDestinationWriter(t *testing.T) s3DestinationWrite
 // iceberg_destination.json before each Iceberg writer block but asserts every block against
 // the same ExpectedData maps, so this hook -- the only variant-owned code that runs between
 // the toggle and the verification -- reads the live flag and updates the maps in place.
-func (v S3TestVariant) applyWriterExpectations(t *testing.T) {
+func (v S3TestVariant) applyWriterExpectations(t *testing.T, config *testutils.TestConfig) {
 	t.Helper()
 	if v.WriterExpectedData == nil {
 		return
 	}
 
-	writer := v.currentDestinationWriter(t)
+	writer := v.currentDestinationWriter(t, config)
 	maps.Copy(v.ExpectedData, v.WriterExpectedData(seedValues, writer))
 	maps.Copy(v.ExpectedUpdatedData, v.WriterExpectedData(updatedValues, writer))
+}
+
+// applyParquetStreamingMode pins parquet.streaming_enabled in this config's source.json
+func (v S3TestVariant) applyParquetStreamingMode(t *testing.T, config *testutils.TestConfig) {
+	t.Helper()
+	if v.DataFormat != "parquet" {
+		return
+	}
+
+	path := config.HostSourcePath
+	data, err := os.ReadFile(path)
+	require.NoError(t, err, "failed to read %s", path)
+
+	want := fmt.Sprintf(`"streaming_enabled": %t`, v.ParquetStreaming)
+	if bytes.Contains(data, []byte(want)) {
+		return
+	}
+	stale := fmt.Sprintf(`"streaming_enabled": %t`, !v.ParquetStreaming)
+	require.Contains(t, string(data), stale, "%s lost its streaming_enabled key", path)
+	data = bytes.ReplaceAll(data, []byte(stale), []byte(want))
+	require.NoError(t, os.WriteFile(path, data, 0o600), "failed to write %s", path)
+	t.Logf("parquet source streaming_enabled=%t for upcoming syncs", v.ParquetStreaming)
 }
 
 // ExecuteQueryFactory returns the harness ExecuteQuery hook for one S3 format variant.
@@ -637,19 +740,27 @@ func (v S3TestVariant) applyWriterExpectations(t *testing.T) {
 // the variant's path prefix: "create" ensures the bucket exists, "add" seeds the stream,
 // "insert"/"update" upload a further file each, and "clean"/"drop" remove everything under
 // the prefix.
-func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
-	return func(ctx context.Context, t *testing.T, streams []string, operation string, _ bool) {
+func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
+	return func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 		t.Helper()
 
 		// Every destination block starts by re-seeding the source through this hook, so
 		// refreshing the expectations here keeps them aligned with whichever writer the
 		// harness toggled the destination to since the last operation.
-		variant.applyWriterExpectations(t)
+		variant.applyWriterExpectations(t, conf)
+		variant.applyParquetStreamingMode(t, conf)
 
 		src := variant.source(t)
-		prefix := src.prefix + "/" + streams[0] + "/"
+		prefix := src.prefix + "/" + testutils.TestTableName(conf) + "/"
 
 		switch operation {
+		case "drop-all":
+			// Everything under the variant's path prefix, not just this stream's folder:
+			// discover enumerates one stream per folder, so a folder an aborted run left
+			// behind would show up as an extra stream. Safe only in the serial discover
+			// suite -- variants sharing a DataFormat share this prefix (see TestDiscover).
+			src.removeUnder(ctx, t, src.prefix+"/")
+
 		case "create":
 			if err := src.client.MakeBucket(ctx, src.bucket, minio.MakeBucketOptions{}); err != nil {
 				code := minio.ToErrorResponse(err).Code
@@ -659,28 +770,22 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 			}
 
 		case "clean", "drop":
-			for obj := range src.client.ListObjects(ctx, src.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
-				if minio.ToErrorResponse(obj.Err).Code == "NoSuchBucket" {
-					break
-				}
-				require.NoError(t, obj.Err, "failed to list objects under %s", prefix)
-				require.NoError(t, src.client.RemoveObject(ctx, src.bucket, obj.Key, minio.RemoveObjectOptions{}), "failed to remove %s", obj.Key)
-			}
+			src.removeUnder(ctx, t, prefix)
 
 		case "add":
 			// One plain file and, where the format allows it, one gzipped: a single stream
 			// mixing both proves compression is detected per file rather than per stream.
-			variant.putFile(ctx, t, src, prefix, "seed_1", variant.BuildFile, 1, seedValues, false)
-			variant.putFile(ctx, t, src, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped)
+			variant.putFile(ctx, t, src, prefix, "seed_1", variant.BuildFile, 1, seedValues, false, false)
+			variant.putFile(ctx, t, src, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped, false)
 
 		case "insert":
 			// A file the incremental cursor has not seen: it is stamped after the previous
 			// sync, so only its rows are re-read.
-			variant.putFile(ctx, t, src, prefix, "insert_1", variant.BuildFile, 7, seedValues, false)
+			variant.putFile(ctx, t, src, prefix, "insert_1", variant.BuildFile, 7, seedValues, false, true)
 
 		case "update":
 			// Object stores have no in-place update: changed data arrives as another file.
-			variant.putFile(ctx, t, src, prefix, "update_1", variant.BuildFile, 10, updatedValues, false)
+			variant.putFile(ctx, t, src, prefix, "update_1", variant.BuildFile, 10, updatedValues, false, true)
 
 		case "evolve-schema":
 			// An object store's ALTER TABLE: a file whose rows carry a column discover has
@@ -690,7 +795,7 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 			// ExpectedUpdatedData; evolvedColumn itself is asserted through the schema, not
 			// per row, since the "update" file's rows sync a null there.
 			if variant.BuildEvolvedFile != nil {
-				variant.putFile(ctx, t, src, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false)
+				variant.putFile(ctx, t, src, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false, true)
 			}
 
 		default:
@@ -702,7 +807,7 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 // putFile renders one file with build and uploads it under prefix. Gzipped files get a
 // ".gz" suffix, which is what both the driver's file matcher and its reader use to detect
 // compression.
-func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped bool) {
+func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped bool, wait bool) {
 	t.Helper()
 
 	data := build(t, startID, vals)
@@ -713,6 +818,14 @@ func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, 
 	}
 
 	key := prefix + name + ext
+
+	// TODO: the driver should handle same-second arrivals itself (`>=` plus tracking the file keys
+	// already synced at the cursor's second); this guard papers over real, silent data loss.
+	if wait {
+		t.Logf("waiting before putting file to avoid s3 driver skipping the new file...")
+		time.Sleep(1 * time.Second)
+	}
+
 	_, err := src.client.PutObject(ctx, src.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
 	require.NoError(t, err, "failed to upload %s", key)
 	t.Logf("Uploaded s3://%s/%s (%d bytes)", src.bucket, key, len(data))
@@ -821,6 +934,51 @@ func jsonlFile(startID int64, vals rowValues, evolved bool) []byte {
 		b.WriteString(strings.Join(fields, ", "))
 		b.WriteString("}\n")
 	}
+	return []byte(b.String())
+}
+
+func buildXMLFile(_ *testing.T, startID int64, vals rowValues) []byte {
+	return xmlFile(startID, vals, false)
+}
+
+func buildEvolvedXMLFile(_ *testing.T, startID int64, vals rowValues) []byte {
+	return xmlFile(startID, vals, true)
+}
+
+func xmlFile(startID int64, vals rowValues, evolved bool) []byte {
+	var b strings.Builder
+	b.WriteString("<root>\n")
+	b.WriteString("<batch>\n")
+	for i := int64(0); i < rowsPerFile; i++ {
+		id := startID + i
+		mixed, _ := mixedValue(id)
+		b.WriteString("  <order empty=''>\n")
+		b.WriteString("	    <order>inner</order>\n")
+		fmt.Fprintf(&b, "    <id>%d</id>\n", id)
+		fmt.Fprintf(&b, "    <str_col>%s</str_col>\n", vals.Str)
+		fmt.Fprintf(&b, "    <bool_col>%t</bool_col>\n", vals.Bool)
+		fmt.Fprintf(&b, "    <float_col>%v</float_col>\n", vals.Float)
+		fmt.Fprintf(&b, "    <int_col>%d</int_col>\n", vals.Int64)
+		fmt.Fprintf(&b, "    <mixed_col>%s</mixed_col>\n", mixed)
+		fmt.Fprintf(&b, "    <date_col>%s</date_col>\n", vals.TS.UTC().Format(time.DateOnly))
+		fmt.Fprintf(&b, "    <ts_col>%s</ts_col>\n", vals.TS.Format(time.RFC3339))
+		fmt.Fprintf(&b, "    <ts_milli_col>%s</ts_milli_col>\n", vals.TSMilli.Format(tsMilliLayout))
+		fmt.Fprintf(&b, "    <ts_micro_col>%s</ts_micro_col>\n", vals.TSMicro.Format(tsMicroLayout))
+		fmt.Fprintf(&b, "    <ts_nano_col>%s</ts_nano_col>\n", vals.TSNano.Format(tsNanoLayout))
+		fmt.Fprintf(&b, "    <excluded_col>%s</excluded_col>\n", excludedColumnValue)
+		b.WriteString("		<null_col/>\n")
+		b.WriteString(" 	<empty_col></empty_col>\n")
+		b.WriteString(" 	<whitespace_col>	</whitespace_col>\n")
+		if id%3 != 0 {
+			fmt.Fprintf(&b, "    <optional_col>%s</optional_col>\n", vals.Str)
+		}
+		if evolved {
+			fmt.Fprintf(&b, "    <%s>%s</%s>\n", evolvedColumn, evolvedColumnValue, evolvedColumn)
+		}
+		b.WriteString("  </order>\n")
+	}
+	b.WriteString("</batch>\n")
+	b.WriteString("</root>\n")
 	return []byte(b.String())
 }
 
