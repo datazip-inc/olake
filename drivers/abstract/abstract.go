@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -126,6 +127,10 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 			convStream.SyncMode = types.CDC
 		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
 			convStream.SyncMode = types.INCREMENTAL
+			// Default cursor field: lexicographically smallest available field, for deterministic output.
+			if convStream.AvailableCursorFields.Len() > 0 {
+				convStream.CursorField = slices.Min(convStream.AvailableCursorFields.Array())
+			}
 		} else if convStream.SupportedSyncModes.Exists(types.STRICTCDC) {
 			convStream.SyncMode = types.STRICTCDC
 		} else {

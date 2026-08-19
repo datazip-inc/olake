@@ -194,6 +194,7 @@
                 "available_cursor_fields": [
                     "_last_modified_time"
                 ],
+                "cursor_field": "_last_modified_time",
                 "sync_mode": "incremental",
                 "destination_database": "s3_olake_s3_test:s3",
                 "destination_table": "s3_xml_test_table_olake",

@@ -147,7 +147,9 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		if exists {
 			// preserve metadata from old
 			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
-			newStream.Stream.CursorField = oldStream.Stream.CursorField
+			if oldStream.Stream.CursorField != "" {
+				newStream.Stream.CursorField = oldStream.Stream.CursorField
+			}
 			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
 			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 			newStream.Stream.SourceDefinedPrimaryKey = oldStream.Stream.SourceDefinedPrimaryKey
