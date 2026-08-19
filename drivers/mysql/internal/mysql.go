@@ -16,6 +16,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
@@ -139,7 +140,8 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	}
 	m.effectiveTZ = resolved
 
-	// TODO: If CDC config exists and permission check fails, fail the setup
+	m.client = client
+
 	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
 	if found {
 		logger.Info("Found CDC Configuration")
@@ -147,23 +149,26 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
 			return err
 		}
-		if cdc.InitialWaitTime == 0 {
-			// default set 10 sec
-			cdc.InitialWaitTime = 10
+		if cdc.InitialWaitTime < constants.MinCDCInitialWaitTime {
+			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using %d", cdc.InitialWaitTime, constants.MinCDCInitialWaitTime, constants.MinCDCInitialWaitTime)
+			cdc.InitialWaitTime = constants.MinCDCInitialWaitTime
 		}
+
+		// Enable CDC support if binlog is configured
+		cdcSupported, err := m.IsCDCSupported(ctx)
+		if err != nil {
+			return err
+		}
+		if !cdcSupported {
+			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCUnsupported, fmt.Errorf("failed to setup CDC: binlog is not configured correctly"))
+		}
+
+		logger.Infof("CDC setup done with initial wait time %d", cdc.InitialWaitTime)
+
+		m.CDCSupport = true
 		m.cdcConfig = *cdc
 	}
-	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
-	// Enable CDC support if binlog is configured
-	cdcSupported, err := m.IsCDCSupported(ctx)
-	if err != nil {
-		logger.Warnf("failed to check CDC support: %s", err)
-	}
-	if !cdcSupported {
-		logger.Warnf("CDC is not supported")
-	}
-	m.CDCSupport = cdcSupported
 	return nil
 }
 

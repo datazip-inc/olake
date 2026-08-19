@@ -126,6 +126,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
+	p.client = pgClient
 	// TODO: correct cdc setup
 	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")
 	if found {
@@ -134,13 +135,14 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		if err := utils.Unmarshal(p.config.UpdateMethod, cdc); err != nil {
 			return err
 		}
-		// set default value
-		cdc.InitialWaitTime = utils.Ternary(cdc.InitialWaitTime == 0, 10800, cdc.InitialWaitTime).(int)
 
-		// check if initial wait time is valid or not
-		if cdc.InitialWaitTime < 120 {
-			return errs.Precondition(errs.ConfigInvalid, codeCDCWaitTimeTooLow,
-				fmt.Errorf("the CDC initial wait time must be at least 120 seconds"))
+		// distinguish "not provided" from "explicitly set to 0"
+		waitTimeProvided, _ := utils.IsOfType(p.config.UpdateMethod, "initial_wait_time")
+		if !waitTimeProvided {
+			cdc.InitialWaitTime = constants.DefaultCDCInitialWaitTime
+		} else if cdc.InitialWaitTime < constants.MinCDCInitialWaitTime {
+			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using %d", cdc.InitialWaitTime, constants.MinCDCInitialWaitTime, constants.MinCDCInitialWaitTime)
+			cdc.InitialWaitTime = constants.MinCDCInitialWaitTime
 		}
 
 		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
@@ -164,7 +166,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	} else {
 		logger.Info("Standard Replication is selected")
 	}
-	p.client = pgClient
 	p.config.RetryCount = utils.Ternary(p.config.RetryCount <= 0, 1, p.config.RetryCount+1).(int)
 	return nil
 }
