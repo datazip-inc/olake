@@ -88,6 +88,10 @@ func clearStreamConfigurableFields(stream *Stream) {
 	stream.DestinationTable = ""
 }
 
+// ApplyStreamMetadataToStream copies configurable stream settings from `selected_streams`
+// onto the runtime `Stream` object.
+// Downstream code reads `SyncMode` / `CursorField` / `DestinationDatabase` / `DestinationTable`
+// from `Stream` object.
 func ApplyStreamMetadataToStream(metadata StreamMetadata, stream *Stream) {
 	stream.SyncMode = resolveConfigurableField(metadata.SyncMode, stream.SyncMode)
 	stream.CursorField = resolveConfigurableField(metadata.CursorField, stream.CursorField)
@@ -110,6 +114,7 @@ func ResolveCatalog(streamsFilePath, schemaFilePath string) (*Catalog, error) {
 		return nil, fmt.Errorf("failed to read streams from %s: %s", streamsFilePath, err)
 	}
 
+	// legacy catalog format with streams[] and selected_streams[]
 	if len(catalog.Streams) > 0 {
 		return catalog, nil
 	}

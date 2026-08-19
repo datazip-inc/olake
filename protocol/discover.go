@@ -40,7 +40,7 @@ var discoverCmd = &cobra.Command{
 		}
 
 		//version
-		logger.Infof("Ruuning OLake sync with version %s", version.GetOlakeCLIVersion())
+		logger.Infof("Running OLake sync with version %s", version.GetOlakeCLIVersion())
 
 		return nil
 	},
