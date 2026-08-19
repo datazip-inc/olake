@@ -3,10 +3,10 @@
     "username": "mongodb",
     "password": "secure_password123",
     "authdb": "admin",
-    "replica-set": "rs0",
-    "read-preference": "secondaryPreferred",
+    "replica_set": "rs0",
+    "read_preference": "secondaryPreferred",
     "srv": false,
-    "server-ram": 16,
+    "server_ram": 16,
     "database": "olake_mongodb_test",
     "max_threads": 5,
     "backoff_retry_count": 4
