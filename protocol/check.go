@@ -40,7 +40,7 @@ var checkCmd = &cobra.Command{
 			if destinationConfigPath != "not-set" {
 				// NewWriterPool initializes destination resources and runs Check;
 				// close immediately since a check has no further work.
-				pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, types.DeleteModeEquality, nil, batchSize)
+				pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
 				if err != nil {
 					return err
 				}

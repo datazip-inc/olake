@@ -1,4 +1,4 @@
-package io.debezium.server.iceberg.rowindex;
+package io.debezium.server.iceberg.tableIndex;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -21,6 +21,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RewriteFiles;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotSummary;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.GenericAppenderFactory;
@@ -65,11 +66,38 @@ public final class EqualityDeleteMigrator {
     }
   }
 
+  /**
+   * Whether the current snapshot still carries equality-delete records.
+   *
+   * <p>Prefers the snapshot summary ({@code total-equality-deletes}), which is
+   * already in table metadata and does not need {@code planFiles()}. If that
+   * field is missing, delete manifests are read instead — still cheaper than
+   * planning a full table scan, which is what pairs deletes to data files.
+   */
+  public static boolean hasEqualityDeletes(Table table) throws IOException {
+    Snapshot current = table.currentSnapshot();
+    if (current == null) {
+      return false;
+    }
+
+    String totalEqDeletes = current.summary().get(SnapshotSummary.TOTAL_EQ_DELETES_PROP);
+    if (totalEqDeletes != null) {
+      return Long.parseLong(totalEqDeletes) > 0L;
+    }
+
+    return false;
+  }
+
   public static Result migrate(Table table, String identifierField, OutputFileFactory fileFactory) throws Exception {
     table.refresh();
 
     Snapshot current = table.currentSnapshot();
     if (current == null) {
+      return new Result( 0, 0L);
+    }
+
+    if (!hasEqualityDeletes(table)) {
+      LOGGER.info("{} has no equality deletes to migrate", table.name());
       return new Result( 0, 0L);
     }
 
@@ -79,7 +107,7 @@ public final class EqualityDeleteMigrator {
       return new Result( 0, 0L);
     }
 
-    Schema projection = TableRowIndexScanner.identifierProjection(table, identifierField);
+    Schema projection = TableIndexScanner.identifierProjection(table, identifierField);
     Map<String, Set<String>> keysByDeleteFile = new HashMap<>();
     Map<String, PartitionGroup> groups = new LinkedHashMap<>();
     Set<DeleteFile> replaced = new LinkedHashSet<>();
@@ -110,6 +138,7 @@ public final class EqualityDeleteMigrator {
       rewrite.addFile(deleteFile);
     }
 
+    rewrite.validateFromSnapshot(current.snapshotId());
     rewrite.commit();
 
     LOGGER.info("migrated {} equality delete files of {} into {} positional delete files covering {} rows",
@@ -139,7 +168,6 @@ public final class EqualityDeleteMigrator {
             .equalityDeletes.addAll(equalityDeletes);
       }
     }
-
     return affected;
   }
 
@@ -151,9 +179,9 @@ public final class EqualityDeleteMigrator {
 
     Set<String> keys = new HashSet<>();
     try (CloseableIterable<Object> rows =
-        TableRowIndexScanner.openParquet(table, delete.location(), projection)) {
+        TableIndexScanner.openParquet(table, delete.location(), projection)) {
       for (Object row : rows) {
-        Object key = TableRowIndexScanner.getFieldValue(row, identifierField);
+        Object key = TableIndexScanner.getFieldValue(row, identifierField);
         if (key != null) {
           keys.add(key.toString());
         }
@@ -176,9 +204,9 @@ public final class EqualityDeleteMigrator {
     long position = 0L;
     long matched = 0L;
 
-    try (CloseableIterable<Object> rows = TableRowIndexScanner.openRows(table, dataFile, projection)) {
+    try (CloseableIterable<Object> rows = TableIndexScanner.openRows(table, dataFile, projection)) {
       for (Object row : rows) {
-        Object key = TableRowIndexScanner.getFieldValue(row, identifierField);
+        Object key = TableIndexScanner.getFieldValue(row, identifierField);
         if (key != null && deletedKeys.contains(key.toString())) {
           group.positions.add(new RowPosition(path, position));
           matched++;

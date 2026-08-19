@@ -19,20 +19,18 @@ type StreamIndex interface {
 	Close() error
 }
 
-// rowIndexChange is one pending mutation. A change with deleted set removes the
-// row; the location is meaningless in that case.
+// streamIndexChange is one pending mutation.
 type streamIndexChange struct {
-	loc     RowLocation
-	deleted bool
+	loc RowLocation
 }
 
-// rowIndexBatch buffers the index changes of a single writer thread until the destination commit happens
+// StreamIndexThread buffers the index changes of a single writer thread until the destination commit happens
 type StreamIndexThread struct {
 	index   StreamIndex
 	changes map[string]streamIndexChange
 }
 
-// NewRowIndexBatch returns an empty batch that resolves misses against index.
+// NewStreamIndexThread returns an empty batch that resolves misses against index.
 func NewStreamIndexThread(index StreamIndex) *StreamIndexThread {
 	if index == nil {
 		return nil
@@ -46,19 +44,11 @@ func (b *StreamIndexThread) Put(key string, loc RowLocation) {
 	b.changes[key] = streamIndexChange{loc: loc}
 }
 
-// Delete marks key as no longer live once this batch is applied.
-func (b *StreamIndexThread) Delete(key string) {
-	b.changes[key] = streamIndexChange{deleted: true}
-}
-
 // Lookup resolves key against this batch's pending changes first, so a row
 // written moments ago by the same thread resolves to where it is about to land
 // rather than to the stale location the last sync committed.
 func (b *StreamIndexThread) Lookup(key string) (RowLocation, bool, error) {
 	if change, pending := b.changes[key]; pending {
-		if change.deleted {
-			return RowLocation{}, false, nil
-		}
 		return change.loc, true, nil
 	}
 	if b.index == nil {
@@ -68,9 +58,9 @@ func (b *StreamIndexThread) Lookup(key string) (RowLocation, bool, error) {
 }
 
 // Range hands every pending change to fn, stopping at the first error.
-func (b *StreamIndexThread) Range(fn func(key string, loc RowLocation, deleted bool) error) error {
+func (b *StreamIndexThread) Range(fn func(key string, loc RowLocation) error) error {
 	for key, change := range b.changes {
-		if err := fn(key, change.loc, change.deleted); err != nil {
+		if err := fn(key, change.loc); err != nil {
 			return err
 		}
 	}

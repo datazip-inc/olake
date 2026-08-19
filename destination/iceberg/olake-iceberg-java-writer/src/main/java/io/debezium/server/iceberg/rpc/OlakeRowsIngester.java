@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 
-import org.apache.iceberg.FileContent;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -17,8 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.SchemaConvertor;
-import io.debezium.server.iceberg.rowindex.TableRowIndexScanner;
-import io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse;
+import io.debezium.server.iceberg.tableIndex.EqualityDeleteMigrator;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
@@ -176,8 +174,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.icebergTable.refresh();
                     String commitState = session.op.getCommitState(session.icebergTable);
                     sendTableResponse(responseObserver, session.icebergTable.schema().toString(),
-                            commitState != null ? commitState : "", session.icebergTable,
-                            metadata.getUsePositionalDeletes());
+                            commitState != null ? commitState : "", session);
                     break;
 
                 case RECORDS:
@@ -185,12 +182,12 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     SchemaConvertor recordsConvertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(session.upsert, session.icebergTable.schema(), request.getRecordsList());
                     
-                    List<RecordIngest.FilePositionMap> filePositionMaps = session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords);
+                    List<RecordIngest.FilePositionMap> positionMaps = session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords);
                     
                     sendResponse(responseObserver, io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse.newBuilder()
                         .setResult("successfully pushed records: " + request.getRecordsCount())
                         .setSuccess(true)
-                        .addAllFilePositionMaps(filePositionMaps)
+                        .addAllFilePositionMaps(positionMaps)
                         .build());
                     LOGGER.debug("{} Successfully wrote {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     break;
@@ -227,21 +224,20 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
     /**
      * Answers the GET_OR_CREATE_TABLE handshake with the table's current snapshot
-     * and whether it still carries equality deletes. A caller keeping a table index
-     * needs both to decide between reusing, refreshing, and rebuilding it.
+     * and whether it still carries equality deletes.
      */
     private void sendTableResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver,
-            String message, String olake2pcState, Table table, boolean usePositionalDeletes) throws Exception {
+            String message, String olake2pcState, IcebergSession session) throws Exception {
         RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder()
                 .setResult(message)
                 .setOlake2PcState(olake2pcState);
 
+        Table table = session.icebergTable;
         Snapshot current = table.currentSnapshot();
         if (current != null) {
             builder.setSnapshotId(current.snapshotId());
-            if (usePositionalDeletes) {
-                builder.setHasEqualityDeletes(
-                        !TableRowIndexScanner.deleteFiles(table, FileContent.EQUALITY_DELETES).isEmpty());
+            if (session.usePositionalDeletes) {
+                builder.setHasEqualityDeletes(EqualityDeleteMigrator.hasEqualityDeletes(table));
             }
         }
 

@@ -11,8 +11,8 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// reconcileRowIndex makes the stream's index agree with the destination table before the first record is written
-func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.StreamIndex, tableSnapshotID int64, hasEqualityDeletes bool) error {
+// reconcileTableIndex makes the stream's index agree with the destination table before the first record is written
+func (i *Iceberg) reconcileTableIndex(ctx context.Context, index types.StreamIndex, tableSnapshotID int64, hasEqualityDeletes bool) error {
 	if index == nil {
 		// no stream index to reconcile
 		return nil
@@ -49,12 +49,12 @@ func (i *Iceberg) reconcileRowIndex(ctx context.Context, index types.StreamIndex
 	}
 
 	// reindex iceberg table
-	return i.fillRowIndex(ctx, index, table, fromSnapshotID)
+	return i.fillTableIndex(ctx, index, table, fromSnapshotID)
 }
 
-// fillRowIndex streams row locations from the destination into index
+// fillTableIndex streams table locations from the destination into index
 // if fromSnapshotID is provided it try to update indexes in incremental manner
-func (i *Iceberg) fillRowIndex(ctx context.Context, index types.StreamIndex, table string, fromSnapshotID *int64) error {
+func (i *Iceberg) fillTableIndex(ctx context.Context, index types.StreamIndex, table string, fromSnapshotID *int64) error {
 	posIterator, err := i.server.tableIndexClient.ScanTableForIndexing(ctx, &proto.TableIndexScanRequest{
 		ThreadId:       i.options.ThreadID,
 		FromSnapshotId: fromSnapshotID,

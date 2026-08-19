@@ -20,9 +20,9 @@ const (
 	DeleteModeDeletionVector DeleteMode = "dv"
 )
 
-// NeedsRowIndex reports whether the mode can only be served by maintaining a
+// NeedsTableIndex reports whether the mode can only be served by maintaining a
 // TableIndex alongside the destination table.
-func (m DeleteMode) NeedsRowIndex(destinationType DestinationType) bool {
+func (m DeleteMode) NeedsTableIndex(destinationType DestinationType) bool {
 	return destinationType == Iceberg && m == DeleteModePosition
 }
 

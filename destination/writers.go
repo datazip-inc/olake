@@ -20,8 +20,8 @@ type (
 		Backfill    bool
 		ThreadID    string
 		ApplyFilter bool
-		// RowIndex maps _olake_id to the row's location in the destination table.
-		RowIndex types.StreamIndex
+		// TableIndex maps _olake_id to the row's location in the destination table.
+		TableIndex types.StreamIndex
 	}
 
 	ThreadOptions func(opt *Options)
@@ -42,7 +42,6 @@ type (
 	WriterPool struct {
 		stats        *Stats
 		initWriter   initWriter
-		deleteMode   types.DeleteMode
 		shutdown     func(ctx context.Context)
 		writerSchema sync.Map
 		batchSize    int64
@@ -90,7 +89,7 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 
 // NewWriterPool manages a destination's shared resources (e.g., Iceberg JVM) and connection health.
 // It initializes global state, runs checks, and provides thread-level writers. Call Close() to clean up.
-func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode types.DeleteMode, syncStreams []types.StreamInterface, batchSize int64) (*WriterPool, error) {
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []types.StreamInterface, batchSize int64) (*WriterPool, error) {
 	initWriter, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -108,7 +107,6 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 			RecordsFiltered:    atomic.Int64{},
 		},
 		initWriter: initWriter,
-		deleteMode: deleteMode,
 		shutdown:   shutdown,
 		batchSize:  batchSize,
 	}
@@ -126,7 +124,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 			schema: nil,
 		}
 
-		if deleteMode.NeedsRowIndex(config.Type) && !stream.Self().StreamMetadata.AppendMode {
+		if stream.GetDeleteMode().NeedsTableIndex(config.Type) && !stream.Self().StreamMetadata.AppendMode {
 			streamIndex, err := indexdb.Open(stream.ID())
 			if err != nil {
 				pool.Shutdown(ctx)
@@ -185,7 +183,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	// Threads of one stream share the stream's index; it is nil in equality mode.
 	// TODO: can we pass things through contexts like streamContext ?
-	opts.RowIndex = streamArtifact.streamIndex
+	opts.TableIndex = streamArtifact.streamIndex
 
 	writerThread, prevStreamState, err := func() (Writer, *types.MetadataState, error) {
 		// init writer and point it at the config parsed once at pool creation,
@@ -377,13 +375,13 @@ func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) 
 	}
 }
 
-func DropStreams(ctx context.Context, config *types.WriterConfig, deleteMode types.DeleteMode, dropStreams []types.StreamInterface) error {
+func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
 	if len(dropStreams) == 0 {
 		return nil
 	}
 
-	if deleteMode.NeedsRowIndex(config.Type) {
-		for _, stream := range dropStreams {
+	for _, stream := range dropStreams {
+		if stream.GetDeleteMode().NeedsTableIndex(config.Type) {
 			if err := indexdb.Drop(stream.ID()); err != nil {
 				return err
 			}

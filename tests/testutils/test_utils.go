@@ -631,6 +631,23 @@ func updateStreamConfig(config *TestConfig, namespace, streamName, syncMode, cur
 	})
 }
 
+// updateDeleteType sets delete_type in selected_streams for the stream identified by namespace+streamName.
+func updateDeleteType(config *TestConfig, namespace, streamName, deleteType string) error {
+	streamName = normalizeStreamName(config.Driver, streamName)
+	return editJSONFile(config.HostCatalogPath, func(doc map[string]interface{}) error {
+		selected, _ := doc["selected_streams"].(map[string]interface{})
+		nsStreams, _ := selected[namespace].([]interface{})
+		for _, raw := range nsStreams {
+			stream, ok := raw.(map[string]interface{})
+			if !ok || fmt.Sprint(stream["stream_name"]) != streamName {
+				continue
+			}
+			stream["delete_type"] = deleteType
+		}
+		return nil
+	})
+}
+
 // resetStateFile clears state.json so incremental can perform its initial load
 // (equivalent to a full load on first run), irrespective of any previous CDC run.
 func resetStateFile(config *TestConfig) error {
@@ -1707,20 +1724,20 @@ func (cfg *IntegrationTest) TestSync(t *testing.T) {
 			}
 		})
 
-		if hasIcebergRowIndexTest(cfg.TestConfig.Driver) {
-			t.Run("Iceberg Row Index Eq to Pos Conversion", func(t *testing.T) {
+		if hasIcebergTableIndexTest(cfg.TestConfig.Driver) {
+			t.Run("Iceberg Table Index Eq to Pos Conversion", func(t *testing.T) {
 				if err := cfg.testIcebergEqToPosConversion(ctx, t, currentTestTable); err != nil {
-					t.Fatalf("Iceberg Row Index Eq to Pos Conversion test failed: %v", err)
+					t.Fatalf("Iceberg Table Index Eq to Pos Conversion test failed: %v", err)
 				}
 			})
-			t.Run("Iceberg Row Index Clean Table Positional", func(t *testing.T) {
+			t.Run("Iceberg Table Index Clean Table Positional", func(t *testing.T) {
 				if err := cfg.testIcebergCleanTablePositionalWithPebbleIndex(ctx, t, currentTestTable); err != nil {
-					t.Fatalf("Iceberg Row Index Clean Table Positional test failed: %v", err)
+					t.Fatalf("Iceberg Table Index Clean Table Positional test failed: %v", err)
 				}
 			})
-			t.Run("Iceberg Row Index Rebuild Index From Scratch", func(t *testing.T) {
+			t.Run("Iceberg Table Index Rebuild Index From Scratch", func(t *testing.T) {
 				if err := cfg.testIcebergRebuildIndexFromScratch(ctx, t, currentTestTable); err != nil {
-					t.Fatalf("Iceberg Row Index Rebuild Index From Scratch test failed: %v", err)
+					t.Fatalf("Iceberg Table Index Rebuild Index From Scratch test failed: %v", err)
 				}
 			})
 		}

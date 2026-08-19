@@ -120,7 +120,7 @@ var syncCmd = &cobra.Command{
 				return fmt.Errorf("error clearing state for full refresh streams: %s", err)
 			}
 
-			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, deleteMode, dropStreams); cerr != nil {
+			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
 				return fmt.Errorf("failed to clear destination: %s", cerr)
 			}
 		}
@@ -129,7 +129,7 @@ var syncCmd = &cobra.Command{
 		// (e.g. the Iceberg shared JVM) and validates the connection. pool.Close
 		// tears them down on exit (normal return or signal-canceled context).
 		stopInit := logger.TrackTiming("sync", "writer pool init")
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, deleteMode, selectedStreamsMetadata.SelectedStreams, batchSize)
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize)
 		stopInit()
 		if err != nil {
 			return err
@@ -155,7 +155,7 @@ var syncCmd = &cobra.Command{
 			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
 			defer func() {
 				stats := pool.GetStats()
-				telemetry.TrackSyncCompleted(syncID, deleteType, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
+				telemetry.TrackSyncCompleted(syncID, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
 				logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 				time.Sleep(5 * time.Second)
 			}()
@@ -227,6 +227,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
 				return false
 			}
+		}
+
+		if err := elem.GetDeleteMode().Validate(); err != nil {
+			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
+			return false
 		}
 
 		filter, isLegacy, err := elem.GetFilter()

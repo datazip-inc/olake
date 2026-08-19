@@ -106,7 +106,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 			IdentifierField:      &identifierField,
 			Namespace:            stream.GetDestinationDatabase(&i.config.IcebergDatabase),
 			Upsert:               upsertMode,
-			UsePositionalDeletes: options.RowIndex != nil,
+			UsePositionalDeletes: options.TableIndex != nil,
 			PartitionFields:      icebergPartFields,
 		},
 	}
@@ -134,7 +134,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	// set schema for current thread
 	i.schema = copySchema(schema)
 
-	if err := i.reconcileRowIndex(ctx, options.RowIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
+	if err := i.reconcileTableIndex(ctx, options.TableIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
 		return schema, nil, err
 	}
 

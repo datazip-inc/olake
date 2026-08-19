@@ -13,16 +13,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// icebergRowIndexTestDrivers lists drivers that run Iceberg row-index / delete-mode tests.
+// icebergTableIndexTestDrivers lists drivers that run Iceberg table-index / delete-mode tests.
 // One CDC-capable driver is enough; these exercise destination behavior, not source specifics.
-var icebergRowIndexTestDrivers = []constants.DriverType{constants.Postgres}
+var icebergTableIndexTestDrivers = []constants.DriverType{constants.Postgres}
 
 // seedRowCount is the number of filter-passing rows inserted by ExecuteQuery("add").
 const seedRowCount int64 = 5
 
-// hasIcebergRowIndexTest reports whether the driver participates in Iceberg row-index tests.
-func hasIcebergRowIndexTest(driver string) bool {
-	return slices.Contains(icebergRowIndexTestDrivers, constants.DriverType(driver))
+// hasIcebergTableIndexTest reports whether the driver participates in Iceberg row-index tests.
+func hasIcebergTableIndexTest(driver string) bool {
+	return slices.Contains(icebergTableIndexTestDrivers, constants.DriverType(driver))
 }
 
 func getSparkSession(ctx context.Context, t *testing.T) sql.SparkSession {
@@ -88,8 +88,8 @@ func queryLiveOpTypes(ctx context.Context, t *testing.T, spark sql.SparkSession,
 	return result
 }
 
-// prepareRowIndexSync resets source data and configures catalog/state for CDC with the given table.
-func (cfg *IntegrationTest) prepareRowIndexSync(ctx context.Context, t *testing.T, testTable string) error {
+// prepareTableIndexSync resets source data and configures catalog/state for CDC with the given table.
+func (cfg *IntegrationTest) prepareTableIndexSync(ctx context.Context, t *testing.T, testTable string) error {
 	t.Helper()
 	if err := cfg.resetTable(ctx, t); err != nil {
 		return fmt.Errorf("failed resetting table: %w", err)
@@ -107,7 +107,7 @@ func (cfg *IntegrationTest) prepareRowIndexSync(ctx context.Context, t *testing.
 		return fmt.Errorf("failed resetting state file: %w", err)
 	}
 
-	_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-row-index"))
+	_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index"))
 	return nil
 }
 
@@ -126,19 +126,22 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 
 	defer dropIcebergTable(t, testTable, cfg.DestinationDB)
 
-	if err := cfg.prepareRowIndexSync(ctx, t, testTable); err != nil {
+	if err := cfg.prepareTableIndexSync(ctx, t, testTable); err != nil {
 		return err
 	}
 
 	// Step 1: full load + CDC update with equality deletes
-	syncEqCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "eq")
+	if err := updateDeleteType(cfg.TestConfig, cfg.Namespace, testTable, "eq"); err != nil {
+		return fmt.Errorf("failed setting delete type: %w", err)
+	}
+	syncEqCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 	if code, out, err := runOlake(ctx, t, cfg.TestConfig, syncEqCmd...); err != nil || code != 0 {
 		return fmt.Errorf("initial full load sync failed (%d): %s\n%s", code, err, out)
 	}
 
 	cfg.applyCDCUpdate(ctx, t)
 
-	cdcEqCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "eq")
+	cdcEqCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 	if code, out, err := runOlake(ctx, t, cfg.TestConfig, cdcEqCmd...); err != nil || code != 0 {
 		return fmt.Errorf("cdc eq sync failed (%d): %s\n%s", code, err, out)
 	}
@@ -152,7 +155,10 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 	// Step 2: CDC insert with positional deletes (triggers eq -> pos conversion)
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "insert")
 
-	cdcPosCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "pos")
+	if err := updateDeleteType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+		return fmt.Errorf("failed setting delete type: %w", err)
+	}
+	cdcPosCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 	if code, out, err := runOlake(ctx, t, cfg.TestConfig, cdcPosCmd...); err != nil || code != 0 {
 		return fmt.Errorf("cdc pos sync failed (%d): %s\n%s", code, err, out)
 	}
@@ -175,18 +181,21 @@ func (cfg *IntegrationTest) testIcebergCleanTablePositionalWithPebbleIndex(ctx c
 
 	defer dropIcebergTable(t, testTable, cfg.DestinationDB)
 
-	if err := cfg.prepareRowIndexSync(ctx, t, testTable); err != nil {
+	if err := cfg.prepareTableIndexSync(ctx, t, testTable); err != nil {
 		return err
 	}
 
-	syncFullCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "pos")
+	if err := updateDeleteType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+		return fmt.Errorf("failed setting delete type: %w", err)
+	}
+	syncFullCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 	if code, out, err := runOlake(ctx, t, cfg.TestConfig, syncFullCmd...); err != nil || code != 0 {
 		return fmt.Errorf("initial full load failed (%d): %s\n%s", code, err, out)
 	}
 
 	cfg.applyCDCUpdate(ctx, t)
 
-	cdcPosCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "pos")
+	cdcPosCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 	if code, out, err := runOlake(ctx, t, cfg.TestConfig, cdcPosCmd...); err != nil || code != 0 {
 		return fmt.Errorf("cdc pos sync failed (%d): %s\n%s", code, err, out)
 	}
@@ -198,7 +207,7 @@ func (cfg *IntegrationTest) testIcebergCleanTablePositionalWithPebbleIndex(ctx c
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row")
 	require.Equal(t, seedRowCount-1, countByOpType(ctx, t, spark, fullTableName, "r"), "expected remaining backfill rows")
 
-	indexPath := filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-row-index")
+	indexPath := filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index")
 	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
 		return fmt.Errorf("expected pebble index directory to exist at %s", indexPath)
 	}
@@ -213,20 +222,23 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 
 	defer dropIcebergTable(t, testTable, cfg.DestinationDB)
 
-	if err := cfg.prepareRowIndexSync(ctx, t, testTable); err != nil {
+	if err := cfg.prepareTableIndexSync(ctx, t, testTable); err != nil {
 		return err
 	}
 
-	syncFullCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "pos")
+	if err := updateDeleteType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+		return fmt.Errorf("failed setting delete type: %w", err)
+	}
+	syncFullCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 	if code, out, err := runOlake(ctx, t, cfg.TestConfig, syncFullCmd...); err != nil || code != 0 {
 		return fmt.Errorf("initial full load failed (%d): %s\n%s", code, err, out)
 	}
 
-	_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-row-index"))
+	_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index"))
 
 	cfg.applyCDCUpdate(ctx, t)
 
-	cdcPosCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix, "--delete-type", "pos")
+	cdcPosCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 	if code, out, err := runOlake(ctx, t, cfg.TestConfig, cdcPosCmd...); err != nil || code != 0 {
 		return fmt.Errorf("cdc sync after index delete failed (%d): %s\n%s", code, err, out)
 	}
@@ -237,7 +249,7 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 	require.Equal(t, seedRowCount, countLiveRecords(ctx, t, spark, fullTableName), "live record count should match seed")
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row after rebuild")
 
-	indexPath := filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-row-index")
+	indexPath := filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index")
 	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
 		return fmt.Errorf("pebble index should be rebuilt and present at %s", indexPath)
 	}

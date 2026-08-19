@@ -35,8 +35,6 @@ var (
 	timeout                   int64 // timeout in seconds
 	destinationConfig         *types.WriterConfig
 	differencePath            string
-	deleteType                string
-	deleteMode                types.DeleteMode
 	commands                  = []*cobra.Command{}
 	connector                 *abstract.AbstractDriver
 )
@@ -65,11 +63,6 @@ var RootCmd = &cobra.Command{
 
 		if encryptionKey != "" {
 			viper.Set(constants.EncryptionKey, encryptionKey)
-		}
-
-		deleteMode = types.DeleteMode(deleteType)
-		if err := deleteMode.Validate(); err != nil {
-			return fmt.Errorf("invalid delete mode: %s", err)
 		}
 
 		// logger uses CONFIG_FOLDER
@@ -151,7 +144,6 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
 	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
-	RootCmd.PersistentFlags().StringVarP(&deleteType, "delete-type", "", "eq", "iceberg delete type that sync job should write to iceberg table supported: eq, pos)")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

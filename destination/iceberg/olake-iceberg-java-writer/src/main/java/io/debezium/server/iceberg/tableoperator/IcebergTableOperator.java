@@ -222,7 +222,6 @@ public class IcebergTableOperator {
             deleteFiles.forEach(rowDelta::addDeletes);
           }
         }
-        
         rowDelta.commit();
       }
 

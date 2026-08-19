@@ -46,15 +46,21 @@ func DefaultOptions(streamID string) StoreOptions {
 
 	cacheSize, err := strconv.Atoi(os.Getenv(constants.IndexDBCacheSizePerStream))
 	if err != nil {
-		logger.Debugf("failed to parse index db cache size (using default %d MB): %s", constants.DefaultCacheSize, err)
+		logger.Warnf("failed to parse index db cache size (using default %d MB): %s", constants.DefaultCacheSize, err)
 		cacheSize = constants.DefaultCacheSize
+	}
+
+	maxOpenFiles, err := strconv.Atoi(os.Getenv(constants.MaxOpenFilesPerStream))
+	if err != nil {
+		logger.Warnf("failed to parse index db max open files (using default %d): %s", constants.DefaultMaxOpenFiles, err)
+		maxOpenFiles = constants.DefaultMaxOpenFiles
 	}
 
 	return StoreOptions{
 		Dir:          dir,
 		CacheSize:    int64(cacheSize),
 		MemTableSize: constants.DefaultMemTableSize,
-		MaxOpenFiles: constants.DefaultMaxOpenFiles,
+		MaxOpenFiles: maxOpenFiles,
 	}
 }
 
@@ -216,8 +222,8 @@ func (i *pebbleIndex) Commit(batch *types.StreamIndexThread, snapshotID *int64) 
 	}()
 
 	if batch != nil {
-		err := batch.Range(func(key string, loc types.RowLocation, deleted bool) error {
-			return i.stageChange(pending, key, loc, deleted)
+		err := batch.Range(func(key string, loc types.RowLocation) error {
+			return i.stageChange(pending, key, loc)
 		})
 		if err != nil {
 			return err
@@ -241,14 +247,7 @@ func (i *pebbleIndex) Commit(batch *types.StreamIndexThread, snapshotID *int64) 
 	return nil
 }
 
-func (i *pebbleIndex) stageChange(batch *pebble.Batch, key string, loc types.RowLocation, deleted bool) error {
-	if deleted {
-		if err := batch.Delete(rowKey(key), nil); err != nil {
-			return fmt.Errorf("failed to stage stream index delete for key[%s]: %s", key, err)
-		}
-		return nil
-	}
-
+func (i *pebbleIndex) stageChange(batch *pebble.Batch, key string, loc types.RowLocation) error {
 	if loc.Position < 0 {
 		return fmt.Errorf("stream index position for key[%s] must not be negative, got %d", key, loc.Position)
 	}

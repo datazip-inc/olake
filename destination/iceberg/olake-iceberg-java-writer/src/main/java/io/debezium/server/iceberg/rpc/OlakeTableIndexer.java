@@ -5,12 +5,13 @@ import java.util.concurrent.ConcurrentMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.debezium.server.iceberg.rowindex.EqualityDeleteMigrator;
-import io.debezium.server.iceberg.rowindex.TableRowIndexScanner;
 import io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest;
 import io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse;
 import io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch;
 import io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest;
+import io.debezium.server.iceberg.tableIndex.EqualityDeleteMigrator;
+import io.debezium.server.iceberg.tableIndex.TableIndexScanner;
+import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 
 /**
@@ -43,7 +44,7 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
       Long fromSnapshotId = request.hasFromSnapshotId() ? request.getFromSnapshotId() : null;
 
       BatchEmitter emitter = new BatchEmitter(responseObserver);
-      TableRowIndexScanner.ScanResult result = TableRowIndexScanner.scan(
+      TableIndexScanner.ScanResult result = TableIndexScanner.scan(
           session.icebergTable, session.identifierField, fromSnapshotId, emitter);
 
       emitter.finish();
@@ -51,6 +52,9 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
       responseObserver.onCompleted();
       LOGGER.info("streamed table index of {} entries for thread {} in {} ms",
           result.entries, request.getThreadId(), System.currentTimeMillis() - startTime);
+    } catch (ScanAbandoned e) {
+      LOGGER.warn("table index scan for thread {} abandoned by the caller after {} ms",
+          request.getThreadId(), System.currentTimeMillis() - startTime);
     } catch (Exception e) {
       String message = String.format("failed to scan table index for thread %s: %s",
           request.getThreadId(), e.getMessage());
@@ -93,15 +97,36 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
     return session;
   }
 
+  /** Raised to unwind a scan whose caller has gone away. */
+  private static final class ScanAbandoned extends RuntimeException {
+    private ScanAbandoned() {
+      super("table index scan cancelled by the caller", null, false, false);
+    }
+  }
+
   /** Accumulates scan entries and ships them once a batch is full. */
-  private static final class BatchEmitter implements TableRowIndexScanner.EntryConsumer {
+  private static final class BatchEmitter implements TableIndexScanner.EntryConsumer {
+    private static final long READY_WAIT_MILLIS = 500;
+    private static final long STALL_REPORT_MILLIS = 30_000;
+
     private final StreamObserver<TableIndexScanBatch> responseObserver;
+    private final ServerCallStreamObserver<TableIndexScanBatch> call;
+    private final Object readyLock = new Object();
     private TableIndexScanBatch.Builder batch = TableIndexScanBatch.newBuilder();
     private long snapshotId;
     private boolean sentAnything;
 
+    @SuppressWarnings("unchecked")
     private BatchEmitter(StreamObserver<TableIndexScanBatch> responseObserver) {
       this.responseObserver = responseObserver;
+      this.call = responseObserver instanceof ServerCallStreamObserver
+          ? (ServerCallStreamObserver<TableIndexScanBatch>) responseObserver
+          : null;
+
+      if (call != null) {
+        call.setOnReadyHandler(this::wakeUp);
+        call.setOnCancelHandler(this::wakeUp);
+      }
     }
 
     @Override
@@ -133,9 +158,46 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
     }
 
     private void send() {
+      awaitReady();
       responseObserver.onNext(batch.build());
       batch = TableIndexScanBatch.newBuilder().setSnapshotId(snapshotId);
       sentAnything = true;
+    }
+
+    private void awaitReady() {
+      if (call == null) {
+        return;
+      }
+
+      long waitedMillis = 0;
+      synchronized (readyLock) {
+        while (true) {
+          if (call.isCancelled()) {
+            throw new ScanAbandoned();
+          }
+          if (call.isReady()) {
+            return;
+          }
+          try {
+            readyLock.wait(READY_WAIT_MILLIS);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ScanAbandoned();
+          }
+
+          waitedMillis += READY_WAIT_MILLIS;
+          if (waitedMillis % STALL_REPORT_MILLIS == 0) {
+            LOGGER.warn("table index scan has waited {} ms for the caller to consume; "
+                + "still streaming, {} entries buffered", waitedMillis, batch.getEntriesCount());
+          }
+        }
+      }
+    }
+
+    private void wakeUp() {
+      synchronized (readyLock) {
+        readyLock.notifyAll();
+      }
     }
   }
 }

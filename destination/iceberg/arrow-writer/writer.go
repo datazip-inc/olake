@@ -78,7 +78,7 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
-		indexThread:   types.NewStreamIndexThread(options.RowIndex),
+		indexThread:   types.NewStreamIndexThread(options.TableIndex),
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -143,7 +143,7 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 	if w.upsertMode {
 		// In positional delete mode the index resolves every row to a location, so
 		// no equality deletes are produced at all.
-		if writer.equalityDeleteWriter == nil && w.options.RowIndex == nil {
+		if writer.equalityDeleteWriter == nil && w.options.TableIndex == nil {
 			if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
 				return nil, err
 			}
@@ -395,6 +395,15 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 		commitRequest.Metadata.Payload = string(payloadBytes)
 	}
 
+	if w.indexThread != nil {
+		indexBaseSnapshotID, err := w.options.TableIndex.LastCommittedSnapshot()
+		if err != nil {
+			return fmt.Errorf("failed to get last committed snapshot ID: %s", err)
+		}
+
+		commitRequest.Metadata.BaseSnapshotId = &indexBaseSnapshotID
+	}
+
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
@@ -410,7 +419,7 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 	if w.indexThread != nil && committedSnapshotID != nil && *committedSnapshotID != 0 {
 		batch := w.indexThread
 		w.indexThread = nil
-		if applyErr := w.options.RowIndex.Commit(batch, committedSnapshotID); applyErr != nil {
+		if applyErr := w.options.TableIndex.Commit(batch, committedSnapshotID); applyErr != nil {
 			return fmt.Errorf("failed to apply stream index: %s", applyErr)
 		}
 	}

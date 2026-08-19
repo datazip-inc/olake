@@ -128,18 +128,28 @@ func TrackSyncStarted(syncID string, selectedStreams, fullLoadStreams, cdcStream
 		if string(destinationConfig.Type) == "ICEBERG" {
 			catalogType = destinationConfig.WriterConfig.(map[string]interface{})["catalog_type"].(string)
 		}
+
+		streamWithPosDeleteMode := 0
+		_ = utils.ForEach(catalog.Streams, func(s *types.ConfiguredStream) error {
+			if s.Self().GetDeleteMode() == types.DeleteModePosition {
+				streamWithPosDeleteMode++
+			}
+			return nil
+		})
+
 		props := map[string]interface{}{
-			"sync_start":          time.Now(),
-			"sync_id":             syncID,
-			"stream_count":        len(catalog.Streams),
-			"selected_count":      len(selectedStreams),
-			"full_load_streams":   len(fullLoadStreams),
-			"cdc_streams":         len(cdcStreams),
-			"source_type":         sourceType,
-			"destination_type":    string(destinationConfig.Type),
-			"catalog_type":        catalogType,
-			"normalized_streams":  countNormalizedStreams(catalog),
-			"partitioned_streams": countPartitionedStreams(catalog),
+			"sync_start":                  time.Now(),
+			"sync_id":                     syncID,
+			"stream_count":                len(catalog.Streams),
+			"selected_count":              len(selectedStreams),
+			"full_load_streams":           len(fullLoadStreams),
+			"cdc_streams":                 len(cdcStreams),
+			"source_type":                 sourceType,
+			"destination_type":            string(destinationConfig.Type),
+			"catalog_type":                catalogType,
+			"normalized_streams":          countNormalizedStreams(catalog),
+			"partitioned_streams":         countPartitionedStreams(catalog),
+			"stream_with_pos_delete_mode": streamWithPosDeleteMode,
 		}
 
 		if err := telemetry.sendEvent("Sync Started - CLI", props); err != nil {
@@ -148,7 +158,7 @@ func TrackSyncStarted(syncID string, selectedStreams, fullLoadStreams, cdcStream
 	}()
 }
 
-func TrackSyncCompleted(syncID, deleteType string, status bool, records, bytesRead int64) {
+func TrackSyncCompleted(syncID string, status bool, records, bytesRead int64) {
 	go func() {
 		if telemetry == nil {
 			return
@@ -159,7 +169,6 @@ func TrackSyncCompleted(syncID, deleteType string, status bool, records, bytesRe
 			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
 			"records_synced": records,
 			"bytes_read":     bytesRead,
-			"delete_type":    deleteType,
 		}
 
 		if err := telemetry.sendEvent("Sync Completed - CLI", props); err != nil {

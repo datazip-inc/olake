@@ -296,3 +296,10 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 func (s *ConfiguredStream) NormalizationEnabled() bool {
 	return s.StreamMetadata.Normalization
 }
+
+func (s *ConfiguredStream) GetDeleteMode() DeleteMode {
+	if s.StreamMetadata.DeleteType == "" {
+		return DeleteModeEquality
+	}
+	return DeleteMode(s.StreamMetadata.DeleteType)
+}

@@ -31,7 +31,7 @@ func New(options *destination.Options, schema map[string]string, stream types.St
 		stream:     stream,
 		server:     server,
 		upsertMode: upsertMode,
-		indexBatch: types.NewStreamIndexThread(options.RowIndex),
+		indexBatch: types.NewStreamIndexThread(options.TableIndex),
 	}
 }
 
@@ -176,6 +176,15 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 		},
 	}
 
+	if w.indexBatch != nil {
+		indexBaseSnapshotID, err := w.options.TableIndex.LastCommittedSnapshot()
+		if err != nil {
+			return fmt.Errorf("failed to get last committed snapshot ID: %s", err)
+		}
+
+		request.Metadata.BaseSnapshotId = &indexBaseSnapshotID
+	}
+
 	// Send commit request with timeout
 	ctx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
@@ -193,7 +202,7 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 	if w.indexBatch != nil && ingestResponse.SnapshotId != 0 {
 		batch := w.indexBatch
 		w.indexBatch = nil
-		if err := w.options.RowIndex.Commit(batch, &ingestResponse.SnapshotId); err != nil {
+		if err := w.options.TableIndex.Commit(batch, &ingestResponse.SnapshotId); err != nil {
 			return fmt.Errorf("failed to apply stream index: %s", err)
 		}
 	}

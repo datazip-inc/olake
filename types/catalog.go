@@ -52,6 +52,7 @@ type StreamMetadata struct {
 	StreamName     string `json:"stream_name"`
 	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization"`
+	DeleteType     string `json:"delete_type,omitempty"`
 	// When enabled, source column names are preserved as-is; otherwise utils.Reformat() is applied to generate destination-safe lowercase column names.
 	UseSourceColumnNames bool `json:"use_source_column_names"`
 	//legacy filter input
@@ -89,6 +90,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			StreamName:      stream.Name,
 			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
 			Normalization:   IsDriverRelational(driver),
+			DeleteType:      string(DeleteModeEquality),
 			SelectedColumns: selectedCols,
 		})
 	}
@@ -307,6 +309,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// cursor field change , Format: "primary_cursor:secondary_cursor"
 			// sync mode change
 			// destination table change
+
+			// NOTE: we are not droping table if there is delete mode change
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
 				// check cursor field if SyncMode is incremental

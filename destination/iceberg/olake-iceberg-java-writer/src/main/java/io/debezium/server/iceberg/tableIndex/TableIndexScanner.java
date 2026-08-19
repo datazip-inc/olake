@@ -1,33 +1,25 @@
-package io.debezium.server.iceberg.rowindex;
+package io.debezium.server.iceberg.tableIndex;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import org.apache.avro.generic.GenericRecord;
 import org.apache.iceberg.DataFile;
-import org.apache.iceberg.DeleteFile;
-import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
-import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.io.CloseableIterable;
-import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Types.NestedField;
 import org.slf4j.Logger;
@@ -42,14 +34,12 @@ import org.slf4j.LoggerFactory;
  * <p>Rows are emitted oldest first, ordered by data sequence number and then by
  * path. A caller that overwrites entries as they arrive therefore ends up holding
  * the newest version of every identifier, which is the row a subsequent update or
- * delete has to evict. Rows already covered by a positional delete are skipped,
- * so the result describes live rows rather than the table's whole history.
+ * delete has to evict.
  */
-public final class TableRowIndexScanner {
-  private static final Logger LOGGER = LoggerFactory.getLogger(TableRowIndexScanner.class);
-  private static final BitSet EMPTY_POSITIONS = new BitSet(0);
+public final class TableIndexScanner {
+  private static final Logger LOGGER = LoggerFactory.getLogger(TableIndexScanner.class);
 
-  private TableRowIndexScanner() {
+  private TableIndexScanner() {
   }
 
   /** Receives one identifier-to-location mapping at a time. */
@@ -102,7 +92,7 @@ public final class TableRowIndexScanner {
       List<DataFile> changes = dataFileChangesSince(table, fromSnapshotId, current.snapshotId());
       if (changes == null) {
         throw new IllegalStateException(String.format(
-            "cannot catch up stream index for table %s: snapshot %d is not an ancestor of current snapshot %d",
+            "cannot catch up stream index for table %s: snapshot %d is not an ancestor of current snapshot %d, full scan of index required",
             table.name(), fromSnapshotId, current.snapshotId()));
       }
       addedFiles = changes;
@@ -110,48 +100,16 @@ public final class TableRowIndexScanner {
 
     consumer.begin(current.snapshotId());
     Schema projection = identifierProjection(table, identifierField);
-    Map<String, BitSet> deletedPositions = deletedPositions(table);
     long entries = 0L;
 
     for (DataFile file : addedFiles) {
-      BitSet deleted = deletedPositions.getOrDefault(file.location(), EMPTY_POSITIONS);
-      entries += emitFile(table, file, projection, identifierField, deleted, consumer);
+      entries += emitFile(table, file, projection, identifierField, consumer);
     }
 
     LOGGER.info("table index scan of {} covered {} added files, {} row entries, up to snapshot {}",
         table.name(), addedFiles.size(), entries, current.snapshotId());
 
     return new ScanResult(current.snapshotId(), entries);
-  }
-
-  /**
-   * Positions already removed by positional delete files, keyed by data file path.
-   * Skipping these keeps the index proportional to the number of live rows rather
-   * than to everything the table has ever held.
-   */ 
-  private static Map<String, BitSet> deletedPositions(Table table) throws IOException {
-    Map<String, BitSet> byFile = new HashMap<>();
-    Schema pathPos = DeleteSchemaUtil.pathPosSchema();
-
-    for (DeleteFile delete : deleteFiles(table, FileContent.POSITION_DELETES)) {
-      try (CloseableIterable<Object> rows = openParquet(table, delete.location(), pathPos)) {
-        for (Object row : rows) {
-          Object path = getFieldValue(row, MetadataColumns.DELETE_FILE_PATH.name());
-          Object position = getFieldValue(row, MetadataColumns.DELETE_FILE_POS.name());
-          if (path == null || position == null) {
-            continue;
-          }
-          long ordinal = position instanceof Number n ? n.longValue() : Long.parseLong(position.toString());
-          if (ordinal > Integer.MAX_VALUE) {
-            // No realistic data file holds this many rows.
-            continue;
-          }
-          byFile.computeIfAbsent(path.toString(), key -> new BitSet()).set((int) ordinal);
-        }
-      }
-    }
-
-    return byFile;
   }
 
   /** Every data file visible in the table's current snapshot, oldest first. */
@@ -243,8 +201,7 @@ public final class TableRowIndexScanner {
    * Reads one data file and emits an entry per live row, ordinal counted from zero.
    * Returns the number of entries emitted.
    */
-  private static long emitFile(Table table, DataFile file, Schema projection, String identifierField,
-      BitSet deleted, EntryConsumer consumer) throws Exception {
+  private static long emitFile(Table table, DataFile file, Schema projection, String identifierField, EntryConsumer consumer) throws Exception {
     String path = file.location();
     long position = 0L;
     long emitted = 0L;
@@ -252,7 +209,7 @@ public final class TableRowIndexScanner {
     try (CloseableIterable<Object> rows = openRows(table, file, projection)) {
       for (Object row : rows) {
         Object identifier = getFieldValue(row, identifierField);
-        if (identifier != null && !isDeleted(deleted, position)) {
+        if (identifier != null) {
           consumer.accept(identifier.toString(), path, position);
           emitted++;
         }
@@ -261,11 +218,6 @@ public final class TableRowIndexScanner {
     }
 
     return emitted;
-  }
-
-  /** BitSet indexes by int, so ordinals beyond its range count as live. */
-  private static boolean isDeleted(BitSet deleted, long position) {
-    return position <= Integer.MAX_VALUE && deleted.get((int) position);
   }
 
   /** Extracts a field value from either an Iceberg Record or an Avro GenericRecord. */
@@ -301,23 +253,5 @@ public final class TableRowIndexScanner {
         .project(projection)
         .reuseContainers()
         .build();
-  }
-
-  /** Distinct delete files of the given content type visible in the current snapshot. */
-  public static Set<DeleteFile> deleteFiles(Table table, FileContent content) throws IOException {
-    Set<DeleteFile> found = new LinkedHashSet<>();
-    Set<String> seen = new HashSet<>();
-
-    try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
-      for (FileScanTask task : tasks) {
-        for (DeleteFile delete : task.deletes()) {
-          if (delete.content() == content && seen.add(delete.location())) {
-            found.add(delete);
-          }
-        }
-      }
-    }
-
-    return found;
   }
 }
