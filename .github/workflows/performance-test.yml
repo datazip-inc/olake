@@ -4,12 +4,9 @@ on:
   push:
     branches:
     - "staging"
-    # TEMP: remove before merge, added to exercise the artifact action bump.
-    - "dependabot/github_actions/staging/actions/upload-artifact-7"
     paths:
     - '**/*.go'
     - '**/*.java'
-    - '.github/workflows/performance-test.yml'
 
 permissions:
   actions: read
