@@ -290,7 +290,7 @@ func (p *Postgres) MaxConnections() int {
 }
 
 func (p *Postgres) MaxRetries() int {
-	return p.config.RetryCount + 1
+	return p.config.RetryCount
 }
 
 func (p *Postgres) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
