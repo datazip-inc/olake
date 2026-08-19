@@ -123,7 +123,7 @@ jobs:
 
     - name: Download Benchmarks History
       if: steps.last_run.outputs.id != ''
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       continue-on-error: true
       with:
         name: benchmarks_${{ matrix.driver }}
