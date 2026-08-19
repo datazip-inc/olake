@@ -100,6 +100,38 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
+// ResolveCatalog loads streams.json and, when it has no streams[], loads schema.json
+// to supply stream metadata. A combined streams.json (legacy) is returned as-is
+// and schemaPath is ignored. Returns an error if streams[] is empty and schemaPath
+// is not provided.
+func ResolveCatalog(streamsFilePath, schemaFilePath string) (*Catalog, error) {
+	catalog := &Catalog{}
+	if err := utils.UnmarshalFile(streamsFilePath, catalog, false); err != nil {
+		return nil, fmt.Errorf("failed to read streams from %s: %s", streamsFilePath, err)
+	}
+
+	if len(catalog.Streams) > 0 {
+		return catalog, nil
+	}
+
+	if schemaFilePath == "" {
+		return nil, fmt.Errorf("--schema required: streams.json has no streams[]")
+	}
+
+	schemaCatalog := &Catalog{}
+	if err := utils.UnmarshalFile(schemaFilePath, schemaCatalog, false); err != nil {
+		return nil, fmt.Errorf("failed to read schema from %s: %s", schemaFilePath, err)
+	}
+	catalog.Streams = schemaCatalog.Streams
+	return catalog, nil
+}
+
+// splitCatalogForWrite returns two Catalog values for the opt-in split file layout:
+// selected_streams only, and streams[] only.
+func splitCatalogForWrite(catalog *Catalog) (streamsFile, schemaFile *Catalog) {
+	return &Catalog{SelectedStreams: catalog.SelectedStreams}, &Catalog{Streams: catalog.Streams}
+}
+
 func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},

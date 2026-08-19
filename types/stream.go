@@ -155,7 +155,20 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	// write catalog to the specified file
 	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
 
-	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
+	streamsFilePath := viper.GetString(constants.StreamsPath)
+	schemaFilePath := viper.GetString(constants.SchemaPath)
+	if schemaFilePath != "" {
+		streamsContent, schemaContent := splitCatalogForWrite(message.Catalog)
+		if err := logger.FileLoggerWithPath(streamsContent, streamsFilePath); err != nil {
+			logger.Fatalf("failed to create streams file: %s", err)
+		}
+		if err := logger.FileLoggerWithPath(schemaContent, schemaFilePath); err != nil {
+			logger.Fatalf("failed to create schema file: %s", err)
+		}
+		return
+	}
+
+	err := logger.FileLoggerWithPath(message.Catalog, streamsFilePath)
 	if err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
 	}

@@ -19,7 +19,7 @@ import (
 var discoverCmd = &cobra.Command{
 	Use:   "discover",
 	Short: "discover command",
-	PreRunE: func(_ *cobra.Command, _ []string) error {
+	PreRunE: func(_ *cobra.Command, _ []string) (err error) {
 		if streamsPath != "" && differencePath != "" {
 			return nil
 		}
@@ -33,8 +33,9 @@ var discoverCmd = &cobra.Command{
 		destinationDatabasePrefix = utils.Ternary(destinationDatabasePrefix == "", connector.Type(), destinationDatabasePrefix).(string)
 		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		if streamsPath != "" {
-			if err := utils.UnmarshalFile(streamsPath, &catalog, false); err != nil {
-				return fmt.Errorf("failed to read streams from %s: %s", streamsPath, err)
+			catalog, err = types.ResolveCatalog(streamsPath, schemaPath)
+			if err != nil {
+				return err
 			}
 		}
 
@@ -83,16 +84,17 @@ var discoverCmd = &cobra.Command{
 
 // compareStreams reads two streams.json files, computes the difference, and writes the result to difference_streams.json
 func compareStreams() error {
-	var oldStreams, newStreams types.Catalog
-	if serr := utils.UnmarshalFile(streamsPath, &oldStreams, false); serr != nil {
-		return fmt.Errorf("failed to read old catalog: %s", serr)
+	oldStreams, err := types.ResolveCatalog(streamsPath, schemaPath)
+	if err != nil {
+		return fmt.Errorf("failed to read old catalog: %s", err)
 	}
 
+	var newStreams types.Catalog
 	if derr := utils.UnmarshalFile(differencePath, &newStreams, false); derr != nil {
 		return fmt.Errorf("failed to read new catalog: %s", derr)
 	}
 
-	diffCatalog := types.GetStreamsDelta(&oldStreams, &newStreams)
+	diffCatalog := types.GetStreamsDelta(oldStreams, &newStreams)
 	// log the difference catalog to stdout
 
 	if err := logger.FileLoggerWithPath(diffCatalog, viper.GetString(constants.DifferencePath)); err != nil {

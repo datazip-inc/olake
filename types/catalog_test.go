@@ -1,12 +1,18 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"testing"
 
+	"github.com/datazip-inc/olake/constants"
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -1187,4 +1193,242 @@ func TestGetDestDBPrefixFromSelectedStreams(t *testing.T) {
 	constantValue, prefix := getDestDBPrefix(catalog)
 	assert.False(t, constantValue)
 	assert.Equal(t, "prefix", prefix)
+}
+
+func writeCatalogFile(t *testing.T, dir, name string, catalog *Catalog) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	data, err := json.Marshal(catalog)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0644))
+	return path
+}
+
+func TestResolveCatalog(t *testing.T) {
+	dir := t.TempDir()
+
+	combined := &Catalog{
+		Streams: []*ConfiguredStream{
+			{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}},
+		},
+		SelectedStreams: map[string][]StreamMetadata{
+			"public": {{StreamName: "users", SyncMode: INCREMENTAL, Normalization: true}},
+		},
+	}
+	combinedPath := writeCatalogFile(t, dir, "combined.json", combined)
+
+	streamsOnly := &Catalog{
+		SelectedStreams: map[string][]StreamMetadata{
+			"public": {{
+				StreamName:      "users",
+				SyncMode:        INCREMENTAL,
+				Normalization:   true,
+				SelectedColumns: createSelectedColumns([]string{"id", "name"}, true),
+			}},
+		},
+	}
+	streamsOnlyPath := writeCatalogFile(t, dir, "streams.json", streamsOnly)
+
+	schemaOnly := &Catalog{
+		Streams: []*ConfiguredStream{
+			{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}},
+		},
+	}
+	schemaPath := writeCatalogFile(t, dir, "schema.json", schemaOnly)
+
+	t.Run("legacy combined ignores schema path", func(t *testing.T) {
+		resolved, err := ResolveCatalog(combinedPath, schemaPath)
+		require.NoError(t, err)
+		require.Len(t, resolved.Streams, 1)
+		assert.Equal(t, "users", resolved.Streams[0].Stream.Name)
+		assert.Equal(t, INCREMENTAL, resolved.SelectedStreams["public"][0].SyncMode)
+	})
+
+	t.Run("legacy combined works without schema path", func(t *testing.T) {
+		resolved, err := ResolveCatalog(combinedPath, "")
+		require.NoError(t, err)
+		require.Len(t, resolved.Streams, 1)
+		assert.Equal(t, "users", resolved.Streams[0].Stream.Name)
+	})
+
+	t.Run("split files combine", func(t *testing.T) {
+		resolved, err := ResolveCatalog(streamsOnlyPath, schemaPath)
+		require.NoError(t, err)
+		require.Len(t, resolved.Streams, 1)
+		assert.Equal(t, "users", resolved.Streams[0].Stream.Name)
+		assert.Equal(t, "public", resolved.Streams[0].Stream.Namespace)
+		require.Len(t, resolved.SelectedStreams["public"], 1)
+		assert.Equal(t, INCREMENTAL, resolved.SelectedStreams["public"][0].SyncMode)
+		assert.Equal(t, []string{"id", "name"}, resolved.SelectedStreams["public"][0].SelectedColumns.Columns)
+		assert.True(t, resolved.SelectedStreams["public"][0].SelectedColumns.SyncNewColumns)
+	})
+
+	t.Run("missing schema errors when streams empty", func(t *testing.T) {
+		_, err := ResolveCatalog(streamsOnlyPath, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--schema required: streams.json has no streams[]")
+	})
+
+	t.Run("missing schema file errors", func(t *testing.T) {
+		_, err := ResolveCatalog(streamsOnlyPath, filepath.Join(dir, "missing-schema.json"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to read schema")
+	})
+}
+
+func TestSplitCatalogForWrite(t *testing.T) {
+	catalog := &Catalog{
+		Streams: []*ConfiguredStream{
+			{Stream: &Stream{Name: "users", Namespace: "public"}},
+		},
+		SelectedStreams: map[string][]StreamMetadata{
+			"public": {{StreamName: "users", SyncMode: CDC}},
+		},
+	}
+
+	streamsHalf, schemaHalf := splitCatalogForWrite(catalog)
+	assert.Nil(t, streamsHalf.Streams)
+	assert.Equal(t, catalog.SelectedStreams, streamsHalf.SelectedStreams)
+	assert.Equal(t, catalog.Streams, schemaHalf.Streams)
+	assert.Nil(t, schemaHalf.SelectedStreams)
+}
+
+func TestLogCatalogSplitWrite(t *testing.T) {
+	dir := t.TempDir()
+	streamsPath := filepath.Join(dir, "streams.json")
+	schemaPath := filepath.Join(dir, "schema.json")
+
+	viper.Set(constants.StreamsPath, streamsPath)
+	viper.Set(constants.SchemaPath, schemaPath)
+	t.Cleanup(func() {
+		viper.Set(constants.StreamsPath, "")
+		viper.Set(constants.SchemaPath, "")
+	})
+
+	discovered := []*Stream{
+		{
+			Name:                "users",
+			Namespace:           "public",
+			Schema:              oldSchema(),
+			SyncMode:            INCREMENTAL,
+			CursorField:         "updated_at",
+			DestinationDatabase: "analytics",
+			DestinationTable:    "users",
+		},
+	}
+
+	LogCatalog(discovered, nil, "postgres")
+
+	streamsBytes, err := os.ReadFile(streamsPath)
+	require.NoError(t, err)
+	schemaBytes, err := os.ReadFile(schemaPath)
+	require.NoError(t, err)
+
+	var streamsFile, schemaFile Catalog
+	require.NoError(t, json.Unmarshal(streamsBytes, &streamsFile))
+	require.NoError(t, json.Unmarshal(schemaBytes, &schemaFile))
+
+	assert.Empty(t, streamsFile.Streams)
+	require.Len(t, streamsFile.SelectedStreams["public"], 1)
+	assert.Equal(t, "users", streamsFile.SelectedStreams["public"][0].StreamName)
+	assert.Equal(t, INCREMENTAL, streamsFile.SelectedStreams["public"][0].SyncMode)
+	assert.True(t, streamsFile.SelectedStreams["public"][0].Normalization)
+
+	require.Len(t, schemaFile.Streams, 1)
+	assert.Empty(t, schemaFile.SelectedStreams)
+	assert.Equal(t, "users", schemaFile.Streams[0].Stream.Name)
+	assert.Equal(t, SyncMode(""), schemaFile.Streams[0].Stream.SyncMode)
+	assert.Equal(t, "", schemaFile.Streams[0].Stream.CursorField)
+}
+
+func TestLogCatalogCombinedWriteWithoutSchemaPath(t *testing.T) {
+	dir := t.TempDir()
+	streamsPath := filepath.Join(dir, "streams.json")
+
+	viper.Set(constants.StreamsPath, streamsPath)
+	viper.Set(constants.SchemaPath, "")
+	t.Cleanup(func() {
+		viper.Set(constants.StreamsPath, "")
+		viper.Set(constants.SchemaPath, "")
+	})
+
+	discovered := []*Stream{
+		{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: CDC},
+	}
+
+	LogCatalog(discovered, nil, "postgres")
+
+	data, err := os.ReadFile(streamsPath)
+	require.NoError(t, err)
+	var combined Catalog
+	require.NoError(t, json.Unmarshal(data, &combined))
+	require.Len(t, combined.Streams, 1)
+	require.Len(t, combined.SelectedStreams["public"], 1)
+	assert.Equal(t, "users", combined.Streams[0].Stream.Name)
+	assert.Equal(t, CDC, combined.SelectedStreams["public"][0].SyncMode)
+}
+
+func TestResolveCatalogAfterSplitDiscoverMerge(t *testing.T) {
+	dir := t.TempDir()
+
+	oldCatalog := &Catalog{
+		Streams: []*ConfiguredStream{
+			{
+				Stream: &Stream{
+					Name:      "users",
+					Namespace: "public",
+					Schema:    oldSchema(),
+				},
+			},
+		},
+		SelectedStreams: map[string][]StreamMetadata{
+			"public": {{
+				StreamName:      "users",
+				SyncMode:        INCREMENTAL,
+				CursorField:     "updated_at",
+				Normalization:   true,
+				SelectedColumns: createSelectedColumns([]string{"id"}, true),
+			}},
+		},
+	}
+
+	newDiscovered := []*Stream{
+		{
+			Name:      "users",
+			Namespace: "public",
+			Schema:    newSchema(),
+			SyncMode:  CDC,
+		},
+		{
+			Name:      "orders",
+			Namespace: "public",
+			Schema:    newSchema(),
+			SyncMode:  FULLREFRESH,
+		},
+	}
+
+	streamsPath := filepath.Join(dir, "streams.json")
+	schemaPath := filepath.Join(dir, "schema.json")
+	viper.Set(constants.StreamsPath, streamsPath)
+	viper.Set(constants.SchemaPath, schemaPath)
+	t.Cleanup(func() {
+		viper.Set(constants.StreamsPath, "")
+		viper.Set(constants.SchemaPath, "")
+	})
+
+	LogCatalog(newDiscovered, oldCatalog, "postgres")
+
+	resolved, err := ResolveCatalog(streamsPath, schemaPath)
+	require.NoError(t, err)
+
+	require.Len(t, resolved.Streams, 2)
+	require.Len(t, resolved.SelectedStreams["public"], 1)
+	selected := resolved.SelectedStreams["public"][0]
+	assert.Equal(t, "users", selected.StreamName)
+	assert.Equal(t, INCREMENTAL, selected.SyncMode)
+	assert.Equal(t, "updated_at", selected.CursorField)
+	assert.True(t, selected.SelectedColumns.SyncNewColumns)
+	assert.Contains(t, selected.SelectedColumns.Columns, "id")
+	assert.Contains(t, selected.SelectedColumns.Columns, "email")
+	assert.NotContains(t, selected.SelectedColumns.Columns, "name")
 }

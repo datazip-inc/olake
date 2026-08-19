@@ -32,7 +32,7 @@ type StreamClassification struct {
 var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Olake sync command",
-	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+	PersistentPreRunE: func(_ *cobra.Command, _ []string) (err error) {
 		if configPath == "" {
 			return fmt.Errorf("--config not passed")
 		} else if destinationConfigPath == "" {
@@ -42,13 +42,13 @@ var syncCmd = &cobra.Command{
 		}
 
 		// unmarshal source config
-		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
+		if err = utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
 
 		// unmarshal destination config
 		destinationConfig = &types.WriterConfig{}
-		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
+		if err = utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
 			return err
 		}
 
@@ -57,8 +57,8 @@ var syncCmd = &cobra.Command{
 			viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		}
 
-		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
+		catalog, err = types.ResolveCatalog(streamsPath, schemaPath)
+		if err != nil {
 			return err
 		}
 

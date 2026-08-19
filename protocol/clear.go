@@ -13,7 +13,7 @@ import (
 var clearCmd = &cobra.Command{
 	Use:   "clear-destination",
 	Short: "Olake clear command to clear destination data and state for selected streams",
-	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+	PersistentPreRunE: func(_ *cobra.Command, _ []string) (err error) {
 		if destinationConfigPath == "" {
 			return fmt.Errorf("--destination not passed")
 		} else if streamsPath == "" {
@@ -25,8 +25,8 @@ var clearCmd = &cobra.Command{
 			return err
 		}
 
-		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
+		catalog, err = types.ResolveCatalog(streamsPath, schemaPath)
+		if err != nil {
 			return err
 		}
 
@@ -34,7 +34,7 @@ var clearCmd = &cobra.Command{
 			Type: types.StreamType,
 		}
 		if statePath != "" {
-			if err := utils.UnmarshalFile(statePath, state, false); err != nil {
+			if err = utils.UnmarshalFile(statePath, state, false); err != nil {
 				return err
 			}
 		}
