@@ -126,7 +126,7 @@ func (o *Oracle) MaxConnections() int {
 
 // MaxRetries returns the maximum number of retries
 func (o *Oracle) MaxRetries() int {
-	return o.config.RetryCount + 1
+	return o.config.RetryCount
 }
 
 // GetStreamNames returns a list of available tables/streams

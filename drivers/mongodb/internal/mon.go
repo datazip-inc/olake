@@ -206,7 +206,7 @@ func (m *Mongo) MaxConnections() int {
 }
 
 func (m *Mongo) MaxRetries() int {
-	return m.config.RetryCount + 1
+	return m.config.RetryCount
 }
 
 func (m *Mongo) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
