@@ -42,7 +42,7 @@ func main() {
 		if err != nil {
 			logger.Fatalf("Invalid table suffix (must be integer): %s", err)
 		}
-		destination.DropTable(suffix)
+		destination.DropTable(suffix, true)
 		return
 	}
 

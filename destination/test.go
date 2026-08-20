@@ -9,12 +9,19 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -80,11 +87,12 @@ func getWriterConfig(s3Path string) *types.WriterConfig {
 }
 
 // getStream sets up the schema for the dummy table, with optional column 8.
-func getStream(suffix int, addCol8 bool) *types.ConfiguredStream {
+func getStream(suffix int, addPos bool, addCol8 bool) *types.ConfiguredStream {
 	stream := &types.ConfiguredStream{
 		StreamMetadata: types.StreamMetadata{
 			StreamName:    "testing",
 			Normalization: true,
+			DeleteType:    utils.Ternary(addPos, string(types.DeleteModePosition), string(types.DeleteModeEquality)).(string),
 		},
 		Stream: &types.Stream{
 			Name:                    fmt.Sprintf("auto_table_%d", suffix),
@@ -130,11 +138,12 @@ func getRecords(operation string, startID, endID int, includeCol8 bool) []types.
 }
 
 // runWriterThread simplifies creating a writer thread and flushing records to it.
-func runWriterThread(ctx context.Context, config *types.WriterConfig, deleteMode types.DeleteMode, stream *types.ConfiguredStream, records []types.RawRecord) error {
-	pool, err := NewWriterPool(ctx, config, deleteMode, []types.StreamInterface{stream}, 1000)
+func runWriterThread(ctx context.Context, config *types.WriterConfig, stream *types.ConfiguredStream, records []types.RawRecord) error {
+	pool, err := NewWriterPool(ctx, config, []types.StreamInterface{stream}, 1000)
 	if err != nil {
 		return fmt.Errorf("failed in writer pool: %w", err)
 	}
+	defer pool.Shutdown(ctx)
 
 	newWriterThread, _, err := pool.NewWriter(ctx, stream, WithThreadID("iceberg_script_test"))
 	if err != nil {
@@ -153,10 +162,6 @@ func runWriterThread(ctx context.Context, config *types.WriterConfig, deleteMode
 
 // getTestRange checks operation conditions and determines ID ranges based on current state.
 func getTestRange(operation string, numRecords int) (int, int, error) {
-	// if operation != "c" && operation != "u" {
-	// 	return 0, 0, fmt.Errorf("operation must be 'c' (insert) or 'u' (update), got %q", operation)
-	// }
-
 	if numRecords <= 0 {
 		return 0, 0, fmt.Errorf("numRecords must be positive, got %d", numRecords)
 	}
@@ -172,9 +177,9 @@ func getTestRange(operation string, numRecords int) (int, int, error) {
 		startID = lastID + 1
 		endID = lastID + numRecords
 	case "u":
-		if numRecords > lastID {
-			return 0, 0, fmt.Errorf("cannot update %d records: only %d olake IDs exist (state.txt has last_id=%d). Insert first", numRecords, lastID, lastID)
-		}
+		// if numRecords > lastID {
+		// 	return 0, 0, fmt.Errorf("cannot update %d records: only %d olake IDs exist (state.txt has last_id=%d). Insert first", numRecords, lastID, lastID)
+		// }
 		startID = 1
 		endID = numRecords
 	case "d":
@@ -187,35 +192,51 @@ func getTestRange(operation string, numRecords int) (int, int, error) {
 func WriteData(opType string, suffix int, operation string, numRecords int) error {
 	switch opType {
 	case "schema":
-		return SchemaEvolve(suffix, operation, numRecords)
+		return SchemaEvolve(suffix, true, operation, numRecords)
 	case "partition":
-		return WriteDataWithPartition(suffix, operation, numRecords)
+		return WriteDataWithPartition(suffix, true, operation, numRecords)
 	case "eqtopos":
 		if err := Equality(suffix, operation, numRecords); err != nil {
 			return err
 		}
-		return WriteDataDef(suffix, operation, numRecords)
+		return WriteDataDef(suffix, true, operation, numRecords)
 	case "eq":
 		return Equality(suffix, operation, numRecords)
+	case "conflict":
+		if err := WriteDataDef(suffix, true, operation, 3); err != nil {
+			return err
+		}
+		// drop table only
+		if err := DropTable(suffix, false); err != nil {
+			return fmt.Errorf("failed to drop table: %w", err)
+		}
+		// check index exist
+		if err := ReadIndex(suffix); err != nil {
+			return fmt.Errorf("failed to read index: %w", err)
+		}
+
+		// update 2 records
+		return WriteDataDef(suffix, true, "u", 2)
 	case "pos":
-		return WriteDataDef(suffix, operation, numRecords)
+		return WriteDataDef(suffix, true, operation, numRecords)
+
 	default:
-		return WriteDataDef(suffix, operation, numRecords)
+		return WriteDataDef(suffix, true, operation, numRecords)
 	}
 }
 
 // WriteDataDef runs an insert/update with DeleteModePosition
-func WriteDataDef(suffix int, operation string, numRecords int) error {
+func WriteDataDef(suffix int, pos bool, operation string, numRecords int) error {
 	startID, endID, err := getTestRange(operation, numRecords)
 	if err != nil {
 		return err
 	}
 
 	wtConfig := getWriterConfig("s3a://warehouse/io")
-	stream := getStream(suffix, true)
+	stream := getStream(suffix, pos, true)
 
 	records := getRecords(operation, startID, endID, true)
-	if err := runWriterThread(context.TODO(), wtConfig, types.DeleteModePosition, stream, records); err != nil {
+	if err := runWriterThread(context.TODO(), wtConfig, stream, records); err != nil {
 		return err
 	}
 
@@ -225,19 +246,19 @@ func WriteDataDef(suffix int, operation string, numRecords int) error {
 	return nil
 }
 
-// WriteDataDef runs an insert/update with DeleteModePosition
-func WriteDataWithPartition(suffix int, operation string, numRecords int) error {
+// WriteDataWithPartition runs an insert/update with partition
+func WriteDataWithPartition(suffix int, pos bool, operation string, numRecords int) error {
 	startID, endID, err := getTestRange(operation, numRecords)
 	if err != nil {
 		return err
 	}
 
 	wtConfig := getWriterConfig("s3a://warehouse/io")
-	stream := getStream(suffix, true)
+	stream := getStream(suffix, pos, true)
 
 	stream.StreamMetadata.PartitionRegex = "/{name, identity}"
 	records := getRecords(operation, startID, endID, true)
-	if err := runWriterThread(context.TODO(), wtConfig, types.DeleteModePosition, stream, records); err != nil {
+	if err := runWriterThread(context.TODO(), wtConfig, stream, records); err != nil {
 		return err
 	}
 
@@ -255,10 +276,10 @@ func Equality(suffix int, operation string, numRecords int) error {
 	}
 
 	wtConfig := getWriterConfig("s3a://warehouse/io")
-	stream := getStream(suffix, true)
+	stream := getStream(suffix, false, true)
 
 	records := getRecords(operation, startID, endID, false)
-	if err := runWriterThread(context.TODO(), wtConfig, types.DeleteModeEquality, stream, records); err != nil {
+	if err := runWriterThread(context.TODO(), wtConfig, stream, records); err != nil {
 		return err
 	}
 
@@ -269,21 +290,22 @@ func Equality(suffix int, operation string, numRecords int) error {
 }
 
 // SchemaEvolve tests flushing records when the schema evolves mid-session
-func SchemaEvolve(suffix int, operation string, numRecords int) error {
+func SchemaEvolve(suffix int, pos bool, operation string, numRecords int) error {
 	startID, endID, err := getTestRange(operation, numRecords)
 	if err != nil {
 		return err
 	}
 
 	wtConfig := getWriterConfig("s3a://warehouse/io")
-	stream := getStream(suffix, false) // Start without col8
+	stream := getStream(suffix, pos, false) // Start without col8
 
 	records := getRecords(operation, startID, endID, false)
 
-	pool, err := NewWriterPool(context.TODO(), wtConfig, types.DeleteModePosition, []types.StreamInterface{stream}, 1000)
+	pool, err := NewWriterPool(context.TODO(), wtConfig, []types.StreamInterface{stream}, 1000)
 	if err != nil {
 		return fmt.Errorf("failed in writer pool: %w", err)
 	}
+	defer pool.Shutdown(context.TODO())
 
 	newWriterThread, _, err := pool.NewWriter(context.TODO(), stream, WithThreadID("iceberg_script_test"))
 	if err != nil {
@@ -298,7 +320,7 @@ func SchemaEvolve(suffix int, operation string, numRecords int) error {
 	startID += numRecords
 	endID += numRecords
 
-	stream.Stream.Schema.AddTypes(col8, false, types.String)
+	stream = getStream(suffix, pos, true)
 	records2 := getRecords(operation, startID, endID, true)
 
 	records2[0].OlakeColumns[constants.OlakeID] = "1"
@@ -322,37 +344,134 @@ func SchemaEvolve(suffix int, operation string, numRecords int) error {
 	return nil
 }
 
-func DropTable(suffix int) error {
+func deleteS3FilesForTable(ctx context.Context, suffix int) error {
+	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
+		awsconfig.WithRegion("us-east-1"),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("admin", "password", "")),
+	)
+	if err != nil {
+		return err
+	}
+
+	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		o.BaseEndpoint = aws.String("http://localhost:9000")
+		o.UsePathStyle = true
+		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
+	})
+
+	bucket := "warehouse"
+	tableName := fmt.Sprintf("auto_table_%d", suffix)
+
+	paginator := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucket),
+		Prefix: aws.String("io"),
+	})
+
+	var objectsToDelete []s3types.ObjectIdentifier
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			logger.Warnf("could not list S3 objects for cleanup: %v", err)
+			return nil
+		}
+		for _, obj := range page.Contents {
+			if obj.Key != nil && strings.Contains(*obj.Key, tableName) {
+				objectsToDelete = append(objectsToDelete, s3types.ObjectIdentifier{
+					Key: obj.Key,
+				})
+			}
+		}
+	}
+
+	if len(objectsToDelete) > 0 {
+		_, err := client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(bucket),
+			Delete: &s3types.Delete{
+				Objects: objectsToDelete,
+				Quiet:   aws.Bool(true),
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to delete S3 objects for table %s: %w", tableName, err)
+		}
+		logger.Infof("Deleted %d S3 objects from bucket %s for table %s", len(objectsToDelete), bucket, tableName)
+	}
+
+	return nil
+}
+
+func DropTable(suffix int, pos bool) error {
 	wtConfig := getWriterConfig("s3a://warehouse/io")
-	stream := getStream(suffix, true)
+	stream := getStream(suffix, pos, true)
 	_ = os.Remove(StateFileName)
-	err := DropStreams(context.TODO(), wtConfig, types.DeleteModePosition, []types.StreamInterface{stream})
+	err := DropStreams(context.TODO(), wtConfig, []types.StreamInterface{stream})
 	if err != nil {
 		return fmt.Errorf("failed to drop streams: %w", err)
+	}
+	if err := deleteS3FilesForTable(context.TODO(), suffix); err != nil {
+		logger.Warnf("failed to delete S3 files for table suffix %d: %v", suffix, err)
 	}
 	return nil
 }
 
+type nopPebbleLogger struct{}
+
+func (nopPebbleLogger) Infof(format string, args ...interface{})  {}
+func (nopPebbleLogger) Errorf(format string, args ...interface{}) {}
+func (nopPebbleLogger) Fatalf(format string, args ...interface{}) {}
+
 func ReadIndex(suffix int) error {
-	matches, err := filepath.Glob(fmt.Sprintf("olake-row-index/amoro_kind.auto_table_%d-*", suffix))
-	if err != nil || len(matches) == 0 {
-		matches, err = filepath.Glob(fmt.Sprintf("main/olake-row-index/amoro_kind.auto_table_%d-*", suffix))
-		if err != nil || len(matches) == 0 {
-			return fmt.Errorf("could not find index directory for suffix %d", suffix)
+	stream := getStream(suffix, true, true)
+	streamID := stream.Stream.ID()
+
+	patterns := []string{
+		fmt.Sprintf("%s/%s/*/*/MANIFEST-*", constants.DefaultDirName, streamID),
+		fmt.Sprintf("%s/%s/*/MANIFEST-*", constants.DefaultDirName, streamID),
+		fmt.Sprintf("main/%s/%s/*/*/MANIFEST-*", constants.DefaultDirName, streamID),
+		fmt.Sprintf("main/%s/%s/*/MANIFEST-*", constants.DefaultDirName, streamID),
+		fmt.Sprintf("%s/*auto_table_%d*/*/MANIFEST-*", constants.DefaultDirName, suffix),
+		fmt.Sprintf("%s/*auto_table_%d*/MANIFEST-*", constants.DefaultDirName, suffix),
+	}
+
+	var allMatches []string
+	for _, p := range patterns {
+		matches, err := filepath.Glob(p)
+		if err == nil && len(matches) > 0 {
+			allMatches = append(allMatches, matches...)
 		}
 	}
 
-	dir := matches[0]
+	if len(allMatches) == 0 {
+		return fmt.Errorf("could not find index directory containing Pebble MANIFEST for stream [%s] (suffix %d)", streamID, suffix)
+	}
+
+	var latestManifest string
+	var latestModTime time.Time
+	for _, m := range allMatches {
+		info, err := os.Stat(m)
+		if err == nil {
+			if latestManifest == "" || info.ModTime().After(latestModTime) {
+				latestModTime = info.ModTime()
+				latestManifest = m
+			}
+		}
+	}
+
+	dir := filepath.Dir(latestManifest)
 	logger.Infof("Reading pebble db at %s", dir)
 
-	db, err := pebble.Open(dir, &pebble.Options{ReadOnly: true})
+	db, err := pebble.Open(dir, &pebble.Options{
+		ReadOnly: true,
+		Logger:   nopPebbleLogger{},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to open pebble db: %w", err)
 	}
 	defer db.Close()
 
-	// 0. Read indexed snapshot ID
-	snapshotKey := append([]byte{0x05}, []byte("snapshot")...)
+	// 0. Read indexed snapshot ID (prefixMeta = 0x04)
+	snapshotKey := append([]byte{0x04}, []byte("snapshot")...)
 	if val, closer, err := db.Get(snapshotKey); err == nil {
 		snapshotID, read := binary.Varint(val)
 		if read > 0 {
@@ -367,7 +486,7 @@ func ReadIndex(suffix int) error {
 		fmt.Printf("Failed to read snapshot ID: %v\n", err)
 	}
 
-	// 1. Read file ID to path mappings
+	// 1. Read file ID to path mappings (prefixIDToFilePath = 0x02)
 	filePaths := make(map[uint64]string)
 	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: []byte{0x02},
@@ -387,7 +506,7 @@ func ReadIndex(suffix int) error {
 		return err
 	}
 
-	// 2. Read all row indices
+	// 2. Read all row indices (prefixRow = 0x01)
 	iter, err = db.NewIter(&pebble.IterOptions{
 		LowerBound: []byte{0x01},
 		UpperBound: []byte{0x02},
@@ -416,7 +535,7 @@ func ReadIndex(suffix int) error {
 				path = fmt.Sprintf("unknown_file_%d", fileID)
 			}
 
-			fmt.Printf("Row %s -> File: %s, Pos: %d\n", rowID, path, pos)
+			fmt.Printf("olake_id: %s, file_id: %d, pos: %d (path: %s)\n", rowID, fileID, pos, path)
 			count++
 		}
 	}
