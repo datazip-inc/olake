@@ -248,7 +248,7 @@ public final class TableIndexScanner {
   }
 
   /** Opens any Iceberg-written parquet file projected down to {@code projection}. */
-  static CloseableIterable<Object> openParquet(Table table, String path, Schema projection) {
+  public static CloseableIterable<Object> openParquet(Table table, String path, Schema projection) {
     return Parquet.read(table.io().newInputFile(path))
         .project(projection)
         .reuseContainers()

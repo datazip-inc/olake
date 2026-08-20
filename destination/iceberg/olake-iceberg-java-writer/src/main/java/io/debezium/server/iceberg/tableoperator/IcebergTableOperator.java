@@ -11,14 +11,17 @@ package io.debezium.server.iceberg.tableoperator;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.Metrics;
@@ -34,11 +37,14 @@ import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.io.BaseTaskWriter;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.parquet.ParquetUtil;
 import org.apache.iceberg.util.Pair;
+import io.debezium.server.iceberg.tableIndex.TableIndexScanner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -156,17 +162,17 @@ public class IcebergTableOperator {
     boolean hasAnyDeletes = false;
     int totalDataFiles = 0;
     int totalDeleteFiles = 0;
-  
+
     for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
       ArrayList<DeleteFile> deletes = unit.first();
       ArrayList<DataFile> data = unit.second();
-  
+
       int del = (deletes == null) ? 0 : deletes.size();
       int df = (data == null) ? 0 : data.size();
-  
+
       totalDeleteFiles += del;
       totalDataFiles += df;
-  
+
       if (del > 0) {
         hasAnyDeletes = true;
       }
@@ -213,6 +219,32 @@ public class IcebergTableOperator {
         if (baseSnapshotId != null) {
           rowDelta.validateFromSnapshot(baseSnapshotId);
           rowDelta.validateDeletedFiles();
+
+          Set<CharSequence> referencedDataFiles = new HashSet<>();
+          for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
+            ArrayList<DeleteFile> deleteFiles = unit.first();
+            if (deleteFiles != null) {
+              for (DeleteFile deleteFile : deleteFiles) {
+                if (deleteFile.content() == FileContent.POSITION_DELETES) {
+                  try (CloseableIterable<Object> rows = TableIndexScanner.openParquet(table, deleteFile.location(), DeleteSchemaUtil.pathPosSchema())) {
+                    for (Object row : rows) {
+                      Object filePath = TableIndexScanner.getFieldValue(row, "file_path");
+                      if (filePath != null) {
+                        referencedDataFiles.add(filePath.toString());
+                      }
+                    }
+                  } catch (Exception e) {
+                    LOGGER.warn("Failed to read referenced data files from positional delete file {}", deleteFile.location(), e);
+                  }
+                }
+              }
+            }
+          }
+
+          LOGGER.info("Referenced data files: {}", referencedDataFiles);
+          if (!referencedDataFiles.isEmpty()) {
+            rowDelta.validateDataFilesExist(referencedDataFiles);
+          }
         }
 
         for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
@@ -243,9 +275,9 @@ public class IcebergTableOperator {
           totalDataFiles, totalDeleteFiles, threadId,  staged.snapshotId());
   
       filesToCommit.clear();
-      
+      LOGGER.info("Staged snapshot id: {}, base snapshot id: {}, parent snapshot id: {}", staged.snapshotId(), baseSnapshotId, staged.parentId());
       // check commit parent snapshot if it is not equal to base, then return 0 so that indexer will not save latest snapshot
-      if (baseSnapshotId != staged.parentId()) {
+      if (staged.parentId() != null && baseSnapshotId != staged.parentId()) {
           return 0L;
       }
 
