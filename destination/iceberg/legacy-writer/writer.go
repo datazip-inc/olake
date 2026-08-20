@@ -80,7 +80,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		}
 
 		// check if we need to write pos for the current record
-		if w.indexBatch != nil && (opType != "r") {
+		if w.indexBatch != nil && (opType != "r" && opType != "c") {
 			olakeID := record.OlakeColumns[constants.OlakeID].(string)
 			previous, found, err := w.indexBatch.Lookup(olakeID)
 			if err != nil {

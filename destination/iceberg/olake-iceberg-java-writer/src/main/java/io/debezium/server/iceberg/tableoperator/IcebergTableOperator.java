@@ -210,14 +210,19 @@ public class IcebergTableOperator {
         // RowDelta path (has delete files)
         RowDelta rowDelta = transaction.newRowDelta();
         
+        if (baseSnapshotId != null) {
+          rowDelta.validateFromSnapshot(baseSnapshotId);
+          rowDelta.validateDeletedFiles();
+        }
+
         for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
           ArrayList<DeleteFile> deleteFiles = unit.first();
           ArrayList<DataFile> dataFiles = unit.second();
-  
+
           if (dataFiles != null && !dataFiles.isEmpty()) {
             dataFiles.forEach(rowDelta::addRows);
           }
-  
+
           if (deleteFiles != null && !deleteFiles.isEmpty()) {
             deleteFiles.forEach(rowDelta::addDeletes);
           }
