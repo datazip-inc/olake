@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"strings"
 	"sync"
 
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
+	"github.com/dlclark/regexp2"
 	kafkaplain "github.com/twmb/franz-go/pkg/sasl/plain"
 	kafkascram "github.com/twmb/franz-go/pkg/sasl/scram"
 
@@ -47,7 +47,7 @@ type Kafka struct {
 	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
 	schemaRegistryClient *kafkapkg.SchemaRegistryClient
 	adminClient          *kadm.Client
-	topicPattern         *regexp.Regexp
+	topicPattern         *regexp2.Regexp
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -90,7 +90,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 
 	// Compile topic pattern regex if provided
 	if k.config.TopicPattern != "" {
-		pattern, err := regexp.Compile(k.config.TopicPattern)
+		pattern, err := regexp2.Compile(k.config.TopicPattern, 0)
 		if err != nil {
 			return fmt.Errorf("failed to compile topic_pattern regex: %s", err)
 		}
@@ -160,14 +160,20 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	var topicNames []types.StreamID
 	for topicName := range metadata {
 		// skip internal topics
-		if slices.Contains(InternalKafkaTopics, topicName) || strings.HasPrefix(topicName, "mm2-") {
+		if slices.Contains(InternalKafkaTopics, topicName) {
 			continue
 		}
 
 		// Apply topic pattern filter if configured
-		if k.topicPattern != nil && !k.topicPattern.MatchString(topicName) {
-			logger.Infof("Skipping topic %s (does not match topic_pattern: %s)", topicName, k.config.TopicPattern)
-			continue
+		if k.topicPattern != nil {
+			matched, err := k.topicPattern.MatchString(topicName)
+			if err != nil {
+				return nil, fmt.Errorf("failed to match topic %s against topic_pattern: %s", topicName, err)
+			}
+			if !matched {
+				logger.Infof("Skipping topic %s (does not match topic_pattern: %s)", topicName, k.config.TopicPattern)
+				continue
+			}
 		}
 		topicNames = append(topicNames, types.StreamID{Namespace: "topics", Name: topicName})
 	}

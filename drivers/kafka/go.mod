@@ -9,10 +9,10 @@ replace (
 
 require (
 	github.com/datazip-inc/olake v0.0.0-00010101000000-000000000000
+	github.com/dlclark/regexp2 v1.11.5
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/twmb/franz-go v1.21.1
 	github.com/twmb/franz-go/pkg/kadm v1.18.0
-	github.com/twmb/franz-go/pkg/kmsg v1.13.1
 )
 
 require (
@@ -80,6 +80,7 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
+	github.com/twmb/franz-go/pkg/kmsg v1.13.1 // indirect
 	github.com/twmb/murmur3 v1.1.8 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/xitongsys/parquet-go v1.6.2 // indirect

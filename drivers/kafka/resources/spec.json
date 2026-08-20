@@ -166,7 +166,7 @@
         "topic_pattern": {
             "type": "string",
             "title": "Topic Pattern",
-            "description": "Regular expression to filter topics by name (optional)",
+            "description": "Perl-style regular expression to filter topics by name (optional)",
             "default": ""
         },
         "max_threads": {
