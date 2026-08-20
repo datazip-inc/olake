@@ -215,7 +215,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 
 // search for index for the record and emmit pos when found
 func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePosition int64) error {
-	if w.upsertMode && (opType != "r") {
+	if w.upsertMode && (opType != "r" && opType != "c") {
 		previous, found, err := w.indexThread.Lookup(olakeID)
 		if err != nil {
 			return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
