@@ -486,6 +486,26 @@ func TestCommitMetadataMergesParallelKafkaCheckpoints(t *testing.T) {
 	require.Empty(t, store.keys(second.stagingRootPrefix()))
 }
 
+func TestDropStreamsRemoves2PCState(t *testing.T) {
+	p, store := testS3Parquet(t, "incremental-thread", false)
+	p.config.Prefix = "root"
+	p.config.S3Endpoint = "storage.googleapis.com"
+	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
+
+	tablePrefix := p.s3ObjectKey(p.basePath) + "/"
+	store.put(tablePrefix+"data.parquet", []byte("table-data"))
+	store.put(p.metadataObjectKey(), []byte(`{"state":"checkpoint"}`))
+	store.put(p.stagingObjectKey("staged.parquet"), []byte("staged-data"))
+	store.put(p.sharedFinishObjectKey(), []byte(`{"state":"checkpoint"}`))
+
+	siblingKey := p.s3ObjectKey(p.basePath + "_backup/data.parquet")
+	store.put(siblingKey, []byte("sibling-data"))
+
+	require.NoError(t, p.DropStreams(context.Background(), []types.StreamInterface{p.stream}))
+	require.Empty(t, store.keys(tablePrefix))
+	require.Equal(t, []byte("sibling-data"), store.get(siblingKey))
+}
+
 func TestLocalCloseKeepsExistingBehavior(t *testing.T) {
 	ctx := context.Background()
 	localPath := t.TempDir()

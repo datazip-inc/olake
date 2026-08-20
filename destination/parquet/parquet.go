@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -489,20 +490,10 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 	if err := p.writeFinish(ctx, finishData); err != nil {
 		return err
 	}
-	if err := p.promoteStaging(ctx); err != nil {
-		return err
-	}
 	if p.options.Backfill {
-		if err := p.commitBackfillMetadata(ctx, p.options.ThreadID); err != nil {
-			return err
-		}
-	} else if err := p.commitStreamMetadata(ctx, metadataState); err != nil {
-		return err
+		return p.finalizeBackfillStaging(ctx, p.currentStagingPrefix(), p.options.ThreadID)
 	}
-	if err := p.deleteStaging(ctx); err != nil {
-		return err
-	}
-	return nil
+	return p.finalizeStreamStaging(ctx, p.currentStagingPrefix(), metadataState)
 }
 
 // validate schema change & evolution and removes null records
@@ -829,8 +820,8 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 			logger.Warnf("invalid stream ID format: %s, skipping", streamID)
 			continue
 		}
-		prefix, namespace, tableName := strings.TrimLeft(p.config.Prefix, "/"), parts[0], parts[1]
-		s3TablePath := filepath.Join(prefix, namespace, tableName, "/")
+		prefix, namespace, tableName := strings.Trim(p.config.Prefix, "/"), parts[0], parts[1]
+		s3TablePath := path.Join(prefix, namespace, tableName) + "/"
 
 		logger.Debugf("clearing S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
 

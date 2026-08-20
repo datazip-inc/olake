@@ -68,13 +68,7 @@ func (p *Parquet) recoverBackfillStaging(ctx context.Context) error {
 		}
 
 		// A finished attempt is rolled forward before its staging objects are removed.
-		if err := p.promoteS3Staging(ctx, entry.prefix); err != nil {
-			return err
-		}
-		if err := p.commitBackfillMetadata(ctx, entry.threadID); err != nil {
-			return err
-		}
-		if err := p.deleteStagingPrefix(ctx, entry.prefix); err != nil {
+		if err := p.finalizeBackfillStaging(ctx, entry.prefix, entry.threadID); err != nil {
 			return err
 		}
 	}
@@ -108,10 +102,24 @@ func (p *Parquet) recoverSharedStaging(ctx context.Context) error {
 	if finishedState == nil {
 		return fmt.Errorf("parquet 2pc metadata state is missing from shared staging")
 	}
+	return p.finalizeStreamStaging(ctx, prefix, *finishedState)
+}
+
+func (p *Parquet) finalizeBackfillStaging(ctx context.Context, prefix, threadID string) error {
 	if err := p.promoteS3Staging(ctx, prefix); err != nil {
 		return err
 	}
-	if err := p.commitStreamMetadata(ctx, *finishedState); err != nil {
+	if err := p.commitBackfillMetadata(ctx, threadID); err != nil {
+		return err
+	}
+	return p.deleteStagingPrefix(ctx, prefix)
+}
+
+func (p *Parquet) finalizeStreamStaging(ctx context.Context, prefix string, state types.MetadataState) error {
+	if err := p.promoteS3Staging(ctx, prefix); err != nil {
+		return err
+	}
+	if err := p.commitStreamMetadata(ctx, state); err != nil {
 		return err
 	}
 	return p.deleteStagingPrefix(ctx, prefix)
@@ -300,10 +308,6 @@ func (p *Parquet) listBackfillStagingEntries(ctx context.Context) ([]parquet2PCS
 	return entries, nil
 }
 
-func (p *Parquet) promoteStaging(ctx context.Context) error {
-	return p.promoteS3Staging(ctx, p.currentStagingPrefix())
-}
-
 // promoteS3Staging copies staged data into the visible table path.
 func (p *Parquet) promoteS3Staging(ctx context.Context, stagingPrefix string) error {
 	keys, err := p.listS3Keys(ctx, stagingPrefix)
@@ -337,10 +341,6 @@ func (p *Parquet) copyS3Object(ctx context.Context, sourceKey, destinationKey st
 		})
 		return err
 	})
-}
-
-func (p *Parquet) deleteStaging(ctx context.Context) error {
-	return p.deleteStagingPrefix(ctx, p.currentStagingPrefix())
 }
 
 func (p *Parquet) deleteStagingPrefix(ctx context.Context, prefix string) error {
