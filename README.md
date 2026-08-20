@@ -155,7 +155,7 @@ OLake UI is a web-based interface for managing OLake Go jobs, sources, destinati
 Run the UI, connect your source DB, and start syncing in minutes. 
 
 ```sh
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - up -d
+curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose-v1.yml | docker compose -f - up -d
 ```
 
 **Access the UI:**
@@ -204,6 +204,12 @@ Below are other different ways you can run OLake Go:
 3. [Standalone Docker container](https://olake.io/docs/install/docker-cli)
 4. [Airflow on EC2](https://olake.io/blog/olake-airflow-on-ec2/)
 5. [Airflow on Kubernetes](https://olake.io/blog/olake-airflow) 
+
+---
+
+#### Upgrading from legacy `docker-compose.yml`
+
+To upgrade from legacy `docker-compose.yml` that was used before **Jan 30th 2026** , follow this [documentation](https://olake.io/docs/install/olake-ui/#:~:text=To%20move%20from,Legacy%20Setup.).
 
 ---
 

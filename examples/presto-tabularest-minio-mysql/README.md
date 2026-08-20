@@ -19,7 +19,7 @@ This example demonstrates a complete data pipeline using:
    - **8443** - MinIO console UI
    - **9090** - MinIO server API
 
-**Note:** If any of these ports are in use, stop the conflicting services or modify the port mappings in the docker-compose.yml file.
+**Note:** If any of these ports are in use, stop the conflicting services or modify the port mappings in the docker-compose-v1.yml file.
 
 ## Quick Start
 
@@ -141,7 +141,7 @@ docker exec -it olake-presto-coordinator presto-cli --catalog iceberg --schema {
 - Check MySQL logs: `docker compose logs primary_mysql`
 
 **MinIO access issues:**
-- Check MinIO credentials in docker-compose.yml match OLake destination config
+- Check MinIO credentials in docker-compose-v1.yml match OLake destination config
 - Verify bucket permissions in MinIO console
 
 ## Architecture
@@ -172,5 +172,5 @@ docker exec -it olake-presto-coordinator presto-cli --catalog iceberg --schema {
 docker compose down
 
 # Stop base Olake stack
-curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose.yml | docker compose -f - down
+curl -sSL https://raw.githubusercontent.com/datazip-inc/olake-ui/master/docker-compose-v1.yml | docker compose -f - down
 ```
