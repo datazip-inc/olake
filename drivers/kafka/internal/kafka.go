@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 
 	kafkapkg "github.com/datazip-inc/olake/pkg/kafka"
@@ -46,6 +47,7 @@ type Kafka struct {
 	checkpointMessage    sync.Map // last message for each reader w.r.t. partition to be used for checkpointing
 	schemaRegistryClient *kafkapkg.SchemaRegistryClient
 	adminClient          *kadm.Client
+	topicPattern         *regexp.Regexp
 }
 
 func (k *Kafka) GetConfigRef() abstract.Config {
@@ -84,6 +86,16 @@ func (k *Kafka) SetupState(state *types.State) {
 func (k *Kafka) Setup(ctx context.Context) error {
 	if err := k.config.Validate(); err != nil {
 		return fmt.Errorf("config validation failed: %s", err)
+	}
+
+	// Compile topic pattern regex if provided
+	if k.config.TopicPattern != "" {
+		pattern, err := regexp.Compile(k.config.TopicPattern)
+		if err != nil {
+			return fmt.Errorf("failed to compile topic_pattern regex: %s", err)
+		}
+		k.topicPattern = pattern
+		logger.Infof("Using topic pattern filter: %s", k.config.TopicPattern)
 	}
 
 	dialer, err := k.createDialer()
@@ -148,7 +160,13 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	var topicNames []types.StreamID
 	for topicName := range metadata {
 		// skip internal topics
-		if slices.Contains(InternalKafkaTopics, topicName) {
+		if slices.Contains(InternalKafkaTopics, topicName) || strings.HasPrefix(topicName, "mm2-") {
+			continue
+		}
+
+		// Apply topic pattern filter if configured
+		if k.topicPattern != nil && !k.topicPattern.MatchString(topicName) {
+			logger.Infof("Skipping topic %s (does not match topic_pattern: %s)", topicName, k.config.TopicPattern)
 			continue
 		}
 		topicNames = append(topicNames, types.StreamID{Namespace: "topics", Name: topicName})

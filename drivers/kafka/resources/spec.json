@@ -163,6 +163,12 @@
             "title": "Consumer Group ID",
             "description": "Kafka consumer group ID (optional)"
         },
+        "topic_pattern": {
+            "type": "string",
+            "title": "Topic Pattern",
+            "description": "Regular expression to filter topics by name (optional)",
+            "default": ""
+        },
         "max_threads": {
             "type": "integer",
             "title": "Max Threads",
