@@ -2,6 +2,7 @@
     "selected_streams": {
         "s3": [
             {
+                "delete_type": "eq",
                 "partition_regex": "",
                 "stream_name": "s3_xml_test_table_olake",
                 "normalization": false,
