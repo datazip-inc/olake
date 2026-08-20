@@ -76,6 +76,8 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 
 		logger.Infof("Thread[%s]: created writer for chunk min[%s] and max[%s] of stream %s", threadID, chunk.Min, chunk.Max, stream.ID())
 
+		hasCDCTimestamp, _ := stream.GetStream().Schema.GetProperty(constants.CdcTimestamp)
+
 		return a.driver.ChunkIterator(backfillCtx, stream, chunk, func(ctx context.Context, data map[string]any, sourceBytes int64) error {
 			olakeID := utils.GetKeysHash(data, stream.GetStream().SourceDefinedPrimaryKey.Array()...)
 			olakeColumns := map[string]any{
@@ -84,8 +86,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 				constants.OlakeTimestamp: time.Now().UTC(),
 			}
 
-			// Add CDC specific columns only for CDC mode
-			if stream.GetSyncMode() == types.CDC {
+			if hasCDCTimestamp {
 				olakeColumns[constants.CdcTimestamp] = time.Unix(0, 0)
 			}
 
