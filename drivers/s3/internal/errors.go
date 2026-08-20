@@ -9,8 +9,8 @@ import (
 	"fmt"
 
 	"github.com/aws/smithy-go"
+	"github.com/datazip-inc/olake/drivers/s3/internal/pkg/parser"
 	"github.com/datazip-inc/olake/pkg/objstorage"
-	"github.com/datazip-inc/olake/pkg/parser"
 	"github.com/datazip-inc/olake/utils/errs"
 	pq "github.com/parquet-go/parquet-go"
 )
