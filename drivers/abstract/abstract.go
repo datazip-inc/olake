@@ -116,7 +116,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 
 		// add default columns
 		for column, typ := range DefaultColumns {
-			if column == constants.CdcTimestamp && !a.supportsCdcColumn() {
+			if column == constants.CdcTimestamp {
 				continue
 			}
 			convStream.UpsertField(column, typ, true, true)
@@ -335,10 +335,4 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	}
 }
 
-func (a *AbstractDriver) supportsCdcColumn() bool {
-	if a.driver.CDCSupported() && a.driver.Type() != string(constants.Kafka) {
-		// kafka driver does not support cdc column
-		return true
-	}
-	return false
-}
+

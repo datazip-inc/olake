@@ -9,6 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -181,6 +182,11 @@ var syncCmd = &cobra.Command{
 }
 
 func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
+	return classifyStreamsInternal(connector, catalog, streams, state)
+}
+
+
+func classifyStreamsInternal(connector *abstract.AbstractDriver, catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
 		SelectedStreams:    []string{},
@@ -261,6 +267,18 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		switch elem.Stream.SyncMode {
 		case types.CDC, types.STRICTCDC:
 			classifications.CDCStreams = append(classifications.CDCStreams, elem)
+			// Inject CDC metadata columns dynamically because they are omitted during discover
+			elem.Stream.UpsertField(constants.CdcTimestamp, types.TimestampMicro, true, true)
+			if elem.StreamMetadata.SelectedColumns != nil {
+				elem.StreamMetadata.SelectedColumns.Columns = append(elem.StreamMetadata.SelectedColumns.Columns, constants.CdcTimestamp)
+			}
+			// Postgres specific CDC LSN
+			if connector.Type() == "postgres" {
+				elem.Stream.UpsertField("_cdc_lsn", types.String, true, true)
+				if elem.StreamMetadata.SelectedColumns != nil {
+					elem.StreamMetadata.SelectedColumns.Columns = append(elem.StreamMetadata.SelectedColumns.Columns, "_cdc_lsn")
+				}
+			}
 			streamState, exists := stateStreamMap[elem.ID()]
 			if exists {
 				classifications.NewStreamsState = append(classifications.NewStreamsState, streamState)
