@@ -62,7 +62,7 @@ func (i *Iceberg) Spec() any {
 	return Config{}
 }
 
-func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, existingSchema any, options *destination.Options) (any, *types.MetadataState, error) {
+func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any, options *destination.Options) (any, *types.MetadataState, error) {
 	i.options = options
 	i.stream = stream
 	i.partitionInfo = make([]internal.PartitionInfo, 0)
@@ -106,7 +106,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 			IdentifierField:      &identifierField,
 			Namespace:            stream.GetDestinationDatabase(&i.config.IcebergDatabase),
 			Upsert:               upsertMode,
-			UsePositionalDeletes: options.RowIndex != nil,
+			UsePositionalDeletes: options.TableIndex != nil,
 			PartitionFields:      icebergPartFields,
 		},
 	}
@@ -134,12 +134,8 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, exist
 	// set schema for current thread
 	i.schema = copySchema(schema)
 
-	// reconcile row index incrementally or from scratch based on snapshot id check
-	// only for the first thread (other threads will just read the indexes)
-	if existingSchema == nil {
-		if err := i.reconcileRowIndex(ctx, options.RowIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
-			return schema, nil, err
-		}
+	if err := i.reconcileTableIndex(ctx, options.TableIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
+		return schema, nil, err
 	}
 
 	if i.config.UseArrowWrites {

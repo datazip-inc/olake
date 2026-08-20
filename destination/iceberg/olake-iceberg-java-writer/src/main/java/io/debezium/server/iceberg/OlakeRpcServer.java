@@ -14,7 +14,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
-import io.debezium.server.iceberg.rpc.OlakeRowIndexer;
+import io.debezium.server.iceberg.rpc.OlakeTableIndexer;
 import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
 import io.debezium.server.iceberg.rpc.IcebergSession;
 import io.grpc.Server;
@@ -65,8 +65,11 @@ public class OlakeRpcServer {
             stringConfigMap.getOrDefault("arrow-writer-enabled", "false"));
 
         int port = Integer.parseInt(stringConfigMap.getOrDefault("port", "50051"));
+        // Set the gRPC message size to the maximum value supported by an int (2 GB - 1),
+        // while the writer buffer is limited to 1 GB, allowing the server to handle the
+        // entire contents of the writer buffer as a single message.
         int maxMessageSize = Integer.parseInt(
-            stringConfigMap.getOrDefault("max-message-size", "" + (1024 * 1024 * 1024)));
+            stringConfigMap.getOrDefault("max-message-size", String.valueOf(Integer.MAX_VALUE)));
 
         ServerBuilder<?> serverBuilder = ServerBuilder.forPort(port)
                     .maxInboundMessageSize(maxMessageSize);
@@ -79,10 +82,10 @@ public class OlakeRpcServer {
              LOGGER.info("Arrow writer enabled - registered OlakeArrowIngester service");
         }
 
-        // Positional deletes are supported for both arrow and legacy paths, so the row
+        // Positional deletes are supported for both arrow and legacy paths, so the table
         // index that feeds them is always registered.
-        serverBuilder.addService(new OlakeRowIndexer(sharedSessions));
-        LOGGER.info("Registered OlakeRowIndexer service");
+        serverBuilder.addService(new OlakeTableIndexer(sharedSessions));
+        LOGGER.info("Registered OlakeTableIndexer service");
 
         // Legacy ingester is always registered (Check, GET_OR_CREATE_TABLE, DROP_TABLE
         // and the default RECORDS path all flow through it).

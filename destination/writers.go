@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/pkg/indexdb"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -19,16 +20,15 @@ type (
 		Backfill    bool
 		ThreadID    string
 		ApplyFilter bool
-		// RowIndex maps _olake_id to the row's location in the destination table.
-		// Set only when the destination's delete mode cannot be served without it.
-		RowIndex types.TableIndex
+		// TableIndex maps _olake_id to the row's location in the destination table.
+		TableIndex types.StreamIndex
 	}
 
 	ThreadOptions func(opt *Options)
 	writerSchema  struct {
-		mu       sync.RWMutex
-		schema   any
-		rowIndex types.TableIndex
+		mu          sync.RWMutex
+		schema      any
+		streamIndex types.StreamIndex
 	}
 
 	Stats struct {
@@ -42,7 +42,6 @@ type (
 	WriterPool struct {
 		stats        *Stats
 		initWriter   initWriter
-		deleteMode   types.DeleteMode
 		shutdown     func(ctx context.Context)
 		writerSchema sync.Map
 		batchSize    int64
@@ -65,6 +64,7 @@ type (
 		recordsPushed   atomic.Int64
 		recordsFiltered atomic.Int64
 		bytesPushed     atomic.Int64
+		bufferBytes     int64 // source bytes currently held in buffer (for byte-based flush)
 	}
 )
 
@@ -89,7 +89,7 @@ func WithApplyFilter(applyFilter bool) ThreadOptions {
 
 // NewWriterPool manages a destination's shared resources (e.g., Iceberg JVM) and connection health.
 // It initializes global state, runs checks, and provides thread-level writers. Call Close() to clean up.
-func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode types.DeleteMode, syncStreams []types.StreamInterface, batchSize int64) (*WriterPool, error) {
+func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams []types.StreamInterface, batchSize int64) (*WriterPool, error) {
 	initWriter, found := RegisteredWriters[config.Type]
 	if !found {
 		return nil, fmt.Errorf("invalid destination type has been passed [%s]", config.Type)
@@ -107,12 +107,14 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 			RecordsFiltered:    atomic.Int64{},
 		},
 		initWriter: initWriter,
-		deleteMode: deleteMode,
 		shutdown:   shutdown,
 		batchSize:  batchSize,
 	}
 
-	if err := adapter.Check(ctx); err != nil {
+	stopCheck := logger.TrackTiming("destination", "check")
+	err = adapter.Check(ctx)
+	stopCheck()
+	if err != nil {
 		return nil, fmt.Errorf("failed to test destination: %s", err)
 	}
 
@@ -122,13 +124,13 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 			schema: nil,
 		}
 
-		if deleteMode.NeedsRowIndex(config.Type) && !stream.Self().StreamMetadata.AppendMode {
-			rowIndex, err := indexdb.Open(stream.ID())
+		if stream.GetDeleteMode().NeedsTableIndex(config.Type) && !stream.Self().StreamMetadata.AppendMode {
+			streamIndex, err := indexdb.Open(stream.ID())
 			if err != nil {
 				pool.Shutdown(ctx)
 				return nil, err
 			}
-			artifact.rowIndex = rowIndex
+			artifact.streamIndex = streamIndex
 		}
 
 		pool.writerSchema.Store(stream.ID(), artifact)
@@ -140,9 +142,9 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, deleteMode t
 // Shutdown tears down destination-level process resources (like the Iceberg Java server)
 func (w *WriterPool) Shutdown(ctx context.Context) {
 	w.writerSchema.Range(func(key, value any) bool {
-		if artifact, ok := value.(*writerSchema); ok && artifact.rowIndex != nil {
-			if err := artifact.rowIndex.Close(); err != nil {
-				logger.Errorf("failed to close row index for stream[%v]: %s", key, err)
+		if artifact, ok := value.(*writerSchema); ok && artifact.streamIndex != nil {
+			if err := artifact.streamIndex.Close(); err != nil {
+				logger.Errorf("failed to close stream index for stream[%v]: %s", key, err)
 			}
 		}
 		return true
@@ -181,7 +183,7 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 
 	// Threads of one stream share the stream's index; it is nil in equality mode.
 	// TODO: can we pass things through contexts like streamContext ?
-	opts.RowIndex = streamArtifact.rowIndex
+	opts.TableIndex = streamArtifact.streamIndex
 
 	writerThread, prevStreamState, err := func() (Writer, *types.MetadataState, error) {
 		// init writer and point it at the config parsed once at pool creation,
@@ -227,8 +229,9 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 }
 
 // Push appends a record to the thread buffer and updates the live stats. sourceBytes
-// is the record's source read size (0 if the driver does not report it). Both the read
-// count and the bytes-read count are added live and rolled back by Close if the chunk/run fails (see rollbackStats).
+// is the record's source read size (0 if the driver does not report it). Buffer batching
+// flushes when buffered source bytes would exceed MaxDestinationBatchBytes. sourceBytes
+// is added live to stats and rolled back by Close if the chunk/run fails (see rollbackStats).
 func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, sourceBytes int64) error {
 	select {
 	case <-ctx.Done():
@@ -244,10 +247,12 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, source
 			wt.bytesPushed.Add(sourceBytes)
 		}
 		wt.buffer = append(wt.buffer, record)
-		if len(wt.buffer) >= int(wt.batchSize) {
+		wt.bufferBytes += sourceBytes
+		if len(wt.buffer) >= int(wt.batchSize) || wt.bufferBytes >= constants.MaxDestinationBatchBytes {
 			buf := make([]types.RawRecord, len(wt.buffer))
 			copy(buf, wt.buffer)
 			wt.buffer = wt.buffer[:0]
+			wt.bufferBytes = 0
 			wt.group.Add(func(ctx context.Context) error {
 				return wt.flush(ctx, buf)
 			})
@@ -312,28 +317,43 @@ func (wt *WriterThread) rollbackStats() {
 	wt.stats.BytesRead.Add(-wt.bytesPushed.Load())
 }
 
-func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err error) {
+func (wt *WriterThread) Close(closeCtx context.Context, finalMetadataState any) (err error) {
 	select {
-	case <-ctx.Done():
+	case <-closeCtx.Done():
 		// Wait for in-flight flushes so rollback below can't race their stat updates.
 		// Block's error is ctx cancellation that brought us here, so ignored.
 		_ = wt.group.Block()
 		// Aborted before commit: writer.Close releases resources without committing,
 		// so nothing this thread pushed reaches the destination — roll its stats back.
 		wt.rollbackStats()
-		if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
+		if closeErr := wt.writer.Close(closeCtx, finalMetadataState); closeErr != nil {
 			return fmt.Errorf("failed to close writer: %s", closeErr)
 		}
 		return nil
 	default:
 		defer wt.stats.ThreadCount.Add(-1)
+
+		// for canceling on flush error
+		ctx, cancel := context.WithCancel(closeCtx)
+		defer cancel()
+
 		defer func() {
+			if err != nil {
+				cancel()
+			}
+
 			wt.streamArtifact.mu.Lock()
 			defer wt.streamArtifact.mu.Unlock()
+
+			// if error occurred, cancel the context
+			if err != nil {
+				cancel()
+			}
 
 			if closeErr := wt.writer.Close(ctx, finalMetadataState); closeErr != nil {
 				err = utils.Ternary(err == nil, closeErr, fmt.Errorf("%s: flush error: %w", closeErr, err)).(error)
 			}
+
 			// Commit is successful only when both the final flush and writer.Close (dest
 			// COMMIT) returned no error. All source bytes were already added live via
 			// Push, so success needs no action; on any failure roll back this thread's
@@ -343,24 +363,25 @@ func (wt *WriterThread) Close(ctx context.Context, finalMetadataState any) (err 
 			}
 		}()
 
-		wt.group.Add(func(ctx context.Context) error {
-			return wt.flush(ctx, wt.buffer)
+		wt.group.Add(func(flushCtx context.Context) error {
+			return wt.flush(flushCtx, wt.buffer)
 		})
 
 		if err := wt.group.Block(); err != nil {
 			return fmt.Errorf("failed to flush data while closing: %s", err)
 		}
+
 		return nil
 	}
 }
 
-func DropStreams(ctx context.Context, config *types.WriterConfig, deleteMode types.DeleteMode, dropStreams []types.StreamInterface) error {
+func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []types.StreamInterface) error {
 	if len(dropStreams) == 0 {
 		return nil
 	}
 
-	if deleteMode.NeedsRowIndex(config.Type) {
-		for _, stream := range dropStreams {
+	for _, stream := range dropStreams {
+		if stream.GetDeleteMode().NeedsTableIndex(config.Type) {
 			if err := indexdb.Drop(stream.ID()); err != nil {
 				return err
 			}

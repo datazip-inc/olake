@@ -1,5 +1,7 @@
 package types
 
+import "fmt"
+
 // DeleteMode selects how a destination represents the removal of a row that a
 // previous sync already committed.
 type DeleteMode string
@@ -18,8 +20,16 @@ const (
 	DeleteModeDeletionVector DeleteMode = "dv"
 )
 
-// NeedsRowIndex reports whether the mode can only be served by maintaining a
+// NeedsTableIndex reports whether the mode can only be served by maintaining a
 // TableIndex alongside the destination table.
-func (m DeleteMode) NeedsRowIndex(destinationType DestinationType) bool {
+func (m DeleteMode) NeedsTableIndex(destinationType DestinationType) bool {
 	return destinationType == Iceberg && m == DeleteModePosition
+}
+
+func (m DeleteMode) Validate() error {
+	if m == DeleteModeEquality || m == DeleteModePosition {
+		return nil
+	}
+
+	return fmt.Errorf("invalid delete mode: %s", m)
 }

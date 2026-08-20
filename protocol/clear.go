@@ -63,12 +63,7 @@ var clearCmd = &cobra.Command{
 		// Setup new state after clear for connector
 		connector.SetupState(newState)
 
-		var delMode types.DeleteMode
-		if deleteType != "eq" {
-			delMode = types.DeleteMode(deleteType)
-		}
-
-		if cerr := destination.DropStreams(cmd.Context(), destinationConfig, delMode, dropStreams); cerr != nil {
+		if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
 			return fmt.Errorf("failed to clear destination: %s", cerr)
 		}
 		logger.Infof("Successfully cleared destination data for selected streams.")

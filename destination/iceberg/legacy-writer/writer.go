@@ -20,7 +20,7 @@ type LegacyWriter struct {
 	schema     map[string]string
 	stream     types.StreamInterface
 	server     internal.ServerClient
-	indexBatch *types.RowIndexBatch
+	indexBatch *types.StreamIndexThread
 	upsertMode bool
 }
 
@@ -31,7 +31,7 @@ func New(options *destination.Options, schema map[string]string, stream types.St
 		stream:     stream,
 		server:     server,
 		upsertMode: upsertMode,
-		indexBatch: types.NewRowIndexBatch(options.RowIndex),
+		indexBatch: types.NewStreamIndexThread(options.TableIndex),
 	}
 }
 
@@ -48,22 +48,6 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	//   normalization=true:  typed columns + OlakeColumns merged in
 	//   normalization=false: StringifiedData + OlakeColumns + partition columns
 	// A single loop over protoSchema covers both cases.
-	// example:
-	//
-	//	WriteRuns: []*proto.WriteRun{
-	//		{
-	//			FilePath:      "s3a://warehouse/olake_test/test_table/data/00000-0-1111.parquet",
-	//			BatchStartIdx: 0,   // maps to sentRecords[0], sentRecords[1], sentRecords[2]
-	//			StartPosition: 100, // row offset 100 in File 1
-	//			Count:         3,
-	//		},
-	//		{
-	//			FilePath:      "s3a://warehouse/olake_test/test_table/data/00001-0-2222.parquet",
-	//			BatchStartIdx: 3, // maps to sentRecords[3], sentRecords[4]
-	//			StartPosition: 0, // row offset 0 in File 2
-	//			Count:         2,
-	//		},
-	//	},
 	protoRecords := make([]*proto.IcebergPayload_IceRecord, 0, len(records))
 	sentRecords := make([]types.RawRecord, 0, len(records))
 	for _, record := range records {
@@ -142,18 +126,20 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", w.options.ThreadID, ingestResponse.GetResult())
 
 	if w.indexBatch != nil {
-		// for example of writeRuns check definition in proto file
-		for _, run := range ingestResponse.GetWriteRuns() {
-			logger.Debugf("Thread[%s]: write run: %s::%d", w.options.ThreadID, run.FilePath, run.StartPosition)
-			for i := int32(0); i < run.Count; i++ {
-				rec := sentRecords[run.BatchStartIdx+i]
-				olakeID := rec.OlakeColumns[constants.OlakeID].(string)
-				// Soft-delete keeps the tombstone row on disk, so the index must
-				// point at the new location just like any other write (matches arrow).
-				w.indexBatch.Put(olakeID, types.RowLocation{
-					FilePath: run.FilePath,
-					Position: run.StartPosition + int64(i),
-				})
+		for _, fileMap := range ingestResponse.GetFilePositionMaps() {
+			logger.Debugf("Thread[%s]: file position map: %s (%d ranges)", w.options.ThreadID, fileMap.GetFilePath(), len(fileMap.GetRanges()))
+			for _, r := range fileMap.GetRanges() {
+				logger.Debugf("Thread[%s]:   range startIdx:%d startPos:%d count:%d", w.options.ThreadID, r.GetBatchStartIdx(), r.GetStartPosition(), r.GetCount())
+				for i := int32(0); i < r.GetCount(); i++ {
+					rec := sentRecords[r.GetBatchStartIdx()+i]
+					olakeID := rec.OlakeColumns[constants.OlakeID].(string)
+					// Soft-delete keeps the tombstone row on disk, so the index must
+					// point at the new location just like any other write (matches arrow).
+					w.indexBatch.Put(olakeID, types.RowLocation{
+						FilePath: fileMap.GetFilePath(),
+						Position: r.GetStartPosition() + int64(i),
+					})
+				}
 			}
 		}
 	}
@@ -190,11 +176,14 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 		},
 	}
 
-	baseSnapshotID, err := internal.RowIndexBaseSnapshotID(w.options.RowIndex)
-	if err != nil {
-		return err
+	if w.indexBatch != nil {
+		indexBaseSnapshotID, err := w.options.TableIndex.LastCommittedSnapshot()
+		if err != nil {
+			return fmt.Errorf("failed to get last committed snapshot ID: %s", err)
+		}
+
+		request.Metadata.BaseSnapshotId = &indexBaseSnapshotID
 	}
-	request.Metadata.BaseSnapshotId = baseSnapshotID
 
 	// Send commit request with timeout
 	ctx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
@@ -208,11 +197,13 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 	ingestResponse := res.(*proto.RecordIngestResponse)
 	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, ingestResponse.GetResult())
 
-	if w.options.RowIndex != nil && w.indexBatch != nil {
+	// ingestResponse.SnapshotId is 0 if there are external snapshots present or there is no records to commit
+	// in that case we will not apply stream index, next sync run will create indexes
+	if w.indexBatch != nil && ingestResponse.SnapshotId != 0 {
 		batch := w.indexBatch
 		w.indexBatch = nil
-		if err := w.options.RowIndex.Commit(batch, &ingestResponse.SnapshotId); err != nil {
-			return fmt.Errorf("failed to apply row index: %s", err)
+		if err := w.options.TableIndex.Commit(batch, &ingestResponse.SnapshotId); err != nil {
+			return fmt.Errorf("failed to apply stream index: %s", err)
 		}
 	}
 

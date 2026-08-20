@@ -223,40 +223,40 @@ var ArrowIngestService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	RowIndexService_ScanRowIndex_FullMethodName           = "/io.debezium.server.iceberg.rpc.RowIndexService/ScanRowIndex"
-	RowIndexService_MigrateEqualityDeletes_FullMethodName = "/io.debezium.server.iceberg.rpc.RowIndexService/MigrateEqualityDeletes"
+	TableIndexService_ScanTableForIndexing_FullMethodName   = "/io.debezium.server.iceberg.rpc.TableIndexService/ScanTableForIndexing"
+	TableIndexService_MigrateEqualityDeletes_FullMethodName = "/io.debezium.server.iceberg.rpc.TableIndexService/MigrateEqualityDeletes"
 )
 
-// RowIndexServiceClient is the client API for RowIndexService service.
+// TableIndexServiceClient is the client API for TableIndexService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// RowIndexService populates and maintains the caller's identifier -> row location
+// TableIndexService populates and maintains the caller's identifier -> row location
 // index, which is what lets deletes be expressed as positional rather than
 // equality deletes.
-type RowIndexServiceClient interface {
-	// ScanRowIndex streams the identifier and location of live rows in the table.
-	ScanRowIndex(ctx context.Context, in *RowIndexScanRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RowIndexScanBatch], error)
+type TableIndexServiceClient interface {
+	// ScanTableForIndexing streams the identifier and location of live rows in the table.
+	ScanTableForIndexing(ctx context.Context, in *TableIndexScanRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TableIndexScanBatch], error)
 	// MigrateEqualityDeletes rewrites the table's existing equality delete files
 	// into equivalent positional delete files in a single atomic commit.
 	MigrateEqualityDeletes(ctx context.Context, in *MigrateEqualityDeletesRequest, opts ...grpc.CallOption) (*MigrateEqualityDeletesResponse, error)
 }
 
-type rowIndexServiceClient struct {
+type tableIndexServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewRowIndexServiceClient(cc grpc.ClientConnInterface) RowIndexServiceClient {
-	return &rowIndexServiceClient{cc}
+func NewTableIndexServiceClient(cc grpc.ClientConnInterface) TableIndexServiceClient {
+	return &tableIndexServiceClient{cc}
 }
 
-func (c *rowIndexServiceClient) ScanRowIndex(ctx context.Context, in *RowIndexScanRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[RowIndexScanBatch], error) {
+func (c *tableIndexServiceClient) ScanTableForIndexing(ctx context.Context, in *TableIndexScanRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TableIndexScanBatch], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &RowIndexService_ServiceDesc.Streams[0], RowIndexService_ScanRowIndex_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &TableIndexService_ServiceDesc.Streams[0], TableIndexService_ScanTableForIndexing_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[RowIndexScanRequest, RowIndexScanBatch]{ClientStream: stream}
+	x := &grpc.GenericClientStream[TableIndexScanRequest, TableIndexScanBatch]{ClientStream: stream}
 	if err := x.ClientStream.SendMsg(in); err != nil {
 		return nil, err
 	}
@@ -267,113 +267,113 @@ func (c *rowIndexServiceClient) ScanRowIndex(ctx context.Context, in *RowIndexSc
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type RowIndexService_ScanRowIndexClient = grpc.ServerStreamingClient[RowIndexScanBatch]
+type TableIndexService_ScanTableForIndexingClient = grpc.ServerStreamingClient[TableIndexScanBatch]
 
-func (c *rowIndexServiceClient) MigrateEqualityDeletes(ctx context.Context, in *MigrateEqualityDeletesRequest, opts ...grpc.CallOption) (*MigrateEqualityDeletesResponse, error) {
+func (c *tableIndexServiceClient) MigrateEqualityDeletes(ctx context.Context, in *MigrateEqualityDeletesRequest, opts ...grpc.CallOption) (*MigrateEqualityDeletesResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(MigrateEqualityDeletesResponse)
-	err := c.cc.Invoke(ctx, RowIndexService_MigrateEqualityDeletes_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, TableIndexService_MigrateEqualityDeletes_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// RowIndexServiceServer is the server API for RowIndexService service.
-// All implementations must embed UnimplementedRowIndexServiceServer
+// TableIndexServiceServer is the server API for TableIndexService service.
+// All implementations must embed UnimplementedTableIndexServiceServer
 // for forward compatibility.
 //
-// RowIndexService populates and maintains the caller's identifier -> row location
+// TableIndexService populates and maintains the caller's identifier -> row location
 // index, which is what lets deletes be expressed as positional rather than
 // equality deletes.
-type RowIndexServiceServer interface {
-	// ScanRowIndex streams the identifier and location of live rows in the table.
-	ScanRowIndex(*RowIndexScanRequest, grpc.ServerStreamingServer[RowIndexScanBatch]) error
+type TableIndexServiceServer interface {
+	// ScanTableForIndexing streams the identifier and location of live rows in the table.
+	ScanTableForIndexing(*TableIndexScanRequest, grpc.ServerStreamingServer[TableIndexScanBatch]) error
 	// MigrateEqualityDeletes rewrites the table's existing equality delete files
 	// into equivalent positional delete files in a single atomic commit.
 	MigrateEqualityDeletes(context.Context, *MigrateEqualityDeletesRequest) (*MigrateEqualityDeletesResponse, error)
-	mustEmbedUnimplementedRowIndexServiceServer()
+	mustEmbedUnimplementedTableIndexServiceServer()
 }
 
-// UnimplementedRowIndexServiceServer must be embedded to have
+// UnimplementedTableIndexServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedRowIndexServiceServer struct{}
+type UnimplementedTableIndexServiceServer struct{}
 
-func (UnimplementedRowIndexServiceServer) ScanRowIndex(*RowIndexScanRequest, grpc.ServerStreamingServer[RowIndexScanBatch]) error {
-	return status.Errorf(codes.Unimplemented, "method ScanRowIndex not implemented")
+func (UnimplementedTableIndexServiceServer) ScanTableForIndexing(*TableIndexScanRequest, grpc.ServerStreamingServer[TableIndexScanBatch]) error {
+	return status.Errorf(codes.Unimplemented, "method ScanTableForIndexing not implemented")
 }
-func (UnimplementedRowIndexServiceServer) MigrateEqualityDeletes(context.Context, *MigrateEqualityDeletesRequest) (*MigrateEqualityDeletesResponse, error) {
+func (UnimplementedTableIndexServiceServer) MigrateEqualityDeletes(context.Context, *MigrateEqualityDeletesRequest) (*MigrateEqualityDeletesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MigrateEqualityDeletes not implemented")
 }
-func (UnimplementedRowIndexServiceServer) mustEmbedUnimplementedRowIndexServiceServer() {}
-func (UnimplementedRowIndexServiceServer) testEmbeddedByValue()                         {}
+func (UnimplementedTableIndexServiceServer) mustEmbedUnimplementedTableIndexServiceServer() {}
+func (UnimplementedTableIndexServiceServer) testEmbeddedByValue()                           {}
 
-// UnsafeRowIndexServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to RowIndexServiceServer will
+// UnsafeTableIndexServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to TableIndexServiceServer will
 // result in compilation errors.
-type UnsafeRowIndexServiceServer interface {
-	mustEmbedUnimplementedRowIndexServiceServer()
+type UnsafeTableIndexServiceServer interface {
+	mustEmbedUnimplementedTableIndexServiceServer()
 }
 
-func RegisterRowIndexServiceServer(s grpc.ServiceRegistrar, srv RowIndexServiceServer) {
-	// If the following call pancis, it indicates UnimplementedRowIndexServiceServer was
+func RegisterTableIndexServiceServer(s grpc.ServiceRegistrar, srv TableIndexServiceServer) {
+	// If the following call pancis, it indicates UnimplementedTableIndexServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&RowIndexService_ServiceDesc, srv)
+	s.RegisterService(&TableIndexService_ServiceDesc, srv)
 }
 
-func _RowIndexService_ScanRowIndex_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(RowIndexScanRequest)
+func _TableIndexService_ScanTableForIndexing_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(TableIndexScanRequest)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(RowIndexServiceServer).ScanRowIndex(m, &grpc.GenericServerStream[RowIndexScanRequest, RowIndexScanBatch]{ServerStream: stream})
+	return srv.(TableIndexServiceServer).ScanTableForIndexing(m, &grpc.GenericServerStream[TableIndexScanRequest, TableIndexScanBatch]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type RowIndexService_ScanRowIndexServer = grpc.ServerStreamingServer[RowIndexScanBatch]
+type TableIndexService_ScanTableForIndexingServer = grpc.ServerStreamingServer[TableIndexScanBatch]
 
-func _RowIndexService_MigrateEqualityDeletes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _TableIndexService_MigrateEqualityDeletes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(MigrateEqualityDeletesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RowIndexServiceServer).MigrateEqualityDeletes(ctx, in)
+		return srv.(TableIndexServiceServer).MigrateEqualityDeletes(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: RowIndexService_MigrateEqualityDeletes_FullMethodName,
+		FullMethod: TableIndexService_MigrateEqualityDeletes_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RowIndexServiceServer).MigrateEqualityDeletes(ctx, req.(*MigrateEqualityDeletesRequest))
+		return srv.(TableIndexServiceServer).MigrateEqualityDeletes(ctx, req.(*MigrateEqualityDeletesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// RowIndexService_ServiceDesc is the grpc.ServiceDesc for RowIndexService service.
+// TableIndexService_ServiceDesc is the grpc.ServiceDesc for TableIndexService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var RowIndexService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "io.debezium.server.iceberg.rpc.RowIndexService",
-	HandlerType: (*RowIndexServiceServer)(nil),
+var TableIndexService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "io.debezium.server.iceberg.rpc.TableIndexService",
+	HandlerType: (*TableIndexServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "MigrateEqualityDeletes",
-			Handler:    _RowIndexService_MigrateEqualityDeletes_Handler,
+			Handler:    _TableIndexService_MigrateEqualityDeletes_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "ScanRowIndex",
-			Handler:       _RowIndexService_ScanRowIndex_Handler,
+			StreamName:    "ScanTableForIndexing",
+			Handler:       _TableIndexService_ScanTableForIndexing_Handler,
 			ServerStreams: true,
 		},
 	},

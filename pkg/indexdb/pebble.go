@@ -18,6 +18,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/spf13/viper"
 )
 
 var unsafeDirChars = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
@@ -29,40 +30,53 @@ type StoreOptions struct {
 	MaxOpenFiles int
 }
 
-func DefaultOptions() StoreOptions {
+func DefaultOptions(streamID string) StoreOptions {
 	dir := os.Getenv(constants.IndexDBDir)
 	if dir == "" {
 		wd, _ := os.Getwd()
 		dir = filepath.Join(wd, constants.DefaultDirName)
 	}
 
+	// if prefix provided use it to create subdirectory for each stream
+	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
+		dir = filepath.Join(dir, prefix)
+	}
+
+	dir = filepath.Join(dir, streamID)
+
 	cacheSize, err := strconv.Atoi(os.Getenv(constants.IndexDBCacheSizePerStream))
 	if err != nil {
-		logger.Debugf("failed to parse index db cache size (using default %d MB): %s", constants.DefaultCacheSize, err)
+		logger.Warnf("failed to parse index db cache size (using default %d MB): %s", constants.DefaultCacheSize, err)
 		cacheSize = constants.DefaultCacheSize
+	}
+
+	maxOpenFiles, err := strconv.Atoi(os.Getenv(constants.MaxOpenFilesPerStream))
+	if err != nil {
+		logger.Warnf("failed to parse index db max open files (using default %d): %s", constants.DefaultMaxOpenFiles, err)
+		maxOpenFiles = constants.DefaultMaxOpenFiles
 	}
 
 	return StoreOptions{
 		Dir:          dir,
 		CacheSize:    int64(cacheSize),
 		MemTableSize: constants.DefaultMemTableSize,
-		MaxOpenFiles: constants.DefaultMaxOpenFiles,
+		MaxOpenFiles: maxOpenFiles,
 	}
 }
 
 // Open opens or creates a TableIndex for the given streamID.
-func Open(streamID string) (types.TableIndex, error) {
-	opts := DefaultOptions()
+func Open(streamID string) (types.StreamIndex, error) {
+	opts := DefaultOptions(streamID)
 	dir := indexDir(opts.Dir, streamID)
 	return openIndex(dir, opts)
 }
 
 // Drop removes the on-disk index directory for streamID.
 func Drop(streamID string) error {
-	opts := DefaultOptions()
+	opts := DefaultOptions(streamID)
 	dir := indexDir(opts.Dir, streamID)
 	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("failed to remove row index for stream[%s]: %w", streamID, err)
+		return fmt.Errorf("failed to remove stream index for stream[%s]: %w", streamID, err)
 	}
 	return nil
 }
@@ -77,14 +91,14 @@ func indexDir(baseDir, streamID string) string {
 }
 
 const (
-	prefixRow        byte = 0x01
-	prefixFileByID   byte = 0x02
-	prefixFileByPath byte = 0x03
-	prefixMeta       byte = 0x05
+	prefixRow          byte = 0x01
+	prefixIDToFilePath byte = 0x02
+	prefixFileByPath   byte = 0x03
+	prefixMeta         byte = 0x04
 
 	bloomBitsPerKey        = 10
 	maxCompactions         = 4
-	formatVersion   uint64 = 4
+	formatVersion   uint64 = 1 // used for versioning stream index
 )
 
 var (
@@ -105,7 +119,7 @@ type pebbleIndex struct {
 
 func openIndex(dir string, opts StoreOptions) (*pebbleIndex, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("failed to create row index directory %s: %s", dir, err)
+		return nil, fmt.Errorf("failed to create stream index directory %s: %s", dir, err)
 	}
 
 	pebbleOpts := &pebble.Options{
@@ -169,7 +183,7 @@ func (i *pebbleIndex) checkFormatVersion() error {
 	}
 
 	if stored != 0 {
-		logger.Warnf("row index %s: on-disk format v%d is not v%d, discarding it for a rebuild",
+		logger.Warnf("stream index %s: on-disk format v%d is not v%d, discarding it for a rebuild",
 			i.dir, stored, formatVersion)
 	}
 
@@ -182,15 +196,15 @@ func (i *pebbleIndex) Lookup(key string) (types.RowLocation, bool, error) {
 		return types.RowLocation{}, false, nil
 	}
 	if err != nil {
-		return types.RowLocation{}, false, fmt.Errorf("failed to read row index for key[%s]: %s", key, err)
+		return types.RowLocation{}, false, fmt.Errorf("failed to read stream index for key[%s]: %s", key, err)
 	}
 
 	fileID, position, decodeErr := decodeRow(value)
 	if err := closer.Close(); err != nil {
-		return types.RowLocation{}, false, fmt.Errorf("failed to release row index read for key[%s]: %s", key, err)
+		return types.RowLocation{}, false, fmt.Errorf("failed to release stream index read for key[%s]: %s", key, err)
 	}
 	if decodeErr != nil {
-		return types.RowLocation{}, false, fmt.Errorf("corrupt row index entry for key[%s]: %s", key, decodeErr)
+		return types.RowLocation{}, false, fmt.Errorf("corrupt stream index entry for key[%s]: %s", key, decodeErr)
 	}
 
 	path, err := i.filePath(fileID)
@@ -201,15 +215,15 @@ func (i *pebbleIndex) Lookup(key string) (types.RowLocation, bool, error) {
 	return types.RowLocation{FilePath: path, Position: position}, true, nil
 }
 
-func (i *pebbleIndex) Commit(batch *types.RowIndexBatch, snapshotID *int64) error {
+func (i *pebbleIndex) Commit(batch *types.StreamIndexThread, snapshotID *int64) error {
 	pending := i.db.NewBatch()
 	defer func() {
 		_ = pending.Close()
 	}()
 
 	if batch != nil {
-		err := batch.Range(func(key string, loc types.RowLocation, deleted bool) error {
-			return i.stageChange(pending, key, loc, deleted)
+		err := batch.Range(func(key string, loc types.RowLocation) error {
+			return i.stageChange(pending, key, loc)
 		})
 		if err != nil {
 			return err
@@ -218,7 +232,7 @@ func (i *pebbleIndex) Commit(batch *types.RowIndexBatch, snapshotID *int64) erro
 
 	if snapshotID != nil {
 		if err := pending.Set(metaKey(metaSnapshot), binary.AppendVarint(nil, *snapshotID), nil); err != nil {
-			return fmt.Errorf("failed to stage row index checkpoint[%d] in %s: %s", *snapshotID, i.dir, err)
+			return fmt.Errorf("failed to stage stream index checkpoint[%d] in %s: %s", *snapshotID, i.dir, err)
 		}
 	}
 
@@ -227,26 +241,15 @@ func (i *pebbleIndex) Commit(batch *types.RowIndexBatch, snapshotID *int64) erro
 	}
 
 	if err := pending.Commit(pebble.Sync); err != nil {
-		return fmt.Errorf("failed to commit row index changes in %s: %s", i.dir, err)
-	}
-
-	if err := i.db.Flush(); err != nil {
-		logger.Warnf("row index %s: failed to flush memtable after commit: %s", i.dir, err)
+		return fmt.Errorf("failed to commit stream index changes in %s: %s", i.dir, err)
 	}
 
 	return nil
 }
 
-func (i *pebbleIndex) stageChange(batch *pebble.Batch, key string, loc types.RowLocation, deleted bool) error {
-	if deleted {
-		if err := batch.Delete(rowKey(key), nil); err != nil {
-			return fmt.Errorf("failed to stage row index delete for key[%s]: %s", key, err)
-		}
-		return nil
-	}
-
+func (i *pebbleIndex) stageChange(batch *pebble.Batch, key string, loc types.RowLocation) error {
 	if loc.Position < 0 {
-		return fmt.Errorf("row index position for key[%s] must not be negative, got %d", key, loc.Position)
+		return fmt.Errorf("stream index position for key[%s] must not be negative, got %d", key, loc.Position)
 	}
 
 	fileID, err := i.fileID(loc.FilePath)
@@ -254,37 +257,37 @@ func (i *pebbleIndex) stageChange(batch *pebble.Batch, key string, loc types.Row
 		return err
 	}
 	if err := batch.Set(rowKey(key), encodeRow(fileID, uint64(loc.Position)), nil); err != nil {
-		return fmt.Errorf("failed to stage row index entry for key[%s]: %s", key, err)
+		return fmt.Errorf("failed to stage stream index entry for key[%s]: %s", key, err)
 	}
 
 	return nil
 }
 
-func (i *pebbleIndex) LastCommittedSnapshot() (int64, bool, error) {
+func (i *pebbleIndex) LastCommittedSnapshot() (int64, error) {
 	value, closer, err := i.db.Get(metaKey(metaSnapshot))
 	if errors.Is(err, pebble.ErrNotFound) {
-		return 0, false, nil
+		return 0, nil
 	}
 	if err != nil {
-		return 0, false, fmt.Errorf("failed to read indexed snapshot from row index %s: %s", i.dir, err)
+		return 0, fmt.Errorf("failed to read indexed snapshot from stream index %s: %s", i.dir, err)
 	}
 	defer closer.Close()
 
 	snapshotID, read := binary.Varint(value)
 	if read <= 0 {
-		return 0, false, fmt.Errorf("corrupt indexed snapshot in row index %s", i.dir)
+		return 0, fmt.Errorf("corrupt indexed snapshot in stream index %s", i.dir)
 	}
 
-	return snapshotID, true, nil
+	return snapshotID, nil
 }
 
 func (i *pebbleIndex) Truncate() error {
 	batch := i.db.NewBatch()
 	defer batch.Close()
 
-	for _, prefix := range [][]byte{{prefixRow}, {prefixFileByID}, {prefixFileByPath}, {prefixMeta}} {
+	for _, prefix := range [][]byte{{prefixRow}, {prefixIDToFilePath}, {prefixFileByPath}, {prefixMeta}} {
 		if err := batch.DeleteRange(prefix, prefixEnd(prefix), nil); err != nil {
-			return fmt.Errorf("failed to clear row index %s: %s", i.dir, err)
+			return fmt.Errorf("failed to clear stream index %s: %s", i.dir, err)
 		}
 	}
 
@@ -293,7 +296,7 @@ func (i *pebbleIndex) Truncate() error {
 	}
 
 	if err := batch.Commit(pebble.Sync); err != nil {
-		return fmt.Errorf("failed to commit row index truncate for %s: %s", i.dir, err)
+		return fmt.Errorf("failed to commit stream index truncate for %s: %s", i.dir, err)
 	}
 
 	i.fileMu.Lock()
@@ -308,7 +311,7 @@ func (i *pebbleIndex) Truncate() error {
 
 func (i *pebbleIndex) Close() error {
 	if err := i.db.Close(); err != nil {
-		return fmt.Errorf("failed to close row index %s: %s", i.dir, err)
+		return fmt.Errorf("failed to close stream index %s: %s", i.dir, err)
 	}
 	return nil
 }
@@ -417,13 +420,13 @@ func (i *pebbleIndex) readMetaKey(name []byte) (uint64, error) {
 	}
 
 	if err != nil {
-		return 0, fmt.Errorf("failed to read row index counter %s in %s: %s", name, i.dir, err)
+		return 0, fmt.Errorf("failed to read stream index counter %s in %s: %s", name, i.dir, err)
 	}
 	defer closer.Close()
 
 	counter, read := binary.Uvarint(value)
 	if read <= 0 {
-		return 0, fmt.Errorf("corrupt row index counter %s in %s", name, i.dir)
+		return 0, fmt.Errorf("corrupt stream index counter %s in %s", name, i.dir)
 	}
 
 	return counter, nil
@@ -434,7 +437,7 @@ func rowKey(id string) []byte {
 }
 
 func fileByIDKey(id uint64) []byte {
-	return append([]byte{prefixFileByID}, be64(id)...)
+	return append([]byte{prefixIDToFilePath}, be64(id)...)
 }
 
 func fileByPathKey(path string) []byte {
@@ -474,7 +477,7 @@ func decodeRow(value []byte) (fileID uint64, position int64, err error) {
 
 func setCounter(batch *pebble.Batch, name []byte, value uint64) error {
 	if err := batch.Set(metaKey(name), binary.AppendUvarint(nil, value), nil); err != nil {
-		return fmt.Errorf("failed to stage row index counter %s: %s", name, err)
+		return fmt.Errorf("failed to stage stream index counter %s: %s", name, err)
 	}
 	return nil
 }
@@ -496,13 +499,13 @@ func prefixEnd(prefix []byte) []byte {
 type pebbleLogger struct{}
 
 func (pebbleLogger) Infof(format string, args ...interface{}) {
-	logger.Debugf("row index: "+format, args...)
+	logger.Debugf("stream index: "+format, args...)
 }
 
 func (pebbleLogger) Errorf(format string, args ...interface{}) {
-	logger.Errorf("row index: "+format, args...)
+	logger.Errorf("stream index: "+format, args...)
 }
 
 func (pebbleLogger) Fatalf(format string, args ...interface{}) {
-	logger.Fatalf("row index: "+format, args...)
+	logger.Fatalf("stream index: "+format, args...)
 }

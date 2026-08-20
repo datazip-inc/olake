@@ -109,11 +109,6 @@ var syncCmd = &cobra.Command{
 			state.Streams = selectedStreamsMetadata.NewStreamsState
 		}
 
-		var delMode types.DeleteMode
-		if deleteType != "eq" {
-			delMode = types.DeleteMode(deleteType)
-		}
-
 		// for clearing streams
 		dropStreams := []types.StreamInterface{}
 		dropStreams = append(dropStreams, selectedStreamsMetadata.FullLoadStreams...)
@@ -125,7 +120,7 @@ var syncCmd = &cobra.Command{
 				return fmt.Errorf("error clearing state for full refresh streams: %s", err)
 			}
 
-			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, delMode, dropStreams); cerr != nil {
+			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
 				return fmt.Errorf("failed to clear destination: %s", cerr)
 			}
 		}
@@ -133,11 +128,17 @@ var syncCmd = &cobra.Command{
 		// Build the writer pool up front: it starts destination-owned resources
 		// (e.g. the Iceberg shared JVM) and validates the connection. pool.Close
 		// tears them down on exit (normal return or signal-canceled context).
-		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, delMode, selectedStreamsMetadata.SelectedStreams, batchSize)
+		stopInit := logger.TrackTiming("sync", "writer pool init")
+		pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, selectedStreamsMetadata.SelectedStreams, batchSize)
+		stopInit()
 		if err != nil {
 			return err
 		}
-		defer pool.Shutdown(context.Background())
+		defer func() {
+			// Commits land here, not in Read, so this is where a destination's flush cost shows.
+			defer logger.TrackTiming("sync", "pool shutdown")()
+			pool.Shutdown(context.Background())
+		}()
 
 		// start monitoring stats
 		logger.StatsLogger(cmd.Context(), func() (int64, int64, int64, int64) {
@@ -148,15 +149,21 @@ var syncCmd = &cobra.Command{
 		// Setup State for Connector
 		connector.SetupState(state)
 		// Sync Telemetry tracking
-		telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
-		defer func() {
-			stats := pool.GetStats()
-			telemetry.TrackSyncCompleted(syncID, deleteType, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
-			logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
-			time.Sleep(5 * time.Second)
-		}()
 
+		// Added this check to avoid the sleep when tracking telemetry is disabled
+		if !telemetry.Disabled() {
+			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
+			defer func() {
+				stats := pool.GetStats()
+				telemetry.TrackSyncCompleted(syncID, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
+				logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
+				time.Sleep(5 * time.Second)
+			}()
+		}
+
+		stopRead := logger.TrackTiming("sync", "read records")
 		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
+		stopRead()
 		if err != nil {
 			return fmt.Errorf("error occurred while reading records: %s", err)
 		}
@@ -220,6 +227,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
 				return false
 			}
+		}
+
+		if err := elem.GetDeleteMode().Validate(); err != nil {
+			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
+			return false
 		}
 
 		filter, isLegacy, err := elem.GetFilter()

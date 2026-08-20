@@ -215,20 +215,6 @@ var (
 		List:      []string{"x", "y"},
 	}
 
-	// ExpectedCSVS3Data and ExpectedUpdatedCSVS3Data are the values every synced row of
-	// the CSV variant must carry; the JSON pair is the same for the JSON variant. "id"
-	// varies per row and is not asserted.
-	ExpectedCSVS3Data        = expectedCSVData(seedValues)
-	ExpectedUpdatedCSVS3Data = expectedCSVData(updatedValues)
-
-	ExpectedJSONS3Data        = expectedJSONData(seedValues)
-	ExpectedUpdatedJSONS3Data = expectedJSONData(updatedValues)
-
-	// ExpectedParquetS3Data and ExpectedUpdatedParquetS3Data are the same for the Parquet
-	// variant, which carries the full type matrix rather than the shared text columns.
-	ExpectedParquetS3Data        = expectedParquetData(seedValues)
-	ExpectedUpdatedParquetS3Data = expectedParquetData(updatedValues)
-
 	// S3CSVToDestinationSchema and S3JSONToDestinationSchema are the expected destination
 	// schemas for the two text variants, whose parsers infer every number as double. They
 	// share the text columns and differ where the formats do: only CSV can carry an
@@ -508,6 +494,9 @@ type S3TestVariant struct {
 	// ExpectedData/ExpectedUpdatedData by applyWriterExpectations; nil when every column
 	// of the variant syncs identically across destinations.
 	WriterExpectedData func(v rowValues, writer s3DestinationWriter) map[string]interface{}
+	// ParquetStreaming is the parquet.streaming_enabled value every sync of the variant
+	// runs with; meaningful only when DataFormat is "parquet" (see applyParquetStreamingMode).
+	ParquetStreaming bool
 }
 
 // S3TestVariants lists every source format covered by TestS3Integration.
@@ -521,8 +510,8 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedCSVFile,
 		DestinationSchema:        S3CSVToDestinationSchema,
 		UpdatedDestinationSchema: S3CSVUpdatedDestinationSchema,
-		ExpectedData:             ExpectedCSVS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedCSVS3Data,
+		ExpectedData:             expectedCSVData(seedValues),
+		ExpectedUpdatedData:      expectedCSVData(updatedValues),
 		WriterExpectedData:       textWriterExpectedData,
 	},
 	{
@@ -534,9 +523,23 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedJSONLFile,
 		DestinationSchema:        S3JSONToDestinationSchema,
 		UpdatedDestinationSchema: S3JSONUpdatedDestinationSchema,
-		ExpectedData:             ExpectedJSONS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedJSONS3Data,
+		ExpectedData:             expectedJSONData(seedValues),
+		ExpectedUpdatedData:      expectedJSONData(updatedValues),
 		WriterExpectedData:       textWriterExpectedData,
+	},
+	{
+		// Identical to Parquet except streaming_enabled=false: every sync loads whole files
+		// into memory. Listed first so the suite ends at the committed streaming=true.
+		Name:                     "ParquetInMemory",
+		DataFormat:               "parquet",
+		PlainExt:                 ".parquet",
+		BuildFile:                buildParquetFile,
+		BuildEvolvedFile:         buildEvolvedParquetFile,
+		DestinationSchema:        S3ParquetToDestinationSchema,
+		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
+		ExpectedData:             expectedParquetData(seedValues),
+		ExpectedUpdatedData:      expectedParquetData(updatedValues),
+		WriterExpectedData:       parquetWriterExpectedData,
 	},
 	{
 		// The driver's file matcher recognizes no gzip variant for Parquet, so this stream
@@ -548,9 +551,10 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedParquetFile,
 		DestinationSchema:        S3ParquetToDestinationSchema,
 		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
-		ExpectedData:             ExpectedParquetS3Data,
-		ExpectedUpdatedData:      ExpectedUpdatedParquetS3Data,
+		ExpectedData:             expectedParquetData(seedValues),
+		ExpectedUpdatedData:      expectedParquetData(updatedValues),
 		WriterExpectedData:       parquetWriterExpectedData,
+		ParquetStreaming:         true,
 	},
 }
 
@@ -576,6 +580,19 @@ func (v S3TestVariant) source(t *testing.T) s3Source {
 	return s3Source{client: client, bucket: config.String("bucket_name"), prefix: config.String("path_prefix")}
 }
 
+// removeUnder deletes every object under prefix, tolerating a bucket that does not exist yet
+// (a "drop" can run before the first "create").
+func (s s3Source) removeUnder(ctx context.Context, t *testing.T, prefix string) {
+	t.Helper()
+	for obj := range s.client.ListObjects(ctx, s.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		if minio.ToErrorResponse(obj.Err).Code == "NoSuchBucket" {
+			return
+		}
+		require.NoError(t, obj.Err, "failed to list objects under %s", prefix)
+		require.NoError(t, s.client.RemoveObject(ctx, s.bucket, obj.Key, minio.RemoveObjectOptions{}), "failed to remove %s", obj.Key)
+	}
+}
+
 // s3DestinationWriter identifies the destination writer a sync runs through, as far as
 // the variant can tell from its destination config.
 type s3DestinationWriter string
@@ -593,14 +610,14 @@ const (
 	writerArrow s3DestinationWriter = "arrow"
 )
 
-// currentDestinationWriter reads the live arrow_writes flag from the variant's
-// iceberg_destination.json and reports which writer the next sync will use.
-func (v S3TestVariant) currentDestinationWriter(t *testing.T) s3DestinationWriter {
+// currentDestinationWriter reads the live arrow_writes flag from the destination config the
+// next sync will run with, and reports which writer that is.
+func (v S3TestVariant) currentDestinationWriter(t *testing.T, config *testutils.TestConfig) s3DestinationWriter {
 	t.Helper()
 
-	// The test process runs with the package directory as its working directory, so the
-	// host side of the mounted testdata tree sits right below it.
-	destPath := filepath.Join("testdata", v.DataFormat, "iceberg_destination.json")
+	// The harness picks a writer by swapping IcebergDestinationPath between two files in its
+	// private working directory (see testIcebergWriter)
+	destPath := filepath.Join(config.HostTestDataPath, filepath.Base(config.IcebergDestinationPath))
 	data, err := os.ReadFile(destPath)
 	require.NoError(t, err, "failed to read %s", destPath)
 	var destConfig struct {
@@ -621,15 +638,37 @@ func (v S3TestVariant) currentDestinationWriter(t *testing.T) s3DestinationWrite
 // iceberg_destination.json before each Iceberg writer block but asserts every block against
 // the same ExpectedData maps, so this hook -- the only variant-owned code that runs between
 // the toggle and the verification -- reads the live flag and updates the maps in place.
-func (v S3TestVariant) applyWriterExpectations(t *testing.T) {
+func (v S3TestVariant) applyWriterExpectations(t *testing.T, config *testutils.TestConfig) {
 	t.Helper()
 	if v.WriterExpectedData == nil {
 		return
 	}
 
-	writer := v.currentDestinationWriter(t)
+	writer := v.currentDestinationWriter(t, config)
 	maps.Copy(v.ExpectedData, v.WriterExpectedData(seedValues, writer))
 	maps.Copy(v.ExpectedUpdatedData, v.WriterExpectedData(updatedValues, writer))
+}
+
+// applyParquetStreamingMode pins parquet.streaming_enabled in this config's source.json
+func (v S3TestVariant) applyParquetStreamingMode(t *testing.T, config *testutils.TestConfig) {
+	t.Helper()
+	if v.DataFormat != "parquet" {
+		return
+	}
+
+	path := config.HostSourcePath
+	data, err := os.ReadFile(path)
+	require.NoError(t, err, "failed to read %s", path)
+
+	want := fmt.Sprintf(`"streaming_enabled": %t`, v.ParquetStreaming)
+	if bytes.Contains(data, []byte(want)) {
+		return
+	}
+	stale := fmt.Sprintf(`"streaming_enabled": %t`, !v.ParquetStreaming)
+	require.Contains(t, string(data), stale, "%s lost its streaming_enabled key", path)
+	data = bytes.ReplaceAll(data, []byte(stale), []byte(want))
+	require.NoError(t, os.WriteFile(path, data, 0o600), "failed to write %s", path)
+	t.Logf("parquet source streaming_enabled=%t for upcoming syncs", v.ParquetStreaming)
 }
 
 // ExecuteQueryFactory returns the harness ExecuteQuery hook for one S3 format variant.
@@ -637,19 +676,27 @@ func (v S3TestVariant) applyWriterExpectations(t *testing.T) {
 // the variant's path prefix: "create" ensures the bucket exists, "add" seeds the stream,
 // "insert"/"update" upload a further file each, and "clean"/"drop" remove everything under
 // the prefix.
-func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *testing.T, streams []string, operation string, fileConfig bool) {
-	return func(ctx context.Context, t *testing.T, streams []string, operation string, _ bool) {
+func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
+	return func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 		t.Helper()
 
 		// Every destination block starts by re-seeding the source through this hook, so
 		// refreshing the expectations here keeps them aligned with whichever writer the
 		// harness toggled the destination to since the last operation.
-		variant.applyWriterExpectations(t)
+		variant.applyWriterExpectations(t, conf)
+		variant.applyParquetStreamingMode(t, conf)
 
 		src := variant.source(t)
-		prefix := src.prefix + "/" + streams[0] + "/"
+		prefix := src.prefix + "/" + testutils.TestTableName(conf) + "/"
 
 		switch operation {
+		case "drop-all":
+			// Everything under the variant's path prefix, not just this stream's folder:
+			// discover enumerates one stream per folder, so a folder an aborted run left
+			// behind would show up as an extra stream. Safe only in the serial discover
+			// suite -- variants sharing a DataFormat share this prefix (see TestDiscover).
+			src.removeUnder(ctx, t, src.prefix+"/")
+
 		case "create":
 			if err := src.client.MakeBucket(ctx, src.bucket, minio.MakeBucketOptions{}); err != nil {
 				code := minio.ToErrorResponse(err).Code
@@ -659,13 +706,7 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 			}
 
 		case "clean", "drop":
-			for obj := range src.client.ListObjects(ctx, src.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
-				if minio.ToErrorResponse(obj.Err).Code == "NoSuchBucket" {
-					break
-				}
-				require.NoError(t, obj.Err, "failed to list objects under %s", prefix)
-				require.NoError(t, src.client.RemoveObject(ctx, src.bucket, obj.Key, minio.RemoveObjectOptions{}), "failed to remove %s", obj.Key)
-			}
+			src.removeUnder(ctx, t, prefix)
 
 		case "add":
 			// One plain file and, where the format allows it, one gzipped: a single stream

@@ -5,6 +5,7 @@ import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.GenericAppenderFactory;
 import org.apache.iceberg.data.Record;
+import org.apache.iceberg.deletes.DeleteGranularity;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.OutputFileFactory;
 
@@ -28,6 +29,11 @@ public class IcebergTableWriterFactory {
   public boolean upsert = true;
   public boolean keepDeletes = true;
   public boolean usePositionalDeletes = false;
+
+  // One positional delete file per referenced data file. Matches the granularity the
+  // equality path has always used. PARTITION trades reader-side skipping for far fewer
+  // delete files, which matters once deletes can reference arbitrary historical files.
+  private static final DeleteGranularity DELETE_GRANULARITY = DeleteGranularity.FILE;
 
   public BaseTaskWriter<Record> create(Table icebergTable) {
 
@@ -72,17 +78,25 @@ public class IcebergTableWriterFactory {
 
   private BaseTaskWriter<Record> deltaWriter(Table icebergTable, FileFormat format, GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory, long targetFileSize) {
 
+    if (usePositionalDeletes) {
+      // One writer for both layouts: an unpartitioned table is a single entry keyed
+      // on the empty partition struct, so there is no partitioned/unpartitioned split.
+      return new PositionalDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
+          icebergTable.io(),
+          targetFileSize, icebergTable.schema(), keepDeletes, DELETE_GRANULARITY);
+    }
+
     Set<Integer> identifierFieldIds = icebergTable.schema().identifierFieldIds();
     if (icebergTable.spec().isUnpartitioned()) {
       // running with upsert mode + un partitioned table
       return new UnpartitionedDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
           icebergTable.io(),
-          targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes, usePositionalDeletes);
+          targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes);
     } else {
       // running with upsert mode + partitioned table
       return new PartitionedDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
           icebergTable.io(),
-          targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes, usePositionalDeletes);
+          targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes);
     }
   }
 }

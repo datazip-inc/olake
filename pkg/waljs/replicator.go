@@ -17,8 +17,14 @@ import (
 )
 
 const (
-	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn, pg_current_wal_lsn() as current_lsn FROM pg_replication_slots WHERE slot_name = '%s'"
-	CDCLSN               = "_cdc_lsn" // Postgres LSN
+	// current_lsn is selected by recovery state: pg_current_wal_lsn() raises
+	// "recovery is in progress" on a standby, where pg_last_wal_replay_lsn() is
+	// the equivalent position. pg_is_in_recovery() is volatile, so the CASE is
+	// not constant-folded and only the applicable branch is evaluated.
+	ReplicationSlotTempl = "SELECT plugin, slot_type, confirmed_flush_lsn, " +
+		"CASE WHEN pg_is_in_recovery() THEN pg_last_wal_replay_lsn() ELSE pg_current_wal_lsn() END as current_lsn " +
+		"FROM pg_replication_slots WHERE slot_name = '%s'"
+	CDCLSN = "_cdc_lsn" // Postgres LSN
 )
 
 // Socket represents a connection to PostgreSQL's logical replication stream
