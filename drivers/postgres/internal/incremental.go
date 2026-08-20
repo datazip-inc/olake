@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/datazip-inc/olake/constants"
@@ -21,25 +22,15 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 		return fmt.Errorf("failed to build incremental condition: %s", err)
 	}
 
-	rows, err := p.client.QueryContext(ctx, incrementalQuery, queryArgs...)
-	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %s", err)
+	setter := jdbc.NewReader(ctx, incrementalQuery, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		return p.client.QueryContext(ctx, query, args...)
+	}, queryArgs...)
+
+	if err := jdbc.MapScanConcurrent(setter, p.dataTypeConverter, processFn, pgColumnSizer); err != nil {
+		return fmt.Errorf("incremental process error: %s", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		record := make(types.Record)
-		rowBytes, err := jdbc.MapScan(rows, record, p.dataTypeConverter, pgColumnSizer)
-		if err != nil {
-			return fmt.Errorf("failed to scan record: %s", err)
-		}
-
-		if err := processFn(ctx, record, rowBytes); err != nil {
-			return fmt.Errorf("process error: %s", err)
-		}
-	}
-
-	return rows.Err()
+	
+	return nil
 }
 
 func (p *Postgres) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {

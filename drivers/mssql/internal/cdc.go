@@ -357,35 +357,25 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 
 	// Query CDC rows for this capture instance between the two LSNs.
 	query := jdbc.MSSQLCDCGetChangesQuery(capture.instanceName)
-	rows, err := m.client.QueryContext(ctx, query, fromLSNBytes, toLSNBytes)
-	if err != nil {
-		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
-	}
-	defer rows.Close()
+	setter := jdbc.NewReader(ctx, query, func(ctx context.Context, q string, args ...any) (*sql.Rows, error) {
+		return m.client.QueryContext(ctx, q, args...)
+	}, fromLSNBytes, toLSNBytes)
 
-	for rows.Next() {
-		// Use MapScan to properly convert data types including binary types
-		// TODO: check if we can use MapScanConcurrent for mssql
-		// rowBytes is the after-image data-column byte sum (excludes __$* metadata columns), attached to the emitted change below.
-		record := make(map[string]interface{})
-		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mssqlCDCColumnSizer)
-		if err != nil {
-			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
-		}
-
+	return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, func(ctx context.Context, record map[string]any, rowBytes int64) error {
 		// Determine operation type from SQL Server CDC operation codes.
 		// For updates, CDC emits "before" (3) and "after" (4); we skip "before".
 		var operationType string
 		if val, ok := record["__$operation"]; ok {
 			var opCode = val.(int32)
 			if opCode == 3 {
-				continue
+				return nil
 			}
 			operationType = operationTypeFromCDCCode(opCode)
 		}
 		extraColumns := map[string]any{
 			CDCStartLSN: fmt.Sprintf("%x", record["__$start_lsn"]),
-			CDCSeqVal:   fmt.Sprintf("%x", record["__$seqval"])}
+			CDCSeqVal:   fmt.Sprintf("%x", record["__$seqval"]),
+		}
 		// Remove metadata columns
 		delete(record, "__$operation")
 		delete(record, "__$start_lsn")
@@ -397,12 +387,8 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 			extraColumns, rowBytes)); err != nil {
 			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
 		}
-	}
-
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	return nil
+		return nil
+	}, mssqlCDCColumnSizer)
 }
 
 func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
