@@ -10,6 +10,10 @@ import (
 // s3BaseConfig returns an IntegrationTest for one source format variant. Each variant owns a
 // testdata/<DataFormat>/ directory, which is what GetTestConfig's third argument selects.
 func s3BaseConfig(t *testing.T, variant S3TestVariant) *testutils.IntegrationTest {
+	filterConfig := S3FilterConfig
+	if variant.DataFormat == "xml" {
+		filterConfig = S3XMLFilterConfig
+	}
 	return &testutils.IntegrationTest{
 		TestConfig:                testutils.GetTestConfig(t, string(constants.S3), variant.DataFormat),
 		Namespace:                 "s3",
@@ -20,7 +24,7 @@ func s3BaseConfig(t *testing.T, variant S3TestVariant) *testutils.IntegrationTes
 		DestinationDB:             S3DestinationDB,
 		CursorField:               S3CursorField,
 		PartitionRegex:            S3PartitionRegex,
-		FilterConfig:              S3FilterConfig,
+		FilterConfig:              filterConfig,
 	}
 }
 
@@ -38,6 +42,7 @@ func TestS3Sync(t *testing.T) {
 		t.Run(variant.Name, func(t *testing.T) {
 			t.Parallel()
 			cfg := s3BaseConfig(t, variant)
+			cfg.IsolateSuite(t, variant.Name)
 			cfg.ExpectedUpdatedData = variant.ExpectedUpdatedData
 			// The "evolve-schema" operation ships a file carrying a column discover has not
 			// seen (see S3TestVariant.BuildEvolvedFile), so the update sync must land it in

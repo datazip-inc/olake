@@ -121,7 +121,7 @@ func ResolveCatalog(streamsFilePath, schemaFilePath string) (*Catalog, error) {
 		return nil, fmt.Errorf("failed to read streams from %s: %s", streamsFilePath, err)
 	}
 
-	// streams[] is present — this is the default combined layout 
+	// streams[] is present — this is the default combined layout
 	if len(catalog.Streams) > 0 {
 		return catalog, nil
 	}
@@ -237,6 +237,13 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
 		if exists {
+			// preserve metadata from old
+			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
+			if oldStream.Stream.CursorField != "" {
+				newStream.Stream.CursorField = oldStream.Stream.CursorField
+			}
+			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
+			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 			newStream.Stream.SourceDefinedPrimaryKey = oldStream.Stream.SourceDefinedPrimaryKey
 			clearStreamConfigurableFields(newStream.Stream)
 			return nil

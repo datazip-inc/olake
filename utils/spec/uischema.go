@@ -26,13 +26,45 @@ const MongoDBUISchema = `{
         { "read_preference": 12, "srv": 12 },
         { "max_threads": 12, "backoff_retry_count": 12 },
         { "chunking_strategy": 12, "use_iam": 12 },
-        { "additional_params": 12, "ssh_config": 12 }
+        { "ssl": 12, "additional_params": 12 },
+        { "ssh_config": 12 }
     ],
     "srv": {
         "ui:widget": "boolean"
     },
     "use_iam": {
         "ui:widget": "boolean"
+    },
+    "ssl": {
+        "ui:options": {
+            "title": false, "label": false, "description": false
+        },
+        "ui:grid": [
+            { "mode": 24 },
+            { "server_ca": 24 },
+            { "client_cert": 12, "client_key": 12 }
+        ],
+        "mode": {
+            "ui:widget": "select"
+        },
+        "server_ca": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_cert": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        },
+        "client_key": {
+            "ui:widget": "textarea",
+            "ui:options": {
+                "rows": 1
+            }
+        }
     },
     "hosts": {
         "ui:options": {
@@ -300,13 +332,14 @@ const S3UISchema = `{
     { "file_pattern": 12, "compression": 12 },
     { "retry_count": 12, "max_threads": 12 },
     { "file_format": 12},
-    { "csv": 12, "parquet": 12, "json": 12 }
+    { "csv": 12, "parquet": 12, "json": 12, "xml": 12 }
   ],
   "file_format": {
     "ui:enumNames": [
       "CSV",
       "JSON",
-      "Parquet"
+      "Parquet",
+      "XML"
     ]
   },
   "csv": {
@@ -345,12 +378,22 @@ const S3UISchema = `{
     "streaming_enabled": {
       "ui:widget": "boolean"
     }
+  },
+  "xml": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "row_identifier": 12 }
+    ]
   }
 }`
 
 const KafkaUISchema = `{
   "ui:grid": [
-    { "bootstrap_servers": 12, "consumer_group_id": 12 },
+    { "bootstrap_servers": 24 },
+    { "consumer_group_id": 12, "topic_pattern": 12 },
     { "threads_equal_total_partitions": 12, "max_threads": 12 },
     { "backoff_retry_count": 12, "protocol": 12 },
     { "use_schema_registry": 24 },
