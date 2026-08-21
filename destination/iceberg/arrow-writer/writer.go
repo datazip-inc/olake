@@ -32,6 +32,7 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
+	indexThread    *types.StreamIndexThread
 }
 
 type Writer struct {
@@ -77,6 +78,7 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
+		indexThread:   types.NewStreamIndexThread(options.TableIndex),
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -139,7 +141,9 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 	}
 
 	if w.upsertMode {
-		if writer.equalityDeleteWriter == nil {
+		// In positional delete mode the index resolves every row to a location, so
+		// no equality deletes are produced at all.
+		if writer.equalityDeleteWriter == nil && w.indexThread == nil {
 			if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
 				return nil, err
 			}
@@ -171,9 +175,13 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		writer.data = append(writer.data, rec)
 		recordOpType := rec.OlakeColumns[constants.OpType].(string)
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
-		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i") {
-			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
+		filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
+		if w.indexThread != nil {
+			if err := w.indexRecord(writer, recordOlakeID, recordOpType, filePosition); err != nil {
+				return err
+			}
+		} else if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i") {
 			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
 				// first time, add to equality deletes and track position
 				writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
@@ -205,6 +213,29 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 	return nil
 }
 
+// search for index for the record and emmit pos when found
+func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePosition int64) error {
+	if w.upsertMode && (opType != "r" && opType != "c") {
+		previous, found, err := w.indexThread.Lookup(olakeID)
+		if err != nil {
+			return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
+		}
+		if found {
+			writer.positionalDeletes = append(writer.positionalDeletes, PositionalDelete{
+				FilePath: previous.FilePath,
+				Position: previous.Position,
+			})
+		}
+	}
+
+	w.indexThread.Put(olakeID, types.RowLocation{
+		FilePath: writer.dataWriter.filePath,
+		Position: filePosition,
+	})
+
+	return nil
+}
+
 func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) error {
 	var err error
 
@@ -218,32 +249,36 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		}
 
 		if w.upsertMode {
-			posRecord := createPositionalDeleteArrowRecord(writer.positionalDeletes, w.allocator, w.arrowSchema[fileTypePositionalDelete])
-			if err := writer.positionalDeleteWriter.currentWriter.WriteBuffered(posRecord); err != nil {
+			if len(writer.positionalDeletes) > 0 {
+				posRecord := createPositionalDeleteArrowRecord(writer.positionalDeletes, w.allocator, w.arrowSchema[fileTypePositionalDelete])
+				if err := writer.positionalDeleteWriter.currentWriter.WriteBuffered(posRecord); err != nil {
+					posRecord.Release()
+
+					return fmt.Errorf("failed to write positional delete record: %s", err)
+				}
+
+				writer.positionalDeleteWriter.currentRowCount += posRecord.NumRows()
 				posRecord.Release()
 
-				return fmt.Errorf("failed to write positional delete record: %s", err)
+				if writer.positionalDeleteWriter, err = w.checkAndFlush(ctx, writer.positionalDeleteWriter, pKey); err != nil {
+					return err
+				}
 			}
 
-			writer.positionalDeleteWriter.currentRowCount += posRecord.NumRows()
-			posRecord.Release()
+			if writer.equalityDeleteWriter != nil {
+				record := createDeleteArrowRecord(writer.equalityDeletes, w.allocator, w.arrowSchema[fileTypeEqualityDelete])
+				if err := writer.equalityDeleteWriter.currentWriter.WriteBuffered(record); err != nil {
+					record.Release()
 
-			if writer.positionalDeleteWriter, err = w.checkAndFlush(ctx, writer.positionalDeleteWriter, pKey); err != nil {
-				return err
-			}
+					return fmt.Errorf("failed to write equality delete record: %s", err)
+				}
 
-			record := createDeleteArrowRecord(writer.equalityDeletes, w.allocator, w.arrowSchema[fileTypeEqualityDelete])
-			if err := writer.equalityDeleteWriter.currentWriter.WriteBuffered(record); err != nil {
+				writer.equalityDeleteWriter.currentRowCount += record.NumRows()
 				record.Release()
 
-				return fmt.Errorf("failed to write equality delete record: %s", err)
-			}
-
-			writer.equalityDeleteWriter.currentRowCount += record.NumRows()
-			record.Release()
-
-			if writer.equalityDeleteWriter, err = w.checkAndFlush(ctx, writer.equalityDeleteWriter, pKey); err != nil {
-				return err
+				if writer.equalityDeleteWriter, err = w.checkAndFlush(ctx, writer.equalityDeleteWriter, pKey); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -333,7 +368,7 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 }
 
 // Close flushes all writers and commits files to Iceberg.
-func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
+func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err error) {
 	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}
@@ -360,14 +395,41 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 		commitRequest.Metadata.Payload = string(payloadBytes)
 	}
 
+	if w.indexThread != nil {
+		indexBaseSnapshotID, err := w.options.TableIndex.LastCommittedSnapshot()
+		if err != nil {
+			return fmt.Errorf("failed to get last committed snapshot ID: %s", err)
+		}
+
+		commitRequest.Metadata.BaseSnapshotId = &indexBaseSnapshotID
+	}
+
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
-	if _, err := w.server.SendClientRequest(commitCtx, commitRequest); err != nil {
+	response, err := w.server.SendClientRequest(commitCtx, commitRequest)
+	if err != nil {
 		return fmt.Errorf("failed to commit arrow files: %s", err)
 	}
 
+	committedSnapshotID := response.(*proto.ArrowIngestResponse).SnapshotId
+
+	// apply stream index if it exists
+	// and the committed snapshot id is not 0, can be 0 when there is external commits or there is no records to commit
+	if w.indexThread != nil && committedSnapshotID != nil && *committedSnapshotID != 0 {
+		batch := w.indexThread
+		w.indexThread = nil
+		if applyErr := w.options.TableIndex.Commit(batch, committedSnapshotID); applyErr != nil {
+			return fmt.Errorf("failed to apply stream index: %s", applyErr)
+		}
+	}
+
 	return nil
+}
+
+// abort index batch when thread is aborted
+func (w *ArrowWriter) Abort() {
+	w.indexThread = nil
 }
 
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {

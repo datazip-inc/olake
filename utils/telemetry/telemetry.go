@@ -119,7 +119,7 @@ func TrackDiscover(streamCount int, sourceType string) {
 	}()
 }
 
-func TrackSyncStarted(syncID string, selectedStreams []string, fullLoadStreams, cdcStreams []types.StreamInterface, sourceType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
+func TrackSyncStarted(syncID string, selectedStreams, fullLoadStreams, cdcStreams []types.StreamInterface, sourceType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
 	go func() {
 		if telemetry == nil {
 			return
@@ -128,18 +128,28 @@ func TrackSyncStarted(syncID string, selectedStreams []string, fullLoadStreams, 
 		if string(destinationConfig.Type) == "ICEBERG" {
 			catalogType = destinationConfig.WriterConfig.(map[string]interface{})["catalog_type"].(string)
 		}
+
+		streamWithPosDeleteMode := 0
+		_ = utils.ForEach(catalog.Streams, func(s *types.ConfiguredStream) error {
+			if s.Self().GetDeleteMode() == types.DeleteModePosition {
+				streamWithPosDeleteMode++
+			}
+			return nil
+		})
+
 		props := map[string]interface{}{
-			"sync_start":          time.Now(),
-			"sync_id":             syncID,
-			"stream_count":        len(catalog.Streams),
-			"selected_count":      len(selectedStreams),
-			"full_load_streams":   len(fullLoadStreams),
-			"cdc_streams":         len(cdcStreams),
-			"source_type":         sourceType,
-			"destination_type":    string(destinationConfig.Type),
-			"catalog_type":        catalogType,
-			"normalized_streams":  countNormalizedStreams(catalog),
-			"partitioned_streams": countPartitionedStreams(catalog),
+			"sync_start":                  time.Now(),
+			"sync_id":                     syncID,
+			"stream_count":                len(catalog.Streams),
+			"selected_count":              len(selectedStreams),
+			"full_load_streams":           len(fullLoadStreams),
+			"cdc_streams":                 len(cdcStreams),
+			"source_type":                 sourceType,
+			"destination_type":            string(destinationConfig.Type),
+			"catalog_type":                catalogType,
+			"normalized_streams":          countNormalizedStreams(catalog),
+			"partitioned_streams":         countPartitionedStreams(catalog),
+			"stream_with_pos_delete_mode": streamWithPosDeleteMode,
 		}
 
 		if err := telemetry.sendEvent("Sync Started - CLI", props); err != nil {

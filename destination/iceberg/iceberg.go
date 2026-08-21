@@ -93,18 +93,21 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 		})
 	}
 
+	upsertMode := isUpsertMode(stream, options.Backfill)
+
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
 	requestPayload := proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			Schema:          iceSchema,
-			DestTableName:   stream.GetDestinationTable(),
-			ThreadId:        options.ThreadID,
-			IdentifierField: &identifierField,
-			Namespace:       stream.GetDestinationDatabase(&i.config.IcebergDatabase),
-			Upsert:          isUpsertMode(stream, options.Backfill),
-			PartitionFields: icebergPartFields,
+			Schema:               iceSchema,
+			DestTableName:        stream.GetDestinationTable(),
+			ThreadId:             options.ThreadID,
+			IdentifierField:      &identifierField,
+			Namespace:            stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+			Upsert:               upsertMode,
+			UsePositionalDeletes: options.TableIndex != nil,
+			PartitionFields:      icebergPartFields,
 		},
 	}
 
@@ -131,13 +134,17 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	// set schema for current thread
 	i.schema = copySchema(schema)
 
+	if err := i.reconcileTableIndex(ctx, options.TableIndex, ingestResponse.GetSnapshotId(), ingestResponse.GetHasEqualityDeletes()); err != nil {
+		return schema, nil, err
+	}
+
 	if i.config.UseArrowWrites {
-		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
+		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, upsertMode)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to create arrow writer: %s", err)
 		}
 	} else {
-		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server)
+		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server, upsertMode)
 	}
 
 	return schema, &metadataState, nil
@@ -172,6 +179,7 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error)
 	select {
 	case <-ctx.Done():
 		// skip commit in case of context cancellation
+		i.writer.Abort()
 		return ctx.Err()
 	default:
 		return i.writer.Close(ctx, finalMetadataState)
@@ -446,7 +454,8 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 		return false, fmt.Errorf("failed to %s: %s", request.Type.String(), err)
 	}
 
-	response := resp.(*proto.RecordIngestResponse).GetResult()
+	ingestResponse := resp.(*proto.RecordIngestResponse)
+	response := ingestResponse.GetResult()
 
 	// only refresh table schema
 	schemaAfterEvolution, err := parseSchema(response)
