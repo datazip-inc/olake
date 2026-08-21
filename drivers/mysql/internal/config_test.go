@@ -325,9 +325,9 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectErr: true,
 		},
-		// Defaults database to mysql when empty.
+		// Rejects empty database.
 		{
-			name: "valid config - defaults database",
+			name: "invalid config - missing database",
 			config: &Config{
 				Host:     "localhost",
 				Port:     3306,
@@ -335,7 +335,20 @@ func TestConfig_Validate(t *testing.T) {
 				Password: "testpass",
 				Database: "",
 			},
-			expectErr: false,
+			expectErr: true,
+		},
+		// Rejects negative retry count.
+		{
+			name: "invalid config - negative retry count",
+			config: &Config{
+				Host:       "localhost",
+				Port:       3306,
+				Username:   "testuser",
+				Password:   "testpass",
+				Database:   "testdb",
+				RetryCount: -1,
+			},
+			expectErr: true,
 		},
 	}
 
@@ -347,9 +360,6 @@ func TestConfig_Validate(t *testing.T) {
 			}
 			if !tt.expectErr && err != nil {
 				t.Errorf("Expected no error but got: %v", err)
-			}
-			if !tt.expectErr && err == nil && tt.config.Database == "" {
-				t.Errorf("Expected database to default to 'mysql'")
 			}
 		})
 	}

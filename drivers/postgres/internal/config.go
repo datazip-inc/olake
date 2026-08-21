@@ -47,13 +47,20 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid port number: must be between 1 and 65535")
 	}
 
+	if c.Database == "" {
+		return fmt.Errorf("database name is required")
+	}
+
 	// default number of threads
 	if c.MaxThreads <= 0 {
 		c.MaxThreads = constants.DefaultThreadCount
 	}
 
 	// default backoff retry count
-	if c.RetryCount <= 0 {
+	if c.RetryCount < 0 {
+		return fmt.Errorf("retry count is required")
+	}
+	if c.RetryCount == 0 {
 		c.RetryCount = constants.DefaultRetryCount
 	}
 

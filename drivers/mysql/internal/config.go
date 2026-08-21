@@ -107,9 +107,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("password is required")
 	}
 
-	// Optional database name, default to 'mysql'
 	if c.Database == "" {
-		c.Database = "mysql"
+		return fmt.Errorf("database name is required")
 	}
 
 	// Set default number of threads if not provided
@@ -118,7 +117,10 @@ func (c *Config) Validate() error {
 	}
 
 	// Set default retry count if not provided
-	if c.RetryCount <= 0 {
+	if c.RetryCount < 0 {
+		return fmt.Errorf("retry count is required")
+	}
+	if c.RetryCount == 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
 

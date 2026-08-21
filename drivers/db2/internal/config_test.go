@@ -110,6 +110,19 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectErr: true,
 		},
+		{
+			// Rejects config with a negative retry count.
+			name: "invalid config - negative retry count",
+			config: &Config{
+				Host:       "db2-host",
+				Port:       50000,
+				Database:   "testdb",
+				Username:   "db2inst1",
+				Password:   "secret1234",
+				RetryCount: -1,
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {

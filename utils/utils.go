@@ -471,11 +471,10 @@ func RetryWithSkip(ctx context.Context, maxRetries int, sleep time.Duration, sho
 	return err
 }
 
-// RetryOnBackoff retries the function f up to attempts times (not counting the initial attempt).
-// +1 converts the caller-facing "number of retries" into the total attempts used by the range loop,
-// so that RetryCount=3 means 1 initial attempt + 3 retries = 4 total attempts.
+// RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
 func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
-	// Convert retries → total attempts once, at the boundary.
+	// Add 1 because attempts represents the number of retries,
+	// while the function needs the total number of attempts.
 	attempts = attempts + 1
 	for cur := range attempts {
 		select {
