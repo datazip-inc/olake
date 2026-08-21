@@ -9,6 +9,7 @@ replace (
 
 require (
 	github.com/datazip-inc/olake v0.0.0-00010101000000-000000000000
+	github.com/dlclark/regexp2 v1.11.5
 	github.com/linkedin/goavro/v2 v2.15.0
 	github.com/twmb/franz-go v1.21.1
 	github.com/twmb/franz-go/pkg/kadm v1.18.0
