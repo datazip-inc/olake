@@ -54,6 +54,12 @@ const (
 	// CdcTimestamp is the column name olake writes the CDC event timestamp into.
 	CdcTimestamp = "_cdc_timestamp"
 
+	// MinCDCInitialWaitTime is the floor (in seconds) for a CDC driver's initial_wait_time;
+	// values below this are clamped up to it rather than failing setup, matching the UI's minimum.
+	MinCDCInitialWaitTime = 120
+	// DefaultCDCInitialWaitTime is used when initial_wait_time is not provided.
+	DefaultCDCInitialWaitTime = 1200
+
 	// MaxDestinationBatchBytes is the maximum source bytes held in a writer thread buffer before flush.
 	MaxDestinationBatchBytes = int64(1) * 1024 * 1024 * 1024 // 1 GB
 )
