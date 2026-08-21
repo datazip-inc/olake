@@ -49,12 +49,12 @@ import (
 var LatestStateVersion int
 
 // Used as the current version of the state when the program is running
-var LoadedStateVersion = LatestStateVersion
+var LoadedStateVersion int
 
 //go:embed state-versions.json
 var rawStateVersions []byte
 
-// init initialises static information only: the version this build writes. The version a running
+// init initializes static information only: the version this build writes. The version a running
 // sync is pinned at comes from its state file, via SetLoadedStateVersion.
 func init() {
 	var doc struct {
@@ -67,4 +67,5 @@ func init() {
 		panic("constants/state-versions.json must set latest_state_version to a positive integer")
 	}
 	LatestStateVersion = doc.LatestStateVersion
+	LoadedStateVersion = LatestStateVersion
 }
