@@ -73,18 +73,19 @@ func (a *AbstractDriver) Type() string {
 	return a.driver.Type()
 }
 
-func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, isSync bool) ([]*types.Stream, error) {
+func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, skipSchema bool) ([]*types.Stream, error) {
 	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get stream names: %s", err)
 	}
 
-	// During sync, skip ProduceSchema entirely streams.json already holds
-	// the full schema from discover run. GetStreamNames still runs
+	// During sync (default), skip ProduceSchema — streams.json already holds
+	// the full schema from a prior discover run. GetStreamNames still runs
 	// above because S3 uses it to populate discoveredFiles (needed for chunking
 	// and incremental sync). Returning nil signals classifyStreams to skip
 	// source-side validation and trust the catalog directly.
-	if isSync {
+	// Pass skipSchema=false (e.g. via --discover-schema) to re-discover and validate.
+	if skipSchema {
 		return nil, nil
 	}
 
