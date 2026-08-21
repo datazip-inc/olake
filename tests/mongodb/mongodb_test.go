@@ -5,22 +5,25 @@ import (
 
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
 )
 
 // mongodbBaseConfig returns an IntegrationTest pre-populated with all fields shared
-func mongodbBaseConfig(t *testing.T) *testutils.IntegrationTest {
-	return &testutils.IntegrationTest{
-		TestConfig:                testutils.GetTestConfig(t, string(constants.MongoDB)),
-		Namespace:                 "olake_mongodb_test",
+func mongodbBaseConfig() *integration.Test {
+	cfg := &integration.Test{
+		TestConfig:                &testutils.TestConfig{Driver: string(constants.MongoDB)},
 		ExpectedData:              ExpectedMongoData,
 		DestinationDataTypeSchema: MongoToDestinationSchema,
 		DefaultCDCColumnsSchema:   ExpectedMongoDBDefaultCDCColumnsSchema,
-		ExecuteQuery:              ExecuteQuery,
-		DestinationDB:             "mongodb_olake_mongodb_test",
-		CursorField:               "id_cursor:id_int",
-		PartitionRegex:            "/{_id,identity}",
-		ColumnToExclude:           "excludedColumn",
-		FilterConfig: `{
+	}
+	cfg.TestConfig.Namespace = "olake_mongodb_test"
+	cfg.TestConfig.ExecuteQuery = ExecuteQuery
+	cfg.TestConfig.DestinationDB = "mongodb_olake_mongodb_test"
+	cfg.TestConfig.CursorField = "id_cursor:id_int"
+	cfg.TestConfig.PartitionRegex = "/{_id,identity}"
+	cfg.TestConfig.ColumnToExclude = "excludedColumn"
+	cfg.TestConfig.FilterConfig = `{
 			"logical_operator": "And",
 			"conditions": [
 				{
@@ -34,17 +37,17 @@ func mongodbBaseConfig(t *testing.T) *testutils.IntegrationTest {
 					"value": "2022-07-01T15:30:00.000+00:00"
 				}
 			]
-		}`,
-	}
+		}`
+	return cfg
 }
 
 func TestMongodbDiscover(t *testing.T) {
-	mongodbBaseConfig(t).TestDiscover(t)
+	mongodbBaseConfig().TestDiscover(t)
 }
 
 func TestMongodbSync(t *testing.T) {
 	t.Parallel()
-	cfg := mongodbBaseConfig(t)
+	cfg := mongodbBaseConfig()
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedMongoToDestinationSchema
 	cfg.TestSync(t)
@@ -52,17 +55,17 @@ func TestMongodbSync(t *testing.T) {
 
 func TestMongodb2PC(t *testing.T) {
 	t.Parallel()
-	mongodbBaseConfig(t).Test2PCIntegration(t)
+	mongodbBaseConfig().Test2PCIntegration(t)
 }
 
 func TestMongodbPerformance(t *testing.T) {
-	config := &testutils.PerformanceTest{
-		TestConfig:      testutils.GetTestConfig(t, string(constants.MongoDB)),
-		Namespace:       "twitter_data",
-		BackfillStreams: testutils.GetBackfillStreamsFromCDC(performanceCDCStreams),
+	config := &performance.Test{
+		TestConfig:      &testutils.TestConfig{Driver: string(constants.MongoDB)},
+		BackfillStreams: performance.GetBackfillStreamsFromCDC(performanceCDCStreams),
 		CDCStreams:      performanceCDCStreams,
-		ExecuteQuery:    ExecuteQuery,
 	}
+	config.TestConfig.Namespace = "twitter_data"
+	config.TestConfig.ExecuteQuery = ExecuteQuery
 
 	config.TestPerformance(t)
 }

@@ -90,7 +90,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	db := getDB(ctx, t, dsn)
 	var err error
 
-	integrationTestTable := testutils.TestTableName(conf)
+	integrationTestTable := conf.GetTableName()
 	var query string
 
 	switch operation {

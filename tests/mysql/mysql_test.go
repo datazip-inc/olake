@@ -5,23 +5,26 @@ import (
 
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
 )
 
 // mysqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // by the mysql suites.
-func mysqlBaseConfig(t *testing.T) *testutils.IntegrationTest {
-	return &testutils.IntegrationTest{
-		TestConfig:                testutils.GetTestConfig(t, string(constants.MySQL)),
-		Namespace:                 "olake_mysql_test",
+func mysqlBaseConfig() *integration.Test {
+	cfg := &integration.Test{
+		TestConfig:                &testutils.TestConfig{Driver: string(constants.MySQL)},
 		ExpectedData:              ExpectedMySQLData,
 		DestinationDataTypeSchema: MySQLToDestinationSchema,
 		DefaultCDCColumnsSchema:   ExpectedMySQLDefaultCDCColumnsSchema,
-		ExecuteQuery:              ExecuteQuery,
-		DestinationDB:             "mysql_olake_mysql_test",
-		CursorField:               "id_cursor:id_smallint",
-		PartitionRegex:            "/{id,identity}",
-		ColumnToExclude:           "excludedColumn",
-		FilterConfig: `{
+	}
+	cfg.TestConfig.Namespace = "olake_mysql_test"
+	cfg.TestConfig.ExecuteQuery = ExecuteQuery
+	cfg.TestConfig.DestinationDB = "mysql_olake_mysql_test"
+	cfg.TestConfig.CursorField = "id_cursor:id_smallint"
+	cfg.TestConfig.PartitionRegex = "/{id,identity}"
+	cfg.TestConfig.ColumnToExclude = "excludedColumn"
+	cfg.TestConfig.FilterConfig = `{
                     "logical_operator": "And",
                     "conditions": [
                         {
@@ -35,17 +38,17 @@ func mysqlBaseConfig(t *testing.T) *testutils.IntegrationTest {
                             "value": "2022-07-01T15:30:00.000+00:00"
                         }
                     ]
-                }`,
-	}
+                }`
+	return cfg
 }
 
 func TestMySQLDiscover(t *testing.T) {
-	mysqlBaseConfig(t).TestDiscover(t)
+	mysqlBaseConfig().TestDiscover(t)
 }
 
 func TestMySQLSync(t *testing.T) {
 	t.Parallel()
-	cfg := mysqlBaseConfig(t)
+	cfg := mysqlBaseConfig()
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
 	cfg.TestSync(t)
@@ -53,17 +56,17 @@ func TestMySQLSync(t *testing.T) {
 
 func TestMySQL2PC(t *testing.T) {
 	t.Parallel()
-	mysqlBaseConfig(t).Test2PCIntegration(t)
+	mysqlBaseConfig().Test2PCIntegration(t)
 }
 
 func TestMySQLPerformance(t *testing.T) {
-	config := &testutils.PerformanceTest{
-		TestConfig:      testutils.GetTestConfig(t, string(constants.MySQL)),
-		Namespace:       "benchmark",
-		BackfillStreams: testutils.GetBackfillStreamsFromCDC(performanceCDCStreams),
+	config := &performance.Test{
+		TestConfig:      &testutils.TestConfig{Driver: string(constants.MySQL)},
+		BackfillStreams: performance.GetBackfillStreamsFromCDC(performanceCDCStreams),
 		CDCStreams:      performanceCDCStreams,
-		ExecuteQuery:    ExecuteQuery,
 	}
+	config.TestConfig.Namespace = "benchmark"
+	config.TestConfig.ExecuteQuery = ExecuteQuery
 
 	config.TestPerformance(t)
 }

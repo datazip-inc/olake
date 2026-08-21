@@ -54,17 +54,22 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	// variantSourceOverride writes into the suite's source.json, or olake and these queries end up
 	// in different databases. 01-init.sql provisions each with CDC enabled.
 	var connStr string
+	// The suite owns a database of its own only when it isolates the source; otherwise it drives
+	// the one the committed source config names, the same as olake does.
+	suite := testutils.Ternary(conf.IsolateSource, conf.Suite, "").(string)
 	if config := conf.SourceBaseConfig; config != nil {
 		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable",
 			config.String("username"),
 			config.String("password"),
 			config.String("host"),
 			config.Int("port"),
-			testutils.SuiteDatabase(config.String("database"), conf.Suite),
+			testutils.Combine(config.String("database"), suite),
 		)
 	} else {
-		connStr = fmt.Sprintf("sqlserver://sa:Password!123@localhost:1433?database=%s&encrypt=disable",
-			testutils.SuiteDatabase("olake_mssql_test", conf.Suite))
+		// Local container only: a remote source (SourceBaseConfig) is not ours to provision.
+		dbName := testutils.Combine("olake_mssql_test", suite)
+		ensureSuiteDatabase(ctx, t, dbName)
+		connStr = fmt.Sprintf("sqlserver://sa:Password!123@localhost:1433?database=%s&encrypt=disable", dbName)
 	}
 
 	db, err := sqlx.ConnectContext(ctx, "sqlserver", connStr)
@@ -74,7 +79,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := testutils.TestTableName(conf)
+	integrationTestTable := conf.GetTableName()
 
 	// A capture instance is SQL Server’s logical CDC stream for a table.
 	captureInstance := fmt.Sprintf("dbo_%s", integrationTestTable)
@@ -161,6 +166,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				@role_name     = NULL
 		`, integrationTestTable, captureInstance)
 		require.NoError(t, execCDCMetadata(ctx, t, db, enableTableCDC), "failed to enable CDC on integration test table")
+
+		ensureFastCDCPolling(ctx, t, db)
+		startCDCCapture(ctx, t, db)
 
 		// Wait until current_max_lsn >= start_lsn of the capture instance so CDC is ready for sync
 		verifyCDCEnabled(ctx, t, db, captureInstance)
@@ -366,6 +374,79 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
+	}
+}
+
+// suiteDatabasesEnsured tracks the databases this process has provisioned, so ensureSuiteDatabase
+// touches master once per suite, not once per operation.
+var (
+	suiteDatabasesEnsured   = map[string]bool{}
+	suiteDatabasesEnsuredMu sync.Mutex
+)
+
+// ensureSuiteDatabase creates the suite's CDC-enabled database when the volume lacks it. Lazy and
+// harness-owned rather than 01-init.sql: an init script runs only on a fresh volume, and every new
+// suite needed a hand-edit there plus a refresh -- this way any volume converges on first touch.
+// Runs against master, since the suite connection names a database that cannot exist before it does.
+func ensureSuiteDatabase(ctx context.Context, t *testing.T, dbName string) {
+	t.Helper()
+	suiteDatabasesEnsuredMu.Lock()
+	defer suiteDatabasesEnsuredMu.Unlock()
+	if suiteDatabasesEnsured[dbName] {
+		return
+	}
+
+	master, err := sqlx.ConnectContext(ctx, "sqlserver",
+		"sqlserver://sa:Password!123@localhost:1433?database=master&encrypt=disable")
+	require.NoError(t, err, "failed to connect to master to provision %s", dbName)
+	defer func() { require.NoError(t, master.Close()) }()
+
+	_, err = master.ExecContext(ctx, fmt.Sprintf(`IF DB_ID(N'%s') IS NULL CREATE DATABASE [%s];`, dbName, dbName))
+	require.NoError(t, err, "failed to create database %s", dbName)
+	// sp_cdc_enable_db acts on the current database; USE binds it within this one batch. Through
+	// execCDCMetadata for the msdb mutex: enabling CDC writes the same shared job metadata.
+	require.NoError(t, execCDCMetadata(ctx, t, master, fmt.Sprintf(
+		`USE [%s]; IF EXISTS (SELECT 1 FROM sys.databases WHERE name = N'%s' AND is_cdc_enabled = 0) EXEC sys.sp_cdc_enable_db;`,
+		dbName, dbName)), "failed to enable CDC on database %s", dbName)
+	suiteDatabasesEnsured[dbName] = true
+}
+
+// ensureFastCDCPolling drops this database's CDC capture job to the minimum 1s polling interval
+// (default 5s) -- the cycle every create / wait-cdc-catchup, and the driver's own catch-up, waits
+// out. The value only applies on a job restart, and stop/start race the agent, so those failures
+// are tolerated: the job picks the value up on its next start. Best-effort -- a database still on
+// 5s is slower, not wrong -- and a no-op once the job reports 1s, so repeat creates skip the churn.
+// startCDCCapture starts the database's capture job when it is not already running. drop-all's
+// sp_cdc_disable_table stops the job as it removes the last capture instance, and re-enabling the
+// table does not start it again -- so without this the LSN verifyCDCEnabled waits for never moves.
+func startCDCCapture(ctx context.Context, t *testing.T, db *sqlx.DB) {
+	t.Helper()
+	// Started only when it is not already running: sp_start_job's "already running" (22022) is
+	// raised by the agent, which TRY/CATCH cannot trap.
+	require.NoError(t, execCDCMetadata(ctx, t, db, `
+		DECLARE @job_id UNIQUEIDENTIFIER = (
+			SELECT job_id FROM msdb.dbo.sysjobs WHERE name = N'cdc.' + DB_NAME() + N'_capture');
+		IF @job_id IS NOT NULL AND NOT EXISTS (
+			SELECT 1 FROM msdb.dbo.sysjobactivity
+			WHERE job_id = @job_id AND start_execution_date IS NOT NULL AND stop_execution_date IS NULL)
+			EXEC msdb.dbo.sp_start_job @job_id = @job_id;`), "failed to start the CDC capture job")
+}
+
+func ensureFastCDCPolling(ctx context.Context, t *testing.T, db *sqlx.DB) {
+	t.Helper()
+
+	var interval int
+	err := db.QueryRowContext(ctx,
+		`SELECT pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID() AND job_type = N'capture'`).Scan(&interval)
+	if err != nil || interval == 1 {
+		return // no capture job registered yet, or already fast
+	}
+	if err := execCDCMetadata(ctx, t, db, `
+		EXEC sys.sp_cdc_change_job @job_type = N'capture', @pollinginterval = 1;
+		BEGIN TRY EXEC sys.sp_cdc_stop_job @job_type = N'capture'; END TRY BEGIN CATCH END CATCH;
+		BEGIN TRY EXEC sys.sp_cdc_start_job @job_type = N'capture'; END TRY BEGIN CATCH END CATCH;
+	`); err != nil {
+		t.Logf("could not lower the CDC capture polling interval (staying on the 5s default): %s", err)
 	}
 }
 

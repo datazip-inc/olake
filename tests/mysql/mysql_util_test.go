@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/jmoiron/sqlx"
 	"github.com/stretchr/testify/require"
@@ -21,6 +23,54 @@ var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
 // ExecuteQuery executes MySQL queries for testing based on the operation type
 func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
+	ExecuteQueryExcluding(ctx, t, conf, operation, nil)
+}
+
+// versionedSeedColumns are the columns TestMySQLCompatibility can leave out of the seed data for old
+// baselines (CompatibilityColumnRule.ExcludeBelow); every other suite seeds all of them.
+var versionedSeedColumns = []struct {
+	name, ddl, value, filteredValue, updateExpr string
+}{
+	{"name_ucs2", "name_ucs2 VARCHAR(100) CHARACTER SET ucs2", "'ucs2_val'", "'filtered ucs2'", "name_ucs2 = 'updated ucs2'"},
+	{"name_utf16le", "name_utf16le VARCHAR(100) CHARACTER SET utf16le", "'utf16le_val'", "'filtered utf16le'", "name_utf16le = 'updated utf16le'"},
+	{"grade", "grade ENUM('naïve','café','résumé') CHARACTER SET latin1", "'naïve'", "'naïve'", "grade = 'café'"},
+}
+
+// seedColumnFragments renders the versioned columns NOT being excluded as the fragments each seed
+// statement splices in after name_latin1; excluding nothing reproduces the full fixture.
+func seedColumnFragments(t *testing.T, excluded []string) (ddl, cols, vals, filteredVals, updates string) {
+	t.Helper()
+	supported := make([]string, 0, len(versionedSeedColumns))
+	for _, col := range versionedSeedColumns {
+		supported = append(supported, col.name)
+	}
+	drop, err := testutils.SeedColumnsExcluded(excluded, supported)
+	require.NoError(t, err, "mysql seed exclusion")
+
+	var names, values, filtered, sets []string
+	for _, col := range versionedSeedColumns {
+		if drop[col.name] {
+			continue
+		}
+		ddl += "\n\t\t" + col.ddl + ","
+		names = append(names, col.name)
+		values = append(values, col.value)
+		filtered = append(filtered, col.filteredValue)
+		sets = append(sets, col.updateExpr)
+	}
+	if len(names) == 0 {
+		return "", "", "", "", ""
+	}
+	join := func(parts []string) string { return " " + strings.Join(parts, ", ") + "," }
+	return ddl, join(names), join(values), join(filtered), join(sets)
+}
+
+// ExecuteQueryExcluding is ExecuteQuery with columns left out of the seed DDL and DML entirely --
+// the compatibility suite's seed exclusion for columns an old baseline cannot sync at any price.
+func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string, excludedColumns []string) {
+	t.Helper()
+
+	seedDDL, seedCols, seedVals, seedFilteredVals, seedUpdates := seedColumnFragments(t, excludedColumns)
 
 	var connStr, database string
 	if config := conf.SourceBaseConfig; config != nil {
@@ -43,7 +93,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := testutils.TestTableName(conf)
+	integrationTestTable := conf.GetTableName()
 	var query string
 
 	switch operation {
@@ -91,15 +141,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		name_bool TINYINT(1) DEFAULT '1',
 		status ENUM('active','inactive','pending') DEFAULT NULL,
 		priority ENUM('low','medium','high') DEFAULT 'low',
-		name_latin1 VARCHAR(100) CHARACTER SET latin1,
-		name_ucs2 VARCHAR(100) CHARACTER SET ucs2,
-		name_utf16le VARCHAR(100) CHARACTER SET utf16le,
-		grade ENUM('naïve','café','résumé') CHARACTER SET latin1,
+		name_latin1 VARCHAR(100) CHARACTER SET latin1,%s
 		tags SET('sports','music','gaming','reading') DEFAULT NULL,
 		permissions SET('read','write','execute') CHARACTER SET latin1 DEFAULT NULL,
 		PRIMARY KEY (id),
 		excludedColumn INT
-	)`, integrationTestTable)
+	)`, integrationTestTable, seedDDL)
 
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
@@ -113,7 +160,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		query = fmt.Sprintf("DELETE FROM %s", integrationTestTable)
 
 	case "add":
-		insertTestData(ctx, t, db, integrationTestTable)
+		insertTestData(ctx, t, db, integrationTestTable, excludedColumns)
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
@@ -132,12 +179,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
-			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1,%s
 			tags, permissions,
 			excludedColumn
 		) VALUES (
 			6, 6, 123456789012345,
-			100, 101, 102, 103,
+			100, 4294967295, 102, 4294967294,
 			5001, 5002, 101, 102,
 			50, 51,
 			255, 65535,
@@ -149,10 +196,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1, 'active', 'high',
-			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'latin1_val',%s
 			'sports,reading', 'read,write',
 			101
-		)`, integrationTestTable)
+		)`, integrationTestTable, seedCols, seedVals)
 		_, err = db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
@@ -171,7 +218,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
-			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1,%s
 			tags, permissions,
 			excludedColumn
 		) VALUES (
@@ -188,10 +235,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			'filtered medium', 'filtered long', '2022-06-15 10:00:00',
 			'2021-06-15 10:00:00', 0,
 			'filtered long varchar', 0, 'inactive', 'low',
-			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
+			'filtered latin1',%s
 			'music', 'execute',
 			200
-		)`, integrationTestTable)
+		)`, integrationTestTable, seedCols, seedFilteredVals)
 		_, err = db.ExecContext(ctx, filteredQuery)
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
@@ -212,11 +259,11 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
-			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1,%s
 			tags, permissions
 		) VALUES (
 			7, 7, 123456789012345,
-			100, 101, 102, 103,
+			100, 4294967295, 102, 4294967294,
 			5001, 5002, 101, 102,
 			50, 51,
 			255, 65535,
@@ -228,17 +275,17 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1, 'active', 'high',
-			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'latin1_val',%s
 			'sports,reading', 'read,write'
-		)`, integrationTestTable)
+		)`, integrationTestTable, seedCols, seedVals)
 
 	case "update":
 		query = fmt.Sprintf(`
 			UPDATE %s SET
 				id_cursor = NULL,
 				id_bigint = 987654321098765,
-				id_int = 200, id_int_unsigned = 201,
-				id_integer = 202, id_integer_unsigned = 203,
+				id_int = 200, id_int_unsigned = 4294967293,
+				id_integer = 202, id_integer_unsigned = 4294967292,
 				id_mediumint = 6001, id_mediumint_unsigned = 6002,
 				id_smallint = 201, id_smallint_unsigned = 202,
 				id_tinyint = 60, id_tinyint_unsigned = 61,
@@ -258,18 +305,17 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0,
 			status = 'pending', priority = 'low',
-			name_latin1 = 'updated latin1', name_ucs2 = 'updated ucs2',
-			name_utf16le = 'updated utf16le', grade = 'café',
+			name_latin1 = 'updated latin1',%s
 			tags = 'gaming,reading', permissions = 'read,write,execute',
 			excludedColumn = 102,
 			includedColumn = 202
-		WHERE id = 1`, integrationTestTable)
+		WHERE id = 1`, integrationTestTable, seedUpdates)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
 
 	case "setup_cdc":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
+		backfillStreams := performance.GetBackfillStreamsFromCDC(performanceCDCStreams)
 		// truncate the cdc tables
 		for idx, cdcStream := range performanceCDCStreams {
 			_, err := db.ExecContext(ctx, fmt.Sprintf("TRUNCATE TABLE %s", cdcStream))
@@ -293,7 +339,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "bulk_cdc_data_insert":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
+		backfillStreams := performance.GetBackfillStreamsFromCDC(performanceCDCStreams)
 		// insert the data into the cdc tables concurrently
 		err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			_, err = db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s SELECT * FROM %s LIMIT 15000000", cdcStream, backfillStreams[executionNumber]))
@@ -317,9 +363,10 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 }
 
 // insertTestData inserts test data into the specified table
-func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string) {
+func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string, excludedColumns []string) {
 	t.Helper()
 
+	_, seedCols, seedVals, seedFilteredVals, _ := seedColumnFragments(t, excludedColumns)
 	for i := 1; i <= 5; i++ {
 		query := fmt.Sprintf(`
 		INSERT INTO %s (
@@ -335,12 +382,12 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool, status, priority,
-			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1,%s
 			tags, permissions,
 			excludedColumn
 		) VALUES (
 			%d, %d, 123456789012345,
-			100, 101, 102, 103,
+			100, 4294967295, 102, 4294967294,
 			5001, 5002, 101, 102,
 			50, 51,
 			255, 65535,
@@ -351,10 +398,10 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high',
-			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'latin1_val',%s
 			'sports,reading', 'read,write',
 			100
-		)`, tableName, i, i)
+		)`, tableName, seedCols, i, i, seedVals)
 
 		_, err := db.ExecContext(ctx, query)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
@@ -374,7 +421,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool, status, priority,
-			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1,%s
 			tags, permissions,
 			excludedColumn
 		) VALUES (
@@ -390,22 +437,28 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
 			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
 			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low',
-			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
+			'filtered latin1',%s
 			'music', 'execute',
 			200
-		)`, tableName)
+		)`, tableName, seedCols, seedFilteredVals)
 	_, err := db.ExecContext(ctx, filteredQuery)
 	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
+// The id_int_unsigned / id_integer_unsigned values are deliberately ABOVE int32 range (max
+// INT UNSIGNED is 4294967295). That is what makes state version 4 observable: at v>=4 the driver
+// reinterprets the raw bits as uint32 and the value survives as int64, while at v<=3 it strips the
+// "unsigned " prefix, maps to Int32, and the same bits read back as -1 / -2 -- the overflow
+// constants/state_version.go's version 4 note describes. Keep them above 2^31-1; small values
+// make the gate invisible because they fit in both types.
 // TODO: olake has no uint64 data type, so the id_bigint_unsigned_* values past MaxInt64 pin what
 // olake writes today, not what MySQL stored.
 var ExpectedMySQLData = map[string]interface{}{
 	"id_bigint":             int64(123456789012345),
 	"id_int":                int32(100),
-	"id_int_unsigned":       int64(101),
+	"id_int_unsigned":       int64(4294967295),
 	"id_integer":            int32(102),
-	"id_integer_unsigned":   int64(103),
+	"id_integer_unsigned":   int64(4294967294),
 	"id_mediumint":          int32(5001),
 	"id_mediumint_unsigned": int32(5002),
 	"id_smallint":           int32(101),
@@ -456,9 +509,9 @@ var ExpectedMySQLData = map[string]interface{}{
 var ExpectedUpdatedData = map[string]interface{}{
 	"id_bigint":                     int64(987654321098765),
 	"id_int":                        int64(200),
-	"id_int_unsigned":               int64(201),
+	"id_int_unsigned":               int64(4294967293),
 	"id_integer":                    int32(202),
-	"id_integer_unsigned":           int64(203),
+	"id_integer_unsigned":           int64(4294967292),
 	"id_mediumint":                  int32(6001),
 	"id_mediumint_unsigned":         int32(6002),
 	"id_smallint":                   int32(201),

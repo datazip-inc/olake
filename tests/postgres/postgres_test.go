@@ -5,24 +5,27 @@ import (
 
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
 	_ "github.com/lib/pq"
 )
 
 // postgresBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // by the postgres suites.
-func postgresBaseConfig(t *testing.T) *testutils.IntegrationTest {
-	return &testutils.IntegrationTest{
-		TestConfig:                testutils.GetTestConfig(t, string(constants.Postgres)),
-		Namespace:                 "public",
+func postgresBaseConfig() *integration.Test {
+	cfg := &integration.Test{
+		TestConfig:                &testutils.TestConfig{Driver: string(constants.Postgres)},
 		ExpectedData:              ExpectedPostgresData,
 		DestinationDataTypeSchema: PostgresToDestinationSchema,
 		DefaultCDCColumnsSchema:   ExpectedPostgresDefaultCDCColumnsSchema,
-		ExecuteQuery:              ExecuteQuery,
-		DestinationDB:             "postgres_postgres_public",
-		CursorField:               "col_cursor:col_int",
-		PartitionRegex:            "/{col_bigserial,identity}",
-		ColumnToExclude:           "excludedcolumn",
-		FilterConfig: `{
+	}
+	cfg.TestConfig.Namespace = "public"
+	cfg.TestConfig.ExecuteQuery = ExecuteQuery
+	cfg.TestConfig.DestinationDB = "postgres_postgres_public"
+	cfg.TestConfig.CursorField = "col_cursor:col_int"
+	cfg.TestConfig.PartitionRegex = "/{col_bigserial,identity}"
+	cfg.TestConfig.ColumnToExclude = "excludedcolumn"
+	cfg.TestConfig.FilterConfig = `{
                     "logical_operator": "And",
                     "conditions": [
                         {
@@ -36,17 +39,17 @@ func postgresBaseConfig(t *testing.T) *testutils.IntegrationTest {
                             "value": "2022-07-01T15:30:00.000+00:00"
                         }
                     ]
-                }`,
-	}
+                }`
+	return cfg
 }
 
 func TestPostgresDiscover(t *testing.T) {
-	postgresBaseConfig(t).TestDiscover(t)
+	postgresBaseConfig().TestDiscover(t)
 }
 
 func TestPostgresSync(t *testing.T) {
 	t.Parallel()
-	cfg := postgresBaseConfig(t)
+	cfg := postgresBaseConfig()
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
 	cfg.TestSync(t)
@@ -54,17 +57,17 @@ func TestPostgresSync(t *testing.T) {
 
 func TestPostgres2PC(t *testing.T) {
 	t.Parallel()
-	postgresBaseConfig(t).Test2PCIntegration(t)
+	postgresBaseConfig().Test2PCIntegration(t)
 }
 
 func TestPostgresPerformance(t *testing.T) {
-	config := &testutils.PerformanceTest{
-		TestConfig:      testutils.GetTestConfig(t, string(constants.Postgres)),
-		Namespace:       "public",
-		BackfillStreams: testutils.GetBackfillStreamsFromCDC(performanceCDCStreams),
+	config := &performance.Test{
+		TestConfig:      &testutils.TestConfig{Driver: string(constants.Postgres)},
+		BackfillStreams: performance.GetBackfillStreamsFromCDC(performanceCDCStreams),
 		CDCStreams:      performanceCDCStreams,
-		ExecuteQuery:    ExecuteQuery,
 	}
+	config.TestConfig.Namespace = "public"
+	config.TestConfig.ExecuteQuery = ExecuteQuery
 
 	config.TestPerformance(t)
 }
