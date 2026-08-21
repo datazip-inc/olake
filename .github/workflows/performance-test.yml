@@ -158,7 +158,14 @@ jobs:
           q "SELECT @@hostname, @@version, @@version_comment, @@sync_binlog, @@max_binlog_size,
                     @@binlog_cache_size, @@binlog_row_image, @@binlog_row_metadata,
                     @@innodb_io_capacity, @@innodb_io_capacity_max, @@innodb_flush_method,
-                    @@innodb_buffer_pool_size, @@log_bin_basename\G"
+                    @@innodb_buffer_pool_size, @@log_bin_basename,
+                    @@innodb_flush_log_at_trx_commit, @@innodb_log_file_size,
+                    @@innodb_max_dirty_pages_pct, @@innodb_flush_neighbors,
+                    @@binlog_transaction_compression, @@binlog_expire_logs_seconds,
+                    @@net_write_timeout, @@innodb_read_io_threads, @@uptime\G"
+          echo "-- binlog files on disk (count + total size) --"
+          q "SELECT COUNT(*) AS files, ROUND(SUM(File_size)/1073741824,1) AS total_gb FROM
+             (SHOW BINARY LOGS) x" 2>/dev/null || q "SHOW BINARY LOGS" | tail -5
         } >> ./perf-profile/mysql_server.log
 
         while true; do
@@ -172,7 +179,9 @@ jobs:
             q "SHOW GLOBAL STATUS WHERE Variable_name IN
                 ('Innodb_data_reads','Innodb_data_read','Innodb_data_writes','Innodb_data_written',
                  'Innodb_buffer_pool_pages_dirty','Innodb_os_log_written','Innodb_data_pending_reads',
-                 'Innodb_data_pending_writes','Binlog_cache_disk_use')"
+                 'Innodb_data_pending_writes','Binlog_cache_disk_use','Threads_running',
+                 'Innodb_checkpoint_age','Innodb_buffer_pool_wait_free','Innodb_log_waits',
+                 'Innodb_row_lock_waits','Queries')"
             # direct read latency on the binlog files the dump thread is streaming
             echo "-- binlog file read latency --"
             q "SELECT FILE_NAME, COUNT_READ, ROUND(SUM_TIMER_READ/1e12,3) AS read_s,
