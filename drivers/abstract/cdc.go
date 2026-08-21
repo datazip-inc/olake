@@ -137,6 +137,21 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		metadataStates[stream.ID()] = writerMetaState
 	}
 
+	// Per-stream record counters. mysql's bulk insert is one 15M-row transaction per table, so the
+	// binlog may serve each table as one contiguous block; the per-interval deltas show whether
+	// both CDC writers are ever busy at once, or only ever one.
+	streamSpans := make(map[string]*logger.Span, len(streams))
+	for _, stream := range streams {
+		streamSpans[stream.ID()] = logger.NewSpan("stream." + stream.ID())
+	}
+
+	// Per-run constants for the profile diff: dedupInserts flips every insert between an Iceberg
+	// equality-delete ("i") and a plain append ("c"), and is read from persisted writer metadata.
+	for id, dedup := range dedupInserts {
+		logger.LogProfileConst("cdc", "stream", id, "dedup_inserts", dedup,
+			"writers", len(writers), "streams", len(streams))
+	}
+
 	defer handleWriterCleanup(cdcCtx, cdcCtxCancel, &err, writers, "", &finalMetadataState, &clearDedup)
 
 	finalMetadataState, err = a.driver.StreamChanges(cdcCtx, streamIndex, metadataStates, func(ctx context.Context, change CDCChange) error {
@@ -156,6 +171,9 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		}
 		filteredData := filterDataBySelectedColumnsFn(change.Data)
 
+		if sp := streamSpans[change.Stream.ID()]; sp != nil {
+			sp.Count(1)
+		}
 		return writer.Push(ctx, types.CreateRawRecord(filteredData, olakeColumns), change.Bytes)
 	})
 

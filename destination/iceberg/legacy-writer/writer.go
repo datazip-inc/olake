@@ -31,7 +31,16 @@ func New(options *destination.Options, schema map[string]string, stream types.St
 	}
 }
 
+// Splits the Iceberg leg: ice.marshal is Go-side proto building, ice.grpc is the wire plus
+// everything the JVM does (parquet encode, S3 put, equality deletes).
+var (
+	spanIceMarshal = logger.NewSpan("ice.marshal")
+	spanIceGRPC    = logger.NewSpan("ice.grpc")
+	spanIceOpType  = logger.NewSpan("ice.optype_delete")
+)
+
 func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) error {
+	tMarshal := logger.Mark()
 	protoSchema := make([]*proto.IcebergPayload_SchemaField, 0, len(w.schema))
 	for field, dType := range w.schema {
 		protoSchema = append(protoSchema, &proto.IcebergPayload_SchemaField{
@@ -65,12 +74,19 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		}
 
 		if len(protoColumnsValue) > 0 {
+			opType := record.OlakeColumns[constants.OpType].(string)
+			// "i"/"u"/"d" all carry an equality delete on the Java side; "c" is a plain append.
+			if opType != "c" {
+				spanIceOpType.Count(1)
+			}
 			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
 				Fields:     protoColumnsValue,
-				RecordType: record.OlakeColumns[constants.OpType].(string),
+				RecordType: opType,
 			})
 		}
 	}
+
+	spanIceMarshal.DoneN(tMarshal, int64(len(protoRecords)))
 
 	if len(protoRecords) == 0 {
 		logger.Debugf("Thread[%s]: no record found in batch", w.options.ThreadID)
@@ -91,7 +107,9 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	defer cancel()
 
 	// Send the batch to the server
+	tGRPC := logger.Mark()
 	res, err := w.server.SendClientRequest(reqCtx, request)
+	spanIceGRPC.DoneN(tGRPC, int64(len(protoRecords)))
 	if err != nil {
 		return fmt.Errorf("failed to send batch: %s", err)
 	}

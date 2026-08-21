@@ -9,6 +9,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -31,6 +32,36 @@ type pgoutputReplicator struct {
 
 func (p *pgoutputReplicator) Socket() *Socket {
 	return p.socket
+}
+
+// Mirrors the mysql binlog span names so a postgres run and a mysql run diff side by side:
+// src.wait is time parked in ReceiveMessage, src.rowsevent is decode plus downstream push.
+var (
+	spanPgWait  = logger.NewSpan("src.wait")
+	spanPgWAL   = logger.NewSpan("src.rowsevent")
+	spanPgKeep  = logger.NewSpan("src.keepalive")
+	spanPgOther = logger.NewSpan("src.otherevent")
+	// row.* names match the mysql binlog filter spans
+	spanPgDecode   = logger.NewSpan("row.decode")
+	spanPgCallback = logger.NewSpan("row.callback")
+)
+
+// emitChange times the tuple decode and the downstream push separately, so a postgres profile
+// lines up column-for-column with a mysql one.
+func (p *pgoutputReplicator) emitChange(ctx context.Context, stream types.StreamInterface, kind string,
+	rel *pglogrepl.RelationMessage, newTuple, oldTuple *pglogrepl.TupleData, insertFn abstract.CDCMsgFn) error {
+	tDecode := logger.Mark()
+	values, rowBytes, err := p.tupleValuesToMap(rel, newTuple, oldTuple)
+	spanPgDecode.DoneN(tDecode, int64(len(rel.Columns)))
+	if err != nil {
+		return err
+	}
+
+	tCb := logger.Mark()
+	err = insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, kind, values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+	spanPgCallback.Done(tCb)
+	return err
 }
 
 func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, insertFn abstract.CDCMsgFn) error {
@@ -63,7 +94,9 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 
 			// receive message with timeout
 			msgCtx, cancel := context.WithTimeout(ctx, p.socket.initialWaitTime)
+			tWait := logger.Mark()
 			msg, err := p.socket.pgConn.ReceiveMessage(msgCtx)
+			spanPgWait.Done(tWait)
 			cancel()
 			if err != nil {
 				if errors.Is(err, context.DeadlineExceeded) {
@@ -88,7 +121,10 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 					return fmt.Errorf("failed to parse XLogData: %v", err)
 				}
 				p.socket.ClientXLogPos = xld.WALStart
-				if err := p.processPgoutputWAL(ctx, xld.WALData, insertFn); err != nil {
+				tWAL := logger.Mark()
+				err = p.processPgoutputWAL(ctx, xld.WALData, insertFn)
+				spanPgWAL.DoneN(tWAL, int64(len(xld.WALData)))
+				if err != nil {
 					return err
 				}
 				messageReceived = true
@@ -98,12 +134,14 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 					return fmt.Errorf("failed to parse primary keepalive message: %v", err)
 				}
 				p.socket.ClientXLogPos = pkm.ServerWALEnd
+				spanPgKeep.Count(1)
 				if pkm.ReplyRequested {
 					if err := AcknowledgeLSN(ctx, db, p.socket, true); err != nil {
 						return fmt.Errorf("failed to send standby status update: %v", err)
 					}
 				}
 			default:
+				spanPgOther.Count(int64(len(copyData.Data)))
 				logger.Debugf("pgoutput: unhandled message type: %d", copyData.Data[0])
 			}
 		}
@@ -201,13 +239,7 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return nil
 	}
 
-	values, rowBytes, err := p.tupleValuesToMap(rel, m.Tuple, nil)
-	if err != nil {
-		return err
-	}
-
-	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "insert", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+	return p.emitChange(ctx, stream, "insert", rel, m.Tuple, nil, insertFn)
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
@@ -221,13 +253,7 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return nil
 	}
 
-	values, rowBytes, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
-	if err != nil {
-		return err
-	}
-
-	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+	return p.emitChange(ctx, stream, "update", rel, m.NewTuple, m.OldTuple, insertFn)
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
@@ -241,13 +267,7 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return nil
 	}
 
-	values, rowBytes, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
-	if err != nil {
-		return err
-	}
-
-	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
-		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
+	return p.emitChange(ctx, stream, "delete", rel, m.OldTuple, nil, insertFn)
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

@@ -4,9 +4,16 @@ on:
   push:
     branches:
     - "staging"
+    # TEMPORARY (perf flakiness investigation): run the suite from this branch. Never merges.
+    - "temp-pf"
     paths:
     - '**/*.go'
     - '**/*.java'
+    # TEMPORARY: without this a push touching only the workflow does not match the filter above.
+    - '.github/workflows/performance-test.yml'
+  # On-demand runs from any branch. History is always read from staging's last green run, so a
+  # dispatch run is a measurement, never a new baseline.
+  workflow_dispatch:
 
 permissions:
   actions: read
@@ -145,6 +152,16 @@ jobs:
         name: benchmarks_${{ matrix.driver }}
         path: ./tests/${{ matrix.driver }}/testdata/benchmarks.json
         retention-days: 90
+
+    # Uploaded on failure too: a slow run is exactly the one whose profile we need to diff.
+    - name: Upload Performance Profile
+      uses: actions/upload-artifact@v7
+      if: always()
+      continue-on-error: true
+      with:
+        name: perf_profile_${{ matrix.driver }}_${{ github.run_attempt }}
+        path: ./perf-profile/
+        retention-days: 30
    
     - name: Sleep server
       if: always() && matrix.driver != 'oracle'
