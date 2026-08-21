@@ -70,7 +70,7 @@ func (c *SSHConfig) SetupSSHConnection() (*ssh.Client, error) {
 	bastionAddr := net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
 	sshClient, err := ssh.Dial("tcp", bastionAddr, sshCfg)
 	if err != nil {
-		return nil, fmt.Errorf("ssh dial bastion: %s", err)
+		return nil, fmt.Errorf("ssh dial bastion: %w", err)
 	}
 
 	return sshClient, nil

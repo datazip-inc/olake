@@ -32,68 +32,78 @@ public class OlakeRpcServer {
     final static Map<String, String> icebergProperties = new ConcurrentHashMap<>();
     static Catalog icebergCatalog;
 
-    public static void main(String[] args) throws Exception {
-        if (args.length < 1) {
-            LOGGER.error("Please provide a JSON config as an argument.");
+    public static void main(String[] args) {
+        try {
+            if (args.length < 1) {
+                LOGGER.error("Please provide a JSON config as an argument.");
+                System.exit(1);
+            }
+
+            String jsonConfig = args[0];
+            ObjectMapper objectMapper = new ObjectMapper();
+            Map<String, Object> configMap = objectMapper.readValue(jsonConfig,
+                    new TypeReference<Map<String, Object>>() {
+                    });
+            LOGGER.info("Logs will be output to console only");
+
+            // Only catalog/storage-level config is consumed here. Stream-level context
+            // (namespace, upsert, partition-fields, identifier-fields) comes per-request.
+            Map<String, String> stringConfigMap = new ConcurrentHashMap<>();
+            configMap.forEach((key, value) -> {
+                if (value != null) {
+                    stringConfigMap.put(key, value.toString());
+                }
+            });
+
+            stringConfigMap.forEach(hadoopConf::set);
+            icebergProperties.putAll(stringConfigMap);
+
+            String catalogName = stringConfigMap.getOrDefault("catalog-name", "iceberg");
+
+            icebergCatalog = CatalogUtil.buildIcebergCatalog(catalogName, icebergProperties, hadoopConf);
+
+            boolean arrowWriterEnabled = Boolean.parseBoolean(
+                stringConfigMap.getOrDefault("arrow-writer-enabled", "false"));
+
+            int port = Integer.parseInt(stringConfigMap.getOrDefault("port", "50051"));
+            // Set the gRPC message size to the maximum value supported by an int (2 GB - 1),
+            // while the writer buffer is limited to 1 GB, allowing the server to handle the
+            // entire contents of the writer buffer as a single message.
+            int maxMessageSize = Integer.parseInt(
+                stringConfigMap.getOrDefault("max-message-size", String.valueOf(Integer.MAX_VALUE)));
+
+            ServerBuilder<?> serverBuilder = ServerBuilder.forPort(port)
+                        .maxInboundMessageSize(maxMessageSize);
+
+            ConcurrentMap<String, IcebergSession> sharedSessions = new ConcurrentHashMap<>();
+
+            if (arrowWriterEnabled) {
+                 OlakeArrowIngester oai = new OlakeArrowIngester(sharedSessions);
+                 serverBuilder.addService(oai);
+                 LOGGER.info("Arrow writer enabled - registered OlakeArrowIngester service");
+            }
+
+            // Legacy ingester is always registered (Check, GET_OR_CREATE_TABLE, DROP_TABLE
+            // and the default RECORDS path all flow through it).
+            OlakeRowsIngester ori = new OlakeRowsIngester(icebergCatalog, sharedSessions);
+            serverBuilder.addService(ori);
+            LOGGER.info("Legacy writer enabled - registered OlakeRowsIngester service");
+
+            Server server = serverBuilder.build().start();
+
+            // Graceful shutdown so the OS sees the gRPC port released cleanly.
+            Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown, "olake-grpc-shutdown"));
+
+            LOGGER.info("Server started on port {} with max message size: {}MB",
+                        port, (maxMessageSize / (1024 * 1024)));
+            server.awaitTermination();
+        } catch (Throwable t) {
+            // Nothing is listening yet, so this reaches Go only as a refused connection unless the
+            // exception is named on the way out. Written to stderr, not the logger: log4j's console
+            // appender is SYSTEM_OUT, and Go reads the first stderr line into the start error.
+            System.err.println("Iceberg writer failed to start [" + t.getClass().getName() + "]: " + t.getMessage());
+            t.printStackTrace();
             System.exit(1);
         }
-
-        String jsonConfig = args[0];
-        ObjectMapper objectMapper = new ObjectMapper();
-        Map<String, Object> configMap = objectMapper.readValue(jsonConfig, new TypeReference<Map<String, Object>>() {
-        });
-        LOGGER.info("Logs will be output to console only");
-
-        // Only catalog/storage-level config is consumed here. Stream-level context
-        // (namespace, upsert, partition-fields, identifier-fields) comes per-request.
-        Map<String, String> stringConfigMap = new ConcurrentHashMap<>();
-        configMap.forEach((key, value) -> {
-            if (value != null) {
-                stringConfigMap.put(key, value.toString());
-            }
-        });
-
-        stringConfigMap.forEach(hadoopConf::set);
-        icebergProperties.putAll(stringConfigMap);
-
-        String catalogName = stringConfigMap.getOrDefault("catalog-name", "iceberg");
-
-        icebergCatalog = CatalogUtil.buildIcebergCatalog(catalogName, icebergProperties, hadoopConf);
-
-        boolean arrowWriterEnabled = Boolean.parseBoolean(
-            stringConfigMap.getOrDefault("arrow-writer-enabled", "false"));
-
-        int port = Integer.parseInt(stringConfigMap.getOrDefault("port", "50051"));
-        // Set the gRPC message size to the maximum value supported by an int (2 GB - 1),
-        // while the writer buffer is limited to 1 GB, allowing the server to handle the
-        // entire contents of the writer buffer as a single message.
-        int maxMessageSize = Integer.parseInt(
-            stringConfigMap.getOrDefault("max-message-size", String.valueOf(Integer.MAX_VALUE)));
-
-        ServerBuilder<?> serverBuilder = ServerBuilder.forPort(port)
-                    .maxInboundMessageSize(maxMessageSize);
-
-        ConcurrentMap<String, IcebergSession> sharedSessions = new ConcurrentHashMap<>();
-
-        if (arrowWriterEnabled) {
-             OlakeArrowIngester oai = new OlakeArrowIngester(sharedSessions);
-             serverBuilder.addService(oai);
-             LOGGER.info("Arrow writer enabled - registered OlakeArrowIngester service");
-        }
-
-        // Legacy ingester is always registered (Check, GET_OR_CREATE_TABLE, DROP_TABLE
-        // and the default RECORDS path all flow through it).
-        OlakeRowsIngester ori = new OlakeRowsIngester(icebergCatalog, sharedSessions);
-        serverBuilder.addService(ori);
-        LOGGER.info("Legacy writer enabled - registered OlakeRowsIngester service");
-
-        Server server = serverBuilder.build().start();
-
-        // Graceful shutdown so the OS sees the gRPC port released cleanly.
-        Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown, "olake-grpc-shutdown"));
-
-        LOGGER.info("Server started on port {} with max message size: {}MB",
-                    port, (maxMessageSize / (1024 * 1024)));
-        server.awaitTermination();
     }
 }

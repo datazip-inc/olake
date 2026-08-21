@@ -27,17 +27,17 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return fmt.Errorf("failed to set threshold filter: %w", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, o.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %w", err)
 	}
 
 	tx, err := o.client.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
 		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
@@ -49,7 +49,7 @@ func (o *Oracle) ChunkIterator(ctx context.Context, stream types.StreamInterface
 
 	stmt, err := jdbc.OracleChunkScanQuery(stream, chunk, filter)
 	if err != nil {
-		return fmt.Errorf("failed to build chunk scan query: %s", err)
+		return fmt.Errorf("failed to build chunk scan query: %w", err)
 	}
 	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 		// TODO: Add support for user defined datatypes in OracleDB
@@ -79,7 +79,7 @@ func (o *Oracle) GetOrSplitChunks(ctx context.Context, pool *destination.WriterP
 			logger.Warnf("Table %s.%s is empty, skipping chunking", stream.Namespace(), stream.Name())
 			return types.NewSet[types.Chunk](), nil
 		}
-		return nil, fmt.Errorf("failed to check for rows: %s", err)
+		return nil, fmt.Errorf("failed to check for rows: %w", err)
 	}
 
 	chunks, err := o.splitViaRowID(ctx, stream)
@@ -125,7 +125,7 @@ func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.St
 	query := jdbc.OracleMinMaxRowIDQuery(stream)
 	err := o.client.QueryRowContext(ctx, query).Scan(&minRowID, &maxRowID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get min-max row id: %s", err)
+		return nil, fmt.Errorf("failed to get min-max row id: %w", err)
 	}
 
 	currRowID := minRowID
@@ -141,7 +141,7 @@ func (o *Oracle) splitViaTableIterationLoop(ctx context.Context, stream types.St
 		nextRowIDQuery := jdbc.NextRowIDQuery(stream, currRowID, rowsPerChunk)
 		err = o.client.QueryRowContext(ctx, nextRowIDQuery).Scan(&nextRowID, &rowCount)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get next row id: %s", err)
+			return nil, fmt.Errorf("failed to get next row id: %w", err)
 		}
 
 		if rowCount < rowsPerChunk || nextRowID == maxRowID {
@@ -176,7 +176,7 @@ func (o *Oracle) splitViaTableIterationSample(ctx context.Context, stream types.
 
 	rows, err := o.client.QueryContext(ctx, jdbc.SampleBlockBoundaryQuery(stream, samplePercent))
 	if err != nil {
-		return nil, fmt.Errorf("sample block query failed: %s", err)
+		return nil, fmt.Errorf("sample block query failed: %w", err)
 	}
 	defer rows.Close()
 
@@ -184,12 +184,12 @@ func (o *Oracle) splitViaTableIterationSample(ctx context.Context, stream types.
 	for rows.Next() {
 		var rowID string
 		if err := rows.Scan(&rowID); err != nil {
-			return nil, fmt.Errorf("failed to scan sampled rowid: %s", err)
+			return nil, fmt.Errorf("failed to scan sampled rowid: %w", err)
 		}
 		sampledRowIDs = append(sampledRowIDs, rowID)
 	}
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate sampled rowids: %s", err)
+		return nil, fmt.Errorf("failed to iterate sampled rowids: %w", err)
 	}
 
 	if int64(len(sampledRowIDs)) < numberOfChunks {
@@ -224,7 +224,7 @@ func (o *Oracle) splitViaRowID(ctx context.Context, stream types.StreamInterface
 	query = jdbc.OracleTaskCreationQuery(taskName)
 	_, err = o.client.ExecContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create task: %s", err)
+		return nil, fmt.Errorf("failed to create task: %w", err)
 	}
 	defer func(taskName string) {
 		stmt := jdbc.OracleChunkTaskCleanerQuery(taskName)
@@ -237,13 +237,13 @@ func (o *Oracle) splitViaRowID(ctx context.Context, stream types.StreamInterface
 	query = jdbc.OracleChunkCreationQuery(stream, blocksPerChunk, taskName)
 	_, err = o.client.ExecContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create chunks: %s", err)
+		return nil, fmt.Errorf("failed to create chunks: %w", err)
 	}
 
 	chunkQuery := jdbc.OracleChunkRetrievalQuery(taskName)
 	rows, err := o.client.QueryContext(ctx, chunkQuery)
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve chunks: %s", err)
+		return nil, fmt.Errorf("failed to retrieve chunks: %w", err)
 	}
 	defer rows.Close()
 
@@ -254,7 +254,7 @@ func (o *Oracle) splitViaRowID(ctx context.Context, stream types.StreamInterface
 		var startRowID, endRowID string
 		err = rows.Scan(&chunkID, &startRowID, &endRowID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan chunk %d: %s", chunkID, err)
+			return nil, fmt.Errorf("failed to scan chunk %d: %w", chunkID, err)
 		}
 		startRowIDs = append(startRowIDs, startRowID)
 	}
@@ -297,7 +297,7 @@ func (o *Oracle) splitViaExtents(ctx context.Context, stream types.StreamInterfa
 	// 1. Get the Table's Data Object ID, Fetch all physical extents for the table
 	rows, err := o.client.QueryContext(ctx, jdbc.OracleExtentsQuery(), stream.Namespace(), stream.Name())
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch extents: %s", err)
+		return nil, fmt.Errorf("failed to fetch extents: %w", err)
 	}
 	defer rows.Close()
 
@@ -312,7 +312,7 @@ func (o *Oracle) splitViaExtents(ctx context.Context, stream types.StreamInterfa
 		var fileID, blockID, blocks, objectID int64
 		err = rows.Scan(&fileID, &blockID, &blocks, &objectID)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan extents: %s", err)
+			return nil, fmt.Errorf("failed to scan extents: %w", err)
 		}
 
 		// If this is the start of a new chunk, generate its starting ROWID
