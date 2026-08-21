@@ -392,7 +392,8 @@ const S3UISchema = `{
 
 const KafkaUISchema = `{
   "ui:grid": [
-    { "bootstrap_servers": 12, "consumer_group_id": 12 },
+    { "bootstrap_servers": 24 },
+    { "consumer_group_id": 12, "topic_pattern": 12 },
     { "threads_equal_total_partitions": 12, "max_threads": 12 },
     { "backoff_retry_count": 12, "protocol": 12 },
     { "use_schema_registry": 24 },
