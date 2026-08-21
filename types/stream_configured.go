@@ -298,8 +298,8 @@ func (s *ConfiguredStream) NormalizationEnabled() bool {
 }
 
 func (s *ConfiguredStream) GetDeleteMode() DeleteMode {
-	if s.StreamMetadata.DeleteType == "" {
+	if s.StreamMetadata.UpdateType == "" {
 		return DeleteModeEquality
 	}
-	return DeleteMode(s.StreamMetadata.DeleteType)
+	return DeleteMode(s.StreamMetadata.UpdateType)
 }

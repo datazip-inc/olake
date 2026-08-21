@@ -131,7 +131,7 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 	}
 
 	// Step 1: full load + CDC update with equality deletes
-	if err := updateDeleteType(cfg.TestConfig, cfg.Namespace, testTable, "eq"); err != nil {
+	if err := updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "eq"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
 	syncEqCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
@@ -155,7 +155,7 @@ func (cfg *IntegrationTest) testIcebergEqToPosConversion(ctx context.Context, t 
 	// Step 2: CDC insert with positional deletes (triggers eq -> pos conversion)
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "insert")
 
-	if err := updateDeleteType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+	if err := updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
 	cdcPosCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
@@ -185,7 +185,7 @@ func (cfg *IntegrationTest) testIcebergCleanTablePositionalWithPebbleIndex(ctx c
 		return err
 	}
 
-	if err := updateDeleteType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+	if err := updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
 	syncFullCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
@@ -226,7 +226,7 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 		return err
 	}
 
-	if err := updateDeleteType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+	if err := updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
 	syncFullCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)

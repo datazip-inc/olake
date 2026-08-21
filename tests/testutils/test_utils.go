@@ -631,8 +631,8 @@ func updateStreamConfig(config *TestConfig, namespace, streamName, syncMode, cur
 	})
 }
 
-// updateDeleteType sets delete_type in selected_streams for the stream identified by namespace+streamName.
-func updateDeleteType(config *TestConfig, namespace, streamName, deleteType string) error {
+// updateUpdateType sets update_type in selected_streams for the stream identified by namespace+streamName.
+func updateUpdateType(config *TestConfig, namespace, streamName, updateType string) error {
 	streamName = normalizeStreamName(config.Driver, streamName)
 	return editJSONFile(config.HostCatalogPath, func(doc map[string]interface{}) error {
 		selected, _ := doc["selected_streams"].(map[string]interface{})
@@ -642,7 +642,7 @@ func updateDeleteType(config *TestConfig, namespace, streamName, deleteType stri
 			if !ok || fmt.Sprint(stream["stream_name"]) != streamName {
 				continue
 			}
-			stream["delete_type"] = deleteType
+			stream["update_type"] = updateType
 		}
 		return nil
 	})

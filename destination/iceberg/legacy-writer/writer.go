@@ -16,22 +16,22 @@ import (
 )
 
 type LegacyWriter struct {
-	options    *destination.Options
-	schema     map[string]string
-	stream     types.StreamInterface
-	server     internal.ServerClient
-	indexBatch *types.StreamIndexThread
-	upsertMode bool
+	options     *destination.Options
+	schema      map[string]string
+	stream      types.StreamInterface
+	server      internal.ServerClient
+	indexThread *types.StreamIndexThread
+	upsertMode  bool
 }
 
 func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) *LegacyWriter {
 	return &LegacyWriter{
-		options:    options,
-		schema:     schema,
-		stream:     stream,
-		server:     server,
-		upsertMode: upsertMode,
-		indexBatch: types.NewStreamIndexThread(options.TableIndex),
+		options:     options,
+		schema:      schema,
+		stream:      stream,
+		server:      server,
+		upsertMode:  upsertMode,
+		indexThread: types.NewStreamIndexThread(options.TableIndex),
 	}
 }
 
@@ -80,9 +80,9 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		}
 
 		// check if we need to write pos for the current record
-		if w.indexBatch != nil && (opType != "r" && opType != "c") {
+		if w.indexThread != nil && (opType != "r" && opType != "c") {
 			olakeID := record.OlakeColumns[constants.OlakeID].(string)
-			previous, found, err := w.indexBatch.Lookup(olakeID)
+			previous, found, err := w.indexThread.Lookup(olakeID)
 			if err != nil {
 				return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
 			}
@@ -125,7 +125,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	ingestResponse := res.(*proto.RecordIngestResponse)
 	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", w.options.ThreadID, ingestResponse.GetResult())
 
-	if w.indexBatch != nil {
+	if w.indexThread != nil {
 		for _, fileMap := range ingestResponse.GetFilePositionMaps() {
 			logger.Debugf("Thread[%s]: file position map: %s (%d ranges)", w.options.ThreadID, fileMap.GetFilePath(), len(fileMap.GetRanges()))
 			for _, r := range fileMap.GetRanges() {
@@ -135,7 +135,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 					olakeID := rec.OlakeColumns[constants.OlakeID].(string)
 					// Soft-delete keeps the tombstone row on disk, so the index must
 					// point at the new location just like any other write (matches arrow).
-					w.indexBatch.Put(olakeID, types.RowLocation{
+					w.indexThread.Put(olakeID, types.RowLocation{
 						FilePath: fileMap.GetFilePath(),
 						Position: r.GetStartPosition() + int64(i),
 					})
@@ -151,7 +151,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 // commit. Nothing was written to the index, so releasing the buffer is the
 // entire rollback.
 func (w *LegacyWriter) Abort() {
-	w.indexBatch = nil
+	w.indexThread = nil
 }
 
 func (w *LegacyWriter) EvolveSchema(_ context.Context, newSchema map[string]string) error {
@@ -176,7 +176,7 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 		},
 	}
 
-	if w.indexBatch != nil {
+	if w.indexThread != nil {
 		indexBaseSnapshotID, err := w.options.TableIndex.LastCommittedSnapshot()
 		if err != nil {
 			return fmt.Errorf("failed to get last committed snapshot ID: %s", err)
@@ -199,9 +199,9 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 
 	// ingestResponse.SnapshotId is 0 if there are external snapshots present or there is no records to commit
 	// in that case we will not apply stream index, next sync run will create indexes
-	if w.indexBatch != nil && ingestResponse.SnapshotId != 0 {
-		batch := w.indexBatch
-		w.indexBatch = nil
+	if w.indexThread != nil && ingestResponse.SnapshotId != 0 {
+		batch := w.indexThread
+		w.indexThread = nil
 		if err := w.options.TableIndex.Commit(batch, &ingestResponse.SnapshotId); err != nil {
 			return fmt.Errorf("failed to apply stream index: %s", err)
 		}

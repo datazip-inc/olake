@@ -143,7 +143,7 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 	if w.upsertMode {
 		// In positional delete mode the index resolves every row to a location, so
 		// no equality deletes are produced at all.
-		if writer.equalityDeleteWriter == nil && w.options.TableIndex == nil {
+		if writer.equalityDeleteWriter == nil && w.indexThread == nil {
 			if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
 				return nil, err
 			}

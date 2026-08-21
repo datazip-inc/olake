@@ -11,6 +11,10 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
+// indexScanFlushRows is how many scanned rows are buffered in memory before being
+// written to the index. Bounds the memory a full table rebuild can take.
+const indexScanFlushRows = 200_000
+
 // reconcileTableIndex makes the stream's index agree with the destination table before the first record is written
 func (i *Iceberg) reconcileTableIndex(ctx context.Context, index types.StreamIndex, tableSnapshotID int64, hasEqualityDeletes bool) error {
 	if index == nil {
@@ -84,12 +88,30 @@ func (i *Iceberg) fillTableIndex(ctx context.Context, index types.StreamIndex, t
 
 func drainTableIndexScan(posIterator proto.TableIndexService_ScanTableForIndexingClient, index types.StreamIndex) (snapshotID, entries int64, err error) {
 	pending := types.NewStreamIndexThread(index)
+	buffered := 0
+
+	// flush writes the rows accumulated so far without advancing the checkpoint, so a
+	// full table scan never has to hold every row of the table in memory at once.
+	// Rows are safe to publish early because they are only reachable once the
+	// checkpoint moves: a crash mid-scan leaves the old checkpoint in place and the
+	// next sync rebuilds (truncating) or resumes from it.
+	flush := func() error {
+		if buffered == 0 {
+			return nil
+		}
+		if err := index.Commit(pending, nil); err != nil {
+			return fmt.Errorf("failed to flush %d stream index row(s): %s", buffered, err)
+		}
+		pending = types.NewStreamIndexThread(index)
+		buffered = 0
+		return nil
+	}
 
 	for {
 		batch, err := posIterator.Recv()
 		if errors.Is(err, io.EOF) {
-			// The checkpoint rides with the final batch, applied in full only
-			// after every entry the scan produced has been accumulated.
+			// The checkpoint rides with the final flush, written only after every
+			// entry the scan produced is durable in the index.
 			if err := index.Commit(pending, &snapshotID); err != nil {
 				return 0, 0, fmt.Errorf("failed to checkpoint stream index at snapshot[%d]: %s", snapshotID, err)
 			}
@@ -109,5 +131,12 @@ func drainTableIndexScan(posIterator proto.TableIndexService_ScanTableForIndexin
 		}
 
 		entries += int64(len(batch.GetEntries()))
+		buffered += len(batch.GetEntries())
+
+		if buffered >= indexScanFlushRows {
+			if err := flush(); err != nil {
+				return 0, 0, fmt.Errorf("failed to flush stream index: %s", err)
+			}
+		}
 	}
 }

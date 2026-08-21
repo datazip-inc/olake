@@ -15,6 +15,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import org.apache.iceberg.AppendFiles;
@@ -181,10 +182,7 @@ public class IcebergTableOperator {
     if (totalDataFiles == 0 && totalDeleteFiles == 0) {
       LOGGER.info("No files to commit for thread: {}", threadId);
       filesToCommit.clear();
-      if (table.currentSnapshot() != null) {
-        return table.currentSnapshot().snapshotId();
-      }
-      return 0;
+      return 0L;
     }
   
     try {
@@ -277,8 +275,8 @@ public class IcebergTableOperator {
       filesToCommit.clear();
       LOGGER.info("Staged snapshot id: {}, base snapshot id: {}, parent snapshot id: {}", staged.snapshotId(), baseSnapshotId, staged.parentId());
       // check commit parent snapshot if it is not equal to base, then return 0 so that indexer will not save latest snapshot
-      if (staged.parentId() != null && baseSnapshotId != staged.parentId()) {
-          return 0L;
+      if  (staged.parentId() != null && !Objects.equals(baseSnapshotId, staged.parentId())) {
+        return 0L;
       }
 
       return  staged.snapshotId();
@@ -364,8 +362,7 @@ public class IcebergTableOperator {
         // Cooperative cancel: check on every record to stop processing early if client disconnects
         if (grpcContext.isCancelled()) {
           LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
-          addRange(filePositionMap, currentPath, runStartIdx, runStartPos, runCount);
-          return buildPositionMaps(filePositionMap);
+          return null;
         }
         try {
           // Normalise _op_type "i" → "c" before routing to any writer.
@@ -396,7 +393,16 @@ public class IcebergTableOperator {
         }
       }
       
-      addRange(filePositionMap, currentPath, runStartIdx, runStartPos, runCount);
+      if (usePositionalDeletes) {
+        addRange(filePositionMap, currentPath, runStartIdx, runStartPos, runCount);
+      }
+
+      if (trackable != null) {
+        // Every record of the batch is written and its runs are about to be returned,
+        // so the writer's per-batch state - the supersede map - can be released.
+        trackable.batchCompleted();
+      }
+      
       List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> filePositionMaps = buildPositionMaps(filePositionMap);
 
       LOGGER.info("Successfully wrote {} events for thread: {} across {} files", events.size(), threadID, filePositionMaps.size());
