@@ -7,7 +7,19 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/datazip-inc/olake/utils/errs"
 	"golang.org/x/crypto/ssh"
+)
+
+// Codes for conditions this package detects itself, where the error alone cannot say the address
+// that failed was the bastion and not the database.
+const (
+	codeSSHConfigInvalid = "ssh.config_invalid"
+	codeSSHKeyInvalid    = "ssh.private_key_invalid"
+	codeSSHDialFailed    = "ssh.dial_failed"
+	codeSSHHostNotFound  = "ssh.host_not_found"
+	codeSSHDialTimeout   = "ssh.dial_timeout"
+	codeSSHUnreachable   = "ssh.unreachable"
 )
 
 type SSHConfig struct {
@@ -42,7 +54,8 @@ func (c *SSHConfig) Validate() error {
 func (c *SSHConfig) SetupSSHConnection() (*ssh.Client, error) {
 	err := c.Validate()
 	if err != nil {
-		return nil, fmt.Errorf("failed to validate ssh config: %s", err)
+		return nil, errs.Precondition(errs.ConfigInvalid, codeSSHConfigInvalid,
+			fmt.Errorf("failed to validate ssh config: %w", err))
 	}
 	var authMethods []ssh.AuthMethod
 
@@ -53,7 +66,8 @@ func (c *SSHConfig) SetupSSHConnection() (*ssh.Client, error) {
 	if c.PrivateKey != "" {
 		signer, err := ParsePrivateKey(c.PrivateKey, c.Passphrase)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse SSH private key: %s", err)
+			return nil, errs.Precondition(errs.SSHTunnelFailed, codeSSHKeyInvalid,
+				fmt.Errorf("failed to parse SSH private key: %w", err))
 		}
 		authMethods = append(authMethods, ssh.PublicKeys(signer))
 	}
@@ -70,7 +84,18 @@ func (c *SSHConfig) SetupSSHConnection() (*ssh.Client, error) {
 	bastionAddr := net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
 	sshClient, err := ssh.Dial("tcp", bastionAddr, sshCfg)
 	if err != nil {
-		return nil, fmt.Errorf("ssh dial bastion: %w", err)
+		// Splits ssh_tunnel_failed by what the dial error hit.
+		code := codeSSHDialFailed
+		switch errs.Standard(err).Category {
+		case errs.DNSResolutionFailed:
+			code = codeSSHHostNotFound
+		case errs.Timeout:
+			code = codeSSHDialTimeout
+		case errs.NetworkUnreachable:
+			code = codeSSHUnreachable
+		}
+		return nil, errs.Precondition(errs.SSHTunnelFailed, code,
+			fmt.Errorf("ssh dial bastion: %w", err))
 	}
 
 	return sshClient, nil

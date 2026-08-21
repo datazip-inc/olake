@@ -69,7 +69,7 @@ const (
 	ClassifiedByPrecondition = "precondition" // a condition OLake detected itself
 	ClassifiedByVendor       = "vendor"       // from the vendor's own error code
 	ClassifiedByStdlib       = "stdlib"       // from a Go standard library error type
-	ClassifiedByDefault      = "default"      // nothing matched
+	ClassifiedByDefault      = "unclassified" // nothing matched
 )
 
 // Failure is what telemetry reports. Category and ClassifiedBy are always set and answer

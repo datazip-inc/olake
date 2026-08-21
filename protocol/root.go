@@ -7,7 +7,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
-	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -161,9 +160,6 @@ const (
 	// Codes for conditions the CLI detects itself, before any connector is reached.
 	codeFlagMissing    = "config.flag_missing"
 	codeNoValidStreams = "catalog.no_valid_streams"
-	// telemetryFlushTimeout bounds how long a failing command waits for its report to leave the
-	// process: one HTTP round trip, and no more, so a hung endpoint cannot delay the exit.
-	telemetryFlushTimeout = 5 * time.Second
 )
 
 // ReportFailure classifies a failed run, reports it, and waits for the report to be delivered.
@@ -173,14 +169,16 @@ func ReportFailure(err error) {
 	if err == nil {
 		return
 	}
+
+	if telemetry.Disabled() {
+		return
+	}
+
 	// Classified here because this is the only point every failure reaches. A command's RunE
 	// misses its own PreRunE hooks, where the config is read and decrypted, and spec and
 	// clear-destination have no wrapper at all.
 	f := errs.From(errs.Classify(err))
 
-	if telemetry.Disabled() {
-		return
-	}
 	// The classifier that recognized the error names itself. Where none did — the shared rules
 	// cannot know whose endpoint was on the far end — this falls back to the connector that
 	// ran, which a consumer tells apart by classified_by: "stdlib".
@@ -190,7 +188,7 @@ func ReportFailure(err error) {
 	}
 	// Set only by sync, which is what makes this event joinable to the rest of the run's shape.
 	telemetry.TrackFailure(executedCommand(), errorSource, syncID, f)
-	telemetry.Flush(telemetryFlushTimeout)
+	telemetry.Flush()
 }
 
 // executedCommand names the subcommand that ran. Asking cobra keeps it correct when flags

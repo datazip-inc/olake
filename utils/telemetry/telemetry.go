@@ -29,6 +29,8 @@ const (
 	userIDFile            = "user_id"
 	ipNotFoundPlaceholder = "NA"
 	proxTrackURL          = "https://analytics.olake.io/mp/track"
+	// flushTimeout bounds how long a failing command waits for its report to leave the process.
+	flushTimeout = 5 * time.Second
 )
 
 type Telemetry struct {
@@ -49,7 +51,6 @@ var (
 	// initDone closes once Init's background setup finishes. Init does network calls, so an
 	// event sent right after start would otherwise find telemetry nil and be dropped silently.
 	initDone = make(chan struct{})
-	initOnce sync.Once
 
 	// inflight tracks handed-off events so a command about to exit can wait for them.
 	inflight sync.WaitGroup
@@ -78,7 +79,7 @@ type LocationInfo struct {
 
 func Init() {
 	go func() {
-		defer initOnce.Do(func() { close(initDone) })
+		defer close(initDone)
 		// check for disable
 		if Disabled() {
 			return
@@ -119,11 +120,11 @@ func Init() {
 func send(name string, build func()) {
 	inflight.Add(1)
 	go func() {
-		defer inflight.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Debugf("recovered from panic while sending %s event: %v", name, r)
+				logger.Infof("recovered from panic while sending %s event: %v", name, r)
 			}
+			inflight.Done()
 		}()
 		<-initDone
 		if telemetry == nil {
@@ -133,22 +134,20 @@ func send(name string, build func()) {
 	}()
 }
 
-// Flush waits for Init and for handed-off events, bounded by timeout. Commands call it before
-// exiting: check and discover leave through logger.Fatal, dropping anything still in flight.
-func Flush(timeout time.Duration) {
+// Flush waits for handed-off events. Commands call it before exiting:
+func Flush() {
 	if Disabled() {
 		return
 	}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		<-initDone
 		inflight.Wait()
 	}()
 	select {
 	case <-done:
-	case <-time.After(timeout):
-		logger.Debugf("telemetry flush timed out after %s", timeout)
+	case <-time.After(flushTimeout):
+		logger.Debugf("telemetry flush timed out after %s", flushTimeout)
 	}
 }
 
