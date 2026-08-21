@@ -163,12 +163,13 @@ func (s *ConfiguredStream) SupportedSyncModes() *Set[SyncMode] {
 }
 
 func (s *ConfiguredStream) GetSyncMode() SyncMode {
-	return s.Stream.SyncMode
+	return resolveConfigurableField(s.StreamMetadata.SyncMode, s.Stream.SyncMode)
 }
 
 func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
-	if s.Stream.DestinationDatabase != "" {
-		return utils.Reformat(s.Stream.DestinationDatabase)
+	destDB := resolveConfigurableField(s.StreamMetadata.DestinationDatabase, s.Stream.DestinationDatabase)
+	if destDB != "" {
+		return utils.Reformat(destDB)
 	}
 	if icebergDB != nil && *icebergDB != "" {
 		return *icebergDB
@@ -177,7 +178,8 @@ func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 }
 
 func (s *ConfiguredStream) GetDestinationTable() string {
-	return utils.Ternary(s.Stream.DestinationTable == "", s.Stream.Name, s.Stream.DestinationTable).(string)
+	destTable := resolveConfigurableField(s.StreamMetadata.DestinationTable, s.Stream.DestinationTable)
+	return utils.Ternary(destTable == "", s.Stream.Name, destTable).(string)
 }
 
 func (s *ConfiguredStream) GetPartitionRegex() string {
@@ -186,7 +188,8 @@ func (s *ConfiguredStream) GetPartitionRegex() string {
 
 // returns primary and secondary cursor
 func (s *ConfiguredStream) Cursor() (string, string) {
-	cursorFields := strings.Split(s.Stream.CursorField, ":")
+	cursorField := resolveConfigurableField(s.StreamMetadata.CursorField, s.Stream.CursorField)
+	cursorFields := strings.Split(cursorField, ":")
 	primaryCursor := cursorFields[0]
 	secondaryCursor := ""
 	if len(cursorFields) > 1 {
@@ -271,12 +274,13 @@ func (s *ConfiguredStream) GetFilter() (FilterConfig, bool, error) {
 
 // Validate Configured Stream with Source Stream
 func (s *ConfiguredStream) Validate(source *Stream) error {
-	if !source.SupportedSyncModes.Exists(s.Stream.SyncMode) {
-		return fmt.Errorf("invalid sync mode[%s]; valid are %v", s.Stream.SyncMode, source.SupportedSyncModes)
+	syncMode := s.GetSyncMode()
+	if !source.SupportedSyncModes.Exists(syncMode) {
+		return fmt.Errorf("invalid sync mode[%s]; valid are %v", syncMode, source.SupportedSyncModes)
 	}
 
 	// no cursor validation in cdc and backfill sync
-	if s.Stream.SyncMode == INCREMENTAL {
+	if syncMode == INCREMENTAL {
 		primaryCursor, secondaryCursor := s.Cursor()
 		if !source.AvailableCursorFields.Exists(primaryCursor) {
 			return fmt.Errorf("invalid cursor field [%s]; valid are %v", primaryCursor, source.AvailableCursorFields)

@@ -212,7 +212,6 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		}
 
 		elem.StreamMetadata = sMetadata
-		types.ApplyStreamMetadataToStream(sMetadata, elem.Stream)
 
 		if streams != nil {
 			source, found := types.StreamsToMap(streams...)[elem.ID()]
@@ -259,7 +258,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		}
 
 		classifications.SelectedStreams = append(classifications.SelectedStreams, elem.ID())
-		switch elem.Stream.SyncMode {
+		switch elem.GetSyncMode() {
 		case types.CDC, types.STRICTCDC:
 			classifications.CDCStreams = append(classifications.CDCStreams, elem)
 			streamState, exists := stateStreamMap[elem.ID()]

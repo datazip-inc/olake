@@ -88,19 +88,6 @@ func clearStreamConfigurableFields(stream *Stream) {
 	stream.DestinationTable = ""
 }
 
-// ApplyStreamMetadataToStream copies configurable stream settings from `selected_streams`
-// onto the runtime `Stream` object.
-// Downstream code reads `SyncMode` / `CursorField` / `DestinationDatabase` / `DestinationTable`
-// from `Stream` via `StreamInterface`. If a field is zero in `metadata`, `resolveConfigurableField`
-// falls back to the value already on `Stream` — which covers old-version combined catalogs
-// where configurable fields were stored directly on streams[] and not yet in selected_streams.
-func ApplyStreamMetadataToStream(metadata StreamMetadata, stream *Stream) {
-	stream.SyncMode = resolveConfigurableField(metadata.SyncMode, stream.SyncMode)
-	stream.CursorField = resolveConfigurableField(metadata.CursorField, stream.CursorField)
-	stream.DestinationDatabase = resolveConfigurableField(metadata.DestinationDatabase, stream.DestinationDatabase)
-	stream.DestinationTable = resolveConfigurableField(metadata.DestinationTable, stream.DestinationTable)
-}
-
 type Catalog struct {
 	SelectedStreams map[string][]StreamMetadata `json:"selected_streams,omitempty"`
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
@@ -222,6 +209,9 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					newStream := newStreams[streamID].Stream
 					MergeSelectedColumns(&metadata, oldStream, newStream)
 					migrateConfigurableFieldsFromStream(&metadata, oldStream)
+					if metadata.CursorField == "" && newStream.CursorField != "" {
+						metadata.CursorField = newStream.CursorField
+					}
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -237,13 +227,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
 		if exists {
-			// preserve metadata from old
-			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
-			if oldStream.Stream.CursorField != "" {
-				newStream.Stream.CursorField = oldStream.Stream.CursorField
-			}
-			newStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
-			newStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
 			newStream.Stream.SourceDefinedPrimaryKey = oldStream.Stream.SourceDefinedPrimaryKey
 			clearStreamConfigurableFields(newStream.Stream)
 			return nil

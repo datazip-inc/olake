@@ -750,22 +750,22 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				Streams: []*ConfiguredStream{
 					{
 						Stream: &Stream{
-							Name:                "users",
-							Namespace:           "public",
-							Schema:              newSchema(),
-							SyncMode:            SyncMode("full_refresh"),
-							CursorField:         "created_at",
-							DestinationDatabase: "db:public",
-							DestinationTable:    "users",
+							Name:      "users",
+							Namespace: "public",
+							Schema:    newSchema(),
 						},
 					},
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"public": {
 						{
-							StreamName:      "users",
-							Normalization:   true,
-							SelectedColumns: createSelectedColumns([]string{"id"}, false),
+							StreamName:          "users",
+							Normalization:       true,
+							SelectedColumns:     createSelectedColumns([]string{"id"}, false),
+							SyncMode:            SyncMode("full_refresh"),
+							CursorField:         "created_at",
+							DestinationDatabase: "db:public",
+							DestinationTable:    "users",
 						},
 					},
 				},
@@ -1102,36 +1102,68 @@ func validateBasicSchemas(t *testing.T, expected, actual *TypeSchema, testName s
 	}
 }
 
-func TestApplyStreamMetadataToStreamBackwardCompat(t *testing.T) {
-	stream := &Stream{
-		SyncMode:            SyncMode("cdc"),
-		CursorField:         "updated_at",
-		DestinationDatabase: "legacy_db",
-		DestinationTable:    "legacy_table",
+func TestConfiguredStreamConfigurableFieldGetters(t *testing.T) {
+	// Old combined format: configurable fields only on streams[].
+	legacy := &ConfiguredStream{
+		Stream: &Stream{
+			Name:                "users",
+			Namespace:           "public",
+			SyncMode:            SyncMode("cdc"),
+			CursorField:         "updated_at",
+			DestinationDatabase: "legacy_db",
+			DestinationTable:    "legacy_table",
+		},
 	}
+	assert.Equal(t, SyncMode("cdc"), legacy.GetSyncMode())
+	primary, secondary := legacy.Cursor()
+	assert.Equal(t, "updated_at", primary)
+	assert.Equal(t, "", secondary)
+	assert.Equal(t, "legacy_db", legacy.GetDestinationDatabase(nil))
+	assert.Equal(t, "legacy_table", legacy.GetDestinationTable())
 
-	ApplyStreamMetadataToStream(StreamMetadata{}, stream)
-	assert.Equal(t, SyncMode("cdc"), stream.SyncMode)
-	assert.Equal(t, "updated_at", stream.CursorField)
-	assert.Equal(t, "legacy_db", stream.DestinationDatabase)
-	assert.Equal(t, "legacy_table", stream.DestinationTable)
-
-	stream = &Stream{
-		SyncMode:            SyncMode("full_refresh"),
-		CursorField:         "created_at",
-		DestinationDatabase: "legacy_db",
-		DestinationTable:    "legacy_table",
+	// New format: configurable fields in selected_streams; streams[] cleared.
+	configured := &ConfiguredStream{
+		Stream: &Stream{
+			Name:      "users",
+			Namespace: "public",
+		},
+		StreamMetadata: StreamMetadata{
+			SyncMode:            SyncMode("cdc"),
+			CursorField:         "updated_at",
+			DestinationDatabase: "new_db",
+			DestinationTable:    "new_table",
+		},
 	}
-	ApplyStreamMetadataToStream(StreamMetadata{
-		SyncMode:            SyncMode("cdc"),
-		CursorField:         "updated_at",
-		DestinationDatabase: "new_db",
-		DestinationTable:    "new_table",
-	}, stream)
-	assert.Equal(t, SyncMode("cdc"), stream.SyncMode)
-	assert.Equal(t, "updated_at", stream.CursorField)
-	assert.Equal(t, "new_db", stream.DestinationDatabase)
-	assert.Equal(t, "new_table", stream.DestinationTable)
+	assert.Equal(t, SyncMode("cdc"), configured.GetSyncMode())
+	primary, secondary = configured.Cursor()
+	assert.Equal(t, "updated_at", primary)
+	assert.Equal(t, "", secondary)
+	assert.Equal(t, "new_db", configured.GetDestinationDatabase(nil))
+	assert.Equal(t, "new_table", configured.GetDestinationTable())
+
+	// Metadata wins when both are set.
+	both := &ConfiguredStream{
+		Stream: &Stream{
+			Name:                "users",
+			Namespace:           "public",
+			SyncMode:            SyncMode("full_refresh"),
+			CursorField:         "created_at",
+			DestinationDatabase: "legacy_db",
+			DestinationTable:    "legacy_table",
+		},
+		StreamMetadata: StreamMetadata{
+			SyncMode:            SyncMode("cdc"),
+			CursorField:         "updated_at",
+			DestinationDatabase: "new_db",
+			DestinationTable:    "new_table",
+		},
+	}
+	assert.Equal(t, SyncMode("cdc"), both.GetSyncMode())
+	primary, secondary = both.Cursor()
+	assert.Equal(t, "updated_at", primary)
+	assert.Equal(t, "", secondary)
+	assert.Equal(t, "new_db", both.GetDestinationDatabase(nil))
+	assert.Equal(t, "new_table", both.GetDestinationTable())
 }
 
 func TestMigrateConfigurableFieldsFromStream(t *testing.T) {
