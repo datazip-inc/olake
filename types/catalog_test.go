@@ -1266,13 +1266,20 @@ func TestResolveCatalog(t *testing.T) {
 	t.Run("missing schema errors when streams empty", func(t *testing.T) {
 		_, err := ResolveCatalog(streamsOnlyPath, "")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "--schema required: streams.json has no streams[]")
+		assert.Contains(t, err.Error(), "--schema required: streams.json contains only selected_streams")
 	})
 
 	t.Run("missing schema file errors", func(t *testing.T) {
 		_, err := ResolveCatalog(streamsOnlyPath, filepath.Join(dir, "missing-schema.json"))
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read schema")
+	})
+
+	t.Run("empty file returns malformed error", func(t *testing.T) {
+		emptyPath := writeCatalogFile(t, dir, "empty.json", &Catalog{})
+		_, err := ResolveCatalog(emptyPath, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "empty or malformed")
 	})
 }
 

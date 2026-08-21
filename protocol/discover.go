@@ -89,12 +89,12 @@ func compareStreams() error {
 		return fmt.Errorf("failed to read old catalog: %s", err)
 	}
 
-	var newStreams types.Catalog
-	if derr := utils.UnmarshalFile(differencePath, &newStreams, false); derr != nil {
-		return fmt.Errorf("failed to read new catalog: %s", derr)
+	newStreams, err := types.ResolveCatalog(differencePath, schemaPath)
+	if err != nil {
+		return fmt.Errorf("failed to read new catalog: %s", err)
 	}
 
-	diffCatalog := types.GetStreamsDelta(oldStreams, &newStreams)
+	diffCatalog := types.GetStreamsDelta(oldStreams, newStreams)
 	// log the difference catalog to stdout
 
 	if err := logger.FileLoggerWithPath(diffCatalog, viper.GetString(constants.DifferencePath)); err != nil {

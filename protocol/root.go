@@ -62,7 +62,7 @@ var RootCmd = &cobra.Command{
 			viper.Set(constants.StreamsPath, streamsPathEnv)
 			viper.Set(constants.DifferencePath, differencePathEnv)
 			if schemaPath != "" {
-				// acts as a feature flag to enable split-write
+				// acts as a feature flag to enable split-write - streams.json holds only selected_streams; schema.json holds only streams[]).
 				if !filepath.IsAbs(schemaPath) {
 					schemaPath = filepath.Join(configFolder, schemaPath)
 				}

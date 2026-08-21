@@ -91,7 +91,9 @@ func clearStreamConfigurableFields(stream *Stream) {
 // ApplyStreamMetadataToStream copies configurable stream settings from `selected_streams`
 // onto the runtime `Stream` object.
 // Downstream code reads `SyncMode` / `CursorField` / `DestinationDatabase` / `DestinationTable`
-// from `Stream` object.
+// from `Stream` via `StreamInterface`. If a field is zero in `metadata`, `resolveConfigurableField`
+// falls back to the value already on `Stream` — which covers old-version combined catalogs
+// where configurable fields were stored directly on streams[] and not yet in selected_streams.
 func ApplyStreamMetadataToStream(metadata StreamMetadata, stream *Stream) {
 	stream.SyncMode = resolveConfigurableField(metadata.SyncMode, stream.SyncMode)
 	stream.CursorField = resolveConfigurableField(metadata.CursorField, stream.CursorField)
@@ -104,31 +106,40 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
-// ResolveCatalog loads streams.json and, when it has no streams[], loads schema.json
-// to supply stream metadata. A combined streams.json (legacy) is returned as-is
-// and schemaPath is ignored. Returns an error if streams[] is empty and schemaPath
-// is not provided.
+// ResolveCatalog loads a catalog from disk, handling both the default (combined) and
+// split (--schema) file layouts.
+//
+// Default layout: streams.json contains both streams[] and selected_streams.
+// This is the normal output of discover and is returned as-is; schemaPath is ignored.
+//
+// Split layout (opt-in via --schema): streams.json contains only selected_streams;
+// streams[] lives in a separate schema.json. When streams[] is absent, schemaPath must
+// point to the schema file or an error is returned.
 func ResolveCatalog(streamsFilePath, schemaFilePath string) (*Catalog, error) {
 	catalog := &Catalog{}
 	if err := utils.UnmarshalFile(streamsFilePath, catalog, false); err != nil {
 		return nil, fmt.Errorf("failed to read streams from %s: %s", streamsFilePath, err)
 	}
 
-	// legacy catalog format with streams[] and selected_streams[]
+	// streams[] is present — this is the default combined layout 
 	if len(catalog.Streams) > 0 {
 		return catalog, nil
 	}
 
-	if schemaFilePath == "" {
-		return nil, fmt.Errorf("--schema required: streams.json has no streams[]")
+	// streams[] is absent — split layout (selected_streams populated, streams[] in schema.json)
+	if len(catalog.SelectedStreams) > 0 {
+		if schemaFilePath == "" {
+			return nil, fmt.Errorf("--schema required: streams.json contains only selected_streams (split layout). Pass --schema <path> to provide the stream metadata file")
+		}
+		schemaCatalog := &Catalog{}
+		if err := utils.UnmarshalFile(schemaFilePath, schemaCatalog, false); err != nil {
+			return nil, fmt.Errorf("failed to read schema from %s: %s", schemaFilePath, err)
+		}
+		catalog.Streams = schemaCatalog.Streams
+		return catalog, nil
 	}
 
-	schemaCatalog := &Catalog{}
-	if err := utils.UnmarshalFile(schemaFilePath, schemaCatalog, false); err != nil {
-		return nil, fmt.Errorf("failed to read schema from %s: %s", schemaFilePath, err)
-	}
-	catalog.Streams = schemaCatalog.Streams
-	return catalog, nil
+	return nil, fmt.Errorf("streams file %s has no streams[] and no selected_streams; file may be empty or malformed", streamsFilePath)
 }
 
 // splitCatalogForWrite returns two Catalog values for the opt-in split file layout:
@@ -194,6 +205,10 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
+		// Normal path: old catalog already has selected_streams (master format or new format).
+		// Retain only streams present in both old selected_streams and the newly discovered
+		// catalog. Configurable fields are migrated from the old stream object into the
+		// metadata entry to handle the old master format where they lived on streams[].
 		newStreams := createStreamMap(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
 
@@ -304,30 +319,54 @@ func MergeSelectedColumns(metadata *StreamMetadata, oldStream *Stream, newStream
 //	      false if it's a prefix (colon present in original string)
 //	string: the common prefix or constant value, or empty string if no common value exists
 func getDestDBPrefix(catalog *Catalog) (constantValue bool, prefix string) {
-	if catalog == nil || len(catalog.Streams) == 0 {
+	if catalog == nil {
 		return false, ""
 	}
 
-	selectedMetadataMap := make(map[string]StreamMetadata)
-	for namespace, metadataList := range catalog.SelectedStreams {
-		for _, metadata := range metadataList {
-			selectedMetadataMap[fmt.Sprintf("%s.%s", namespace, metadata.StreamName)] = metadata
+	var destDBs []string
+
+	if len(catalog.SelectedStreams) > 0 {
+		// New version format (all users): configurable fields including DestinationDatabase
+		// live in selected_streams. This is true whether the catalog is a single combined
+		// streams.json or split across streams.json + schema.json (--schema flag).
+		// Reading from streams[] is wrong here: clearStreamConfigurableFields blanks those
+		// fields on unselected entries, so any deselected stream would corrupt prefix detection.
+		for namespace, metadataList := range catalog.SelectedStreams {
+			for _, metadata := range metadataList {
+				destDB := metadata.DestinationDatabase
+				if destDB == "" {
+					// Per-entry fallback: handles the transition period where an old-style
+					// combined streams.json was loaded and DestinationDatabase was only set
+					// on the stream object and not yet migrated into metadata.
+					streamID := fmt.Sprintf("%s.%s", namespace, metadata.StreamName)
+					for _, s := range catalog.Streams {
+						if s.Stream.ID() == streamID {
+							destDB = s.Stream.DestinationDatabase
+							break
+						}
+					}
+				}
+				destDBs = append(destDBs, destDB)
+			}
+		}
+	} else {
+		// Old version format (backward compatibility): configurable fields including
+		// DestinationDatabase were stored directly on each stream object; selected_streams
+		// did not exist. Fall back to reading streams[] so old streams.json files continue
+		// to work unchanged after upgrading.
+		for _, s := range catalog.Streams {
+			destDBs = append(destDBs, s.Stream.DestinationDatabase)
 		}
 	}
 
-	resolveDestDB := func(stream *ConfiguredStream) string {
-		metadata, ok := selectedMetadataMap[stream.Stream.ID()]
-		if !ok {
-			metadata = StreamMetadata{}
-		}
-		return resolveConfigurableField(metadata.DestinationDatabase, stream.Stream.DestinationDatabase)
+	if len(destDBs) == 0 {
+		return false, ""
 	}
 
-	prefixOrConstValue := strings.Split(resolveDestDB(catalog.Streams[0]), ":")
-	for _, s := range catalog.Streams {
-		streamDBPrefixOrConstValue := strings.Split(resolveDestDB(s), ":")
-		if streamDBPrefixOrConstValue[0] != prefixOrConstValue[0] {
-			// Not all same → bail out
+	prefixOrConstValue := strings.Split(destDBs[0], ":")
+	for _, db := range destDBs[1:] {
+		parts := strings.Split(db, ":")
+		if parts[0] != prefixOrConstValue[0] {
 			return false, ""
 		}
 	}
