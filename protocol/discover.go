@@ -43,12 +43,19 @@ var discoverCmd = &cobra.Command{
 
 		return nil
 	},
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) (err error) {
+		defer func() {
+			if err != nil {
+				return
+			}
+			err = finalizeS3Upload(cmd.Context())
+		}()
+
 		if streamsPath != "" && differencePath != "" {
 			return compareStreams()
 		}
 
-		err := connector.Setup(cmd.Context())
+		err = connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}

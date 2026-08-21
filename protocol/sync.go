@@ -87,9 +87,16 @@ var syncCmd = &cobra.Command{
 		logger.Infof("Running sync with state: %s", stateBytes)
 		return nil
 	},
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) (err error) {
+		defer func() {
+			if err != nil {
+				return
+			}
+			err = finalizeS3Upload(cmd.Context())
+		}()
+
 		// setup conector first
-		err := connector.Setup(cmd.Context())
+		err = connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}

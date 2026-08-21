@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -179,7 +180,7 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 	}()
 }
 
-func Init() {
+func Init(s3Mode bool) {
 	// Set up timestamp for log file names
 	currentTimestamp := time.Now().UTC()
 	timestamp := fmt.Sprintf("%d-%02d-%02d_%02d-%02d-%02d",
@@ -187,12 +188,15 @@ func Init() {
 		currentTimestamp.Hour(), currentTimestamp.Minute(), currentTimestamp.Second())
 
 	// Configure rotating file logs
-	rotatingFile := &lumberjack.Logger{
-		Filename:   fmt.Sprintf("%s/logs/sync_%s/olake.log", viper.GetString(constants.ConfigFolder), timestamp),
-		MaxSize:    100, // Max size in MB
-		MaxBackups: 5,   // Number of old log files to retain
-		MaxAge:     30,  // Days to retain old log files
-		Compress:   true,
+	var rotatingFile *lumberjack.Logger
+	if !s3Mode {
+		rotatingFile = &lumberjack.Logger{
+			Filename:   fmt.Sprintf("%s/logs/sync_%s/olake.log", viper.GetString(constants.ConfigFolder), timestamp),
+			MaxSize:    100, // Max size in MB
+			MaxBackups: 5,   // Number of old log files to retain
+			MaxAge:     30,  // Days to retain old log files
+			Compress:   true,
+		}
 	}
 
 	zerolog.TimestampFunc = func() time.Time { return time.Now().UTC() }
@@ -234,6 +238,15 @@ func Init() {
 				return fmt.Sprintf("\033[90m%s\033[0m", i)
 			},
 		}
+	}
+
+	if s3Mode {
+		// S3 jobs capture stdout; JSON matches olake.log format.
+		var seq uint64
+		logger = zerolog.New(os.Stdout).Hook(zerolog.HookFunc(func(e *zerolog.Event, _ zerolog.Level, _ string) {
+			e.Uint64("seq", atomic.AddUint64(&seq, 1))
+		})).With().Timestamp().Logger()
+		return
 	}
 
 	// MultiWriter (rotating file + console writer per goroutine)

@@ -4,6 +4,7 @@ go 1.25.13
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.17
+	github.com/aws/aws-sdk-go-v2/credentials v1.17.70
 	github.com/aws/aws-sdk-go-v2/service/kms v1.41.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.3
 	github.com/go-mysql-org/go-mysql v1.11.0

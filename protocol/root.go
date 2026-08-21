@@ -44,15 +44,16 @@ var (
 var RootCmd = &cobra.Command{
 	Use:   "olake",
 	Short: "root command",
-	RunE: func(cmd *cobra.Command, args []string) error {
-
+	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+		// Resolve now as configPaths are needed by logger.Init(), but the error is handled later because the logger is not initialized yet.
+		s3Err := resolveS3Paths(cmd.Context())
 		// set global variables
 
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
 		viper.SetDefault(constants.DifferencePath, filepath.Join(os.TempDir(), "difference_streams.json"))
-		if !noSave {
+		if s3Err == nil && !noSave {
 			configFolder := utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)).(string)
 			streamsPathEnv := utils.Ternary(streamsPath == "", filepath.Join(configFolder, "streams.json"), streamsPath).(string)
 			differencePathEnv := utils.Ternary(streamsPath != "", filepath.Join(filepath.Dir(streamsPath), "difference_streams.json"), filepath.Join(configFolder, "difference_streams.json")).(string)
@@ -67,10 +68,15 @@ var RootCmd = &cobra.Command{
 			viper.Set(constants.EncryptionKey, encryptionKey)
 		}
 
-		// logger uses CONFIG_FOLDER
-		logger.Init()
+		// logger uses CONFIG_FOLDER; S3 jobs get JSON stdout matching olake.log
+		logger.Init(s3JobBucket != "")
 		telemetry.Init()
 
+		// Checked last so a resolution failure is reported through the
+		// now-initialized logger instead of being silently discarded.
+		return s3Err
+	},
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
 		}
@@ -131,6 +137,9 @@ func signalAwareRootContext(parent context.Context) context.Context {
 }
 
 func init() {
+	// Run root PersistentPreRunE (S3 path resolution) before child hooks like sync's.
+	cobra.EnableTraverseRunHooks = true
+
 	// TODO: replace --catalog flag with --streams
 	commands = append(commands, specCmd, checkCmd, discoverCmd, syncCmd, clearCmd)
 	RootCmd.PersistentFlags().StringVarP(&configPath, "config", "", "not-set", "(Required) Config for connector")
