@@ -44,7 +44,13 @@ updates:
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/buildx"
+      - "/.github/actions/detect-drivers"
+      - "/.github/actions/driver-deps"
+      - "/.github/actions/go-caches"
+      - "/.github/actions/iceberg-jar"
     target-branch: "staging"
     schedule:
       interval: "weekly"
