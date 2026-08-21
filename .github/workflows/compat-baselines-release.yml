@@ -1,0 +1,38 @@
+# Adds the compat baseline for a state version when its first release ships: baseline entries in
+# constants/state-versions.json are release tags only -- datable by the column rules, gates and
+# input generations, and pullable as images -- so a bump waits here for its release rather than
+# pinning an intermediate commit (the Base Compat Check gates every PR in the interim). A release whose
+# version jumps the manifest by more than one carries every skipped version; later releases at a
+# covered version pass by. Old tags without the state-version machinery are a logged no-op.
+name: Compat Baselines Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  add:
+    name: Add the release to state-versions.json baselines
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # The manifest lives on master; the tag is only read (in a worktree).
+          ref: master
+          fetch-depth: 0
+      - name: Append the release's version rows, if missing
+        run: make compat.baselines.release TAG=${GITHUB_REF_NAME}
+      - name: Commit the change
+        run: |
+          if git diff --quiet constants/state-versions.json; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add constants/state-versions.json
+          git commit -m "chore: pin compat baseline for state version to release ${GITHUB_REF_NAME}"
+          git pull --rebase origin master
+          git push origin HEAD:master

@@ -16,7 +16,7 @@ services:
       - 9001:9001
       - 9000:9000
     volumes:
-      - ../../destination/iceberg/local-test/data/minio-data:/data
+      - minio-data:/data
     command: [ "server", "/data", "--console-address", ":9001" ]
 
   mc:

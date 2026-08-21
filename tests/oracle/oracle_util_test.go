@@ -54,7 +54,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		require.NoError(t, db.Close())
 	}()
 
-	integrationTestTable := testutils.TestTableName(conf)
+	integrationTestTable := conf.GetTableName()
 	var query string
 
 	switch operation {

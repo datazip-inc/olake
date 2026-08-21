@@ -9,6 +9,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -29,6 +30,13 @@ var (
 	nestedDoc = bson.M{
 		"nested_string": "nested_value",
 		"nested_int":    42,
+		// A BSON DateTime below the top level, which is what the state-version-5 gate governs
+		// (drivers/mongodb/internal/mon.go: at v>=5 a custom registry decodes it to a UTC
+		// time.Time, at v<=4 the stock decoder yields a primitive.DateTime). Both marshal to the
+		// same string for an in-range year -- primitive.DateTime.MarshalJSON already normalizes to
+		// UTC -- so this pins that the decoder swap did NOT change in-range values. The versions
+		// only diverge outside [0,9999], where v<=4 fails json.Marshal outright.
+		"nested_timestamp": time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
 	}
 )
 
@@ -62,7 +70,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		}
 	}()
 
-	integrationTestCollection := testutils.TestTableName(conf)
+	integrationTestCollection := conf.GetTableName()
 	db := client.Database(MongoDBDatabase)
 	collection := db.Collection(integrationTestCollection)
 
@@ -180,7 +188,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "bulk_cdc_data_insert":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
+		backfillStreams := performance.GetBackfillStreamsFromCDC(performanceCDCStreams)
 		totalRows := 15000000
 
 		// TODO: insert data in batch
@@ -266,7 +274,7 @@ var ExpectedMongoData = map[string]interface{}{
 	"id_bool":           true,
 	"created_timestamp": int32(1754905992),
 	"id_regex":          `{"Pattern":"test.*","Options":"i"}`,
-	"id_nested":         `{"nested_int":42,"nested_string":"nested_value"}`,
+	"id_nested":         `{"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "varchar_val",
@@ -280,7 +288,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"id_bool":           false,
 	"created_timestamp": int32(1754905699),
 	"id_regex":          `{"Pattern":"updated.*","Options":"i"}`,
-	"id_nested":         `{"nested_int":42,"nested_string":"nested_value"}`,
+	"id_nested":         `{"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "updated varchar",

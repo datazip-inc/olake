@@ -1,37 +1,37 @@
 package s3
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
 )
 
 // s3BaseConfig returns an IntegrationTest for one source format variant. Each variant owns a
-// testdata/<DataFormat>/ directory, which is what GetTestConfig's third argument selects.
-func s3BaseConfig(t *testing.T, variant S3TestVariant) *testutils.IntegrationTest {
-	filterConfig := S3FilterConfig
-	if variant.DataFormat == "xml" {
-		filterConfig = S3XMLFilterConfig
-	}
-	return &testutils.IntegrationTest{
-		TestConfig:                testutils.GetTestConfig(t, string(constants.S3), variant.DataFormat),
-		Namespace:                 "s3",
-		ExpectedData:              variant.ExpectedData,
+// testdata/<DataFormat>/ directory, which is what DataFormat selects.
+func s3BaseConfig(variant S3TestVariant) *integration.Test {
+	cfg := &integration.Test{
+		TestConfig:                &testutils.TestConfig{Driver: string(constants.S3), DataFormat: variant.DataFormat},
+		ExpectedData:              variant.ExpectedRowData(seedValues),
+		ExpectedUpdatedData:       variant.ExpectedRowData(updatedValues),
 		DestinationDataTypeSchema: variant.DestinationSchema,
-		ExecuteQuery:              ExecuteQueryFactory(variant),
-		ColumnToExclude:           excludedColumn,
-		DestinationDB:             S3DestinationDB,
-		CursorField:               S3CursorField,
-		PartitionRegex:            S3PartitionRegex,
-		FilterConfig:              filterConfig,
 	}
+	cfg.TestConfig.Namespace = "s3"
+	cfg.TestConfig.ColumnToExclude = excludedColumn
+	cfg.TestConfig.DestinationDB = S3DestinationDB
+	cfg.TestConfig.CursorField = S3CursorField
+	cfg.TestConfig.PartitionRegex = S3PartitionRegex
+	cfg.TestConfig.FilterConfig = S3FilterConfig
+	cfg.TestConfig.ExecuteQuery = ExecuteQueryFactory(variant, cfg)
+	return cfg
 }
 
 func TestS3Discover(t *testing.T) {
 	for _, variant := range S3TestVariants {
 		t.Run(variant.Name, func(t *testing.T) {
-			s3BaseConfig(t, variant).TestDiscover(t)
+			s3BaseConfig(variant).TestDiscover(t)
 		})
 	}
 }
@@ -41,9 +41,8 @@ func TestS3Sync(t *testing.T) {
 	for _, variant := range S3TestVariants {
 		t.Run(variant.Name, func(t *testing.T) {
 			t.Parallel()
-			cfg := s3BaseConfig(t, variant)
-			cfg.IsolateSuite(t, variant.Name)
-			cfg.ExpectedUpdatedData = variant.ExpectedUpdatedData
+			cfg := s3BaseConfig(variant)
+			cfg.Suite = strings.ToLower(variant.Name)
 			// The "evolve-schema" operation ships a file carrying a column discover has not
 			// seen (see S3TestVariant.BuildEvolvedFile), so the update sync must land it in
 			// the destination as a string column.

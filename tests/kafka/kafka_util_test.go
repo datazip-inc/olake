@@ -14,6 +14,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
 	"github.com/linkedin/goavro/v2"
 	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
@@ -30,8 +31,11 @@ const (
 	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
 	avroSchemaRegistryURL      = "http://127.0.0.1:8081"
 	schemaRegistryTopic        = "_schemas"
-	topicDeletionAttempts      = 8
-	topicDeletionBackoff       = 200 * time.Millisecond
+	// 10 doubling attempts from 200ms is a ~102s ceiling. Topic deletion is asynchronous, and a
+	// loaded broker with lingering consumer-group sessions was measured blowing the previous ~25s
+	// budget (8 attempts); a completed deletion still returns within the first attempts.
+	topicDeletionAttempts = 10
+	topicDeletionBackoff  = 200 * time.Millisecond
 
 	// Base Avro schema
 	avroSchema = `{
@@ -129,7 +133,7 @@ var (
 func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	topic := testutils.TestTableName(conf)
+	topic := conf.GetTableName()
 	var kafkaJSONBroker string
 	if conf.SourceBaseConfig != nil {
 		kafkaJSONBroker = conf.SourceBaseConfig.String("bootstrap_servers")
@@ -184,7 +188,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestCon
 
 	case "insert_rebalance":
 		addRebalanceBulkMessages(ctx, t, client, topic)
-		startRebalanceTrigger(ctx, t, suiteConsumerGroup(t, conf), topic, conf.HostStatsPath)
+		startRebalanceTrigger(ctx, t, suiteConsumerGroup(t, conf), topic, conf.GetFilePath("stats.json"))
 
 	case "stop_rebalance":
 		stopRebalanceTrigger()
@@ -220,8 +224,8 @@ func addRebalanceBulkMessages(ctx context.Context, t *testing.T, client *kgo.Cli
 
 func suiteConsumerGroup(t *testing.T, conf *testutils.TestConfig) string {
 	t.Helper()
-	consumerGroupID := testutils.ReadSourceConfig(t, conf.HostSourcePath).String("consumer_group_id")
-	require.NotEmpty(t, consumerGroupID, "no consumer_group_id in %s", conf.HostSourcePath)
+	consumerGroupID := testutils.ReadSourceConfig(t, conf.GetFilePath("source.json")).String("consumer_group_id")
+	require.NotEmpty(t, consumerGroupID, "no consumer_group_id in %s", conf.GetFilePath("source.json"))
 	return consumerGroupID
 }
 
@@ -245,7 +249,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, consumerGroupID, t
 			close(done)
 		}()
 
-		testutils.WaitForSyncProgress(rebalanceCtx, t, statsPath)
+		integration.WaitForSyncProgress(rebalanceCtx, t, statsPath)
 		if rebalanceCtx.Err() != nil {
 			return
 		}
@@ -290,7 +294,7 @@ func stopRebalanceTrigger() {
 func ExecuteQueryAvro(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	topic := testutils.TestTableName(conf)
+	topic := conf.GetTableName()
 	var kafkaAvroBroker string
 	if conf.SourceBaseConfig != nil {
 		kafkaAvroBroker = conf.SourceBaseConfig.String("bootstrap_servers")

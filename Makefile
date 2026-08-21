@@ -243,7 +243,7 @@ olake.source.all.refresh:
 
 # --- destination stack --------------------------------------------------------
 olake.destination.all.up:
-	mkdir -p $(DEST_DATA_DIR)/minio-data $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
+	mkdir -p $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
 	$(COMPOSE) -f $(DEST_COMPOSE) up -d $(DEST_SERVICES)
 
 olake.destination.all.wait:
@@ -260,7 +260,7 @@ olake.destination.all.stop:
 olake.destination.all.teardown:
 	$(COMPOSE) -f $(DEST_COMPOSE) down --volumes --remove-orphans
 	@rm -rf $(DEST_DATA_DIR) || { echo "Could not remove $(DEST_DATA_DIR) (root-owned files on Linux?). Try: sudo rm -rf $(DEST_DATA_DIR)"; exit 1; }
-	@echo "Removed docker volumes and $(DEST_DATA_DIR) (minio/postgres data and the hive-metastore ivy cache)"
+	@echo "Removed docker volumes and $(DEST_DATA_DIR) (postgres data and the hive-metastore ivy cache)"
 olake.destination.all.restart:
 	@$(MAKE) --no-print-directory olake.destination.all.stop
 	@$(MAKE) --no-print-directory olake.destination.all.start
@@ -338,7 +338,7 @@ define DRIVER_TEST_template
 .PHONY: test.integration.$(1)
 test.integration.$(1): prepare.$(1)
 	@$$(call driver_test_setup,$(1))
-	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -skip 'Performance'
+	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -skip 'Performance|Compatibility'
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_TEST_template,$(d))))
 
@@ -372,11 +372,27 @@ test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .s
 	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
 
 
+COMPATIBILITY_BASELINE ?=
+
+define COMPATIBILITY_TEST_template
+.PHONY: test.compatibility.$(1)
+test.compatibility.$(1): prepare.$(1)
+	@$$(call driver_test_setup,$(1))
+	$$(GO_ENV.$(1)) cd tests && \
+		OLAKE_DRIVER_IMAGE=$$$${OLAKE_DRIVER_IMAGE:-olake/source-$(1):local} \
+		OLAKE_COMPATIBILITY_BASELINE=$$(COMPATIBILITY_BASELINE) \
+		go test -v ./$(1)/... -timeout 0 -count=1 -parallel 8 -run 'Compatibility'
+endef
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call COMPATIBILITY_TEST_template,$(d))))
+
+.PHONY: test.compatibility
+test.compatibility: $(addprefix test.compatibility.,$(SOURCE_DRIVERS))
+
 # Unit tests across every module in the go.work workspace. Directory patterns
 # ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
 # like <module>/... prefix-matches into sibling modules.
 test.unit: $(addprefix prepare.,$(DRIVERS))
-	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -skip '^Test.*(Discover|Sync|2PC|Performance|Rebalance)$$'
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1
 
 define print_help_targets
 $(foreach t,$(HELP_TARGETS), \
@@ -425,7 +441,9 @@ help:
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.sync.$(d)" "sync suite for $(d) (full load, CDC, incremental)";)
 	@$(foreach d,$(CDC_DRIVERS),printf "  %-44s %s\n" "test.2pc.$(d)" "2PC recovery suite for $(d)";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.performance.$(d)" "benchmark suite for $(d) (remote instances, no local stack)";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.compatibility.$(d)" "backward-compatibility for upgrading from baseline to latest $(d): COMPATIBILITY_BASELINE=<tag|image|sha>, empty = sweep every baseline in state-versions.json";)
 	@printf "  %-44s %s\n" "test.discover | test.sync | test.2pc | test.unit" "aggregate runs (all drivers at once)"
+	@printf "  %-44s %s\n" "test.compatibility" "backward-compatibility for every driver, sequentially (COMPATIBILITY_BASELINE as above)"
 	@printf "  %-44s %s\n" "test.build.all" "compile every driver's test binary (CI cache warm)"
 	@if [ -n "$(strip $(HELP_TARGETS))" ]; then \
 		echo ""; \
@@ -433,7 +451,7 @@ help:
 		$(call print_help_targets) \
 	fi
 	@echo ""
-	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG"
+	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG COMPATIBILITY_BASELINE"
 
 .PHONY: lint olake.lint test.lint build \
 	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \

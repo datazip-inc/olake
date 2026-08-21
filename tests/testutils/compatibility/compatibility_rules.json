@@ -26,20 +26,13 @@
         },
         {
           "data_types": [
-            "enum"
+            "unsigned mediumint"
           ],
-          "assert_value_from": "v0.3.9",
-          "note": "M2: ENUM serialization changed"
-        },
-        {
-          "data_types": [
-            "decimal",
-            "numeric"
-          ],
-          "assert_value_from": "v0.3.7",
-          "note": "M3: DECIMAL/NUMERIC round-tripped through float32"
+          "assert_value_from": "v0.9.3",
+          "note": "#1074: unsigned MEDIUMINT was sign-extended on the binlog path before v0.9.3 (-1 where the value is 16777215)"
         }
-      ]
+      ],
+      "note": "M2 (ENUM serialization, fixed v0.3.9) and M3 (DECIMAL/NUMERIC via float32, fixed v0.3.7) need no rule: both thresholds sit below v0.3.11, the oldest baseline any sweep reaches"
     },
     "mongodb": {
       "rules": [
@@ -61,7 +54,7 @@
       "note": "#735 (v0.3.12) added decoder.UseNumber() but the flattener only learned json.Number in #796 (v0.3.16); pre-#735 numbers all typed double against today's catalog",
       "variants": {
         "json": {},
-        "avro": {}  
+        "avro": {}
       }
     },
     "db2": {
