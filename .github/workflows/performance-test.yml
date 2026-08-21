@@ -173,7 +173,10 @@ jobs:
           q "SHOW BINARY LOGS" | tail -5
         } >> ./perf-profile/mysql_server.log 2>&1
 
-        while true; do
+        # Terminate once the CDC sync has written its dump, otherwise `Wait for all background
+        # steps` waits on this loop forever and the job hangs. seq is the backstop (~30 min).
+        for _ in $(seq 1 900); do
+          [ -f ./perf-profile/mysql_cdc.log ] && break
           {
             echo "== $(date -u +%H:%M:%S) =="
             # THE discriminator: is the dump thread sending, idle-waiting, or blocked?
