@@ -138,6 +138,52 @@ jobs:
         run-id: ${{ steps.last_run.outputs.id }}
         github-token: ${{ github.token }}
 
+    # Samples the SOURCE server while the suite runs. The driver profile shows the reader parked
+    # in GetEvent; only the server can say why it is not being fed. Runs in a mysql:8 container
+    # because the runner has no mysql client. Password goes via MYSQL_PWD and is masked.
+    - name: Sample source server during the run
+      if: matrix.driver == 'mysql'
+      background: true
+      run: |
+        mkdir -p ./perf-profile
+        cfg=./tests/mysql/testdata/source.json
+        host=$(jq -r '.hosts' $cfg); port=$(jq -r '.port' $cfg)
+        user=$(jq -r '.username' $cfg); pw=$(jq -r '.password' $cfg)
+        echo "::add-mask::$pw"
+        q() { docker run --rm --network host -e MYSQL_PWD="$pw" mysql:8 \
+                mysql -h "$host" -P "$port" -u "$user" -N -B --connect-timeout=10 -e "$1" 2>&1; }
+
+        {
+          echo "== config =="
+          q "SELECT @@hostname, @@version, @@version_comment, @@sync_binlog, @@max_binlog_size,
+                    @@binlog_cache_size, @@binlog_row_image, @@binlog_row_metadata,
+                    @@innodb_io_capacity, @@innodb_io_capacity_max, @@innodb_flush_method,
+                    @@innodb_buffer_pool_size, @@log_bin_basename\G"
+        } >> ./perf-profile/mysql_server.log
+
+        while true; do
+          {
+            echo "== $(date -u +%H:%M:%S) =="
+            # THE discriminator: is the dump thread sending, or idle-waiting, or blocked?
+            echo "-- dump threads --"
+            q "SELECT ID, STATE, TIME, COMMAND FROM information_schema.PROCESSLIST
+                WHERE COMMAND LIKE 'Binlog Dump%'"
+            echo "-- io counters --"
+            q "SHOW GLOBAL STATUS WHERE Variable_name IN
+                ('Innodb_data_reads','Innodb_data_read','Innodb_data_writes','Innodb_data_written',
+                 'Innodb_buffer_pool_pages_dirty','Innodb_os_log_written','Innodb_data_pending_reads',
+                 'Innodb_data_pending_writes','Binlog_cache_disk_use')"
+            # direct read latency on the binlog files the dump thread is streaming
+            echo "-- binlog file read latency --"
+            q "SELECT FILE_NAME, COUNT_READ, ROUND(SUM_TIMER_READ/1e12,3) AS read_s,
+                      SUM_NUMBER_OF_BYTES_READ
+                 FROM performance_schema.file_summary_by_instance
+                WHERE FILE_NAME LIKE '%binlog%' AND COUNT_READ > 0
+                ORDER BY SUM_TIMER_READ DESC LIMIT 3"
+          } >> ./perf-profile/mysql_server.log 2>&1
+          sleep 2
+        done
+
     # Points the harness at the image built above; without it getOrBuildDriverImage rebuilds it.
     - name: Run Performance Tests
       env:

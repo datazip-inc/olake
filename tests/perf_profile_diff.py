@@ -96,9 +96,9 @@ def main():
             print(f"{'':28s}   {c}")
 
     print("\n=== stage wall time (share of window) ===")
-    print(f"{'stage':24s}" + "".join(f"{lab:>28s}" for lab in labels))
+    print(f"{'stage':32s}" + "".join(f"{lab:>28s}" for lab in labels))
     for n in names:
-        row = f"{n:24s}"
+        row = f"{n:32s}"
         for r in runs:
             v = r["total"].get(n)
             if not v:
@@ -110,9 +110,9 @@ def main():
         print(row)
 
     print("\n=== mean latency per call (ms) and units per call ===")
-    print(f"{'stage':24s}" + "".join(f"{lab:>28s}" for lab in labels))
+    print(f"{'stage':32s}" + "".join(f"{lab:>28s}" for lab in labels))
     for n in names:
-        row = f"{n:24s}"
+        row = f"{n:32s}"
         for r in runs:
             v = r["total"].get(n)
             if not v or not v["calls"]:
@@ -121,6 +121,8 @@ def main():
             cell = "%9.3fms u/c=%.0f" % (1000 * v["s"] / v["calls"], v["per"])
             row += "%28s" % cell
         print(row)
+
+    stream_timeline(runs)
 
     print("\n=== ratio vs first run (>1 means slower in that run) ===")
     base = runs[0]
@@ -132,7 +134,27 @@ def main():
         for r in runs[1:]:
             v = r["total"].get(n)
             cells.append(f"{v['s'] / b['s']:6.2f}x" if v else "     -")
-        print(f"{n:24s}" + "".join(f"{c:>12s}" for c in cells))
+        print(f"{n:32s}" + "".join(f"{c:>12s}" for c in cells))
+
+
+def stream_timeline(runs):
+    """Which CDC stream is flowing in each interval.
+
+    mysql writes one 15M-row transaction per table, so if the binlog serves each table as one
+    contiguous block only one of the two writers is ever busy — that shows up here as one stream
+    holding ~100% of an interval for a long stretch.
+    """
+    for r in runs:
+        names = sorted({n for _, _, sp in r["ticks"] for n in sp if n.startswith("stream.")})
+        if len(names) < 1:
+            continue
+        print(f"\n=== per-interval stream mix — {r['path'].split('/')[-1]} ===")
+        print("  " + "  ".join(n.replace("stream.", "")[-18:] for n in names))
+        for t, _, sp in r["ticks"]:
+            counts = [sp.get(n, {}).get("calls", 0) for n in names]
+            tot = sum(counts) or 1
+            bars = "  ".join("%5d %3.0f%%" % (c, 100 * c / tot) for c in counts)
+            print("  t=%-5.0f %s" % (t, bars))
 
 
 if __name__ == "__main__":
