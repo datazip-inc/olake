@@ -4,9 +4,16 @@ on:
   push:
     branches:
     - "staging"
+    # TEMPORARY (perf flakiness investigation): run the suite from this branch. Never merges.
+    - "temp-pf"
     paths:
     - '**/*.go'
     - '**/*.java'
+    # TEMPORARY: without this a push touching only the workflow does not match the filter above.
+    - '.github/workflows/performance-test.yml'
+  # On-demand runs from any branch. History is always read from staging's last green run, so a
+  # dispatch run is a measurement, never a new baseline.
+  workflow_dispatch:
 
 permissions:
   actions: read
@@ -131,6 +138,70 @@ jobs:
         run-id: ${{ steps.last_run.outputs.id }}
         github-token: ${{ github.token }}
 
+    # Samples the SOURCE server while the suite runs. The driver profile shows the reader parked
+    # in GetEvent; only the server can say why it is not being fed. Runs in a mysql:8 container
+    # because the runner has no mysql client. Password goes via MYSQL_PWD and is masked.
+    - name: Sample source server during the run
+      if: matrix.driver == 'mysql'
+      background: true
+      run: |
+        # A diagnostic must never fail the job, and one bad query must not end the sampling.
+        set +e
+        mkdir -p ./perf-profile
+        cfg=./tests/mysql/testdata/source.json
+        host=$(jq -r '.hosts' $cfg); port=$(jq -r '.port' $cfg)
+        user=$(jq -r '.username' $cfg); pw=$(jq -r '.password' $cfg)
+        echo "::add-mask::$pw"
+        q() { docker run --rm --network host -e MYSQL_PWD="$pw" mysql:8 \
+                mysql -h "$host" -P "$port" -u "$user" -N -B --connect-timeout=10 -e "$1" 2>&1 || true; }
+
+        {
+          echo "== config =="
+          # SHOW VARIABLES, not SELECT @@x: -B -N strips column names, so a \\G select
+          # returns unlabelled values. This returns name/value pairs.
+          q "SHOW GLOBAL VARIABLES WHERE Variable_name IN
+              ('hostname','version','version_comment','sync_binlog','max_binlog_size',
+               'binlog_cache_size','binlog_row_image','binlog_row_metadata','innodb_io_capacity',
+               'innodb_io_capacity_max','innodb_flush_method','innodb_buffer_pool_size',
+               'log_bin_basename','innodb_flush_log_at_trx_commit','innodb_log_file_size',
+               'innodb_max_dirty_pages_pct','innodb_flush_neighbors','binlog_transaction_compression',
+               'binlog_expire_logs_seconds','net_write_timeout','innodb_read_io_threads',
+               'performance_schema')"
+          echo "-- uptime (status var, not a system var) --"
+          q "SHOW GLOBAL STATUS LIKE 'Uptime'"
+          echo "-- binlog files on disk --"
+          q "SHOW BINARY LOGS" | tail -5
+        } >> ./perf-profile/mysql_server.log 2>&1
+
+        # Terminate once the CDC sync has written its dump, otherwise `Wait for all background
+        # steps` waits on this loop forever and the job hangs. seq is the backstop (~30 min).
+        for _ in $(seq 1 900); do
+          [ -f ./perf-profile/mysql_cdc.log ] && break
+          {
+            echo "== $(date -u +%H:%M:%S) =="
+            # THE discriminator: is the dump thread sending, idle-waiting, or blocked?
+            echo "-- dump threads --"
+            q "SELECT ID, STATE, TIME, COMMAND FROM information_schema.PROCESSLIST
+                WHERE COMMAND LIKE 'Binlog Dump%'"
+            echo "-- io counters --"
+            q "SHOW GLOBAL STATUS WHERE Variable_name IN
+                ('Innodb_data_reads','Innodb_data_read','Innodb_data_writes','Innodb_data_written',
+                 'Innodb_buffer_pool_pages_dirty','Innodb_os_log_written','Innodb_data_pending_reads',
+                 'Innodb_data_pending_writes','Binlog_cache_disk_use','Threads_running',
+                 'Innodb_buffer_pool_wait_free','Innodb_log_waits','Innodb_row_lock_waits','Queries')"
+            # Filter on the instrument, not the file name: binlogs are 'binlog.N' on some servers
+            # and 'mysql-bin.N' on others. us_per_read is the dump thread's own read cost.
+            echo "-- binlog file read cost --"
+            q "SELECT FILE_NAME, COUNT_READ, ROUND(SUM_TIMER_READ/1e12,3) AS read_s,
+                      ROUND(SUM_TIMER_READ/NULLIF(COUNT_READ,0)/1e6,1) AS us_per_read,
+                      SUM_NUMBER_OF_BYTES_READ
+                 FROM performance_schema.file_summary_by_instance
+                WHERE EVENT_NAME='wait/io/file/sql/binlog' AND COUNT_READ>0
+                ORDER BY SUM_TIMER_READ DESC LIMIT 3"
+          } >> ./perf-profile/mysql_server.log 2>&1
+          sleep 2
+        done
+
     # Points the harness at the image built above; without it getOrBuildDriverImage rebuilds it.
     - name: Run Performance Tests
       env:
@@ -145,6 +216,16 @@ jobs:
         name: benchmarks_${{ matrix.driver }}
         path: ./tests/${{ matrix.driver }}/testdata/benchmarks.json
         retention-days: 90
+
+    # Uploaded on failure too: a slow run is exactly the one whose profile we need to diff.
+    - name: Upload Performance Profile
+      uses: actions/upload-artifact@v7
+      if: always()
+      continue-on-error: true
+      with:
+        name: perf_profile_${{ matrix.driver }}_${{ github.run_attempt }}
+        path: ./perf-profile/
+        retention-days: 30
    
     - name: Sleep server
       if: always() && matrix.driver != 'oracle'

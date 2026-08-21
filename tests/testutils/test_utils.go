@@ -2253,13 +2253,29 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 
 	// syncWithTimeout runs a sync bounded by SyncTimeout. Hitting the window is expected (it is
 	// a bounded throughput measurement, not a failure), so the still-running container is stopped.
-	syncWithTimeout := func(olakeArgs ...string) ([]byte, error) {
+	// phase names the console dump: the deadline path returns a nil error, so without this the
+	// whole measured window (every [profile] line) is captured and then discarded.
+	syncWithTimeout := func(phase string, olakeArgs ...string) ([]byte, error) {
 		name := fmt.Sprintf("olake-perf-%s", cfg.TestConfig.Driver)
 		_ = exec.Command("docker", "rm", "-f", name).Run() // drop any stale container from a previous run
 		timedCtx, cancel := context.WithTimeout(ctx, SyncTimeout)
 		defer cancel()
 		args := dockerRunArgs(cfg.TestConfig, []string{"--network", "host", "--name", name}, olakeArgs)
 		out, err := exec.CommandContext(timedCtx, "docker", args...).CombinedOutput()
+		// The suite workdir is a private temp dir removed on cleanup, so the profile goes to a
+		// fixed dir at the repo root that CI can upload by a known path.
+		dumpDir := filepath.Join(cfg.TestConfig.HostRootPath, "perf-profile")
+		if mkErr := os.MkdirAll(dumpDir, 0755); mkErr != nil {
+			t.Logf("failed to create %s: %s", dumpDir, mkErr)
+		}
+		dumpPath := filepath.Join(dumpDir, fmt.Sprintf("%s_%s.log", cfg.TestConfig.Driver, phase))
+		if writeErr := os.WriteFile(dumpPath, out, 0600); writeErr != nil {
+			t.Logf("failed to persist %s sync console at %s: %s", phase, dumpPath, writeErr)
+		}
+		// stats.json carries Synced Records / Bytes Read / CPU, and also lives in the temp workdir.
+		if stats, readErr := os.ReadFile(cfg.TestConfig.HostStatsPath); readErr == nil {
+			_ = os.WriteFile(filepath.Join(dumpDir, fmt.Sprintf("%s_%s_stats.json", cfg.TestConfig.Driver, phase)), stats, 0600)
+		}
 		if timedCtx.Err() == context.DeadlineExceeded {
 			_ = exec.Command("docker", "kill", name).Run()
 			return out, nil
@@ -2304,7 +2320,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 				t.Fatalf("failed to seed pre-chunked state from %s: %s", cfg.TestConfig.HostPerformanceStatePath, err)
 			}
 		}
-		if output, err := syncWithTimeout(syncArgs(*cfg.TestConfig, usePreChunkedState, "iceberg", "--destination-database-prefix", destDBPrefix)...); err != nil {
+		if output, err := syncWithTimeout("backfill", syncArgs(*cfg.TestConfig, usePreChunkedState, "iceberg", "--destination-database-prefix", destDBPrefix)...); err != nil {
 			t.Fatalf("failed to perform sync:\n%s", string(output))
 		}
 		t.Log("(backfill) sync completed")
@@ -2348,7 +2364,7 @@ func (cfg *PerformanceTest) TestPerformance(t *testing.T) {
 			t.Log("(cdc) trigger cdc completed")
 
 			t.Log("(cdc) sync started")
-			if output, err := syncWithTimeout(syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)...); err != nil {
+			if output, err := syncWithTimeout("cdc", syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)...); err != nil {
 				t.Fatalf("failed to perform CDC sync:\n%s", string(output))
 			}
 			t.Log("(cdc) sync completed")

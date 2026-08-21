@@ -18,6 +18,15 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
+// Hot-path counters for the CDC read side. src.wait is time parked in GetEvent (server/network
+// starving us); src.rowsevent is time spent converting and pushing that event downstream.
+var (
+	spanSrcWait   = logger.NewSpan("src.wait")
+	spanSrcRows   = logger.NewSpan("src.rowsevent")
+	spanSrcRotate = logger.NewSpan("src.rotate")
+	spanSrcOther  = logger.NewSpan("src.otherevent")
+)
+
 // Connection manages the binlog syncer and streamer for multiple streams.
 type Connection struct {
 	syncer          *replication.BinlogSyncer
@@ -98,7 +107,9 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 				return nil
 			}
 
+			tWait := logger.Mark()
 			ev, err := streamer.GetEvent(ctx)
+			spanSrcWait.Done(tWait)
 			if err != nil {
 				if err == context.DeadlineExceeded {
 					// Timeout means no event, continue to monitor idle time
@@ -111,6 +122,7 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 
 			switch e := ev.Event.(type) {
 			case *replication.RotateEvent:
+				spanSrcRotate.Count(1)
 				c.CurrentPos.Name = string(e.NextLogName)
 				if e.Position > math.MaxUint32 {
 					return fmt.Errorf("binlog position overflow: %d exceeds uint32 max value", e.Position)
@@ -127,9 +139,15 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 
 			case *replication.RowsEvent:
 				messageReceived = true
-				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, c.CurrentPos, callback); err != nil {
+				tRows := logger.Mark()
+				err := c.changeFilter.FilterRowsEvent(ctx, e, ev, c.CurrentPos, callback)
+				spanSrcRows.DoneN(tRows, int64(len(e.Rows)))
+				if err != nil {
 					return err
 				}
+
+			default:
+				spanSrcOther.Count(int64(ev.Header.EventSize))
 			}
 		}
 	}

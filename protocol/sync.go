@@ -136,6 +136,9 @@ var syncCmd = &cobra.Command{
 		defer func() {
 			// Commits land here, not in Read, so this is where a destination's flush cost shows.
 			defer logger.TrackTiming("sync", "pool shutdown")()
+			// Authoritative counters for a clean exit; a killed container is reconstructed by
+			// summing the interval lines instead.
+			logger.LogProfile("profile-total", false)
 			pool.Shutdown(context.Background())
 		}()
 

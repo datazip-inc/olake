@@ -197,6 +197,19 @@ func (w *WriterPool) NewWriter(ctx context.Context, stream types.StreamInterface
 	}, prevStreamState, nil
 }
 
+// Writer-side counters. push.block is the one that matters most: Push submits the flush to a
+// limit-1 errgroup, so it parks here whenever the previous flush is still running.
+var (
+	spanPush       = logger.NewSpan("dst.push")
+	spanPushBlock  = logger.NewSpan("dst.push_block")
+	spanCutCount   = logger.NewSpan("dst.batch_cut_count")
+	spanCutBytes   = logger.NewSpan("dst.batch_cut_bytes")
+	spanFlatten    = logger.NewSpan("dst.flatten")
+	spanEvolve     = logger.NewSpan("dst.evolve")
+	spanWrite      = logger.NewSpan("dst.write")
+	spanFlushTotal = logger.NewSpan("dst.flush_total")
+)
+
 // Push appends a record to the thread buffer and updates the live stats. sourceBytes
 // is the record's source read size (0 if the driver does not report it). Buffer batching
 // flushes when buffered source bytes would exceed MaxDestinationBatchBytes. sourceBytes
@@ -215,17 +228,27 @@ func (wt *WriterThread) Push(ctx context.Context, record types.RawRecord, source
 			wt.stats.BytesRead.Add(sourceBytes)
 			wt.bytesPushed.Add(sourceBytes)
 		}
+		tPush := logger.Mark()
 		wt.buffer = append(wt.buffer, record)
 		wt.bufferBytes += sourceBytes
-		if len(wt.buffer) >= int(wt.batchSize) || wt.bufferBytes >= constants.MaxDestinationBatchBytes {
+		byCount := len(wt.buffer) >= int(wt.batchSize)
+		if byCount || wt.bufferBytes >= constants.MaxDestinationBatchBytes {
 			buf := make([]types.RawRecord, len(wt.buffer))
 			copy(buf, wt.buffer)
+			cut := spanCutBytes
+			if byCount {
+				cut = spanCutCount
+			}
+			cut.Count(int64(len(wt.buffer)))
 			wt.buffer = wt.buffer[:0]
 			wt.bufferBytes = 0
+			tBlock := logger.Mark()
 			wt.group.Add(func(ctx context.Context) error {
 				return wt.flush(ctx, buf)
 			})
+			spanPushBlock.DoneN(tBlock, int64(len(buf)))
 		}
+		spanPush.Done(tPush)
 		return nil
 	}
 }
@@ -247,8 +270,12 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	// create flush context
 	flushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	tFlush := logger.Mark()
+	defer func() { spanFlushTotal.DoneN(tFlush, int64(len(buf))) }()
 	recordsCountBeforeFiltering := len(buf)
+	tFlatten := logger.Mark()
 	evolution, buf, threadSchema, err := wt.writer.FlattenAndCleanData(flushCtx, buf)
+	spanFlatten.DoneN(tFlatten, int64(recordsCountBeforeFiltering))
 	if err != nil {
 		return fmt.Errorf("failed to flatten and clean data: %s", err)
 	}
@@ -257,18 +284,23 @@ func (wt *WriterThread) flush(ctx context.Context, buf []types.RawRecord) (err e
 	wt.recordsFiltered.Add(filtered)
 	// TODO: after flattening record type raw_record not make sense
 	if evolution {
+		tEvolve := logger.Mark()
 		wt.streamArtifact.mu.Lock()
 		newSchema, err := wt.writer.EvolveSchema(flushCtx, wt.streamArtifact.schema, threadSchema)
 		if err == nil && newSchema != nil {
 			wt.streamArtifact.schema = newSchema
 		}
 		wt.streamArtifact.mu.Unlock()
+		spanEvolve.Done(tEvolve)
 		if err != nil {
 			return fmt.Errorf("failed to evolve schema: %s", err)
 		}
 	}
 
-	if err := wt.writer.Write(flushCtx, buf); err != nil {
+	tWrite := logger.Mark()
+	err = wt.writer.Write(flushCtx, buf)
+	spanWrite.DoneN(tWrite, int64(len(buf)))
+	if err != nil {
 		return fmt.Errorf("failed to write records: %s", err)
 	}
 

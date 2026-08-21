@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -48,12 +49,22 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 	return filter
 }
 
+// Row-level counters: decode is binlog bytes -> Go map, rowbytes is the InnoDB size walk,
+// callback is everything downstream (olake columns, column filter, writer push).
+var (
+	spanRowDecode   = logger.NewSpan("row.decode")
+	spanRowBytes    = logger.NewSpan("row.sizewalk")
+	spanRowCallback = logger.NewSpan("row.callback")
+	spanRowSkipped  = logger.NewSpan("row.skipped_stream")
+)
+
 // FilterRowsEvent processes RowsEvent and calls the callback for matching streams.
 func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEvent, ev *replication.BinlogEvent, pos mysql.Position, callback abstract.CDCMsgFn) error {
 	schemaName := string(e.Table.Schema)
 	tableName := string(e.Table.Table)
 	stream, exists := f.streams[schemaName+"."+tableName]
 	if !exists {
+		spanRowSkipped.Count(int64(len(e.Rows)))
 		return nil
 	}
 
@@ -87,7 +98,9 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 	}
 
 	for _, row := range rowsToProcess {
+		tDecode := logger.Mark()
 		record, err := convertRowToMap(row, e.Table, columnTypes, f.converter)
+		spanRowDecode.DoneN(tDecode, int64(len(columnTypes)))
 		if err != nil {
 			return err
 		}
@@ -100,13 +113,19 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 		timestamp := utils.Ternary(!f.lastGTIDEvent.IsZero(), f.lastGTIDEvent, time.Unix(int64(ev.Header.Timestamp), 0)).(time.Time)
 
 		// Bytes: InnoDB on-disk byte sum for this row, carried on the change and added per record by the writer.
+		tBytes := logger.Mark()
+		rowBytes := mysqlCDCRowBytes(row, columnTypes)
+		spanRowBytes.DoneN(tBytes, rowBytes)
 		change := abstract.NewCDCChange(stream, timestamp, operationType, record,
 			map[string]any{
 				CDCBinlogFileName: pos.Name,
 				CDCBinlogFilePos:  pos.Pos, // Use the event position
 			},
-			mysqlCDCRowBytes(row, columnTypes))
-		if err := callback(ctx, change); err != nil {
+			rowBytes)
+		tCb := logger.Mark()
+		err = callback(ctx, change)
+		spanRowCallback.Done(tCb)
+		if err != nil {
 			return err
 		}
 	}

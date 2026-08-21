@@ -142,12 +142,19 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
+		tick := 0
 		for {
 			select {
 			case <-ctx.Done():
+				LogProfile("profile-total", false)
 				Info("Monitoring stopped")
 				return
 			case <-ticker.C:
+				// hot-path counters every 10s: dense enough to show a regime change, sparse
+				// enough that a 10m run stays a ~60-line diff between a fast and a slow sync.
+				if tick++; tick%5 == 0 {
+					LogProfile("profile", true)
+				}
 				runningThreads, recordsToSync, syncedRecords, bytesRead := statsFunc()
 				speed := float64(syncedRecords) / time.Since(startTime).Seconds()
 				timeElapsed := time.Since(startTime).Seconds()
