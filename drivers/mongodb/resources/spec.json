@@ -10,7 +10,7 @@
         "auth_mechanism": {
             "type": "string",
             "title": "Authentication Mechanism",
-            "description": "MongoDB authentication mechanism. Leave empty for default (SCRAM). Use PLAIN for LDAP, SCRAM-SHA-256 for explicit SCRAM, MONGODB-X509 for certificate auth, or MONGODB-OIDC for OpenID Connect (requires passing ENVIRONMENT and TOKEN_RESOURCE in Additional Connection Parameters). For MONGODB-AWS authentication, use the 'IAM Authentication' toggle instead. GSSAPI (Kerberos) is not currently supported.",
+            "description": "MongoDB authentication mechanism. Leave empty to use the driver's default SCRAM negotiation (modern servers prefer SCRAM-SHA-256). Set SCRAM-SHA-1 or SCRAM-SHA-256 only when an explicit mechanism is required. Use PLAIN for LDAP (TLS required), MONGODB-X509 for certificate auth (TLS and client certificate required; username optional), or MONGODB-OIDC for OpenID Connect (password-less; pass ENVIRONMENT and TOKEN_RESOURCE via Additional Connection Parameters for Azure/GCP URI flows). For MONGODB-AWS authentication, use the 'IAM Authentication' toggle instead. GSSAPI (Kerberos) is not currently supported due to low market adoption.",
             "enum": [
                 "",
                 "SCRAM-SHA-1",
@@ -288,44 +288,26 @@
                             "const": false
                         }
                     },
-                    "required": [
-                        "authdb",
-                        "username"
-                    ],
-                    "dependencies": {
-                        "auth_mechanism": {
-                            "oneOf": [
-                                {
-                                    "properties": {
-                                        "auth_mechanism": {
-                                            "enum": [
-                                                "",
-                                                "SCRAM-SHA-1",
-                                                "SCRAM-SHA-256",
-                                                "PLAIN"
-                                            ]
-                                        },
-                                        "password": {
-                                            "type": "string",
-                                            "minLength": 1
-                                        }
-                                    },
-                                    "required": [
-                                        "password"
-                                    ]
-                                },
-                                {
-                                    "properties": {
-                                        "auth_mechanism": {
-                                            "enum": [
-                                                "MONGODB-X509",
-                                                "MONGODB-OIDC"
-                                            ]
-                                        }
-                                    }
-                                }
-                            ]
-                        }
+                    "if": {
+                        "properties": {
+                            "auth_mechanism": {
+                                "enum": [
+                                    "MONGODB-X509",
+                                    "MONGODB-OIDC"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "auth_mechanism"
+                        ]
+                    },
+                    "then": {},
+                    "else": {
+                        "required": [
+                            "authdb",
+                            "username",
+                            "password"
+                        ]
                     }
                 },
                 {
