@@ -152,7 +152,10 @@ func (c *Config) Validate() error {
 	}
 
 	// Set default retry count
-	if c.RetryCount <= 0 {
+	if c.RetryCount < 0 {
+		return fmt.Errorf("retry count is required")
+	}
+	if c.RetryCount == 0 {
 		c.RetryCount = constants.DefaultRetryCount
 	}
 
