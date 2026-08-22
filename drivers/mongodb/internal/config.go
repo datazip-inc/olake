@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
@@ -15,6 +16,7 @@ type Config struct {
 	Username         string            `json:"username"`
 	Password         string            `json:"password"`
 	AuthDB           string            `json:"authdb"`
+	AuthMechanism    string            `json:"auth_mechanism"`
 	ReplicaSet       string            `json:"replica_set"`
 	ReadPreference   string            `json:"read_preference"`
 	Srv              bool              `json:"srv"`
@@ -29,32 +31,36 @@ type Config struct {
 	AdditionalParams map[string]string `json:"additional_params"`
 }
 
-const (
-	AuthMechanismX509 = "MONGODB-X509"
-	AuthMechanismOIDC = "MONGODB-OIDC"
-)
+// applyAuthDefaults sets derived auth fields in one place so URI() and Validate()
+// can read c.AuthMechanism / c.AuthDB / c.ReadPreference without per-field helpers.
+func (c *Config) applyAuthDefaults() {
+	if c.UseIAM {
+		c.AuthMechanism = AuthMechanismAWS
+	}
+	if slices.Contains(externalAuthMechanisms, c.AuthMechanism) {
+		c.AuthDB = "$external"
+	}
+	if c.ReplicaSet != "" && c.ReadPreference == "" {
+		c.ReadPreference = constants.DefaultReadPreference
+	}
+}
 
 func (c *Config) URI() string {
+	c.applyAuthDefaults()
+
 	connectionPrefix := "mongodb"
 	if c.Srv {
 		connectionPrefix = "mongodb+srv"
 	}
 
-	// Build query parameters
 	query := url.Values{}
-
-	if c.UseIAM {
-		query.Set("authSource", "$external")
-		query.Set("authMechanism", "MONGODB-AWS")
-	} else {
-		query.Set("authSource", c.AuthDB)
+	query.Set("authSource", c.AuthDB)
+	if c.AuthMechanism != "" {
+		query.Set("authMechanism", c.AuthMechanism)
 	}
 
 	if c.ReplicaSet != "" {
 		query.Set("replicaSet", c.ReplicaSet)
-		if c.ReadPreference == "" {
-			c.ReadPreference = constants.DefaultReadPreference
-		}
 		query.Set("readPreference", c.ReadPreference)
 	}
 
@@ -71,7 +77,6 @@ func (c *Config) URI() string {
 		query.Set("tls", "true")
 	}
 
-	// Construct final URI using url.URL
 	u := &url.URL{
 		Scheme:   connectionPrefix,
 		Host:     host,
@@ -79,7 +84,14 @@ func (c *Config) URI() string {
 		RawQuery: query.Encode(),
 	}
 
-	if !c.UseIAM {
+	switch {
+	case c.AuthMechanism == AuthMechanismAWS:
+		// IAM credentials come from the environment, not the URI userinfo.
+	case slices.Contains(passwordlessAuthMechanisms, c.AuthMechanism):
+		if c.Username != "" {
+			u.User = url.User(c.Username)
+		}
+	default:
 		u.User = utils.Ternary(c.Password != "", url.UserPassword(c.Username, c.Password), url.User(c.Username)).(*url.Userinfo)
 	}
 
@@ -101,6 +113,10 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("database is required")
 	}
 
+	if c.UseIAM && c.AuthMechanism != "" {
+		return fmt.Errorf("auth_mechanism cannot be set when use_iam is enabled; IAM authentication uses MONGODB-AWS")
+	}
+
 	if !c.UseIAM {
 		if c.Username == "" {
 			return fmt.Errorf("username is required")
@@ -108,8 +124,11 @@ func (c *Config) Validate() error {
 		if c.AuthDB == "" {
 			return fmt.Errorf("authdb is required")
 		}
-		// Password is optional — staging allowed password-less URIs (X509, OIDC, username-only).
+		// Password is optional — password-less URIs (X509, OIDC, username-only) are valid.
 		// MongoDB rejects at connect time if the mechanism actually needs a password.
+		if c.AuthMechanism != "" && !slices.Contains(SupportedAuthMechanisms, c.AuthMechanism) {
+			return fmt.Errorf("unsupported auth_mechanism %q", c.AuthMechanism)
+		}
 	}
 
 	if c.MaxThreads <= 0 {
@@ -130,5 +149,6 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %w", err)
 	}
 
+	c.applyAuthDefaults()
 	return utils.Validate(c)
 }
