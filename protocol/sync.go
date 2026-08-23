@@ -90,9 +90,9 @@ var syncCmd = &cobra.Command{
 		logger.Infof("Running sync with state: %s", stateBytes)
 		return nil
 	},
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) (err error) {
 		// setup conector first
-		err := connector.Setup(cmd.Context())
+		err = connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -162,6 +162,10 @@ var syncCmd = &cobra.Command{
 				time.Sleep(5 * time.Second)
 			}()
 		}
+
+		// Registered after the telemetry defer so LIFO runs it first, before TrackSyncCompleted
+		// reads err. Without it a panic leaves err nil and the run reports sync_status SUCCESS.
+		defer recoverToError(&err)
 
 		stopRead := logger.TrackTiming("sync", "read records")
 		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)

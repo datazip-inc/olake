@@ -143,7 +143,7 @@ func From(err error) (f Failure) {
 		return Failure{Category: Unclassified, ClassifiedBy: ClassifiedByDefault}
 	}
 
-	if found, ok := classificationOf(err, 0); ok {
+	if found, ok := classificationOf(err); ok {
 		return found
 	}
 	return Failure{Category: Unclassified, ClassifiedBy: ClassifiedByDefault}
@@ -152,28 +152,40 @@ func From(err error) (f Failure) {
 // maxUnwrapDepth bounds the walk so a cyclic chain cannot hang a failure report.
 const maxUnwrapDepth = 100
 
-// classificationOf finds the classification closest to the root cause. Two chain shapes exist:
-// %w unwraps one error at a time, so the walk keeps descending and the deepest wins; errors.Join
-// unwraps to a slice, which errors.Unwrap does not follow, so branches are searched by hand.
-func classificationOf(err error, depth int) (Failure, bool) {
-	var found Failure
+// walk searches err for the answer accept recognizes. Two chain shapes exist: %w unwraps one
+// error at a time, so the walk keeps descending and a deeper answer replaces a shallower one;
+// errors.Join unwraps to a slice, which errors.Unwrap does not follow, so branches are searched
+// by hand and the first that answers wins. depth bounds it so a cyclic chain cannot hang.
+func walk[T any](err error, depth int, accept func(error) (T, bool)) (T, bool) {
+	var found T
 	var ok bool
 
 	for e := err; e != nil && depth < maxUnwrapDepth; e, depth = errors.Unwrap(e), depth+1 {
-		if classified, isOurs := e.(*Error); isOurs && classified.Category != "" {
-			found, ok = classified.Failure, true
+		if answer, matched := accept(e); matched {
+			found, ok = answer, true
 		}
 		if joined, isJoined := e.(interface{ Unwrap() []error }); isJoined {
-			// First classified branch wins, so the result is deterministic.
+			// First answering branch wins, so the result is deterministic.
 			for _, branch := range joined.Unwrap() {
-				if f, branchOK := classificationOf(branch, depth+1); branchOK {
-					return f, true
+				if answer, branchOK := walk(branch, depth+1, accept); branchOK {
+					return answer, true
 				}
 			}
 			break
 		}
 	}
 	return found, ok
+}
+
+// classificationOf finds the classification closest to the root cause.
+func classificationOf(err error) (Failure, bool) {
+	return walk(err, 0, func(e error) (Failure, bool) {
+		classified, isOurs := e.(*Error)
+		if !isOurs || classified.Category == "" {
+			return Failure{}, false
+		}
+		return classified.Failure, true
+	})
 }
 
 // VendorClassifier recognizes errors from one library, returning nil for anything else so the
@@ -264,7 +276,7 @@ func standard(err error) Failure {
 	var unknownAuthority x509.UnknownAuthorityError
 	var hostnameErr x509.HostnameError
 	var invalidCert x509.CertificateInvalidError
-	var recordErr *tls.RecordHeaderError
+	var recordErr tls.RecordHeaderError
 	switch {
 	case errors.As(err, &certErr), errors.As(err, &unknownAuthority),
 		errors.As(err, &hostnameErr), errors.As(err, &invalidCert),
@@ -337,27 +349,26 @@ func syscallCode(err error) string {
 	return ""
 }
 
+// genericErrorType is what errors.New and a %w-less fmt.Errorf produce. Every such error has it,
+// so it identifies nothing and is only reported when no branch offers anything better.
+const genericErrorType = "*errors.errorString"
+
+// namedType accepts a leaf whose concrete type identifies the failure.
+func namedType(e error) (string, bool) {
+	if _, joined := e.(interface{ Unwrap() []error }); joined || errors.Unwrap(e) != nil {
+		return "", false
+	}
+	name := fmt.Sprintf("%T", e)
+	return name, name != genericErrorType
+}
+
 // rootType names the concrete type at the bottom of the chain. The outermost is almost always
 // *fmt.wrapError, which says nothing; the root identifies the failure and is what someone reads
 // when deciding which rule to add next.
 func rootType(err error) string {
-	root := err
-	for range maxUnwrapDepth {
-		// errors.Join and two %w verbs unwrap to a slice errors.Unwrap does not follow, and the
-		// wrapper's own type says nothing, so the first branch is followed instead.
-		if joined, ok := root.(interface{ Unwrap() []error }); ok {
-			branches := joined.Unwrap()
-			if len(branches) == 0 || branches[0] == nil {
-				break
-			}
-			root = branches[0]
-			continue
-		}
-		next := errors.Unwrap(root)
-		if next == nil {
-			break
-		}
-		root = next
+	if name, ok := walk(err, 0, namedType); ok {
+		return name
 	}
-	return fmt.Sprintf("%T", root)
+	// Nothing anywhere names the failure, so report the type they all share.
+	return genericErrorType
 }

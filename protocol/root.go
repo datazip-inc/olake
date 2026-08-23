@@ -160,7 +160,21 @@ const (
 	// Codes for conditions the CLI detects itself, before any connector is reached.
 	codeFlagMissing    = "config.flag_missing"
 	codeNoValidStreams = "catalog.no_valid_streams"
+	// recovered panic as an internal error
+	codePanicRecovered = "sync.panic_recovered"
 )
+
+// recoverToError turns a panic into a classified error written through err, then re-panics so
+// safego.Recovery still prints the stack and the process still exits non-zero. Deferred by a
+// command whose result telemetry reads: a panic would otherwise leave err nil and the run would
+// be reported as a success.
+func recoverToError(err *error) {
+	if r := recover(); r != nil {
+		*err = errs.Precondition(errs.InternalError, codePanicRecovered,
+			fmt.Errorf("panic during sync: %v", r))
+		panic(r)
+	}
+}
 
 // ReportFailure classifies a failed run, reports it, and waits for the report to be delivered.
 // The wait is the point: check and discover leave through logger.Fatal, and telemetry sends in

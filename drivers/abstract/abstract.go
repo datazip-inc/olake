@@ -15,6 +15,9 @@ import (
 	"github.com/datazip-inc/olake/utils/errs"
 )
 
+// codeWriterPanicRecovered names a panic recovered inside a writer thread, distinct from sync command.
+const codeWriterPanicRecovered = "sync.writer_panic_recovered"
+
 type CDCChange struct {
 	Stream       types.StreamInterface
 	Timestamp    time.Time
@@ -270,7 +273,10 @@ func generateThreadID(streamID, hash string) string {
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
 func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any, dedupInserts *bool) {
 	if r := recover(); r != nil {
-		*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%w: panic recovered: %v", *err, r)).(error)
+		// panic is classified as internal error
+		*err = utils.Ternary(*err == nil,
+			errs.Precondition(errs.InternalError, codeWriterPanicRecovered, fmt.Errorf("panic recovered: %v", r)),
+			fmt.Errorf("%w: panic recovered: %v", *err, r)).(error)
 	}
 
 	if *err != nil {

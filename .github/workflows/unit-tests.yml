@@ -22,3 +22,20 @@ jobs:
 
       - name: Run All Unit Tests
         run: make test.unit
+
+  java-unit-tests:
+    name: Run Java Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Run Java Unit Tests
+        working-directory: destination/iceberg/olake-iceberg-java-writer
+        run: mvn -B --no-transfer-progress -Dtest=OlakeFailuresTest -DfailIfNoTests=false test
