@@ -279,45 +279,183 @@
         "hosts",
         "database"
     ],
-    "dependencies": {
-        "use_iam": {
-            "oneOf": [
-                {
-                    "properties": {
-                        "use_iam": {
-                            "const": false
+    "allOf": [
+        {
+            "if": {
+                "properties": {
+                    "use_iam": {
+                        "const": true
+                    }
+                },
+                "required": [
+                    "use_iam"
+                ]
+            },
+            "then": {},
+            "else": {
+                "allOf": [
+                    {
+                        "if": {
+                            "properties": {
+                                "auth_mechanism": {
+                                    "enum": [
+                                        "PLAIN",
+                                        "MONGODB-X509",
+                                        "MONGODB-OIDC"
+                                    ]
+                                }
+                            },
+                            "required": [
+                                "auth_mechanism"
+                            ]
+                        },
+                        "then": {},
+                        "else": {
+                            "required": [
+                                "authdb",
+                                "username",
+                                "password"
+                            ]
                         }
                     },
-                    "if": {
+                    {
+                        "if": {
+                            "properties": {
+                                "auth_mechanism": {
+                                    "const": "PLAIN"
+                                }
+                            },
+                            "required": [
+                                "auth_mechanism"
+                            ]
+                        },
+                        "then": {
+                            "required": [
+                                "username",
+                                "password"
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "auth_mechanism": {
+                        "const": "PLAIN"
+                    }
+                },
+                "required": [
+                    "auth_mechanism"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "ssl": {
                         "properties": {
-                            "auth_mechanism": {
+                            "mode": {
                                 "enum": [
-                                    "MONGODB-X509",
-                                    "MONGODB-OIDC"
+                                    "require",
+                                    "verify-ca",
+                                    "verify-full"
                                 ]
                             }
                         },
                         "required": [
-                            "auth_mechanism"
-                        ]
-                    },
-                    "then": {},
-                    "else": {
-                        "required": [
-                            "authdb",
-                            "username",
-                            "password"
+                            "mode"
                         ]
                     }
                 },
-                {
-                    "properties": {
-                        "use_iam": {
-                            "const": true
-                        }
+                "required": [
+                    "ssl"
+                ]
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "auth_mechanism": {
+                        "const": "MONGODB-X509"
                     }
-                }
-            ]
+                },
+                "required": [
+                    "auth_mechanism"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "password": {
+                        "maxLength": 0
+                    },
+                    "ssl": {
+                        "properties": {
+                            "mode": {
+                                "enum": [
+                                    "require",
+                                    "verify-ca",
+                                    "verify-full"
+                                ]
+                            },
+                            "client_cert": {
+                                "type": "string",
+                                "title": "Client Certificate",
+                                "description": "Client certificate content (PEM format) for mutual TLS authentication",
+                                "minLength": 1
+                            },
+                            "client_key": {
+                                "type": "string",
+                                "title": "Client Key",
+                                "description": "Client private key content (PEM format) for mutual TLS authentication",
+                                "minLength": 1
+                            }
+                        },
+                        "required": [
+                            "mode",
+                            "client_cert",
+                            "client_key"
+                        ]
+                    }
+                },
+                "required": [
+                    "ssl"
+                ]
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "auth_mechanism": {
+                        "const": "MONGODB-OIDC"
+                    }
+                },
+                "required": [
+                    "auth_mechanism"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "password": {
+                        "maxLength": 0
+                    },
+                    "additional_params": {
+                        "properties": {
+                            "authMechanismProperties": {
+                                "type": "string",
+                                "title": "OIDC Mechanism Properties",
+                                "description": "Use ENVIRONMENT:azure or ENVIRONMENT:gcp with TOKEN_RESOURCE",
+                                "minLength": 1
+                            }
+                        },
+                        "required": [
+                            "authMechanismProperties"
+                        ]
+                    }
+                },
+                "required": [
+                    "additional_params"
+                ]
+            }
         }
-    }
+    ]
 }

@@ -28,7 +28,7 @@ const (
 	SSLFieldClientKey  SSLField = "ssl.client_key"
 )
 
-// SSLConfig is a dto for deserialized SSL configuration for Postgres
+// SSLConfig represents shared SSL configuration for database connectors.
 type SSLConfig struct {
 	Mode       string `mapstructure:"mode,omitempty" json:"mode,omitempty" yaml:"mode,omitempty"`
 	ServerCA   string `mapstructure:"server_ca,omitempty" json:"server_ca,omitempty" yaml:"server_ca,omitempty"`
@@ -38,19 +38,28 @@ type SSLConfig struct {
 
 // Validate returns err if the ssl configuration is invalid
 func (sc *SSLConfig) Validate() error {
-	// TODO: Add Proper validations and test
 	if sc == nil {
 		return errors.New("'ssl' config is required")
 	}
 
-	if sc.Mode == Unknown {
+	switch sc.Mode {
+	case Unknown:
 		return errors.New("'ssl.mode' is required parameter")
-	}
-
-	if sc.Mode == SSLModeVerifyCA || sc.Mode == SSLModeVerifyFull {
+	case SSLModeDisable:
+		if sc.ServerCA != "" || sc.ClientCert != "" || sc.ClientKey != "" {
+			return errors.New("SSL certificate fields must be empty when 'ssl.mode' is disable")
+		}
+	case SSLModeRequire:
+	case SSLModeVerifyCA, SSLModeVerifyFull:
 		if sc.ServerCA == "" {
 			return errors.New("'ssl.server_ca' is required parameter")
 		}
+	default:
+		return fmt.Errorf("unsupported 'ssl.mode' %q", sc.Mode)
+	}
+
+	if (sc.ClientCert == "") != (sc.ClientKey == "") {
+		return errors.New("'ssl.client_cert' and 'ssl.client_key' must be configured together")
 	}
 
 	return nil
@@ -62,64 +71,64 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 		// ssl is disabled, return nil (intentional nilnil)
 		return nil, nil //nolint:nilnil
 	}
-
-	// For 'require' mode: encrypt connection but skip server identity verification.
-	// #nosec G402 -- required by SSL mode semantics
-	if sc.Mode == SSLModeRequire {
-		return &tls.Config{
-			InsecureSkipVerify: true, // #nosec G402
-			MinVersion:         tls.VersionTLS12,
-		}, nil
-	}
-
-	rootCertPool := x509.NewCertPool()
-	serverCAPEM, err := readPEMData(sc.ServerCA, SSLFieldServerCA, true)
-	if err != nil {
+	if err := sc.Validate(); err != nil {
 		return nil, err
-	}
-	if ok := rootCertPool.AppendCertsFromPEM(serverCAPEM); !ok {
-		return nil, fmt.Errorf("failed to append CA certificate")
 	}
 
 	tlsConfig := &tls.Config{
-		RootCAs:    rootCertPool,
 		MinVersion: tls.VersionTLS12,
 	}
 
-	if sc.Mode == SSLModeVerifyCA {
-		// verify-ca validates cert chain but skips hostname verification.
-		tlsConfig.InsecureSkipVerify = true
-		tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-			if len(rawCerts) == 0 {
-				return fmt.Errorf("no server certificate provided")
-			}
-			cert, err := x509.ParseCertificate(rawCerts[0])
-			if err != nil {
-				return fmt.Errorf("failed to parse server certificate: %w", err)
-			}
-
-			intermediates := x509.NewCertPool()
-			for i := 1; i < len(rawCerts); i++ {
-				intermediateCert, err := x509.ParseCertificate(rawCerts[i])
-				if err != nil {
-					logger.Warnf("failed to parse intermediate certificate at position %d: %s", i, err)
-					continue
-				}
-				intermediates.AddCert(intermediateCert)
-			}
-
-			verifyOpts := x509.VerifyOptions{
-				Roots:         rootCertPool,
-				Intermediates: intermediates,
-			}
-			if _, err := cert.Verify(verifyOpts); err != nil {
-				return fmt.Errorf("failed to verify server certificate against CA: %w", err)
-			}
-			return nil
-		}
+	if sc.Mode == SSLModeRequire {
+		// For 'require' mode: encrypt connection but skip server identity verification.
+		// Continue below so an optional client certificate is still loaded for mTLS.
+		tlsConfig.InsecureSkipVerify = true // #nosec G402 -- required by SSL mode semantics
 	} else {
-		// verify-full validates both cert chain and hostname.
-		tlsConfig.ServerName = host
+		rootCertPool := x509.NewCertPool()
+		serverCAPEM, err := readPEMData(sc.ServerCA, SSLFieldServerCA, true)
+		if err != nil {
+			return nil, err
+		}
+		if ok := rootCertPool.AppendCertsFromPEM(serverCAPEM); !ok {
+			return nil, fmt.Errorf("failed to append CA certificate")
+		}
+		tlsConfig.RootCAs = rootCertPool
+
+		if sc.Mode == SSLModeVerifyCA {
+			// verify-ca validates cert chain but skips hostname verification.
+			tlsConfig.InsecureSkipVerify = true
+			tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+				if len(rawCerts) == 0 {
+					return fmt.Errorf("no server certificate provided")
+				}
+				cert, err := x509.ParseCertificate(rawCerts[0])
+				if err != nil {
+					return fmt.Errorf("failed to parse server certificate: %w", err)
+				}
+
+				intermediates := x509.NewCertPool()
+				for i := 1; i < len(rawCerts); i++ {
+					intermediateCert, err := x509.ParseCertificate(rawCerts[i])
+					if err != nil {
+						logger.Warnf("failed to parse intermediate certificate at position %d: %s", i, err)
+						continue
+					}
+					intermediates.AddCert(intermediateCert)
+				}
+
+				verifyOpts := x509.VerifyOptions{
+					Roots:         rootCertPool,
+					Intermediates: intermediates,
+				}
+				if _, err := cert.Verify(verifyOpts); err != nil {
+					return fmt.Errorf("failed to verify server certificate against CA: %w", err)
+				}
+				return nil
+			}
+		} else {
+			// verify-full validates both cert chain and hostname.
+			tlsConfig.ServerName = host
+		}
 	}
 
 	if sc.ClientCert != "" && sc.ClientKey != "" {

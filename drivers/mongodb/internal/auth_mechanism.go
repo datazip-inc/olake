@@ -15,9 +15,9 @@ const (
 
 // authPolicy declares validation and URI rules for one MongoDB auth mechanism.
 type authPolicy struct {
-	Supported         bool // exposed in spec.json enum (GSSAPI is false)
 	ExternalAuthDB    bool // force authSource=$external
 	RequireUsername   bool
+	RequirePassword   bool
 	ForbidPassword    bool // no password in config or URI user:pass
 	RequireTLS        bool
 	RequireClientCert bool
@@ -28,30 +28,29 @@ type authPolicy struct {
 var mechanismPolicies = map[string]authPolicy{
 	"": {
 		RequireUsername: true,
+		RequirePassword: true,
 	},
 	AuthMechanismSCRAMSHA1: {
-		Supported:       true,
 		RequireUsername: true,
+		RequirePassword: true,
 	},
 	AuthMechanismSCRAMSHA256: {
-		Supported:       true,
 		RequireUsername: true,
+		RequirePassword: true,
 	},
 	AuthMechanismPLAIN: {
-		Supported:       true,
 		ExternalAuthDB:  true,
 		RequireUsername: true,
+		RequirePassword: true,
 		RequireTLS:      true,
 	},
 	AuthMechanismX509: {
-		Supported:         true,
 		ExternalAuthDB:    true,
 		ForbidPassword:    true,
 		RequireTLS:        true,
 		RequireClientCert: true,
 	},
 	AuthMechanismOIDC: {
-		Supported:      true,
 		ExternalAuthDB: true,
 		ForbidPassword: true,
 	},
@@ -59,25 +58,16 @@ var mechanismPolicies = map[string]authPolicy{
 		ExternalAuthDB: true,
 		SkipUserinfo:   true,
 	},
-	AuthMechanismGSSAPI: {
-		Supported: false,
-	},
-}
-
-// SupportedAuthMechanisms lists values exposed in spec.json auth_mechanism enum (excluding default "").
-// Order matches spec.json; entries must have Supported=true in mechanismPolicies.
-var SupportedAuthMechanisms = []string{
-	AuthMechanismSCRAMSHA1,
-	AuthMechanismSCRAMSHA256,
-	AuthMechanismPLAIN,
-	AuthMechanismX509,
-	AuthMechanismOIDC,
 }
 
 // tlsFileParams are connection string file paths that conflict with inline SSL PEMs.
 var tlsFileParams = []string{
 	"tlsCAFile",
+	"sslCertificateAuthorityFile",
 	"tlsCertificateKeyFile",
+	"sslClientCertificateKeyFile",
+	"tlsCertificateFile",
+	"tlsPrivateKeyFile",
 }
 
 func authPolicyFor(mechanism string) (authPolicy, bool) {
