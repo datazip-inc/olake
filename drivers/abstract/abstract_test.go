@@ -11,22 +11,30 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// cleanupResult reproduces the classification handleWriterCleanup applies to a recovered panic,
-// including the thread wrap that follows. Kept identical to abstract.go so a change there fails this test.
-func cleanupResult(prior error, r any, threadID string) error {
-	err := utils.Ternary(prior == nil,
-		errs.Precondition(errs.InternalError, codeWriterPanicRecovered, fmt.Errorf("panic recovered: %v", r)),
-		fmt.Errorf("%w: panic recovered: %v", prior, r)).(error)
-	if threadID != "" {
-		err = fmt.Errorf("thread[%s]: %w", threadID, err)
-	}
+// cleanupResult panics under the real handleWriterCleanup defer. An empty writer map is the no-op
+// case of the switch, leaving the recovered panic as the only error; nil takes the default branch,
+// so the close half of the function contributes "unsupported writer type" on top of it.
+func cleanupResult(prior error, r any, threadID string, writer any) error {
+	err := prior
+	func() {
+		defer handleWriterCleanup(context.Background(), func() {}, &err, writer, threadID, nil, nil)
+		panic(r)
+	}()
 	return err
+}
+
+// writerArg picks the switch case a test wants: nil for the default branch, otherwise an empty
+// map, which closes nothing.
+func writerArg(nilWriter bool) any {
+	if nilWriter {
+		return nil
+	}
+	return map[string]*destination.WriterThread{}
 }
 
 func networkReset() error {
@@ -46,6 +54,7 @@ func TestHandleWriterCleanupClassification(t *testing.T) {
 		expectedCode      string
 		expectedType      string
 		expectedComponent string
+		nilWriter         bool // takes the default branch, so closeErr wraps the panic
 	}{
 		// the panic is the only evidence, so it is classified at the raise site
 		{
@@ -121,11 +130,32 @@ func TestHandleWriterCleanupClassification(t *testing.T) {
 			expectedBy:       errs.ClassifiedByDefault,
 			expectedType:     "*errors.errorString",
 		},
+		// a close failure wraps the panic with %w, so the panic must stay the classification
+		{
+			name:              "close error does not bury the panic",
+			panicValue:        "boom",
+			nilWriter:         true,
+			expectedCategory:  errs.InternalError,
+			expectedBy:        errs.ClassifiedByPrecondition,
+			expectedCode:      codeWriterPanicRecovered,
+			expectedComponent: "sync",
+		},
+		// and it must not bury a prior cause that outranks the panic either
+		{
+			name:              "close error does not bury a classified prior",
+			prior:             classifiedPrior,
+			panicValue:        "boom",
+			nilWriter:         true,
+			expectedCategory:  errs.CDCPositionLost,
+			expectedBy:        errs.ClassifiedByPrecondition,
+			expectedCode:      "mssql.lsn_lost",
+			expectedComponent: "mssql",
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := cleanupResult(tc.prior, tc.panicValue, tc.threadID)
+			err := cleanupResult(tc.prior, tc.panicValue, tc.threadID, writerArg(tc.nilWriter))
 			require.Error(t, err)
 
 			got := errs.From(errs.Classify(err))
@@ -146,6 +176,7 @@ func TestHandleWriterCleanupMessage(t *testing.T) {
 		threadID   string
 		contains   []string
 		asOpError  bool
+		nilWriter  bool
 	}{
 		// classification must not rewrite the panic text an operator reads
 		{
@@ -170,11 +201,28 @@ func TestHandleWriterCleanupMessage(t *testing.T) {
 			contains:   []string{"thread[public.users_abc]", "panic recovered: boom", "read failed"},
 			asOpError:  true,
 		},
+		// the close half of the function: a writer it cannot close is reported alongside the panic
+		{
+			name:       "close error is reported with the panic",
+			panicValue: "boom",
+			nilWriter:  true,
+			contains:   []string{"unsupported writer type", "prev error:", "panic recovered: boom"},
+		},
+		// and it still sits inside the thread prefix, with the prior error left reachable
+		{
+			name:       "close error keeps the thread prefix and the chain",
+			prior:      networkReset(),
+			panicValue: "boom",
+			threadID:   "public.users_abc",
+			nilWriter:  true,
+			contains:   []string{"thread[public.users_abc]", "unsupported writer type", "prev error:", "read failed"},
+			asOpError:  true,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := cleanupResult(tc.prior, tc.panicValue, tc.threadID)
+			err := cleanupResult(tc.prior, tc.panicValue, tc.threadID, writerArg(tc.nilWriter))
 			require.Error(t, err)
 
 			for _, fragment := range tc.contains {
@@ -263,33 +311,33 @@ func TestSupportsCdcColumn(t *testing.T) {
 
 func TestReadCDCNotConfigured(t *testing.T) {
 	testCases := []struct {
-		name         string
-		driverType   string
-		cdcSupported bool
-		cdcStreams   int
-		wantErr      bool
-		category     errs.Category
-		code         string
+		name             string
+		driverType       string
+		cdcSupported     bool
+		cdcStreams       int
+		expectedErr      bool
+		expectedCategory errs.Category
+		expectedCode     string
 	}{
 		// no cdc streams: the cdc branch is skipped
 		{name: "no cdc streams", driverType: "postgres", cdcStreams: 0},
 		// cdc selected but the source has no cdc config
 		{
-			name:       "cdc selected without config",
-			driverType: "postgres",
-			cdcStreams: 1,
-			wantErr:    true,
-			category:   errs.CDCPreconditionFailed,
-			code:       "postgres.cdc_not_configured",
+			name:             "cdc selected without config",
+			driverType:       "postgres",
+			cdcStreams:       1,
+			expectedErr:      true,
+			expectedCategory: errs.CDCPreconditionFailed,
+			expectedCode:     "postgres.cdc_not_configured",
 		},
 		// the code prefix is the driver type, not a hardcoded postgres string
 		{
-			name:       "driver type is interpolated into the code",
-			driverType: "mysql",
-			cdcStreams: 1,
-			wantErr:    true,
-			category:   errs.CDCPreconditionFailed,
-			code:       "mysql.cdc_not_configured",
+			name:             "driver type is interpolated into the code",
+			driverType:       "mysql",
+			cdcStreams:       1,
+			expectedErr:      true,
+			expectedCategory: errs.CDCPreconditionFailed,
+			expectedCode:     "mysql.cdc_not_configured",
 		},
 	}
 
@@ -299,16 +347,16 @@ func TestReadCDCNotConfigured(t *testing.T) {
 			cdcStreams := make([]types.StreamInterface, tc.cdcStreams)
 
 			err := driver.Read(context.Background(), nil, nil, cdcStreams, nil)
-			if !tc.wantErr {
+			if !tc.expectedErr {
 				assert.NoError(t, err)
 				return
 			}
 			require.Error(t, err)
 
 			got := errs.From(errs.Classify(err))
-			assert.Equal(t, tc.category, got.Category, "category")
+			assert.Equal(t, tc.expectedCategory, got.Category, "category")
 			assert.Equal(t, errs.ClassifiedByPrecondition, got.ClassifiedBy, "classified_by")
-			assert.Equal(t, tc.code, got.Code, "code")
+			assert.Equal(t, tc.expectedCode, got.Code, "code")
 			assert.Equal(t, tc.driverType, got.Component, "component")
 		})
 	}
@@ -319,40 +367,40 @@ func TestDiscover(t *testing.T) {
 	networkErr := networkReset()
 
 	testCases := []struct {
-		name           string
-		isSync         bool
-		streamNamesErr error
-		wantNilStreams bool
-		wantErr        bool
-		category       errs.Category
-		code           string
+		name               string
+		isSync             bool
+		streamNamesErr     error
+		expectedNilStreams bool
+		expectedErr        bool
+		expectedCategory   errs.Category
+		expectedCode       string
 	}{
 		// sync reuses the catalog schema and must not produce a new one
-		{name: "sync skips schema production", isSync: true, wantNilStreams: true},
+		{name: "sync skips schema production", isSync: true, expectedNilStreams: true},
 		// GetStreamNames still runs during sync; a failure is not swallowed
 		{
-			name:           "sync still reports a GetStreamNames failure",
-			isSync:         true,
-			streamNamesErr: networkErr,
-			wantErr:        true,
-			category:       errs.NetworkUnreachable,
-			code:           "connection_reset",
+			name:             "sync still reports a GetStreamNames failure",
+			isSync:           true,
+			streamNamesErr:   networkErr,
+			expectedErr:      true,
+			expectedCategory: errs.NetworkUnreachable,
+			expectedCode:     "connection_reset",
 		},
 		// discover wraps GetStreamNames with %w so the cause stays classifiable
 		{
-			name:           "discover preserves a GetStreamNames cause",
-			streamNamesErr: networkErr,
-			wantErr:        true,
-			category:       errs.NetworkUnreachable,
-			code:           "connection_reset",
+			name:             "discover preserves a GetStreamNames cause",
+			streamNamesErr:   networkErr,
+			expectedErr:      true,
+			expectedCategory: errs.NetworkUnreachable,
+			expectedCode:     "connection_reset",
 		},
 		// a classified names error outranks the discover wrapper
 		{
-			name:           "discover preserves a classified names error",
-			streamNamesErr: errs.Precondition(errs.AuthFailed, "postgres.auth_failed", errors.New("bad password")),
-			wantErr:        true,
-			category:       errs.AuthFailed,
-			code:           "postgres.auth_failed",
+			name:             "discover preserves a classified names error",
+			streamNamesErr:   errs.Precondition(errs.AuthFailed, "postgres.auth_failed", errors.New("bad password")),
+			expectedErr:      true,
+			expectedCategory: errs.AuthFailed,
+			expectedCode:     "postgres.auth_failed",
 		},
 	}
 
@@ -361,18 +409,18 @@ func TestDiscover(t *testing.T) {
 			driver := NewAbstractDriver(ctx, stubDriver{typ: "postgres", streamNamesErr: tc.streamNamesErr})
 			streams, err := driver.Discover(ctx, 0, tc.isSync)
 
-			if tc.wantErr {
+			if tc.expectedErr {
 				require.Error(t, err)
 				assert.Nil(t, streams)
 
 				got := errs.From(errs.Classify(err))
-				assert.Equal(t, tc.category, got.Category, "category")
-				assert.Equal(t, tc.code, got.Code, "code")
+				assert.Equal(t, tc.expectedCategory, got.Category, "category")
+				assert.Equal(t, tc.expectedCode, got.Code, "code")
 				return
 			}
 
 			require.NoError(t, err)
-			if tc.wantNilStreams {
+			if tc.expectedNilStreams {
 				assert.Nil(t, streams)
 			}
 		})

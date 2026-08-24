@@ -1,237 +1,162 @@
 package protocol
 
 import (
-	"errors"
-	"fmt"
+	"os"
 	"testing"
 
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// deferOrder selects how recoverToError is registered relative to the telemetry defer.
-type deferOrder int
-
-const (
-	orderCorrect deferOrder = iota // registered last, so LIFO runs it first — what sync.go does
-	orderWrong                     // registered first, so it runs after telemetry has read err
-	orderAbsent                    // no recoverToError at all, the state before the fix
-)
-
-// runRunE mirrors syncCmd's RunE: a named result, the TrackSyncCompleted defer that reads
-// err == nil, and recoverToError placed according to order. It reports the sync_status the
-// telemetry defer would send, and the value that continued unwinding.
-func runRunE(order deferOrder, body func() error) (status string, panicked any) {
-	defer func() { panicked = recover() }()
-
-	inner := func() (err error) {
-		if order == orderWrong {
-			defer recoverToError(&err)
-		}
-		// stands in for the TrackSyncCompleted defer at sync.go:158
-		defer func() {
-			status = map[bool]string{true: "SUCCESS", false: "FAILED"}[err == nil]
-		}()
-		if order == orderCorrect {
-			defer recoverToError(&err)
-		}
-		return body()
+// This package's init runs RootCmd.Execute, so the file logger is already pointed at ./logs
+// before a test can redirect it. classifyStreams logs its skips, which creates that directory;
+// drop it afterwards rather than leaving it in the tree.
+func discardStrayLogs(t *testing.T) {
+	t.Helper()
+	if _, err := os.Stat("logs"); err == nil {
+		return // already there before the test; not ours to remove
 	}
-	_ = inner()
-	return status, panicked
+	t.Cleanup(func() { _ = os.RemoveAll("logs") })
 }
 
-// TestRunEStatus covers every way syncCmd's RunE can finish and the sync_status each produces.
-// How the panic is classified is recoverToError's contract, covered in root_test.go; what
-// matters here is that no way of dying can be reported as a success.
-func TestRunEStatus(t *testing.T) {
-	classifiedCause := errs.Precondition(errs.CDCPositionLost, "mssql.lsn_lost", errors.New("lsn gone"))
+// stream is one configured stream in a test catalog. The metadata lives on the catalog's
+// selected_streams block, not here: classifyStreams overwrites StreamMetadata from that map.
+type stream struct {
+	name        string
+	mode        types.SyncMode
+	normalized  bool
+	partitioned bool
+	unselected  bool                // present in streams but absent from selected_streams
+	filter      *types.FilterConfig // only read when normalized, so it can be made invalid
+}
 
-	testCases := []struct {
-		name           string
-		body           func() error
-		expectedStatus string
-		expectedPanic  bool
-	}{
-		// a clean run must not be turned into a failure by the recover
-		{
-			name:           "returns nil",
-			body:           func() error { return nil },
-			expectedStatus: "SUCCESS",
-		},
-		// an ordinary read failure was already reported correctly before the fix
-		{
-			name:           "returns a plain error",
-			body:           func() error { return errors.New("error occurred while reading records") },
-			expectedStatus: "FAILED",
-		},
-		// a driver-classified failure is still just a failure as far as sync_status goes
-		{
-			name:           "returns a classified error",
-			body:           func() error { return classifiedCause },
-			expectedStatus: "FAILED",
-		},
-		// the wrapping RunE applies to a read failure must not change the status either
-		{
-			name:           "returns a wrapped error",
-			body:           func() error { return fmt.Errorf("error occurred while reading records: %w", classifiedCause) },
-			expectedStatus: "FAILED",
-		},
-		// the reported defect: a panic left err nil, so the dying run reported SUCCESS
-		{
-			name:           "panics with a string",
-			body:           func() error { panic("connector.Read blew up") },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-		// a panic value that is itself an error must not be mistaken for a clean return
-		{
-			name:           "panics with an error value",
-			body:           func() error { panic(errors.New("boom")) },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-		// nor one that is already classified
-		{
-			name:           "panics with a classified error",
-			body:           func() error { panic(classifiedCause) },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-		// non-error panic values must reach the same status
-		{
-			name:           "panics with an int",
-			body:           func() error { panic(42) },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-		{
-			name:           "panics with a struct",
-			body:           func() error { panic(struct{ Stream string }{"users"}) },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-		// panic(nil) becomes *runtime.PanicNilError in Go 1.21+, so recover() still sees non-nil
-		{
-			name:           "panics with nil",
-			body:           func() error { panic(nilPanicValue()) },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-		// the runtime panics a driver bug actually produces, rather than explicit panic() calls
-		{
-			name:           "runtime panic, nil map write",
-			body:           func() error { uninitialisedCounts()["x"] = 1; return nil },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-		{
-			name:           "runtime panic, nil pointer dereference",
-			body:           func() error { return fmt.Errorf("unreachable: %d", noStats().rows) },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-		{
-			name:           "runtime panic, index out of range",
-			body:           func() error { s := []int{}; return fmt.Errorf("%d", s[len(s)]) },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-		// the shape utils.Ternary(...).(error) can hit
-		{
-			name:           "runtime panic, failed type assertion",
-			body:           func() error { var v any = "not an error"; return v.(error) },
-			expectedStatus: "FAILED",
-			expectedPanic:  true,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			status, panicked := runRunE(orderCorrect, tc.body)
-
-			assert.Equal(t, tc.expectedStatus, status, "sync_status")
-			// the panic must continue so safego.Recovery still logs the stack and exits non-zero
-			assert.Equal(t, tc.expectedPanic, panicked != nil, "panic continued")
+// catalogOf builds the two halves classifyStreams reads: the configured streams and the
+// selected_streams metadata keyed by namespace.
+func catalogOf(streams ...stream) *types.Catalog {
+	catalog := &types.Catalog{SelectedStreams: map[string][]types.StreamMetadata{}}
+	for _, s := range streams {
+		catalog.Streams = append(catalog.Streams, &types.ConfiguredStream{
+			Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode},
 		})
+		if s.unselected {
+			continue
+		}
+		metadata := types.StreamMetadata{StreamName: s.name, Normalization: s.normalized, FilterConfig: s.filter}
+		if s.partitioned {
+			metadata.PartitionRegex = "/{now,year}"
+		}
+		catalog.SelectedStreams["public"] = append(catalog.SelectedStreams["public"], metadata)
 	}
+	return catalog
 }
 
-// TestRunEDeferOrder covers all three registrations against all three outcomes. The wrong and
-// absent orders must still reproduce the defect: if either stops doing so, the LIFO reasoning
-// the fix in sync.go depends on has changed.
-func TestRunEDeferOrder(t *testing.T) {
+// TestClassifyStreamsMix covers the counters the two sync events carry. They are counted inside
+// classifyStreams so they cannot disagree with the run, which only holds if every counter sits
+// past the skip branches: a stream that is not synced must not appear in any of them.
+func TestClassifyStreamsMix(t *testing.T) {
 	testCases := []struct {
-		name           string
-		order          deferOrder
-		body           func() error
-		expectedStatus string
+		name         string
+		streams      []stream
+		expectedMix  types.StreamMix
+		expectedCode string // non-empty: no stream survives, so the run fails with this code
 	}{
-		// only a panic is sensitive to registration order
-		{name: "panic, correct order", order: orderCorrect, body: func() error { panic("boom") }, expectedStatus: "FAILED"},
-		{name: "panic, wrong order", order: orderWrong, body: func() error { panic("boom") }, expectedStatus: "SUCCESS"},
-		{name: "panic, no recover", order: orderAbsent, body: func() error { panic("boom") }, expectedStatus: "SUCCESS"},
-		// a clean run reports SUCCESS whatever the order
-		{name: "clean run, correct order", order: orderCorrect, body: func() error { return nil }, expectedStatus: "SUCCESS"},
-		{name: "clean run, wrong order", order: orderWrong, body: func() error { return nil }, expectedStatus: "SUCCESS"},
-		{name: "clean run, no recover", order: orderAbsent, body: func() error { return nil }, expectedStatus: "SUCCESS"},
-		// so does an ordinary error, which never depended on the recover
-		{name: "error, correct order", order: orderCorrect, body: func() error { return errors.New("x") }, expectedStatus: "FAILED"},
-		{name: "error, wrong order", order: orderWrong, body: func() error { return errors.New("x") }, expectedStatus: "FAILED"},
-		{name: "error, no recover", order: orderAbsent, body: func() error { return errors.New("x") }, expectedStatus: "FAILED"},
+		// each mode lands in its own counter, and an unknown mode falls to full refresh
+		{
+			name: "one stream per sync mode",
+			streams: []stream{
+				{name: "a", mode: types.FULLREFRESH},
+				{name: "b", mode: types.INCREMENTAL},
+				{name: "c", mode: types.CDC},
+				{name: "d", mode: types.STRICTCDC},
+			},
+			expectedMix: types.StreamMix{FullRefresh: 1, Incremental: 1, CDC: 1, StrictCDC: 1, Selected: 4},
+		},
+		// CDC and STRICTCDC share one read path; telemetry must still tell them apart
+		{
+			name: "cdc and strict cdc are counted separately",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.CDC},
+				{name: "c", mode: types.STRICTCDC},
+			},
+			expectedMix: types.StreamMix{CDC: 2, StrictCDC: 1, Selected: 3},
+		},
+		// normalization and partitioning cut across sync mode rather than replacing it
+		{
+			name: "normalized and partitioned are independent of mode",
+			streams: []stream{
+				{name: "a", mode: types.FULLREFRESH, normalized: true},
+				{name: "b", mode: types.CDC, partitioned: true},
+				{name: "c", mode: types.INCREMENTAL, normalized: true, partitioned: true},
+			},
+			expectedMix: types.StreamMix{
+				FullRefresh: 1, CDC: 1, Incremental: 1,
+				Selected: 3, Normalized: 2, Partitioned: 2,
+			},
+		},
+		// a stream missing from selected_streams is never synced, so it reaches no counter
+		{
+			name: "unselected streams are not counted",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.FULLREFRESH, unselected: true},
+				{name: "c", mode: types.INCREMENTAL, unselected: true},
+			},
+			expectedMix: types.StreamMix{CDC: 1, Selected: 1},
+		},
+		// nor does one skipped later, for a filter that cannot be applied
+		{
+			name: "streams skipped for an invalid filter are not counted",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{
+					name: "b", mode: types.FULLREFRESH, normalized: true,
+					filter: &types.FilterConfig{Conditions: []types.FilterCondition{{Column: ""}}},
+				},
+				{
+					name: "c", mode: types.INCREMENTAL, normalized: true,
+					filter: &types.FilterConfig{Conditions: []types.FilterCondition{
+						{Column: "x"}, {Column: "y"}, {Column: "z"},
+					}},
+				},
+			},
+			expectedMix: types.StreamMix{CDC: 1, Selected: 1},
+		},
+		// with nothing left to sync there is no mix to report, and the run fails before the
+		// sync events are sent rather than reporting a run of zero streams
+		{
+			name:         "no stream survives selection",
+			streams:      []stream{{name: "a", mode: types.CDC, unselected: true}},
+			expectedCode: codeNoValidStreams,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			status, _ := runRunE(tc.order, tc.body)
-			assert.Equal(t, tc.expectedStatus, status, "sync_status")
-		})
-	}
-}
+			discardStrayLogs(t)
 
-// TestRunEIsDeterministic runs each outcome repeatedly. Nothing here may depend on goroutine
-// scheduling, so the same input must always produce the same sync_status.
-func TestRunEIsDeterministic(t *testing.T) {
-	const runs = 200
+			got, err := classifyStreams(catalogOf(tc.streams...), nil, &types.State{})
+			if tc.expectedCode != "" {
+				require.Error(t, err)
+				assert.Nil(t, got)
 
-	testCases := []struct {
-		name string
-		body func() error
-	}{
-		{name: "nil", body: func() error { return nil }},
-		{name: "error", body: func() error { return errors.New("x") }},
-		{name: "panic", body: func() error { panic("boom") }},
-		{name: "panic with nil", body: func() error { panic(nilPanicValue()) }},
-		{name: "runtime panic", body: func() error { uninitialisedCounts()["x"] = 1; return nil }},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			first, _ := runRunE(orderCorrect, tc.body)
-			for i := range runs {
-				status, _ := runRunE(orderCorrect, tc.body)
-				require.Equal(t, first, status, "run %d disagreed on sync_status", i)
+				failure := errs.From(errs.Classify(err))
+				assert.Equal(t, errs.ConfigInvalid, failure.Category)
+				assert.Equal(t, tc.expectedCode, failure.Code)
+				return
 			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedMix, got.Mix)
+
+			// the property the payload is read on: every synced stream is in exactly one
+			// mode counter, so the four of them account for Selected and nothing else.
+			assert.Equal(t, got.Mix.Selected, got.Mix.FullRefresh+got.Mix.Incremental+got.Mix.CDC+got.Mix.StrictCDC,
+				"the sync-mode counters must sum to selected_streams_count")
+			assert.Equal(t, len(got.SelectedStreams), got.Mix.Selected,
+				"selected_streams_count must match the streams the sync was handed")
 		})
 	}
-}
-
-// TestRunEReportsTheClassifiedError covers the join between the two files: the error
-// recoverToError writes is the same one the telemetry defer reads to derive FAILED.
-func TestRunEReportsTheClassifiedError(t *testing.T) {
-	var observed error
-
-	func() {
-		defer func() { _ = recover() }()
-		inner := func() (err error) {
-			defer func() { observed = err }()
-			defer recoverToError(&err)
-			panic("boom")
-		}
-		_ = inner()
-	}()
-
-	require.Error(t, observed, "the telemetry defer must see a non-nil error, which is what makes it FAILED")
-	assert.Equal(t, errs.InternalError, errs.From(errs.Classify(observed)).Category)
 }

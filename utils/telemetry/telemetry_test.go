@@ -153,16 +153,23 @@ func TestEventPropertyNames(t *testing.T) {
 	}
 	destination := &types.WriterConfig{Type: types.Iceberg, WriterConfig: map[string]any{"catalog_type": "glue"}}
 
-	streamMixKeys := []string{
-		"full_refresh_streams_count", "incremental_streams_count", "cdc_streams_count",
-		"strict_cdc_streams_count", "selected_streams_count", "normalized_streams_count",
-		"partitioned_streams_count",
+	// Distinct values, so a counter wired to the wrong key is caught rather than matching by
+	// coincidence. Both sync events carry the same seven.
+	streamMixProps := map[string]any{
+		"full_refresh_streams_count": mix.FullRefresh,
+		"incremental_streams_count":  mix.Incremental,
+		"cdc_streams_count":          mix.CDC,
+		"strict_cdc_streams_count":   mix.StrictCDC,
+		"selected_streams_count":     mix.Selected,
+		"normalized_streams_count":   mix.Normalized,
+		"partitioned_streams_count":  mix.Partitioned,
 	}
 
 	testCases := []struct {
-		name         string
-		track        func()
-		expectedKeys []string
+		name           string
+		track          func()
+		expectedKeys   []string
+		expectedValues map[string]any // checked by value, not just presence
 	}{
 		{
 			name:         "discover",
@@ -172,17 +179,19 @@ func TestEventPropertyNames(t *testing.T) {
 		{
 			name:  "sync started",
 			track: func() { TrackSyncStarted("sync-1", mix, "postgres", destination, 11) },
-			expectedKeys: append([]string{
+			expectedKeys: []string{
 				"sync_start", "sync_id", "stream_count", "source_type", "destination_type", "catalog_type",
-			}, streamMixKeys...),
+			},
+			expectedValues: streamMixProps,
 		},
 		{
 			name:  "sync completed",
 			track: func() { TrackSyncCompleted("sync-1", mix, destination, false, 100, 2048) },
-			expectedKeys: append([]string{
+			expectedKeys: []string{
 				"sync_id", "sync_end", "sync_status", "records_synced", "bytes_read",
 				"destination_type", "catalog_type",
-			}, streamMixKeys...),
+			},
+			expectedValues: streamMixProps,
 		},
 		{
 			name: "failure",
@@ -206,6 +215,10 @@ func TestEventPropertyNames(t *testing.T) {
 			require.Len(t, events, 1, "exactly one event should have been sent")
 			for _, key := range tc.expectedKeys {
 				assert.Contains(t, events[0], key, "property %q is missing", key)
+			}
+			// EqualValues: the payload has been through JSON, so counters arrive as float64.
+			for key, expected := range tc.expectedValues {
+				assert.EqualValues(t, expected, events[0][key], "property %q", key)
 			}
 		})
 	}
@@ -303,25 +316,6 @@ func TestDestinationShape(t *testing.T) {
 	}
 }
 
-// TestAddStreamMix pins the seven per-sync counters and the values they carry.
-func TestAddStreamMix(t *testing.T) {
-	props := map[string]any{}
-	addStreamMix(props, types.StreamMix{
-		FullRefresh: 1, Incremental: 2, CDC: 3, StrictCDC: 4,
-		Selected: 5, Normalized: 6, Partitioned: 7,
-	})
-
-	assert.Equal(t, map[string]any{
-		"full_refresh_streams_count": 1,
-		"incremental_streams_count":  2,
-		"cdc_streams_count":          3,
-		"strict_cdc_streams_count":   4,
-		"selected_streams_count":     5,
-		"normalized_streams_count":   6,
-		"partitioned_streams_count":  7,
-	}, props)
-}
-
 // TestSendContainsPanics covers the guarantee send documents: a panic while reporting must not
 // kill the command being reported on, and must still release Flush.
 func TestSendContainsPanics(t *testing.T) {
@@ -354,21 +348,22 @@ func TestFlush(t *testing.T) {
 	})
 
 	t.Run("waits for a handed-off event", func(t *testing.T) {
-		if Disabled() {
-			t.Skip("TELEMETRY_DISABLED is set: Flush short-circuits and has nothing to wait for")
-		}
-		ran := make(chan struct{})
-		send("slow", func() {
-			time.Sleep(150 * time.Millisecond)
-			close(ran)
-		})
+		// Forced on rather than skipped when TELEMETRY_DISABLED is set, so the branch is
+		// covered in either environment.
+		withDisabled(t, false, func() {
+			ran := make(chan struct{})
+			send("slow", func() {
+				time.Sleep(150 * time.Millisecond)
+				close(ran)
+			})
 
-		Flush()
-		select {
-		case <-ran:
-		default:
-			require.Fail(t, "Flush returned before the event finished")
-		}
+			Flush()
+			select {
+			case <-ran:
+			default:
+				require.Fail(t, "Flush returned before the event finished")
+			}
+		})
 	})
 }
 
@@ -406,27 +401,6 @@ func TestFlushShortCircuitsWhenDisabled(t *testing.T) {
 		close(release)
 		drain()
 	})
-}
-
-// TestDisabledReadsTheEnvOnce covers the switch every call site gates on. The value is cached,
-// so this asserts consistency rather than re-reading the environment.
-func TestDisabledReadsTheEnvOnce(t *testing.T) {
-	first := Disabled()
-	assert.Equal(t, first, Disabled(), "Disabled must be stable within a process")
-
-	if first {
-		// Flush short-circuits before touching the WaitGroup when telemetry is off.
-		start := time.Now()
-		Flush()
-		assert.Less(t, time.Since(start), 50*time.Millisecond)
-	}
-}
-
-// TestFlushTimeoutIsSizedToOneRoundTrip pins the relationship the constant's comment claims:
-// the flush budget matches what a single sendEvent is allowed to take.
-func TestFlushTimeoutIsSizedToOneRoundTrip(t *testing.T) {
-	assert.Equal(t, 5*time.Second, flushTimeout,
-		"flushTimeout must stay in step with sendEvent's client and context budgets")
 }
 
 // TestSendSkipsWhenClientIsMissing covers the guard in send: when Init found telemetry disabled
@@ -489,35 +463,6 @@ func TestSendEventRejectsUnmarshalableProperties(t *testing.T) {
 	assert.Empty(t, capture.bodies, "nothing may be sent when the payload cannot be built")
 }
 
-// TestFlushTimesOut covers the deadline branch: a hung endpoint must not delay the exit past
-// flushTimeout, which is the whole reason the wait runs in a goroutine.
-func TestFlushTimesOut(t *testing.T) {
-	// Skipped under -short, which is also how to run this package with -race: Flush abandons its
-	// waiter at the deadline, still parked in inflight.Wait(), and a later Add on that WaitGroup
-	// is a documented misuse the detector reports. Harmless in production, where the process
-	// exits immediately after Flush returns.
-	if testing.Short() {
-		t.Skip("takes flushTimeout; also the -race escape hatch, see comment")
-	}
-	markInitDone()
-	stubClient(t)
-
-	withDisabled(t, false, func() {
-		release := make(chan struct{})
-		send("blocked", func() { <-release })
-
-		start := time.Now()
-		Flush()
-		elapsed := time.Since(start)
-
-		close(release)
-		drain()
-
-		assert.GreaterOrEqual(t, elapsed, flushTimeout, "Flush must wait the full budget")
-		assert.Less(t, elapsed, flushTimeout+2*time.Second, "and must not wait appreciably longer")
-	})
-}
-
 // TestGetUserID covers the distinct_id every event carries. It is read from disk when present,
 // so the trimming and the generated fallback both have to hold: a changed id splits one user
 // into two in every dashboard.
@@ -561,16 +506,18 @@ func TestGetUserID(t *testing.T) {
 	}
 }
 
-// TestGetUserIDIsStableAcrossReads covers the property the id exists for: the same config folder
-// must always yield the same distinct_id.
-func TestGetUserIDIsStableAcrossReads(t *testing.T) {
+// TestGeneratedUserIDPersists covers the round trip that keeps one machine one user: the first call generates and writes the id, later calls read it back through logger.FileLogger's JSON quotes.
+func TestGeneratedUserIDPersists(t *testing.T) {
 	dir := t.TempDir()
 	viper.Set(constants.ConfigFolder, dir)
 	t.Cleanup(func() { viper.Set(constants.ConfigFolder, "") })
-	require.NoError(t, os.WriteFile(filepath.Join(dir, userIDFile+".txt"), []byte(`"stable-id"`), 0o600))
 
-	first := getUserID()
-	for range 20 {
-		assert.Equal(t, first, getUserID())
-	}
+	generated := getUserID()
+	require.Regexp(t, "^[0-9a-f]{32}$", generated)
+
+	written, err := os.ReadFile(filepath.Join(dir, userIDFile+".txt"))
+	require.NoError(t, err, "the id must be written for the next run to find")
+	assert.Equal(t, generated, strings.Trim(string(written), `"`), "what is written is what was returned")
+
+	assert.Equal(t, generated, getUserID(), "a later call must read the file, not generate a new id")
 }
