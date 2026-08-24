@@ -703,9 +703,9 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 			},
 		},
-		// when old stream has empty CursorField, new-catalogs CursorField should be used instead of being overwritten
+		// when old stream has no cursor configured, merge does not adopt discover's auto-selected cursor
 		{
-			name: "use new cursor field when old cursor field is empty",
+			name: "empty cursor field stays empty after merge",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -763,7 +763,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Normalization:       true,
 							SelectedColumns:     createSelectedColumns([]string{"id"}, false),
 							SyncMode:            SyncMode("full_refresh"),
-							CursorField:         "created_at",
+							CursorField:         "",
 							DestinationDatabase: "db:public",
 							DestinationTable:    "users",
 						},
@@ -781,7 +781,24 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 	}
 }
 
-func TestCatalogGetDestDBPrefix(t *testing.T) {
+func TestGetDestDBPrefix(t *testing.T) {
+	// Builds a catalog where every stream is selected, with metadata.DestinationDatabase
+	// mirroring each stream's raw DestinationDatabase so the colon-parsing logic below can
+	// be exercised through the real selected_streams-based path.
+	buildCatalog := func(streams []*ConfiguredStream) *Catalog {
+		selected := make(map[string][]StreamMetadata)
+		for i, s := range streams {
+			if s.Stream.Name == "" {
+				s.Stream.Name = fmt.Sprintf("stream%d", i)
+			}
+			selected[s.Stream.Namespace] = append(selected[s.Stream.Namespace], StreamMetadata{
+				StreamName:          s.Stream.Name,
+				DestinationDatabase: s.Stream.DestinationDatabase,
+			})
+		}
+		return &Catalog{Streams: streams, SelectedStreams: selected}
+	}
+
 	testCases := []struct {
 		name          string
 		streams       []*ConfiguredStream
@@ -1048,11 +1065,62 @@ func TestCatalogGetDestDBPrefix(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			constantValue, prefix := getDestDBPrefix(&Catalog{Streams: tc.streams})
+			constantValue, prefix := getDestDBPrefix(buildCatalog(tc.streams))
 			assert.Equal(t, tc.expectedConst, constantValue, "Constant value flag should match")
 			assert.Equal(t, tc.expectedPref, prefix, "Prefix should match")
 		})
 	}
+
+	t.Run("unselected streams are excluded from prefix detection", func(t *testing.T) {
+		catalog := &Catalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "prefix:public"}},
+				{Stream: &Stream{Name: "orders", Namespace: "public", DestinationDatabase: "different"}}, // not selected
+			},
+			SelectedStreams: map[string][]StreamMetadata{
+				"public": {
+					{StreamName: "users", DestinationDatabase: "prefix:public"},
+				},
+			},
+		}
+		constantValue, prefix := getDestDBPrefix(catalog)
+		assert.False(t, constantValue)
+		assert.Equal(t, "prefix", prefix)
+	})
+
+	t.Run("falls back to stream object when metadata destination database is not yet migrated", func(t *testing.T) {
+		catalog := &Catalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"}},
+			},
+			SelectedStreams: map[string][]StreamMetadata{
+				"public": {
+					{StreamName: "users"}, // DestinationDatabase not yet migrated into metadata
+				},
+			},
+		}
+		constantValue, prefix := getDestDBPrefix(catalog)
+		assert.True(t, constantValue)
+		assert.Equal(t, "legacy_db", prefix)
+	})
+
+	t.Run("extracts prefix from selected_streams destination databases", func(t *testing.T) {
+		catalog := &Catalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public"}},
+				{Stream: &Stream{Name: "orders", Namespace: "public"}},
+			},
+			SelectedStreams: map[string][]StreamMetadata{
+				"public": {
+					{StreamName: "users", DestinationDatabase: "prefix:public"},
+					{StreamName: "orders", DestinationDatabase: "prefix:public"},
+				},
+			},
+		}
+		constantValue, prefix := getDestDBPrefix(catalog)
+		assert.False(t, constantValue)
+		assert.Equal(t, "prefix", prefix)
+	})
 }
 
 // validateBasicSchemas checks if two schemas have the same properties
@@ -1102,199 +1170,198 @@ func validateBasicSchemas(t *testing.T, expected, actual *TypeSchema, testName s
 	}
 }
 
-func TestConfiguredStreamConfigurableFieldGetters(t *testing.T) {
-	// Old combined format: configurable fields only on streams[].
-	legacy := &ConfiguredStream{
-		Stream: &Stream{
-			Name:                "users",
-			Namespace:           "public",
-			SyncMode:            SyncMode("cdc"),
-			CursorField:         "updated_at",
-			DestinationDatabase: "legacy_db",
-			DestinationTable:    "legacy_table",
-		},
-	}
-	assert.Equal(t, SyncMode("cdc"), legacy.GetSyncMode())
-	primary, secondary := legacy.Cursor()
-	assert.Equal(t, "updated_at", primary)
-	assert.Equal(t, "", secondary)
-	assert.Equal(t, "legacy_db", legacy.GetDestinationDatabase(nil))
-	assert.Equal(t, "legacy_table", legacy.GetDestinationTable())
+func TestGetSyncMode(t *testing.T) {
+	t.Run("legacy format reads from stream", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream: &Stream{SyncMode: SyncMode("cdc")},
+		}
+		assert.Equal(t, SyncMode("cdc"), s.GetSyncMode())
+	})
 
-	// New format: configurable fields in selected_streams; streams[] cleared.
-	configured := &ConfiguredStream{
-		Stream: &Stream{
-			Name:      "users",
-			Namespace: "public",
-		},
-		StreamMetadata: StreamMetadata{
-			SyncMode:            SyncMode("cdc"),
-			CursorField:         "updated_at",
-			DestinationDatabase: "new_db",
-			DestinationTable:    "new_table",
-		},
-	}
-	assert.Equal(t, SyncMode("cdc"), configured.GetSyncMode())
-	primary, secondary = configured.Cursor()
-	assert.Equal(t, "updated_at", primary)
-	assert.Equal(t, "", secondary)
-	assert.Equal(t, "new_db", configured.GetDestinationDatabase(nil))
-	assert.Equal(t, "new_table", configured.GetDestinationTable())
+	t.Run("new format reads from metadata", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream:         &Stream{},
+			StreamMetadata: StreamMetadata{SyncMode: SyncMode("cdc")},
+		}
+		assert.Equal(t, SyncMode("cdc"), s.GetSyncMode())
+	})
 
-	// Metadata wins when both are set.
-	both := &ConfiguredStream{
-		Stream: &Stream{
-			Name:                "users",
-			Namespace:           "public",
-			SyncMode:            SyncMode("full_refresh"),
-			CursorField:         "created_at",
-			DestinationDatabase: "legacy_db",
-			DestinationTable:    "legacy_table",
-		},
-		StreamMetadata: StreamMetadata{
-			SyncMode:            SyncMode("cdc"),
-			CursorField:         "updated_at",
-			DestinationDatabase: "new_db",
-			DestinationTable:    "new_table",
-		},
-	}
-	assert.Equal(t, SyncMode("cdc"), both.GetSyncMode())
-	primary, secondary = both.Cursor()
-	assert.Equal(t, "updated_at", primary)
-	assert.Equal(t, "", secondary)
-	assert.Equal(t, "new_db", both.GetDestinationDatabase(nil))
-	assert.Equal(t, "new_table", both.GetDestinationTable())
+	t.Run("metadata wins over stream when both set", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream:         &Stream{SyncMode: SyncMode("full_refresh")},
+			StreamMetadata: StreamMetadata{SyncMode: SyncMode("cdc")},
+		}
+		assert.Equal(t, SyncMode("cdc"), s.GetSyncMode())
+	})
+}
+
+func TestCursor(t *testing.T) {
+	t.Run("legacy format reads from stream", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream: &Stream{CursorField: "updated_at"},
+		}
+		primary, secondary := s.Cursor()
+		assert.Equal(t, "updated_at", primary)
+		assert.Equal(t, "", secondary)
+	})
+
+	t.Run("new format reads from metadata", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream:         &Stream{},
+			StreamMetadata: StreamMetadata{CursorField: "updated_at"},
+		}
+		primary, secondary := s.Cursor()
+		assert.Equal(t, "updated_at", primary)
+		assert.Equal(t, "", secondary)
+	})
+
+	t.Run("metadata wins over stream when both set", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream:         &Stream{CursorField: "created_at"},
+			StreamMetadata: StreamMetadata{CursorField: "updated_at"},
+		}
+		primary, _ := s.Cursor()
+		assert.Equal(t, "updated_at", primary)
+	})
+}
+
+func TestGetDestinationDatabase(t *testing.T) {
+	t.Run("legacy format reads from stream", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"},
+		}
+		assert.Equal(t, "legacy_db", s.GetDestinationDatabase(nil))
+	})
+
+	t.Run("new format reads from metadata", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream:         &Stream{Name: "users", Namespace: "public"},
+			StreamMetadata: StreamMetadata{DestinationDatabase: "new_db"},
+		}
+		assert.Equal(t, "new_db", s.GetDestinationDatabase(nil))
+	})
+
+	t.Run("metadata wins over stream when both set", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream:         &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"},
+			StreamMetadata: StreamMetadata{DestinationDatabase: "new_db"},
+		}
+		assert.Equal(t, "new_db", s.GetDestinationDatabase(nil))
+	})
+
+	t.Run("falls back to namespace when both empty", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream: &Stream{Name: "users", Namespace: "public"},
+		}
+		assert.Equal(t, "public", s.GetDestinationDatabase(nil))
+	})
+}
+
+func TestGetDestinationTable(t *testing.T) {
+	t.Run("legacy format reads from stream", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream: &Stream{Name: "users", DestinationTable: "legacy_table"},
+		}
+		assert.Equal(t, "legacy_table", s.GetDestinationTable())
+	})
+
+	t.Run("new format reads from metadata", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream:         &Stream{Name: "users"},
+			StreamMetadata: StreamMetadata{DestinationTable: "new_table"},
+		}
+		assert.Equal(t, "new_table", s.GetDestinationTable())
+	})
+
+	t.Run("metadata wins over stream when both set", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream:         &Stream{Name: "users", DestinationTable: "legacy_table"},
+			StreamMetadata: StreamMetadata{DestinationTable: "new_table"},
+		}
+		assert.Equal(t, "new_table", s.GetDestinationTable())
+	})
+
+	t.Run("falls back to stream name when both empty", func(t *testing.T) {
+		s := &ConfiguredStream{
+			Stream: &Stream{Name: "users"},
+		}
+		assert.Equal(t, "users", s.GetDestinationTable())
+	})
 }
 
 func TestMigrateConfigurableFieldsFromStream(t *testing.T) {
-	metadata := StreamMetadata{StreamName: "users"}
-	oldStream := &Stream{
-		SyncMode:            SyncMode("incremental"),
-		CursorField:         "updated_at",
-		DestinationDatabase: "analytics",
-		DestinationTable:    "users",
-	}
+	t.Run("copies all fields when metadata is empty", func(t *testing.T) {
+		metadata := StreamMetadata{StreamName: "users"}
+		stream := &Stream{
+			SyncMode:            SyncMode("incremental"),
+			CursorField:         "updated_at",
+			DestinationDatabase: "analytics",
+			DestinationTable:    "users",
+		}
+		migrateConfigurableFieldsFromStream(&metadata, stream)
+		assert.Equal(t, SyncMode("incremental"), metadata.SyncMode)
+		assert.Equal(t, "updated_at", metadata.CursorField)
+		assert.Equal(t, "analytics", metadata.DestinationDatabase)
+		assert.Equal(t, "users", metadata.DestinationTable)
+	})
 
-	migrateConfigurableFieldsFromStream(&metadata, oldStream)
-	assert.Equal(t, SyncMode("incremental"), metadata.SyncMode)
-	assert.Equal(t, "updated_at", metadata.CursorField)
-	assert.Equal(t, "analytics", metadata.DestinationDatabase)
-	assert.Equal(t, "users", metadata.DestinationTable)
-
-	metadata = StreamMetadata{
-		StreamName: "users",
-		SyncMode:   SyncMode("cdc"),
-	}
-	migrateConfigurableFieldsFromStream(&metadata, oldStream)
-	assert.Equal(t, SyncMode("cdc"), metadata.SyncMode)
+	t.Run("does not overwrite fields already set in metadata", func(t *testing.T) {
+		metadata := StreamMetadata{StreamName: "users", SyncMode: SyncMode("cdc")}
+		stream := &Stream{SyncMode: SyncMode("incremental")}
+		migrateConfigurableFieldsFromStream(&metadata, stream)
+		assert.Equal(t, SyncMode("cdc"), metadata.SyncMode)
+	})
 }
 
-func TestGetStreamsDeltaUsesMetadataFields(t *testing.T) {
-	oldCatalog := &Catalog{
-		Streams: []*ConfiguredStream{
-			{
-				Stream: &Stream{
-					Name:      "users",
-					Namespace: "public",
-				},
+func TestGetStreamsDelta(t *testing.T) {
+	t.Run("preserves old destination db from selected_streams", func(t *testing.T) {
+		oldCatalog := &Catalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public"}},
 			},
-		},
-		SelectedStreams: map[string][]StreamMetadata{
-			"public": {
-				{
-					StreamName:          "users",
-					SyncMode:            SyncMode("cdc"),
-					DestinationDatabase: "old_db",
-				},
+			SelectedStreams: map[string][]StreamMetadata{
+				"public": {{StreamName: "users", SyncMode: SyncMode("cdc"), DestinationDatabase: "old_db"}},
 			},
-		},
-	}
-	newCatalog := &Catalog{
-		Streams: []*ConfiguredStream{
-			{
-				Stream: &Stream{
-					Name:      "users",
-					Namespace: "public",
-				},
+		}
+		newCatalog := &Catalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public"}},
 			},
-		},
-		SelectedStreams: map[string][]StreamMetadata{
-			"public": {
-				{
-					StreamName:          "users",
-					SyncMode:            SyncMode("incremental"),
-					DestinationDatabase: "new_db",
-				},
+			SelectedStreams: map[string][]StreamMetadata{
+				"public": {{StreamName: "users", SyncMode: SyncMode("incremental"), DestinationDatabase: "new_db"}},
 			},
-		},
-	}
+		}
 
-	delta := GetStreamsDelta(oldCatalog, newCatalog)
-	assert.Len(t, delta.Streams, 1)
-	assert.Len(t, delta.SelectedStreams["public"], 1)
-	assert.Equal(t, SyncMode("incremental"), delta.SelectedStreams["public"][0].SyncMode)
-	assert.Equal(t, "old_db", delta.SelectedStreams["public"][0].DestinationDatabase)
-	assert.Equal(t, "old_db", delta.Streams[0].Stream.DestinationDatabase)
-}
+		delta := GetStreamsDelta(oldCatalog, newCatalog)
+		require.Len(t, delta.Streams, 1)
+		require.Len(t, delta.SelectedStreams["public"], 1)
+		assert.Equal(t, SyncMode("incremental"), delta.SelectedStreams["public"][0].SyncMode)
+		assert.Equal(t, "old_db", delta.SelectedStreams["public"][0].DestinationDatabase)
+		assert.Equal(t, "old_db", delta.Streams[0].Stream.DestinationDatabase)
+	})
 
-func TestGetStreamsDeltaOldFormatFallback(t *testing.T) {
-	oldCatalog := &Catalog{
-		Streams: []*ConfiguredStream{
-			{
-				Stream: &Stream{
-					Name:                "users",
-					Namespace:           "public",
-					SyncMode:            SyncMode("cdc"),
-					DestinationDatabase: "old_db",
-				},
+	t.Run("old format fallback reads destination db from streams", func(t *testing.T) {
+		oldCatalog := &Catalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: SyncMode("cdc"), DestinationDatabase: "old_db"}},
 			},
-		},
-		SelectedStreams: map[string][]StreamMetadata{
-			"public": {
-				{StreamName: "users"},
+			SelectedStreams: map[string][]StreamMetadata{
+				"public": {{StreamName: "users"}},
 			},
-		},
-	}
-	newCatalog := &Catalog{
-		Streams: []*ConfiguredStream{
-			{
-				Stream: &Stream{
-					Name:                "users",
-					Namespace:           "public",
-					SyncMode:            SyncMode("incremental"),
-					DestinationDatabase: "new_db",
-				},
+		}
+		newCatalog := &Catalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: SyncMode("incremental"), DestinationDatabase: "new_db"}},
 			},
-		},
-		SelectedStreams: map[string][]StreamMetadata{
-			"public": {
-				{StreamName: "users"},
+			SelectedStreams: map[string][]StreamMetadata{
+				"public": {{StreamName: "users"}},
 			},
-		},
-	}
+		}
 
-	delta := GetStreamsDelta(oldCatalog, newCatalog)
-	assert.Len(t, delta.Streams, 1)
-	assert.Equal(t, "old_db", delta.Streams[0].Stream.DestinationDatabase)
-}
-
-func TestGetDestDBPrefixFromSelectedStreams(t *testing.T) {
-	catalog := &Catalog{
-		Streams: []*ConfiguredStream{
-			{Stream: &Stream{Name: "users", Namespace: "public"}},
-			{Stream: &Stream{Name: "orders", Namespace: "public"}},
-		},
-		SelectedStreams: map[string][]StreamMetadata{
-			"public": {
-				{StreamName: "users", DestinationDatabase: "prefix:public"},
-				{StreamName: "orders", DestinationDatabase: "prefix:public"},
-			},
-		},
-	}
-
-	constantValue, prefix := getDestDBPrefix(catalog)
-	assert.False(t, constantValue)
-	assert.Equal(t, "prefix", prefix)
+		delta := GetStreamsDelta(oldCatalog, newCatalog)
+		require.Len(t, delta.Streams, 1)
+		assert.Equal(t, "old_db", delta.Streams[0].Stream.DestinationDatabase)
+	})
 }
 
 func writeCatalogFile(t *testing.T, dir, name string, catalog *Catalog) string {
@@ -1402,142 +1469,128 @@ func TestSplitCatalogForWrite(t *testing.T) {
 	assert.Nil(t, schemaHalf.SelectedStreams)
 }
 
-func TestLogCatalogSplitWrite(t *testing.T) {
-	dir := t.TempDir()
-	streamsPath := filepath.Join(dir, "streams.json")
-	schemaPath := filepath.Join(dir, "schema.json")
+func TestLogCatalog(t *testing.T) {
+	t.Run("split write when schema path set", func(t *testing.T) {
+		dir := t.TempDir()
+		streamsPath := filepath.Join(dir, "streams.json")
+		schemaPath := filepath.Join(dir, "schema.json")
 
-	viper.Set(constants.StreamsPath, streamsPath)
-	viper.Set(constants.SchemaPath, schemaPath)
-	t.Cleanup(func() {
-		viper.Set(constants.StreamsPath, "")
-		viper.Set(constants.SchemaPath, "")
-	})
+		viper.Set(constants.StreamsPath, streamsPath)
+		viper.Set(constants.SchemaPath, schemaPath)
+		t.Cleanup(func() {
+			viper.Set(constants.StreamsPath, "")
+			viper.Set(constants.SchemaPath, "")
+		})
 
-	discovered := []*Stream{
-		{
-			Name:                "users",
-			Namespace:           "public",
-			Schema:              oldSchema(),
-			SyncMode:            INCREMENTAL,
-			CursorField:         "updated_at",
-			DestinationDatabase: "analytics",
-			DestinationTable:    "users",
-		},
-	}
-
-	LogCatalog(discovered, nil, "postgres")
-
-	streamsBytes, err := os.ReadFile(streamsPath)
-	require.NoError(t, err)
-	schemaBytes, err := os.ReadFile(schemaPath)
-	require.NoError(t, err)
-
-	var streamsFile, schemaFile Catalog
-	require.NoError(t, json.Unmarshal(streamsBytes, &streamsFile))
-	require.NoError(t, json.Unmarshal(schemaBytes, &schemaFile))
-
-	assert.Empty(t, streamsFile.Streams)
-	require.Len(t, streamsFile.SelectedStreams["public"], 1)
-	assert.Equal(t, "users", streamsFile.SelectedStreams["public"][0].StreamName)
-	assert.Equal(t, INCREMENTAL, streamsFile.SelectedStreams["public"][0].SyncMode)
-	assert.True(t, streamsFile.SelectedStreams["public"][0].Normalization)
-
-	require.Len(t, schemaFile.Streams, 1)
-	assert.Empty(t, schemaFile.SelectedStreams)
-	assert.Equal(t, "users", schemaFile.Streams[0].Stream.Name)
-	assert.Equal(t, SyncMode(""), schemaFile.Streams[0].Stream.SyncMode)
-	assert.Equal(t, "", schemaFile.Streams[0].Stream.CursorField)
-}
-
-func TestLogCatalogCombinedWriteWithoutSchemaPath(t *testing.T) {
-	dir := t.TempDir()
-	streamsPath := filepath.Join(dir, "streams.json")
-
-	viper.Set(constants.StreamsPath, streamsPath)
-	viper.Set(constants.SchemaPath, "")
-	t.Cleanup(func() {
-		viper.Set(constants.StreamsPath, "")
-		viper.Set(constants.SchemaPath, "")
-	})
-
-	discovered := []*Stream{
-		{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: CDC},
-	}
-
-	LogCatalog(discovered, nil, "postgres")
-
-	data, err := os.ReadFile(streamsPath)
-	require.NoError(t, err)
-	var combined Catalog
-	require.NoError(t, json.Unmarshal(data, &combined))
-	require.Len(t, combined.Streams, 1)
-	require.Len(t, combined.SelectedStreams["public"], 1)
-	assert.Equal(t, "users", combined.Streams[0].Stream.Name)
-	assert.Equal(t, CDC, combined.SelectedStreams["public"][0].SyncMode)
-}
-
-func TestResolveCatalogAfterSplitDiscoverMerge(t *testing.T) {
-	dir := t.TempDir()
-
-	oldCatalog := &Catalog{
-		Streams: []*ConfiguredStream{
+		discovered := []*Stream{
 			{
-				Stream: &Stream{
-					Name:      "users",
-					Namespace: "public",
-					Schema:    oldSchema(),
-				},
+				Name:                "users",
+				Namespace:           "public",
+				Schema:              oldSchema(),
+				SyncMode:            INCREMENTAL,
+				CursorField:         "updated_at",
+				DestinationDatabase: "analytics",
+				DestinationTable:    "users",
 			},
-		},
-		SelectedStreams: map[string][]StreamMetadata{
-			"public": {{
-				StreamName:      "users",
-				SyncMode:        INCREMENTAL,
-				CursorField:     "updated_at",
-				Normalization:   true,
-				SelectedColumns: createSelectedColumns([]string{"id"}, true),
-			}},
-		},
-	}
+		}
 
-	newDiscovered := []*Stream{
-		{
-			Name:      "users",
-			Namespace: "public",
-			Schema:    newSchema(),
-			SyncMode:  CDC,
-		},
-		{
-			Name:      "orders",
-			Namespace: "public",
-			Schema:    newSchema(),
-			SyncMode:  FULLREFRESH,
-		},
-	}
+		LogCatalog(discovered, nil, "postgres")
 
-	streamsPath := filepath.Join(dir, "streams.json")
-	schemaPath := filepath.Join(dir, "schema.json")
-	viper.Set(constants.StreamsPath, streamsPath)
-	viper.Set(constants.SchemaPath, schemaPath)
-	t.Cleanup(func() {
-		viper.Set(constants.StreamsPath, "")
-		viper.Set(constants.SchemaPath, "")
+		streamsBytes, err := os.ReadFile(streamsPath)
+		require.NoError(t, err)
+		schemaBytes, err := os.ReadFile(schemaPath)
+		require.NoError(t, err)
+
+		var streamsFile, schemaFile Catalog
+		require.NoError(t, json.Unmarshal(streamsBytes, &streamsFile))
+		require.NoError(t, json.Unmarshal(schemaBytes, &schemaFile))
+
+		assert.Empty(t, streamsFile.Streams)
+		require.Len(t, streamsFile.SelectedStreams["public"], 1)
+		assert.Equal(t, "users", streamsFile.SelectedStreams["public"][0].StreamName)
+		assert.Equal(t, INCREMENTAL, streamsFile.SelectedStreams["public"][0].SyncMode)
+		assert.True(t, streamsFile.SelectedStreams["public"][0].Normalization)
+
+		require.Len(t, schemaFile.Streams, 1)
+		assert.Empty(t, schemaFile.SelectedStreams)
+		assert.Equal(t, "users", schemaFile.Streams[0].Stream.Name)
+		assert.Equal(t, SyncMode(""), schemaFile.Streams[0].Stream.SyncMode)
+		assert.Equal(t, "", schemaFile.Streams[0].Stream.CursorField)
 	})
 
-	LogCatalog(newDiscovered, oldCatalog, "postgres")
+	t.Run("combined write when schema path not set", func(t *testing.T) {
+		dir := t.TempDir()
+		streamsPath := filepath.Join(dir, "streams.json")
 
-	resolved, err := ResolveCatalog(streamsPath, schemaPath)
-	require.NoError(t, err)
+		viper.Set(constants.StreamsPath, streamsPath)
+		viper.Set(constants.SchemaPath, "")
+		t.Cleanup(func() {
+			viper.Set(constants.StreamsPath, "")
+			viper.Set(constants.SchemaPath, "")
+		})
 
-	require.Len(t, resolved.Streams, 2)
-	require.Len(t, resolved.SelectedStreams["public"], 1)
-	selected := resolved.SelectedStreams["public"][0]
-	assert.Equal(t, "users", selected.StreamName)
-	assert.Equal(t, INCREMENTAL, selected.SyncMode)
-	assert.Equal(t, "updated_at", selected.CursorField)
-	assert.True(t, selected.SelectedColumns.SyncNewColumns)
-	assert.Contains(t, selected.SelectedColumns.Columns, "id")
-	assert.Contains(t, selected.SelectedColumns.Columns, "email")
-	assert.NotContains(t, selected.SelectedColumns.Columns, "name")
+		discovered := []*Stream{
+			{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: CDC},
+		}
+
+		LogCatalog(discovered, nil, "postgres")
+
+		data, err := os.ReadFile(streamsPath)
+		require.NoError(t, err)
+		var combined Catalog
+		require.NoError(t, json.Unmarshal(data, &combined))
+		require.Len(t, combined.Streams, 1)
+		require.Len(t, combined.SelectedStreams["public"], 1)
+		assert.Equal(t, "users", combined.Streams[0].Stream.Name)
+		assert.Equal(t, CDC, combined.SelectedStreams["public"][0].SyncMode)
+	})
+
+	t.Run("split write round-trips through ResolveCatalog preserving user config", func(t *testing.T) {
+		dir := t.TempDir()
+		streamsPath := filepath.Join(dir, "streams.json")
+		schemaPath := filepath.Join(dir, "schema.json")
+
+		viper.Set(constants.StreamsPath, streamsPath)
+		viper.Set(constants.SchemaPath, schemaPath)
+		t.Cleanup(func() {
+			viper.Set(constants.StreamsPath, "")
+			viper.Set(constants.SchemaPath, "")
+		})
+
+		oldCatalog := &Catalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}},
+			},
+			SelectedStreams: map[string][]StreamMetadata{
+				"public": {{
+					StreamName:      "users",
+					SyncMode:        INCREMENTAL,
+					CursorField:     "updated_at",
+					Normalization:   true,
+					SelectedColumns: createSelectedColumns([]string{"id"}, true),
+				}},
+			},
+		}
+
+		newDiscovered := []*Stream{
+			{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: CDC},
+			{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH},
+		}
+
+		LogCatalog(newDiscovered, oldCatalog, "postgres")
+
+		resolved, err := ResolveCatalog(streamsPath, schemaPath)
+		require.NoError(t, err)
+
+		require.Len(t, resolved.Streams, 2)
+		require.Len(t, resolved.SelectedStreams["public"], 1)
+		selected := resolved.SelectedStreams["public"][0]
+		assert.Equal(t, "users", selected.StreamName)
+		assert.Equal(t, INCREMENTAL, selected.SyncMode)
+		assert.Equal(t, "updated_at", selected.CursorField)
+		assert.True(t, selected.SelectedColumns.SyncNewColumns)
+		assert.Contains(t, selected.SelectedColumns.Columns, "id")
+		assert.Contains(t, selected.SelectedColumns.Columns, "email")
+		assert.NotContains(t, selected.SelectedColumns.Columns, "name")
+	})
 }

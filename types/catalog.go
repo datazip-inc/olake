@@ -192,10 +192,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
-		// Normal path: old catalog already has selected_streams (master format or new format).
-		// Retain only streams present in both old selected_streams and the newly discovered
-		// catalog. Configurable fields are migrated from the old stream object into the
-		// metadata entry to handle the old master format where they lived on streams[].
 		newStreams := createStreamMap(newCatalog)
 		selectedStreams := make(map[string][]StreamMetadata)
 
@@ -209,9 +205,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					newStream := newStreams[streamID].Stream
 					MergeSelectedColumns(&metadata, oldStream, newStream)
 					migrateConfigurableFieldsFromStream(&metadata, oldStream)
-					if metadata.CursorField == "" && newStream.CursorField != "" {
-						metadata.CursorField = newStream.CursorField
-					}
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -313,39 +306,16 @@ func getDestDBPrefix(catalog *Catalog) (constantValue bool, prefix string) {
 		return false, ""
 	}
 
-	var destDBs []string
+	streamDestDB := make(map[string]string, len(catalog.Streams))
+	for _, s := range catalog.Streams {
+		streamDestDB[s.Stream.ID()] = s.Stream.DestinationDatabase
+	}
 
-	if len(catalog.SelectedStreams) > 0 {
-		// New version format (all users): configurable fields including DestinationDatabase
-		// live in selected_streams. This is true whether the catalog is a single combined
-		// streams.json or split across streams.json + schema.json (--schema flag).
-		// Reading from streams[] is wrong here: clearStreamConfigurableFields blanks those
-		// fields on unselected entries, so any deselected stream would corrupt prefix detection.
-		for namespace, metadataList := range catalog.SelectedStreams {
-			for _, metadata := range metadataList {
-				destDB := metadata.DestinationDatabase
-				if destDB == "" {
-					// Per-entry fallback: handles the transition period where an old-style
-					// combined streams.json was loaded and DestinationDatabase was only set
-					// on the stream object and not yet migrated into metadata.
-					streamID := fmt.Sprintf("%s.%s", namespace, metadata.StreamName)
-					for _, s := range catalog.Streams {
-						if s.Stream.ID() == streamID {
-							destDB = s.Stream.DestinationDatabase
-							break
-						}
-					}
-				}
-				destDBs = append(destDBs, destDB)
-			}
-		}
-	} else {
-		// Old version format (backward compatibility): configurable fields including
-		// DestinationDatabase were stored directly on each stream object; selected_streams
-		// did not exist. Fall back to reading streams[] so old streams.json files continue
-		// to work unchanged after upgrading.
-		for _, s := range catalog.Streams {
-			destDBs = append(destDBs, s.Stream.DestinationDatabase)
+	var destDBs []string
+	for namespace, metadataList := range catalog.SelectedStreams {
+		for _, metadata := range metadataList {
+			streamID := fmt.Sprintf("%s.%s", namespace, metadata.StreamName)
+			destDBs = append(destDBs, resolveConfigurableField(metadata.DestinationDatabase, streamDestDB[streamID]))
 		}
 	}
 
