@@ -99,7 +99,7 @@ func drain() { inflight.Wait() }
 // dashboards, so a rename is a breaking change that no compiler catches.
 func TestSendEventCommonProperties(t *testing.T) {
 	capture := stubClient(t)
-	require.NoError(t, telemetry.sendEvent("Test Event - CLI", map[string]any{"custom": 1}))
+	require.NoError(t, telemetry.sendEvent("Test Event", map[string]any{"custom": 1}))
 
 	events := capture.events(t)
 	require.Len(t, events, 1)
@@ -335,7 +335,7 @@ func TestSendContainsPanics(t *testing.T) {
 
 	t.Run("a later event still sends", func(t *testing.T) {
 		capture := stubClient(t)
-		require.NoError(t, telemetry.sendEvent("After Panic - CLI", nil))
+		require.NoError(t, telemetry.sendEvent("After Panic", nil))
 		assert.Len(t, capture.events(t), 1)
 	})
 }
@@ -483,7 +483,7 @@ func TestTrackEventsSurviveASendFailure(t *testing.T) {
 func TestSendEventRejectsUnmarshalableProperties(t *testing.T) {
 	capture := stubClient(t)
 
-	err := telemetry.sendEvent("Bad - CLI", map[string]any{"ch": make(chan int)})
+	err := telemetry.sendEvent("Bad", map[string]any{"ch": make(chan int)})
 
 	require.Error(t, err)
 	assert.Empty(t, capture.bodies, "nothing may be sent when the payload cannot be built")
@@ -523,10 +523,14 @@ func TestFlushTimesOut(t *testing.T) {
 // into two in every dashboard.
 func TestGetUserID(t *testing.T) {
 	testCases := []struct {
-		name       string
-		fileBody   string // written to <config folder>/user_id.txt; empty means no file
-		writeFile  bool
-		expectedID string // empty means a fresh id is generated instead
+		name          string
+		fileBody      string // written to <config folder>/user_id.txt; empty means no file
+		writeFile     bool
+		eventProps    map[string]any
+		telemetryJSON string
+		expectedID    string // empty means a fresh id is generated instead
+		generated     bool
+		checkNoIDFile bool
 	}{
 		// the file is written by a previous run and read back verbatim
 		{name: "plain id from file", fileBody: "abc123", writeFile: true, expectedID: "abc123"},
@@ -535,7 +539,25 @@ func TestGetUserID(t *testing.T) {
 		// an empty file is still a successful read, so it is honored rather than regenerated
 		{name: "empty file", fileBody: "", writeFile: true, expectedID: ""},
 		// first run on this machine
-		{name: "no file, id is generated", writeFile: false},
+		{name: "no file, id is generated", generated: true},
+		// telemetry.json distinct_id is the caller identity, user_id.txt is a per-machine guess
+		{name: "distinct_id wins over the file", fileBody: "from-file", writeFile: true, eventProps: map[string]any{distinctIDKey: "from-ui"}, expectedID: "from-ui"},
+		// a caller that sends context but no identity still leaves user_id.txt in charge
+		{name: "absent distinct_id falls back", fileBody: "from-file", writeFile: true, eventProps: map[string]any{"job_id": 12}, expectedID: "from-file"},
+		// "" is not an identity: attributing to it merges every such deployment into one user
+		{name: "empty distinct_id falls back", fileBody: "from-file", writeFile: true, eventProps: map[string]any{distinctIDKey: ""}, expectedID: "from-file"},
+		// whitespace-only is treated as missing, same as empty
+		{name: "whitespace distinct_id falls back", fileBody: "from-file", writeFile: true, eventProps: map[string]any{distinctIDKey: "  "}, expectedID: "from-file"},
+		// the file is written by another process, so the type is not guaranteed
+		{name: "non-string distinct_id falls back", fileBody: "from-file", writeFile: true, eventProps: map[string]any{distinctIDKey: 42}, expectedID: "from-file"},
+		// no telemetry.json at all: a standalone CLI run
+		{name: "nil props fall back", fileBody: "from-file", writeFile: true, expectedID: "from-file"},
+		// both files present: telemetry.json owns the identity
+		{name: "telemetry.json wins over user_id.txt", fileBody: "from-file", writeFile: true, telemetryJSON: `{"distinct_id":"from-ui","service":"ui"}`, expectedID: "from-ui"},
+		// a caller that has dropped user_id.txt entirely
+		{name: "telemetry.json alone", telemetryJSON: `{"distinct_id":"from-ui"}`, expectedID: "from-ui", checkNoIDFile: true},
+		// a corrupt telemetry.json must not lose the identity user_id.txt already holds
+		{name: "malformed telemetry.json falls back", fileBody: "from-file", writeFile: true, telemetryJSON: `{"distinct_id":`, expectedID: "from-file"},
 	}
 
 	for _, tc := range testCases {
@@ -547,16 +569,27 @@ func TestGetUserID(t *testing.T) {
 			if tc.writeFile {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, userIDFile+".txt"), []byte(tc.fileBody), 0o600))
 			}
+			if tc.telemetryJSON != "" {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, eventPropsFile), []byte(tc.telemetryJSON), 0o600))
+			}
 
-			got := getUserID()
+			props := tc.eventProps
+			if tc.telemetryJSON != "" {
+				props = loadEventProps()
+			}
 
-			if tc.writeFile {
-				assert.Equal(t, tc.expectedID, got)
+			got := getUserID(props)
+
+			if tc.generated {
+				assert.Regexp(t, "^[0-9a-f]{32}$", got)
 				return
 			}
-			// a generated id is 32 hex characters, and must differ from the empty string
-			assert.Len(t, got, 32)
-			assert.Regexp(t, "^[0-9a-f]{32}$", got)
+			assert.Equal(t, tc.expectedID, got)
+
+			if tc.checkNoIDFile {
+				_, err := os.Stat(filepath.Join(dir, userIDFile+".txt"))
+				assert.True(t, os.IsNotExist(err), "no id file is written when the caller supplies one")
+			}
 		})
 	}
 }
@@ -569,8 +602,191 @@ func TestGetUserIDIsStableAcrossReads(t *testing.T) {
 	t.Cleanup(func() { viper.Set(constants.ConfigFolder, "") })
 	require.NoError(t, os.WriteFile(filepath.Join(dir, userIDFile+".txt"), []byte(`"stable-id"`), 0o600))
 
-	first := getUserID()
+	first := getUserID(nil)
 	for range 20 {
-		assert.Equal(t, first, getUserID())
+		assert.Equal(t, first, getUserID(nil))
+	}
+}
+
+func TestGetService(t *testing.T) {
+	testCases := []struct {
+		name            string
+		eventProps      map[string]any
+		telemetryJSON   string
+		expectedService string
+	}{
+		// the point of the key: a UI-driven run reports as ui
+		{name: "caller service is used", eventProps: map[string]any{serviceKey: "ui"}, expectedService: "ui"},
+		// the value lands in an event name, so stray whitespace would split a dashboard series
+		{name: "service is trimmed", eventProps: map[string]any{serviceKey: "  ui  "}, expectedService: "ui"},
+		// an older caller sends the file without the key
+		{name: "absent key falls back", eventProps: map[string]any{distinctIDKey: "u1"}, expectedService: defaultService},
+		// "Sync Started - " is not a usable event name
+		{name: "empty service falls back", eventProps: map[string]any{serviceKey: ""}, expectedService: defaultService},
+		{name: "whitespace service falls back", eventProps: map[string]any{serviceKey: "   "}, expectedService: defaultService},
+		// the file is written by another process, so the type is not guaranteed
+		{name: "non-string service falls back", eventProps: map[string]any{serviceKey: 42}, expectedService: defaultService},
+		// no telemetry.json at all: a standalone CLI run
+		{name: "nil props fall back", eventProps: nil, expectedService: defaultService},
+		// the composition Init performs: service is read off telemetry.json
+		{name: "telemetry.json service is used", telemetryJSON: `{"distinct_id":"from-ui","service":"ui"}`, expectedService: "ui"},
+		{name: "telemetry.json without service falls back", telemetryJSON: `{"distinct_id":"from-ui"}`, expectedService: defaultService},
+		{name: "malformed telemetry.json falls back", telemetryJSON: `{"service":`, expectedService: defaultService},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			props := tc.eventProps
+			if tc.telemetryJSON != "" {
+				dir := t.TempDir()
+				viper.Set(constants.ConfigFolder, dir)
+				t.Cleanup(func() { viper.Set(constants.ConfigFolder, "") })
+				require.NoError(t, os.WriteFile(filepath.Join(dir, eventPropsFile), []byte(tc.telemetryJSON), 0o600))
+				props = loadEventProps()
+			}
+			assert.Equal(t, tc.expectedService, getService(props))
+		})
+	}
+}
+
+func TestLoadEventProps(t *testing.T) {
+	oversized := `{"pad":"` + strings.Repeat("a", maxEventPropsFileSize) + `"}`
+
+	testCases := []struct {
+		name     string
+		body     string
+		setup    string // file, mkdir, absent, no-folder, unopenable
+		expected map[string]interface{}
+	}{
+		// the shape the UI writes next to the sync configs
+		{
+			name:  "flat object is read whole",
+			body:  `{"schema_version":1,"service":"ui","distinct_id":"u1","job_id":12}`,
+			setup: "file",
+			expected: map[string]interface{}{
+				"schema_version": float64(1),
+				"service":        "ui",
+				"distinct_id":    "u1",
+				"job_id":         float64(12),
+			},
+		},
+		// values are passed through untouched, so nested ones must survive to the payload
+		{
+			name:     "nested values survive",
+			body:     `{"labels":{"env":"prod"},"tags":["a","b"]}`,
+			setup:    "file",
+			expected: map[string]interface{}{"labels": map[string]interface{}{"env": "prod"}, "tags": []interface{}{"a", "b"}},
+		},
+		// a caller with nothing to add still writes a valid file
+		{name: "empty object", body: `{}`, setup: "file", expected: map[string]interface{}{}},
+		// a half-written file, e.g. read while the caller is still writing it
+		{name: "malformed json is ignored", body: `{"distinct_id":`, setup: "file"},
+		// valid json of the wrong shape: decoding into a map fails
+		{name: "json array is ignored", body: `["u1"]`, setup: "file"},
+		// a created but never written file decodes to EOF
+		{name: "empty file is ignored", body: ``, setup: "file"},
+		// past the cap the read is cut short, so the object no longer parses
+		{name: "oversized file is ignored", body: oversized, setup: "file"},
+		// a path that is not a regular file must not panic the run
+		{name: "directory at the path is ignored", setup: "mkdir"},
+		// the standalone CLI case, and by far the common one
+		{name: "absent file is ignored", setup: "absent"},
+		{name: "no config folder", setup: "no-folder"},
+		{name: "unopenable path", setup: "unopenable"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			switch tc.setup {
+			case "no-folder":
+				viper.Set(constants.ConfigFolder, "")
+				t.Cleanup(func() { viper.Set(constants.ConfigFolder, "") })
+			case "unopenable":
+				dir := t.TempDir()
+				notADir := filepath.Join(dir, "not-a-dir")
+				require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
+				viper.Set(constants.ConfigFolder, notADir)
+				t.Cleanup(func() { viper.Set(constants.ConfigFolder, "") })
+			default:
+				dir := t.TempDir()
+				viper.Set(constants.ConfigFolder, dir)
+				t.Cleanup(func() { viper.Set(constants.ConfigFolder, "") })
+				path := filepath.Join(dir, eventPropsFile)
+				switch tc.setup {
+				case "file":
+					require.NoError(t, os.WriteFile(path, []byte(tc.body), 0o600))
+				case "mkdir":
+					require.NoError(t, os.Mkdir(path, 0o700))
+				}
+			}
+
+			assert.Equal(t, tc.expected, loadEventProps())
+		})
+	}
+}
+
+func TestSendEventCallerContext(t *testing.T) {
+	testCases := []struct {
+		name         string
+		service      string
+		eventProps   map[string]interface{}
+		props        map[string]any
+		expectedName string
+		expected     map[string]any
+	}{
+		// a UI-driven run suffixes the event and reports service as ui
+		{
+			name:         "service qualifies the event name",
+			service:      "ui",
+			expectedName: "Sync Started - ui",
+			expected:     map[string]any{"service": "ui"},
+		},
+		// an unset service is a direct CLI run, which is what every event said before telemetry.json
+		{
+			name:         "unset service is a CLI run",
+			expectedName: "Sync Started - CLI",
+			expected:     map[string]any{"service": "CLI"},
+		},
+		// telemetry.json is merged last: new keys are added, overlapping keys override
+		{
+			name:    "event props add and override",
+			service: "ui",
+			eventProps: map[string]interface{}{
+				"job_id":         float64(12),
+				"os":             "k8s",
+				"source_type":    "from-ui",
+				"distinct_id":    "from-ui",
+				"service":        "ui",
+				"schema_version": float64(1),
+			},
+			props:        map[string]any{"source_type": "postgres", "sync_id": "sync-1"},
+			expectedName: "Sync Started - ui",
+			expected: map[string]any{
+				"job_id":         float64(12),
+				"os":             "k8s",
+				"source_type":    "from-ui",
+				"sync_id":        "sync-1",
+				"distinct_id":    "from-ui",
+				"service":        "ui",
+				"schema_version": float64(1),
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			capture := stubClient(t)
+			telemetry.service = tc.service
+			telemetry.eventProps = tc.eventProps
+
+			require.NoError(t, telemetry.sendEvent(eventSyncStarted, tc.props))
+
+			events := capture.events(t)
+			require.Len(t, events, 1)
+			assert.Equal(t, tc.expectedName, events[0]["__event"])
+			for key, want := range tc.expected {
+				assert.Equal(t, want, events[0][key], "property %q", key)
+			}
+		})
 	}
 }
