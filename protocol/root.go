@@ -45,6 +45,7 @@ var RootCmd = &cobra.Command{
 	Use:   "olake",
 	Short: "root command",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		viper.AutomaticEnv()
 
 		// set global variables
 
@@ -66,6 +67,9 @@ var RootCmd = &cobra.Command{
 		if encryptionKey != "" {
 			viper.Set(constants.EncryptionKey, encryptionKey)
 		}
+
+		// by default, LOG_FORMAT is console
+		viper.SetDefault(constants.LogFormat, "console")
 
 		// logger uses CONFIG_FOLDER
 		logger.Init()
