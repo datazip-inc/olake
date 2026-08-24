@@ -125,7 +125,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 		}
 
 		if stream.GetDeleteMode().NeedsTableIndex(config.Type) && !stream.Self().StreamMetadata.AppendMode {
-			streamIndex, err := indexdb.Open(stream.ID())
+			streamIndex, err := indexdb.Open(stream)
 			if err != nil {
 				pool.Shutdown(ctx)
 				return nil, err
@@ -382,7 +382,7 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []
 
 	for _, stream := range dropStreams {
 		if stream.GetDeleteMode().NeedsTableIndex(config.Type) {
-			if err := indexdb.Drop(stream.ID()); err != nil {
+			if err := indexdb.Drop(stream); err != nil {
 				return err
 			}
 		}

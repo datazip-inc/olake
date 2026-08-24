@@ -18,7 +18,6 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/spf13/viper"
 )
 
 var unsafeDirChars = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
@@ -30,19 +29,12 @@ type StoreOptions struct {
 	MaxOpenFiles int
 }
 
-func DefaultOptions(streamID string) StoreOptions {
+func DefaultOptions() StoreOptions {
 	dir := os.Getenv(constants.IndexDBDir)
 	if dir == "" {
 		wd, _ := os.Getwd()
 		dir = filepath.Join(wd, constants.DefaultDirName)
 	}
-
-	// if prefix provided use it to create subdirectory for each stream
-	if prefix := viper.GetString(constants.DestinationDatabasePrefix); prefix != "" {
-		dir = filepath.Join(dir, prefix)
-	}
-
-	dir = filepath.Join(dir, streamID)
 
 	cacheSize, err := strconv.Atoi(os.Getenv(constants.IndexDBCacheSizePerStream))
 	if err != nil {
@@ -65,23 +57,26 @@ func DefaultOptions(streamID string) StoreOptions {
 }
 
 // Open opens or creates a TableIndex for the given streamID.
-func Open(streamID string) (types.StreamIndex, error) {
-	opts := DefaultOptions(streamID)
-	dir := indexDir(opts.Dir, streamID)
+func Open(stream types.StreamInterface) (types.StreamIndex, error) {
+	opts := DefaultOptions()
+	dir := indexDir(opts.Dir, stream)
 	return openIndex(dir, opts)
 }
 
 // Drop removes the on-disk index directory for streamID.
-func Drop(streamID string) error {
-	opts := DefaultOptions(streamID)
-	dir := indexDir(opts.Dir, streamID)
+func Drop(stream types.StreamInterface) error {
+	opts := DefaultOptions()
+	dir := indexDir(opts.Dir, stream)
 	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("failed to remove stream index for stream[%s]: %w", streamID, err)
+		return fmt.Errorf("failed to remove stream index for stream[%s]: %w", stream.ID(), err)
 	}
 	return nil
 }
 
-func indexDir(baseDir, streamID string) string {
+func indexDir(baseDir string, stream types.StreamInterface) string {
+	streamID := stream.ID()
+	// new feature so direct use destination database name present in stream
+	baseDir = filepath.Join(baseDir, stream.GetDestinationDatabase(nil))
 	sum := sha256.Sum256([]byte(streamID))
 	safe := unsafeDirChars.ReplaceAllString(streamID, "_")
 	if len(safe) > 80 {
