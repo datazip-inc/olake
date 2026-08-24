@@ -467,9 +467,13 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					Stream: &newStreamCopy,
 				}
 
-				// safely change for destination database and table if difference present
-				deltaStream.Stream.DestinationDatabase = resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
-				deltaStream.Stream.DestinationTable = resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
+				// keep the user's existing destination mapping in the diff output even when discover produced new values
+				oldDestinationDatabase := resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
+				oldDestinationTable := resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
+				deltaStream.Stream.DestinationDatabase = oldDestinationDatabase
+				deltaStream.Stream.DestinationTable = oldDestinationTable
+				newMetadata.DestinationDatabase = oldDestinationDatabase
+				newMetadata.DestinationTable = oldDestinationTable
 
 				diffStreams.Streams = append(diffStreams.Streams, deltaStream)
 				diffStreams.SelectedStreams[namespace] = append(

@@ -1233,6 +1233,8 @@ func TestGetStreamsDeltaUsesMetadataFields(t *testing.T) {
 	assert.Len(t, delta.Streams, 1)
 	assert.Len(t, delta.SelectedStreams["public"], 1)
 	assert.Equal(t, SyncMode("incremental"), delta.SelectedStreams["public"][0].SyncMode)
+	assert.Equal(t, "old_db", delta.SelectedStreams["public"][0].DestinationDatabase)
+	assert.Equal(t, "old_db", delta.Streams[0].Stream.DestinationDatabase)
 }
 
 func TestGetStreamsDeltaOldFormatFallback(t *testing.T) {
