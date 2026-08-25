@@ -16,6 +16,7 @@ type Config struct {
 	RetryCount                  int                         `json:"backoff_retry_count"`
 	ThreadsEqualTotalPartitions bool                        `json:"threads_equal_total_partitions,omitempty"`
 	SchemaRegistry              *kafka.SchemaRegistryClient `json:"schema_registry,omitempty"`
+	TopicPattern                string                      `json:"topic_pattern,omitempty"` // Perl-style regex to filter topics (optional)
 }
 
 type ProtocolConfig struct {

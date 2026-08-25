@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/db2
 
-go 1.25.12
+go 1.25.13
 
 replace (
 	cloud.google.com/go/compute => cloud.google.com/go/compute v1.23.3
@@ -14,7 +14,7 @@ require (
 	github.com/datazip-inc/olake v0.3.4
 	github.com/ibmdb/go_ibm_db v0.4.5
 	github.com/jmoiron/sqlx v1.4.0
-	golang.org/x/crypto v0.53.0
+	golang.org/x/crypto v0.55.0
 )
 
 require (
@@ -91,13 +91,13 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
-	golang.org/x/mod v0.37.0 // indirect
-	golang.org/x/net v0.56.0 // indirect
-	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0 // indirect
-	golang.org/x/telemetry v0.0.0-20260625142307-59b4966ccb57 // indirect
-	golang.org/x/text v0.39.0 // indirect
-	golang.org/x/tools v0.47.0 // indirect
+	golang.org/x/mod v0.40.0 // indirect
+	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
+	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/tools v0.49.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/grpc v1.82.1 // indirect
