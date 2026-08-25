@@ -1,9 +1,9 @@
 package testutils
 
 import (
-	"testing"
-
-	"github.com/stretchr/testify/require"
+	"fmt"
+	"net"
+	"strings"
 )
 
 // SourceConfig is a driver's source.json read as an untyped map.
@@ -20,11 +20,44 @@ import (
 type SourceConfig map[string]any
 
 // ReadSourceConfig loads path as an untyped source config.
-func ReadSourceConfig(t *testing.T, path string) SourceConfig {
-	t.Helper()
+func ReadSourceConfig(path string) (SourceConfig, error) {
 	config := SourceConfig{}
-	require.NoError(t, UnmarshalFile(path, &config, false), "read source config %s", path)
-	return config
+	if err := UnmarshalFile(path, &config, false); err != nil {
+		return nil, fmt.Errorf("failed to read the source config at %s: %s", path, err)
+	}
+	return config, nil
+}
+
+// containerHost is how the driver container reaches the host's published ports. The harness runs
+// on the host itself, where that name does not resolve.
+const containerHost = "host.docker.internal"
+
+// HostAddress rewrites an address the driver container uses into one the harness can dial. Host
+// and "host:port" forms are both accepted; anything already reachable is returned unchanged.
+func HostAddress(address string) string {
+	if !strings.Contains(address, containerHost) {
+		return address
+	}
+	if host, port, err := net.SplitHostPort(address); err == nil && host == containerHost {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+	return strings.ReplaceAll(address, containerHost, "127.0.0.1")
+}
+
+// Host returns key as an address the harness can dial, translated out of the container's view.
+func (c SourceConfig) Host(key string) string {
+	return HostAddress(c.String(key))
+}
+
+// Hosts returns key as addresses the harness can dial, for the drivers that spell their host list
+// as an array.
+func (c SourceConfig) Hosts(key string) []string {
+	raw := c.Strings(key)
+	hosts := make([]string, 0, len(raw))
+	for _, host := range raw {
+		hosts = append(hosts, HostAddress(host))
+	}
+	return hosts
 }
 
 // String returns key as a string.

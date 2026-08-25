@@ -10,9 +10,9 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -25,7 +25,7 @@ var (
 func buildDSN(config testutils.SourceConfig) string {
 	dsn := fmt.Sprintf(
 		"HOSTNAME=%s;PORT=%d;DATABASE=%s;UID=%s;PWD=%s;",
-		config.String("host"),
+		config.Host("host"),
 		config.Int("port"),
 		config.String("database"),
 		config.String("username"),
@@ -80,17 +80,12 @@ func exec(ctx context.Context, db *sqlx.DB, query string) error {
 func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	var dsn string
-	if conf.SourceBaseConfig != nil {
-		dsn = buildDSN(conf.SourceBaseConfig)
-	} else {
-		dsn = "HOSTNAME=localhost;PORT=50000;DATABASE=testdb;UID=db2inst1;PWD=secret1234;"
-	}
+	dsn := buildDSN(conf.SourceBaseConfig)
 
 	db := getDB(ctx, t, dsn)
 	var err error
 
-	integrationTestTable := testutils.TestTableName(conf)
+	integrationTestTable := conf.GetTableName()
 	var query string
 
 	switch operation {

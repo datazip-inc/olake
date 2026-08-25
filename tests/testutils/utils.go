@@ -4,10 +4,14 @@
 package testutils
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -169,4 +173,90 @@ func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f fu
 		}
 	}
 	return err
+}
+
+func Combine(components ...string) string {
+	parts := make([]string, 0, len(components))
+	for _, str := range components {
+		if str != "" {
+			parts = append(parts, str)
+		}
+	}
+	return strings.Join(parts, "_")
+}
+
+type editFunc func(map[string]interface{}) error
+
+// CopyJSONWithEdit reads the JSON at src, applies edit, and writes the result to dst --
+// used to derive a per-suite config from a shared base file without touching the base.
+func CopyJSONWithEdit(src, dst string, edit editFunc) error {
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %s", src, err)
+	}
+	doc, err := ParseJSONDoc(raw)
+	if err != nil {
+		return fmt.Errorf("failed to parse %s: %s", src, err)
+	}
+	if err := edit(doc); err != nil {
+		return err
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s: %s", dst, err)
+	}
+	return WriteHostFile(dst, out)
+}
+
+// ParseJSONDoc decodes a JSON object keeping numbers as json.Number, so values the edit does not
+// touch round-trip as their original literals instead of through float64 (which corrupts int64s
+// beyond 2^53 and renders large values in scientific notation).
+func ParseJSONDoc(raw []byte) (map[string]interface{}, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var doc map[string]interface{}
+	return doc, dec.Decode(&doc)
+}
+
+// SeedColumnsExcluded is the fixture-side guard for seed exclusion: it verifies every requested
+// column is one the fixture knows how to leave out, so an unknown name fails loudly instead of
+// silently seeding a column the baseline cannot survive.
+func SeedColumnsExcluded(excluded, supported []string) (map[string]bool, error) {
+	drop := make(map[string]bool, len(excluded))
+	for _, col := range excluded {
+		if !slices.Contains(supported, col) {
+			return nil, fmt.Errorf("column %q cannot be excluded from the seed data; the fixture supports excluding only %s",
+				col, strings.Join(supported, ", "))
+		}
+		drop[col] = true
+	}
+	return drop, nil
+}
+
+// copyDirFiles copies every file in src into dst, replacing what is already there. Files only:
+// a driver's data-format fixtures are a directory of their own, copied as their own source.
+func copyDirFiles(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %s", src, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if err := CopyFile(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// repoRoot is the git checkout the tests run from. Read straight from git rather than derived from
+// the running test's directory, which is the one thing here the repo layout does not fix.
+func repoRoot() (string, error) {
+	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(root)), nil
 }

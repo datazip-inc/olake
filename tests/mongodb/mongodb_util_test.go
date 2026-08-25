@@ -9,26 +9,24 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
-	"github.com/stretchr/testify/require"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// MongoDB connection constants
-const (
-	MongoDBPort       = 27017
-	MongoDBDatabase   = "olake_mongodb_test"
-	MongoDBReplicaSet = "rs0"
-	MongoDBAdminUser  = "admin"
-	MongoDBAdminPass  = "password"
-)
-
 var (
 	nestedDoc = bson.M{
 		"nested_string": "nested_value",
 		"nested_int":    42,
+		// A BSON DateTime below the top level, which is what the state-version-5 gate governs
+		// (drivers/mongodb/internal/mon.go: at v>=5 a custom registry decodes it to a UTC
+		// time.Time, at v<=4 the stock decoder yields a primitive.DateTime). Both marshal to the
+		// same string for an in-range year -- primitive.DateTime.MarshalJSON already normalizes to
+		// UTC -- so this pins that the decoder swap did NOT change in-range values. The versions
+		// only diverge outside [0,9999], where v<=4 fails json.Marshal outright.
+		"nested_timestamp": time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
 	}
 )
 
@@ -39,31 +37,27 @@ var performanceCDCStreams = []string{"tweets_cdc"}
 func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	var connStr string
+	// directConnection because the replica set advertises its member as host.docker.internal,
+	// which only the driver's container resolves; the harness dials the published port directly.
 	config := conf.SourceBaseConfig
-	if config != nil {
-		connStr = fmt.Sprintf(
-			"mongodb://%s:%s@%s/?authSource=%s&readPreference=%s",
-			config.String("username"),
-			config.String("password"),
-			strings.Join(config.Strings("hosts"), ","),
-			config.String("authdb"),
-			config.String("read_preference"),
-		)
-	} else {
-		connStr = fmt.Sprintf("mongodb://%s:%s@localhost:%d/admin?replicaSet=%s&directConnection=true",
-			MongoDBAdminUser, MongoDBAdminPass, MongoDBPort, MongoDBReplicaSet)
-	}
+	connStr := fmt.Sprintf(
+		"mongodb://%s:%s@%s/?authSource=%s&readPreference=%s&directConnection=true",
+		config.String("username"),
+		config.String("password"),
+		strings.Join(config.Hosts("hosts"), ","),
+		config.String("authdb"),
+		config.String("read_preference"),
+	)
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(connStr))
-	require.NoError(t, err, "Failed to connect to MongoDB replica set at localhost:%d", MongoDBPort)
+	require.NoError(t, err, "failed to connect to mongodb at %s", strings.Join(config.Hosts("hosts"), ","))
 	defer func() {
 		if err := client.Disconnect(ctx); err != nil {
 			t.Logf("warning: failed to disconnect from MongoDB: %v", err)
 		}
 	}()
 
-	integrationTestCollection := testutils.TestTableName(conf)
-	db := client.Database(MongoDBDatabase)
+	integrationTestCollection := conf.GetTableName()
+	db := client.Database(config.String("database"))
 	collection := db.Collection(integrationTestCollection)
 
 	switch operation {
@@ -179,44 +173,44 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		}
 		return
 
-	case "bulk_cdc_data_insert":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
-		totalRows := 15000000
+		// case "bulk_cdc_data_insert":
+		// 	backfillStreams := performance.GetBackfillStreamsFromCDC(performanceCDCStreams)
+		// 	totalRows := 15000000
 
-		// TODO: insert data in batch
-		// insert the data into the cdc tables concurrently
-		err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
-			srcColl := client.Database(config.String("database")).Collection(backfillStreams[executionNumber])
-			destColl := client.Database(config.String("database")).Collection(cdcStream)
+		// 	// TODO: insert data in batch
+		// 	// insert the data into the cdc tables concurrently
+		// 	err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+		// 		srcColl := client.Database(config.String("database")).Collection(backfillStreams[executionNumber])
+		// 		destColl := client.Database(config.String("database")).Collection(cdcStream)
 
-			cursor, err := srcColl.Find(ctx, bson.D{}, options.Find().SetLimit(int64(totalRows)))
-			if err != nil {
-				return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
-			}
-			defer cursor.Close(ctx)
+		// 		cursor, err := srcColl.Find(ctx, bson.D{}, options.Find().SetLimit(int64(totalRows)))
+		// 		if err != nil {
+		// 			return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
+		// 		}
+		// 		defer cursor.Close(ctx)
 
-			var docs []interface{}
-			for cursor.Next(ctx) {
-				var doc bson.M
-				if err := cursor.Decode(&doc); err != nil {
-					return err
-				}
-				docs = append(docs, doc)
-			}
-			if err := cursor.Err(); err != nil {
-				return err
-			}
-			if len(docs) == 0 {
-				return nil
-			}
-			_, err = destColl.InsertMany(ctx, docs)
-			if err != nil {
-				return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
-			}
-			return nil
-		})
-		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
-		return
+		// 		var docs []interface{}
+		// 		for cursor.Next(ctx) {
+		// 			var doc bson.M
+		// 			if err := cursor.Decode(&doc); err != nil {
+		// 				return err
+		// 			}
+		// 			docs = append(docs, doc)
+		// 		}
+		// 		if err := cursor.Err(); err != nil {
+		// 			return err
+		// 		}
+		// 		if len(docs) == 0 {
+		// 			return nil
+		// 		}
+		// 		_, err = destColl.InsertMany(ctx, docs)
+		// 		if err != nil {
+		// 			return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
+		// 		}
+		// 		return nil
+		// 	})
+		// 	require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		// 	return
 	}
 }
 
@@ -266,7 +260,7 @@ var ExpectedMongoData = map[string]interface{}{
 	"id_bool":           true,
 	"created_timestamp": int32(1754905992),
 	"id_regex":          `{"Pattern":"test.*","Options":"i"}`,
-	"id_nested":         `{"nested_int":42,"nested_string":"nested_value"}`,
+	"id_nested":         `{"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "varchar_val",
@@ -280,7 +274,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"id_bool":           false,
 	"created_timestamp": int32(1754905699),
 	"id_regex":          `{"Pattern":"updated.*","Options":"i"}`,
-	"id_nested":         `{"nested_int":42,"nested_string":"nested_value"}`,
+	"id_nested":         `{"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "updated varchar",

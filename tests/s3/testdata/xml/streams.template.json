@@ -3,7 +3,7 @@
         "s3": [
             {
                 "partition_regex": "",
-                "stream_name": "s3_xml_test_table_olake",
+                "stream_name": "test_table_olake_${suite}",
                 "normalization": false,
                 "use_source_column_names": false,
                 "selected_columns": {
@@ -39,7 +39,7 @@
     "streams": [
         {
             "stream": {
-                "name": "s3_xml_test_table_olake",
+                "name": "test_table_olake_${suite}",
                 "namespace": "s3",
                 "type_schema": {
                     "properties": {
@@ -197,7 +197,7 @@
                 "cursor_field": "_last_modified_time",
                 "sync_mode": "incremental",
                 "destination_database": "s3_olake_s3_test:s3",
-                "destination_table": "s3_xml_test_table_olake",
+                "destination_table": "test_table_olake_${suite}",
                 "default_stream_properties": {
                     "normalization": false,
                     "append_mode": false

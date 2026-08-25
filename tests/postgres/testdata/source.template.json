@@ -8,7 +8,7 @@
         "mode": "disable"
     },
     "update_method": {
-        "replication_slot": "olake_slot",
+        "replication_slot": "olake_${suite}",
         "initial_wait_time": 120,
         "publication": "olake_publication"
     },

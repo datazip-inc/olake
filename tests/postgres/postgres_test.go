@@ -5,24 +5,21 @@ import (
 
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	_ "github.com/lib/pq"
 )
 
 // postgresBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // by the postgres suites.
-func postgresBaseConfig(t *testing.T) *testutils.IntegrationTest {
-	return &testutils.IntegrationTest{
-		TestConfig:                testutils.GetTestConfig(t, string(constants.Postgres)),
-		Namespace:                 "public",
-		ExpectedData:              ExpectedPostgresData,
-		DestinationDataTypeSchema: PostgresToDestinationSchema,
-		DefaultCDCColumnsSchema:   ExpectedPostgresDefaultCDCColumnsSchema,
-		ExecuteQuery:              ExecuteQuery,
-		DestinationDB:             "postgres_postgres_public",
-		CursorField:               "col_cursor:col_int",
-		PartitionRegex:            "/{col_bigserial,identity}",
-		ColumnToExclude:           "excludedcolumn",
-		FilterConfig: `{
+func postgresBaseConfig(t *testing.T) *integration.Test {
+	cfg, err := testutils.NewTestConfig(t, constants.Postgres, "public", "postgres_postgres_public", ExecuteQuery)
+	require.NoError(t, err, "failed to build the test config")
+	cfg.CursorField = "col_cursor:col_int"
+	cfg.PartitionRegex = "/{col_bigserial,identity}"
+	cfg.ColumnToExclude = "excludedcolumn"
+	cfg.FilterConfig = `{
                     "logical_operator": "And",
                     "conditions": [
                         {
@@ -36,7 +33,13 @@ func postgresBaseConfig(t *testing.T) *testutils.IntegrationTest {
                             "value": "2022-07-01T15:30:00.000+00:00"
                         }
                     ]
-                }`,
+                }`
+
+	return &integration.Test{
+		TestConfig:                cfg,
+		ExpectedData:              ExpectedPostgresData,
+		DestinationDataTypeSchema: PostgresToDestinationSchema,
+		DefaultCDCColumnsSchema:   ExpectedPostgresDefaultCDCColumnsSchema,
 	}
 }
 
@@ -58,13 +61,31 @@ func TestPostgres2PC(t *testing.T) {
 }
 
 func TestPostgresPerformance(t *testing.T) {
-	config := &testutils.PerformanceTest{
-		TestConfig:      testutils.GetTestConfig(t, string(constants.Postgres)),
-		Namespace:       "public",
-		BackfillStreams: testutils.GetBackfillStreamsFromCDC(performanceCDCStreams),
+	cfg, err := testutils.NewTestConfig(t, constants.Postgres, "public", "", ExecuteQuery)
+	require.NoError(t, err, "failed to build the test config")
+
+	perf := &performance.Test{
+		TestConfig:      cfg,
+		BackfillStreams: performance.GetBackfillStreamsFromCDC(performanceCDCStreams),
 		CDCStreams:      performanceCDCStreams,
-		ExecuteQuery:    ExecuteQuery,
 	}
 
-	config.TestPerformance(t)
+	perf.TestPerformance(t)
 }
+
+// TestPostgresCompatibility pins the backward-compatibility contract: the same scenarios run twice in
+// parallel -- once entirely on a released baseline image, once handing off to this build after the
+// initial load -- and the two destinations must match. The baseline defaults to the newest
+// release; OLAKE_COMPATIBILITY_BASELINE picks another tag, image or commit. See tests/testutils/compatibility.go.
+// func TestPostgresCompatibility(t *testing.T) {
+// 	t.Parallel()
+// 	compatibility.RunBackwardCompatibility(t, func() *compatibility.Test {
+// 		base := postgresBaseConfig(t)
+// 		base.ExpectedUpdatedData = ExpectedUpdatedData
+// 		base.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+// 		cfg := &compatibility.Test{IntegrationTest: base}
+// 		// No column rules: postgres compares clean on every reachable baseline (COMPAT_RESULTS_v2.md).
+// 		// The OLAKE_COMPATIBILITY_EXCLUDE_COLUMNS sweep hook lives in RunBackwardCompatibility now.
+// 		return cfg
+// 	})
+// }

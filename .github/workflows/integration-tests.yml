@@ -1,8 +1,7 @@
 name: Integration Tests
 
 on:
-  # Pushes run the cache jobs only -- the matrix below is gated to pull requests. A branch ref is
-  # the one scope every PR can restore from, and only a push writes one.
+  # A push runs the suite post-merge and publishes the caches every pull request restores from.
   push:
     branches:
       - "master"
@@ -10,7 +9,7 @@ on:
   pull_request:
     branches:
       - "*"
-    paths:
+    paths: &paths
       - '**/*.go'
       - '**/*.java'
       - '**/go.mod'
@@ -19,16 +18,15 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'Makefile'
-      - '.golangci.yml'
-      - 'drivers/**.conf'
       - 'drivers/*/driver.mk'
       - 'drivers/*/docker-compose.yml'
+      - 'drivers/**.conf'
       - 'destination/iceberg/local-test/**'
       - 'tests/**'
+      - '.golangci.yml'
+      - '.github/actions/**'
+      - '.github/scripts/**'
       - '.github/workflows/integration-tests.yml'
-      - '.github/actions/detect-drivers/action.yml'
-      - '.github/actions/go-caches/action.yml'
-      - '.github/scripts/changed-in-paths.sh'
 
 jobs:
   # Ungated, like the three cache jobs below it: the environment prompts once per wave of jobs that
@@ -95,6 +93,20 @@ jobs:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
           lookup-only: true
+
+  # The run's single approval, last before the matrix so a pre-job failure fails or skips it too --
+  # then any re-run re-executes it, and every attempt that reaches the drivers prompts exactly once.
+  approve:
+    name: Approve integration tests
+    needs: [preflight, build-jar, apt-warm, go-cache]
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' && needs.go-cache.result != 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: ${{ github.event_name == 'pull_request' && 'integration_tests' || '' }}
+    outputs:
+      attempt: ${{ github.run_attempt }}
+    steps:
+      - run: echo "Approved -- running the driver matrix."
 
   # Only when the jar is missing: preflight already looked up the cache, so an unchanged writer
   # skips Maven and this whole job.
@@ -210,16 +222,10 @@ jobs:
   # plus destination stack, builds its own image and runs every suite for that driver.
   integration-tests:
     name: Test ${{ matrix.driver }}
-    needs: [preflight, build-jar, apt-warm, go-cache]
-    # Every need above this can legitimately be skipped, and a skipped need would otherwise skip
-    # this too -- so gate on "not failed" rather than on success. go-cache is exempt entirely: its
-    # cache warm and db2 clidriver download must not block seven drivers, and its lint and gosec
-    # failures already surface as their own check.
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
+    needs: [preflight, approve]
+    if: ${{ !cancelled() && needs.approve.result == 'success' }}
     runs-on: 16gb-runner
-    # The whole workflow's approval, deliberately on the only job that spends a 16gb runner: one
-    # prompt releases every driver, and "Re-run failed jobs" re-enters it so a replay costs another.
-    environment: integration_tests
+    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
