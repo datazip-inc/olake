@@ -217,8 +217,7 @@ func startServer(config *Config) (*serverInstance, error) {
 		if gcpCredsTemp != "" {
 			os.Remove(gcpCredsTemp)
 		}
-		return nil, errs.Precondition(errs.InternalError, codeJVMStartFailed,
-			fmt.Errorf("failed to start iceberg java writer and setup logger: %w", err))
+		return nil, fmt.Errorf("%w: %w", errJVMStart, err)
 	}
 
 	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", config.ServerHost, strconv.Itoa(port)),

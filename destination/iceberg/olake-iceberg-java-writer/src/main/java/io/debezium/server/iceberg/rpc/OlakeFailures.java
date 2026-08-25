@@ -68,9 +68,9 @@ public final class OlakeFailures {
 
     /**
      * Returns the innermost cause. Iceberg and Hadoop wrap heavily, and the outermost class is
-     * usually a generic wrapper that identifies nothing.
+     * usually a generic wrapper that identifies nothing. Public so the startup path can reuse it.
      */
-    private static Throwable rootCause(Throwable t) {
+    public static Throwable rootCause(Throwable t) {
         Throwable root = t;
         // Bounded so a self-referencing cause cannot loop.
         for (int depth = 0; depth < 16; depth++) {
