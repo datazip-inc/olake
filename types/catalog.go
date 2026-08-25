@@ -219,31 +219,33 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	// merge streams metadata
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
+
+		var destDB string
 		if exists {
 			newStream.Stream.SourceDefinedPrimaryKey = oldStream.Stream.SourceDefinedPrimaryKey
-			clearStreamConfigurableFields(newStream.Stream)
-			return nil
+		} else {
+			// NOTE: new streams are not added to selected_streams, user needs to manually enable them
+			// manipulate destination db in new streams according to old streams
+
+			// prefix == "" means old stream when db normalization feature not introduced.
+			// getDestDBPrefix already resolves dest db via metadata (new format) with Stream fallback,
+			// so `prefix` holds the constant value directly when constantValue is true.
+			if constantValue {
+				destDB = prefix
+			} else if prefix != "" {
+				destDB = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
+			}
+			// Keep discover-generated default when the job has no established dest-db pattern.
+			if destDB == "" {
+				destDB = newStream.Stream.DestinationDatabase
+			}
 		}
 
-		// NOTE: new streams are not added to selected_streams, user needs to manually enable them
-		// manipulate destination db in new streams according to old streams
-
-		// prefix == "" means old stream when db normalization feature not introduced.
-		// getDestDBPrefix already resolves dest db via metadata (new format) with Stream fallback,
-		// so `prefix` holds the constant value directly when constantValue is true.
-		destinationDatabase := ""
-		if constantValue {
-			destinationDatabase = prefix
-		} else if prefix != "" {
-			destinationDatabase = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
+		// set destination database to the stream
+		clearStreamConfigurableFields(newStream.Stream)
+		if !exists && destDB != "" {
+			newStream.Stream.DestinationDatabase = destDB
 		}
-		if destinationDatabase != "" {
-			newStream.Stream.DestinationDatabase = destinationDatabase
-		}
-
-		newStream.Stream.SyncMode = ""
-		newStream.Stream.CursorField = ""
-		newStream.Stream.DestinationTable = ""
 		return nil
 	})
 
