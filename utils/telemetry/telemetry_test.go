@@ -78,6 +78,7 @@ func stubClient(t *testing.T) *captureTransport {
 	telemetry = &Telemetry{
 		httpClient: &http.Client{Transport: capture},
 		userID:     "test-user",
+		service:    defaultService,
 		platform:   platformInfo{OS: "testos", Arch: "testarch", OlakeVersion: "v0.0.0", DeviceCPU: "1 cores"},
 		ipAddress:  ipNotFoundPlaceholder,
 	}
@@ -688,11 +689,12 @@ func TestSendEventCallerContext(t *testing.T) {
 			expectedName: "Sync Started - ui",
 			expected:     map[string]any{"service": "ui"},
 		},
-		// an unset service is a direct CLI run, which is what every event said before telemetry.json
+		// Init always sets service via getService; a direct CLI run is the default
 		{
-			name:         "unset service is a CLI run",
+			name:         "CLI service qualifies the event name",
+			service:      defaultService,
 			expectedName: "Sync Started - CLI",
-			expected:     map[string]any{"service": "CLI"},
+			expected:     map[string]any{"service": defaultService},
 		},
 		// telemetry.json is merged last: new keys are added, overlapping keys override
 		{

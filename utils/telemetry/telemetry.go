@@ -285,8 +285,7 @@ func (t *Telemetry) sendEvent(event string, props map[string]interface{}) error 
 		return fmt.Errorf("telemetry client is nil")
 	}
 
-	source := t.source()
-	eventName := fmt.Sprintf("%s - %s", event, source)
+	eventName := fmt.Sprintf("%s - %s", event, t.service)
 
 	// Add common properties
 	if props == nil {
@@ -297,7 +296,7 @@ func (t *Telemetry) sendEvent(event string, props map[string]interface{}) error 
 		"arch":                t.platform.Arch,
 		"olake_version":       t.platform.OlakeVersion,
 		"num_cpu":             t.platform.DeviceCPU,
-		"service":             source,
+		"service":             t.service,
 		"ip_address":          t.ipAddress,
 		"location":            t.locationInfo,
 		"distinct_id":         t.userID,
@@ -362,14 +361,6 @@ func getOutboundIP() string {
 	}
 
 	return string(ip)
-}
-
-// source returns the service label events are qualified with, falling back to a direct CLI run.
-func (t *Telemetry) source() string {
-	if t.service == "" {
-		return defaultService
-	}
-	return t.service
 }
 
 // getService returns telemetry.json's service, defaulting to the CLI.
