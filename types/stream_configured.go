@@ -297,9 +297,9 @@ func (s *ConfiguredStream) NormalizationEnabled() bool {
 	return s.StreamMetadata.Normalization
 }
 
-func (s *ConfiguredStream) GetDeleteMode() DeleteMode {
+func (s *ConfiguredStream) GetUpdateMode() UpdateMode {
 	if s.StreamMetadata.UpdateType == "" {
-		return DeleteModeEquality
+		return UpdateModeEquality
 	}
-	return DeleteMode(s.StreamMetadata.UpdateType)
+	return UpdateMode(s.StreamMetadata.UpdateType)
 }

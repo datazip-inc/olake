@@ -131,7 +131,7 @@ func TrackSyncStarted(syncID string, selectedStreams, fullLoadStreams, cdcStream
 
 		streamWithPosDeleteMode := 0
 		_ = utils.ForEach(catalog.Streams, func(s *types.ConfiguredStream) error {
-			if s.Self().GetDeleteMode() == types.DeleteModePosition {
+			if s.Self().GetUpdateMode() == types.UpdateModePosition {
 				streamWithPosDeleteMode++
 			}
 			return nil

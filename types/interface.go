@@ -16,7 +16,7 @@ type StreamInterface interface {
 	GetDestinationDatabase(icebergDB *string) string
 	GetDestinationTable() string
 	GetPartitionRegex() string
-	GetDeleteMode() DeleteMode
+	GetUpdateMode() UpdateMode
 	// Column selection helpers (driven by StreamMetadata.SelectedColumns)
 	RetainSelectedColumns() func(map[string]interface{}) map[string]interface{}
 	IsSelectedColumn() func(string) bool
