@@ -1,0 +1,10 @@
+# CODEOWNERS
+
+## Ownership and review routing only -- the 2-approval requirement for these paths is a repository ruleset (required reviewer rule on the same teams), since CODEOWNERS with branch protection is satisfied by any one owner. A team needs write access to the repo for CODEOWNERS to resolve it
+
+## The state configuration and the compat rules pin backward-compatibility semantics forever, so changes need 2 sign-offs from the people who own those semantics. CODEOWNERS takes one pattern per line, so the team repeats; the ruleset groups both paths under a single rule
+
+/.github/CODEOWNERS @datazip-inc/olake-admins
+
+/constants/state-versions.json @datazip-inc/state-version-owners
+/tests/testutils/compatibility_rules.json @datazip-inc/state-version-owners

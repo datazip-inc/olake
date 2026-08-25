@@ -1,0 +1,53 @@
+{
+  "latest_state_version": 7,
+  "baselines": [
+    {
+      "state_version": 0,
+      "release_tag": "v0.3.11",
+      "drivers": "*",
+      "note": "newest pre-versioning release; an absent `version` field reads as 0. Legacy semantics: a string that cannot be parsed as a timestamp collapses to epoch (1970-01-01)"
+    },
+    {
+      "state_version": 1,
+      "release_tag": "v0.3.15",
+      "drivers": "*",
+      "note": "stricter timestamp parsing: an unparseable string stays a string instead of collapsing to epoch, failing fast rather than corrupting data"
+    },
+    {
+      "state_version": 2,
+      "release_tag": "v0.3.16",
+      "drivers": "mysql",
+      "note": "consistent MySQL timezone handling: binlog CDC uses TimestampStringLocation to match the connection's timezone, so CDC timestamps agree with Full Refresh"
+    },
+    {
+      "state_version": 3,
+      "release_tag": "v0.4.0",
+      "drivers": "mysql",
+      "note": "MySQL offset-format timezones (session or global) parse correctly and set the connection timezone instead of falling back to UTC"
+    },
+    {
+      "state_version": 4,
+      "release_tag": "v0.6.1",
+      "drivers": "mysql",
+      "note": "MySQL unsigned int/integer/bigint map to Int64; earlier they mapped to Int32 and overflowed"
+    },
+    {
+      "state_version": 5,
+      "release_tag": "v0.6.5",
+      "drivers": "mongodb",
+      "note": "MongoDB BSON DateTime at any depth decodes to UTC time.Time via a custom client registry, preventing json.Marshal crashes for out-of-range years ([0,9999]); top-level DateTimes that previously formatted with the local machine timezone (e.g. \"+05:30\") now always output UTC (\"Z\")"
+    },
+    {
+      "state_version": 6,
+      "release_tag": "v0.9.0",
+      "drivers": "*",
+      "note": "ReformatInt64 accepts []uint8: numeric values some SQL drivers return as byte slices parse to int64 instead of erroring"
+    },
+    {
+      "state_version": 7,
+      "release_tag": "v0.9.2",
+      "drivers": "s3",
+      "note": "parquet INT96 maps to Timestamp (the raw 96-bit value was emitted as a string, which disagreed with the inferred Timestamp schema and collapsed the column to String) and unsigned 32-bit widens to Int64, matching pg/mysql (earlier read as signed int32 and mapped to Int32, so values above 2^31-1 wrapped negative); older state keeps both previous behaviors so existing destination columns do not change type on upgrade"
+    }
+  ]
+}
