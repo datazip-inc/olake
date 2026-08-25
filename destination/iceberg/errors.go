@@ -1,7 +1,9 @@
 package iceberg
 
 import (
+	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/datazip-inc/olake/destination"
@@ -23,6 +25,12 @@ const (
 	codeJVMStartFailed         = "iceberg.jvm_start_failed"
 	codePartitionRegexNoMatch  = "iceberg.partition_regex_no_match"
 )
+
+// errJVMStart marks the startup path so the classifier can find it with errors.Is, not message text.
+var errJVMStart = errors.New("failed to start iceberg java writer and setup logger")
+
+// startupCause pulls the root cause's class out of the line OlakeRpcServer prints on its way out.
+var startupCause = regexp.MustCompile(`Iceberg writer failed to start \[([^\]]+)\]`)
 
 // javaExceptions maps the exception the Iceberg JVM caught to a failure category.
 var javaExceptions = map[string]errs.Category{
@@ -65,6 +73,8 @@ var javaExceptions = map[string]errs.Category{
 	"UnsupportedOperationException": errs.UnsupportedFeature,
 
 	// Defects in the writer, not conditions a user can fix.
+	"NoClassDefFoundError":     errs.InternalError,
+	"ClassNotFoundException":   errs.InternalError,
 	"NullPointerException":     errs.InternalError,
 	"AssertionError":           errs.InternalError,
 	"IllegalArgumentException": errs.InternalError,
@@ -114,6 +124,9 @@ func classify(err error) *errs.Failure {
 	if f := fromGRPCStatus(err); f != nil {
 		return f
 	}
+	if f := fromJVMStart(err); f != nil {
+		return f
+	}
 	if destination.IsWriteFailure(err) {
 		return &errs.Failure{
 			Category:     errs.DestinationWriteError,
@@ -121,6 +134,30 @@ func classify(err error) *errs.Failure {
 		}
 	}
 	return nil
+}
+
+// fromJVMStart classifies a JVM that died before it could serve. Same evidence as fromErrorInfo —
+// the root cause's class — arriving on stderr because no gRPC channel exists yet to carry it.
+func fromJVMStart(err error) *errs.Failure {
+	if !errors.Is(err, errJVMStart) {
+		return nil
+	}
+	// Killed, or dead without naming a cause: the phase is the only thing left to report.
+	f := errs.Failure{Category: errs.Unclassified, ClassifiedBy: errs.ClassifiedByDefault, Code: codeJVMStartFailed}
+
+	match := startupCause.FindStringSubmatch(err.Error())
+	if match == nil {
+		return &f
+	}
+	// The line carries the fully-qualified class; the table is keyed on the simple name.
+	f.Code = match[1]
+	if i := strings.LastIndex(f.Code, "."); i >= 0 {
+		f.Code = f.Code[i+1:]
+	}
+	if category, mapped := javaExceptions[f.Code]; mapped {
+		f.Category, f.ClassifiedBy = category, errs.ClassifiedByVendor
+	}
+	return &f
 }
 
 // fromGRPCStatus classifies a failure the gRPC channel reported. status.FromError reaches the

@@ -14,6 +14,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.debezium.server.iceberg.rpc.OlakeArrowIngester;
+import io.debezium.server.iceberg.rpc.OlakeFailures;
 import io.debezium.server.iceberg.rpc.OlakeRowsIngester;
 import io.debezium.server.iceberg.rpc.IcebergSession;
 import io.grpc.Server;
@@ -32,7 +33,8 @@ public class OlakeRpcServer {
     final static Map<String, String> icebergProperties = new ConcurrentHashMap<>();
     static Catalog icebergCatalog;
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws InterruptedException {
+        Server server;
         try {
             if (args.length < 1) {
                 LOGGER.error("Please provide a JSON config as an argument.");
@@ -89,21 +91,26 @@ public class OlakeRpcServer {
             serverBuilder.addService(ori);
             LOGGER.info("Legacy writer enabled - registered OlakeRowsIngester service");
 
-            Server server = serverBuilder.build().start();
+            server = serverBuilder.build().start();
 
             // Graceful shutdown so the OS sees the gRPC port released cleanly.
             Runtime.getRuntime().addShutdownHook(new Thread(server::shutdown, "olake-grpc-shutdown"));
 
             LOGGER.info("Server started on port {} with max message size: {}MB",
                         port, (maxMessageSize / (1024 * 1024)));
-            server.awaitTermination();
         } catch (Throwable t) {
-            // Nothing is listening yet, so this reaches Go only as a refused connection unless the
-            // exception is named on the way out. Written to stderr, not the logger: log4j's console
-            // appender is SYSTEM_OUT, and Go reads the first stderr line into the start error.
-            System.err.println("Iceberg writer failed to start [" + t.getClass().getName() + "]: " + t.getMessage());
+            // stderr, not LOGGER: that is stdout, and Go only keeps stderr. Unwrap so Go sees
+            // the real class, not Iceberg's IllegalArgumentException wrapper.
+            Throwable cause = OlakeFailures.rootCause(t);
+            String detail = cause.getMessage() == null ? cause.toString() : cause.getMessage();
+            System.err.println("Iceberg writer failed to start [" + cause.getClass().getName() + "]: " + detail);
             t.printStackTrace();
             System.exit(1);
+            return;
         }
+
+        // Blocks until shutdown, which is what keeps the process alive. Outside the try above:
+        // a failure while serving is not a failure to start.
+        server.awaitTermination();
     }
 }

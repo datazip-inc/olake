@@ -38,4 +38,4 @@ jobs:
 
       - name: Run Java Unit Tests
         working-directory: destination/iceberg/olake-iceberg-java-writer
-        run: mvn -B --no-transfer-progress -Dtest=OlakeFailuresTest -DfailIfNoTests=false test
+        run: mvn -B --no-transfer-progress test

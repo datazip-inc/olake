@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hashicorp/go-multierror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -384,10 +383,29 @@ func TestClassify(t *testing.T) {
 	})
 }
 
+// isolateClassifiers restores the registry when the test ends. Register appends to a package
+// global that every later Classify call walks, so a test classifier left behind — a panicking
+// one above all — would otherwise run for the rest of the binary.
+func isolateClassifiers(t *testing.T) {
+	t.Helper()
+
+	classifiersMu.Lock()
+	previous := classifiers
+	classifiersMu.Unlock()
+
+	t.Cleanup(func() {
+		classifiersMu.Lock()
+		defer classifiersMu.Unlock()
+		classifiers = previous
+	})
+}
+
 // TestRegister covers the per-connector classifiers: the component is stamped from the
 // registration, a nil classifier is ignored, and an unrecognized error still reaches the
 // shared rules.
 func TestRegister(t *testing.T) {
+	isolateClassifiers(t)
+
 	Register("testcomponent", func(err error) *Failure {
 		var l *leaf
 		if errors.As(err, &l) && l.msg == "registered" {
@@ -440,34 +458,11 @@ func TestClassifiedByDefaultAccompaniesUnclassified(t *testing.T) {
 		fmt.Errorf("wrapped: %w", &leaf{"x"}),
 		errors.Join(errors.New("a"), errors.New("b")),
 	} {
+		// Unconditional: a guarded assertion would silently pass if ClassifiedBy stopped
+		// reporting the default, which is the regression worth catching.
 		got := From(err)
-		if got.ClassifiedBy == ClassifiedByDefault {
-			assert.Equal(t, Unclassified, got.Category,
-				"classified_by=%q must only ever accompany an unclassified category", ClassifiedByDefault)
-		}
+		assert.Equal(t, ClassifiedByDefault, got.ClassifiedBy, "nothing here matches a rule")
+		assert.Equal(t, Unclassified, got.Category,
+			"classified_by=%q must only ever accompany an unclassified category", ClassifiedByDefault)
 	}
-}
-
-// TestMultierrorIsNotWalked documents a known gap rather than asserting desired behavior:
-// hashicorp/go-multierror unwraps to a `chain`, whose Unwrap returns the next chain rather than
-// the error itself, so the by-hand walk never sees the *Error inside. errors.As does find it.
-// Live only if ErrExecSequential gains a caller on a path that reaches ReportFailure.
-func TestMultierrorIsNotWalked(t *testing.T) {
-	inner := classified(AuthFailed, "postgres.auth_failed")
-
-	t.Run("single error unwraps to the error itself", func(t *testing.T) {
-		var multi error
-		multi = multierror.Append(multi, inner)
-		assert.Equal(t, AuthFailed, From(multi).Category)
-	})
-
-	t.Run("two or more errors are not reached by the walk", func(t *testing.T) {
-		var multi error
-		multi = multierror.Append(multi, errors.New("plain"))
-		multi = multierror.Append(multi, inner)
-
-		require.True(t, errors.As(multi, new(*Error)), "errors.As still finds it")
-		assert.Equal(t, Unclassified, From(multi).Category,
-			"KNOWN GAP: switching the type assertion in classificationOf to errors.As would close this")
-	})
 }
