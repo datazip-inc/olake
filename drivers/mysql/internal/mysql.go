@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"regexp"
 	"strconv"
@@ -23,6 +24,9 @@ import (
 	// MySQL driver
 	"github.com/go-sql-driver/mysql"
 )
+
+// MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
+const maxUint24 = 1<<24 - 1
 
 // MySQL represents the MySQL database driver
 type MySQL struct {
@@ -271,29 +275,11 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	}
 
 	// The go-mysql binlog parser always returns integer values as their signed Go equivalents
-	// (int8, int16, int32, int64) regardless of the MySQL UNSIGNED flag. For unsigned columns
-	// whose values exceed the signed type's max value, we must reinterpret the raw bits as the
-	// corresponding unsigned type before further conversion so the value is preserved correctly.
+	// (int8, int16, int32, int64) regardless of the MySQL UNSIGNED flag, sign-extending anything
+	// with the high bit set. Masking the value back to the column's storage width undoes that:
+	// it recovers the stored value without a signed-to-unsigned conversion that could overflow.
 	if constants.LoadedStateVersion > 3 {
-		switch strings.ToLower(columnType) {
-		case "unsigned tinyint":
-			if v, ok := value.(int8); ok {
-				value = uint8(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
-			}
-		case "unsigned smallint":
-			if v, ok := value.(int16); ok {
-				value = uint16(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
-			}
-		case "unsigned mediumint", "unsigned int", "unsigned integer":
-			// TODO: unsigned mediumint conversion is broken... -1 value from mysql binlog should be unsigned mediumint max but currently it goes to int32 max which gives -1 as final output in destination
-			if v, ok := value.(int32); ok {
-				value = uint32(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
-			}
-		case "unsigned bigint":
-			if v, ok := value.(int64); ok {
-				value = uint64(v) // #nosec G115 -- deliberate two's-complement reinterpretation for unsigned MySQL columns
-			}
-		}
+		value = stripSignExtension(value, strings.ToLower(columnType))
 	} else {
 		if strings.Contains(strings.ToLower(columnType), "unsigned") {
 			columnType = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(columnType), "unsigned "))
@@ -419,4 +405,31 @@ func parseMySQLTimeZoneOffset(s string) (int, bool) {
 	}
 	offsetSeconds := hours*3600 + minutes*60
 	return utils.Ternary(signStr == "-", -offsetSeconds, offsetSeconds).(int), true
+}
+
+// stripSignExtension masks an UNSIGNED column's value back to its storage width, undoing the sign
+// extension the binlog parser applies. The result comes back in the narrowest signed Go type that
+// holds the column's whole range, so no case widens further than its own values need.
+// UNSIGNED BIGINT is absent on purpose: it has no spare width, so its bits are already final.
+// TODO: olake has no uint64 data type, so UNSIGNED BIGINT above MaxInt64 stays wrapped negative.
+func stripSignExtension(value any, columnType string) any {
+	switch columnType {
+	case "unsigned tinyint":
+		if v, ok := value.(int8); ok {
+			return int16(v) & math.MaxUint8
+		}
+	case "unsigned smallint":
+		if v, ok := value.(int16); ok {
+			return int32(v) & math.MaxUint16
+		}
+	case "unsigned mediumint":
+		if v, ok := value.(int32); ok {
+			return v & maxUint24
+		}
+	case "unsigned int", "unsigned integer":
+		if v, ok := value.(int32); ok {
+			return int64(v) & math.MaxUint32
+		}
+	}
+	return value
 }
