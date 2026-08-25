@@ -24,6 +24,7 @@ var (
 	statePath                 string
 	streamsPath               string
 	schemaPath                string
+	splitStreams              bool
 	destinationDatabasePrefix string
 	syncID                    string
 	batchSize                 int64
@@ -61,12 +62,8 @@ var RootCmd = &cobra.Command{
 			viper.Set(constants.StatePath, statePathEnv)
 			viper.Set(constants.StreamsPath, streamsPathEnv)
 			viper.Set(constants.DifferencePath, differencePathEnv)
-			// TODO(BEFORE_MERGE): check if we need feature flag for split-write (or is it fine passing schemaPath)
-			if schemaPath != "" {
-				// acts as a feature flag to enable split-write - streams.json holds only selected_streams; schema.json holds only streams[]).
-				if !filepath.IsAbs(schemaPath) {
-					schemaPath = filepath.Join(configFolder, schemaPath)
-				}
+			if splitStreams || schemaPath != "" {
+				schemaPath = utils.Ternary(schemaPath == "", filepath.Join(filepath.Dir(streamsPathEnv), "schema.json"), schemaPath).(string)
 				viper.Set(constants.SchemaPath, schemaPath)
 			}
 		}
@@ -146,8 +143,8 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&destinationType, "destination-type", "", "not-set", "Destination type for spec")
 	RootCmd.PersistentFlags().StringVarP(&streamsPath, "catalog", "", "", "Path to the streams file for the connector")
 	RootCmd.PersistentFlags().StringVarP(&streamsPath, "streams", "", "", "Path to the streams file for the connector")
-	RootCmd.PersistentFlags().StringVarP(&schemaPath, "schema", "", "", "Path to the schema file. On discover, omit the path to write schema.json next to streams.json")
-	RootCmd.PersistentFlags().Lookup("schema").NoOptDefVal = "schema.json"
+	RootCmd.PersistentFlags().BoolVar(&splitStreams, "split-streams", false, "Write catalog as separate streams.json (selected_streams) and schema.json (streams[])")
+	RootCmd.PersistentFlags().StringVarP(&schemaPath, "schema", "", "", "Path to schema file (streams[] metadata). Implies --split-streams")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "destination-buffer-size", "", 10000, "(Optional) Batch size for destination")
 	RootCmd.PersistentFlags().IntVarP(&maxDiscoverThreads, "max-discover-threads", "", 50, "(Optional) Max number of parallel threads for discovery of table in database")
