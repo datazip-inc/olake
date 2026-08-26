@@ -19,6 +19,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/version"
 	"github.com/spf13/viper"
@@ -28,15 +29,33 @@ const (
 	userIDFile            = "user_id"
 	ipNotFoundPlaceholder = "NA"
 	proxTrackURL          = "https://analytics.olake.io/mp/track"
+	// flushTimeout bounds how long a failing command waits for its report to leave the process.
+	flushTimeout   = 5 * time.Second
+	eventPropsFile = "telemetry.json"
+	distinctIDKey  = "distinct_id"
+	serviceKey     = "service"
+	defaultService = "CLI"
+	// maxUIConfigSize bounds the read: the file is written by another process.
+	maxEventPropsFileSize = 1 << 20 // 1 MiB
+)
+
+// Event names, qualified with the event source at send time, e.g. "Sync Started - CLI".
+const (
+	eventDiscover      = "Discover"
+	eventSyncStarted   = "Sync Started"
+	eventSyncCompleted = "Sync Completed"
+	eventFailure       = "Failure"
 )
 
 type Telemetry struct {
 	httpClient   *http.Client
-	serviceName  string
+	service      string
 	platform     platformInfo
 	ipAddress    string
 	locationInfo *LocationInfo
 	userID       string
+	// eventProps is the telemetry.json object merged onto every event last, so caller keys override the CLI defaults.
+	eventProps map[string]interface{}
 }
 
 var telemetry *Telemetry
@@ -44,6 +63,13 @@ var telemetry *Telemetry
 var (
 	disabledOnce sync.Once
 	disabled     bool
+
+	// initDone closes once Init's background setup finishes. Init does network calls, so an
+	// event sent right after start would otherwise find telemetry nil and be dropped silently.
+	initDone = make(chan struct{})
+
+	// inflight tracks handed-off events so a command about to exit can wait for them.
+	inflight sync.WaitGroup
 )
 
 // Disabled reports whether telemetry is turned off via the TELEMETRY_DISABLED env var.
@@ -69,14 +95,18 @@ type LocationInfo struct {
 
 func Init() {
 	go func() {
+		defer close(initDone)
 		// check for disable
 		if Disabled() {
 			return
 		}
 		ip := getOutboundIP()
+		eventProps := loadEventProps()
 		telemetry = &Telemetry{
 			httpClient: &http.Client{Timeout: 5 * time.Second},
-			userID:     getUserID(),
+			userID:     getUserID(eventProps),
+			service:    getService(eventProps),
+			eventProps: eventProps,
 			platform: platformInfo{
 				OS:           runtime.GOOS,
 				Arch:         runtime.GOARCH,
@@ -104,73 +134,158 @@ func Init() {
 	}()
 }
 
-func TrackDiscover(streamCount int, sourceType string) {
+// send runs an event in the background, recording it so Flush can wait for it. Panics are
+// contained: one here would otherwise kill the command being reported on.
+func send(name string, build func()) {
+	inflight.Add(1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Infof("recovered from panic while sending %s event: %v", name, r)
+			}
+			inflight.Done()
+		}()
+		<-initDone
 		if telemetry == nil {
 			return
 		}
+		build()
+	}()
+}
+
+// Flush waits for handed-off events. Commands call it before exiting:
+func Flush() {
+	if Disabled() {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		inflight.Wait()
+	}()
+	select {
+	case <-done:
+	case <-time.After(flushTimeout):
+		logger.Debugf("telemetry flush timed out after %s", flushTimeout)
+	}
+}
+
+func TrackDiscover(streamCount int, sourceType string) {
+	send("discover", func() {
 		props := map[string]interface{}{
 			"stream_count": streamCount,
 			"source_type":  sourceType,
 		}
-		if err := telemetry.sendEvent("Discover - CLI", props); err != nil {
+		if err := telemetry.sendEvent(eventDiscover, props); err != nil {
 			logger.Debugf("Failed to send Discover event: %v", err)
 		}
-	}()
+	})
 }
 
-func TrackSyncStarted(syncID string, selectedStreams []string, fullLoadStreams, cdcStreams []types.StreamInterface, sourceType string, destinationConfig *types.WriterConfig, catalog *types.Catalog) {
-	go func() {
-		if telemetry == nil {
-			return
-		}
-		catalogType := ""
-		if string(destinationConfig.Type) == "ICEBERG" {
-			catalogType = destinationConfig.WriterConfig.(map[string]interface{})["catalog_type"].(string)
-		}
-		props := map[string]interface{}{
-			"sync_start":          time.Now(),
-			"sync_id":             syncID,
-			"stream_count":        len(catalog.Streams),
-			"selected_count":      len(selectedStreams),
-			"full_load_streams":   len(fullLoadStreams),
-			"cdc_streams":         len(cdcStreams),
-			"source_type":         sourceType,
-			"destination_type":    string(destinationConfig.Type),
-			"catalog_type":        catalogType,
-			"normalized_streams":  countNormalizedStreams(catalog),
-			"partitioned_streams": countPartitionedStreams(catalog),
-		}
+// addStreamMix copies the per-sync stream breakdown onto an event. It rides on both sync
+// events, which are lost independently, and seven integers are cheap.
+func addStreamMix(props map[string]interface{}, mix types.StreamMix) {
+	props["full_refresh_streams_count"] = mix.FullRefresh
+	props["incremental_streams_count"] = mix.Incremental
+	props["cdc_streams_count"] = mix.CDC
+	props["strict_cdc_streams_count"] = mix.StrictCDC
+	props["selected_streams_count"] = mix.Selected
+	props["normalized_streams_count"] = mix.Normalized
+	props["partitioned_streams_count"] = mix.Partitioned
+}
 
-		if err := telemetry.sendEvent("Sync Started - CLI", props); err != nil {
+// destinationShape reads the destination type and catalog type from the destination config
+func destinationShape(destinationConfig *types.WriterConfig) (destinationType, catalogType string) {
+	if destinationConfig == nil {
+		return "", ""
+	}
+	destinationType = string(destinationConfig.Type)
+	if destinationConfig.Type != types.Iceberg {
+		return destinationType, ""
+	}
+	if writerConfig, ok := destinationConfig.WriterConfig.(map[string]interface{}); ok {
+		catalogType, _ = writerConfig["catalog_type"].(string)
+	}
+	return destinationType, catalogType
+}
+
+func TrackSyncStarted(syncID string, mix types.StreamMix, sourceType string, destinationConfig *types.WriterConfig, configuredStreams int) {
+	destinationType, catalogType := destinationShape(destinationConfig)
+
+	send("sync started", func() {
+		props := map[string]interface{}{
+			"sync_start":       time.Now(),
+			"sync_id":          syncID,
+			"stream_count":     configuredStreams,
+			"source_type":      sourceType,
+			"destination_type": destinationType,
+			"catalog_type":     catalogType,
+		}
+		addStreamMix(props, mix)
+
+		if err := telemetry.sendEvent(eventSyncStarted, props); err != nil {
 			logger.Debugf("Failed to send SyncStarted event: %v", err)
 		}
-	}()
+	})
 }
 
-func TrackSyncCompleted(syncID string, status bool, records, bytesRead int64) {
-	go func() {
-		if telemetry == nil {
-			return
-		}
-		props := map[string]interface{}{
-			"sync_id":        syncID,
-			"sync_end":       time.Now(),
-			"sync_status":    utils.Ternary(status, "SUCCESS", "FAILED").(string),
-			"records_synced": records,
-			"bytes_read":     bytesRead,
-		}
+func TrackSyncCompleted(syncID string, mix types.StreamMix, destinationConfig *types.WriterConfig, status bool, records, bytesRead int64) {
+	destinationType, catalogType := destinationShape(destinationConfig)
 
-		if err := telemetry.sendEvent("Sync Completed - CLI", props); err != nil {
+	send("sync completed", func() {
+		props := map[string]interface{}{
+			"sync_id":          syncID,
+			"sync_end":         time.Now(),
+			"sync_status":      utils.Ternary(status, "SUCCESS", "FAILED").(string),
+			"records_synced":   records,
+			"bytes_read":       bytesRead,
+			"destination_type": destinationType,
+			"catalog_type":     catalogType,
+		}
+		addStreamMix(props, mix)
+
+		if err := telemetry.sendEvent(eventSyncCompleted, props); err != nil {
 			logger.Debugf("Failed to send SyncCompleted event: %v", err)
 		}
-	}()
+	})
 }
 
-func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) error {
+// TrackFailure reports why a command failed. The payload is a classification, not a
+// description: every field is a constant from this repo or a code the vendor defines, so no
+// config value, server message or user input can reach it. Absent fields are normal.
+func TrackFailure(command, errorSource, syncID string, f errs.Failure) {
+	send("failure - cli", func() {
+		// The rest of the run's shape is on the sync events, reachable through sync_id.
+		props := map[string]interface{}{
+			"command":       command,
+			"error_source":  errorSource,
+			"category":      string(f.Category),
+			"classified_by": f.ClassifiedBy,
+		}
+		// Absent for every command except sync.
+		if syncID != "" {
+			props["sync_id"] = syncID
+		}
+		// Only send what exists: an absent code is a legitimate slice, not a value to fake.
+		if f.Code != "" {
+			props["code"] = f.Code
+		}
+		if f.ErrorType != "" {
+			props["error_type"] = f.ErrorType
+		}
+
+		if err := telemetry.sendEvent(eventFailure, props); err != nil {
+			logger.Debugf("Failed to send Failure event: %v", err)
+		}
+	})
+}
+
+func (t *Telemetry) sendEvent(event string, props map[string]interface{}) error {
 	if t.httpClient == nil {
 		return fmt.Errorf("telemetry client is nil")
 	}
+
+	eventName := fmt.Sprintf("%s - %s", event, t.service)
 
 	// Add common properties
 	if props == nil {
@@ -181,7 +296,7 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 		"arch":                t.platform.Arch,
 		"olake_version":       t.platform.OlakeVersion,
 		"num_cpu":             t.platform.DeviceCPU,
-		"service":             t.serviceName,
+		"service":             t.service,
 		"ip_address":          t.ipAddress,
 		"location":            t.locationInfo,
 		"distinct_id":         t.userID,
@@ -190,6 +305,11 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	}
 
 	for key, value := range properties {
+		props[key] = value
+	}
+
+	// Applied last so the event props can override the default props.
+	for key, value := range t.eventProps {
 		props[key] = value
 	}
 
@@ -226,7 +346,9 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 
 func getOutboundIP() string {
 	ip := []byte(ipNotFoundPlaceholder)
-	resp, err := http.Get("https://api.ipify.org?format=text")
+	// Timeout to the client so that init dosen't hang forever
+	client := http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("https://api.ipify.org?format=text")
 
 	if err != nil {
 		return string(ip)
@@ -241,7 +363,48 @@ func getOutboundIP() string {
 	return string(ip)
 }
 
-func getUserID() string {
+// getService returns telemetry.json's service, defaulting to the CLI.
+func getService(eventProps map[string]interface{}) string {
+	if service, ok := eventProps[serviceKey].(string); ok {
+		if service = strings.TrimSpace(service); service != "" {
+			return service
+		}
+	}
+	return defaultService
+}
+
+// loadEventProps reads telemetry.json; an absent or malformed one is dropped, never failing the run.
+func loadEventProps() map[string]interface{} {
+	configFolder := viper.GetString(constants.ConfigFolder)
+	if configFolder == "" {
+		return nil
+	}
+
+	file, err := os.Open(filepath.Join(configFolder, eventPropsFile))
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.Debugf("Failed to open %s: %v", eventPropsFile, err)
+		}
+		return nil
+	}
+	defer file.Close()
+
+	var props map[string]interface{}
+	if err := json.NewDecoder(io.LimitReader(file, maxEventPropsFileSize)).Decode(&props); err != nil {
+		logger.Debugf("Ignoring %s, not a JSON object: %v", eventPropsFile, err)
+		return nil
+	}
+	return props
+}
+
+// getUserID prefers telemetry.json's distinct_id; older callers still write user_id.txt.
+func getUserID(eventProps map[string]interface{}) string {
+	if id, ok := eventProps[distinctIDKey].(string); ok {
+		if id = strings.TrimSpace(id); id != "" {
+			return id
+		}
+	}
+
 	// check if id file exists
 	configFolder := viper.GetString(constants.ConfigFolder)
 	if configFolder != "" {
@@ -287,26 +450,4 @@ func getLocationFromIP(ctx context.Context, ip string) (LocationInfo, error) {
 		Region:  info.Region,
 		City:    info.City,
 	}, nil
-}
-
-func countNormalizedStreams(catalog *types.Catalog) int {
-	var count int
-	_ = utils.ForEach(catalog.Streams, func(s *types.ConfiguredStream) error {
-		if s.StreamMetadata.Normalization {
-			count++
-		}
-		return nil
-	})
-	return count
-}
-
-func countPartitionedStreams(catalog *types.Catalog) int {
-	var count int
-	_ = utils.ForEach(catalog.Streams, func(s *types.ConfiguredStream) error {
-		if s.StreamMetadata.PartitionRegex != "" {
-			count++
-		}
-		return nil
-	})
-	return count
 }
