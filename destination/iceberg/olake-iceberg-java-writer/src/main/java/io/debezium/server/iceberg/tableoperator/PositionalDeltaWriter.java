@@ -13,12 +13,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.data.InternalRecordWrapper;
 import org.apache.iceberg.data.Record;
-import org.apache.iceberg.deletes.DeleteGranularity;
-import org.apache.iceberg.deletes.PositionDelete;
-import org.apache.iceberg.deletes.SortingPositionOnlyDeleteWriter;
-import org.apache.iceberg.encryption.EncryptedOutputFile;
 import org.apache.iceberg.io.BaseTaskWriter;
-import org.apache.iceberg.io.DeleteWriteResult;
 import org.apache.iceberg.io.FileAppenderFactory;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFileFactory;
@@ -29,14 +24,16 @@ import com.google.common.collect.Maps;
 
 /**
  * Writes rows as data records plus positional deletes, without touching equality
- * deletes at all.
+ * deletes at all. Serves both {@link DeleteMode#POSITION} and
+ * {@link DeleteMode#DELETION_VECTOR} - they differ only in how {@link #deleteSink}
+ * encodes a superseded position, never in how this class decides which position to
+ * supersede.
  *
- * <p>Both halves are held directly: the data side is {@link BaseTaskWriter}'s own
- * {@code RollingFileWriter}, whose {@code currentPath()} / {@code currentRows()} are
- * public, and the delete side is a {@link SortingPositionOnlyDeleteWriter} per
- * partition. Nothing here reaches into Iceberg internals, which is what the previous
- * implementation needed reflection for: it extended {@code BaseEqualityDeltaWriter},
- * whose data and pos-delete writers are private.
+ * <p>The data side is {@link BaseTaskWriter}'s own {@code RollingFileWriter}, whose
+ * {@code currentPath()} / {@code currentRows()} are public. Nothing here reaches into
+ * Iceberg internals, which is what the reflection-based implementation this replaced
+ * needed: it extended {@code BaseEqualityDeltaWriter}, whose data and pos-delete
+ * writers are private.
  *
  * <p>A partition key is computed for every row, so an unpartitioned table simply has
  * one entry keyed on the empty struct and there is no separate code path for it. The
@@ -46,19 +43,14 @@ import com.google.common.collect.Maps;
 public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements PositionTrackableWriter {
 
   private final PartitionSpec spec;
-  private final FileFormat format;
-  private final FileAppenderFactory<Record> appenderFactory;
-  private final OutputFileFactory fileFactory;
   private final boolean keepDeletes;
-  private final DeleteGranularity deleteGranularity;
+  private final PositionalDeleteSink deleteSink;
 
   private final PartitionKey partitionKeyTemplate;
   private final InternalRecordWrapper wrapper;
   private final List<String> identifierFieldNames;
 
   private final Map<PartitionKey, RollingFileWriter> dataWriters = Maps.newHashMap();
-  private final Map<PartitionKey, SortingPositionOnlyDeleteWriter<Record>> deleteWriters = Maps.newHashMap();
-  private final PositionDelete<Record> positionDelete = PositionDelete.create();
 
   /**
    * Where each identifier written by this writer currently lives.
@@ -93,14 +85,11 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
                         long targetFileSize,
                         Schema schema,
                         boolean keepDeletes,
-                        DeleteGranularity deleteGranularity) {
+                        PositionalDeleteSink deleteSink) {
     super(spec, format, appenderFactory, fileFactory, io, targetFileSize);
     this.spec = spec;
-    this.format = format;
-    this.appenderFactory = appenderFactory;
-    this.fileFactory = fileFactory;
     this.keepDeletes = keepDeletes;
-    this.deleteGranularity = deleteGranularity;
+    this.deleteSink = deleteSink;
     this.partitionKeyTemplate = new PartitionKey(spec, schema);
     this.wrapper = new InternalRecordWrapper(schema.asStruct());
 
@@ -117,6 +106,9 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
   public void write(Record row) throws IOException {
     RecordWrapper wrapped = (RecordWrapper) row;
     PartitionKey key = routeKey(row);
+    // Transient use only - the sink's own routing (per-partition map, or nothing at
+    // all for a shared deletion-vector writer) copies this if it needs to keep it.
+    StructLike partition = partitionOrNull(key);
 
     if (wrapped.hasPositionalDelete()) {
       // NOTE: the delete is routed to the partition of the NEW record, because that is
@@ -124,8 +116,12 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
       // superseded row lives in a different partition and Iceberg will not apply this
       // delete to it. Fixing that needs the old row's partition to travel with the row
       // index entry; the routing here is already per-partition, so only the key changes.
-      deleteWriter(key).write(
-          positionDelete.set(wrapped.deleteFilePath(), wrapped.deletePosition(), null));
+      //
+      // ArrowDeletionVectorWriter resolves it a second way - one planFiles() per commit,
+      // keyed on the data file path - which needs no index change and would fix this
+      // here too. The two paths should converge on one of the two; see the field comment
+      // on its knownPartitions.
+      deleteSink.delete(wrapped.deleteFilePath(), wrapped.deletePosition(), spec, partition);
     }
 
     Object identifier = identifierOf(row);
@@ -137,23 +133,25 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
       return;
     }
 
-    RollingFileWriter dataWriter = dataWriter(row);
+    RollingFileWriter dataWriter = dataWriterFor(key);
+    lastRouted = row;
+    lastDataWriter = dataWriter;
 
     if (identifier == null) {
       dataWriter.write(row);
       return;
     }
 
-    // Resolving the partition's delete writer now, rather than copying a PartitionKey
-    // into every entry, keeps this to one object per row written.
+    // copiedPartitionOrNull(): PathOffset outlives this call (held in insertedRows
+    // until the batch completes), so it needs a stable copy, not the mutable template.
     PathOffset landing = new PathOffset(
-        deleteWriter(key), dataWriter.currentPath().toString(), dataWriter.currentRows());
+        copiedPartitionOrNull(key), dataWriter.currentPath().toString(), dataWriter.currentRows());
     dataWriter.write(row);
 
     PathOffset previous = insertedRows.put(identifier, landing);
     if (previous != null) {
       // Same key written twice by this writer: the earlier row is superseded.
-      previous.deleteWriter.write(positionDelete.set(previous.path, previous.position, null));
+      deleteSink.delete(previous.path, previous.position, spec, previous.partition);
     }
   }
 
@@ -193,7 +191,7 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
     }
     PathOffset previous = insertedRows.remove(identifier);
     if (previous != null) {
-      previous.deleteWriter.write(positionDelete.set(previous.path, previous.position, null));
+      deleteSink.delete(previous.path, previous.position, spec, previous.partition);
     }
   }
 
@@ -216,18 +214,25 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
     return partitionKeyTemplate;
   }
 
+  /**
+   * currentPath()/currentRows() are sampled by the caller before write() is called for
+   * the same record, so this is invoked three times in a row for one row. Caching on
+   * record identity collapses that back to one partition-key evaluation and one map
+   * lookup; write() itself only runs once per record, so it calls
+   * {@link #dataWriterFor(PartitionKey)} directly instead.
+   */
   private RollingFileWriter dataWriter(Record row) {
     if (row == lastRouted) {
       return lastDataWriter;
     }
 
-    RollingFileWriter writer = dataWriter(routeKey(row));
+    RollingFileWriter writer = dataWriterFor(routeKey(row));
     lastRouted = row;
     lastDataWriter = writer;
     return writer;
   }
 
-  private RollingFileWriter dataWriter(PartitionKey key) {
+  private RollingFileWriter dataWriterFor(PartitionKey key) {
     RollingFileWriter writer = dataWriters.get(key);
     if (writer == null) {
       // the template is mutated on every route, so the map must own a copy
@@ -238,32 +243,20 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
     return writer;
   }
 
-  private SortingPositionOnlyDeleteWriter<Record> deleteWriter(PartitionKey key) {
-    SortingPositionOnlyDeleteWriter<Record> writer = deleteWriters.get(key);
-    if (writer == null) {
-      PartitionKey copiedKey = key.copy();
-      StructLike partition = partitionOrNull(copiedKey);
-      writer = new SortingPositionOnlyDeleteWriter<>(
-          () -> appenderFactory.newPosDeleteWriter(newDeleteOutputFile(partition), format, partition),
-          deleteGranularity);
-      deleteWriters.put(copiedKey, writer);
-    }
-    return writer;
-  }
-
-  private EncryptedOutputFile newDeleteOutputFile(StructLike partition) {
-    return partition == null ? fileFactory.newOutputFile() : fileFactory.newOutputFile(spec, partition);
-  }
-
   /** Iceberg rejects a non-null partition on an unpartitioned spec, and vice versa. */
   private StructLike partitionOrNull(PartitionKey key) {
     return spec.isUnpartitioned() ? null : key;
   }
 
+  /** Same as {@link #partitionOrNull}, but a stable copy safe to hold beyond this call. */
+  private StructLike copiedPartitionOrNull(PartitionKey key) {
+    return spec.isUnpartitioned() ? null : key.copy();
+  }
+
   @Override
   public WriteResult complete() throws IOException {
-    // super.complete() closes this writer, which flushes every delete writer, so the
-    // results below are only readable afterwards.
+    // super.complete() closes this writer, which flushes the delete sink, so its
+    // result is only readable afterwards.
     WriteResult dataResult = super.complete();
 
     WriteResult.Builder builder = WriteResult.builder()
@@ -271,11 +264,7 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
         .addDeleteFiles(dataResult.deleteFiles())
         .addReferencedDataFiles(dataResult.referencedDataFiles());
 
-    for (SortingPositionOnlyDeleteWriter<Record> writer : deleteWriters.values()) {
-      DeleteWriteResult result = writer.result();
-      builder.addDeleteFiles(result.deleteFiles());
-      builder.addReferencedDataFiles(result.referencedDataFiles());
-    }
+    deleteSink.addTo(builder);
 
     return builder.build();
   }
@@ -294,10 +283,8 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
     }
     dataWriters.clear();
 
-    // Deliberately not cleared: complete() reads each writer's result after close.
-    for (SortingPositionOnlyDeleteWriter<Record> writer : deleteWriters.values()) {
-      failure = closeQuietly(writer, failure);
-    }
+    // Closed last, and its result is not discarded: complete() reads it right after.
+    failure = closeQuietly(deleteSink, failure);
 
     if (failure != null) {
       throw failure;
@@ -320,12 +307,12 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
 
   /** Where a row this writer produced landed. */
   private static final class PathOffset {
-    private final SortingPositionOnlyDeleteWriter<Record> deleteWriter;
+    private final StructLike partition;
     private final String path;
     private final long position;
 
-    private PathOffset(SortingPositionOnlyDeleteWriter<Record> deleteWriter, String path, long position) {
-      this.deleteWriter = deleteWriter;
+    private PathOffset(StructLike partition, String path, long position) {
+      this.partition = partition;
       this.path = path;
       this.position = position;
     }

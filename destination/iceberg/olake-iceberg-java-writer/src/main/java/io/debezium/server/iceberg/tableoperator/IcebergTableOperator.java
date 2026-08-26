@@ -38,6 +38,7 @@ import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.io.BaseTaskWriter;
+import org.apache.iceberg.io.TaskWriter;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.io.FileIO;
@@ -66,22 +67,37 @@ public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
 
-  BaseTaskWriter<Record> writer;
+  TaskWriter<Record> writer;
 
   ArrayList<Pair<ArrayList<DeleteFile>, ArrayList<DataFile>>> filesToCommit = new ArrayList<>();
 
+  /**
+   * Delete files a deletion-vector writer's output supersedes. Iceberg allows one
+   * vector per data file, so a commit that touches a file which already has a vector
+   * must retire the old one in the SAME commit or the table ends up with two. Always
+   * empty in eq/pos mode - only DeleteMode.DELETION_VECTOR's writer ever populates it,
+   * via WriteResult.rewrittenDeleteFiles().
+   */
+  ArrayList<DeleteFile> rewrittenDeleteFiles = new ArrayList<>();
+
   public IcebergTableOperator(boolean upsert_records) {
-    this(upsert_records, false);
+    this(upsert_records, DeleteMode.EQUALITY);
   }
 
-  public IcebergTableOperator(boolean upsert_records, boolean usePositionalDeletes) {
+  public IcebergTableOperator(boolean upsert_records, DeleteMode deleteMode) {
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
     writerFactory2.upsert = upsert_records;
-    writerFactory2.usePositionalDeletes = usePositionalDeletes;
+    writerFactory2.deleteMode = deleteMode;
     this.allowFieldAddition = true;
     this.upsert = upsert_records;
-    this.usePositionalDeletes = usePositionalDeletes;
+    this.deleteMode = deleteMode;
+    // Kept as a plain boolean because it drives write-run tracking in
+    // addToTablePerSchema below, which is identical for pos and dv - both need the
+    // caller's table index updated with where every row landed. Only the writer
+    // factory (which encoding to use for a superseded position) branches on the
+    // full three-way mode.
+    this.usePositionalDeletes = deleteMode.addressesPositions();
     this.cdcOpField = "_op_type";
     this.cdcSourceTsMsField = "_cdc_timestamp";
   }
@@ -106,6 +122,7 @@ public class IcebergTableOperator {
   boolean allowFieldAddition;
   boolean upsert;
   boolean usePositionalDeletes;
+  DeleteMode deleteMode = DeleteMode.EQUALITY;
   /**
    * If given schema contains new fields compared to target table schema then it
    * adds new fields to target iceberg
@@ -151,6 +168,7 @@ public class IcebergTableOperator {
   
     if (filesToCommit.isEmpty()) {
       LOGGER.info("No files to commit for thread: {}", threadId);
+      rewrittenDeleteFiles.clear();
       if (table.currentSnapshot() != null) {
         return 0L;
       }
@@ -182,6 +200,7 @@ public class IcebergTableOperator {
     if (totalDataFiles == 0 && totalDeleteFiles == 0) {
       LOGGER.info("No files to commit for thread: {}", threadId);
       filesToCommit.clear();
+      rewrittenDeleteFiles.clear();
       return 0L;
     }
   
@@ -217,23 +236,41 @@ public class IcebergTableOperator {
         if (baseSnapshotId != null) {
           rowDelta.validateFromSnapshot(baseSnapshotId);
           rowDelta.validateDeletedFiles();
+          // Guards the PreviousDeleteLoader staleness window (deletion-vector mode
+          // only reads existing deletes once, at session start): if a concurrent
+          // writer added a delete to a data file we also reference since baseSnapshotId,
+          // our merged vector would silently drop their deletion. Fail the commit
+          // instead of publishing a vector that undoes someone else's delete.
+          rowDelta.validateNoConflictingDeleteFiles();
 
           Set<CharSequence> referencedDataFiles = new HashSet<>();
           for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
             ArrayList<DeleteFile> deleteFiles = unit.first();
             if (deleteFiles != null) {
               for (DeleteFile deleteFile : deleteFiles) {
-                if (deleteFile.content() == FileContent.POSITION_DELETES) {
-                  try (CloseableIterable<Object> rows = TableIndexScanner.openParquet(table, deleteFile.location(), DeleteSchemaUtil.pathPosSchema())) {
-                    for (Object row : rows) {
-                      Object filePath = TableIndexScanner.getFieldValue(row, "file_path");
-                      if (filePath != null) {
-                        referencedDataFiles.add(filePath.toString());
-                      }
+                if (deleteFile.content() != FileContent.POSITION_DELETES) {
+                  continue;
+                }
+                // A deletion vector (and any positional delete file scoped to a single
+                // data file) carries the file it references directly - no need to open
+                // it, and a vector cannot be opened as Parquet if we tried.
+                String single = deleteFile.referencedDataFile();
+                if (single != null) {
+                  referencedDataFiles.add(single);
+                  continue;
+                }
+                // PARTITION-granularity Parquet positional delete files can span every
+                // data file in a partition, so referencedDataFile() is null; read the
+                // file to enumerate all of them.
+                try (CloseableIterable<Object> rows = TableIndexScanner.openParquet(table, deleteFile.location(), DeleteSchemaUtil.pathPosSchema())) {
+                  for (Object row : rows) {
+                    Object filePath = TableIndexScanner.getFieldValue(row, "file_path");
+                    if (filePath != null) {
+                      referencedDataFiles.add(filePath.toString());
                     }
-                  } catch (Exception e) {
-                    LOGGER.warn("Failed to read referenced data files from positional delete file {}", deleteFile.location(), e);
                   }
+                } catch (Exception e) {
+                  LOGGER.warn("Failed to read referenced data files from positional delete file {}", deleteFile.location(), e);
                 }
               }
             }
@@ -257,6 +294,12 @@ public class IcebergTableOperator {
             deleteFiles.forEach(rowDelta::addDeletes);
           }
         }
+
+        // Deletion-vector replace semantics: a superseded vector must leave the table
+        // in the SAME commit the new one arrives in, or the table ends up with two
+        // vectors for one data file. Always empty outside DELETION_VECTOR mode.
+        rewrittenDeleteFiles.forEach(rowDelta::removeDeletes);
+
         rowDelta.commit();
       }
 
@@ -273,6 +316,7 @@ public class IcebergTableOperator {
           totalDataFiles, totalDeleteFiles, threadId,  staged.snapshotId());
   
       filesToCommit.clear();
+      rewrittenDeleteFiles.clear();
       LOGGER.info("Staged snapshot id: {}, base snapshot id: {}, parent snapshot id: {}", staged.snapshotId(), baseSnapshotId, staged.parentId());
       // check commit parent snapshot if it is not equal to base, then return 0 so that indexer will not save latest snapshot
       if  (staged.parentId() != null && !Objects.equals(baseSnapshotId, staged.parentId())) {
@@ -297,6 +341,9 @@ public class IcebergTableOperator {
       ArrayList<DeleteFile> deleteFiles = new ArrayList<>(Arrays.asList(writerResult.deleteFiles()));
       ArrayList<DataFile> dataFiles = new ArrayList<>(Arrays.asList(writerResult.dataFiles()));
       filesToCommit.add(filesToCommit.size(), Pair.of(deleteFiles, dataFiles));
+      // Only ever non-empty for a deletion-vector writer: the vectors it just wrote
+      // supersede ones already on the table, and those must be retired at commit.
+      rewrittenDeleteFiles.addAll(Arrays.asList(writerResult.rewrittenDeleteFiles()));
     } catch (IOException e) {
       LOGGER.error("Failed to complete writer", e);
       throw new RuntimeException("Failed to complete writer", e);
@@ -544,7 +591,39 @@ public class IcebergTableOperator {
           }
      }
 
-     private PartitionData partitionDataFromTypedValues(PartitionSpec spec,
+     /**
+      * Accumulates delete files that are already built, rather than reconstructing their
+      * metadata from a path the way the register* methods do.
+      *
+      * <p>Used by the arrow deletion-vector path, where {@code BaseDVFileWriter} hands
+      * back finished {@link DeleteFile}s (content offsets, referenced data file and
+      * cardinality all set) that could not be rebuilt from a path alone.
+      *
+      * @param rewritten vectors the new ones supersede. Removed in the same commit that
+      *        adds their replacements, since a data file may carry only one vector.
+      */
+     public void registerBuiltDeleteFiles(String threadId, List<DeleteFile> deleteFiles,
+               List<DeleteFile> rewritten) {
+          if (deleteFiles.isEmpty() && rewritten.isEmpty()) {
+               return;
+          }
+
+          if (filesToCommit.isEmpty()) {
+               filesToCommit.add(Pair.of(new ArrayList<DeleteFile>(), new ArrayList<DataFile>()));
+          }
+          filesToCommit.get(0).first().addAll(deleteFiles);
+          rewrittenDeleteFiles.addAll(rewritten);
+
+          LOGGER.info("Thread {}: accumulated {} deletion vector(s), superseding {} existing delete file(s)",
+                    threadId, deleteFiles.size(), rewritten.size());
+     }
+
+     /**
+      * Public because the arrow deletion-vector path needs the partition of the data
+      * files this same commit is adding: they are not in table metadata yet, so
+      * {@code DeletionVectorConverter} cannot resolve them by scanning.
+      */
+     public PartitionData partitionDataFromTypedValues(PartitionSpec spec,
                List<ArrowPayload.FileMetadata.PartitionValue> partitionValues) {
           PartitionData partitionData = new PartitionData(spec.partitionType());
           if (partitionValues == null || partitionValues.isEmpty()) {

@@ -33,6 +33,19 @@ type ArrowWriter struct {
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
 	indexThread    *types.StreamIndexThread
+	// deleteMode decides how superseded rows are expressed. Under
+	// types.DeleteModeDeletionVector no delete file is written at all: format
+	// version 3 rejects positional delete files, so the positions are streamed to
+	// the server, which encodes them as Puffin vectors.
+	deleteMode types.DeleteMode
+	// pendingVectors buffers positions until a batch is worth sending, grouped by
+	// the data file holding them. Only used under DeleteModeDeletionVector.
+	pendingVectors     map[string][]int64
+	pendingVectorCount int
+	// sessionFilePartitions records the partition of every data file this session
+	// has written. The server cannot resolve those by scanning - they are not in
+	// table metadata until the commit this sync ends with.
+	sessionFilePartitions map[string][]any
 }
 
 type Writer struct {
@@ -79,6 +92,10 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
 		indexThread:   types.NewStreamIndexThread(options.TableIndex),
+		deleteMode:    stream.GetDeleteMode(),
+
+		pendingVectors:        make(map[string][]int64),
+		sessionFilePartitions: make(map[string][]any),
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -148,7 +165,9 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 				return nil, err
 			}
 		}
-		if writer.positionalDeleteWriter == nil {
+		// Deletion vectors are encoded server-side from streamed positions, so this
+		// mode writes no delete file of its own - see sendPendingVectors.
+		if writer.positionalDeleteWriter == nil && w.deleteMode != types.DeleteModeDeletionVector {
 			if writer.positionalDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypePositionalDelete], fileTypePositionalDelete); err != nil {
 				return nil, err
 			}
@@ -249,7 +268,11 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		}
 
 		if w.upsertMode {
-			if len(writer.positionalDeletes) > 0 {
+			if w.deleteMode == types.DeleteModeDeletionVector {
+				if err := w.queueVectorDeletes(ctx, writer.positionalDeletes); err != nil {
+					return err
+				}
+			} else if len(writer.positionalDeletes) > 0 {
 				posRecord := createPositionalDeleteArrowRecord(writer.positionalDeletes, w.allocator, w.arrowSchema[fileTypePositionalDelete])
 				if err := writer.positionalDeleteWriter.currentWriter.WriteBuffered(posRecord); err != nil {
 					posRecord.Release()
@@ -332,6 +355,7 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, part
 		return nil, fmt.Errorf("failed to allocate new file path after flush: %s", err)
 	}
 	newWriter.filePath = newFilePath
+	w.recordSessionFile(newWriter)
 
 	return newWriter, nil
 }
@@ -371,6 +395,12 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err error) {
 	if err := w.completeWriters(ctx); err != nil {
 		return fmt.Errorf("failed to close arrow writers: %s", err)
+	}
+
+	// The trailing partial batch has to reach the server before the commit, which is
+	// where the vectors holding it are published.
+	if err := w.sendPendingVectors(ctx); err != nil {
+		return err
 	}
 
 	// Build ordered file list: equality deletes → data → positional deletes
@@ -552,6 +582,7 @@ func (w *ArrowWriter) createWriter(ctx context.Context, pKey string, values []an
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rolling writer: %s", err)
 	}
+	w.recordSessionFile(rw)
 
 	return rw, nil
 }
@@ -581,6 +612,85 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Sc
 		currentRowCount: 0,
 		partitionValues: values,
 	}, nil
+}
+
+// recordSessionFile remembers a data file's partition so a deletion vector aimed at
+// it can be stamped correctly. The server cannot work this out itself: the file is
+// not in table metadata until the commit at the end of this sync.
+//
+// Must be called wherever a data file path is finalised, which is both createWriter
+// and checkAndFlush - the latter rolls a new file without going through the former,
+// and a position landing in a rolled file has nowhere else to get its partition from.
+func (w *ArrowWriter) recordSessionFile(rw *RollingWriter) {
+	if w.deleteMode != types.DeleteModeDeletionVector || rw.fileType != fileTypeData {
+		return
+	}
+	w.sessionFilePartitions[rw.filePath] = rw.partitionValues
+}
+
+// queueVectorDeletes buffers positions and ships them once enough have accumulated.
+// Sending during the sync rather than at commit keeps memory flat on both sides and
+// overlaps the encoding with the rest of the work.
+func (w *ArrowWriter) queueVectorDeletes(ctx context.Context, deletes []PositionalDelete) error {
+	for _, d := range deletes {
+		w.pendingVectors[d.FilePath] = append(w.pendingVectors[d.FilePath], d.Position)
+	}
+	w.pendingVectorCount += len(deletes)
+
+	if w.pendingVectorCount < deletionVectorBatchSize {
+		return nil
+	}
+	return w.sendPendingVectors(ctx)
+}
+
+// sendPendingVectors hands the buffered positions to the server, which folds them
+// into the deletion vectors it publishes at commit.
+func (w *ArrowWriter) sendPendingVectors(ctx context.Context) error {
+	if w.pendingVectorCount == 0 {
+		return nil
+	}
+
+	entries := make([]*proto.ArrowPayload_DeletionVectorBatch_Entry, 0, len(w.pendingVectors))
+	for path, positions := range w.pendingVectors {
+		entry := &proto.ArrowPayload_DeletionVectorBatch_Entry{
+			DataFilePath: path,
+			Positions:    positions,
+		}
+
+		// Only this session's files need their partition sent; anything else is
+		// already committed, so the server can resolve it from table metadata.
+		if values, ok := w.sessionFilePartitions[path]; ok {
+			partitionValues, err := toProtoPartitionValues(values)
+			if err != nil {
+				return fmt.Errorf("failed to convert partition values of %s: %s", path, err)
+			}
+			entry.PartitionValues = partitionValues
+			entry.PartitionKnown = true
+		}
+
+		entries = append(entries, entry)
+	}
+
+	request := &proto.ArrowPayload{
+		Type: proto.ArrowPayload_DELETION_VECTORS,
+		Metadata: &proto.ArrowPayload_Metadata{
+			ThreadId: w.options.ThreadID,
+			DeletionVectors: &proto.ArrowPayload_DeletionVectorBatch{
+				Entries: entries,
+			},
+		},
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
+	defer cancel()
+
+	if _, err := w.server.SendClientRequest(reqCtx, request); err != nil {
+		return fmt.Errorf("failed to send position deletes: %s", err)
+	}
+
+	w.pendingVectors = make(map[string][]int64)
+	w.pendingVectorCount = 0
+	return nil
 }
 
 func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string) (string, error) {

@@ -18,6 +18,7 @@ import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.SchemaConvertor;
 import io.debezium.server.iceberg.tableIndex.EqualityDeleteMigrator;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
+import io.debezium.server.iceberg.tableoperator.DeleteMode;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
 
@@ -115,20 +116,20 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 }
                 String identifierField = metadata.getIdentifierField();
                 boolean upsert = metadata.getUpsert();
-                boolean usePositionalDeletes = metadata.getUsePositionalDeletes();
+                DeleteMode deleteMode = DeleteMode.resolve(metadata.getDeleteMode());
                 List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
                 List<Map<String, String>> partitionTransforms = toPartitionList(metadata.getPartitionFieldsList());
                 TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
 
                 // If a session already exists for this threadId, remove it to force recreation
                 sessions.remove(threadId);
-                
+
                 // computeIfAbsent creates a new session since we just removed any existing one
                 session = sessions.computeIfAbsent(threadId,
                         k -> {
                             Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
-                            Table icebergTable = loadOrCreateTable(tid, schema, partitionTransforms);
-                            return new IcebergSession(icebergTable, upsert, identifierField, usePositionalDeletes);
+                            Table icebergTable = loadOrCreateTable(tid, schema, partitionTransforms, deleteMode);
+                            return new IcebergSession(icebergTable, upsert, identifierField, deleteMode);
                         });
             } else {
                 // RECORDS / COMMIT / EVOLVE_SCHEMA / REFRESH_TABLE_SCHEMA: the
@@ -236,7 +237,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         Snapshot current = table.currentSnapshot();
         if (current != null) {
             builder.setSnapshotId(current.snapshotId());
-            if (session.usePositionalDeletes) {
+            if (session.deleteMode.addressesPositions()) {
                 builder.setHasEqualityDeletes(EqualityDeleteMigrator.hasEqualityDeletes(table));
             }
         }
@@ -245,18 +246,64 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         responseObserver.onCompleted();
     }
 
-    private Table loadOrCreateTable(TableIdentifier tableId, Schema schema, List<Map<String, String>> partitionTransforms) {
-        return IcebergUtil.loadIcebergTable(icebergCatalog, tableId).orElseGet(() -> {
-            try {
-                // no need to check if the table already exists, because the table is created by the thread that calls the get_or_create_table method
-                return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms);
-            } catch (Exception e) {
-                String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s",
-                                                    tableId, e.getMessage());
-                LOGGER.error(errorMessage, e);
-                throw new RuntimeException(errorMessage, e);
-            }
-        });
+    private Table loadOrCreateTable(TableIdentifier tableId, Schema schema, List<Map<String, String>> partitionTransforms,
+            DeleteMode deleteMode) {
+        java.util.Optional<Table> existing = IcebergUtil.loadIcebergTable(icebergCatalog, tableId);
+        if (existing.isPresent()) {
+            Table table = existing.get();
+            validateOrUpgradeFormatVersion(table, deleteMode);
+            return table;
+        }
+
+        try {
+            // no need to check if the table already exists, because the table is created by the thread that calls the get_or_create_table method
+            return IcebergUtil.createIcebergTable(icebergCatalog, tableId, schema, "parquet", partitionTransforms,
+                    deleteMode.minimumFormatVersion());
+        } catch (Exception e) {
+            String errorMessage = String.format("Failed to create table from debezium event schema: %s Error: %s",
+                                                tableId, e.getMessage());
+            LOGGER.error(errorMessage, e);
+            throw new RuntimeException(errorMessage, e);
+        }
+    }
+
+    /**
+     * Checks the requested delete mode against the table's actual format version
+     * before any writer is built, rather than letting Iceberg reject it at commit
+     * time after a whole sync's worth of work.
+     */
+    private void validateOrUpgradeFormatVersion(Table table, DeleteMode deleteMode) {
+        int current = ((org.apache.iceberg.HasTableOperations) table).operations().current().formatVersion();
+        int required = deleteMode.minimumFormatVersion();
+
+        if (current < required) {
+            // e.g. a stream reconfigured from eq/pos to dv against a table that
+            // already exists at v2. One-way; see IcebergUtil.ensureFormatVersion.
+            IcebergUtil.ensureFormatVersion(table, required);
+            return;
+        }
+
+        if (deleteMode != DeleteMode.DELETION_VECTOR && current >= 3) {
+            // v3 forbids Parquet positional delete files, and both remaining modes can
+            // produce one: pos writes them directly, and eq's in-session dedup for a key
+            // repeated within a batch (Iceberg's own BaseEqualityDeltaWriter.insertedRowMap)
+            // emits one too. Either way Iceberg rejects the commit, so fail here instead of
+            // after a whole sync's worth of work.
+            //
+            // Reachable when a table was created/upgraded under dv and the stream is later
+            // reconfigured to eq or pos without dropping the table. Format version is
+            // per-table and one-way, so this also covers two streams sharing one table
+            // with different update_type settings.
+            //
+            // TODO: support eq on v3 by routing it to a writer that sends its dedup
+            // positions to a deletion vector instead of a positional delete file. Needs a
+            // FileWriterFactory, which means either Iceberg >= 1.11 (GenericFileWriterFactory
+            // is package-private in 1.10.2) or an adapter over the existing FileAppenderFactory.
+            throw new IllegalStateException(String.format(
+                "%s is format-version %d, which forbids positional delete files. "
+                    + "update_type=%s is not supported on this table; use update_type=dv.",
+                table.name(), current, deleteMode.wireName()));
+        }
     }
 
     private static List<Map<String, String>> toPartitionList(List<IcebergPayload.PartitionField> protos) {
