@@ -1226,23 +1226,6 @@ func TestGetDestDBPrefix(t *testing.T) {
 		assert.False(t, constantValue)
 		assert.Equal(t, "pg", prefix)
 	})
-
-	t.Run("skips selected stream missing from streams", func(t *testing.T) {
-		catalog := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "prefix:public"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {
-					{StreamName: "users", DestinationDatabase: "prefix:public"},
-					{StreamName: "ghost"},
-				},
-			},
-		}
-		constantValue, prefix := getDestDBPrefix(catalog)
-		assert.False(t, constantValue)
-		assert.Equal(t, "prefix", prefix)
-	})
 }
 
 // validateBasicSchemas checks if two schemas have the same properties
