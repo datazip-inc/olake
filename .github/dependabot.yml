@@ -46,14 +46,13 @@ updates:
   - package-ecosystem: "github-actions"
     directories:
       - "/"
-      - "/.github/actions/buildx"
-      - "/.github/actions/detect-drivers"
-      - "/.github/actions/driver-deps"
-      - "/.github/actions/go-caches"
-      - "/.github/actions/iceberg-jar"
+      - "/.github/actions/*"
     target-branch: "staging"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
+    groups:
+      github-actions:
+        update-types: ["minor", "patch"]
