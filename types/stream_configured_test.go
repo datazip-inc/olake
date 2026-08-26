@@ -447,3 +447,175 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestConfiguredStream_GetSyncMode(t *testing.T) {
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     SyncMode
+	}{
+		{
+			name:   "legacy format reads from stream",
+			stream: &Stream{SyncMode: SyncMode("cdc")},
+			want:   SyncMode("cdc"),
+		},
+		{
+			name:     "new format reads from metadata",
+			stream:   &Stream{},
+			metadata: StreamMetadata{SyncMode: SyncMode("cdc")},
+			want:     SyncMode("cdc"),
+		},
+		{
+			name:     "metadata wins over stream when both set",
+			stream:   &Stream{SyncMode: SyncMode("full_refresh")},
+			metadata: StreamMetadata{SyncMode: SyncMode("cdc")},
+			want:     SyncMode("cdc"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.GetSyncMode())
+		})
+	}
+}
+
+func TestConfiguredStream_Cursor(t *testing.T) {
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		wantPri  string
+		wantSec  string
+	}{
+		{
+			name:    "legacy format reads from stream",
+			stream:  &Stream{CursorField: "updated_at"},
+			wantPri: "updated_at",
+			wantSec: "",
+		},
+		{
+			name:     "new format reads from metadata",
+			stream:   &Stream{},
+			metadata: StreamMetadata{CursorField: "updated_at"},
+			wantPri:  "updated_at",
+			wantSec:  "",
+		},
+		{
+			name:     "metadata wins over stream when both set",
+			stream:   &Stream{CursorField: "created_at"},
+			metadata: StreamMetadata{CursorField: "updated_at"},
+			wantPri:  "updated_at",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			primary, secondary := s.Cursor()
+			assert.Equal(t, tt.wantPri, primary)
+			assert.Equal(t, tt.wantSec, secondary)
+		})
+	}
+}
+
+func TestConfiguredStream_GetDestinationDatabase(t *testing.T) {
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     string
+	}{
+		{
+			name:   "legacy format reads from stream",
+			stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"},
+			want:   "legacy_db",
+		},
+		{
+			name:     "new format reads from metadata",
+			stream:   &Stream{Name: "users", Namespace: "public"},
+			metadata: StreamMetadata{DestinationDatabase: "new_db"},
+			want:     "new_db",
+		},
+		{
+			name:     "metadata wins over stream when both set",
+			stream:   &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"},
+			metadata: StreamMetadata{DestinationDatabase: "new_db"},
+			want:     "new_db",
+		},
+		{
+			name: "falls back to default_stream_properties when metadata and stream empty",
+			stream: &Stream{
+				Name:      "users",
+				Namespace: "public",
+				DefaultStreamProperties: &DefaultStreamProperties{
+					DestinationDatabase: "discover_db_public",
+				},
+			},
+			want: "discover_db_public",
+		},
+		{
+			name:   "falls back to namespace when all empty",
+			stream: &Stream{Name: "users", Namespace: "public"},
+			want:   "public",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.GetDestinationDatabase(nil))
+		})
+	}
+}
+
+func TestConfiguredStream_GetDestinationTable(t *testing.T) {
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     string
+	}{
+		{
+			name:   "legacy format reads from stream",
+			stream: &Stream{Name: "users", DestinationTable: "legacy_table"},
+			want:   "legacy_table",
+		},
+		{
+			name:     "new format reads from metadata",
+			stream:   &Stream{Name: "users"},
+			metadata: StreamMetadata{DestinationTable: "new_table"},
+			want:     "new_table",
+		},
+		{
+			name:     "metadata wins over stream when both set",
+			stream:   &Stream{Name: "users", DestinationTable: "legacy_table"},
+			metadata: StreamMetadata{DestinationTable: "new_table"},
+			want:     "new_table",
+		},
+		{
+			name: "falls back to default_stream_properties when metadata and stream empty",
+			stream: &Stream{
+				Name: "users",
+				DefaultStreamProperties: &DefaultStreamProperties{
+					DestinationTable: "discover_users",
+				},
+			},
+			want: "discover_users",
+		},
+		{
+			name:   "falls back to stream name when all empty",
+			stream: &Stream{Name: "users"},
+			want:   "users",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.GetDestinationTable())
+		})
+	}
+}

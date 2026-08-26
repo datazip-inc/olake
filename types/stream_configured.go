@@ -166,10 +166,11 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return resolveConfigurableField(s.StreamMetadata.SyncMode, s.Stream.SyncMode)
 }
 
-// TODO(BEFORE_MERGE): discuss behavior when destination_database and/or destination_table are missing
-// from both selected_streams and streams[] (split-streams clears them from streams[]).
 func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 	destDB := resolveConfigurableField(s.StreamMetadata.DestinationDatabase, s.Stream.DestinationDatabase)
+	if destDB == "" && s.Stream.DefaultStreamProperties != nil {
+		destDB = s.Stream.DefaultStreamProperties.DestinationDatabase
+	}
 	if destDB != "" {
 		return utils.Reformat(destDB)
 	}
@@ -181,6 +182,9 @@ func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 
 func (s *ConfiguredStream) GetDestinationTable() string {
 	destTable := resolveConfigurableField(s.StreamMetadata.DestinationTable, s.Stream.DestinationTable)
+	if destTable == "" && s.Stream.DefaultStreamProperties != nil {
+		destTable = s.Stream.DefaultStreamProperties.DestinationTable
+	}
 	return utils.Ternary(destTable == "", s.Stream.Name, destTable).(string)
 }
 

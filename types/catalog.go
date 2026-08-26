@@ -329,7 +329,20 @@ func getDestDBPrefix(catalog *Catalog) (constantValue bool, prefix string) {
 	for namespace, metadataList := range catalog.SelectedStreams {
 		for _, metadata := range metadataList {
 			streamID := fmt.Sprintf("%s.%s", namespace, metadata.StreamName)
+			// Stale selected_streams entries (no matching streams[]) would append "" and break prefix detection.
+			if _, ok := streamDestDB[streamID]; !ok {
+				continue
+			}
 			destDBs = append(destDBs, resolveConfigurableField(metadata.DestinationDatabase, streamDestDB[streamID]))
+		}
+	}
+
+	// Legacy catalogs: dest DB may live only on streams[] when selected_streams is empty or nil.
+	if len(destDBs) == 0 {
+		for _, s := range catalog.Streams {
+			if s.Stream != nil && s.Stream.DestinationDatabase != "" {
+				destDBs = append(destDBs, s.Stream.DestinationDatabase)
+			}
 		}
 	}
 
