@@ -43,6 +43,32 @@ var ServiceCodeCategories = map[string]errs.Category{
 
 	"RequestTimeout": errs.Timeout,
 
+	// Account-wide codes, returned by any AWS service rather than by S3. A Glue or Lake Formation
+	// catalog reports credential failures with these, under a base *Exception class that names
+	// nothing on its own.
+	"UnrecognizedClientException": errs.AuthFailed, // the security token is not valid
+	"InvalidClientTokenId":        errs.AuthFailed,
+	"ExpiredTokenException":       errs.AuthFailed,
+	"IncompleteSignature":         errs.AuthFailed,
+	"MissingAuthenticationToken":  errs.AuthFailed,
+	"AuthFailure":                 errs.AuthFailed,
+	"AccessDeniedException":       errs.PermissionDenied,
+	"EntityNotFoundException":     errs.ObjectNotFound, // Glue: no such database or table
+
+	// Glue catalog codes, returned under GlueException or as a dedicated SDK class.
+	"ConcurrentModificationException":      errs.ConcurrencyConflict,
+	"InvalidInputException":                errs.ConfigInvalid,
+	"InternalServiceException":             errs.NetworkUnreachable,
+	"InternalServerException":              errs.NetworkUnreachable,
+	"OperationTimeoutException":            errs.Timeout,
+	"ResourceNumberLimitExceededException": errs.ResourceExhausted,
+	"VersionMismatchException":             errs.ConcurrencyConflict,
+	"AlreadyExistsException":               errs.CatalogError,
+	"GlueEncryptionException":              errs.PermissionDenied,
+	"OperationNotSupportedException":       errs.UnsupportedFeature,
+	"ResourceNotFoundException":            errs.ObjectNotFound,
+	"ValidationException":                  errs.ConfigInvalid,
+
 	// SDK v1 only: raised before any request leaves the process, so no HTTP status, no v2 twin.
 	"NoCredentialProviders": errs.AuthFailed,    // the credential chain found nothing
 	"MissingRegion":         errs.ConfigInvalid, // no region configured or inferable

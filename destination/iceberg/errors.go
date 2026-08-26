@@ -35,22 +35,38 @@ var startupCause = regexp.MustCompile(`Iceberg writer failed to start \[([^\]]+)
 // javaExceptions maps the exception the Iceberg JVM caught to a failure category.
 var javaExceptions = map[string]errs.Category{
 	// The catalog does not have it.
-	"NoSuchTableException":     errs.ObjectNotFound,
-	"NoSuchNamespaceException": errs.ObjectNotFound,
-	"NoSuchViewException":      errs.ObjectNotFound,
-	"EntityNotFoundException":  errs.ObjectNotFound,
-	"NoSuchKeyException":       errs.ObjectNotFound,
+	"NoSuchTableException":        errs.ObjectNotFound,
+	"NoSuchNamespaceException":    errs.ObjectNotFound,
+	"NoSuchViewException":         errs.ObjectNotFound,
+	"EntityNotFoundException":     errs.ObjectNotFound,
+	"NoSuchKeyException":          errs.ObjectNotFound,
+	"NoSuchWarehouseException":    errs.ObjectNotFound,
+	"NoSuchObjectException":       errs.ObjectNotFound,
+	"UnknownDBException":          errs.ObjectNotFound,
+	"NotFoundException":           errs.ObjectNotFound,
+	"NoSuchIcebergTableException": errs.ObjectNotFound,
+	"NoSuchIcebergViewException":  errs.ObjectNotFound,
 
 	// At the catalog or at object storage.
 	"NotAuthorizedException": errs.AuthFailed,
 	"ForbiddenException":     errs.PermissionDenied,
 	"AccessDeniedException":  errs.PermissionDenied,
+	"SaslException":          errs.AuthFailed,
+	"LoginException":         errs.AuthFailed,
+	"GSSException":           errs.AuthFailed,
+	"AccessControlException": errs.PermissionDenied,
+	"GoogleAuthException":    errs.AuthFailed,
+	"TokenResponseException": errs.AuthFailed,
 
 	// Two writers reached the same table. The first clears on retry; the others leave a commit
 	// only the catalog can settle.
-	"CommitFailedException":       errs.ConcurrencyConflict,
-	"AlreadyExistsException":      errs.CatalogError,
-	"CommitStateUnknownException": errs.CatalogError,
+	"CommitFailedException":           errs.ConcurrencyConflict,
+	"AlreadyExistsException":          errs.CatalogError,
+	"CommitStateUnknownException":     errs.CatalogError,
+	"ConcurrentModificationException": errs.ConcurrencyConflict,
+	"LockException":                   errs.ConcurrencyConflict,
+	"WaitingForLockException":         errs.ConcurrencyConflict,
+	"VersionMismatchException":        errs.ConcurrencyConflict,
 
 	// The records do not fit the table.
 	"ValidationException": errs.SchemaUnsupported,
@@ -59,12 +75,45 @@ var javaExceptions = map[string]errs.Category{
 	"UnknownHostException":       errs.DNSResolutionFailed,
 	"ConnectException":           errs.NetworkUnreachable,
 	"NoRouteToHostException":     errs.NetworkUnreachable,
+	"HttpHostConnectException":   errs.NetworkUnreachable,
+	"NoHttpResponseException":    errs.NetworkUnreachable,
+	"ConnectionClosedException":  errs.NetworkUnreachable,
+	"SocketException":            errs.NetworkUnreachable,
 	"TTransportException":        errs.NetworkUnreachable,
 	"MetaException":              errs.NetworkUnreachable,
+	"RuntimeMetaException":       errs.NetworkUnreachable,
 	"SocketTimeoutException":     errs.Timeout,
+	"ConnectTimeoutException":    errs.Timeout,
 	"SSLHandshakeException":      errs.TLSFailed,
 	"CertificateException":       errs.TLSFailed,
 	"SSLPeerUnverifiedException": errs.TLSFailed,
+
+	// REST catalog HTTP status shapes, and leftover REST / Hive / JDBC / Glue classes.
+	"ServiceUnavailableException":              errs.NetworkUnreachable,
+	"ServiceFailureException":                  errs.CatalogError,
+	"RESTException":                            errs.CatalogError,
+	"BadRequestException":                      errs.ConfigInvalid,
+	"UnprocessableEntityException":             errs.ConfigInvalid,
+	"NamespaceNotEmptyException":               errs.CatalogError,
+	"InvalidObjectException":                   errs.CatalogError,
+	"InvalidOperationException":                errs.CatalogError,
+	"TException":                               errs.CatalogError,
+	"TApplicationException":                    errs.CatalogError,
+	"UncheckedSQLException":                    errs.CatalogError,
+	"GoogleJsonResponseException":              errs.CatalogError,
+	"InvalidInputException":                    errs.ConfigInvalid,
+	"InternalServiceException":                 errs.NetworkUnreachable,
+	"OperationTimeoutException":                errs.Timeout,
+	"ResourceNumberLimitExceededException":     errs.ResourceExhausted,
+	"GlueEncryptionException":                  errs.PermissionDenied,
+	"UncheckedInterruptedException":            errs.Canceled,
+	"SQLTimeoutException":                      errs.Timeout,
+	"SQLTransientConnectionException":          errs.NetworkUnreachable,
+	"SQLNonTransientConnectionException":       errs.NetworkUnreachable,
+	"SQLInvalidAuthorizationSpecException":     errs.AuthFailed,
+	"SQLIntegrityConstraintViolationException": errs.CatalogError,
+	"SQLTransactionRollbackException":          errs.ConcurrencyConflict,
+	"SQLFeatureNotSupportedException":          errs.UnsupportedFeature,
 
 	// The JVM ran out.
 	"OutOfMemoryError": errs.ResourceExhausted,
@@ -90,6 +139,11 @@ var sqlStateClasses = map[string]errs.Category{
 	"40": errs.ConcurrencyConflict, // transaction rollback
 	"53": errs.ResourceExhausted,   // insufficient resources
 	"57": errs.ResourceExhausted,   // operator intervention
+	"3D": errs.ObjectNotFound,      // invalid catalog name
+	"3F": errs.ObjectNotFound,      // invalid schema name
+	"23": errs.CatalogError,        // integrity constraint violation
+	"25": errs.CatalogError,        // invalid transaction state
+	"0A": errs.UnsupportedFeature,  // feature not supported
 }
 
 // sqlStateClass returns the class of a SQLSTATE, or "" for anything that is not one.
