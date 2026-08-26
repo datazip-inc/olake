@@ -57,21 +57,21 @@ func (m *MSSQL) CDCSupported() bool {
 // Setup establishes the database connection and initializes CDC settings.
 func (m *MSSQL) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
-		return fmt.Errorf("failed to validate config: %s", err)
+		return fmt.Errorf("failed to validate config: %w", err)
 	}
 
 	var err error
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		m.sshClient, err = setupSSH(m.config.SSHConfig)
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 		logger.Info("Connecting to MSSQL via SSH tunnel")
 	}
 
 	m.client, err = setupDBConnection(ctx, m.config.URI(), m.sshClient, m.config.Host, m.config.MaxThreads)
 	if err != nil {
-		return fmt.Errorf("failed to connect to MSSQL: %s", err)
+		return fmt.Errorf("failed to connect to MSSQL: %w", err)
 	}
 
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
@@ -99,7 +99,7 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 			1,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to connect to primary for capture instance management: %s", err)
+			return fmt.Errorf("failed to connect to primary for capture instance management: %w", err)
 		}
 		logger.Info("connected to primary node successfully for capture instance management")
 	}
@@ -155,7 +155,7 @@ func setupSSH(sshCfg *utils.SSHConfig) (*ssh.Client, error) {
 func setupDBConnection(ctx context.Context, uri string, sshClient *ssh.Client, host string, maxConns int) (*sqlx.DB, error) {
 	connector, err := mssql.NewConnector(uri)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create MSSQL connector: %s", err)
+		return nil, fmt.Errorf("failed to create MSSQL connector: %w", err)
 	}
 	if sshClient != nil {
 		connector.Dialer = &mssqlSSHDialer{sshClient: sshClient, host: host}
@@ -167,7 +167,7 @@ func setupDBConnection(ctx context.Context, uri string, sshClient *ssh.Client, h
 	pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := client.PingContext(pingCtx); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %s", err)
+		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	return client, nil
@@ -207,7 +207,7 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	query := jdbc.MSSQLDiscoverTablesQuery()
 	rows, err := m.client.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %s", err)
+		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
 	defer rows.Close()
 
@@ -215,7 +215,7 @@ func (m *MSSQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&schemaName, &tableName); err != nil {
-			return nil, fmt.Errorf("failed to scan table: %s", err)
+			return nil, fmt.Errorf("failed to scan table: %w", err)
 		}
 		tableNames = append(tableNames, types.StreamID{Namespace: schemaName, Name: tableName})
 	}
@@ -237,7 +237,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 		columnQuery := jdbc.MSSQLTableSchemaQuery()
 		rows, err := m.client.QueryContext(ctx, columnQuery, schemaName, tableName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query column information: %s", err)
+			return nil, fmt.Errorf("failed to query column information: %w", err)
 		}
 		defer rows.Close()
 
@@ -252,7 +252,7 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 		for rows.Next() {
 			var colInfo columnInfo
 			if err := rows.Scan(&colInfo.name, &colInfo.dataType, &colInfo.isNullable, &colInfo.isPrimaryKey); err != nil {
-				return nil, fmt.Errorf("failed to scan column: %s", err)
+				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			columns = append(columns, colInfo)
 		}
@@ -282,9 +282,9 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 	stream, err := produceTableSchema(ctx, streamName)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
+		return nil, fmt.Errorf("failed to process table[%s]: %w", streamName, err)
 	}
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
@@ -336,7 +336,7 @@ func (m *MSSQL) isDatabaseCDCEnabled(ctx context.Context) (bool, error) {
 	var isEnabled bool
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCSupportQuery()).Scan(&isEnabled)
 	if err != nil {
-		return false, fmt.Errorf("failed to check MSSQL CDC enablement: %s", err)
+		return false, fmt.Errorf("failed to check MSSQL CDC enablement: %w", err)
 	}
 
 	return isEnabled, nil

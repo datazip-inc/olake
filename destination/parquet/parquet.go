@@ -27,6 +27,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	pqgo "github.com/parquet-go/parquet-go"
@@ -89,7 +90,7 @@ func (p *Parquet) initS3Writer() error {
 	}
 	sess, err := session.NewSession(&s3Config)
 	if err != nil {
-		return fmt.Errorf("failed to create AWS session: %s", err)
+		return fmt.Errorf("failed to create AWS session: %w", err)
 	}
 	p.s3Client = s3.New(sess)
 	// Initialize uploader for multipart uploads (handles files > 5GB automatically)
@@ -119,7 +120,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 	}
 
 	if err := os.MkdirAll(directoryPath, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create directories[%s]: %s", directoryPath, err)
+		return fmt.Errorf("failed to create directories[%s]: %w", directoryPath, err)
 	}
 
 	fileName := utils.TimestampedFileName(constants.ParquetFileExt)
@@ -127,7 +128,7 @@ func (p *Parquet) createNewPartitionFile(basePath string) error {
 
 	pqFile, err := local.NewLocalFileWriter(filePath)
 	if err != nil {
-		return fmt.Errorf("failed to create parquet file writer: %s", err)
+		return destination.WriteFailure(fmt.Errorf("failed to create parquet file writer: %w", err))
 	}
 
 	writer := func() *pqgo.GenericWriter[any] {
@@ -155,7 +156,7 @@ func (p *Parquet) getOrCreatePartitionFile(basePath string) (*FileMetadata, erro
 	files := p.partitionedFiles[basePath]
 	if len(files) == 0 || files[len(files)-1].file == nil {
 		if err := p.createNewPartitionFile(basePath); err != nil {
-			return nil, fmt.Errorf("failed to create partition file: %s", err)
+			return nil, fmt.Errorf("failed to create partition file: %w", err)
 		}
 		files = p.partitionedFiles[basePath]
 	}
@@ -242,7 +243,7 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 		} else {
 			dataBytes, merr := json.Marshal(record.Data)
 			if merr != nil {
-				return fmt.Errorf("failed to marshal data: %s", merr)
+				return destination.WriteFailure(fmt.Errorf("failed to marshal data: %w", merr))
 			}
 			recordsMap := map[string]any{constants.StringifiedData: string(dataBytes)}
 			maps.Copy(recordsMap, record.OlakeColumns)
@@ -250,12 +251,12 @@ func (p *Parquet) Write(_ context.Context, records []types.RawRecord) error {
 			_, err = partitionFile.writer.Write([]any{recordsMap})
 		}
 		if err != nil {
-			return fmt.Errorf("failed to write in parquet file: %s", err)
+			return destination.WriteFailure(fmt.Errorf("failed to write in parquet file: %w", err))
 		}
 
 		if p.checkForRoll(i, len(records)) {
 			if err := p.rollPartitionFile(partitionFile); err != nil {
-				return fmt.Errorf("failed to roll partition file: %s", err)
+				return fmt.Errorf("failed to roll partition file: %w", err)
 			}
 		}
 	}
@@ -291,10 +292,10 @@ func (p *Parquet) rollPartitionFile(pf *FileMetadata) error {
 	// Threshold reached: write the footer to seal the file. It stays in partitionedFiles (with
 	// file == nil marking it finalized) to be uploaded in Close.
 	if err := pf.writer.Close(); err != nil {
-		return fmt.Errorf("failed to close parquet writer on roll[%s]: %s", pf.path, err)
+		return destination.WriteFailure(fmt.Errorf("failed to close parquet writer on roll[%s]: %w", pf.path, err))
 	}
 	if err := pf.file.Close(); err != nil {
-		return fmt.Errorf("failed to close parquet file on roll[%s]: %s", pf.path, err)
+		return destination.WriteFailure(fmt.Errorf("failed to close parquet file on roll[%s]: %w", pf.path, err))
 	}
 	pf.file = nil // mark finalized; kept for upload at Close
 	logger.Infof("Thread[%s]: rolled partition file[%s] at %d bytes", p.options.ThreadID, pf.path, pf.writer.Size())
@@ -325,7 +326,7 @@ func (p *Parquet) Check(_ context.Context) error {
 			Body:   strings.NewReader("S3 write test"),
 		})
 		if err != nil {
-			return fmt.Errorf("failed to write test file to S3: %s", err)
+			return fmt.Errorf("failed to write test file to S3: %w", err)
 		}
 		p.config.Path = os.TempDir()
 		// trim '/' from prefix path
@@ -334,18 +335,19 @@ func (p *Parquet) Check(_ context.Context) error {
 	} else if p.config.Path != "" {
 		logger.Infof("Thread[%s]: local writer configuration found, writing at location[%s]", p.options.ThreadID, p.config.Path)
 	} else {
-		return fmt.Errorf("invalid configuration found")
+		return errs.Precondition(errs.ConfigInvalid, codeNoDestinationConfigured,
+			fmt.Errorf("invalid configuration found"))
 	}
 
 	// Create the directory if it doesn't exist
 	if err := os.MkdirAll(p.config.Path, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create path: %s", err)
+		return fmt.Errorf("failed to create path: %w", err)
 	}
 
 	// Test directory writability
 	tempFile, err := os.CreateTemp(p.config.Path, "temporary-*.txt")
 	if err != nil {
-		return fmt.Errorf("directory is not writable: %s", err)
+		return fmt.Errorf("directory is not writable: %w", err)
 	}
 	tempFile.Close()
 	os.Remove(tempFile.Name())
@@ -375,10 +377,10 @@ func (p *Parquet) closePqFiles(closeOnError bool) error {
 		for _, parquetFile := range parquetFiles {
 			if parquetFile.file != nil {
 				if err := parquetFile.writer.Close(); err != nil {
-					return fmt.Errorf("failed to close writer: %s", err)
+					return destination.WriteFailure(fmt.Errorf("failed to close writer: %w", err))
 				}
 				if err := parquetFile.file.Close(); err != nil {
-					return fmt.Errorf("failed to close file: %s", err)
+					return destination.WriteFailure(fmt.Errorf("failed to close file: %w", err))
 				}
 				parquetFile.file = nil
 			}
@@ -518,7 +520,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		maps.Copy(records[idx].Data, record.OlakeColumns)
 		flattenedRecord, err := batchFlattener.Flatten(record.Data)
 		if err != nil {
-			return fmt.Errorf("failed to flatten record at index %d, pq writer: %s", idx, err)
+			return fmt.Errorf("failed to flatten record at index %d, pq writer: %w", idx, err)
 		}
 
 		// Store flattened result back to the record
@@ -544,7 +546,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		return nil
 	})
 	if err != nil {
-		return false, nil, nil, fmt.Errorf("failed to process records: %s", err)
+		return false, nil, nil, fmt.Errorf("failed to process records: %w", err)
 	}
 
 	schemaChange := false // note: diff schema already detected so we can avoid this in future
@@ -560,16 +562,16 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 	if err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, _ int) error {
 		return typeutils.ReformatRecord(p.schema, record.Data)
 	}); err != nil {
-		return false, nil, nil, fmt.Errorf("failed to reformat records: %s", err)
+		return false, nil, nil, fmt.Errorf("failed to reformat records: %w", err)
 	}
 	if p.options.ApplyFilter {
 		filter, isLegacy, filterErr := p.stream.GetFilter()
 		if filterErr != nil {
-			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
+			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %w", filterErr)
 		}
 		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, p.schema, p.stream.ResolveColumnName)
 		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+			return false, nil, nil, fmt.Errorf("failed to filter records: %w", err)
 		}
 	}
 	return schemaChange, records, p.schema, nil
@@ -587,7 +589,7 @@ func (p *Parquet) EvolveSchema(_ context.Context, _, _ any) (any, error) {
 	for path := range p.partitionedFiles {
 		err := p.createNewPartitionFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create new partition file: %s", err)
+			return nil, fmt.Errorf("failed to create new partition file: %w", err)
 		}
 	}
 
@@ -696,11 +698,11 @@ func (p *Parquet) DropStreams(ctx context.Context, selectedStreams []types.Strea
 
 	if p.s3Client == nil {
 		if err := p.clearLocalFiles(paths); err != nil {
-			return fmt.Errorf("failed to clear local files: %s", err)
+			return fmt.Errorf("failed to clear local files: %w", err)
 		}
 	} else {
 		if err := p.clearS3Files(ctx, paths); err != nil {
-			return fmt.Errorf("failed to clear S3 files: %s", err)
+			return fmt.Errorf("failed to clear S3 files: %w", err)
 		}
 	}
 	return nil
@@ -724,7 +726,7 @@ func (p *Parquet) clearLocalFiles(paths []string) error {
 		}
 
 		if err := os.RemoveAll(streamPath); err != nil {
-			return fmt.Errorf("failed to remove local path %s: %s", streamPath, err)
+			return fmt.Errorf("failed to remove local path %s: %w", streamPath, err)
 		}
 	}
 
@@ -793,7 +795,7 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 			})
 		})
 		if listErr != nil {
-			return fmt.Errorf("failed to list objects for prefix %s: %v", filtPath, listErr)
+			return fmt.Errorf("failed to list objects for prefix %s: %w", filtPath, listErr)
 		}
 		return pageErr
 	}
@@ -810,7 +812,7 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 		if err != nil {
 			logger.Warnf("batch delete failed for filtPath %s, falling back to individual deletes: %v", filtPath, err)
 			if fallbackErr := deleteS3PrefixIndividually(filtPath); fallbackErr != nil {
-				return fmt.Errorf("batch delete failed: %v, fallback individual delete also failed: %s", err, fallbackErr)
+				return fmt.Errorf("batch delete failed: %v, fallback individual delete also failed: %w", err, fallbackErr)
 			}
 		}
 		return nil
@@ -835,7 +837,7 @@ func (p *Parquet) clearS3Files(ctx context.Context, paths []string) error {
 		}
 
 		if err != nil {
-			return fmt.Errorf("failed to clear S3 prefix %s: %s", s3TablePath, err)
+			return fmt.Errorf("failed to clear S3 prefix %s: %w", s3TablePath, err)
 		}
 
 		logger.Debugf("successfully cleared S3 prefix: s3://%s/%s", p.config.Bucket, s3TablePath)
@@ -856,11 +858,11 @@ func init() {
 		parquetConfig = &Config{}
 		err := utils.Unmarshal(config, parquetConfig)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to unmarshal parquet config: %s", err)
+			return nil, nil, fmt.Errorf("failed to unmarshal parquet config: %w", err)
 		}
 
 		if err := parquetConfig.Validate(); err != nil {
-			return nil, nil, fmt.Errorf("failed to validate parquet config: %s", err)
+			return nil, nil, fmt.Errorf("failed to validate parquet config: %w", err)
 		}
 
 		return &Parquet{
