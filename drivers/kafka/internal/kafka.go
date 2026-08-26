@@ -85,7 +85,7 @@ func (k *Kafka) SetupState(state *types.State) {
 
 func (k *Kafka) Setup(ctx context.Context) error {
 	if err := k.config.Validate(); err != nil {
-		return fmt.Errorf("config validation failed: %s", err)
+		return fmt.Errorf("config validation failed: %w", err)
 	}
 
 	// Compile topic pattern regex if provided
@@ -100,13 +100,13 @@ func (k *Kafka) Setup(ctx context.Context) error {
 
 	dialer, err := k.createDialer()
 	if err != nil {
-		return fmt.Errorf("failed to create Kafka dialer: %s", err)
+		return fmt.Errorf("failed to create Kafka dialer: %w", err)
 	}
 
 	// create admin client for metadata and offset operations
 	client, err := kgo.NewClient(dialer...)
 	if err != nil {
-		return fmt.Errorf("failed to create kafka client: %s", err)
+		return fmt.Errorf("failed to create kafka client: %w", err)
 	}
 
 	k.client = client
@@ -115,7 +115,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	// Test connectivity by fetching metadata
 	err = client.Ping(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to ping kafka brokers: %s", err)
+		return fmt.Errorf("failed to ping kafka brokers: %w", err)
 	}
 
 	k.dialer = dialer
@@ -124,7 +124,7 @@ func (k *Kafka) Setup(ctx context.Context) error {
 	if k.config.SchemaRegistry != nil {
 		k.config.SchemaRegistry.Init()
 		if err := k.config.SchemaRegistry.Validate(); err != nil {
-			return fmt.Errorf("schema registry validation failed: %s", err)
+			return fmt.Errorf("schema registry validation failed: %w", err)
 		}
 		k.schemaRegistryClient = k.config.SchemaRegistry
 		logger.Infof("initialized schema registry client for endpoint: %s", k.config.SchemaRegistry.Endpoint)
@@ -150,7 +150,7 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for Kafka")
 	metadata, err := k.adminClient.ListTopics(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list topics: %s", err)
+		return nil, fmt.Errorf("failed to list topics: %w", err)
 	}
 
 	var topicNames []types.StreamID
@@ -193,16 +193,16 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 	// get the topic metadata
 	topicDetail, err := readerManager.GetTopicMetadata(ctx, streamName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", streamName, err)
+		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %w", streamName, err)
 	}
 
 	startOffsets, endOffsets, err := readerManager.ListTopicOffsets(ctx, streamName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list offsets for topic %s: %s", streamName, err)
+		return nil, fmt.Errorf("failed to list offsets for topic %s: %w", streamName, err)
 	}
 
 	if topicDetail.Err != nil {
-		return nil, fmt.Errorf("topic metadata for %s: %s", streamName, topicDetail.Err)
+		return nil, fmt.Errorf("topic metadata for %s: %w", streamName, topicDetail.Err)
 	}
 
 	partitionList := topicDetail.Partitions.Sorted()
@@ -211,7 +211,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 	// get messages from partitions for schema discovery
 	err = utils.Concurrent(ctx, partitionList, len(partitionList), func(ctx context.Context, partitionDetail kadm.PartitionDetail, _ int) error {
 		if partitionDetail.Err != nil {
-			return fmt.Errorf("partition %d: %s", partitionDetail.Partition, partitionDetail.Err)
+			return fmt.Errorf("partition %d: %w", partitionDetail.Partition, partitionDetail.Err)
 		}
 
 		startOffset, endOffset, offsetsFound := readerManager.GetPartitionOffsets(startOffsets, endOffsets, streamName, partitionDetail.Partition)
@@ -261,7 +261,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch schema for topic %s: %s", streamName, err)
+		return nil, fmt.Errorf("failed to fetch schema for topic %s: %w", streamName, err)
 	}
 
 	stream.SourceDefinedPrimaryKey = types.NewSet(Offset, Partition)
@@ -364,7 +364,7 @@ func (k *Kafka) buildTLSConfig() (*tls.Config, error) {
 		if k.config.Protocol.SSL.ClientCert != "" && k.config.Protocol.SSL.ClientKey != "" {
 			cert, err := tls.X509KeyPair([]byte(k.config.Protocol.SSL.ClientCert), []byte(k.config.Protocol.SSL.ClientKey))
 			if err != nil {
-				return nil, fmt.Errorf("failed to load client certificate/key: %s", err)
+				return nil, fmt.Errorf("failed to load client certificate/key: %w", err)
 			}
 			tlsConfig.Certificates = []tls.Certificate{cert}
 		}
@@ -399,11 +399,11 @@ func (k *Kafka) getReaderAssignedPartitions(ctx context.Context, readerIndex int
 
 	describeGroupResp, describeGroupRespErr := k.adminClient.DescribeGroups(ctx, k.consumerGroupID)
 	if describeGroupRespErr != nil {
-		return nil, fmt.Errorf("DescribeGroups failed: %s", describeGroupRespErr)
+		return nil, fmt.Errorf("DescribeGroups failed: %w", describeGroupRespErr)
 	}
 
 	if describeGroupResp.Error() != nil {
-		return nil, fmt.Errorf("describe group %s response error: %s", k.consumerGroupID, describeGroupResp.Error())
+		return nil, fmt.Errorf("describe group %s response error: %w", k.consumerGroupID, describeGroupResp.Error())
 	}
 
 	var assigned []types.PartitionKey

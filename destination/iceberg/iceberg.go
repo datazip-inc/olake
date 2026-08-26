@@ -19,6 +19,7 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/spf13/viper"
@@ -72,7 +73,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	var err error
 	i.partitionInfo, err = parsePartitionRegex(stream.GetPartitionRegex(), stream.ResolveColumnName)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse partition regex: %s", err)
+		return nil, nil, fmt.Errorf("failed to parse partition regex: %w", err)
 	}
 	logger.Debugf("Thread[%s]: setting up iceberg writer for table[%s.%s]", i.options.ThreadID, stream.GetDestinationDatabase(&i.config.IcebergDatabase), stream.GetDestinationTable())
 
@@ -110,21 +111,21 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 
 	response, err := i.server.SendClientRequest(ctx, &requestPayload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load or create table: %s", err)
+		return nil, nil, fmt.Errorf("failed to load or create table: %w", err)
 	}
 
 	// get schema from response
 	ingestResponse := response.(*proto.RecordIngestResponse)
 	schema, err := parseSchema(ingestResponse.GetResult())
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", ingestResponse.GetResult(), err)
+		return nil, nil, fmt.Errorf("failed to parse schema from resp[%s]: %w", ingestResponse.GetResult(), err)
 	}
 
 	// get metadata state from response
 	var metadataState types.MetadataState
 	if olake2PCState := ingestResponse.GetOlake_2PcState(); olake2PCState != "" {
 		if err := json.Unmarshal([]byte(olake2PCState), &metadataState); err != nil {
-			return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %s", err)
+			return schema, nil, fmt.Errorf("failed to unmarshal 2pc metadata state: %w", err)
 		}
 	}
 
@@ -134,7 +135,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	if i.config.UseArrowWrites {
 		i.writer, err = arrowwriter.New(ctx, i.options, i.partitionInfo, i.schema, i.stream, i.server, isUpsertMode(i.stream, i.options.Backfill))
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create arrow writer: %s", err)
+			return nil, nil, destination.WriteFailure(fmt.Errorf("failed to create arrow writer: %w", err))
 		}
 	} else {
 		i.writer = legacywriter.New(i.options, i.schema, i.stream, i.server)
@@ -164,7 +165,7 @@ func (i *Iceberg) Close(ctx context.Context, finalMetadataState any) (err error)
 			if err == nil {
 				err = cleanupErr
 			} else {
-				err = fmt.Errorf("%s: cleanup error: %w", err, cleanupErr)
+				err = fmt.Errorf("%w: cleanup error: %w", err, cleanupErr)
 			}
 		}
 	}()
@@ -202,7 +203,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	res, err := i.server.SendClientRequest(ctx, request)
 	if err != nil {
-		return fmt.Errorf("failed to create or get table: %s", err)
+		return fmt.Errorf("failed to create or get table: %w", err)
 	}
 
 	ingestResponse := res.(*proto.RecordIngestResponse)
@@ -214,7 +215,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	record := types.CreateRawRecord(map[string]any{"name": "olake"}, map[string]any{constants.OlakeID: "olake", constants.OpType: "r", constants.CdcTimestamp: &currentTime})
 	protoColumns, err := legacywriter.RawDataColumnBuffer(record, protoSchema)
 	if err != nil {
-		return fmt.Errorf("failed to create raw data column buffer: %s", err)
+		return destination.WriteFailure(fmt.Errorf("failed to create raw data column buffer: %w", err))
 	}
 	recrodInsertRequest := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_RECORDS,
@@ -232,7 +233,7 @@ func (i *Iceberg) Check(ctx context.Context) error {
 
 	resInsert, err := i.server.SendClientRequest(ctx, recrodInsertRequest)
 	if err != nil {
-		return fmt.Errorf("failed to insert request: %s", err)
+		return fmt.Errorf("failed to insert request: %w", err)
 	}
 
 	ingestResponse = resInsert.(*proto.RecordIngestResponse)
@@ -301,7 +302,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 		err := utils.Concurrent(ctx, records, runtime.GOMAXPROCS(0)*16, func(_ context.Context, record types.RawRecord, idx int) error {
 			flattenRecord, err := batchFlattener.Flatten(record.Data)
 			if err != nil {
-				return fmt.Errorf("failed to flatten record, iceberg writer: %s", err)
+				return fmt.Errorf("failed to flatten record, iceberg writer: %w", err)
 			}
 			records[idx].Data = flattenRecord
 			maps.Copy(records[idx].Data, record.OlakeColumns)
@@ -309,7 +310,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			if !diffThreadSchema.Load() {
 				// when detectChange is true, the function does not modify schema parameter
 				if changeDetected, err := detectOrUpdateSchema(records[idx], true, i.schema, i.schema); err != nil {
-					return fmt.Errorf("failed to detect schema: %s", err)
+					return fmt.Errorf("failed to detect schema: %w", err)
 				} else if changeDetected {
 					diffThreadSchema.Store(true)
 				}
@@ -318,7 +319,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			return nil
 		})
 		if err != nil {
-			return false, nil, fmt.Errorf("failed to flatten schema concurrently and detect change in records: %s", err)
+			return false, nil, fmt.Errorf("failed to flatten schema concurrently and detect change in records: %w", err)
 		}
 
 		// if schema difference is detected, update schemaMap with the new schema
@@ -327,7 +328,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			for _, record := range records {
 				_, err := detectOrUpdateSchema(record, false, i.schema, schemaMap)
 				if err != nil {
-					return false, nil, fmt.Errorf("failed to update schema: %s", err)
+					return false, nil, fmt.Errorf("failed to update schema: %w", err)
 				}
 			}
 		}
@@ -340,7 +341,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			// JSON-encode original source data before overwriting the map
 			dataBytes, err := json.Marshal(record.Data)
 			if err != nil {
-				return fmt.Errorf("failed to marshal raw data: %s", err)
+				return destination.WriteFailure(fmt.Errorf("failed to marshal raw data: %w", err))
 			}
 			records[idx].Data = make(map[string]any, len(record.OlakeColumns)+1+len(i.partitionInfo))
 			records[idx].Data[constants.StringifiedData] = string(dataBytes)
@@ -360,24 +361,24 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 			return nil
 		})
 		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to pre-shape raw records: %s", err)
+			return false, nil, nil, fmt.Errorf("failed to pre-shape raw records: %w", err)
 		}
 		return false, records, i.schema, nil
 	}
 
 	schemaDifference, recordsSchema, err := extractSchemaFromRecords(ctx, records)
 	if err != nil {
-		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %s", err)
+		return false, nil, nil, fmt.Errorf("failed to extract schema from records: %w", err)
 	}
 
 	if i.options.ApplyFilter {
 		filter, isLegacy, filterErr := i.stream.GetFilter()
 		if filterErr != nil {
-			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %s", filterErr)
+			return false, nil, nil, fmt.Errorf("failed to parse stream filter: %w", filterErr)
 		}
 		records, err = typeutils.FilterRecords(ctx, records, filter, isLegacy, recordsSchema, i.stream.ResolveColumnName)
 		if err != nil {
-			return false, nil, nil, fmt.Errorf("failed to filter records: %s", err)
+			return false, nil, nil, fmt.Errorf("failed to filter records: %w", err)
 		}
 	}
 
@@ -443,7 +444,7 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 
 	resp, err := i.server.SendClientRequest(ctx, &request)
 	if err != nil {
-		return false, fmt.Errorf("failed to %s: %s", request.Type.String(), err)
+		return false, fmt.Errorf("failed to %s: %w", request.Type.String(), err)
 	}
 
 	response := resp.(*proto.RecordIngestResponse).GetResult()
@@ -451,12 +452,12 @@ func (i *Iceberg) EvolveSchema(ctx context.Context, globalSchema, recordsRawSche
 	// only refresh table schema
 	schemaAfterEvolution, err := parseSchema(response)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse schema from resp[%s]: %s", response, err)
+		return nil, fmt.Errorf("failed to parse schema from resp[%s]: %w", response, err)
 	}
 
 	i.schema = copySchema(schemaAfterEvolution)
 	if err := i.writer.EvolveSchema(ctx, schemaAfterEvolution); err != nil {
-		return nil, fmt.Errorf("failed to evolve writer schema: %v", err)
+		return nil, destination.WriteFailure(fmt.Errorf("failed to evolve writer schema: %w", err))
 	}
 
 	return schemaAfterEvolution, nil
@@ -474,7 +475,8 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 	patternRegex := regexp.MustCompile(constants.PartitionRegexIceberg)
 	matches := patternRegex.FindAllStringSubmatch(pattern, -1)
 	if len(matches) == 0 {
-		return nil, fmt.Errorf("no matches found for partition regex: %s", pattern)
+		return nil, errs.Precondition(errs.ConfigInvalid, codePartitionRegexNoMatch,
+			fmt.Errorf("no matches found for partition regex: %s", pattern))
 	}
 
 	for _, match := range matches {
@@ -547,7 +549,7 @@ func (i *Iceberg) DropStreams(ctx context.Context, tables []types.StreamInterfac
 		}
 		_, err := i.server.SendClientRequest(ctx, &request)
 		if err != nil {
-			return fmt.Errorf("failed to drop table %s: %s", dropTable, err)
+			return fmt.Errorf("failed to drop table %s: %w", dropTable, err)
 		}
 	}
 

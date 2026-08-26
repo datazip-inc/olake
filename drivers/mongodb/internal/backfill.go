@@ -27,7 +27,7 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 	filter, err := m.buildFilter(stream)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %w", err)
 	}
 
 	logger.Debugf("Starting backfill from %v to %v with filter: %s", chunk.Min, chunk.Max, filter)
@@ -35,27 +35,27 @@ func (m *Mongo) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	// check for _id type
 	ObjectIDPresent, err := isObjectID(ctx, collection)
 	if err != nil {
-		return fmt.Errorf("failed to check if _id is ObjectID: %s", err)
+		return fmt.Errorf("failed to check if _id is ObjectID: %w", err)
 	}
 
 	cursor, err := collection.Aggregate(ctx, generatePipeline(chunk.Min, chunk.Max, filter, ObjectIDPresent), opts)
 	if err != nil {
-		return fmt.Errorf("failed to create cursor: %s", err)
+		return fmt.Errorf("failed to create cursor: %w", err)
 	}
 	defer cursor.Close(ctx)
 	for cursor.Next(ctx) {
 		var doc bson.M
 		if _, err = cursor.Current.LookupErr("_id"); err != nil {
-			return fmt.Errorf("looking up idProperty: %s", err)
+			return fmt.Errorf("looking up idProperty: %w", err)
 		} else if err = cursor.Decode(&doc); err != nil {
-			return fmt.Errorf("backfill decoding document: %s", err)
+			return fmt.Errorf("backfill decoding document: %w", err)
 		}
 		// BSON wire-format size of this document, read before the cursor advances.
 		docBytes := int64(len(cursor.Current))
 		// filter mongo object
 		filterMongoObject(doc)
 		if err := OnMessage(ctx, doc, docBytes); err != nil {
-			return fmt.Errorf("failed to send message to writer: %s", err)
+			return fmt.Errorf("failed to send message to writer: %w", err)
 		}
 	}
 	return cursor.Err()
@@ -83,7 +83,7 @@ func (m *Mongo) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		return retryErr
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed after retry backoff: %s", err)
+		return nil, fmt.Errorf("failed after retry backoff: %w", err)
 	}
 
 	return types.NewSet(chunksArray...), nil
@@ -127,7 +127,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			}
 
 			if err := collection.Database().RunCommand(ctx, cmd).Decode(&result); err != nil {
-				return nil, fmt.Errorf("failed to run splitVector command: %s", err)
+				return nil, fmt.Errorf("failed to run splitVector command: %w", err)
 			}
 
 			boundaries := []*primitive.ObjectID{&minID}
@@ -141,7 +141,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 
 		boundaries, err := getChunkBoundaries()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get chunk boundaries: %s", err)
+			return nil, fmt.Errorf("failed to get chunk boundaries: %w", err)
 		}
 		// Group every 8 splitVector chunks (~1GB each) into a single larger chunk (~8GB) for consistency with other chunking strategies
 		var chunks []types.Chunk
@@ -178,7 +178,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		opts := options.Aggregate().SetAllowDiskUse(true)
 		cursor, err := collection.Aggregate(ctx, pipeline, opts)
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute bucketAuto aggregation: %s", err)
+			return nil, fmt.Errorf("failed to execute bucketAuto aggregation: %w", err)
 		}
 		defer cursor.Close(ctx)
 
@@ -191,7 +191,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		}
 
 		if err := cursor.All(ctx, &buckets); err != nil {
-			return nil, fmt.Errorf("failed to decode bucketAuto results: %s", err)
+			return nil, fmt.Errorf("failed to decode bucketAuto results: %w", err)
 		}
 
 		var chunks []types.Chunk
@@ -199,14 +199,14 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 			// converts value according to _id string repr.
 			minVal, err := reformatID(bucket.ID.Min)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert bucket min value to required type: %s", err)
+				return nil, fmt.Errorf("failed to convert bucket min value to required type: %w", err)
 			}
 			var maxVal interface{}
 			// for last bucket, max will be nil
 			if idx != len(buckets)-1 {
 				maxVal, err = reformatID(bucket.ID.Max)
 				if err != nil {
-					return nil, fmt.Errorf("failed to convert bucket max value to required type: %s", err)
+					return nil, fmt.Errorf("failed to convert bucket max value to required type: %w", err)
 				}
 			}
 			chunks = append(chunks, types.Chunk{
@@ -260,7 +260,7 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		// check for _id type
 		ObjectIDPresent, err := isObjectID(ctx, collection)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check if _id is ObjectID: %s", err)
+			return nil, fmt.Errorf("failed to check if _id is ObjectID: %w", err)
 		}
 
 		if ObjectIDPresent {
@@ -287,15 +287,15 @@ func (m *Mongo) totalCountAndStorageSizeInCollection(ctx context.Context, collec
 	// Select the database
 	err := collection.Database().RunCommand(ctx, command).Decode(&statsResult)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to fetch collection stats: %s", err)
+		return 0, 0, fmt.Errorf("failed to fetch collection stats: %w", err)
 	}
 	count, err := typeutils.ReformatInt64(statsResult["count"])
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to reformat total count from %T to int64: %s", statsResult["count"], err)
+		return 0, 0, fmt.Errorf("failed to reformat total count from %T to int64: %w", statsResult["count"], err)
 	}
 	storageSize, err := typeutils.ReformatFloat64(statsResult["storageSize"])
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to reformat storage size from %T to float64: %s", statsResult["storageSize"], err)
+		return 0, 0, fmt.Errorf("failed to reformat storage size from %T to float64: %w", statsResult["storageSize"], err)
 	}
 	return count, storageSize, nil
 }
@@ -320,12 +320,12 @@ func (m *Mongo) fetchExtremes(ctx context.Context, collection *mongo.Collection)
 
 	start, err := extreme(1)
 	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("failed to find start: %s", err)
+		return time.Time{}, time.Time{}, fmt.Errorf("failed to find start: %w", err)
 	}
 
 	end, err := extreme(-1)
 	if err != nil {
-		return time.Time{}, time.Time{}, fmt.Errorf("failed to find end: %s", err)
+		return time.Time{}, time.Time{}, fmt.Errorf("failed to find end: %w", err)
 	}
 
 	// provide gap of 10 minutes
@@ -475,12 +475,12 @@ func buildMongoCondition(isLegacy bool, cond interface{}) bson.D {
 func (m *Mongo) buildFilter(stream types.StreamInterface) (bson.D, error) {
 	thresholdConditions, err := m.ThresholdFilter(stream)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create threshold filter: %s", err)
+		return nil, fmt.Errorf("failed to create threshold filter: %w", err)
 	}
 
 	filter, isLegacy, err := stream.GetFilter()
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse stream filter: %s", err)
+		return nil, fmt.Errorf("failed to parse stream filter: %w", err)
 	}
 
 	var allConditions bson.A
