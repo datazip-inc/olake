@@ -43,9 +43,7 @@ func (o *Reader[T]) Capture(onCapture func(T) error) error {
 	if err != nil {
 		return err
 	}
-	if closer, ok := any(rows).(interface{ Close() error }); ok {
-		defer func() { _ = closer.Close() }()
-	}
+	defer func() { _ = rows.Close() }()
 
 	for rows.Next() {
 		err := onCapture(rows)
@@ -133,8 +131,7 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 
 			select {
 			case <-ctx.Done():
-				// If the processor failed, errgroup cancels the ctx; return nil so the original error wins.
-				return nil
+				return ctx.Err()
 			case valuesCh <- vals:
 				return nil
 			}

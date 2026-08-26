@@ -11,7 +11,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -161,74 +160,93 @@ func identityConverter(value interface{}, _ string) (interface{}, error) {
 	return value, nil
 }
 
-func TestReaderCapture_closesRowsOnSuccess(t *testing.T) {
-	dsn, cfg := usersMockDSN(t)
-	db, closeCount := openMockDB(t, dsn, cfg)
+// fakeIter is an in-memory Iterable that does not auto-close on exhaustion,
+// unlike database/sql.Rows. Used to assert Capture always calls Close().
+type fakeIter struct {
+	remaining int
+	iterErr   error
+	closed    atomic.Int32
+}
 
-	ctx := context.Background()
-	setter := NewReader(ctx, "SELECT id, name FROM users", func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-		return db.QueryContext(ctx, query, args...)
+func newFakeIter(count int, iterErr error) *fakeIter {
+	return &fakeIter{remaining: count, iterErr: iterErr}
+}
+
+func (f *fakeIter) Next() bool {
+	if f.remaining <= 0 {
+		return false
+	}
+	f.remaining--
+	return true
+}
+
+func (f *fakeIter) Err() error {
+	return f.iterErr
+}
+
+func (f *fakeIter) Close() error {
+	f.closed.Add(1)
+	return nil
+}
+
+func newFakeReader(iter *fakeIter) *Reader[*fakeIter] {
+	return NewReader(context.Background(), "SELECT 1", func(_ context.Context, _ string, _ ...any) (*fakeIter, error) {
+		return iter, nil
 	})
+}
+
+func TestReaderCapture_closesOnSuccess(t *testing.T) {
+	iter := newFakeIter(3, nil)
+	setter := newFakeReader(iter)
 
 	var rowCount int
-	err := setter.Capture(func(_ *sql.Rows) error {
+	err := setter.Capture(func(_ *fakeIter) error {
 		rowCount++
 		return nil
 	})
 	require.NoError(t, err)
 	assert.Equal(t, 3, rowCount)
-	assert.Equal(t, int32(1), closeCount.Load(), "rows must be closed exactly once on success")
+	assert.Equal(t, int32(1), iter.closed.Load(), "Capture must close the iterable on success")
 }
 
-func TestReaderCapture_closesRowsOnCaptureError(t *testing.T) {
-	dsn, cfg := usersMockDSN(t)
-	db, closeCount := openMockDB(t, dsn, cfg)
+func TestReaderCapture_closesOnCaptureError(t *testing.T) {
+	iter := newFakeIter(3, nil)
+	setter := newFakeReader(iter)
 
-	ctx := context.Background()
 	captureErr := errors.New("capture failed")
-	setter := NewReader(ctx, "SELECT id FROM users", func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-		return db.QueryContext(ctx, query, args...)
-	})
-
-	err := setter.Capture(func(_ *sql.Rows) error {
+	err := setter.Capture(func(_ *fakeIter) error {
 		return captureErr
 	})
 	require.ErrorIs(t, err, captureErr)
-	assert.Equal(t, int32(1), closeCount.Load(), "rows must be closed when capture returns early")
+	assert.Equal(t, int32(1), iter.closed.Load(), "Capture must close the iterable on early return")
 }
 
-func TestReaderCapture_closesRowsOnRowsErr(t *testing.T) {
-	dsn := t.Name() + "_rows_err"
-	cfg := mockDSN{
-		cols:    []string{"id"},
-		data:    [][]driver.Value{{int64(1)}},
-		rowsErr: errors.New("iteration failed"),
-	}
-	db, closeCount := openMockDB(t, dsn, cfg)
+func TestReaderCapture_closesOnIterableErr(t *testing.T) {
+	iterErr := errors.New("iteration failed")
+	iter := newFakeIter(1, iterErr)
+	setter := newFakeReader(iter)
 
-	ctx := context.Background()
-	setter := NewReader(ctx, "SELECT id", func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-		return db.QueryContext(ctx, query, args...)
-	})
-
-	err := setter.Capture(func(_ *sql.Rows) error { return nil })
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "iteration failed")
-	assert.Equal(t, int32(1), closeCount.Load(), "rows must be closed when rows.Err() fails")
+	err := setter.Capture(func(_ *fakeIter) error { return nil })
+	require.ErrorIs(t, err, iterErr)
+	assert.Equal(t, int32(1), iter.closed.Load(), "Capture must close the iterable when Err() fails")
 }
 
-func TestReaderCapture_doesNotLeakConnection(t *testing.T) {
-	dsn, cfg := usersMockDSN(t)
-	db, _ := openMockDB(t, dsn, cfg)
-	db.SetMaxOpenConns(1)
-
+func TestReaderCapture_doesNotLeakIterator(t *testing.T) {
 	ctx := context.Background()
+	var open atomic.Int32
 	for i := 0; i < 5; i++ {
-		setter := NewReader(ctx, "SELECT id FROM users", func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-			return db.QueryContext(ctx, query, args...)
+		iter := newFakeIter(1, nil)
+		setter := NewReader(ctx, "SELECT 1", func(_ context.Context, _ string, _ ...any) (*fakeIter, error) {
+			if open.Load() > 0 {
+				return nil, errors.New("previous iterator not closed")
+			}
+			open.Store(1)
+			return iter, nil
 		})
-		err := setter.Capture(func(_ *sql.Rows) error { return nil })
-		require.NoError(t, err, "iteration %d should not leak the only open connection", i)
+		err := setter.Capture(func(_ *fakeIter) error { return nil })
+		require.NoError(t, err, "iteration %d should not leak the only open iterator", i)
+		assert.Equal(t, int32(1), iter.closed.Load())
+		open.Store(0)
 	}
 }
 
@@ -336,7 +354,30 @@ func TestMapScanConcurrent_cdcMetadataColumnSizer(t *testing.T) {
 	assert.Positive(t, rowBytes, "only data columns should contribute to byte count")
 }
 
-// Compile-time check that MapScanConcurrent accepts abstract.BackfillMsgFn.
-var _ abstract.BackfillMsgFn = func(_ context.Context, _ map[string]any, _ int64) error {
-	return nil
+func TestMapScanConcurrent_stopsProducerOnConsumerError(t *testing.T) {
+	dsn := t.Name() + "_cancel"
+	rows := make([][]driver.Value, 100)
+	for i := range rows {
+		rows[i] = []driver.Value{int64(i + 1)}
+	}
+	cfg := mockDSN{
+		cols: []string{"id"},
+		data: rows,
+	}
+	db, closeCount := openMockDB(t, dsn, cfg)
+
+	ctx := context.Background()
+	setter := NewReader(ctx, "SELECT id FROM users", func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		return db.QueryContext(ctx, query, args...)
+	})
+
+	callbackErr := errors.New("downstream failure")
+	var emitted int
+	err := MapScanConcurrent(setter, identityConverter, func(_ context.Context, _ map[string]any, _ int64) error {
+		emitted++
+		return callbackErr
+	}, testColumnSizer)
+	require.ErrorIs(t, err, callbackErr)
+	assert.Equal(t, 1, emitted, "consumer should stop after first row")
+	assert.Equal(t, int32(1), closeCount.Load(), "rows must be closed when producer is canceled")
 }

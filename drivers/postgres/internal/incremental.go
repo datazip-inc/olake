@@ -29,7 +29,7 @@ func (p *Postgres) StreamIncrementalChanges(ctx context.Context, stream types.St
 	if err := jdbc.MapScanConcurrent(setter, p.dataTypeConverter, processFn, pgColumnSizer); err != nil {
 		return fmt.Errorf("incremental process error: %s", err)
 	}
-	
+
 	return nil
 }
 
