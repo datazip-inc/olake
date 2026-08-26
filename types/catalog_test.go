@@ -1369,7 +1369,7 @@ func writeCatalogFile(t *testing.T, dir, name string, catalog *Catalog) string {
 	path := filepath.Join(dir, name)
 	data, err := json.Marshal(catalog)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(path, data, 0644))
+	require.NoError(t, os.WriteFile(path, data, 0600))
 	return path
 }
 
