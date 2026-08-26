@@ -30,16 +30,32 @@ const (
 	ipNotFoundPlaceholder = "NA"
 	proxTrackURL          = "https://analytics.olake.io/mp/track"
 	// flushTimeout bounds how long a failing command waits for its report to leave the process.
-	flushTimeout = 5 * time.Second
+	flushTimeout   = 5 * time.Second
+	eventPropsFile = "telemetry.json"
+	distinctIDKey  = "distinct_id"
+	serviceKey     = "service"
+	defaultService = "CLI"
+	// maxUIConfigSize bounds the read: the file is written by another process.
+	maxEventPropsFileSize = 1 << 20 // 1 MiB
+)
+
+// Event names, qualified with the event source at send time, e.g. "Sync Started - CLI".
+const (
+	eventDiscover      = "Discover"
+	eventSyncStarted   = "Sync Started"
+	eventSyncCompleted = "Sync Completed"
+	eventFailure       = "Failure"
 )
 
 type Telemetry struct {
 	httpClient   *http.Client
-	serviceName  string
+	service      string
 	platform     platformInfo
 	ipAddress    string
 	locationInfo *LocationInfo
 	userID       string
+	// eventProps is the telemetry.json object merged onto every event last, so caller keys override the CLI defaults.
+	eventProps map[string]interface{}
 }
 
 var telemetry *Telemetry
@@ -85,9 +101,12 @@ func Init() {
 			return
 		}
 		ip := getOutboundIP()
+		eventProps := loadEventProps()
 		telemetry = &Telemetry{
 			httpClient: &http.Client{Timeout: 5 * time.Second},
-			userID:     getUserID(),
+			userID:     getUserID(eventProps),
+			service:    getService(eventProps),
+			eventProps: eventProps,
 			platform: platformInfo{
 				OS:           runtime.GOOS,
 				Arch:         runtime.GOARCH,
@@ -157,7 +176,7 @@ func TrackDiscover(streamCount int, sourceType string) {
 			"stream_count": streamCount,
 			"source_type":  sourceType,
 		}
-		if err := telemetry.sendEvent("Discover - CLI", props); err != nil {
+		if err := telemetry.sendEvent(eventDiscover, props); err != nil {
 			logger.Debugf("Failed to send Discover event: %v", err)
 		}
 	})
@@ -204,7 +223,7 @@ func TrackSyncStarted(syncID string, mix types.StreamMix, sourceType string, des
 		}
 		addStreamMix(props, mix)
 
-		if err := telemetry.sendEvent("Sync Started - CLI", props); err != nil {
+		if err := telemetry.sendEvent(eventSyncStarted, props); err != nil {
 			logger.Debugf("Failed to send SyncStarted event: %v", err)
 		}
 	})
@@ -225,7 +244,7 @@ func TrackSyncCompleted(syncID string, mix types.StreamMix, destinationConfig *t
 		}
 		addStreamMix(props, mix)
 
-		if err := telemetry.sendEvent("Sync Completed - CLI", props); err != nil {
+		if err := telemetry.sendEvent(eventSyncCompleted, props); err != nil {
 			logger.Debugf("Failed to send SyncCompleted event: %v", err)
 		}
 	})
@@ -255,16 +274,18 @@ func TrackFailure(command, errorSource, syncID string, f errs.Failure) {
 			props["error_type"] = f.ErrorType
 		}
 
-		if err := telemetry.sendEvent("Failure - CLI", props); err != nil {
+		if err := telemetry.sendEvent(eventFailure, props); err != nil {
 			logger.Debugf("Failed to send Failure event: %v", err)
 		}
 	})
 }
 
-func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) error {
+func (t *Telemetry) sendEvent(event string, props map[string]interface{}) error {
 	if t.httpClient == nil {
 		return fmt.Errorf("telemetry client is nil")
 	}
+
+	eventName := fmt.Sprintf("%s - %s", event, t.service)
 
 	// Add common properties
 	if props == nil {
@@ -275,7 +296,7 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 		"arch":                t.platform.Arch,
 		"olake_version":       t.platform.OlakeVersion,
 		"num_cpu":             t.platform.DeviceCPU,
-		"service":             t.serviceName,
+		"service":             t.service,
 		"ip_address":          t.ipAddress,
 		"location":            t.locationInfo,
 		"distinct_id":         t.userID,
@@ -284,6 +305,11 @@ func (t *Telemetry) sendEvent(eventName string, props map[string]interface{}) er
 	}
 
 	for key, value := range properties {
+		props[key] = value
+	}
+
+	// Applied last so the event props can override the default props.
+	for key, value := range t.eventProps {
 		props[key] = value
 	}
 
@@ -337,7 +363,48 @@ func getOutboundIP() string {
 	return string(ip)
 }
 
-func getUserID() string {
+// getService returns telemetry.json's service, defaulting to the CLI.
+func getService(eventProps map[string]interface{}) string {
+	if service, ok := eventProps[serviceKey].(string); ok {
+		if service = strings.TrimSpace(service); service != "" {
+			return service
+		}
+	}
+	return defaultService
+}
+
+// loadEventProps reads telemetry.json; an absent or malformed one is dropped, never failing the run.
+func loadEventProps() map[string]interface{} {
+	configFolder := viper.GetString(constants.ConfigFolder)
+	if configFolder == "" {
+		return nil
+	}
+
+	file, err := os.Open(filepath.Join(configFolder, eventPropsFile))
+	if err != nil {
+		if !os.IsNotExist(err) {
+			logger.Debugf("Failed to open %s: %v", eventPropsFile, err)
+		}
+		return nil
+	}
+	defer file.Close()
+
+	var props map[string]interface{}
+	if err := json.NewDecoder(io.LimitReader(file, maxEventPropsFileSize)).Decode(&props); err != nil {
+		logger.Debugf("Ignoring %s, not a JSON object: %v", eventPropsFile, err)
+		return nil
+	}
+	return props
+}
+
+// getUserID prefers telemetry.json's distinct_id; older callers still write user_id.txt.
+func getUserID(eventProps map[string]interface{}) string {
+	if id, ok := eventProps[distinctIDKey].(string); ok {
+		if id = strings.TrimSpace(id); id != "" {
+			return id
+		}
+	}
+
 	// check if id file exists
 	configFolder := viper.GetString(constants.ConfigFolder)
 	if configFolder != "" {
