@@ -60,6 +60,8 @@ type StreamMetadata struct {
 	//new filter input
 	FilterConfig    *FilterConfig    `json:"filter_config,omitempty"`
 	SelectedColumns *SelectedColumns `json:"selected_columns"`
+
+	DedupKeys []string `json:"dedup_keys,omitempty"`
 }
 
 type Catalog struct {
