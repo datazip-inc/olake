@@ -166,6 +166,8 @@ func (s *ConfiguredStream) GetSyncMode() SyncMode {
 	return resolveConfigurableField(s.StreamMetadata.SyncMode, s.Stream.SyncMode)
 }
 
+// TODO(BEFORE_MERGE): discuss behavior when destination_database and/or destination_table are missing
+// from both selected_streams and streams[] (split-streams clears them from streams[]).
 func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 	destDB := resolveConfigurableField(s.StreamMetadata.DestinationDatabase, s.Stream.DestinationDatabase)
 	if destDB != "" {
