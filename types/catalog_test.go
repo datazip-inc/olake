@@ -78,7 +78,6 @@ func compareCatalogs(t *testing.T, expected, actual *Catalog, testName string) {
 		assert.Equal(t, es.CursorField, as.CursorField)
 		assert.Equal(t, es.DestinationDatabase, as.DestinationDatabase)
 		assert.Equal(t, es.DestinationTable, as.DestinationTable)
-		assert.Equal(t, es.DefaultStreamProperties, as.DefaultStreamProperties)
 		validateBasicSchemas(t, es.Schema, as.Schema, testName)
 	}
 
@@ -134,10 +133,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 					Name:      "stream1",
 					Namespace: "namespace1",
 					Schema:    &TypeSchema{Properties: sync.Map{}},
-					DefaultStreamProperties: &DefaultStreamProperties{
-						Normalization: true,
-						AppendMode:    false,
-					},
 				},
 			},
 			driver: "postgres",
@@ -148,10 +143,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							Name:      "stream1",
 							Namespace: "namespace1",
 							Schema:    &TypeSchema{Properties: sync.Map{}},
-							DefaultStreamProperties: &DefaultStreamProperties{
-								Normalization: true,
-								AppendMode:    false,
-							},
 						},
 					},
 				},
@@ -176,10 +167,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 					Name:      "collection1",
 					Namespace: "database1",
 					Schema:    &TypeSchema{Properties: sync.Map{}},
-					DefaultStreamProperties: &DefaultStreamProperties{
-						Normalization: false,
-						AppendMode:    false,
-					},
 				},
 			},
 			driver: "mongodb",
@@ -190,10 +177,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							Name:      "collection1",
 							Namespace: "database1",
 							Schema:    &TypeSchema{Properties: sync.Map{}},
-							DefaultStreamProperties: &DefaultStreamProperties{
-								Normalization: false,
-								AppendMode:    false,
-							},
 						},
 					},
 				},
@@ -225,12 +208,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 					CursorField:             "updated_at",
 					DestinationDatabase:     "analytics",
 					DestinationTable:        "dim_users",
-					DefaultStreamProperties: &DefaultStreamProperties{
-						Normalization:       true,
-						AppendMode:          false,
-						DestinationDatabase: "analytics",
-						DestinationTable:    "dim_users",
-					},
 				},
 				{
 					Name:                    "orders",
@@ -242,12 +219,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 					SyncMode:                SyncMode("cdc"),
 					DestinationDatabase:     "analytics",
 					DestinationTable:        "fact_orders",
-					DefaultStreamProperties: &DefaultStreamProperties{
-						Normalization:       true,
-						AppendMode:          false,
-						DestinationDatabase: "analytics",
-						DestinationTable:    "fact_orders",
-					},
 				},
 			},
 			driver: "postgres",
@@ -261,12 +232,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							SupportedSyncModes:      NewSet(SyncMode("full_refresh"), SyncMode("incremental")),
 							SourceDefinedPrimaryKey: NewSet("id"),
 							AvailableCursorFields:   NewSet("updated_at", "created_at"),
-							DefaultStreamProperties: &DefaultStreamProperties{
-								Normalization:       true,
-								AppendMode:          false,
-								DestinationDatabase: "analytics",
-								DestinationTable:    "dim_users",
-							},
 						},
 					},
 					{
@@ -277,12 +242,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							SupportedSyncModes:      NewSet(SyncMode("full_refresh"), SyncMode("cdc")),
 							SourceDefinedPrimaryKey: NewSet("order_id"),
 							AvailableCursorFields:   NewSet("order_date"),
-							DefaultStreamProperties: &DefaultStreamProperties{
-								Normalization:       true,
-								AppendMode:          false,
-								DestinationDatabase: "analytics",
-								DestinationTable:    "fact_orders",
-							},
 						},
 					},
 				},
@@ -808,64 +767,6 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							DestinationDatabase: "db:public",
 							DestinationTable:    "users",
 						},
-					},
-				},
-			},
-		},
-		{
-			name: "nil selected_streams preserves stream configurables on merge",
-			oldCatalog: &Catalog{
-				Streams: []*ConfiguredStream{
-					{
-						Stream: &Stream{
-							Name:                "users",
-							Namespace:           "public",
-							Schema:              oldSchema(),
-							SyncMode:            SyncMode("incremental"),
-							CursorField:         "updated_at",
-							DestinationDatabase: "analytics",
-							DestinationTable:    "users_v2",
-						},
-					},
-				},
-			},
-			newCatalog: &Catalog{
-				Streams: []*ConfiguredStream{
-					{
-						Stream: &Stream{
-							Name:                "users",
-							Namespace:           "public",
-							Schema:              newSchema(),
-							SyncMode:            SyncMode("cdc"),
-							CursorField:         "created_at",
-							DestinationDatabase: "db:public",
-							DestinationTable:    "users",
-						},
-					},
-				},
-				SelectedStreams: map[string][]StreamMetadata{
-					"public": {
-						{StreamName: "users", Normalization: true, SelectedColumns: createSelectedColumns([]string{"id"}, true)},
-					},
-				},
-			},
-			expected: &Catalog{
-				Streams: []*ConfiguredStream{
-					{
-						Stream: &Stream{
-							Name:                "users",
-							Namespace:           "public",
-							Schema:              newSchema(),
-							SyncMode:            SyncMode("cdc"),
-							CursorField:         "created_at",
-							DestinationDatabase: "db:public",
-							DestinationTable:    "users",
-						},
-					},
-				},
-				SelectedStreams: map[string][]StreamMetadata{
-					"public": {
-						{StreamName: "users", Normalization: true, SelectedColumns: createSelectedColumns([]string{"id"}, true)},
 					},
 				},
 			},
@@ -1675,10 +1576,6 @@ func TestLogCatalog(t *testing.T) {
 				Namespace: "public",
 				Schema:    oldSchema(),
 				SyncMode:  CDC,
-				DefaultStreamProperties: &DefaultStreamProperties{
-					Normalization: true,
-					AppendMode:    false,
-				},
 			},
 		}
 
@@ -1727,20 +1624,12 @@ func TestLogCatalog(t *testing.T) {
 				Namespace: "public",
 				Schema:    newSchema(),
 				SyncMode:  CDC,
-				DefaultStreamProperties: &DefaultStreamProperties{
-					Normalization: true,
-					AppendMode:    false,
-				},
 			},
 			{
 				Name:      "orders",
 				Namespace: "public",
 				Schema:    newSchema(),
 				SyncMode:  FULLREFRESH,
-				DefaultStreamProperties: &DefaultStreamProperties{
-					Normalization: true,
-					AppendMode:    false,
-				},
 			},
 		}
 
