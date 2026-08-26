@@ -23,7 +23,7 @@ import (
 func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
 	// run pre cdc of drivers
 	if err := a.driver.PreCDC(mainCtx, streams); err != nil {
-		return fmt.Errorf("failed in pre cdc run for driver[%s]: %s", a.driver.Type(), err)
+		return fmt.Errorf("failed in pre cdc run for driver[%s]: %w", a.driver.Type(), err)
 	}
 
 	isSequentialMode, isParallelMode, isConcurrentMode := a.driver.ChangeStreamConfig()
@@ -48,7 +48,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("%w: failed to run backfill: %s", constants.ErrNonRetryable, err)
+		return fmt.Errorf("%w: failed to run backfill: %w", constants.ErrNonRetryable, err)
 	}
 
 	// Wait for all backfill processes to complete
@@ -71,7 +71,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 			// err will be captured in err group block statement
 			return nil
 		}
-		return fmt.Errorf("failed to process cdc streams: %s", err)
+		return fmt.Errorf("failed to process cdc streams: %w", err)
 	}
 
 	// TODO: cdc will not start until backfill get finished, need to study alternate ways (watermarking used by debezium) to do cdc sync parallelly to reduce backpressure on db
@@ -106,7 +106,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 	defer func() {
 		if postCDCErr := a.driver.PostCDC(cdcCtx, streamIndex); postCDCErr != nil {
-			err = utils.Ternary(err == nil, fmt.Errorf("post cdc error: %s", postCDCErr), fmt.Errorf("%s: post cdc error: %s", err, postCDCErr)).(error)
+			err = utils.Ternary(err == nil, fmt.Errorf("post cdc error: %w", postCDCErr), fmt.Errorf("%w: post cdc error: %w", err, postCDCErr)).(error)
 		}
 	}()
 
@@ -122,7 +122,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		threadID := generateThreadID(stream.ID(), "")
 		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
 		if createErr != nil {
-			return fmt.Errorf("failed to create CDC writer for stream %s: %s", stream.ID(), createErr)
+			return fmt.Errorf("failed to create CDC writer for stream %s: %w", stream.ID(), createErr)
 		}
 		writers[stream.ID()] = w
 		var writerMetaState any

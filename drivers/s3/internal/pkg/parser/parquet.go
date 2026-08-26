@@ -52,7 +52,9 @@ func NewParquetParser(config ParquetConfig, stream *types.Stream) *ParquetParser
 // InferSchema reads Parquet file metadata to infer the schema
 // For Parquet, schema is stored in file metadata, so we don't need to read data
 // NOTE: reader must be io.ReaderAt for Parquet (use objstorage.ReaderAt or bytes.Reader)
-func (p *ParquetParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
+func (p *ParquetParser) InferSchema(_ context.Context, reader io.Reader) (_ *types.Stream, err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	logger.Debug("Inferring Parquet schema from file metadata")
 
 	// Prepare reader and get file size
@@ -64,7 +66,7 @@ func (p *ParquetParser) InferSchema(_ context.Context, reader io.Reader) (*types
 	// Open Parquet file to read schema
 	pqFile, err := pq.OpenFile(readerAt, fileSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open parquet file: %s", err)
+		return nil, fmt.Errorf("failed to open parquet file: %w", err)
 	}
 
 	// Get the schema from parquet file
@@ -83,7 +85,9 @@ func (p *ParquetParser) InferSchema(_ context.Context, reader io.Reader) (*types
 
 // StreamRecords reads and streams Parquet records with context support
 // NOTE: reader must be io.ReaderAt for Parquet (use objstorage.ReaderAt or bytes.Reader)
-func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) error {
+func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) (err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	// Prepare reader and get file size
 	readerAt, fileSize, err := prepareParquetReader(reader)
 	if err != nil {
@@ -93,7 +97,7 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 	// Open Parquet file
 	pqFile, err := pq.OpenFile(readerAt, fileSize)
 	if err != nil {
-		return fmt.Errorf("failed to open parquet file: %s", err)
+		return fmt.Errorf("failed to open parquet file: %w", err)
 	}
 
 	// Decoder holds the per-file schema state and the leaf-column index used to decode rows.
@@ -125,7 +129,7 @@ func (p *ParquetParser) StreamRecords(ctx context.Context, reader io.Reader, cal
 			streamErr = p.streamRowGroupColumns(ctx, rowGroup, decoder, callback, &recordCount)
 		}
 		if streamErr != nil {
-			return fmt.Errorf("failed to read row group %d: %s", rgIdx, streamErr)
+			return fmt.Errorf("failed to read row group %d: %w", rgIdx, streamErr)
 		}
 
 		logger.Debugf("Completed row group %d/%d (%d total records so far)",
@@ -163,7 +167,7 @@ func (p *ParquetParser) streamRowGroupRows(ctx context.Context, rowGroup pq.RowG
 				return err
 			}
 			if err := callback(ctx, record); err != nil {
-				return fmt.Errorf("failed to process record: %s", err)
+				return fmt.Errorf("failed to process record: %w", err)
 			}
 			*recordCount++
 		}
@@ -171,7 +175,7 @@ func (p *ParquetParser) streamRowGroupRows(ctx context.Context, rowGroup pq.RowG
 			return nil
 		}
 		if readErr != nil {
-			return fmt.Errorf("failed to read rows: %s", readErr)
+			return fmt.Errorf("failed to read rows: %w", readErr)
 		}
 	}
 }
@@ -218,7 +222,7 @@ func (p *ParquetParser) streamRowGroupColumns(ctx context.Context, rowGroup pq.R
 		}
 
 		if err := callback(ctx, record); err != nil {
-			return fmt.Errorf("failed to process record: %s", err)
+			return fmt.Errorf("failed to process record: %w", err)
 		}
 		*recordCount++
 	}
@@ -238,7 +242,7 @@ func readColumnValues(columnChunk pq.ColumnChunk, numRows int64) ([]pq.Value, er
 			return values, nil
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to read page: %s", err)
+			return nil, fmt.Errorf("failed to read page: %w", err)
 		}
 
 		// Read into the tail of the result: no per-page buffer, no copy out of it.
@@ -246,7 +250,7 @@ func readColumnValues(columnChunk pq.ColumnChunk, numRows int64) ([]pq.Value, er
 		values = slices.Grow(values, count)
 		n, err := page.Values().ReadValues(values[len(values) : len(values)+count])
 		if err != nil && err != io.EOF {
-			return nil, fmt.Errorf("failed to read page values: %s", err)
+			return nil, fmt.Errorf("failed to read page values: %w", err)
 		}
 		values = values[:len(values)+n]
 	}
@@ -309,7 +313,7 @@ func (d *rowDecoder) decode(row pq.Row) (map[string]any, error) {
 	if d.hasGroupField {
 		groups = map[string]any{}
 		if err := d.schema.Reconstruct(&groups, row); err != nil {
-			return nil, fmt.Errorf("failed to reconstruct row: %s", err)
+			return nil, fmt.Errorf("failed to reconstruct row: %w", err)
 		}
 	}
 
@@ -839,12 +843,12 @@ func prepareParquetReader(reader io.Reader) (io.ReaderAt, int64, error) {
 	if seeker, ok := reader.(io.Seeker); ok {
 		size, err := seeker.Seek(0, io.SeekEnd)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to determine file size: %s", err)
+			return nil, 0, fmt.Errorf("failed to determine file size: %w", err)
 		}
 		// Seek back to beginning
 		_, err = seeker.Seek(0, io.SeekStart)
 		if err != nil {
-			return nil, 0, fmt.Errorf("failed to seek to start: %s", err)
+			return nil, 0, fmt.Errorf("failed to seek to start: %w", err)
 		}
 		fileSize = size
 	} else {

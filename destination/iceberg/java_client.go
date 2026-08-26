@@ -13,6 +13,7 @@ import (
 
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -94,7 +95,8 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 		// BigLake requires this header for request routing/billing.
 		addMapKeyIfNotEmpty("header.x-goog-user-project", config.GCPProjectID)
 	default:
-		return nil, fmt.Errorf("unsupported catalog type: %s", config.CatalogType)
+		return nil, errs.Precondition(errs.ConfigInvalid, codeUnsupportedCatalogType,
+			fmt.Errorf("unsupported catalog type: %s", config.CatalogType))
 	}
 	// Only set access keys if explicitly provided, otherwise they'll be picked up from
 	// environment variables or AWS credential files
@@ -215,7 +217,7 @@ func startServer(config *Config) (*serverInstance, error) {
 		if gcpCredsTemp != "" {
 			os.Remove(gcpCredsTemp)
 		}
-		return nil, fmt.Errorf("failed to start iceberg java writer and setup logger: %w", err)
+		return nil, fmt.Errorf("%w: %w", errJVMStart, err)
 	}
 
 	conn, err := grpc.NewClient(fmt.Sprintf("%s:%s", config.ServerHost, strconv.Itoa(port)),

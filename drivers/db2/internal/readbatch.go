@@ -70,7 +70,7 @@ type colBatch struct {
 func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any, onMessage abstract.BackfillMsgFn) error {
 	sqlConn, err := d.client.Conn(ctx)
 	if err != nil {
-		return fmt.Errorf("readBatchConcurrent: acquire conn: %s", err)
+		return fmt.Errorf("readBatchConcurrent: acquire conn: %w", err)
 	}
 	defer sqlConn.Close()
 
@@ -95,7 +95,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		}
 		rows, err := conn.QueryBatch(query, driverArgs)
 		if err != nil {
-			return fmt.Errorf("readBatchConcurrent: query: %s", err)
+			return fmt.Errorf("readBatchConcurrent: query: %w", err)
 		}
 		defer rows.Close()
 
@@ -138,7 +138,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 					raw := batch.getValues[colIdx](rowIdx)
 					conv, err := convFuncs[colIdx](raw)
 					if err != nil {
-						return fmt.Errorf("column %s: %s", colName, err)
+						return fmt.Errorf("column %s: %w", colName, err)
 					}
 					record[colName] = conv
 					rowBytes += db2ColumnBytes(raw, colTypeNames[colIdx])
@@ -169,7 +169,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 				if errors.Is(readErr, io.EOF) {
 					return nil
 				} else if readErr != nil {
-					return fmt.Errorf("ReadBatchConcurrent: %s", readErr)
+					return fmt.Errorf("ReadBatchConcurrent: %w", readErr)
 				}
 			}
 		}
@@ -209,7 +209,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 					if errors.Is(readErr, io.EOF) {
 						return nil
 					} else if readErr != nil {
-						return fmt.Errorf("ReadBatchConcurrent producer: %s", readErr)
+						return fmt.Errorf("ReadBatchConcurrent producer: %w", readErr)
 					}
 				}
 			}

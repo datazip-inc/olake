@@ -23,12 +23,12 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to build incremental condition: %s", err)
+		return fmt.Errorf("failed to build incremental condition: %w", err)
 	}
 
 	rows, err := o.client.QueryContext(ctx, incrementalQuery, queryArgs...)
 	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %s", err)
+		return fmt.Errorf("failed to execute incremental query: %w", err)
 	}
 	defer rows.Close()
 
@@ -36,11 +36,11 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 		record := make(types.Record)
 		rowBytes, err := jdbc.MapScan(rows, record, o.dataTypeConverter, oracleColumnSizer)
 		if err != nil {
-			return fmt.Errorf("failed to scan record: %s", err)
+			return fmt.Errorf("failed to scan record: %w", err)
 		}
 
 		if err := processFn(ctx, record, rowBytes); err != nil {
-			return fmt.Errorf("process error: %s", err)
+			return fmt.Errorf("process error: %w", err)
 		}
 	}
 	return rows.Err()

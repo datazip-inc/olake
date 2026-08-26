@@ -1,6 +1,8 @@
 olake
 .vscode
 test
+# `test` matches any depth; keep the Iceberg writer's Maven test sources.
+!destination/iceberg/olake-iceberg-java-writer/src/test/
 .DS_Store
 __debug_bin*
 go.sum

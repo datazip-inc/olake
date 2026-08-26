@@ -209,7 +209,7 @@ func MapScanConcurrent(setter *Reader[*sql.Rows], converter func(value interface
 
 				conv, err := normalizeDataTypeAndConvert(rawData, colTypes[i], converter)
 				if err != nil {
-					return fmt.Errorf("failed to convert value for column %s: %s", col, err)
+					return fmt.Errorf("failed to convert value for column %s: %w", col, err)
 				}
 				record[col] = conv
 			}

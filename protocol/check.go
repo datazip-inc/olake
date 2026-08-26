@@ -7,6 +7,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
@@ -18,7 +19,8 @@ var checkCmd = &cobra.Command{
 	PreRunE: func(_ *cobra.Command, _ []string) error {
 		// If connector is not set, we are checking the destination
 		if destinationConfigPath == "not-set" && configPath == "not-set" {
-			return fmt.Errorf("no connector config or destination config provided")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
+				fmt.Errorf("no connector config or destination config provided"))
 		}
 
 		// check for destination config

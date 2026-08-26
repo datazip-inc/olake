@@ -28,7 +28,7 @@ func (d *DB2) StreamIncrementalChanges(ctx context.Context, stream types.StreamI
 
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to build incremental query: %s", err)
+		return fmt.Errorf("failed to build incremental query: %w", err)
 	}
 	return d.readBatchConcurrent(ctx, incrementalQuery, queryArgs, processFn)
 }
