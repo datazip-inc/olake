@@ -51,7 +51,7 @@ type Stream struct {
 type DefaultStreamProperties struct {
 	Normalization bool       `json:"normalization"`
 	AppendMode    bool       `json:"append_mode"`
-	UpdateMode    UpdateMode `json:"update_mode"`
+	UpdateType    UpdateType `json:"update_type"`
 }
 
 func NewStream(name, namespace string, sourceDatabase *string) *Stream {

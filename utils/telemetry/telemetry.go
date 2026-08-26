@@ -129,10 +129,10 @@ func TrackSyncStarted(syncID string, selectedStreams, fullLoadStreams, cdcStream
 			catalogType = destinationConfig.WriterConfig.(map[string]interface{})["catalog_type"].(string)
 		}
 
-		streamWithPosDeleteMode := 0
+		streamWithPosUpdateType := 0
 		_ = utils.ForEach(catalog.Streams, func(s *types.ConfiguredStream) error {
-			if s.Self().GetUpdateMode() == types.UpdateModePosition {
-				streamWithPosDeleteMode++
+			if s.Self().GetUpdateType() == types.UpdateTypePosition {
+				streamWithPosUpdateType++
 			}
 			return nil
 		})
@@ -149,7 +149,7 @@ func TrackSyncStarted(syncID string, selectedStreams, fullLoadStreams, cdcStream
 			"catalog_type":                catalogType,
 			"normalized_streams":          countNormalizedStreams(catalog),
 			"partitioned_streams":         countPartitionedStreams(catalog),
-			"stream_with_pos_delete_mode": streamWithPosDeleteMode,
+			"stream_with_pos_delete_mode": streamWithPosUpdateType,
 		}
 
 		if err := telemetry.sendEvent("Sync Started - CLI", props); err != nil {
