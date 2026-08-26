@@ -3,7 +3,8 @@ package parquet
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,16 +24,18 @@ import (
 )
 
 const (
-	parquet2PCDir              = "_olake_2pc"
-	parquet2PCFinishFile       = "finish.json"
-	parquet2PCMetadataFile     = "metadata.json"
-	parquet2PCEmptyFinishState = "{}"
+	parquet2PCDir          = "_olake_2pc"
+	parquet2PCFinishFile   = "finish.json"
+	parquet2PCMetadataFile = "metadata.json"
 )
 
 type parquet2PCStagingEntry struct {
 	prefix   string
-	threadID string
 	finished bool
+}
+
+type parquet2PCBackfillFinish struct {
+	ThreadID string `json:"thread_id"`
 }
 
 // load2PCState rolls staged S3 commits forward before returning durable table metadata.
@@ -68,7 +71,11 @@ func (p *Parquet) recoverBackfillStaging(ctx context.Context) error {
 		}
 
 		// A finished attempt is rolled forward before its staging objects are removed.
-		if err := p.finalizeBackfillStaging(ctx, entry.prefix, entry.threadID); err != nil {
+		threadID, err := p.readBackfillFinish(ctx, entry.prefix+parquet2PCFinishFile)
+		if err != nil {
+			return err
+		}
+		if err := p.finalizeBackfillStaging(ctx, entry.prefix, threadID); err != nil {
 			return err
 		}
 	}
@@ -125,6 +132,30 @@ func (p *Parquet) finalizeStreamStaging(ctx context.Context, prefix string, stat
 	return p.deleteStagingPrefix(ctx, prefix)
 }
 
+func backfillFinishState(threadID string) ([]byte, error) {
+	data, err := json.Marshal(parquet2PCBackfillFinish{ThreadID: threadID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal parquet 2pc backfill finish state: %s", err)
+	}
+	return data, nil
+}
+
+func (p *Parquet) readBackfillFinish(ctx context.Context, key string) (string, error) {
+	data, err := p.readS3Object(ctx, key)
+	if err != nil {
+		return "", err
+	}
+
+	var state parquet2PCBackfillFinish
+	if err := json.Unmarshal(data, &state); err != nil {
+		return "", fmt.Errorf("failed to unmarshal parquet 2pc backfill finish state: %s", err)
+	}
+	if state.ThreadID == "" {
+		return "", fmt.Errorf("parquet 2pc backfill thread ID is missing from finish state")
+	}
+	return state.ThreadID, nil
+}
+
 // streamFinishState serializes the abstract-provided state for finish.json and returns
 // the same state in the typed form used to update metadata.json.
 func streamFinishState(finalMetadataState any) ([]byte, types.MetadataState, error) {
@@ -145,7 +176,7 @@ func streamFinishState(finalMetadataState any) ([]byte, types.MetadataState, err
 func parseFinishState(data []byte) (*types.MetadataState, error) {
 	trimmedData := bytes.TrimSpace(data)
 	if len(trimmedData) == 0 || bytes.Equal(trimmedData, []byte("{}")) || bytes.Equal(trimmedData, []byte("null")) {
-		return nil, nil //nolint:nilnil // empty finish state denotes a full-refresh commit
+		return nil, nil //nolint:nilnil // empty finish state carries no CDC or incremental checkpoint
 	}
 
 	var state types.MetadataState
@@ -283,22 +314,17 @@ func (p *Parquet) listBackfillStagingEntries(ctx context.Context) ([]parquet2PCS
 	entries := make([]parquet2PCStagingEntry, 0)
 	for _, key := range keys {
 		relativePath := strings.TrimPrefix(key, rootPrefix)
-		// For "<encoded-thread>/partition/data.parquet", parts[0] is the thread directory and parts[1] is the staged path.
+		// For "<thread-hash>/partition/data.parquet", parts[0] is the thread directory and parts[1] is the staged path.
 		parts := strings.SplitN(relativePath, "/", 2)
 		if len(parts) != 2 {
 			continue
 		}
 
-		encodedThreadID, stagedPath := parts[0], parts[1]
-		entryPrefix := rootPrefix + encodedThreadID + "/"
+		threadHash, stagedPath := parts[0], parts[1]
+		entryPrefix := rootPrefix + threadHash + "/"
 		if len(entries) == 0 || entries[len(entries)-1].prefix != entryPrefix {
-			threadID, err := decodeThreadID(encodedThreadID)
-			if err != nil {
-				return nil, err
-			}
 			entries = append(entries, parquet2PCStagingEntry{
-				prefix:   entryPrefix,
-				threadID: threadID,
+				prefix: entryPrefix,
 			})
 		}
 		if stagedPath == parquet2PCFinishFile {
@@ -451,7 +477,7 @@ func (p *Parquet) stagingRootPrefix() string {
 }
 
 func (p *Parquet) backfillStagingPrefix(threadID string) string {
-	return p.stagingRootPrefix() + encodeThreadID(threadID) + "/"
+	return p.stagingRootPrefix() + hashThreadID(threadID) + "/"
 }
 
 func (p *Parquet) currentStagingPrefix() string {
@@ -490,14 +516,7 @@ func (p *Parquet) s3CopySource(key string) string {
 	return p.config.Bucket + "/" + escapedKey
 }
 
-func encodeThreadID(threadID string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(threadID))
-}
-
-func decodeThreadID(name string) (string, error) {
-	data, err := base64.RawURLEncoding.DecodeString(name)
-	if err != nil {
-		return "", fmt.Errorf("failed to decode parquet 2pc staging dir[%s]: %s", name, err)
-	}
-	return string(data), nil
+func hashThreadID(threadID string) string {
+	sum := sha256.Sum256([]byte(threadID))
+	return hex.EncodeToString(sum[:])
 }

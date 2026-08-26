@@ -459,17 +459,19 @@ func (p *Parquet) Close(ctx context.Context, finalMetadataState any) error {
 		return nil
 	}
 
-	finishData := []byte(parquet2PCEmptyFinishState)
+	var finishData []byte
 	var metadataState types.MetadataState
-	if !p.options.Backfill {
-		var err error
+	var err error
+	if p.options.Backfill {
+		finishData, err = backfillFinishState(p.options.ThreadID)
+	} else {
 		finishData, metadataState, err = streamFinishState(finalMetadataState)
-		if err != nil {
-			if closeErr := p.closePqFiles(true); closeErr != nil {
-				return fmt.Errorf("%w: failed to close parquet files: %s", err, closeErr)
-			}
-			return err
+	}
+	if err != nil {
+		if closeErr := p.closePqFiles(true); closeErr != nil {
+			return fmt.Errorf("%w: failed to close parquet files: %s", err, closeErr)
 		}
+		return err
 	}
 
 	if err := p.closePqFiles(ctx.Err() != nil); err != nil {

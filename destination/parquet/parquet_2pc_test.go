@@ -2,6 +2,7 @@ package parquet
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"net/url"
@@ -39,13 +40,17 @@ func TestLoad2PCState(t *testing.T) {
 		require.Equal(t, expected, state)
 	})
 
-	// A finished full-refresh chunk is promoted and added to committed chunk IDs.
+	// A long full-refresh ID uses a bounded staging path and is restored during recovery.
 	t.Run("recovers finished full refresh staging", func(t *testing.T) {
 		p, store := testS3Parquet(t, "current-thread", true)
-		threadID := "full-refresh-thread"
+		threadID := "s3.table_min[[" + strings.Repeat("parquet/table/seed.parquet ", 20) + "]]-max[18884]"
 		prefix := p.backfillStagingPrefix(threadID)
+		stagingDir := strings.TrimSuffix(strings.TrimPrefix(prefix, p.stagingRootPrefix()), "/")
+		require.Len(t, stagingDir, sha256.Size*2)
 		store.put(prefix+"bucket_1/data.parquet", []byte("full-refresh"))
-		store.put(prefix+parquet2PCFinishFile, []byte("{}"))
+		finishData, err := backfillFinishState(threadID)
+		require.NoError(t, err)
+		store.put(prefix+parquet2PCFinishFile, finishData)
 
 		state, err := p.load2PCState(ctx)
 		require.NoError(t, err)
@@ -131,7 +136,7 @@ func TestStagingPaths(t *testing.T) {
 		{
 			name:           "full refresh",
 			backfill:       true,
-			expectedPrefix: "root/namespace/table/_olake_2pc/dGhyZWFk/",
+			expectedPrefix: "root/namespace/table/_olake_2pc/39200d1e8a8dbbb6d7bcea51e02b99f062d32a5f83151e8c5a9fab79576245dd/",
 		},
 		{
 			name:           "cdc and incremental",
