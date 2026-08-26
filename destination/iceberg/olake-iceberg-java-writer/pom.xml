@@ -38,7 +38,7 @@
     <!-- deliberate family pins; see DEPENDENCY POLICY above -->
     <version.netty>4.1.136.Final</version.netty>
     <version.junit>5.11.4</version.junit>
-    <version.jackson>2.22.1</version.jackson>
+    <version.jackson>2.22.2</version.jackson>
     <!-- keeps the grpc artifacts we declare on one version; gcsio brings its
              own 1.67.x grpc modules that this does not reach -->
     <version.grpc>1.69.0</version.grpc>
