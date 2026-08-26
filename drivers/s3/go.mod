@@ -8,6 +8,7 @@ replace (
 )
 
 require (
+	github.com/aws/smithy-go v1.24.2
 	github.com/datazip-inc/olake v0.2.6
 	github.com/parquet-go/parquet-go v0.29.0
 	github.com/shopspring/decimal v1.4.0

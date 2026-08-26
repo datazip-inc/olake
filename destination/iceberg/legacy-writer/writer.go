@@ -119,7 +119,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	// Send the batch to the server
 	res, err := w.server.SendClientRequest(reqCtx, request)
 	if err != nil {
-		return fmt.Errorf("failed to send batch: %s", err)
+		return fmt.Errorf("failed to send batch: %w", err)
 	}
 
 	ingestResponse := res.(*proto.RecordIngestResponse)
@@ -191,7 +191,7 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 
 	res, err := w.server.SendClientRequest(ctx, request)
 	if err != nil {
-		return fmt.Errorf("failed to send commit message: %s", err)
+		return fmt.Errorf("failed to send commit message: %w", err)
 	}
 
 	ingestResponse := res.(*proto.RecordIngestResponse)
