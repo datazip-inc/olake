@@ -58,14 +58,14 @@ func (cfg *IntegrationTest) testParquetRolling(ctx context.Context, t *testing.T
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "clean")
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "rolling_seed")
 
-	// Start from an empty destination folder — the earlier parquet sub-tests leave files behind
-	// (with an evolved schema) and the assertions below count everything under the table prefix.
-	if err := DeleteParquetFiles(t, cfg.DestinationDB, testTable); err != nil {
-		return fmt.Errorf("failed to delete parquet files before rolling sync: %s", err)
+	// Start from an empty destination folder — the earlier parquet sub-tests leave files and
+	// destination metadata behind, while this is an independent initial sync.
+	if err := deleteParquetTable(t, cfg.DestinationDB, testTable); err != nil {
+		return fmt.Errorf("failed to reset parquet table before rolling sync: %s", err)
 	}
 	defer func() {
-		if err := DeleteParquetFiles(t, cfg.DestinationDB, testTable); err != nil {
-			t.Logf("cleanup: failed to delete parquet files: %v", err)
+		if err := deleteParquetTable(t, cfg.DestinationDB, testTable); err != nil {
+			t.Logf("cleanup: failed to reset parquet table: %v", err)
 		}
 	}()
 

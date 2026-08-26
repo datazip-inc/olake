@@ -141,7 +141,7 @@ func send(name string, build func()) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Infof("recovered from panic while sending %s event: %v", name, r)
+				logger.Debugf("recovered from panic while sending %s event: %v", name, r)
 			}
 			inflight.Done()
 		}()
