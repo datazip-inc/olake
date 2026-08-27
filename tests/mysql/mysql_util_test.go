@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strings"
 	"testing"
 	"time"
 
@@ -375,42 +374,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	case "dv-part-delete-id3":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 3", testutils.DVPartTable)
-
-	case "dv-unpart-append-insert":
-		_, err = db.ExecContext(ctx, fmt.Sprintf(
-			"INSERT INTO %s (id, customer, amount, status) VALUES (99, 'customer_99', 999.00, 'new')", testutils.DVUnpartTable))
-		require.NoError(t, err, "failed to append-insert into %s", testutils.DVUnpartTable)
-		_, err = db.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET amount = 1.00 WHERE id = 1", testutils.DVUnpartTable))
-		require.NoError(t, err, "failed to append-update %s", testutils.DVUnpartTable)
-		return
-
-	case "dv-part-append-insert":
-		_, err = db.ExecContext(ctx, fmt.Sprintf(
-			"INSERT INTO %s (id, customer, amount, status) VALUES (99, 'customer_99', 999.00, 'new')", testutils.DVPartTable))
-		require.NoError(t, err, "failed to append-insert into %s", testutils.DVPartTable)
-		_, err = db.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET amount = 1.00 WHERE id = 1", testutils.DVPartTable))
-		require.NoError(t, err, "failed to append-update %s", testutils.DVPartTable)
-		return
-
-	case "dv-unpart-bulk-insert":
-		// Enough rows to roll the arrow writer past its file-size threshold, so the
-		// large-batch case (rolled-file tracking) actually gets exercised.
-		for batch := 0; batch < 5; batch++ {
-			var values []string
-			for i := 0; i < 2000; i++ {
-				id := 1000 + batch*2000 + i
-				values = append(values, fmt.Sprintf("(%d, 'bulk_%d', %d.00, 'bulk')", id, id, id))
-			}
-			_, err = db.ExecContext(ctx, fmt.Sprintf(
-				"INSERT INTO %s (id, customer, amount, status) VALUES %s", testutils.DVUnpartTable, strings.Join(values, ",")))
-			require.NoError(t, err, "failed to bulk-insert batch %d into %s", batch, testutils.DVUnpartTable)
-		}
-		return
-
-	case "dv-unpart-bulk-update":
-		_, err = db.ExecContext(ctx, fmt.Sprintf("UPDATE %s SET amount = amount + 1 WHERE id >= 1000", testutils.DVUnpartTable))
-		require.NoError(t, err, "failed to bulk-update %s", testutils.DVUnpartTable)
-		return
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)

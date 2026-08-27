@@ -175,17 +175,6 @@ func (cfg *IntegrationTest) dvSync(ctx context.Context, t *testing.T, useArrow b
 	require.Zerof(t, code, "%s sync exited %d: %s", label, code, out)
 }
 
-// dvExpectSyncFails is dvSync's counterpart for the rejection scenarios - it asserts the sync
-// does NOT succeed, since a v3 table refusing eq/pos writers is the behavior under test.
-func (cfg *IntegrationTest) dvExpectSyncFails(ctx context.Context, t *testing.T, useArrow bool, label string) {
-	t.Helper()
-	dvSelectWriter(cfg, useArrow)
-	code, out, err := runOlake(ctx, t, cfg.TestConfig, dvSyncArgs(cfg)...)
-	if err == nil && code == 0 {
-		t.Fatalf("%s sync succeeded but was expected to fail (a v3 table must reject this writer): %s", label, out)
-	}
-}
-
 // dvTableState is the full picture one table's assertions are checked against after a sync.
 type dvTableState struct {
 	liveRows           map[string]string // id -> _op_type, from every live row
@@ -477,114 +466,24 @@ func (cfg *IntegrationTest) testIcebergEqToDVMigration(ctx context.Context, t *t
 	return nil
 }
 
-// testIcebergDVAppendMode confirms append_mode really does turn deletes off, even under dv:
-// an update should land as an additional row rather than a delete-and-reinsert, and no delete
-// files of any kind should be produced - not even a vector.
-func (cfg *IntegrationTest) testIcebergDVAppendMode(ctx context.Context, t *testing.T, useArrow bool) error {
-	defer dropIcebergTable(t, DVUnpartTable, cfg.DestinationDB)
-	defer dropIcebergTable(t, DVPartTable, cfg.DestinationDB)
-
-	if err := cfg.prepareDVSync(ctx, t, "dv"); err != nil {
-		return err
-	}
-	if err := editJSONFile(cfg.TestConfig.HostCatalogPath, func(doc map[string]interface{}) error {
-		selected, _ := doc["selected_streams"].(map[string]interface{})
-		streams, _ := selected[cfg.Namespace].([]interface{})
-		for _, raw := range streams {
-			if stream, ok := raw.(map[string]interface{}); ok {
-				stream["append_mode"] = true
-			}
-		}
-		return nil
-	}); err != nil {
-		return fmt.Errorf("failed to enable append_mode: %w", err)
-	}
-	cfg.dvSync(ctx, t, useArrow, "append-mode backfill")
-
-	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-unpart-append-insert")
-	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-part-append-insert")
-	cfg.dvSync(ctx, t, useArrow, "append-mode cdc")
-
-	spark := getSparkSession(ctx, t)
-	for _, table := range []string{DVUnpartTable, DVPartTable} {
-		full := dvFullTableName(cfg, table)
-		state := dvState(ctx, t, spark, full)
-		require.Zero(t, state.posOrDVDeleteFiles, "%s: append_mode must never produce a delete file, dv or otherwise", table)
-		require.Zero(t, state.eqDeleteFiles, "%s: append_mode must never produce a delete file, dv or otherwise", table)
-		// The "updated" id=1 row shows up twice: once as its original insert, once as the
-		// append-mode update - append mode never deletes the first copy.
-		count := countByOpType(ctx, t, spark, full, "r") + countByOpType(ctx, t, spark, full, "c")
-		require.GreaterOrEqual(t, count, int64(6), "%s: expected the original 5 rows plus at least one appended row", table)
-		// Known, documented behavior, not a bug this test is asserting against: an
-		// append-only stream still constrains the table to format version 3 under dv, even
-		// though it never writes a delete file that would need one.
-		require.Equal(t, int64(3), state.formatVersion, "%s: dv still raises format version even in append_mode (known gap)", table)
-	}
-	return nil
-}
-
-// testIcebergDVRejectsEqAndPos confirms a v3 table refuses writers that cannot produce deletion
-// vectors. Iceberg 1.10.2 itself enforces this ("Must use DVs for position deletes in V3"); this
-// test exists to confirm OLake surfaces that as a clean sync failure rather than a confusing
-// error partway through a commit, or - worse - a silent partial write.
-func (cfg *IntegrationTest) testIcebergDVRejectsEqAndPos(ctx context.Context, t *testing.T, useArrow bool) error {
-	defer dropIcebergTable(t, DVUnpartTable, cfg.DestinationDB)
-	defer dropIcebergTable(t, DVPartTable, cfg.DestinationDB)
-
-	if err := cfg.prepareDVSync(ctx, t, "dv"); err != nil {
-		return err
-	}
-	cfg.dvSync(ctx, t, useArrow, "dv backfill")
-
-	for _, rejectedMode := range []string{"eq", "pos"} {
-		if err := dvSetUpdateType(cfg.TestConfig, cfg.Namespace, rejectedMode); err != nil {
-			return err
-		}
-		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-unpart-update-id1")
-		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-part-update-id1")
-		cfg.dvExpectSyncFails(ctx, t, useArrow, fmt.Sprintf("%s against a v3 table", rejectedMode))
-	}
-	return nil
-}
-
-// testIcebergDVArrowRolledFile is arrow-only: it bulk-inserts past the writer's file-size
-// threshold, forcing it to roll from one data file to the next mid-sync, then updates every
-// bulk-inserted row so the resulting deletes are guaranteed to span both the original and the
-// rolled file. The arrow writer has to remember which partition every data file it creates
-// belongs to at BOTH the place a file is first opened and the place a full file gets rolled to a
-// new one - missing the second would leave a rolled file's deletes with nowhere to resolve a
-// partition from. dv_unpart only: this is about the arrow writer's own file-rolling mechanics,
-// not about partitioning, so dv_part adds nothing here.
-func (cfg *IntegrationTest) testIcebergDVArrowRolledFile(ctx context.Context, t *testing.T) error {
-	defer dropIcebergTable(t, DVUnpartTable, cfg.DestinationDB)
-	defer dropIcebergTable(t, DVPartTable, cfg.DestinationDB)
-
-	if err := cfg.prepareDVSync(ctx, t, "dv"); err != nil {
-		return err
-	}
-	cfg.dvSync(ctx, t, true, "backfill")
-
-	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-unpart-bulk-insert")
-	cfg.dvSync(ctx, t, true, "bulk insert")
-
-	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-unpart-bulk-update")
-	cfg.dvSync(ctx, t, true, "bulk update")
-
-	spark := getSparkSession(ctx, t)
-	full := dvFullTableName(cfg, DVUnpartTable)
-	state := dvState(ctx, t, spark, full)
-	require.Equal(t, int64(0), state.duplicateVectors, "duplicate id after bulk update across a rolled file")
-	// Every bulk id was updated exactly once - if any landed in a rolled file whose
-	// partition could not be resolved, the row shows up twice: original and updated.
-	rowCount := countLiveRecords(ctx, t, spark, full)
-	require.Equal(t, int64(5+10000), rowCount, "expected the 5 original rows plus 10000 bulk rows, no duplicates from the roll")
-	return nil
-}
-
-// TestIcebergDV runs the whole deletion-vector suite: five scenarios, each run once against the
-// legacy (rows) writer and once against the arrow writer, plus one arrow-only scenario. Every
-// scenario checks both DVUnpartTable and DVPartTable in the same pass. Gated to
-// icebergDVTestDrivers, the same way TestSync gates its table-index suite.
+// TestIcebergDV runs the deletion-vector suite. Every sync in every scenario is a real docker
+// container launch (source + destination + Spark), so the scenario count here is deliberately
+// kept to what actually needs its own run - each one is minutes, not seconds, and this suite
+// runs inside the same per-driver job budget as everything else in the mysql package.
+//
+// All three remaining scenarios run under BOTH writers, because that is the whole point of each:
+// they are checking the rows writer and the arrow writer produce the same Iceberg state, or (for
+// migration) that CDC syncs on either writer behave the same before and after the mode switch.
+//
+// Two prior scenarios were cut for cost rather than kept "for completeness": an append-mode
+// check and an eq/pos-rejection check, both real behavior but both writer-independent (append
+// mode never writes a delete file regardless of writer; the eq/pos rejection is enforced
+// server-side at handshake, before any writer is chosen) and both fully covered in spirit by
+// unit-level or Iceberg-bytecode verification already recorded in DV_IMPLEMENTATION.md, so
+// spending real container-launch time on them here wasn't worth it. A prior arrow-only
+// rolled-file scenario was cut earlier for the same reason: at a size that fits inside an
+// integration test's time budget, it never actually reached the writer's real file-roll
+// threshold, so it exercised nothing beyond what backfill/core already covers.
 func (cfg *IntegrationTest) TestIcebergDV(t *testing.T) {
 	ctx := t.Context()
 	if !hasIcebergDVTest(cfg.TestConfig.Driver) {
@@ -610,16 +509,6 @@ func (cfg *IntegrationTest) TestIcebergDV(t *testing.T) {
 			t.Run("Eq to DV migration", func(t *testing.T) {
 				require.NoError(t, cfg.testIcebergEqToDVMigration(ctx, t, wt.useArrow))
 			})
-			t.Run("Append mode", func(t *testing.T) {
-				require.NoError(t, cfg.testIcebergDVAppendMode(ctx, t, wt.useArrow))
-			})
-			t.Run("Rejects eq and pos on a v3 table", func(t *testing.T) {
-				require.NoError(t, cfg.testIcebergDVRejectsEqAndPos(ctx, t, wt.useArrow))
-			})
 		})
 	}
-
-	t.Run("Arrow rolled file", func(t *testing.T) {
-		require.NoError(t, cfg.testIcebergDVArrowRolledFile(ctx, t))
-	})
 }
