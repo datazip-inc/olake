@@ -39,13 +39,19 @@ type ArrowWriter struct {
 	// the server, which encodes them as Puffin vectors.
 	deleteMode types.DeleteMode
 	// pendingVectors buffers positions until a batch is worth sending, grouped by
-	// the data file holding them. Only used under DeleteModeDeletionVector.
-	pendingVectors     map[string][]int64
+	// the data file holding them - which is also how a vector is scoped. Only used
+	// under DeleteModeDeletionVector.
+	pendingVectors     map[string]*pendingVector
 	pendingVectorCount int
-	// sessionFilePartitions records the partition of every data file this session
-	// has written. The server cannot resolve those by scanning - they are not in
-	// table metadata until the commit this sync ends with.
-	sessionFilePartitions map[string][]any
+}
+
+// pendingVector is the positions to delete from one data file, plus the partition the
+// vector is stamped with: the one being written, not necessarily the referenced file's.
+// Matches the rows path; see the TODO on ArrowDeletionVectorWriter.add. First writer to
+// touch a path wins - a data file carries only one vector.
+type pendingVector struct {
+	positions       []int64
+	partitionValues []any
 }
 
 type Writer struct {
@@ -94,8 +100,7 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 		indexThread:   types.NewStreamIndexThread(options.TableIndex),
 		deleteMode:    stream.GetDeleteMode(),
 
-		pendingVectors:        make(map[string][]int64),
-		sessionFilePartitions: make(map[string][]any),
+		pendingVectors: make(map[string]*pendingVector),
 	}
 
 	if err := writer.initialize(ctx); err != nil {
@@ -269,7 +274,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 
 		if w.upsertMode {
 			if w.deleteMode == types.DeleteModeDeletionVector {
-				if err := w.queueVectorDeletes(ctx, writer.positionalDeletes); err != nil {
+				if err := w.queueVectorDeletes(ctx, writer.positionalDeletes, writer.dataWriter.partitionValues); err != nil {
 					return err
 				}
 			} else if len(writer.positionalDeletes) > 0 {
@@ -355,7 +360,6 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, part
 		return nil, fmt.Errorf("failed to allocate new file path after flush: %s", err)
 	}
 	newWriter.filePath = newFilePath
-	w.recordSessionFile(newWriter)
 
 	return newWriter, nil
 }
@@ -582,7 +586,6 @@ func (w *ArrowWriter) createWriter(ctx context.Context, pKey string, values []an
 	if err != nil {
 		return nil, fmt.Errorf("failed to create rolling writer: %s", err)
 	}
-	w.recordSessionFile(rw)
 
 	return rw, nil
 }
@@ -614,26 +617,17 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Sc
 	}, nil
 }
 
-// recordSessionFile remembers a data file's partition so a deletion vector aimed at
-// it can be stamped correctly. The server cannot work this out itself: the file is
-// not in table metadata until the commit at the end of this sync.
-//
-// Must be called wherever a data file path is finalised, which is both createWriter
-// and checkAndFlush - the latter rolls a new file without going through the former,
-// and a position landing in a rolled file has nowhere else to get its partition from.
-func (w *ArrowWriter) recordSessionFile(rw *RollingWriter) {
-	if w.deleteMode != types.DeleteModeDeletionVector || rw.fileType != fileTypeData {
-		return
-	}
-	w.sessionFilePartitions[rw.filePath] = rw.partitionValues
-}
-
 // queueVectorDeletes buffers positions and ships them once enough have accumulated.
-// Sending during the sync rather than at commit keeps memory flat on both sides and
-// overlaps the encoding with the rest of the work.
-func (w *ArrowWriter) queueVectorDeletes(ctx context.Context, deletes []PositionalDelete) error {
+// Sending during the sync rather than at commit keeps memory flat on both sides.
+// partitionValues is the partition being written; see pendingVector.
+func (w *ArrowWriter) queueVectorDeletes(ctx context.Context, deletes []PositionalDelete, partitionValues []any) error {
 	for _, d := range deletes {
-		w.pendingVectors[d.FilePath] = append(w.pendingVectors[d.FilePath], d.Position)
+		pending, exists := w.pendingVectors[d.FilePath]
+		if !exists {
+			pending = &pendingVector{partitionValues: partitionValues}
+			w.pendingVectors[d.FilePath] = pending
+		}
+		pending.positions = append(pending.positions, d.Position)
 	}
 	w.pendingVectorCount += len(deletes)
 
@@ -651,24 +645,17 @@ func (w *ArrowWriter) sendPendingVectors(ctx context.Context) error {
 	}
 
 	entries := make([]*proto.ArrowPayload_DeletionVectorBatch_Entry, 0, len(w.pendingVectors))
-	for path, positions := range w.pendingVectors {
-		entry := &proto.ArrowPayload_DeletionVectorBatch_Entry{
-			DataFilePath: path,
-			Positions:    positions,
+	for path, pending := range w.pendingVectors {
+		partitionValues, err := toProtoPartitionValues(pending.partitionValues)
+		if err != nil {
+			return fmt.Errorf("failed to convert partition values of %s: %s", path, err)
 		}
 
-		// Only this session's files need their partition sent; anything else is
-		// already committed, so the server can resolve it from table metadata.
-		if values, ok := w.sessionFilePartitions[path]; ok {
-			partitionValues, err := toProtoPartitionValues(values)
-			if err != nil {
-				return fmt.Errorf("failed to convert partition values of %s: %s", path, err)
-			}
-			entry.PartitionValues = partitionValues
-			entry.PartitionKnown = true
-		}
-
-		entries = append(entries, entry)
+		entries = append(entries, &proto.ArrowPayload_DeletionVectorBatch_Entry{
+			DataFilePath:    path,
+			Positions:       pending.positions,
+			PartitionValues: partitionValues,
+		})
 	}
 
 	request := &proto.ArrowPayload{
@@ -685,10 +672,10 @@ func (w *ArrowWriter) sendPendingVectors(ctx context.Context) error {
 	defer cancel()
 
 	if _, err := w.server.SendClientRequest(reqCtx, request); err != nil {
-		return fmt.Errorf("failed to send position deletes: %s", err)
+		return fmt.Errorf("failed to send deletion vector rows: %s", err)
 	}
 
-	w.pendingVectors = make(map[string][]int64)
+	w.pendingVectors = make(map[string]*pendingVector)
 	w.pendingVectorCount = 0
 	return nil
 }

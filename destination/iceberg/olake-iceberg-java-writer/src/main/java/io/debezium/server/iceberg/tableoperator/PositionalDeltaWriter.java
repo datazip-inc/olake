@@ -111,16 +111,9 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
     StructLike partition = partitionOrNull(key);
 
     if (wrapped.hasPositionalDelete()) {
-      // NOTE: the delete is routed to the partition of the NEW record, because that is
-      // all the caller supplies today. When a row's partition values change, the
-      // superseded row lives in a different partition and Iceberg will not apply this
-      // delete to it. Fixing that needs the old row's partition to travel with the row
-      // index entry; the routing here is already per-partition, so only the key changes.
-      //
-      // ArrowDeletionVectorWriter resolves it a second way - one planFiles() per commit,
-      // keyed on the data file path - which needs no index change and would fix this
-      // here too. The two paths should converge on one of the two; see the field comment
-      // on its knownPartitions.
+      // TODO: routed to the NEW record's partition - the caller's index carries no
+      // partition for the old row. Wrong when an update moves a row between partitions;
+      // see the TODO on ArrowDeletionVectorWriter.add.
       deleteSink.delete(wrapped.deleteFilePath(), wrapped.deletePosition(), spec, partition);
     }
 

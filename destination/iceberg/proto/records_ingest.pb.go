@@ -1709,15 +1709,13 @@ type ArrowPayload_DeletionVectorBatch_Entry struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
 	DataFilePath string                 `protobuf:"bytes,1,opt,name=data_file_path,json=dataFilePath,proto3" json:"data_file_path,omitempty"`
 	Positions    []int64                `protobuf:"varint,2,rep,packed,name=positions,proto3" json:"positions,omitempty"`
-	// Partition of the data file, sent only when this session wrote it - such a
-	// file is not in table metadata yet, so the server cannot resolve it by
-	// scanning. Files from earlier commits are left for the server to resolve.
+	// Partition the vector is stamped with: the one being WRITTEN when these rows
+	// were superseded, not necessarily the one the referenced data file lives in.
+	// Matches how the rows path routes the same delete - see the TODO on
+	// ArrowDeletionVectorWriter.
 	PartitionValues []*ArrowPayload_FileMetadata_PartitionValue `protobuf:"bytes,3,rep,name=partition_values,json=partitionValues,proto3" json:"partition_values,omitempty"`
-	// Distinguishes "unpartitioned, nothing to send" from "not this session's
-	// file, go look it up" - both of which leave partition_values empty.
-	PartitionKnown bool `protobuf:"varint,4,opt,name=partition_known,json=partitionKnown,proto3" json:"partition_known,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *ArrowPayload_DeletionVectorBatch_Entry) Reset() {
@@ -1769,13 +1767,6 @@ func (x *ArrowPayload_DeletionVectorBatch_Entry) GetPartitionValues() []*ArrowPa
 		return x.PartitionValues
 	}
 	return nil
-}
-
-func (x *ArrowPayload_DeletionVectorBatch_Entry) GetPartitionKnown() bool {
-	if x != nil {
-		return x.PartitionKnown
-	}
-	return false
 }
 
 type TableIndexScanBatch_Entry struct {
@@ -1921,7 +1912,7 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x05Range\x12&\n" +
 	"\x0fbatch_start_idx\x18\x01 \x01(\x05R\rbatchStartIdx\x12%\n" +
 	"\x0estart_position\x18\x02 \x01(\x03R\rstartPosition\x12\x14\n" +
-	"\x05count\x18\x03 \x01(\x05R\x05count\"\xab\r\n" +
+	"\x05count\x18\x03 \x01(\x05R\x05count\"\x82\r\n" +
 	"\fArrowPayload\x12L\n" +
 	"\x04type\x18\x01 \x01(\x0e28.io.debezium.server.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12Q\n" +
 	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\xca\x03\n" +
@@ -1943,14 +1934,13 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x05value\x1aM\n" +
 	"\x11FileUploadRequest\x12\x1b\n" +
 	"\tfile_data\x18\x01 \x01(\fR\bfileData\x12\x1b\n" +
-	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x1a\xe3\x02\n" +
+	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x1a\xba\x02\n" +
 	"\x13DeletionVectorBatch\x12`\n" +
-	"\aentries\x18\x01 \x03(\v2F.io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch.EntryR\aentries\x1a\xe9\x01\n" +
+	"\aentries\x18\x01 \x03(\v2F.io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch.EntryR\aentries\x1a\xc0\x01\n" +
 	"\x05Entry\x12$\n" +
 	"\x0edata_file_path\x18\x01 \x01(\tR\fdataFilePath\x12\x1c\n" +
 	"\tpositions\x18\x02 \x03(\x03R\tpositions\x12s\n" +
-	"\x10partition_values\x18\x03 \x03(\v2H.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x12'\n" +
-	"\x0fpartition_known\x18\x04 \x01(\bR\x0epartitionKnown\x1a\x8a\x04\n" +
+	"\x10partition_values\x18\x03 \x03(\v2H.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x1a\x8a\x04\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
 	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12^\n" +

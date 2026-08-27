@@ -14216,9 +14216,10 @@ public final class RecordIngest {
 
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -14227,9 +14228,10 @@ public final class RecordIngest {
             getPartitionValuesList();
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -14237,9 +14239,10 @@ public final class RecordIngest {
         io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue getPartitionValues(int index);
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -14247,9 +14250,10 @@ public final class RecordIngest {
         int getPartitionValuesCount();
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -14258,26 +14262,16 @@ public final class RecordIngest {
             getPartitionValuesOrBuilderList();
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
          */
         io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder getPartitionValuesOrBuilder(
             int index);
-
-        /**
-         * <pre>
-         * Distinguishes "unpartitioned, nothing to send" from "not this session's
-         * file, go look it up" - both of which leave partition_values empty.
-         * </pre>
-         *
-         * <code>bool partition_known = 4;</code>
-         * @return The partitionKnown.
-         */
-        boolean getPartitionKnown();
       }
       /**
        * Protobuf type {@code io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch.Entry}
@@ -14391,9 +14385,10 @@ public final class RecordIngest {
         private java.util.List<io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValue> partitionValues_;
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -14404,9 +14399,10 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -14418,9 +14414,10 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -14431,9 +14428,10 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -14444,9 +14442,10 @@ public final class RecordIngest {
         }
         /**
          * <pre>
-         * Partition of the data file, sent only when this session wrote it - such a
-         * file is not in table metadata yet, so the server cannot resolve it by
-         * scanning. Files from earlier commits are left for the server to resolve.
+         * Partition the vector is stamped with: the one being WRITTEN when these rows
+         * were superseded, not necessarily the one the referenced data file lives in.
+         * Matches how the rows path routes the same delete - see the TODO on
+         * ArrowDeletionVectorWriter.
          * </pre>
          *
          * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -14455,22 +14454,6 @@ public final class RecordIngest {
         public io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload.FileMetadata.PartitionValueOrBuilder getPartitionValuesOrBuilder(
             int index) {
           return partitionValues_.get(index);
-        }
-
-        public static final int PARTITION_KNOWN_FIELD_NUMBER = 4;
-        private boolean partitionKnown_ = false;
-        /**
-         * <pre>
-         * Distinguishes "unpartitioned, nothing to send" from "not this session's
-         * file, go look it up" - both of which leave partition_values empty.
-         * </pre>
-         *
-         * <code>bool partition_known = 4;</code>
-         * @return The partitionKnown.
-         */
-        @java.lang.Override
-        public boolean getPartitionKnown() {
-          return partitionKnown_;
         }
 
         private byte memoizedIsInitialized = -1;
@@ -14500,9 +14483,6 @@ public final class RecordIngest {
           }
           for (int i = 0; i < partitionValues_.size(); i++) {
             output.writeMessage(3, partitionValues_.get(i));
-          }
-          if (partitionKnown_ != false) {
-            output.writeBool(4, partitionKnown_);
           }
           getUnknownFields().writeTo(output);
         }
@@ -14534,10 +14514,6 @@ public final class RecordIngest {
             size += com.google.protobuf.CodedOutputStream
               .computeMessageSize(3, partitionValues_.get(i));
           }
-          if (partitionKnown_ != false) {
-            size += com.google.protobuf.CodedOutputStream
-              .computeBoolSize(4, partitionKnown_);
-          }
           size += getUnknownFields().getSerializedSize();
           memoizedSize = size;
           return size;
@@ -14559,8 +14535,6 @@ public final class RecordIngest {
               .equals(other.getPositionsList())) return false;
           if (!getPartitionValuesList()
               .equals(other.getPartitionValuesList())) return false;
-          if (getPartitionKnown()
-              != other.getPartitionKnown()) return false;
           if (!getUnknownFields().equals(other.getUnknownFields())) return false;
           return true;
         }
@@ -14582,9 +14556,6 @@ public final class RecordIngest {
             hash = (37 * hash) + PARTITION_VALUES_FIELD_NUMBER;
             hash = (53 * hash) + getPartitionValuesList().hashCode();
           }
-          hash = (37 * hash) + PARTITION_KNOWN_FIELD_NUMBER;
-          hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
-              getPartitionKnown());
           hash = (29 * hash) + getUnknownFields().hashCode();
           memoizedHashCode = hash;
           return hash;
@@ -14725,7 +14696,6 @@ public final class RecordIngest {
               partitionValuesBuilder_.clear();
             }
             bitField0_ = (bitField0_ & ~0x00000004);
-            partitionKnown_ = false;
             return this;
           }
 
@@ -14778,9 +14748,6 @@ public final class RecordIngest {
             if (((from_bitField0_ & 0x00000002) != 0)) {
               positions_.makeImmutable();
               result.positions_ = positions_;
-            }
-            if (((from_bitField0_ & 0x00000008) != 0)) {
-              result.partitionKnown_ = partitionKnown_;
             }
           }
 
@@ -14870,9 +14837,6 @@ public final class RecordIngest {
                 }
               }
             }
-            if (other.getPartitionKnown() != false) {
-              setPartitionKnown(other.getPartitionKnown());
-            }
             this.mergeUnknownFields(other.getUnknownFields());
             onChanged();
             return this;
@@ -14933,11 +14897,6 @@ public final class RecordIngest {
                     }
                     break;
                   } // case 26
-                  case 32: {
-                    partitionKnown_ = input.readBool();
-                    bitField0_ |= 0x00000008;
-                    break;
-                  } // case 32
                   default: {
                     if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                       done = true; // was an endgroup tag
@@ -15125,9 +15084,10 @@ public final class RecordIngest {
 
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15141,9 +15101,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15157,9 +15118,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15173,9 +15135,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15196,9 +15159,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15216,9 +15180,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15238,9 +15203,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15261,9 +15227,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15281,9 +15248,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15301,9 +15269,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15322,9 +15291,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15341,9 +15311,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15360,9 +15331,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15373,9 +15345,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15389,9 +15362,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15406,9 +15380,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15419,9 +15394,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15433,9 +15409,10 @@ public final class RecordIngest {
           }
           /**
            * <pre>
-           * Partition of the data file, sent only when this session wrote it - such a
-           * file is not in table metadata yet, so the server cannot resolve it by
-           * scanning. Files from earlier commits are left for the server to resolve.
+           * Partition the vector is stamped with: the one being WRITTEN when these rows
+           * were superseded, not necessarily the one the referenced data file lives in.
+           * Matches how the rows path routes the same delete - see the TODO on
+           * ArrowDeletionVectorWriter.
            * </pre>
            *
            * <code>repeated .io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue partition_values = 3;</code>
@@ -15457,53 +15434,6 @@ public final class RecordIngest {
               partitionValues_ = null;
             }
             return partitionValuesBuilder_;
-          }
-
-          private boolean partitionKnown_ ;
-          /**
-           * <pre>
-           * Distinguishes "unpartitioned, nothing to send" from "not this session's
-           * file, go look it up" - both of which leave partition_values empty.
-           * </pre>
-           *
-           * <code>bool partition_known = 4;</code>
-           * @return The partitionKnown.
-           */
-          @java.lang.Override
-          public boolean getPartitionKnown() {
-            return partitionKnown_;
-          }
-          /**
-           * <pre>
-           * Distinguishes "unpartitioned, nothing to send" from "not this session's
-           * file, go look it up" - both of which leave partition_values empty.
-           * </pre>
-           *
-           * <code>bool partition_known = 4;</code>
-           * @param value The partitionKnown to set.
-           * @return This builder for chaining.
-           */
-          public Builder setPartitionKnown(boolean value) {
-
-            partitionKnown_ = value;
-            bitField0_ |= 0x00000008;
-            onChanged();
-            return this;
-          }
-          /**
-           * <pre>
-           * Distinguishes "unpartitioned, nothing to send" from "not this session's
-           * file, go look it up" - both of which leave partition_values empty.
-           * </pre>
-           *
-           * <code>bool partition_known = 4;</code>
-           * @return This builder for chaining.
-           */
-          public Builder clearPartitionKnown() {
-            bitField0_ = (bitField0_ & ~0x00000008);
-            partitionKnown_ = false;
-            onChanged();
-            return this;
           }
           @java.lang.Override
           public final Builder setUnknownFields(
@@ -23659,7 +23589,7 @@ java.lang.String defaultValue) {
       "\003(\01325.io.debezium.server.iceberg.rpc.Fil" +
       "ePositionMap.Range\032G\n\005Range\022\027\n\017batch_sta" +
       "rt_idx\030\001 \001(\005\022\026\n\016start_position\030\002 \001(\003\022\r\n\005" +
-      "count\030\003 \001(\005\"\357\n\n\014ArrowPayload\022F\n\004type\030\001 \001" +
+      "count\030\003 \001(\005\"\326\n\n\014ArrowPayload\022F\n\004type\030\001 \001" +
       "(\01628.io.debezium.server.iceberg.rpc.Arro" +
       "wPayload.PayloadType\022G\n\010metadata\030\002 \001(\01325" +
       ".io.debezium.server.iceberg.rpc.ArrowPay" +
@@ -23673,63 +23603,62 @@ java.lang.String defaultValue) {
       "float_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(" +
       "\001H\000\022\024\n\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021Fi" +
       "leUploadRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\tfi" +
-      "le_path\030\002 \001(\t\032\240\002\n\023DeletionVectorBatch\022W\n" +
+      "le_path\030\002 \001(\t\032\207\002\n\023DeletionVectorBatch\022W\n" +
       "\007entries\030\001 \003(\0132F.io.debezium.server.iceb" +
       "erg.rpc.ArrowPayload.DeletionVectorBatch" +
-      ".Entry\032\257\001\n\005Entry\022\026\n\016data_file_path\030\001 \001(\t" +
+      ".Entry\032\226\001\n\005Entry\022\026\n\016data_file_path\030\001 \001(\t" +
       "\022\021\n\tpositions\030\002 \003(\003\022b\n\020partition_values\030" +
       "\003 \003(\0132H.io.debezium.server.iceberg.rpc.A" +
-      "rrowPayload.FileMetadata.PartitionValue\022" +
-      "\027\n\017partition_known\030\004 \001(\010\032\255\003\n\010Metadata\022\027\n" +
-      "\017dest_table_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(" +
-      "\t\022P\n\rfile_metadata\030\003 \003(\01329.io.debezium.s" +
-      "erver.iceberg.rpc.ArrowPayload.FileMetad" +
-      "ata\022X\n\013file_upload\030\004 \001(\0132>.io.debezium.s" +
-      "erver.iceberg.rpc.ArrowPayload.FileUploa" +
-      "dRequestH\000\210\001\001\022\017\n\007payload\030\006 \001(\t\022\035\n\020base_s" +
-      "napshot_id\030\007 \001(\003H\001\210\001\001\022_\n\020deletion_vector" +
-      "s\030\010 \001(\0132@.io.debezium.server.iceberg.rpc" +
-      ".ArrowPayload.DeletionVectorBatchH\002\210\001\001B\016" +
-      "\n\014_file_uploadB\023\n\021_base_snapshot_idB\023\n\021_" +
-      "deletion_vectors\"k\n\013PayloadType\022\017\n\013UPLOA" +
-      "D_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT\020\001\022\016\n\nJSO" +
-      "NSCHEMA\020\002\022\014\n\010FILEPATH\020\003\022\024\n\020DELETION_VECT" +
-      "ORS\020\004\"\347\001\n\023ArrowIngestResponse\022\016\n\006result\030" +
-      "\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.debez" +
-      "ium.server.iceberg.rpc.ArrowIngestRespon" +
-      "se.IcebergSchemasEntry\022\030\n\013snapshot_id\030\003 " +
-      "\001(\003H\000\210\001\001\0325\n\023IcebergSchemasEntry\022\013\n\003key\030\001" +
-      " \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001B\016\n\014_snapshot_id\"" +
-      "^\n\025TableIndexScanRequest\022\021\n\tthread_id\030\001 " +
-      "\001(\t\022\035\n\020from_snapshot_id\030\002 \001(\003H\000\210\001\001B\023\n\021_f" +
-      "rom_snapshot_id\"\266\001\n\023TableIndexScanBatch\022" +
-      "J\n\007entries\030\001 \003(\01329.io.debezium.server.ic" +
-      "eberg.rpc.TableIndexScanBatch.Entry\022\023\n\013s" +
-      "napshot_id\030\002 \001(\003\032>\n\005Entry\022\020\n\010olake_id\030\001 " +
-      "\001(\t\022\021\n\tfile_path\030\002 \001(\t\022\020\n\010position\030\003 \001(\003" +
-      "\"\202\001\n\035MigrateEqualityDeletesRequest\022\021\n\tth" +
-      "read_id\030\001 \001(\t\022N\n\013target_mode\030\002 \001(\01629.io." +
-      "debezium.server.iceberg.rpc.IcebergPaylo" +
-      "ad.DeleteMode\"y\n\036MigrateEqualityDeletesR" +
-      "esponse\022\023\n\013snapshot_id\030\001 \001(\003\022\036\n\026rewritte" +
-      "n_delete_files\030\002 \001(\003\022\"\n\032positional_delet" +
-      "es_written\030\003 \001(\0032\212\001\n\023RecordIngestService" +
-      "\022s\n\013SendRecords\022..io.debezium.server.ice" +
-      "berg.rpc.IcebergPayload\0324.io.debezium.se" +
-      "rver.iceberg.rpc.RecordIngestResponse2\205\001" +
-      "\n\022ArrowIngestService\022o\n\nIcebergAPI\022,.io." +
-      "debezium.server.iceberg.rpc.ArrowPayload" +
-      "\0323.io.debezium.server.iceberg.rpc.ArrowI" +
-      "ngestResponse2\264\002\n\021TableIndexService\022\204\001\n\024" +
-      "ScanTableForIndexing\0225.io.debezium.serve" +
-      "r.iceberg.rpc.TableIndexScanRequest\0323.io" +
+      "rrowPayload.FileMetadata.PartitionValue\032" +
+      "\255\003\n\010Metadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n" +
+      "\tthread_id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\0132" +
+      "9.io.debezium.server.iceberg.rpc.ArrowPa" +
+      "yload.FileMetadata\022X\n\013file_upload\030\004 \001(\0132" +
+      ">.io.debezium.server.iceberg.rpc.ArrowPa" +
+      "yload.FileUploadRequestH\000\210\001\001\022\017\n\007payload\030" +
+      "\006 \001(\t\022\035\n\020base_snapshot_id\030\007 \001(\003H\001\210\001\001\022_\n\020" +
+      "deletion_vectors\030\010 \001(\0132@.io.debezium.ser" +
+      "ver.iceberg.rpc.ArrowPayload.DeletionVec" +
+      "torBatchH\002\210\001\001B\016\n\014_file_uploadB\023\n\021_base_s" +
+      "napshot_idB\023\n\021_deletion_vectors\"k\n\013Paylo" +
+      "adType\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTER_AND_" +
+      "COMMIT\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEPATH\020\003\022\024" +
+      "\n\020DELETION_VECTORS\020\004\"\347\001\n\023ArrowIngestResp" +
+      "onse\022\016\n\006result\030\001 \001(\t\022_\n\016icebergSchemas\030\002" +
+      " \003(\0132G.io.debezium.server.iceberg.rpc.Ar" +
+      "rowIngestResponse.IcebergSchemasEntry\022\030\n" +
+      "\013snapshot_id\030\003 \001(\003H\000\210\001\001\0325\n\023IcebergSchema" +
+      "sEntry\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001B\016" +
+      "\n\014_snapshot_id\"^\n\025TableIndexScanRequest\022" +
+      "\021\n\tthread_id\030\001 \001(\t\022\035\n\020from_snapshot_id\030\002" +
+      " \001(\003H\000\210\001\001B\023\n\021_from_snapshot_id\"\266\001\n\023Table" +
+      "IndexScanBatch\022J\n\007entries\030\001 \003(\01329.io.deb" +
+      "ezium.server.iceberg.rpc.TableIndexScanB" +
+      "atch.Entry\022\023\n\013snapshot_id\030\002 \001(\003\032>\n\005Entry" +
+      "\022\020\n\010olake_id\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\020\n" +
+      "\010position\030\003 \001(\003\"\202\001\n\035MigrateEqualityDelet" +
+      "esRequest\022\021\n\tthread_id\030\001 \001(\t\022N\n\013target_m" +
+      "ode\030\002 \001(\01629.io.debezium.server.iceberg.r" +
+      "pc.IcebergPayload.DeleteMode\"y\n\036MigrateE" +
+      "qualityDeletesResponse\022\023\n\013snapshot_id\030\001 " +
+      "\001(\003\022\036\n\026rewritten_delete_files\030\002 \001(\003\022\"\n\032p" +
+      "ositional_deletes_written\030\003 \001(\0032\212\001\n\023Reco" +
+      "rdIngestService\022s\n\013SendRecords\022..io.debe" +
+      "zium.server.iceberg.rpc.IcebergPayload\0324" +
+      ".io.debezium.server.iceberg.rpc.RecordIn" +
+      "gestResponse2\205\001\n\022ArrowIngestService\022o\n\nI" +
+      "cebergAPI\022,.io.debezium.server.iceberg.r" +
+      "pc.ArrowPayload\0323.io.debezium.server.ice" +
+      "berg.rpc.ArrowIngestResponse2\264\002\n\021TableIn" +
+      "dexService\022\204\001\n\024ScanTableForIndexing\0225.io" +
       ".debezium.server.iceberg.rpc.TableIndexS" +
-      "canBatch0\001\022\227\001\n\026MigrateEqualityDeletes\022=." +
-      "io.debezium.server.iceberg.rpc.MigrateEq" +
-      "ualityDeletesRequest\032>.io.debezium.serve" +
-      "r.iceberg.rpc.MigrateEqualityDeletesResp" +
-      "onseB\035B\014RecordIngestZ\riceberg/protob\006pro" +
-      "to3"
+      "canRequest\0323.io.debezium.server.iceberg." +
+      "rpc.TableIndexScanBatch0\001\022\227\001\n\026MigrateEqu" +
+      "alityDeletes\022=.io.debezium.server.iceber" +
+      "g.rpc.MigrateEqualityDeletesRequest\032>.io" +
+      ".debezium.server.iceberg.rpc.MigrateEqua" +
+      "lityDeletesResponseB\035B\014RecordIngestZ\rice" +
+      "berg/protob\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -23824,7 +23753,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_DeletionVectorBatch_Entry_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_DeletionVectorBatch_Entry_descriptor,
-        new java.lang.String[] { "DataFilePath", "Positions", "PartitionValues", "PartitionKnown", });
+        new java.lang.String[] { "DataFilePath", "Positions", "PartitionValues", });
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_descriptor.getNestedTypes().get(3);
     internal_static_io_debezium_server_iceberg_rpc_ArrowPayload_Metadata_fieldAccessorTable = new

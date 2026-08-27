@@ -198,13 +198,11 @@ message ArrowPayload {
     message Entry {
       string data_file_path = 1;
       repeated int64 positions = 2;
-      // Partition of the data file, sent only when this session wrote it - such a
-      // file is not in table metadata yet, so the server cannot resolve it by
-      // scanning. Files from earlier commits are left for the server to resolve.
+      // Partition the vector is stamped with: the one being WRITTEN when these rows
+      // were superseded, not necessarily the one the referenced data file lives in.
+      // Matches how the rows path routes the same delete - see the TODO on
+      // ArrowDeletionVectorWriter.
       repeated FileMetadata.PartitionValue partition_values = 3;
-      // Distinguishes "unpartitioned, nothing to send" from "not this session's
-      // file, go look it up" - both of which leave partition_values empty.
-      bool partition_known = 4;
     }
     repeated Entry entries = 1;
   }
