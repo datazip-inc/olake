@@ -7,9 +7,11 @@ on:
     branches:
       - "master"
       - "staging"
+      - "feat/iceberg-deletion-vectors"
   pull_request:
     branches:
       - "*"
+      - "feat/iceberg-deletion-vectors"
     paths:
       - '**/*.go'
       - '**/*.java'
