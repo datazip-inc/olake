@@ -584,7 +584,7 @@ func (cfg *IntegrationTest) testIcebergDVArrowRolledFile(ctx context.Context, t 
 // TestIcebergDV runs the whole deletion-vector suite: five scenarios, each run once against the
 // legacy (rows) writer and once against the arrow writer, plus one arrow-only scenario. Every
 // scenario checks both DVUnpartTable and DVPartTable in the same pass. Gated to
-// icebergDVTestDrivers, the same way TestSync gates its table-index suite.
+// icebergDVTestDrivers, the same way TestSync gates its table-index suite
 func (cfg *IntegrationTest) TestIcebergDV(t *testing.T) {
 	ctx := t.Context()
 	if !hasIcebergDVTest(cfg.TestConfig.Driver) {
