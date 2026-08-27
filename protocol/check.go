@@ -36,6 +36,7 @@ var checkCmd = &cobra.Command{
 
 		return nil
 	},
+	// TODO: switch back to returning err once the worker handling is added for non-zero exit.
 	Run: func(cmd *cobra.Command, _ []string) {
 		err := func() error {
 			// If connector is not set, we are checking the destination
