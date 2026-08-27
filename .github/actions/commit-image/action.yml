@@ -1,0 +1,63 @@
+name: Commit driver image
+description: >
+  Makes the driver image for an arbitrary commit available locally, caching it in a container
+  registry so the first run that needs a commit builds it and every run after pulls. Tagged with the
+  abbreviated sha, which is what the test harness resolves a commit id to and the ref it looks up --
+  it then finds the image present and skips its own build.
+
+inputs:
+  driver:
+    description: Driver to build the image for.
+    required: true
+  sha:
+    description: Commit to build. Empty is a no-op, for events that have no commit to compare against.
+    required: false
+    default: ''
+  cache-repo:
+    description: Registry repository the cached images live under, e.g. ghcr.io/owner/repo.
+    required: true
+  registry:
+    description: Registry to authenticate against.
+    required: false
+    default: ghcr.io
+  username:
+    description: Registry user.
+    required: true
+  token:
+    description: Registry token. A read-only one still pulls; publishing is skipped.
+    required: true
+  path:
+    description: >
+      Where to check the commit's tree out. actions/checkout refuses anything outside the workspace,
+      so it lands beside the caller's own checkout and must sit somewhere .dockerignore already
+      excludes -- otherwise it joins the context of every other image the job builds, changing that
+      context and evicting its layer cache. tests/ is excluded in this repo, hence the default.
+    required: false
+    default: tests/.commit-image-src
+
+runs:
+  using: composite
+  steps:
+    - name: Check out the commit
+      if: inputs.sha != ''
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.sha }}
+        path: ${{ inputs.path }}
+
+    - name: Log in to the cache registry
+      if: inputs.sha != ''
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ inputs.username }}
+        password: ${{ inputs.token }}
+
+    - name: Pull or build the commit's image
+      shell: bash
+      env:
+        DRIVER: ${{ inputs.driver }}
+        SHA: ${{ inputs.sha }}
+        SRC: ${{ inputs.path }}
+        CACHE_REPO: ${{ inputs.cache-repo }}
+      run: ${{ github.action_path }}/commit-image.sh

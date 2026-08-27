@@ -42,35 +42,64 @@ on:
 
 jobs:
   # Detect changes, publish the caches, build the jar, take the run's single approval -- once for
-  # both matrices below, and shared with performance-test.yml (test-preflight.yml).
+  # every matrix below.
   # go-checks runs here: this workflow owns the tests modules' lint and gosec.
   preflight:
-    # The called workflow's jobs render as "<this job's name> / <their name>", so this is what keeps
-    # the internal name out of the run's job list. The job id stays preflight for `needs:`.
-    name: Tests
+    # The called workflow's jobs render as "<this job's name> / <their name>".
+    name: Pre-Validation
     uses: ./.github/workflows/test-preflight.yml
     permissions:
       contents: read
       pull-requests: read
     with:
-      suite: integration + compatibility
-      environment: ${{ github.event_name == 'pull_request' && 'integration_tests' || '' }}
       go-checks: true
     secrets: inherit
 
-  # One job per driver, each on its own VM with its own Docker daemon: it brings up its own source
-  # plus destination stack, builds its own image and runs the driver's suites against it. Every step
-  # up to the last is anchored here and aliased by the compatibility job, which needs the same setup.
-  #
-  # No `if:` needed: `needs` already requires preflight to have succeeded, and a matrix over an
-  # empty driver array is skipped on its own.
-  integration-tests:
-    name: Integration Test ${{ matrix.driver }}
+  # The run's single approval, its own job rather than the last one inside the called workflow: it
+  # gates the suites below, so it belongs beside them rather than under the pre-validation heading.
+  # `needs: preflight` covers that whole workflow, so this still runs only once change detection and
+  # every cache job has finished.
+  approve:
+    name: Approve Test Deployment
     needs: preflight
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: ${{ github.event_name == 'pull_request' && 'integration_tests' || '' }}
+    outputs:
+      attempt: ${{ github.run_attempt }}
+    env:
+      GATE_ENVIRONMENT: integration_tests
+    steps:
+      - name: Verify the approval gate is configured
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rules=$(gh api "repos/$GITHUB_REPOSITORY/environments/$GATE_ENVIRONMENT" --jq '[.protection_rules[].type] | join(",")')
+          echo "protection rules on $GATE_ENVIRONMENT: ${rules:-none}"
+          case ",$rules," in
+            *,required_reviewers,*) echo "the approval gate is configured" ;;
+            *) echo "::error::environment $GATE_ENVIRONMENT has no required_reviewers, so nothing was reviewed; add them in Settings -> Environments"
+               exit 1 ;;
+          esac
+
+      - run: echo "Approved -- running the end to end tests"
+
+  e2e-tests:
+    name: E2E Test ${{ matrix.driver }}
+    needs: [preflight, approve]
+    # packages: write publishes the baseline image below; a fork PR's token stays read-only.
+    permissions:
+      contents: read
+      packages: write
     if: needs.preflight.outputs.drivers != '[]'
     runs-on: 16gb-runner
-    environment: ${{ github.event_name == 'pull_request' && needs.preflight.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
-    timeout-minutes: 45
+    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    # The two suites run concurrently, so this is the slower of them plus what they cost each other
+    # in contention -- not the sum.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -104,6 +133,20 @@ jobs:
         timeout-minutes: 15
         run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
 
+      # Compatibility pulls its baseline images from a shared-egress runner pool, which is exactly
+      # where Docker Hub's anonymous rate limit bites.
+      - &docker-login
+        name: Log in to Docker Hub
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          if [ -n "$DOCKER_USERNAME" ]; then
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+          else
+            echo "::notice::no Docker Hub credentials configured; pulling anonymously"
+          fi
+
       - &buildx
         name: Set up Docker Buildx
         uses: ./.github/actions/buildx
@@ -120,6 +163,21 @@ jobs:
         background: true
         timeout-minutes: 20
         run: make docker.${{ matrix.driver }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ matrix.driver }} --load"
+
+      - name: Build base branch image
+        id: base-image
+        background: true
+        timeout-minutes: 20
+        uses: ./.github/actions/commit-image
+        with:
+          driver: ${{ matrix.driver }}
+          sha: ${{ github.event.pull_request.base.sha }}
+          cache-repo: ghcr.io/${{ github.repository }}
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Under tests/, which .dockerignore already excludes, so it stays out of the candidate
+          # image's build context without an entry of its own.
+          path: tests/.compat-base
 
       # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
       - &go
@@ -144,7 +202,7 @@ jobs:
 
       - &wait-background
         name: Wait for background jobs
-        wait: [containers, image, go-build]
+        wait: [containers, image, base-image, go-build]
 
       - &wait-ready
         name: Wait for source + destination readiness
@@ -165,53 +223,36 @@ jobs:
             "olakego/source-${{ matrix.driver }}:local" \
             check --destination /testdata/iceberg_destination.json
 
-      # Integration + 2PC + (kafka) Rebalance in one go test, against the image built above.
-      # The pin is what stops the harness rebuilding that image: it rebuilds by default so a local
-      # run tests current code, and only a caller that has already built it says otherwise.
-      - name: Run tests
+      - name: Run E2E tests
         env:
           OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
-        run: make test.integration.${{ matrix.driver }}
+          COMPATIBILITY_BASELINE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$COMPATIBILITY_BASELINE" ]; then
+            make test.e2e.${{ matrix.driver }} COMPATIBILITY_BASELINE="$COMPATIBILITY_BASELINE"
+          else
+            make test.integration.${{ matrix.driver }}
+          fi
 
-  # The same drivers against a baseline image: see the header for what "baseline" means per event.
-  # Its own job, on its own machine, so a compatibility failure is re-run without re-running integration --
-  # the setup is the integration job's, aliased rather than repeated.
-  compatibility-tests:
-    name: Backward Compatibility ${{ matrix.driver }}
-    needs: preflight
-    # Skipped on a staging push: the sweep is release-gating, and the PR into staging already ran it.
-    # The drivers check is for visibility, as on the integration job above.
-    if: (github.event_name != 'push' || github.ref == 'refs/heads/master') && needs.preflight.outputs.drivers != '[]'
+
+  compatibility-sweep:
+    name: ${{ fromJSON(needs.preflight.outputs.driver-labels)[matrix.driver] }} Backward Compatibility Sweep
+    needs: [preflight, approve]
     runs-on: 16gb-runner
-    environment: ${{ github.event_name == 'pull_request' && needs.preflight.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
-    # Longer than the integration job's 45: a sweep runs one pipeline pair per baseline, in series.
+    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    # One pipeline pair per baseline, run one after another.
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        driver: ${{ fromJSON(needs.preflight.outputs.drivers) }}
-    env:
-      # Empty is the sweep; a PR pins the baseline to its own base commit.
-      COMPATIBILITY_BASELINE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || inputs.baseline }}
+        driver: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'master')) && needs.preflight.outputs.drivers || '[]') }}
     steps:
       - *checkout
       - *data-dirs
       - *driver-deps
       - *containers
-
-      # The sweep pulls one image per baseline from a shared-egress runner pool, which is exactly
-      # where Docker Hub's anonymous rate limit bites.
-      - name: Log in to Docker Hub
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-        run: |
-          if [ -n "$DOCKER_USERNAME" ]; then
-            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-          else
-            echo "::notice::no Docker Hub credentials configured; pulling anonymously"
-          fi
-
+      - *docker-login
       - *buildx
       - *jar
       - *driver-image
@@ -225,20 +266,18 @@ jobs:
       - *wait-ready
       - *catalog
 
-      # Pinned like the integration job: the candidate side runs the image built above, and only
-      # the baseline image is resolved (pulled or built) by the harness.
-      - name: Run compatibility tests
+      # Empty baseline is the whole manifest; a manual run can pin one instead.
+      - name: Run the compatibility sweep
         env:
           OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
-        run: make test.compatibility.${{ matrix.driver }} COMPATIBILITY_BASELINE="$COMPATIBILITY_BASELINE"
+        run: make test.compatibility.${{ matrix.driver }} COMPATIBILITY_BASELINE="${{ inputs.baseline }}"
 
   # Benchmarks against the remote instances, so it shares this run's preflight but none of its
   # stack: no local containers, and the approval is its own environment (which is also where its AWS
   # and VPN secrets live). Staging pushes only, which is where the benchmark history is kept.
   performance-tests:
     name: Performance ${{ matrix.driver }}
-    needs: preflight
-    if: needs.preflight.outputs.drivers != '[]' && github.event_name == 'push' && github.ref == 'refs/heads/staging'
+    needs: [preflight, approve]
     environment: Performance Testing
     permissions:
       actions: read
@@ -247,21 +286,9 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # TODO: add benchmark tests for mongodb and oracle (instance ids TBD).
       matrix:
-        include:
-          - driver: mysql
-            driver_upper: MYSQL
-            instance_id: 8
-          - driver: postgres
-            driver_upper: POSTGRES
-            instance_id: 9
-          # TODO: add benchmark tests for the below databases
-          # - driver: mongodb
-          #   driver_upper: MONGODB
-          #   instance_id: <TBD>
-          # - driver: oracle
-          #   driver_upper: ORACLE
-          #   instance_id: <TBD>
+        include: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/staging' && needs.preflight.outputs.drivers != '[]') && '[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]' || '[]') }}
 
     steps:
       - *checkout

@@ -79,15 +79,23 @@ func buildDriverImage(t *testing.T, cfg *TestConfig) error {
 // Dockerfile copies the jar out of the build context, and the old Go side speaks the old jar's
 // RPC), and a build entry point that exists in that tree -- `make docker.<d>.build IMAGE_TAG=...`
 // is recent, so fall back to a plain `docker build`, whose DRIVER_NAME build-arg is far older.
-func buildImageFromCommit(cfg *TestConfig, commitID string) error {
+func buildImageFromCommit(t *testing.T, cfg *TestConfig, commitID string) error {
+	t.Helper()
 	imageTag := cfg.GetDriverImage()
 	return resolveImageOnce(imageTag, func() error {
 		if exec.Command("docker", "image", "inspect", imageTag).Run() == nil {
+			t.Logf("driver image %s is already present; not rebuilding it from %s", imageTag, commitID)
 			return nil
 		}
+		t.Logf("building driver image %s from a worktree at %s", imageTag, commitID)
+		defer TrackPhaseTiming(t, "driver-image", "build "+imageTag)()
 
 		worktree := filepath.Join(cfg.TestWorkingDir, "olake-compatibility-"+commitID)
+		// Each step is minutes long -- maven, then a full image build off an old tree -- so time
+		// them separately; without it the whole thing is one silent span.
 		run := func(what string, name string, args ...string) error {
+			t.Logf("  %s (%s)", what, commitID)
+			defer TrackPhaseTiming(t, "driver-image", what)()
 			cmd := exec.Command(name, args...)
 			out, err := cmd.CombinedOutput()
 			if err != nil {

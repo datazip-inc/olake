@@ -3,15 +3,6 @@ name: Test Preflight
 on:
   workflow_call:
     inputs:
-      suite:
-        description: 'Suite being gated, for the approval job name.'
-        required: true
-        type: string
-      environment:
-        description: 'Approval environment. Empty runs ungated, which is what a push to a protected branch does.'
-        required: false
-        default: ''
-        type: string
       go-checks:
         description: 'Run lint + gosec with the Go cache job. The suite that owns the checks sets it; the others just consume the cache.'
         required: false
@@ -21,9 +12,9 @@ on:
       drivers:
         description: 'JSON array of drivers the caller should fan its matrix out over; [] means nothing to test.'
         value: ${{ jobs.preflight.outputs.drivers }}
-      attempt:
-        description: 'The run attempt the approval was given on, so a caller can re-prompt on a re-run.'
-        value: ${{ jobs.approve.outputs.attempt }}
+      driver-labels:
+        description: 'JSON object of driver -> display name, for the caller job titles.'
+        value: ${{ jobs.preflight.outputs.driver-labels }}
 
 jobs:
   # Ungated, like the three cache jobs below it: the environment prompts once per wave of jobs that
@@ -37,6 +28,7 @@ jobs:
       pull-requests: read
     outputs:
       drivers: ${{ steps.drivers.outputs.drivers }}
+      driver-labels: ${{ steps.drivers.outputs.driver-labels }}
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
       go-checks-changed: ${{ steps.go-checks.outputs.changed }}
@@ -91,20 +83,6 @@ jobs:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
           lookup-only: true
-
-  # The run's single approval, last before the matrix so a pre-job failure fails or skips it too --
-  # then any re-run re-executes it, and every attempt that reaches the drivers prompts exactly once.
-  approve:
-    name: Approve ${{ inputs.suite }} tests
-    needs: [preflight, build-jar, apt-warm, go-cache]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' && needs.go-cache.result != 'failure' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    environment: ${{ inputs.environment }}
-    outputs:
-      attempt: ${{ github.run_attempt }}
-    steps:
-      - run: echo "Approved -- running the ${{ inputs.suite }} matrix."
 
   # Only when the jar is missing: preflight already looked up the cache, so an unchanged writer
   # skips Maven and this whole job.

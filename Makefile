@@ -340,6 +340,16 @@ test.integration.$(1): prepare.$(1)
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_TEST_template,$(d))))
 
+define E2E_TEST_template
+.PHONY: test.e2e.$(1)
+test.e2e.$(1): prepare.$(1)
+	@$$(call driver_test_setup,$(1))
+	$$(GO_ENV.$(1)) cd tests && \
+		OLAKE_COMPATIBILITY_TEST_BASELINE=$$(COMPATIBILITY_BASELINE) \
+		go test -v ./$(1)/... -timeout 0 -count=1 -parallel 8 -skip 'Performance'
+endef
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call E2E_TEST_template,$(d))))
+
 define DRIVER_SUITE_template
 .PHONY: test.$(2).$(1)
 test.$(2).$(1): prepare.$(1)

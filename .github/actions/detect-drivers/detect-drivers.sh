@@ -26,3 +26,6 @@ fi
 drivers=$(printf '%s\n' $selected | sort -u | jq -Rc '[., inputs] | map(select(. != ""))')
 echo "drivers=$drivers" >> "$GITHUB_OUTPUT"
 echo "Affected drivers: $drivers"
+
+labels=$(printf '%s' "$drivers" | jq -c 'map({key: ., value: ((.[0:1] | ascii_upcase) + .[1:])}) | from_entries')
+echo "driver-labels=$labels" >> "$GITHUB_OUTPUT"

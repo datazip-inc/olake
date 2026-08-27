@@ -14,6 +14,11 @@ outputs:
   drivers:
     description: JSON array of drivers to run; empty when a change touches no tested driver.
     value: ${{ steps.resolve.outputs.drivers }}
+  driver-labels:
+    description: >
+      JSON object mapping each driver to its display name, for job titles: expressions cannot
+      change case, so the capitalised form is produced in the script.
+    value: ${{ steps.resolve.outputs.driver-labels }}
 
 runs:
   using: composite

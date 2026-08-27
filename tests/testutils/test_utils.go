@@ -199,27 +199,15 @@ func (c *TestConfig) pullOrBuildDriverImage(t *testing.T) (err error) {
 //	"9f3c1ab", "sha:9f3c1ab"           -> built from a detached worktree at that commit
 func (c *TestConfig) resolveImage(t *testing.T) error {
 	if c.DriverVersion == CurrentDriverVersion {
-		err := buildDriverImage(t, c)
-		if err != nil {
-			return err
-		}
-	} else {
-		commitID, ok := ResolveToCommit(c.OlakeRootPath, c.DriverVersion)
-		if ok {
-			c.DriverVersion = commitID
-			err := buildImageFromCommit(c, commitID)
-			if err != nil {
-				return err
-			}
-		} else {
-			err := ensureImagePresent(t, c.GetDriverImage())
-			if err != nil {
-				return err
-			}
-		}
+		return buildDriverImage(t, c)
+	}
+	// A commit id is abbreviated on the way in, and that short form becomes the image tag.
+	if commitID, ok := ResolveToCommit(c.OlakeRootPath, c.DriverVersion); ok {
+		c.DriverVersion = commitID
+		return buildImageFromCommit(t, c, commitID)
 	}
 
-	return nil
+	return ensureImagePresent(t, c.GetDriverImage())
 }
 
 func (c *TestConfig) addTimingLogsMiddleware() {

@@ -100,12 +100,49 @@ func (f *Test) RunBackwardCompatibility(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, version := range baselineVersions {
+		// Before NewConfig, which resolves the baseline's image: a driver younger than a release has
+		// no image published for it, so building the config first turns a declared skip into
+		// "failed to pull olakego/source-<driver>:<tag>" -- a hard failure the gate exists to
+		// prevent. Only the driver-level gate can be answered here; the variant gate keys on the
+		// config's data format and stays in runCompatibilityBaseline.
+		reason, err := baselineSkipReason(currentConf.OlakeRootPath, currentConf.Driver, version)
+		require.NoError(t, err)
+		if reason != "" {
+			t.Run(version, func(t *testing.T) { t.Skip(reason) })
+			continue
+		}
+
 		baselineConf := f.NewConfig(t, version)
-		if !t.Run(baselineConf.DriverVersion, func(t *testing.T) { f.runCompatibilityBaseline(t, baselineConf, currentConf) }) {
+		if !t.Run(baselineConf.DriverVersion, func(t *testing.T) {
+			t.Parallel()
+			f.runCompatibilityBaseline(t, baselineConf, currentConf)
+		}) {
 			t.Logf("compatibility: stopping the sweep at %s; the later baselines carry newer code and would repeat it", version)
 			return
 		}
 	}
+}
+
+// baselineSkipReason is why this driver does not run against this baseline at all, or "" when it
+// does: the global floor from state-versions.json, then the driver's own gate in
+// compatibility_rules.json. Both are answerable from the driver name alone, which is what lets the
+// caller skip a baseline before paying for its image.
+func baselineSkipReason(rootPath, driver, spec string) (string, error) {
+	version, dated := parseReleaseTag(spec)
+	floorTag, err := compatibilityGlobalFloor(rootPath)
+	if err != nil {
+		return "", err
+	}
+	if globalFloor, _ := parseReleaseTag(floorTag); dated && compareRelease(version, globalFloor) < 0 {
+		return fmt.Sprintf("baseline %s predates %s, the oldest state-version baseline; the compatibility suite does not run below it",
+			spec, floorTag), nil
+	}
+	gate := compatibilityRules.Drivers[driver].compatibilityGate
+	if reason := gate.skipReason(version, dated); reason != "" {
+		return fmt.Sprintf("%s cannot run baseline %s: %s (compatibility_rules.json: %s)", driver, spec, reason, gate.Note), nil
+	}
+
+	return "", nil
 }
 
 // runCompatibilityBaseline runs every writer group's variants against one baseline: the reference
@@ -114,30 +151,20 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 	spec := baseline.DriverVersion
 	driver, dataFormat := baseline.Driver, baseline.DataFormat
 
-	// The driver's own floor. A skip, not a failure: the driver declares it cannot run against
-	// releases this old (the why lives next to the declaration in compatibility_rules.json), and
-	// that limitation is data, not a regression.
+	// The variant's own floor. A skip, not a failure: the driver declares this data format cannot
+	// run against releases this old (the why lives next to the declaration in
+	// compatibility_rules.json), and that limitation is data, not a regression. The driver-level
+	// gate and the global floor were already answered by the caller, before this baseline's image
+	// was resolved -- see baselineSkipReason.
 	baselineVersion, baselineDated := parseReleaseTag(spec)
 	floorTag, err := compatibilityGlobalFloor(baseline.OlakeRootPath)
 	require.NoError(t, err)
 	globalFloor, _ := parseReleaseTag(floorTag)
-	if baselineDated && compareRelease(baselineVersion, globalFloor) < 0 {
-		t.Skipf("baseline %s predates %s, the oldest state-version baseline; the compatibility suite does not run below it",
-			spec, floorTag)
-	}
 	driverRules := compatibilityRules.Drivers[driver]
 	variantRules := driverRules.Variants[dataFormat]
-	for _, scoped := range []struct {
-		scope string
-		gate  compatibilityGate
-	}{
-		{driver, driverRules.compatibilityGate},
-		{driver + "/" + dataFormat, variantRules.compatibilityGate},
-	} {
-		if reason := scoped.gate.skipReason(baselineVersion, baselineDated); reason != "" {
-			t.Skipf("%s cannot run baseline %s: %s (compatibility_rules.json: %s)",
-				scoped.scope, spec, reason, scoped.gate.Note)
-		}
+	if reason := variantRules.compatibilityGate.skipReason(baselineVersion, baselineDated); reason != "" {
+		t.Skipf("%s/%s cannot run baseline %s: %s (compatibility_rules.json: %s)",
+			driver, dataFormat, spec, reason, variantRules.compatibilityGate.Note)
 	}
 
 	// Both images were pulled or built when the caller constructed the two configs, serially,
