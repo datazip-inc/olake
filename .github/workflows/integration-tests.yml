@@ -219,7 +219,9 @@ jobs:
     # this too -- so gate on "not failed" rather than on success. go-cache is exempt entirely: its
     # cache warm and db2 clidriver download must not block seven drivers, and its lint and gosec
     # failures already surface as their own check.
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
+    # TEMP(hack): dropped `github.event_name == 'pull_request' &&` to run ITs from push while the
+    # PR has merge conflicts. REVERT BEFORE MERGE.
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
     runs-on: 16gb-runner
     # The whole workflow's approval, deliberately on the only job that spends a 16gb runner: one
     # prompt releases every driver, and "Re-run failed jobs" re-enters it so a replay costs another.
