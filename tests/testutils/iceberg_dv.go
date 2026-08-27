@@ -56,7 +56,15 @@ func dvColumnSchema() map[string]interface{} {
 
 // dvStreamEntry builds one `streams[]` entry, matching the shape discover would produce for a
 // table this narrow.
-func dvStreamEntry(namespace, table string) map[string]interface{} {
+//
+// destinationDatabase is set explicitly here rather than left for `--destination-database-prefix`
+// to fill in: that flag only ever gets baked into a stream's destination_database by `discover`
+// itself (utils.GenerateDestinationDetails, types/catalog.go's discover-time logic) - it has no
+// effect on a catalog written directly like this one. Leaving destination_database unset would
+// make GetDestinationDatabase fall back to the destination config's own iceberg_db namespace
+// instead of the one every Spark query in this suite expects (cfg.DestinationDB) - the sync would
+// still succeed, just against the wrong namespace, which looks like the table never got created.
+func dvStreamEntry(namespace, table, destinationDatabase string) map[string]interface{} {
 	return map[string]interface{}{
 		"stream": map[string]interface{}{
 			"name":                       table,
@@ -66,6 +74,7 @@ func dvStreamEntry(namespace, table string) map[string]interface{} {
 			"source_defined_primary_key": []interface{}{"id"},
 			"available_cursor_fields":    []interface{}{"id", "customer", "amount", "status", "updated_at"},
 			"sync_mode":                  "cdc",
+			"destination_database":       destinationDatabase,
 			"destination_table":          table,
 			"default_stream_properties":  map[string]interface{}{"normalization": true, "append_mode": false},
 		},
@@ -89,11 +98,11 @@ func dvSelectedEntry(table, updateType, partitionRegex string) map[string]interf
 // DVUnpartTable's carrying none. Written directly rather than derived from a discover run or a
 // checked-in fixture, since the shape needed here (two narrow, purpose-built tables) has nothing
 // in common with the wide datatype-matrix fixture every other suite seeds from.
-func dvCatalogDoc(namespace, updateType string) map[string]interface{} {
+func dvCatalogDoc(namespace, destinationDatabase, updateType string) map[string]interface{} {
 	return map[string]interface{}{
 		"streams": []interface{}{
-			dvStreamEntry(namespace, DVUnpartTable),
-			dvStreamEntry(namespace, DVPartTable),
+			dvStreamEntry(namespace, DVUnpartTable, destinationDatabase),
+			dvStreamEntry(namespace, DVPartTable, destinationDatabase),
 		},
 		"selected_streams": map[string]interface{}{
 			namespace: []interface{}{
@@ -114,7 +123,7 @@ func (cfg *IntegrationTest) prepareDVSync(ctx context.Context, t *testing.T, upd
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-create")
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-seed")
 
-	doc := dvCatalogDoc(cfg.Namespace, updateType)
+	doc := dvCatalogDoc(cfg.Namespace, cfg.DestinationDB, updateType)
 	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to build dv catalog: %w", err)
