@@ -257,6 +257,37 @@ func TestIncrementalSyncFiltering(t *testing.T) {
 			expectedCount:   2,
 			expectedFiles:   []string{"file3.csv", "file4.csv"},
 		},
+		{
+			name: "same-second arrival not yet synced is picked up (issue #1131)",
+			files: []FileObject{
+				{FileKey: "seed_1.csv", LastModified: "2024-01-02T10:00:00Z"},
+				{FileKey: "insert_1.csv", LastModified: "2024-01-02T10:00:00Z"},
+			},
+			cursorTimestamp: "2024-01-02T10:00:00Z",
+			syncedKeys:      map[string]bool{"seed_1.csv": true},
+			expectedCount:   1,
+			expectedFiles:   []string{"insert_1.csv"},
+		},
+		{
+			name: "same-second file already synced is not re-read",
+			files: []FileObject{
+				{FileKey: "seed_1.csv", LastModified: "2024-01-02T10:00:00Z"},
+			},
+			cursorTimestamp: "2024-01-02T10:00:00Z",
+			syncedKeys:      map[string]bool{"seed_1.csv": true},
+			expectedCount:   0,
+			expectedFiles:   []string{},
+		},
+		{
+			name: "legacy state without synced set re-reads same-second boundary once",
+			files: []FileObject{
+				{FileKey: "seed_1.csv", LastModified: "2024-01-02T10:00:00Z"},
+			},
+			cursorTimestamp: "2024-01-02T10:00:00Z",
+			syncedKeys:      nil,
+			expectedCount:   1,
+			expectedFiles:   []string{"seed_1.csv"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -301,6 +332,13 @@ func TestCursorTimestampComparison(t *testing.T) {
 			fileTimestamp:   "2024-01-01T10:00:00Z",
 			cursorTimestamp: "2024-01-02T10:00:00Z",
 			shouldInclude:   false,
+		},
+		{
+			name:            "file same second as cursor, not yet synced - included (issue #1131)",
+			fileTimestamp:   "2024-01-01T10:00:00Z",
+			cursorTimestamp: "2024-01-01T10:00:00Z",
+			synced:          false,
+			shouldInclude:   true,
 		},
 		{
 			name:            "file same second as cursor, already synced - excluded",
