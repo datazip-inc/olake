@@ -12,6 +12,7 @@ on:
     branches:
       - "*"
       - "feat/iceberg-deletion-vectors"
+      - "feat/interoperability"
     paths:
       - '**/*.go'
       - '**/*.java'
