@@ -744,20 +744,11 @@ func (v S3TestVariant) applyParquetStreamingMode(t *testing.T, config *testutils
 // the variant's path prefix: "create" ensures the bucket exists, "add" seeds the stream,
 // "insert"/"update" upload a further file each, and "clean"/"drop" remove everything under
 // the prefix.
+// Columns named in conf.SeedExcludedColumns are left out of the files this uploads entirely.
 func ExecuteQueryFactory(variant S3TestVariant, cfg *integration.Test) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
-	return ExecuteQueryFactoryExcluding(variant, cfg, nil)
-}
-
-// ExecuteQueryFactoryExcluding is ExecuteQueryFactory with the compatibility suite's seed exclusions:
-// seedExcluded is read per call, because RunBackwardCompatibility fills the list in after the config is
-// built. A nil getter is the plain fixture, every column seeded.
-func ExecuteQueryFactoryExcluding(variant S3TestVariant, cfg *integration.Test, seedExcluded func() []string) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	return func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 		t.Helper()
-		var excluded []string
-		if seedExcluded != nil {
-			excluded = seedExcluded()
-		}
+		excluded := conf.SeedExcludedColumns
 
 		// Every destination block starts by re-seeding the source through this hook, so
 		// refreshing the expectations here keeps them aligned with whichever writer the
@@ -1305,4 +1296,63 @@ func gzipBytes(t *testing.T, data []byte) []byte {
 	require.NoError(t, err, "failed to gzip data")
 	require.NoError(t, writer.Close(), "failed to close gzip writer")
 	return buf.Bytes()
+}
+
+// ColumnTypes derives type tags for the variant's seed columns, which a data_types rule in
+// compatibility_rules.json resolves against. Parquet is the one format with a declared schema,
+// parquetTestGroup, so its tags are read off that; a text file's only source type is what the
+// driver infers, which DeclaredSchema already carries.
+func (v S3TestVariant) ColumnTypes() map[string][]string {
+	if v.DataFormat != "parquet" {
+		return nil
+	}
+	types := map[string][]string{}
+	for column, node := range parquetTestGroup() {
+		types[column] = parquetNodeTags(node)
+	}
+	return types
+}
+
+// parquetNodeTags names a leaf by its physical kind and logical type, with the width, sign or time
+// unit that tells one apart (uint32, timestamp(nanos)); a group by its shape.
+func parquetNodeTags(node pq.Node) []string {
+	logical := node.Type().LogicalType()
+	if !node.Leaf() {
+		switch {
+		case logical != nil && logical.Map != nil:
+			return []string{"map"}
+		case logical != nil && logical.List != nil:
+			return []string{"list"}
+		}
+		return []string{"struct"}
+	}
+	tags := []string{strings.ToLower(node.Type().Kind().String())}
+	if logical == nil {
+		return tags
+	}
+	switch {
+	case logical.UTF8 != nil:
+		tags = append(tags, "string")
+	case logical.Enum != nil:
+		tags = append(tags, "enum")
+	case logical.Decimal != nil:
+		tags = append(tags, "decimal")
+	case logical.Date != nil:
+		tags = append(tags, "date")
+	case logical.Time != nil:
+		tags = append(tags, "time", "time("+strings.ToLower(logical.Time.Unit.String())+")")
+	case logical.Timestamp != nil:
+		tags = append(tags, "timestamp", "timestamp("+strings.ToLower(logical.Timestamp.Unit.String())+")")
+	case logical.Integer != nil:
+		sign := ""
+		if !logical.Integer.IsSigned {
+			sign = "u"
+		}
+		tags = append(tags, fmt.Sprintf("%sint%d", sign, logical.Integer.BitWidth))
+	case logical.Json != nil:
+		tags = append(tags, "json")
+	case logical.UUID != nil:
+		tags = append(tags, "uuid")
+	}
+	return tags
 }

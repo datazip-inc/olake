@@ -39,8 +39,9 @@ type TestConfig struct {
 	// only for amd64 and run emulated elsewhere.
 	ImagePlatform string
 
-	// DriverImage the test is intedned to run under. Defaults to the building the image of the current codebase
-	DriverImage string
+	// DriverVersion to run the test against. This can be commit id or a released version
+	// Defaults to local codebase
+	DriverVersion string
 
 	// OlakeRootPath is the repo the tests run from, the directory `make docker.<driver>.build`
 	// runs in and the committed fixtures are read from. Resolved by setupWorkingDir.
@@ -50,6 +51,12 @@ type TestConfig struct {
 	// commands and expect the generated files. Every file the suite reads or writes lives in it and
 	// is addressed by name through GetFilePath, so there is no path to keep a field for.
 	TestWorkingDir string
+
+	// SeedExcludedColumns names the columns this suite must leave out of its seed data entirely --
+	// columns the binary under test cannot sync at any price. The backward-compatibility runner
+	// fills it in per baseline from its rules; every other suite leaves it empty, so a driver's
+	// ExecuteQuery reads it and seeds everything by default.
+	SeedExcludedColumns []string `json:"-"`
 
 	// SourceBaseConfig is the working copy of source.json, parsed: the suite's own credentials,
 	// database and prefixes, after applySuite renamed what it isolates. ExecuteQuery connects with
@@ -102,6 +109,12 @@ func NewTestConfig(t *testing.T, driver constants.DriverType, namespace, destina
 	return cfg, nil
 }
 
+func WithDriverVersion(version string) TestConfigOption {
+	return func(c *TestConfig) {
+		c.DriverVersion = version
+	}
+}
+
 func WithImagePlatform(platform string) TestConfigOption {
 	return func(c *TestConfig) {
 		c.ImagePlatform = platform
@@ -140,14 +153,14 @@ func (c *TestConfig) setup(t *testing.T) error {
 	t.Helper()
 
 	c.generateSuiteName(t)
+	c.addTimingLogsMiddleware()
+
 	if err := c.setupWorkingDir(t); err != nil {
 		return err
 	}
-	if err := c.getOrBuildDriverImage(); err != nil {
+	if err := c.pullOrBuildDriverImage(t); err != nil {
 		return err
 	}
-	c.addTimingLogsMiddleware()
-
 	if err := c.applySuite(); err != nil {
 		return err
 	}
@@ -166,25 +179,46 @@ func (c *TestConfig) String() string {
 	return string(config)
 }
 
-// getOrBuildDriverImage just sets the driver image in case  builds the driver image against current codebase
-func (c *TestConfig) getOrBuildDriverImage() error {
-	if c.DriverImage != "" {
-		return nil
-	}
-	if image := os.Getenv(driverImageEnvVar); image != "" {
-		c.DriverImage = image
-		return nil
+// pullOrBuildDriverImage just sets the driver image in case  builds the driver image against current codebase
+func (c *TestConfig) pullOrBuildDriverImage(t *testing.T) (err error) {
+	if c.DriverVersion == "" {
+		c.DriverVersion = CurrentDriverVersion
 	}
 
-	driverVersion := os.Getenv(driverVersionEnvVar)
-	if driverVersion == "" {
-		if err := buildDriverImage(c); err != nil {
-			return fmt.Errorf("failed to build the %s driver image from the current codebase: %s", c.Driver, err)
+	if driverVersionEnv := os.Getenv(driverVersionEnvVar); driverVersionEnv != "" {
+		c.DriverVersion = driverVersionEnv
+	}
+
+	return c.resolveImage(t)
+}
+
+// resolveImage turns a version string into an image ref present on the local daemon:
+//
+//	"local"                            -> built from current code
+//	"latest", "v0.6.5"                 -> olakego/source-<driver>:<spec>, pulled
+//	"9f3c1ab", "sha:9f3c1ab"           -> built from a detached worktree at that commit
+func (c *TestConfig) resolveImage(t *testing.T) error {
+	if c.DriverVersion == CurrentDriverVersion {
+		err := buildDriverImage(t, c)
+		if err != nil {
+			return err
 		}
-		driverVersion = currentDriverVersion
+	} else {
+		commitID, ok := ResolveToCommit(c.OlakeRootPath, c.DriverVersion)
+		if ok {
+			c.DriverVersion = commitID
+			err := buildImageFromCommit(c, commitID)
+			if err != nil {
+				return err
+			}
+		} else {
+			err := ensureImagePresent(t, c.GetDriverImage())
+			if err != nil {
+				return err
+			}
+		}
 	}
 
-	c.DriverImage = getDriverImage(c.Driver, driverVersion)
 	return nil
 }
 
@@ -212,6 +246,10 @@ func (c *TestConfig) GetTableName() string {
 	return Combine("test_table_olake", c.Suite)
 }
 
+func (c *TestConfig) GetDriverImage() string {
+	return fmt.Sprintf("olakego/source-%s:%s", c.Driver, c.DriverVersion)
+}
+
 // GetFilePath addresses a file in the suite's working directory by name -- the configs, the
 // catalog, state and stats all live there, and the container reads them under the same names.
 func (c *TestConfig) GetFilePath(fileName string) string {
@@ -232,7 +270,7 @@ func (c *TestConfig) GetFixturePath(fileName string, dataFormat ...string) strin
 func (c *TestConfig) setupWorkingDir(t *testing.T) (err error) {
 	c.TestWorkingDir = t.TempDir()
 
-	c.OlakeRootPath, err = repoRoot()
+	c.OlakeRootPath, err = RepoRoot()
 	if err != nil {
 		return fmt.Errorf("failed to determine the repo root; the tests run from a git checkout: %s", err)
 	}
@@ -240,7 +278,7 @@ func (c *TestConfig) setupWorkingDir(t *testing.T) (err error) {
 	commonFixturesDir := filepath.Join(c.OlakeRootPath, "tests/testdata")
 	driverFixuresDir := filepath.Join(c.OlakeRootPath, "tests", c.Driver, "testdata", c.DataFormat)
 	for _, fixtures := range []string{commonFixturesDir, driverFixuresDir} {
-		if err := copyDirFiles(fixtures, c.TestWorkingDir); err != nil {
+		if err := CopyDirFiles(fixtures, c.TestWorkingDir); err != nil {
 			return fmt.Errorf("failed to copy the fixtures of %s into %s: %s", fixtures, c.TestWorkingDir, err)
 		}
 	}

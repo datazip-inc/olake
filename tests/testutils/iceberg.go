@@ -1,4 +1,4 @@
-package integration
+package testutils
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
-	"github.com/datazip-inc/olake/tests/testutils"
 )
 
 const (
@@ -32,7 +31,7 @@ func SparkSession(ctx context.Context, t *testing.T) (sql.SparkSession, error) {
 		// The shared session outlives whichever test builds it, so its construction must not be
 		// tied to that test's context (t.Context cancels when the test ends).
 		ctx := context.WithoutCancel(ctx)
-		defer testutils.TrackPhaseTiming(t, "spark", "session build")()
+		defer TrackPhaseTiming(t, "spark", "session build")()
 		for attempt := 1; ; attempt++ {
 			sharedSpark, sharedSparkErr = sql.NewSessionBuilder().Remote(sparkConnectAddress).Build(ctx)
 			if sharedSparkErr == nil || attempt == 3 {

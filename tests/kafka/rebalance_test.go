@@ -73,7 +73,7 @@ func runRebalanceSuite(t *testing.T, cfg *integration.Test) {
 func rebalanceRecovery(ctx context.Context, t *testing.T, cfg *integration.Test, testTable string) error {
 	t.Log("Starting Kafka rebalance recovery test")
 
-	integration.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
 	if err := testutils.ResetStateFile(cfg.TestConfig); err != nil {
 		return fmt.Errorf("failed to reset state file: %s", err)
 	}
@@ -101,7 +101,7 @@ func rebalanceRecovery(ctx context.Context, t *testing.T, cfg *integration.Test,
 
 	t.Log("Kafka rebalance recovery test completed successfully")
 
-	integration.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
 	t.Logf("Dropped Iceberg table: %s", testTable)
 
 	return nil

@@ -1,32 +1,29 @@
-name: Integration Tests
+name: Test Preflight
 
 on:
-  # A push runs the suite post-merge and publishes the caches every pull request restores from.
-  push:
-    branches:
-      - "master"
-      - "staging"
-  pull_request:
-    branches:
-      - "*"
-    paths: &paths
-      - '**/*.go'
-      - '**/*.java'
-      - '**/go.mod'
-      - '**/go.work'
-      - '**/pom.xml'
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'Makefile'
-      - 'drivers/*/driver.mk'
-      - 'drivers/*/docker-compose.yml'
-      - 'drivers/**.conf'
-      - 'destination/iceberg/local-test/**'
-      - 'tests/**'
-      - '.golangci.yml'
-      - '.github/actions/**'
-      - '.github/scripts/**'
-      - '.github/workflows/integration-tests.yml'
+  workflow_call:
+    inputs:
+      suite:
+        description: 'Suite being gated, for the approval job name.'
+        required: true
+        type: string
+      environment:
+        description: 'Approval environment. Empty runs ungated, which is what a push to a protected branch does.'
+        required: false
+        default: ''
+        type: string
+      go-checks:
+        description: 'Run lint + gosec with the Go cache job. The suite that owns the checks sets it; the others just consume the cache.'
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      drivers:
+        description: 'JSON array of drivers the caller should fan its matrix out over; [] means nothing to test.'
+        value: ${{ jobs.preflight.outputs.drivers }}
+      attempt:
+        description: 'The run attempt the approval was given on, so a caller can re-prompt on a re-run.'
+        value: ${{ jobs.approve.outputs.attempt }}
 
 jobs:
   # Ungated, like the three cache jobs below it: the environment prompts once per wave of jobs that
@@ -48,7 +45,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      # Shared with any workflow that wants to skip untouched drivers; the matrix below fans out
+      # Shared with any workflow that wants to skip untouched drivers; the caller's matrix fans out
       # over whatever it returns, and an empty array skips the driver jobs entirely.
       - name: Resolve driver matrix
         id: drivers
@@ -66,7 +63,8 @@ jobs:
             Makefile
             drivers/*/driver.mk
             .golangci.yml
-            .github/workflows/integration-tests.yml
+            .github/workflows/test-preflight.yml
+            .github/workflows/tests.yml
         run: |
           changed=$(.github/scripts/changed-in-paths.sh <<<"$GO_CHECK_PATHS")
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
@@ -97,23 +95,23 @@ jobs:
   # The run's single approval, last before the matrix so a pre-job failure fails or skips it too --
   # then any re-run re-executes it, and every attempt that reaches the drivers prompts exactly once.
   approve:
-    name: Approve integration tests
+    name: Approve ${{ inputs.suite }} tests
     needs: [preflight, build-jar, apt-warm, go-cache]
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' && needs.go-cache.result != 'failure' }}
+    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' && needs.go-cache.result != 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    environment: ${{ github.event_name == 'pull_request' && 'integration_tests' || '' }}
+    environment: ${{ inputs.environment }}
     outputs:
       attempt: ${{ github.run_attempt }}
     steps:
-      - run: echo "Approved -- running the driver matrix."
+      - run: echo "Approved -- running the ${{ inputs.suite }} matrix."
 
   # Only when the jar is missing: preflight already looked up the cache, so an unchanged writer
   # skips Maven and this whole job.
   build-jar:
     name: Build Iceberg writer jar
     needs: preflight
-    if: needs.preflight.outputs.jar-cached != 'true'
+    if: needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.jar-cached != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -140,7 +138,7 @@ jobs:
   apt-warm:
     name: Warm base docker layers
     needs: preflight
-    if: needs.preflight.outputs.apt-warmed != 'true'
+    if: needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.apt-warmed != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -172,7 +170,7 @@ jobs:
   go-cache:
     name: Go checks + cache
     needs: preflight
-    if: needs.preflight.outputs.go-cached != 'true' || needs.preflight.outputs.go-checks-changed == 'true'
+    if: needs.preflight.outputs.drivers != '[]' && (needs.preflight.outputs.go-cached != 'true' || needs.preflight.outputs.go-checks-changed == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -207,105 +205,16 @@ jobs:
       # Installs golangci-lint as a side effect (the Makefile guard skips it when the restored
       # cache already carries the binary), so it rides into the post-job save with gosec below.
       - name: golangci-lint tests modules
+        if: inputs.go-checks
         run: make test.lint
 
       - name: install gosec
+        if: inputs.go-checks
         env:
           GOSEC_VERSION: v2.22.11
         run: $(go env GOPATH)/bin/gosec --version 2>/dev/null | grep -q "${GOSEC_VERSION#v}" || curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin $GOSEC_VERSION
 
       - name: Run Gosec on tests modules
+        if: inputs.go-checks
         working-directory: tests
         run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
-
-  # One job per driver, each on its own VM with its own Docker daemon: it brings up its own source
-  # plus destination stack, builds its own image and runs every suite for that driver.
-  integration-tests:
-    name: Test ${{ matrix.driver }}
-    needs: [preflight, approve]
-    if: ${{ !cancelled() && needs.approve.result == 'success' }}
-    runs-on: 16gb-runner
-    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        driver: ${{ fromJSON(needs.preflight.outputs.drivers) }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      # The iceberg catalog's postgres runs as uid 999 and has to own its bind mount.
-      - name: Set up Data Directories
-        run: |
-          sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
-          sudo chown -R 999:999 destination/iceberg/local-test/data
-          sudo chmod -R 777 destination/iceberg/local-test/data
-
-      - name: Restore driver external dependencies
-        uses: ./.github/actions/driver-deps
-
-      # Bounded so a wedged pull is a killed step rather than the job's whole budget.
-      - name: Start containers
-        id: containers
-        background: true
-        timeout-minutes: 15
-        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
-
-      - name: Set up Docker Buildx
-        uses: ./.github/actions/buildx
-
-      - name: Restore Iceberg writer jar
-        uses: ./.github/actions/iceberg-jar
-
-      # Background: the ~600MB Go cache restore below overlaps it instead of delaying it. No
-      # --cache-to -- exporting this build measured ~119s against the ~85s build it would save.
-      - name: Build driver image
-        id: image
-        background: true
-        timeout-minutes: 20
-        run: make docker.${{ matrix.driver }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ matrix.driver }} --load"
-
-      # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
-      - name: Set up Go
-        uses: actions/setup-go@v4
-        with:
-          go-version-file: "go.mod"
-          cache: false
-
-      # Restore-only: the modules and compiled shared deps are identical for every driver, and seven
-      # jobs saving a ~350MB copy each would evict the jar from the cache.
-      - name: Restore shared Go caches
-        uses: ./.github/actions/go-caches
-
-      # Compiles the test binary while the container pull and the image build are still in flight.
-      - name: Install Dependencies
-        id: go-build
-        timeout-minutes: 15
-        run: make test.build.${{ matrix.driver }}
-
-      - name: Wait for background jobs
-        wait: [containers, image, go-build]
-
-      - name: Wait for source + destination readiness
-        timeout-minutes: 3
-        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
-
-      # Serial, once: olake processes reaching a fresh catalog race each other's CREATE TABLE on
-      # iceberg_tables, and the harness has no runtime fallback for that.
-      - name: Check destination (bootstrap Iceberg catalog)
-        run: |
-          set -euo pipefail
-          echo "Bootstrapping Iceberg catalog via '${{ matrix.driver }}'..."
-          docker run --rm \
-            -v "$PWD/tests/testdata:/testdata" \
-            --add-host host.docker.internal:host-gateway \
-            -e TELEMETRY_DISABLED=true \
-            "olake/source-${{ matrix.driver }}:local" \
-            check --destination /testdata/iceberg_destination.json
-
-      # Integration + 2PC + (kafka) Rebalance in one go test, against the image built above.
-      - name: Run tests
-        env:
-          OLAKE_DRIVER_IMAGE: olake/source-${{ matrix.driver }}:local
-        run: make test.integration.${{ matrix.driver }}

@@ -1,4 +1,4 @@
-package integration
+package testutils
 
 import (
 	"context"
@@ -10,10 +10,10 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-const parquetTestBucket = "warehouse"
+const ParquetBucket = "warehouse"
 
-// newMinIOClient returns a client for the MinIO instance backing the parquet destination in tests.
-func newMinIOClient() (*minio.Client, error) {
+// NewMinIOClient returns a client for the MinIO instance backing the parquet destination in tests.
+func NewMinIOClient() (*minio.Client, error) {
 	client, err := minio.New("localhost:9000", &minio.Options{
 		Creds:  credentials.NewStaticV4("admin", "password", ""),
 		Secure: false,
@@ -24,10 +24,10 @@ func newMinIOClient() (*minio.Client, error) {
 	return client, nil
 }
 
-// listParquetObjects lists the .parquet objects lying directly in a table's folder in MinIO.
-func listParquetObjects(ctx context.Context, client *minio.Client, parquetDB, tableName string) ([]minio.ObjectInfo, error) {
+// ListParquetObjects lists the .parquet objects lying directly in a table's folder in MinIO.
+func ListParquetObjects(ctx context.Context, client *minio.Client, parquetDB, tableName string) ([]minio.ObjectInfo, error) {
 	objects := []minio.ObjectInfo{}
-	for object := range client.ListObjects(ctx, parquetTestBucket, minio.ListObjectsOptions{
+	for object := range client.ListObjects(ctx, ParquetBucket, minio.ListObjectsOptions{
 		Prefix:    parquetTablePath(parquetDB, tableName),
 		Recursive: false,
 	}) {
@@ -51,16 +51,16 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 	t.Helper()
 	parquetPath := parquetTablePath(parquetDB, tableName)
 
-	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", parquetTestBucket, parquetPath)
+	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", ParquetBucket, parquetPath)
 
-	minioClient, err := newMinIOClient()
+	minioClient, err := NewMinIOClient()
 	if err != nil {
 		return err
 	}
 
 	ctx := t.Context()
 
-	objects, err := listParquetObjects(ctx, minioClient, parquetDB, tableName)
+	objects, err := ListParquetObjects(ctx, minioClient, parquetDB, tableName)
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 	for _, object := range objects {
 		t.Logf("Deleting: %s", strings.TrimPrefix(object.Key, parquetPath))
 
-		if err := minioClient.RemoveObject(ctx, parquetTestBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+		if err := minioClient.RemoveObject(ctx, ParquetBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
 			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
 		}
 	}
@@ -77,27 +77,27 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 	return nil
 }
 
-// deleteParquetTable wipes a table's prefix recursively, unlike DeleteParquetFiles: it takes the
+// DeleteParquetTable wipes a table's prefix recursively, unlike DeleteParquetFiles: it takes the
 // destination metadata with it, so the next sync starts as a genuinely initial one.
-func deleteParquetTable(t *testing.T, parquetDB, tableName string) error {
+func DeleteParquetTable(t *testing.T, parquetDB, tableName string) error {
 	t.Helper()
 	parquetPath := parquetTablePath(parquetDB, tableName)
 
-	minioClient, err := newMinIOClient()
+	minioClient, err := NewMinIOClient()
 	if err != nil {
 		return err
 	}
 
 	ctx := context.Background()
 	deletedCount := 0
-	for object := range minioClient.ListObjects(ctx, parquetTestBucket, minio.ListObjectsOptions{
+	for object := range minioClient.ListObjects(ctx, ParquetBucket, minio.ListObjectsOptions{
 		Prefix:    parquetPath,
 		Recursive: true,
 	}) {
 		if object.Err != nil {
 			return fmt.Errorf("error listing objects: %s", object.Err)
 		}
-		if err := minioClient.RemoveObject(ctx, parquetTestBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+		if err := minioClient.RemoveObject(ctx, ParquetBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
 			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
 		}
 		deletedCount++

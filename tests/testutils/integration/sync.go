@@ -198,7 +198,7 @@ func (cfg *Test) IcebergFullLoadAndCDC(
 		t.Logf("keeping %s source data (%s) is set", cfg.TestConfig.Driver, testutils.KeepTestDataEnvVar)
 	} else {
 		// Drop the Iceberg table after all tests are finished
-		DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+		testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
 		t.Logf("Dropped Iceberg table: %s", testTable)
 	}
 
@@ -216,7 +216,7 @@ func (cfg *Test) ParquetFullLoadAndCDC(
 	if err := cfg.resetTable(ctx, t); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
 	}
-	if err := deleteParquetTable(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
+	if err := testutils.DeleteParquetTable(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
 		return fmt.Errorf("failed to reset parquet table: %s", err)
 	}
 
@@ -297,7 +297,7 @@ func (cfg *Test) ParquetFullLoadAndCDC(
 			// not. That is F2 in docs/backward-compatibility.md (parquet has no schema evolution;
 			// the break surfaces in the reader). The consequence for compatibility is that a parquet
 			// variant compares only its LAST case's output; see compareVariant.
-			if err := DeleteParquetFiles(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
+			if err := testutils.DeleteParquetFiles(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
 			}
 
@@ -383,7 +383,7 @@ func (cfg *Test) IcebergFullLoadAndIncremental(
 			}
 
 			// drop iceberg table before sync
-			DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+			testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
 			t.Logf("Dropped Iceberg table: %s", testTable)
 
 			if err := cfg.runSyncAndVerify(
@@ -407,7 +407,7 @@ func (cfg *Test) IcebergFullLoadAndIncremental(
 	if testutils.KeepTestData() {
 		t.Logf("keeping %s source data (%s) is set", cfg.TestConfig.Driver, testutils.KeepTestDataEnvVar)
 	} else {
-		DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+		testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
 		t.Logf("Dropped Iceberg table: %s", testTable)
 	}
 
@@ -425,7 +425,7 @@ func (cfg *Test) ParquetFullLoadAndIncremental(
 	if err := cfg.resetTable(ctx, t); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
 	}
-	if err := deleteParquetTable(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
+	if err := testutils.DeleteParquetTable(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
 		return fmt.Errorf("failed to reset parquet table: %s", err)
 	}
 
@@ -482,7 +482,7 @@ func (cfg *Test) ParquetFullLoadAndIncremental(
 			// not. That is F2 in docs/backward-compatibility.md (parquet has no schema evolution;
 			// the break surfaces in the reader). The consequence for compatibility is that a parquet
 			// variant compares only its LAST case's output; see compareVariant.
-			if err := DeleteParquetFiles(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
+			if err := testutils.DeleteParquetFiles(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
 				t.Fatalf("Failed to delete parquet files before %s: %v", tc.name, err)
 			}
 

@@ -147,7 +147,7 @@ func (cfg *Test) destinationPrefix() []string {
 // runOlake runs the driver image with host networking so the benchmark reaches the external
 // instances directly, exactly as a deployed sync would.
 func (cfg *Test) runOlake(ctx context.Context, olakeArgs ...string) (int, []byte, error) {
-	args := testutils.DockerRunArgs(cfg.TestConfig, cfg.DriverImage, []string{"--network", "host"}, olakeArgs)
+	args := testutils.DockerRunArgs(cfg.TestConfig, []string{"--network", "host"}, olakeArgs)
 	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
 	return testutils.DockerExitResult(out, err, olakeArgs[0])
 }
@@ -164,7 +164,7 @@ func (cfg *Test) timedSync(ctx context.Context, useState bool) ([]byte, error) {
 	defer cancel()
 
 	olakeArgs := testutils.SyncArgs(useState, icebergDestinationFile, cfg.destinationPrefix()...)
-	args := testutils.DockerRunArgs(cfg.TestConfig, cfg.DriverImage, []string{"--network", "host", "--name", name}, olakeArgs)
+	args := testutils.DockerRunArgs(cfg.TestConfig, []string{"--network", "host", "--name", name}, olakeArgs)
 	out, err := exec.CommandContext(timedCtx, "docker", args...).CombinedOutput()
 	if timedCtx.Err() == context.DeadlineExceeded {
 		_ = exec.Command("docker", "kill", name).Run()

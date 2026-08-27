@@ -61,11 +61,11 @@ func (cfg *Test) testParquetRolling(ctx context.Context, t *testing.T, testTable
 
 	// Start from an empty destination folder — the earlier parquet sub-tests leave files and
 	// destination metadata behind, while this is an independent initial sync.
-	if err := deleteParquetTable(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
+	if err := testutils.DeleteParquetTable(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
 		return fmt.Errorf("failed to reset parquet table before rolling sync: %s", err)
 	}
 	defer func() {
-		if err := deleteParquetTable(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
+		if err := testutils.DeleteParquetTable(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
 			t.Logf("cleanup: failed to reset parquet table: %v", err)
 		}
 	}()
@@ -86,10 +86,10 @@ func (cfg *Test) verifyParquetRolling(t *testing.T, table string) {
 	t.Helper()
 	ctx := t.Context()
 
-	client, err := newMinIOClient()
+	client, err := testutils.NewMinIOClient()
 	require.NoError(t, err)
 
-	objects, err := listParquetObjects(ctx, client, cfg.TestConfig.DestinationDB, table)
+	objects, err := testutils.ListParquetObjects(ctx, client, cfg.TestConfig.DestinationDB, table)
 	require.NoError(t, err, "failed to list rolled parquet files")
 
 	var totalSize int64
@@ -107,7 +107,7 @@ func (cfg *Test) verifyParquetRolling(t *testing.T, table string) {
 	// Sum footer row counts across every rolled file — no rows may be lost at a roll boundary.
 	var totalRows int64
 	for _, obj := range objects {
-		reader, gerr := client.GetObject(ctx, parquetTestBucket, obj.Key, minio.GetObjectOptions{})
+		reader, gerr := client.GetObject(ctx, testutils.ParquetBucket, obj.Key, minio.GetObjectOptions{})
 		require.NoErrorf(t, gerr, "failed to get object %s", obj.Key)
 		data, rerr := io.ReadAll(reader)
 		_ = reader.Close()

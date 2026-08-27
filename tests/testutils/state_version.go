@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -22,6 +23,17 @@ type StateVersionBaseline struct {
 	Note         string `json:"note"`
 }
 
+// Gates reports whether this release's bump changed driver's semantics: the manifest names the
+// drivers it touched, comma-separated, or "*" for all.
+func (b StateVersionBaseline) Gates(driver string) bool {
+	for _, gated := range strings.Split(b.Drivers, ",") {
+		if gated = strings.TrimSpace(gated); gated == "*" || gated == driver {
+			return true
+		}
+	}
+	return false
+}
+
 type stateVersionManifest struct {
 	LatestStateVersion int                    `json:"latest_state_version"`
 	Baselines          []StateVersionBaseline `json:"baselines"`
@@ -33,9 +45,14 @@ var (
 	stateVersionErr   error
 )
 
+// StateVersionManifestPath names the manifest file, for messages that point readers at it.
+func StateVersionManifestPath(rootPath string) string {
+	return filepath.Join(rootPath, "constants", "state-versions.json")
+}
+
 func readStateVersionManifest(rootPath string) (stateVersionManifest, error) {
 	stateVersionOnce.Do(func() {
-		path := filepath.Join(rootPath, "constants", "state-versions.json")
+		path := StateVersionManifestPath(rootPath)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			stateVersionErr = fmt.Errorf("failed to read the product state versions at %s: %w", path, err)

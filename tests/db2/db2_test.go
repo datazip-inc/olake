@@ -4,15 +4,16 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/compatibility"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/tests/testutils/integration"
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
 // db2BaseConfig returns an IntegrationTest pre-populated with all fields shared
-func db2BaseConfig(t *testing.T) *integration.Test {
+func db2BaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
 	cfg, err := testutils.NewTestConfig(t, constants.DB2, "DB2INST1", "db2_testdb_db2inst1", ExecuteQuery,
-		testutils.WithImagePlatform("linux/amd64"))
+		append([]testutils.TestConfigOption{testutils.WithImagePlatform("linux/amd64")}, opts...)...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.CursorField = "COL_CURSOR:COL_TIMESTAMP"
 	cfg.PartitionRegex = "/{id, identity}"
@@ -60,15 +61,14 @@ func TestDB22PC(t *testing.T) {
 // TestDB2Compatibility pins the backward-compatibility contract: the same scenarios run on a released
 // baseline image and on this build after the initial load, and the destinations must match.
 // See tests/testutils/compatibility.go.
-// func TestDB2Compatibility(t *testing.T) {
-// 	t.Parallel()
-// 	compatibility.RunBackwardCompatibility(t, func() *compatibility.Test {
-// 		base := db2BaseConfig(t)
-// 		base.ExpectedUpdatedData = ExpectedUpdatedDB2Data
-// 		base.UpdatedDestinationDataTypeSchema = UpdatedDB2ToDestinationSchema
-// 		cfg := &compatibility.Test{IntegrationTest: base}
-// 		// Type tags for compatibility_rules.json's db2 rules; floor and descriptions live there too.
-// 		cfg.ColumnTypes = map[string][]string{"col_decfloat": {"decfloat"}}
-// 		return cfg
-// 	})
-// }
+func TestDB2Compatibility(t *testing.T) {
+	t.Parallel()
+	fixture := &compatibility.Test{
+		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
+			return db2BaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+		},
+		DeclaredSchema: DB2ToDestinationSchema,
+		ColumnTypes:    seedColumnTypes(),
+	}
+	fixture.RunBackwardCompatibility(t)
+}

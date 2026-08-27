@@ -34,7 +34,7 @@ DOCKER_BUILD ?= docker build
 $(addsuffix .build,$(addprefix docker.,$(DRIVERS))): docker.%.build:
 	$(DOCKER_BUILD) $(addprefix --platform ,$(call local_driver_platforms,$*)) \
 		--build-arg DRIVER_NAME=$* \
-		-t olake/source-$*:$(IMAGE_TAG) .
+		-t olakego/source-$*:$(IMAGE_TAG) .
 
 gomod:
 	find . -name go.mod -execdir go mod tidy \;
@@ -96,8 +96,6 @@ ICEBERG_WRITER_DIR := destination/iceberg/olake-iceberg-java-writer
 ICEBERG_JAR := $(ICEBERG_WRITER_DIR)/target/olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
 ICEBERG_JAR_SRCS := $(ICEBERG_WRITER_DIR)/pom.xml $(shell find $(ICEBERG_WRITER_DIR)/src -type f 2>/dev/null)
 ROOT_JAR := olake-iceberg-java-writer.jar
-
-IMAGE_JAR_DEP = $(if $(OLAKE_DRIVER_IMAGE),,$(ICEBERG_JAR))
 
 # --- readiness probes (polled by olake.<d>.wait / olake.destination.all.wait, incl. in CI)
 # Defaults only; per-driver probes and overrides live in drivers/<d>/driver.mk.
@@ -167,7 +165,7 @@ CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
 SOURCE_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
 CDC_PKGS := $(addsuffix /...,$(addprefix ./,$(CDC_DRIVERS)))
 
-# The drivers the integration suites cover, queried by CI (integration-tests.yml) so the list
+# The drivers the end-to-end suites cover, queried by CI (end-to-end-tests.yml) so the list
 # lives in this file only: it is what the driver matrix fans out to on a push to master.
 .PHONY: print.source-drivers
 print.source-drivers:
@@ -243,7 +241,7 @@ olake.source.all.refresh:
 
 # --- destination stack --------------------------------------------------------
 olake.destination.all.up:
-	mkdir -p $(DEST_DATA_DIR)/minio-data $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
+	mkdir -p $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
 	$(COMPOSE) -f $(DEST_COMPOSE) up -d $(DEST_SERVICES)
 
 olake.destination.all.wait:
@@ -260,7 +258,7 @@ olake.destination.all.stop:
 olake.destination.all.teardown:
 	$(COMPOSE) -f $(DEST_COMPOSE) down --volumes --remove-orphans
 	@rm -rf $(DEST_DATA_DIR) || { echo "Could not remove $(DEST_DATA_DIR) (root-owned files on Linux?). Try: sudo rm -rf $(DEST_DATA_DIR)"; exit 1; }
-	@echo "Removed docker volumes and $(DEST_DATA_DIR) (minio/postgres data and the hive-metastore ivy cache)"
+	@echo "Removed docker volumes and $(DEST_DATA_DIR) (postgres data and the hive-metastore ivy cache)"
 olake.destination.all.restart:
 	@$(MAKE) --no-print-directory olake.destination.all.stop
 	@$(MAKE) --no-print-directory olake.destination.all.start
@@ -316,7 +314,7 @@ $(foreach d,$(DRIVERS),$(eval $(call DEV_BUILD_template,$(d))))
 # --- tests --------------------------------------------------------------------
 # Everything one driver's suites need, brought up concurrently. A recursive -j sub-make, since plain
 # prerequisites only run in parallel when the caller passes -j; every goal is idempotent.
-driver_test_setup = $(MAKE) --no-print-directory -j3 olake.$(1).start olake.destination.all.start $(IMAGE_JAR_DEP)
+driver_test_setup = $(MAKE) --no-print-directory -j3 olake.$(1).start olake.destination.all.start $(ICEBERG_JAR)
 
 # Compile the driver's test binary without running it, so CI pays the cold build while its container
 # pull and image build are still in flight. Through make, for db2's clidriver and cgo env.
@@ -338,7 +336,7 @@ define DRIVER_TEST_template
 .PHONY: test.integration.$(1)
 test.integration.$(1): prepare.$(1)
 	@$$(call driver_test_setup,$(1))
-	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -skip 'Performance'
+	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -skip 'Performance|Compatibility'
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_TEST_template,$(d))))
 
@@ -362,21 +360,36 @@ test.performance.$(1): prepare.$(1) $$(ICEBERG_JAR)
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call PERFORMANCE_TEST_template,$(d))))
 
-test.discover: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
+test.discover: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(ICEBERG_JAR)
 	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(SOURCE_PKGS) -timeout 0 -count=1 -run 'Discover'
 
-test.sync: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
+test.sync: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(ICEBERG_JAR)
 	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(SOURCE_PKGS) -timeout 0 -count=1 -run 'Sync'
 
-test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .start,$(CDC_DRIVERS))) olake.destination.all.start $(IMAGE_JAR_DEP)
+test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .start,$(CDC_DRIVERS))) olake.destination.all.start $(ICEBERG_JAR)
 	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
 
+
+COMPATIBILITY_BASELINE ?=
+
+define COMPATIBILITY_TEST_template
+.PHONY: test.compatibility.$(1)
+test.compatibility.$(1): prepare.$(1)
+	@$$(call driver_test_setup,$(1))
+	$$(GO_ENV.$(1)) cd tests && \
+		OLAKE_COMPATIBILITY_TEST_BASELINE=$$(COMPATIBILITY_BASELINE) \
+		go test -v ./$(1)/... -timeout 0 -count=1 -parallel 8 -run 'Compatibility'
+endef
+$(foreach d,$(SOURCE_DRIVERS),$(eval $(call COMPATIBILITY_TEST_template,$(d))))
+
+.PHONY: test.compatibility
+test.compatibility: $(addprefix test.compatibility.,$(SOURCE_DRIVERS))
 
 # Unit tests across every module in the go.work workspace. Directory patterns
 # ({{.Dir}}/...), not module-path patterns: in a go.work workspace a path pattern
 # like <module>/... prefix-matches into sibling modules.
 test.unit: $(addprefix prepare.,$(DRIVERS))
-	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1 -skip '^Test.*(Discover|Sync|2PC|Performance|Rebalance)$$'
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) go list -m -f '{{.Dir}}/...' | xargs go test -v -count=1
 
 define print_help_targets
 $(foreach t,$(HELP_TARGETS), \
@@ -416,7 +429,7 @@ help:
 	@printf "  %-44s %s\n" "prepare.<driver> | prepare.all" "provision host build deps (db2: IBM clidriver; else no-op)"
 	@echo ""
 	@echo "Docker images:"
-	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "docker.$(d).build" "build the $(d) driver image (olake/source-$(d):$(IMAGE_TAG))";)
+	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "docker.$(d).build" "build the $(d) driver image (olakego/source-$(d):$(IMAGE_TAG))";)
 	@echo ""
 	@echo "Tests (auto-provision the stacks they need):"
 	@printf "  %-44s %s\n" "iceberg.jar" "build the Iceberg writer JAR (skips maven when up to date)"
@@ -425,7 +438,9 @@ help:
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.sync.$(d)" "sync suite for $(d) (full load, CDC, incremental)";)
 	@$(foreach d,$(CDC_DRIVERS),printf "  %-44s %s\n" "test.2pc.$(d)" "2PC recovery suite for $(d)";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.performance.$(d)" "benchmark suite for $(d) (remote instances, no local stack)";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.compatibility.$(d)" "backward-compatibility for upgrading from baseline to latest $(d): COMPATIBILITY_BASELINE=<tag|image|sha>, empty = sweep every baseline in state-versions.json";)
 	@printf "  %-44s %s\n" "test.discover | test.sync | test.2pc | test.unit" "aggregate runs (all drivers at once)"
+	@printf "  %-44s %s\n" "test.compatibility" "backward-compatibility for every driver, sequentially (COMPATIBILITY_BASELINE as above)"
 	@printf "  %-44s %s\n" "test.build.all" "compile every driver's test binary (CI cache warm)"
 	@if [ -n "$(strip $(HELP_TARGETS))" ]; then \
 		echo ""; \
@@ -433,7 +448,7 @@ help:
 		$(call print_help_targets) \
 	fi
 	@echo ""
-	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG"
+	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG COMPATIBILITY_BASELINE"
 
 .PHONY: lint olake.lint test.lint build \
 	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \

@@ -4,6 +4,7 @@ package require
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -36,11 +37,21 @@ func run(t *testing.T, check func(c *failT)) {
 	c := &failT{}
 	check(c)
 	for _, message := range c.messages {
-		t.Errorf(red+"%s"+reset, message)
+		t.Errorf("%s", colorize(message))
 	}
 	if c.failed {
 		t.FailNow()
 	}
+}
+
+func colorize(message string) string {
+	lines := strings.Split(message, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = red + line + reset
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func Contains(t *testing.T, s, contains any, msgAndArgs ...any) {

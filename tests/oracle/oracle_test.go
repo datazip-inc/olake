@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/compatibility"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/tests/testutils/integration"
 	"github.com/datazip-inc/olake/tests/testutils/require"
@@ -11,8 +12,8 @@ import (
 
 // oracleBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // by the oracle suites.
-func oracleBaseConfig(t *testing.T) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.Oracle, "MYUSER", "oracle_myuser", ExecuteQuery)
+func oracleBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
+	cfg, err := testutils.NewTestConfig(t, constants.Oracle, "MYUSER", "oracle_myuser", ExecuteQuery, opts...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.CursorField = "COL_CURSOR:COL_SMALLINT"
 	cfg.PartitionRegex = "/{id, identity}"
@@ -60,15 +61,13 @@ func TestOracle2PC(t *testing.T) {
 // TestOracleCompatibility pins the backward-compatibility contract: the same scenarios run on a released
 // baseline image and on this build after the initial load, and the destinations must match.
 // See tests/testutils/compatibility.go.
-// func TestOracleCompatibility(t *testing.T) {
-// 	t.Parallel()
-// 	compatibility.RunBackwardCompatibility(t, func() *compatibility.Test {
-// 		base := oracleBaseConfig(t)
-// 		base.ExpectedUpdatedData = ExpectedUpdatedOracleData
-// 		base.UpdatedDestinationDataTypeSchema = UpdatedOracleToDestinationSchema
-// 		cfg := &compatibility.Test{IntegrationTest: base}
-// 		// No floor declared: oracle images exist for every sweep baseline. If a first sweep finds
-// 		// an unrunnable band, declare it here with its reason.
-// 		return cfg
-// 	})
-// }
+func TestOracleCompatibility(t *testing.T) {
+	t.Parallel()
+	fixture := &compatibility.Test{
+		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
+			return oracleBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+		},
+		DeclaredSchema: OracleToDestinationSchema,
+	}
+	fixture.RunBackwardCompatibility(t)
+}

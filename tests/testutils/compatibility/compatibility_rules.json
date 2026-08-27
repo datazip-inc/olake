@@ -1,0 +1,101 @@
+{
+  "destinations": {
+    "rules": [
+      {"column": "_olake_timestamp", "type_only": true, "note": "olake's write stamp: wall-clock, never value-comparable across two runs"}
+    ],
+    "iceberg": {
+      "arrow": {
+        "min_baseline": "v0.3.17",
+        "note": "P1: v0.3.6 through v0.3.16 arrow integer widths disagree with today's; below v0.3.6 no arrow writer exists"
+      }
+    },
+    "parquet": {
+      "skip_baselines": ["v0.3.16"],
+      "note": "P2: v0.3.16 adds the `data` column unconditionally, fixed in v0.3.17; below that the no-CDC drivers' output lacks _cdc_timestamp"
+    }
+  },
+  "drivers": {
+    "postgres": {
+      "destination_rules": [
+        {"column": "_cdc_timestamp", "type_only": true, "note": "wall clock of the sync"},
+        {"column": "_cdc_lsn", "type_only": true, "note": "source-log coordinate"}
+      ]
+    },
+    "oracle": {
+      "destinations": {
+        "parquet": {"min_baseline": "v0.3.17", "note": "P2 for a no-CDC driver: below v0.3.17 the parquet output lacks _cdc_timestamp, and v0.3.11's writer panics feeding an int64 into an INT32 column on the incremental path"}
+      }
+    },
+    "mysql": {
+      "destination_rules": [
+        {"column": "_cdc_timestamp", "type_only": true},
+        {"column": "_cdc_binlog_file_name", "type_only": true},
+        {"column": "_cdc_binlog_file_pos", "type_only": true}
+      ],
+      "rules": [
+        {"data_types": ["ucs2", "utf16le", "latin1"], "exclude_below": "v0.7.2", "note": "non-UTF-8 charset bytes reach the writer as invalid UTF-8; gRPC marshal fails, retry backoff looks like a hang"},
+        {"data_types": ["set"], "assert_value_from": "v0.7.2", "note": "M1: SET columns emitted the numeric bitmask on the binlog path before the fix"},
+        {"data_types": ["unsigned mediumint"], "assert_value_from": "v0.9.3", "note": "unsigned MEDIUMINT was sign-extended on the binlog path before v0.9.3 (-1 where the value is 16777215)"},
+        {"data_types": ["unsigned bigint"], "exclude_below": "v0.9.0", "note": "BIGINT UNSIGNED at or above 2^63 reaches the incremental scan as a byte slice; before v0.9.0 (state v6, ReformatInt64) it cannot be converted: v0.3.11's Iceberg writer fatals on the mixed long/string batch and a candidate on an older state file retries into a hang"}
+      ],
+      "note": "M2 (ENUM serialization, fixed v0.3.9) and M3 (DECIMAL/NUMERIC via float32, fixed v0.3.7) need no rule: both thresholds sit below v0.3.11, the oldest baseline any sweep reaches"
+    },
+    "mongodb": {
+      "destination_rules": [
+        {"column": "_cdc_timestamp", "type_only": true},
+        {"column": "_cdc_resume_token", "type_only": true},
+        {"column": "_id", "type_only": true, "note": "server-generated ObjectID; cannot match across two independent runs"},
+        {"column": "_olake_id", "type_only": true, "note": "hashes the server-generated _id, so it is as non-deterministic as its source"}
+      ],
+      "rules": [
+        {"data_types": ["regex"], "assert_value_from": "v0.3.14", "note": "G1: BSON regex serialized with Go field names, not lowercase keys, until the fix landed"}
+      ]
+    },
+    "mssql": {
+      "min_baseline": "v0.3.15",
+      "note": "first release carrying the driver",
+      "destination_rules": [
+        {"column": "_cdc_timestamp", "type_only": true},
+        {"column": "_cdc_start_lsn", "type_only": true},
+        {"column": "_cdc_seqval", "type_only": true}
+      ]
+    },
+    "kafka": {
+      "min_baseline": "v0.3.16",
+      "note": "v0.3.12 added decoder.UseNumber() but the flattener only learned json.Number in v0.3.16; pre-v0.3.12 numbers all typed double against today's catalog",
+      "destination_rules": [
+        {"column": "_cdc_timestamp", "type_only": true},
+        {"column": "_kafka_timestamp", "type_only": true, "note": "broker receive time"},
+        {"column": "_kafka_offset", "type_only": true, "note": "assignment order varies across concurrent partition writes"}
+      ],
+      "variants": {
+        "json": {},
+        "avro": {}
+      }
+    },
+    "db2": {
+      "min_baseline": "v0.3.14",
+      "note": "first release carrying the driver; refine after the first sweep if early db2 images are missing from the registry",
+      "destinations": {
+        "parquet": {"min_baseline": "v0.3.17", "note": "P2 for a no-CDC driver: below v0.3.17 the parquet output lacks _cdc_timestamp"}
+      },
+      "rules": [
+        {"data_types": ["decfloat"], "assert_value_from": "v0.7.6", "note": "ReformatValue rendered a float into a String column with %d"}
+      ]
+    },
+    "s3": {
+      "min_baseline": "v0.9.2",
+      "note": "first release carrying the driver",
+      "destination_rules": [
+        {"column": "_last_modified_time", "type_only": true, "note": "the cursor IS the object's upload stamp; each run uploads its own copy"},
+        {"column": "_olake_id", "type_only": true, "note": "hashes the record carrying _last_modified_time"}
+      ],
+      "variants": {
+        "csv": {},
+        "json": {},
+        "parquet": {},
+        "xml": {"min_baseline": "v0.9.5", "note": "the XML source format landed on 2026-08-07, after v0.9.4; older binaries reject file_format xml at config validation"}
+      }
+    }
+  }
+}

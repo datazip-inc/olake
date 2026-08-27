@@ -4,14 +4,15 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/compatibility"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/tests/testutils/integration"
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
 // mongodbBaseConfig returns an IntegrationTest pre-populated with all fields shared
-func mongodbBaseConfig(t *testing.T) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.MongoDB, "olake_mongodb_test", "mongodb_olake_mongodb_test", ExecuteQuery)
+func mongodbBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
+	cfg, err := testutils.NewTestConfig(t, constants.MongoDB, "olake_mongodb_test", "mongodb_olake_mongodb_test", ExecuteQuery, opts...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.CursorField = "id_cursor:id_int"
 	cfg.PartitionRegex = "/{_id,identity}"
@@ -77,16 +78,15 @@ func TestMongodb2PC(t *testing.T) {
 // _id and _olake_id are volatile here, unlike every other driver: the seed inserts documents
 // without an _id, so the server generates a fresh ObjectID per run and _olake_id, which hashes the
 // primary key, follows it. Both are still compared by TYPE -- only their values are exempt.
-// func TestMongodbCompatibility(t *testing.T) {
-// 	t.Parallel()
-// 	compatibility.RunBackwardCompatibility(t, func() *compatibility.Test {
-// 		base := mongodbBaseConfig(t)
-// 		base.ExpectedUpdatedData = ExpectedUpdatedData
-// 		base.UpdatedDestinationDataTypeSchema = UpdatedMongoToDestinationSchema
-// 		cfg := &compatibility.Test{IntegrationTest: base}
-// 		cfg.ExtraVolatileColumns = []string{"_id", "_olake_id"}
-// 		// Type tags for compatibility_rules.json's mongodb rules (G1: id_regex value change at #657).
-// 		cfg.ColumnTypes = map[string][]string{"id_regex": {"regex"}}
-// 		return cfg
-// 	})
-// }
+func TestMongodbCompatibility(t *testing.T) {
+	t.Parallel()
+	fixture := &compatibility.Test{
+		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
+			return mongodbBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+		},
+		DeclaredSchema:   MongoToDestinationSchema,
+		ColumnTypes:      seedColumnTypes(),
+		CDCColumnsSchema: ExpectedMongoDBDefaultCDCColumnsSchema,
+	}
+	fixture.RunBackwardCompatibility(t)
+}

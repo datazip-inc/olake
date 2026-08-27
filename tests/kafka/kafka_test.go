@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/compatibility"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/tests/testutils/integration"
 	"github.com/datazip-inc/olake/tests/testutils/require"
@@ -13,7 +14,7 @@ type kafkaFormat struct {
 	name string
 	// build runs inside the subtest, not beside it: every name a suite owns is derived from
 	// t.Name(), so both formats built against the parent would answer to the same one.
-	build func(t *testing.T) *integration.Test
+	build func(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test
 }
 
 var kafkaFormats = []kafkaFormat{
@@ -21,9 +22,9 @@ var kafkaFormats = []kafkaFormat{
 	{name: "AVRO-Format", build: kafkaAvroBaseConfig},
 }
 
-func kafkaJSONBaseConfig(t *testing.T) *integration.Test {
+func kafkaJSONBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
 	cfg, err := testutils.NewTestConfig(t, constants.Kafka, "topics", "kafka_topics", ExecuteQueryJSON,
-		testutils.WithDataFormat("json"))
+		append([]testutils.TestConfigOption{testutils.WithDataFormat("json")}, opts...)...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.PartitionRegex = "/{int_value,identity}"
 	cfg.ColumnToExclude = "col_excluded"
@@ -53,9 +54,9 @@ func kafkaJSONBaseConfig(t *testing.T) *integration.Test {
 	}
 }
 
-func kafkaAvroBaseConfig(t *testing.T) *integration.Test {
+func kafkaAvroBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
 	cfg, err := testutils.NewTestConfig(t, constants.Kafka, "topics", "kafka_topics", ExecuteQueryAvro,
-		testutils.WithDataFormat("avro"))
+		append([]testutils.TestConfigOption{testutils.WithDataFormat("avro")}, opts...)...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.PartitionRegex = "/{int64_value,identity}"
 	cfg.ColumnToExclude = "col_excluded"
@@ -116,15 +117,14 @@ func TestKafkaRebalance(t *testing.T) {
 // TestKafkaCompatibility pins the backward-compatibility contract on the JSON format, the same single
 // format Test2PCIntegration uses: the suite varies only the binary, and avro would add a
 // schema-registry axis to the comparison. See tests/testutils/compatibility.go.
-// func TestKafkaCompatibility(t *testing.T) {
-// 	t.Parallel()
-// 	compatibility.RunBackwardCompatibility(t, func() *compatibility.Test {
-// 		base := kafkaJSONBaseConfig(t)
-// 		cfg := &compatibility.Test{IntegrationTest: base}
-// 		// The compatibility floor and its story live in compatibility_rules.json's kafka block.
-// 		// Kafka pipelines interfere across groups: discover enumerates the whole broker, so
-// 		// concurrent groups scan (and race the deletion of) each other's topics.
-// 		cfg.SerialGroups = true
-// 		return cfg
-// 	})
-// }
+func TestKafkaCompatibility(t *testing.T) {
+	t.Parallel()
+	fixture := &compatibility.Test{
+		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
+			return kafkaJSONBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+		},
+		DeclaredSchema:   KafkaToDestinationJSONSchema,
+		CDCColumnsSchema: ExpectedKafkaDefaultCDCColumnsSchema,
+	}
+	fixture.RunBackwardCompatibility(t)
+}

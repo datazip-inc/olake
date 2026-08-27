@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -233,9 +234,9 @@ func SeedColumnsExcluded(excluded, supported []string) (map[string]bool, error) 
 	return drop, nil
 }
 
-// copyDirFiles copies every file in src into dst, replacing what is already there. Files only:
+// CopyDirFiles copies every file in src into dst, replacing what is already there. Files only:
 // a driver's data-format fixtures are a directory of their own, copied as their own source.
-func copyDirFiles(src, dst string) error {
+func CopyDirFiles(src, dst string) error {
 	entries, err := os.ReadDir(src)
 	if err != nil {
 		return fmt.Errorf("failed to read %s: %s", src, err)
@@ -251,12 +252,31 @@ func copyDirFiles(src, dst string) error {
 	return nil
 }
 
-// repoRoot is the git checkout the tests run from. Read straight from git rather than derived from
+// RepoRoot is the git checkout the tests run from. Read straight from git rather than derived from
 // the running test's directory, which is the one thing here the repo layout does not fix.
-func repoRoot() (string, error) {
+func RepoRoot() (string, error) {
 	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(string(root)), nil
+}
+
+// ResolveToCommit tells if the string passed resolved to a git commit and returns it, abbreviated
+// the way git itself abbreviates: the short form is what names the image and every path and
+// identifier derived from it, and a full 40-char sha overruns limits those have -- Postgres caps a
+// replication slot name at 63 characters and truncates the overflow silently.
+func ResolveToCommit(gitRootPath, str string) (string, bool) {
+	str = strings.TrimPrefix(str, "sha:")
+	commitPattern := regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+	if !commitPattern.MatchString(str) {
+		return "", false
+	}
+	// --short both verifies the commit exists and picks a length git considers unambiguous here.
+	short, err := exec.Command("git", "-C", gitRootPath, "rev-parse", "--short", str+"^{commit}").Output()
+	if err != nil {
+		return "", false
+	}
+
+	return strings.TrimSpace(string(short)), true
 }

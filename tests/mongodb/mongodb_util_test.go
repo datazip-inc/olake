@@ -214,26 +214,47 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	}
 }
 
+// seedDocument is the document every seeded row starts from; callers set the per-row fields, and
+// seedColumnTypes reads the types off it.
+func seedDocument() bson.M {
+	return bson.M{
+		"id_bigint":         int64(123456789012345),
+		"id_int":            int32(100),
+		"id_timestamp":      time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
+		"id_double":         float64(123.456),
+		"id_bool":           true,
+		"created_timestamp": primitive.Timestamp{T: uint32(1754905992), I: 1},
+		"id_nil":            nil,
+		"id_regex":          primitive.Regex{Pattern: "test.*", Options: "i"},
+		"id_nested":         nestedDoc,
+		"id_minkey":         primitive.MinKey{},
+		"id_maxkey":         primitive.MaxKey{},
+		"name_varchar":      "varchar_val",
+		"excludedColumn":    100,
+	}
+}
+
+// seedColumnTypes tags every seed field with its BSON type name (regex, date, ...), read off the
+// seed document itself, so a data_types rule in compatibility_rules.json follows a seed edit with
+// nothing to declare.
+func seedColumnTypes() map[string][]string {
+	types := map[string][]string{}
+	for field, value := range seedDocument() {
+		bsonType, _, err := bson.MarshalValue(value)
+		if err != nil {
+			continue
+		}
+		types[field] = []string{strings.ToLower(bsonType.String())}
+	}
+	return types
+}
+
 func insertTestData(ctx context.Context, t *testing.T, collection *mongo.Collection) {
 	t.Helper()
 	for i := 1; i <= 5; i++ {
-		doc := bson.M{
-			"id":                i,
-			"id_cursor":         i,
-			"id_bigint":         int64(123456789012345),
-			"id_int":            int32(100),
-			"id_timestamp":      time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
-			"id_double":         float64(123.456),
-			"id_bool":           true,
-			"created_timestamp": primitive.Timestamp{T: uint32(1754905992), I: 1},
-			"id_nil":            nil,
-			"id_regex":          primitive.Regex{Pattern: "test.*", Options: "i"},
-			"id_nested":         nestedDoc,
-			"id_minkey":         primitive.MinKey{},
-			"id_maxkey":         primitive.MaxKey{},
-			"name_varchar":      "varchar_val",
-			"excludedColumn":    100,
-		}
+		doc := seedDocument()
+		doc["id"] = i
+		doc["id_cursor"] = i
 
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert test data row %d", i)

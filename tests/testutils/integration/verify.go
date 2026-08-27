@@ -20,10 +20,10 @@ import (
 func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string) {
 	t.Helper()
 	ctx := t.Context()
-	spark, err := SparkSession(ctx, t)
+	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 
-	fullTableName := fmt.Sprintf("%s.%s.%s", IcebergCatalog, icebergDB, tableName)
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, icebergDB, tableName)
 	// The shared session caches table snapshots, so refresh to see the rows the sync just committed.
 	// Non-fatal: on a first sync the table may not exist yet, which the retry loop below handles.
 	if _, refreshErr := spark.Sql(ctx, fmt.Sprintf("REFRESH TABLE %s", fullTableName)); refreshErr != nil {
@@ -205,10 +205,10 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 func VerifyIcebergNoDuplicates(ctx context.Context, t *testing.T, tableName, icebergDB, opSymbol string, expectedRowCountByOpType int64) {
 	t.Helper()
 
-	spark, err := SparkSession(ctx, t)
+	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "Failed to connect to Spark Connect server for duplicate check")
 
-	fullTableName := fmt.Sprintf("%s.%s.%s", IcebergCatalog, icebergDB, tableName)
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, icebergDB, tableName)
 
 	// Refresh to get the latest committed Iceberg snapshot.
 	refreshQuery := fmt.Sprintf("REFRESH TABLE %s", fullTableName)
@@ -260,7 +260,7 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 	t.Helper()
 	ctx := t.Context()
 
-	spark, err := SparkSession(ctx, t)
+	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
 
 	parquetPath := fmt.Sprintf("s3a://warehouse/%s/%s", parquetDB, tableName)

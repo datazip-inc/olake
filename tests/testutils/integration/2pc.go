@@ -84,7 +84,7 @@ func (cfg *Test) Iceberg2PCCDCRecovery(
 
 	// Drop the Iceberg table and reset state before the first sync, so stale rows and the
 	// olake_2pc table property left by a previous run can't leak into this run's recovery timeline.
-	DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
 	if err := testutils.ResetStateFile(cfg.TestConfig); err != nil {
 		return fmt.Errorf("failed to reset state: %w", err)
 	}
@@ -159,7 +159,7 @@ func (cfg *Test) Iceberg2PCCDCRecovery(
 	}
 
 	t.Log("Iceberg 2PC CDC Recovery tests completed successfully")
-	DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
 	t.Logf("Dropped Iceberg table after 2PC CDC tests: %s", testTable)
 	return nil
 }
@@ -183,7 +183,7 @@ func (cfg *Test) Iceberg2PCIncrementalRecovery(
 
 	// Drop the Iceberg table before the first sync, so stale rows and the olake_2pc table
 	// property left by a previous run can't leak into this run's recovery timeline.
-	DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field
 	if err := updateStreamConfig(cfg.TestConfig, cfg.TestConfig.Namespace, testTable, "incremental", cfg.TestConfig.CursorField); err != nil {
@@ -266,7 +266,7 @@ func (cfg *Test) Iceberg2PCIncrementalRecovery(
 	}
 
 	t.Log("Iceberg 2PC Incremental Recovery tests completed successfully")
-	DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
 	t.Logf("Dropped Iceberg table after 2PC Incremental tests: %s", testTable)
 	return nil
 }

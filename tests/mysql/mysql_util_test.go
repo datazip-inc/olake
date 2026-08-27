@@ -20,20 +20,76 @@ import (
 // PerformanceTest config and the perf operations below.
 var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
 
-// ExecuteQuery executes MySQL queries for testing based on the operation type
-func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
-	t.Helper()
-	ExecuteQueryExcluding(ctx, t, conf, operation, nil)
-}
-
-// versionedSeedColumns are the columns TestMySQLCompatibility can leave out of the seed data for old
-// baselines (CompatibilityColumnRule.ExcludeBelow); every other suite seeds all of them.
+// versionedSeedColumns are the columns a suite can leave out of the seed data through
+// TestConfig.SeedExcludedColumns -- the backward-compatibility suite drops the ones an old
+// baseline cannot sync; every other suite leaves the list empty and seeds all of them.
 var versionedSeedColumns = []struct {
 	name, ddl, value, filteredValue, updateExpr string
 }{
 	{"name_ucs2", "name_ucs2 VARCHAR(100) CHARACTER SET ucs2", "'ucs2_val'", "'filtered ucs2'", "name_ucs2 = 'updated ucs2'"},
 	{"name_utf16le", "name_utf16le VARCHAR(100) CHARACTER SET utf16le", "'utf16le_val'", "'filtered utf16le'", "name_utf16le = 'updated utf16le'"},
 	{"grade", "grade ENUM('naïve','café','résumé') CHARACTER SET latin1", "'naïve'", "'naïve'", "grade = 'café'"},
+	{"name_latin1", "name_latin1 VARCHAR(100) CHARACTER SET latin1", "'latin1_val'", "'filtered latin1'", "name_latin1 = 'updated latin1'"},
+	{"permissions", "permissions SET('read','write','execute') CHARACTER SET latin1 DEFAULT NULL", "'read,write'", "'execute'", "permissions = 'read,write,execute'"},
+	{"id_bigint_unsigned", "id_bigint_unsigned BIGINT UNSIGNED", "5003", "0", "id_bigint_unsigned = 6003"},
+	{"id_bigint_unsigned_signbit", "id_bigint_unsigned_signbit BIGINT UNSIGNED", "9223372036854775808", "0", "id_bigint_unsigned_signbit = 9223372036854775809"},
+	{"id_bigint_unsigned_max", "id_bigint_unsigned_max BIGINT UNSIGNED", "18446744073709551615", "0", "id_bigint_unsigned_max = 18446744073709551614"},
+}
+
+// seedTableDDL is the seed table's column list, the one place the fixture's schema lives: create
+// renders it and seedColumnTypes reads it; the versioned columns splice in at %s.
+const seedTableDDL = `
+				id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+				id_bigint BIGINT,
+				id_int INT,
+				id_cursor INT,
+				id_int_unsigned INT UNSIGNED,
+				id_integer INT,
+				id_integer_unsigned INT UNSIGNED,
+				id_mediumint MEDIUMINT,
+				id_mediumint_unsigned MEDIUMINT UNSIGNED,
+				id_smallint SMALLINT,
+				id_smallint_unsigned SMALLINT UNSIGNED,
+				id_tinyint TINYINT,
+				id_tinyint_unsigned TINYINT UNSIGNED,
+				id_tinyint_unsigned_max TINYINT UNSIGNED,
+				id_smallint_unsigned_max SMALLINT UNSIGNED,
+				id_mediumint_unsigned_max MEDIUMINT UNSIGNED,
+				id_mediumint_unsigned_signbit MEDIUMINT UNSIGNED,
+				id_int_unsigned_max INT UNSIGNED,
+				price_decimal DECIMAL(10,2),
+				amount_decimal_9_2 DECIMAL(9,2),
+				price_double DOUBLE,
+				price_double_precision DOUBLE,
+				price_float FLOAT,
+				price_numeric DECIMAL(10,2),
+				price_real DOUBLE,
+				name_char CHAR(50),
+				name_varchar VARCHAR(100),
+				name_text TEXT,
+				name_tinytext TINYTEXT,
+				name_mediumtext MEDIUMTEXT,
+				name_longtext LONGTEXT,
+				created_date DATETIME,
+				created_timestamp TIMESTAMP NULL,
+				is_active TINYINT(1),
+				long_varchar MEDIUMTEXT,
+		name_bool TINYINT(1) DEFAULT '1',
+		status ENUM('active','inactive','pending') DEFAULT NULL,
+		priority ENUM('low','medium','high') DEFAULT 'low',%s
+		tags SET('sports','music','gaming','reading') DEFAULT NULL,
+		PRIMARY KEY (id),
+		excludedColumn INT
+	`
+
+// seedColumnTypes derives every seed column's type tags from the DDL, versioned columns included,
+// so a data_types rule in compatibility_rules.json follows a seed edit with nothing to declare.
+func seedColumnTypes() map[string][]string {
+	ddl := fmt.Sprintf(seedTableDDL, "")
+	for _, col := range versionedSeedColumns {
+		ddl += "\n" + col.ddl
+	}
+	return testutils.DDLColumnTypes(ddl)
 }
 
 // seedColumnFragments renders the versioned columns NOT being excluded as the fragments each seed
@@ -65,11 +121,12 @@ func seedColumnFragments(t *testing.T, excluded []string) (ddl, cols, vals, filt
 	return ddl, join(names), join(values), join(filtered), join(sets)
 }
 
-// ExecuteQueryExcluding is ExecuteQuery with columns left out of the seed DDL and DML entirely --
-// the compatibility suite's seed exclusion for columns an old baseline cannot sync at any price.
-func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string, excludedColumns []string) {
+// ExecuteQuery executes MySQL queries for testing based on the operation type. Columns named in
+// conf.SeedExcludedColumns are left out of the seed DDL and DML entirely.
+func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
+	excludedColumns := conf.SeedExcludedColumns
 	seedDDL, seedCols, seedVals, seedFilteredVals, seedUpdates := seedColumnFragments(t, excludedColumns)
 
 	var connStr, database string
@@ -94,55 +151,7 @@ func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.Te
 
 	switch operation {
 	case "create":
-		query = fmt.Sprintf(`
-			CREATE TABLE IF NOT EXISTS %s (
-				id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-				id_bigint BIGINT,
-				id_int INT,
-				id_cursor INT,
-				id_int_unsigned INT UNSIGNED,
-				id_integer INT,
-				id_integer_unsigned INT UNSIGNED,
-				id_mediumint MEDIUMINT,
-				id_mediumint_unsigned MEDIUMINT UNSIGNED,
-				id_smallint SMALLINT,
-				id_smallint_unsigned SMALLINT UNSIGNED,
-				id_tinyint TINYINT,
-				id_tinyint_unsigned TINYINT UNSIGNED,
-				id_tinyint_unsigned_max TINYINT UNSIGNED,
-				id_smallint_unsigned_max SMALLINT UNSIGNED,
-				id_mediumint_unsigned_max MEDIUMINT UNSIGNED,
-				id_mediumint_unsigned_signbit MEDIUMINT UNSIGNED,
-				id_int_unsigned_max INT UNSIGNED,
-				id_bigint_unsigned BIGINT UNSIGNED,
-				id_bigint_unsigned_signbit BIGINT UNSIGNED,
-				id_bigint_unsigned_max BIGINT UNSIGNED,
-				price_decimal DECIMAL(10,2),
-				amount_decimal_9_2 DECIMAL(9,2),
-				price_double DOUBLE,
-				price_double_precision DOUBLE,
-				price_float FLOAT,
-				price_numeric DECIMAL(10,2),
-				price_real DOUBLE,
-				name_char CHAR(50),
-				name_varchar VARCHAR(100),
-				name_text TEXT,
-				name_tinytext TINYTEXT,
-				name_mediumtext MEDIUMTEXT,
-				name_longtext LONGTEXT,
-				created_date DATETIME,
-				created_timestamp TIMESTAMP NULL,
-				is_active TINYINT(1),
-				long_varchar MEDIUMTEXT,
-		name_bool TINYINT(1) DEFAULT '1',
-		status ENUM('active','inactive','pending') DEFAULT NULL,
-		priority ENUM('low','medium','high') DEFAULT 'low',
-		name_latin1 VARCHAR(100) CHARACTER SET latin1,%s
-		tags SET('sports','music','gaming','reading') DEFAULT NULL,
-		permissions SET('read','write','execute') CHARACTER SET latin1 DEFAULT NULL,
-		PRIMARY KEY (id),
-		excludedColumn INT
-	)`, integrationTestTable, seedDDL)
+		query = fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)", integrationTestTable, fmt.Sprintf(seedTableDDL, seedDDL))
 
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
@@ -168,15 +177,14 @@ func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.Te
 			id_tinyint, id_tinyint_unsigned,
 			id_tinyint_unsigned_max, id_smallint_unsigned_max,
 			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
 			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
-			name_latin1,%s
-			tags, permissions,
+			%s
+			tags,
 			excludedColumn
 		) VALUES (
 			6, 6, 123456789012345,
@@ -185,15 +193,14 @@ func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.Te
 			50, 51,
 			255, 65535,
 			16777215, 8388608, 4294967295,
-			5003, 9223372036854775808, 18446744073709551615,
 			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1, 'active', 'high',
-			'latin1_val',%s
-			'sports,reading', 'read,write',
+			%s
+			'sports,reading',
 			101
 		)`, integrationTestTable, seedCols, seedVals)
 		_, err = db.ExecContext(ctx, query)
@@ -207,15 +214,14 @@ func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.Te
 			id_tinyint, id_tinyint_unsigned,
 			id_tinyint_unsigned_max, id_smallint_unsigned_max,
 			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
 			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
-			name_latin1,%s
-			tags, permissions,
+			%s
+			tags,
 			excludedColumn
 		) VALUES (
 			-1, 999, 111111111111111,
@@ -224,15 +230,14 @@ func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.Te
 			0, 0,
 			0, 0,
 			0, 0, 0,
-			0, 0, 0,
 			50.123, 50.12, 50.123,
 			50.123, 50.0, 50.123, 50.123,
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
 			'filtered medium', 'filtered long', '2022-06-15 10:00:00',
 			'2021-06-15 10:00:00', 0,
 			'filtered long varchar', 0, 'inactive', 'low',
-			'filtered latin1',%s
-			'music', 'execute',
+			%s
+			'music',
 			200
 		)`, integrationTestTable, seedCols, seedFilteredVals)
 		_, err = db.ExecContext(ctx, filteredQuery)
@@ -248,15 +253,14 @@ func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.Te
 			id_tinyint, id_tinyint_unsigned,
 			id_tinyint_unsigned_max, id_smallint_unsigned_max,
 			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
 			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
-			name_latin1,%s
-			tags, permissions
+			%s
+			tags
 		) VALUES (
 			7, 7, 123456789012345,
 			100, 4294967295, 102, 4294967294,
@@ -264,15 +268,14 @@ func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.Te
 			50, 51,
 			255, 65535,
 			16777215, 8388608, 4294967295,
-			5003, 9223372036854775808, 18446744073709551615,
 			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1, 'active', 'high',
-			'latin1_val',%s
-			'sports,reading', 'read,write'
+			%s
+			'sports,reading'
 		)`, integrationTestTable, seedCols, seedVals)
 
 	case "update":
@@ -288,9 +291,6 @@ func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.Te
 				id_tinyint_unsigned_max = 254, id_smallint_unsigned_max = 65534,
 				id_mediumint_unsigned_max = 16777214, id_mediumint_unsigned_signbit = 8388609,
 				id_int_unsigned_max = 4294967294,
-				id_bigint_unsigned = 6003,
-				id_bigint_unsigned_signbit = 9223372036854775809,
-				id_bigint_unsigned_max = 18446744073709551614,
 				price_decimal = 543.21, amount_decimal_9_2 = 1234567.89, price_double = 654.321,
 				price_double_precision = 654.321, price_float = 543.21,
 				price_numeric = 543.21, price_real = 654.321,
@@ -301,8 +301,8 @@ func ExecuteQueryExcluding(ctx context.Context, t *testing.T, conf *testutils.Te
 				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0,
 			status = 'pending', priority = 'low',
-			name_latin1 = 'updated latin1',%s
-			tags = 'gaming,reading', permissions = 'read,write,execute',
+			%s
+			tags = 'gaming,reading',
 			excludedColumn = 102,
 			includedColumn = 202
 		WHERE id = 1`, integrationTestTable, seedUpdates)
@@ -369,14 +369,13 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			id_tinyint, id_tinyint_unsigned,
 			id_tinyint_unsigned_max, id_smallint_unsigned_max,
 			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
 			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool, status, priority,
-			name_latin1,%s
-			tags, permissions,
+			%s
+			tags,
 			excludedColumn
 		) VALUES (
 			%d, %d, 123456789012345,
@@ -385,14 +384,13 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			50, 51,
 			255, 65535,
 			16777215, 8388608, 4294967295,
-			5003, 9223372036854775808, 18446744073709551615,
 			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high',
-			'latin1_val',%s
-			'sports,reading', 'read,write',
+			%s
+			'sports,reading',
 			100
 		)`, tableName, seedCols, i, i, seedVals)
 
@@ -408,14 +406,13 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			id_tinyint, id_tinyint_unsigned,
 			id_tinyint_unsigned_max, id_smallint_unsigned_max,
 			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			id_bigint_unsigned, id_bigint_unsigned_signbit, id_bigint_unsigned_max,
 			price_decimal, amount_decimal_9_2, price_double,
 			price_double_precision, price_float, price_numeric, price_real,
 			name_char, name_varchar, name_text, name_tinytext,
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool, status, priority,
-			name_latin1,%s
-			tags, permissions,
+			%s
+			tags,
 			excludedColumn
 		) VALUES (
 			-1, 998, 111111111111111,
@@ -424,14 +421,13 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			0, 0,
 			0, 0,
 			0, 0, 0,
-			0, 0, 0,
 			500234.123, 500234.12, 500234.123,
 			500234.123, 500234.0, 500234.123, 500234.123,
 			'x', 'filtered_val', 'filtered text', 'filtered tiny',
 			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
 			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low',
-			'filtered latin1',%s
-			'music', 'execute',
+			%s
+			'music',
 			200
 		)`, tableName, seedCols, seedFilteredVals)
 	_, err := db.ExecContext(ctx, filteredQuery)

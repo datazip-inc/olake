@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/compatibility"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/tests/testutils/integration"
 	"github.com/datazip-inc/olake/tests/testutils/require"
@@ -11,8 +12,8 @@ import (
 
 // mssqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
 // by the mssql suites.
-func mssqlBaseConfig(t *testing.T) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.MSSQL, "dbo", "mssql_olake_mssql_test_dbo", ExecuteQuery)
+func mssqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
+	cfg, err := testutils.NewTestConfig(t, constants.MSSQL, "dbo", "mssql_olake_mssql_test_dbo", ExecuteQuery, opts...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.ColumnToExclude = "excludedColumn"
 	cfg.CursorField = "id_cursor:col_int"
@@ -61,13 +62,16 @@ func TestMSSQL2PC(t *testing.T) {
 // TestMSSQLCompatibility pins the backward-compatibility contract: the same scenarios run on a released
 // baseline image and on this build after the initial load, and the destinations must match.
 // See tests/testutils/compatibility.go.
-// func TestMSSQLCompatibility(t *testing.T) {
-// 	t.Parallel()
-// 	compatibility.RunBackwardCompatibility(t, func() *compatibility.Test {
-// 		base := mssqlBaseConfig(t)
-// 		base.ExpectedUpdatedData = ExpectedUpdatedMSSQLData
-// 		base.UpdatedDestinationDataTypeSchema = MSSQLToDestinationSchema
-// 		cfg := &compatibility.Test{IntegrationTest: base}
-// 		return cfg
-// 	})
-// }
+func TestMSSQLCompatibility(t *testing.T) {
+	t.Parallel()
+
+	fixture := &compatibility.Test{
+		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
+			return mssqlBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+		},
+		DeclaredSchema:   MSSQLToDestinationSchema,
+		CDCColumnsSchema: ExpectedMSSQLDefaultCDCColumnsSchema,
+	}
+
+	fixture.RunBackwardCompatibility(t)
+}
