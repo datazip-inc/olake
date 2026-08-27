@@ -29,7 +29,7 @@ const (
 
 // icebergDVTestDrivers gates the deletion-vector suite the same way icebergTableIndexTestDrivers
 // gates the pos/table-index suite (see hasIcebergTableIndexTest). One CDC-capable driver is
-// enough - these exercise destination behaviour, not source specifics.
+// enough - these exercise destination behavior, not source specifics.
 var icebergDVTestDrivers = []constants.DriverType{constants.MySQL}
 
 func hasIcebergDVTest(driver string) bool {
@@ -40,15 +40,15 @@ func hasIcebergDVTest(driver string) bool {
 // columns, so this is built once and reused for both catalog entries.
 func dvColumnSchema() map[string]interface{} {
 	return map[string]interface{}{
-		"id":         map[string]interface{}{"type": []interface{}{"integer_small"}, "destination_column_name": "id"},
-		"customer":   map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "customer"},
-		"amount":     map[string]interface{}{"type": []interface{}{"number", "null"}, "destination_column_name": "amount"},
-		"status":     map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "status"},
-		"updated_at": map[string]interface{}{"type": []interface{}{"timestamp", "null"}, "destination_column_name": "updated_at"},
-		"_op_type":            map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "_op_type", "olake_column": true},
-		"_olake_id":           map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "_olake_id", "olake_column": true},
-		"_olake_timestamp":    map[string]interface{}{"type": []interface{}{"timestamp_micro", "null"}, "destination_column_name": "_olake_timestamp", "olake_column": true},
-		"_cdc_timestamp":      map[string]interface{}{"type": []interface{}{"timestamp_micro", "null"}, "destination_column_name": "_cdc_timestamp", "olake_column": true},
+		"id":                    map[string]interface{}{"type": []interface{}{"integer_small"}, "destination_column_name": "id"},
+		"customer":              map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "customer"},
+		"amount":                map[string]interface{}{"type": []interface{}{"number", "null"}, "destination_column_name": "amount"},
+		"status":                map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "status"},
+		"updated_at":            map[string]interface{}{"type": []interface{}{"timestamp", "null"}, "destination_column_name": "updated_at"},
+		"_op_type":              map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "_op_type", "olake_column": true},
+		"_olake_id":             map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "_olake_id", "olake_column": true},
+		"_olake_timestamp":      map[string]interface{}{"type": []interface{}{"timestamp_micro", "null"}, "destination_column_name": "_olake_timestamp", "olake_column": true},
+		"_cdc_timestamp":        map[string]interface{}{"type": []interface{}{"timestamp_micro", "null"}, "destination_column_name": "_cdc_timestamp", "olake_column": true},
 		"_cdc_binlog_file_name": map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "_cdc_binlog_file_name", "olake_column": true},
 		"_cdc_binlog_file_pos":  map[string]interface{}{"type": []interface{}{"integer", "null"}, "destination_column_name": "_cdc_binlog_file_pos", "olake_column": true},
 	}
@@ -176,7 +176,7 @@ func (cfg *IntegrationTest) dvSync(ctx context.Context, t *testing.T, useArrow b
 }
 
 // dvExpectSyncFails is dvSync's counterpart for the rejection scenarios - it asserts the sync
-// does NOT succeed, since a v3 table refusing eq/pos writers is the behaviour under test.
+// does NOT succeed, since a v3 table refusing eq/pos writers is the behavior under test.
 func (cfg *IntegrationTest) dvExpectSyncFails(ctx context.Context, t *testing.T, useArrow bool, label string) {
 	t.Helper()
 	dvSelectWriter(cfg, useArrow)
@@ -188,12 +188,12 @@ func (cfg *IntegrationTest) dvExpectSyncFails(ctx context.Context, t *testing.T,
 
 // dvTableState is the full picture one table's assertions are checked against after a sync.
 type dvTableState struct {
-	liveRows          map[string]string // id -> _op_type, from every live row
-	posOrDVDeleteFiles int64            // delete_files, content=1 (positional or DV, current snapshot)
-	eqDeleteFiles      int64            // delete_files, content=2 (equality, current snapshot)
-	parquetPosFiles    int64            // delete_files, content=1, file_format=PARQUET
-	puffinVectorFiles  int64            // delete_files, content=1, file_format=PUFFIN
-	duplicateVectors   int64            // referenced_data_file appearing more than once among live PUFFIN vectors - must be 0
+	liveRows           map[string]string // id -> _op_type, from every live row
+	posOrDVDeleteFiles int64             // delete_files, content=1 (positional or DV, current snapshot)
+	eqDeleteFiles      int64             // delete_files, content=2 (equality, current snapshot)
+	parquetPosFiles    int64             // delete_files, content=1, file_format=PARQUET
+	puffinVectorFiles  int64             // delete_files, content=1, file_format=PUFFIN
+	duplicateVectors   int64             // referenced_data_file appearing more than once among live PUFFIN vectors - must be 0
 	formatVersion      int64
 }
 
@@ -515,7 +515,7 @@ func (cfg *IntegrationTest) testIcebergDVAppendMode(ctx context.Context, t *test
 		// append-mode update - append mode never deletes the first copy.
 		count := countByOpType(ctx, t, spark, full, "r") + countByOpType(ctx, t, spark, full, "c")
 		require.GreaterOrEqual(t, count, int64(6), "%s: expected the original 5 rows plus at least one appended row", table)
-		// Known, documented behaviour, not a bug this test is asserting against: an
+		// Known, documented behavior, not a bug this test is asserting against: an
 		// append-only stream still constrains the table to format version 3 under dv, even
 		// though it never writes a delete file that would need one.
 		require.Equal(t, int64(3), state.formatVersion, "%s: dv still raises format version even in append_mode (known gap)", table)
