@@ -208,6 +208,7 @@ func TestIncrementalSyncFiltering(t *testing.T) {
 		name            string
 		files           []FileObject
 		cursorTimestamp string
+		syncedKeys      map[string]bool
 		expectedCount   int
 		expectedFiles   []string
 	}{
@@ -222,13 +223,14 @@ func TestIncrementalSyncFiltering(t *testing.T) {
 			expectedFiles:   []string{"file1.csv", "file2.csv"},
 		},
 		{
-			name: "with cursor - only new files",
+			name: "with cursor - only new files (boundary file already synced)",
 			files: []FileObject{
 				{FileKey: "file1.csv", LastModified: "2024-01-01T10:00:00Z"},
 				{FileKey: "file2.csv", LastModified: "2024-01-02T10:00:00Z"},
 				{FileKey: "file3.csv", LastModified: "2024-01-03T10:00:00Z"},
 			},
 			cursorTimestamp: "2024-01-02T10:00:00Z",
+			syncedKeys:      map[string]bool{"file2.csv": true},
 			expectedCount:   1,
 			expectedFiles:   []string{"file3.csv"},
 		},
@@ -243,7 +245,7 @@ func TestIncrementalSyncFiltering(t *testing.T) {
 			expectedFiles:   []string{},
 		},
 		{
-			name: "with cursor - multiple new files",
+			name: "with cursor - multiple new files (boundary file already synced)",
 			files: []FileObject{
 				{FileKey: "file1.csv", LastModified: "2024-01-01T10:00:00Z"},
 				{FileKey: "file2.csv", LastModified: "2024-01-02T10:00:00Z"},
@@ -251,6 +253,7 @@ func TestIncrementalSyncFiltering(t *testing.T) {
 				{FileKey: "file4.csv", LastModified: "2024-01-02T15:00:00Z"},
 			},
 			cursorTimestamp: "2024-01-02T10:00:00Z",
+			syncedKeys:      map[string]bool{"file2.csv": true},
 			expectedCount:   2,
 			expectedFiles:   []string{"file3.csv", "file4.csv"},
 		},
@@ -261,7 +264,7 @@ func TestIncrementalSyncFiltering(t *testing.T) {
 			s := &S3{}
 
 			// Use filterFilesByCursor which is the actual implementation
-			filtered := s.filterFilesByCursor(tt.files, tt.cursorTimestamp)
+			filtered := s.filterFilesByCursor(tt.files, tt.cursorTimestamp, tt.syncedKeys)
 
 			assert.Equal(t, tt.expectedCount, len(filtered), "filtered file count mismatch")
 
@@ -284,6 +287,7 @@ func TestCursorTimestampComparison(t *testing.T) {
 		name            string
 		fileTimestamp   string
 		cursorTimestamp string
+		synced          bool
 		shouldInclude   bool
 	}{
 		{
@@ -299,10 +303,11 @@ func TestCursorTimestampComparison(t *testing.T) {
 			shouldInclude:   false,
 		},
 		{
-			name:            "file same as cursor",
+			name:            "file same second as cursor, already synced - excluded",
 			fileTimestamp:   "2024-01-01T10:00:00Z",
 			cursorTimestamp: "2024-01-01T10:00:00Z",
-			shouldInclude:   false, // Equal timestamps are not included
+			synced:          true,
+			shouldInclude:   false,
 		},
 		{
 			name:            "empty cursor - backfill mode",
@@ -319,7 +324,11 @@ func TestCursorTimestampComparison(t *testing.T) {
 				{FileKey: "test.csv", LastModified: tt.fileTimestamp},
 			}
 
-			filtered := s.filterFilesByCursor(files, tt.cursorTimestamp)
+			var syncedKeys map[string]bool
+			if tt.synced {
+				syncedKeys = map[string]bool{"test.csv": true}
+			}
+			filtered := s.filterFilesByCursor(files, tt.cursorTimestamp, syncedKeys)
 
 			if tt.shouldInclude {
 				assert.Len(t, filtered, 1, "file should be included")

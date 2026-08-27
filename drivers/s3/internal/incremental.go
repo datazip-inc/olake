@@ -14,6 +14,48 @@ import (
 // ============================================
 // This file contains all incremental sync logic using cursor-based filtering
 
+// syncedKeysField is a companion state entry to the LastModified cursor. It
+// holds the file keys already synced whose LastModified equals the cursor's
+// second. S3 (and the S3 List API in general) only exposes LastModified at
+// whole-second granularity, so a same-second collision window is up to a full
+// second wide and cannot be disambiguated by timestamp alone. Remembering the
+// keys already read at that second lets us use a `>=` filter and still read
+// each file exactly once. See issue #1131.
+const syncedKeysField = "_last_modified_time_synced_keys"
+
+// syncedKeysFromState reconstructs the synced-key set from state. The value is
+// stored as []string in-process but round-trips through JSON as []any across
+// runs, so both are handled. A missing value (legacy state written before this
+// fix) yields an empty set, which degrades to reading same-second boundary
+// files once on the first post-upgrade sync.
+func syncedKeysFromState(v any) map[string]bool {
+	set := map[string]bool{}
+	switch keys := v.(type) {
+	case []string:
+		for _, k := range keys {
+			set[k] = true
+		}
+	case []any:
+		for _, k := range keys {
+			if s, ok := k.(string); ok {
+				set[s] = true
+			}
+		}
+	}
+	return set
+}
+
+// keysAtSecond returns the keys of files whose LastModified equals second.
+func keysAtSecond(files []FileObject, second string) []string {
+	var keys []string
+	for _, file := range files {
+		if file.LastModified == second {
+			keys = append(keys, file.FileKey)
+		}
+	}
+	return keys
+}
+
 // FetchMaxCursorValues returns the maximum LastModified timestamp for all files in the stream
 // This is used by the abstract layer to track incremental sync progress
 func (s *S3) FetchMaxCursorValues(_ context.Context, stream types.StreamInterface) (any, any, error) {
@@ -31,6 +73,13 @@ func (s *S3) FetchMaxCursorValues(_ context.Context, stream types.StreamInterfac
 		if file.LastModified > maxLastModified {
 			maxLastModified = file.LastModified
 		}
+	}
+
+	// Seed the synced-key set with every file at the max second. Backfill reads
+	// all discovered files, so those keys are covered once backfill completes;
+	// this stops the first incremental sync from re-reading them.
+	if configuredStream, ok := stream.(*types.ConfiguredStream); ok && s.state != nil {
+		s.state.SetCursor(configuredStream, syncedKeysField, keysAtSecond(files, maxLastModified))
 	}
 
 	logger.Infof("Max cursor value for stream %s: %s (from %d files)", streamName, maxLastModified, len(files))
@@ -85,11 +134,16 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 		return nil
 	}
 
-	// Filter files to only include those modified AFTER the cursor
-	incrementalFiles := s.filterFilesByCursor(files, cursor)
+	// Keys already synced at the cursor's second, so a same-second arrival that
+	// has not been read yet is still picked up while an already-read one is not.
+	syncedKeys := syncedKeysFromState(s.state.GetCursor(configuredStream, syncedKeysField))
+
+	// Filter files to those strictly after the cursor, plus same-second files
+	// not already synced.
+	incrementalFiles := s.filterFilesByCursor(files, cursor, syncedKeys)
 
 	if len(incrementalFiles) == 0 {
-		logger.Infof("Stream %s: no new files to process (all files <= cursor)", streamName)
+		logger.Infof("Stream %s: no new files to process (all already synced up to cursor)", streamName)
 		return nil
 	}
 
@@ -116,25 +170,62 @@ func (s *S3) StreamIncrementalChanges(ctx context.Context, stream types.StreamIn
 		}
 	}
 
+	// Advance the synced-key set to match the new cursor second. The abstract
+	// layer advances the cursor itself from record data; this keeps the set of
+	// "already read at that second" keys consistent so the next sync does not
+	// re-read them (and does not skip a newer same-second arrival).
+	newCursor := cursor
+	for _, file := range incrementalFiles {
+		if file.LastModified > newCursor {
+			newCursor = file.LastModified
+		}
+	}
+	newSet := map[string]bool{}
+	if newCursor == cursor {
+		// The cursor second did not advance, so keys read at it earlier still count.
+		for k := range syncedKeys {
+			newSet[k] = true
+		}
+	}
+	for _, file := range incrementalFiles {
+		if file.LastModified == newCursor {
+			newSet[file.FileKey] = true
+		}
+	}
+	keys := make([]string, 0, len(newSet))
+	for k := range newSet {
+		keys = append(keys, k)
+	}
+	s.state.SetCursor(configuredStream, syncedKeysField, keys)
+
 	logger.Infof("Stream %s: completed incremental processing of %d file(s)",
 		streamName, len(incrementalFiles))
 
 	return nil
 }
 
-// filterFilesByCursor filters files based on LastModified timestamp cursor
-// Returns only files where LastModified > cursor
+// filterFilesByCursor returns files that still need to be read: those strictly
+// newer than the cursor, plus files stamped exactly at the cursor's second that
+// have not already been synced (tracked in syncedKeys). Because LastModified is
+// only second-granular, a strict `>` would permanently skip a file that arrived
+// in the same second as the cursor; the same-second-plus-key-set check closes
+// that window while still reading each file exactly once. See issue #1131.
 // The cursor timestamp is in ISO 8601 format (2006-01-02T15:04:05Z) and uses
 // string comparison which works correctly for this format.
-func (s *S3) filterFilesByCursor(files []FileObject, cursorTimestamp string) []FileObject {
+func (s *S3) filterFilesByCursor(files []FileObject, cursorTimestamp string, syncedKeys map[string]bool) []FileObject {
 	var filteredFiles []FileObject
 	for _, file := range files {
-		if file.LastModified > cursorTimestamp {
+		switch {
+		case file.LastModified > cursorTimestamp:
 			filteredFiles = append(filteredFiles, file)
 			logger.Debugf("File %s will be processed (modified: %s > cursor: %s)",
 				file.FileKey, file.LastModified, cursorTimestamp)
-		} else {
-			logger.Debugf("File %s skipped (modified: %s <= cursor: %s)",
+		case file.LastModified == cursorTimestamp && !syncedKeys[file.FileKey]:
+			filteredFiles = append(filteredFiles, file)
+			logger.Debugf("File %s will be processed (same-second arrival not yet synced: %s == cursor: %s)",
+				file.FileKey, file.LastModified, cursorTimestamp)
+		default:
+			logger.Debugf("File %s skipped (already synced up to cursor: %s <= %s)",
 				file.FileKey, file.LastModified, cursorTimestamp)
 		}
 	}
