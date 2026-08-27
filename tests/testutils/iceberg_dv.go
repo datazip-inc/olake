@@ -161,12 +161,23 @@ func dvSelectWriter(cfg *IntegrationTest, useArrow bool) {
 	cfg.TestConfig.IcebergDestinationPath = path.Join(containerTestDataDir, file)
 }
 
-// dvSyncArgs is syncArgs with the destination-database-prefix flag already applied, matching
-// the pattern every scenario in iceberg_index.go repeats inline.
+// dvSyncArgs is syncArgs with the destination-database-prefix flag already applied.
+//
+// Deliberately its OWN prefix ("..._dv"), not the "integration_<driver>" one
+// iceberg_index.go's scenarios and TestMySQLSync share: every sync, regardless of which
+// stream it is actually syncing, also runs destination.Check() against a table named purely
+// from this prefix (destination/writers.go's "destination check" phase, Iceberg.Check()'s
+// fixed "<prefix>_test_olake" table) - a GET_OR_CREATE_TABLE that is not safe under concurrent
+// callers sharing the same name (OlakeRowsIngester.loadOrCreateTable races check-then-create).
+// This suite runs many more syncs, all in parallel with TestMySQLSync/TestMySQL2PC (all
+// t.Parallel()); sharing their prefix means sharing that race's exact target, which is what
+// surfaced it as "Table already exists" failures here. A distinct prefix gives this suite its
+// own check-table, so its syncs only ever race against each other - and this suite's own
+// scenarios run sequentially, not in parallel, so there is no race left to hit.
 func dvSyncArgs(cfg *IntegrationTest) []string {
 	destDBPrefix := Ternary(cfg.TestConfig.DataFormat != "",
-		fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat),
-		fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
+		fmt.Sprintf("integration_%s_%s_dv", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat),
+		fmt.Sprintf("integration_%s_dv", cfg.TestConfig.Driver)).(string)
 	return syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
 }
 
@@ -356,7 +367,11 @@ func (cfg *IntegrationTest) testIcebergDVBackfillAndCore(ctx context.Context, t 
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "dv-part-delete-id5")
 	cfg.dvSync(ctx, t, useArrow, "cdc update+delete")
 
-	wantRows := map[string]string{"1": "u", "2": "r", "3": "r", "4": "r"} // id=5 deleted, id=1 updated
+	// A delete does not remove its id from a plain SELECT: the old row is removed via the
+	// delete mechanism, but a new tombstone row recording the delete event stays, carrying
+	// _op_type='d' - the same convention every other suite's delete checks rely on
+	// (test_utils.go's "WHERE _op_type = 'd'" verification). id=5 is "d", not absent.
+	wantRows := map[string]string{"1": "u", "2": "r", "3": "r", "4": "r", "5": "d"}
 	for _, table := range []string{DVUnpartTable, DVPartTable} {
 		full := dvFullTableName(cfg, table)
 		state := dvState(ctx, t, spark, full)
@@ -396,7 +411,9 @@ func (cfg *IntegrationTest) testIcebergDVMergeAcrossSyncs(ctx context.Context, t
 	cfg.dvSync(ctx, t, useArrow, "delete id=3")
 
 	spark := getSparkSession(ctx, t)
-	wantRows := map[string]string{"1": "r", "4": "r", "5": "r"} // id=2 and id=3 both gone
+	// Same tombstone convention as testIcebergDVBackfillAndCore: id=2 and id=3 stay present
+	// with _op_type='d', they don't disappear.
+	wantRows := map[string]string{"1": "r", "2": "d", "3": "d", "4": "r", "5": "r"}
 	for _, table := range []string{DVUnpartTable, DVPartTable} {
 		full := dvFullTableName(cfg, table)
 		state := dvState(ctx, t, spark, full)
