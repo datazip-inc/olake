@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -116,6 +118,17 @@ func dvCatalogDoc(namespace, destinationDatabase, updateType string) map[string]
 // prepareDVSync creates and seeds both dv tables, writes a fresh catalog selecting both under
 // the given update_type, and resets sync state - the dv-suite equivalent of
 // prepareTableIndexSync in iceberg_index.go.
+//
+// Every scenario drops and recreates dv_unpart/dv_part under the SAME table names, so each one
+// gets a brand new Iceberg table with its own fresh snapshot history. The on-disk table index
+// (a Pebble store bind-mounted from HostTestDataPath) does not know that - left alone, it
+// replays whatever WAL a PRIOR scenario's now-deleted table left behind and hands the new
+// table a bookmark snapshot ID that belongs to a completely different table's history. That
+// bookmark can never be an ancestor of anything the new table produces, and the server has no
+// way to tell "stale, unrelated table" apart from "genuinely diverged" - both surface as the
+// same "not an ancestor, full scan required" error. iceberg_index.go's prepareTableIndexSync
+// already wipes this directory per scenario for exactly this reason; missing it here is what
+// caused a real, reproducible failure the first time this suite actually ran.
 func (cfg *IntegrationTest) prepareDVSync(ctx context.Context, t *testing.T, updateType string) error {
 	t.Helper()
 
@@ -134,6 +147,10 @@ func (cfg *IntegrationTest) prepareDVSync(ctx context.Context, t *testing.T, upd
 
 	if err := resetStateFile(cfg.TestConfig); err != nil {
 		return fmt.Errorf("failed to reset state file: %w", err)
+	}
+
+	if err := os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index")); err != nil {
+		return fmt.Errorf("failed to clear table index: %w", err)
 	}
 	return nil
 }
