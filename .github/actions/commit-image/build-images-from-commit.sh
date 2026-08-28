@@ -12,13 +12,15 @@ TAG=$(git rev-parse --short "$SHA")
 # costs seconds against the minutes a build does.
 missing=()
 for driver in $DRIVERS; do
-  if docker pull -q "$CACHE_REPO/source-$driver:$TAG"; then
-    docker tag "$CACHE_REPO/source-$driver:$TAG" "olakego/source-$driver:$TAG"
-    echo "restored olakego/source-$driver:$TAG from the cache"
-  else
-    echo "no cached image for $driver at $TAG; it will be built"
-    missing+=("$driver")
-  fi
+  # TEMPORARY: the restore is commented out to measure the worst case, every image built from
+  # scratch. Restore before merging.
+  # if docker pull -q "$CACHE_REPO/source-$driver:$TAG"; then
+  #   docker tag "$CACHE_REPO/source-$driver:$TAG" "olakego/source-$driver:$TAG"
+  #   echo "restored olakego/source-$driver:$TAG from the cache"
+  #   continue
+  # fi
+  echo "no cached image for $driver at $TAG; it will be built"
+  missing+=("$driver")
 done
 
 if [ ${#missing[@]} -eq 0 ]; then
