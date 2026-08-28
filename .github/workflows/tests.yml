@@ -323,12 +323,10 @@ jobs:
             "olakego/source-$driver:local" \
             check --destination /testdata/iceberg_destination.json
 
-      # All of them at once: -k so one driver failing still leaves the rest reported, and
-      # --output-sync so each driver's log arrives whole instead of woven into the others'.
       - name: Run the compatibility tests
         env:
           OLAKE_PRE_BUILT_IMAGE: "true"
-        run: make -k -j --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ github.event.pull_request.base.sha }}"
+        run: make -k -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ github.event.pull_request.base.sha }}"
 
   compatibility-sweep:
     name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility Sweep
