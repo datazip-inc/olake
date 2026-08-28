@@ -12,8 +12,8 @@ TAG=$(git rev-parse --short "$SHA")
 # costs seconds against the minutes a build does.
 missing=()
 for driver in $DRIVERS; do
-  # TEMPORARY: the restore is commented out to measure the worst case, every image built from
-  # scratch. Restore before merging.
+  # TEMPORARY: the restore is commented out so every image is built from scratch, to time the worst
+  # case. Restore before merging, together with the lookup in test-preflight.yml.
   # if docker pull -q "$CACHE_REPO/source-$driver:$TAG"; then
   #   docker tag "$CACHE_REPO/source-$driver:$TAG" "olakego/source-$driver:$TAG"
   #   echo "restored olakego/source-$driver:$TAG from the cache"

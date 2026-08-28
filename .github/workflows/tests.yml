@@ -51,18 +51,20 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      packages: write
     with:
       go-checks: true
     secrets: inherit
 
   # The run's single approval, its own job rather than the last one inside the called workflow: it
   # gates the suites below, so it belongs beside them rather than under the pre-validation heading.
-  # `needs: preflight` covers that whole workflow, so this still runs only once change detection and
-  # every cache job has finished.
+  #
+  # Deliberately depends on nothing. The prompt is a human wait and everything preflight does is
+  # ungated cache warming that runs regardless, so the two belong side by side: the reviewer is
+  # asked the moment the run starts and the caches warm while they decide. Every job below gates on
+  # `drivers != '[]'` for itself, so this needs nothing from preflight to know whether to ask.
   approve:
     name: Approve Test Deployment
-    needs: preflight
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: ${{ github.event_name == 'pull_request' && 'integration_tests' || '' }}
@@ -209,7 +211,7 @@ jobs:
 
   compatibility-base:
     name: Backwards Compatibility with ${{ github.event.pull_request.base.ref || 'the base branch' }}
-    needs: [preflight, approve, integration-tests]
+    needs: [preflight, approve]
     permissions:
       contents: read
       packages: write
@@ -238,9 +240,9 @@ jobs:
         id: image
         background: true
         timeout-minutes: 30
-        run: make -j3 --output-sync=target docker.all.build DRIVERS="$DRIVERS" DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --load"
+        run: make -j --output-sync=target docker.all.build DRIVERS="$DRIVERS" DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --load"
 
-      - name: Build base branch images
+      - name: Restore base branch images
         id: base-image
         background: true
         timeout-minutes: 30

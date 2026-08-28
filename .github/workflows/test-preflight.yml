@@ -26,6 +26,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      packages: read
     outputs:
       drivers: ${{ steps.drivers.outputs.drivers }}
       driver-labels: ${{ steps.drivers.outputs.driver-labels }}
@@ -33,9 +34,12 @@ jobs:
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
       go-checks-changed: ${{ steps.go-checks.outputs.changed }}
       apt-warmed: ${{ steps.apt-cache.outputs.cache-hit }}
+      base-image-misses: ${{ steps.base-images.outputs.misses }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # Shared with any workflow that wants to skip untouched drivers; the caller's matrix fans out
       # over whatever it returns, and an empty array skips the driver jobs entirely.
@@ -62,6 +66,29 @@ jobs:
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
           echo "Go-check inputs changed: $changed"
 
+      - name: Look up base branch images
+        id: base-images
+        if: github.event_name == 'pull_request'
+        env:
+          DOCKER_CLI_EXPERIMENTAL: enabled
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          DRIVERS: ${{ steps.drivers.outputs.drivers }}
+        run: |
+          set -euo pipefail
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          tag=$(git rev-parse --short "$BASE_SHA")
+          # TEMPORARY: the cache check is commented out so every driver counts as a miss and the
+          # build job below runs on the full set, to time the worst case. Restore before merging.
+          misses=$(for d in $(jq -r '.[]' <<<"$DRIVERS"); do
+            # if docker manifest inspect "ghcr.io/$GITHUB_REPOSITORY/source-$d:$tag" >/dev/null 2>&1; then
+            #   echo "cached: source-$d:$tag" >&2
+            # else
+            echo "$d"
+            # fi
+          done | jq -Rsc 'split("\n") | map(select(length > 0))')
+          echo "misses=$misses" >> "$GITHUB_OUTPUT"
+          echo "base branch images to build at $tag: $misses"
+
       - name: Look up Iceberg writer jar cache
         id: jar-cache
         uses: ./.github/actions/iceberg-jar
@@ -83,6 +110,51 @@ jobs:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
           lookup-only: true
+
+  base-images:
+    name: Build base branch image
+    needs: preflight
+    # Guarded rather than left to an empty matrix: inside a called workflow an empty matrix never
+    # resolves, and the calling job hangs on it instead of completing -- which skips everything
+    # gated on that job. A skipped job, which is what the three below do, is resolved and fine.
+    if: needs.preflight.outputs.base-image-misses != '' && needs.preflight.outputs.base-image-misses != '[]'
+    permissions:
+      contents: read
+      packages: write
+    # One machine rather than a driver each: the images share one Iceberg jar, which a job per
+    # driver would rebuild per driver, and the script fans the builds out beneath it. Hosted, since
+    # this overlaps the approval wait and the self-hosted pool is about to be wanted by the matrix.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Log in to Docker Hub
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          if [ -n "$DOCKER_USERNAME" ]; then
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+          else
+            echo "::notice::no Docker Hub credentials configured; pulling anonymously"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/buildx
+
+      - name: Build base branch image
+        uses: ./.github/actions/commit-image
+        with:
+          drivers: ${{ join(fromJSON(needs.preflight.outputs.base-image-misses), ' ') }}
+          sha: ${{ github.event.pull_request.base.sha }}
+          cache-repo: ghcr.io/${{ github.repository }}
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: tests/.compat-base
 
   # Only when the jar is missing: preflight already looked up the cache, so an unchanged writer
   # skips Maven and this whole job.
