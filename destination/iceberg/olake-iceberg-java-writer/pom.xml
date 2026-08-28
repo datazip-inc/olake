@@ -37,6 +37,7 @@
     <version.log4j2>2.26.1</version.log4j2>
     <!-- deliberate family pins; see DEPENDENCY POLICY above -->
     <version.netty>4.1.136.Final</version.netty>
+    <version.junit>5.11.4</version.junit>
     <version.jackson>2.22.1</version.jackson>
     <!-- keeps the grpc artifacts we declare on one version; gcsio brings its
              own 1.67.x grpc modules that this does not reach -->
@@ -51,6 +52,13 @@
   </properties>
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${version.junit}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
       <dependency>
         <groupId>io.netty</groupId>
         <artifactId>netty-bom</artifactId>
@@ -516,6 +524,11 @@
       <groupId>org.mockito</groupId>
       <artifactId>mockito-core</artifactId>
       <version>5.14.2</version>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>

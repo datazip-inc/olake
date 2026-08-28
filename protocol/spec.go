@@ -23,13 +23,13 @@ var specCmd = &cobra.Command{
 		specPath := filepath.Join(resourcesDir, "spec.json")
 		var specData map[string]interface{}
 		if err := utils.UnmarshalFile(specPath, &specData, false); err != nil {
-			return fmt.Errorf("failed to read spec file %s: %v", specPath, err)
+			return fmt.Errorf("failed to read spec file %s: %w", specPath, err)
 		}
 
 		uiSchemaPath := filepath.Join(resourcesDir, "uischema.json")
 		uiSchema, err := os.ReadFile(uiSchemaPath)
 		if err != nil {
-			return fmt.Errorf("failed to read ui schema file %s: %v", uiSchemaPath, err)
+			return fmt.Errorf("failed to read ui schema file %s: %w", uiSchemaPath, err)
 		}
 
 		specSchema := map[string]interface{}{

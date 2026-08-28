@@ -22,7 +22,7 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 	incrementalCondition, err := m.buildIncrementalCondition(stream)
 	if err != nil {
-		return fmt.Errorf("failed to build incremental condition: %s", err)
+		return fmt.Errorf("failed to build incremental condition: %w", err)
 	}
 	// TODO: check performance improvements based on the batch size
 	findOpts := options.Find().SetBatchSize(10000)
@@ -31,20 +31,20 @@ func (m *Mongo) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 
 	cursor, err := collection.Find(ctx, incrementalCondition, findOpts)
 	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %s", err)
+		return fmt.Errorf("failed to execute incremental query: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	for cursor.Next(ctx) {
 		var doc bson.M
 		if err := cursor.Decode(&doc); err != nil {
-			return fmt.Errorf("decode error: %s", err)
+			return fmt.Errorf("decode error: %w", err)
 		}
 		// BSON wire-format size of this document, read before the cursor advances.
 		docBytes := int64(len(cursor.Current))
 		filterMongoObject(doc)
 		if err := processFn(ctx, doc, docBytes); err != nil {
-			return fmt.Errorf("process error: %s", err)
+			return fmt.Errorf("process error: %w", err)
 		}
 	}
 
@@ -129,7 +129,7 @@ func (m *Mongo) FetchMaxCursorValues(ctx context.Context, stream types.StreamInt
 
 	cursor, err := collection.Aggregate(ctx, pipeline)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to execute find max cursor values: %s", err)
+		return nil, nil, fmt.Errorf("failed to execute find max cursor values: %w", err)
 	}
 	defer cursor.Close(ctx)
 
@@ -140,7 +140,7 @@ func (m *Mongo) FetchMaxCursorValues(ctx context.Context, stream types.StreamInt
 
 	if cursor.Next(ctx) {
 		if err := cursor.Decode(&result); err != nil {
-			return nil, nil, fmt.Errorf("failed to decode cursor result: %s", err)
+			return nil, nil, fmt.Errorf("failed to decode cursor result: %w", err)
 		}
 
 		if result.MaxPrimaryCursor == nil {
@@ -172,7 +172,7 @@ func (m *Mongo) ThresholdFilter(stream types.StreamInterface) (bson.A, error) {
 	if maxPrimaryCursorValue != nil {
 		formattedPrimaryValue, err := abstract.ReformatCursorValue(primaryCursor, maxPrimaryCursorValue, stream)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert primary cursor value: %s", err)
+			return nil, fmt.Errorf("failed to convert primary cursor value: %w", err)
 		}
 
 		// Include null values: (column <= value) OR (column IS NULL)
@@ -191,7 +191,7 @@ func (m *Mongo) ThresholdFilter(stream types.StreamInterface) (bson.A, error) {
 	if maxSecondaryCursorValue != nil && secondaryCursor != "" {
 		formattedSecondaryValue, err := abstract.ReformatCursorValue(secondaryCursor, maxSecondaryCursorValue, stream)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert secondary cursor value: %s", err)
+			return nil, fmt.Errorf("failed to convert secondary cursor value: %w", err)
 		}
 
 		conditions = append(conditions, bson.D{{

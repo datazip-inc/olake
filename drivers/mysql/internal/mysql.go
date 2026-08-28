@@ -68,14 +68,14 @@ func (m *MySQL) Spec() any {
 func (m *MySQL) Setup(ctx context.Context) error {
 	err := m.config.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate config: %s", err)
+		return fmt.Errorf("failed to validate config: %w", err)
 	}
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 	}
 
@@ -85,12 +85,12 @@ func (m *MySQL) Setup(ctx context.Context) error {
 
 		uri, err := m.config.URI()
 		if err != nil {
-			return fmt.Errorf("failed to setup config uri: %s", err)
+			return fmt.Errorf("failed to setup config uri: %w", err)
 		}
 
 		cfg, err := mysql.ParseDSN(uri)
 		if err != nil {
-			return fmt.Errorf("failed to parse mysql DSN: %s", err)
+			return fmt.Errorf("failed to parse mysql DSN: %w", err)
 		}
 
 		// Allows mysql driver to use the SSH client to connect to the database
@@ -101,17 +101,17 @@ func (m *MySQL) Setup(ctx context.Context) error {
 
 		client, err = sqlx.Open("mysql", cfg.FormatDSN())
 		if err != nil {
-			return fmt.Errorf("failed to open tunneled database connection: %s", err)
+			return fmt.Errorf("failed to open tunneled database connection: %w", err)
 		}
 	} else {
 		uri, err := m.config.URI()
 		if err != nil {
-			return fmt.Errorf("failed to setup config uri: %s", err)
+			return fmt.Errorf("failed to setup config uri: %w", err)
 		}
 
 		client, err = sqlx.Open("mysql", uri)
 		if err != nil {
-			return fmt.Errorf("failed to open database connection: %s", err)
+			return fmt.Errorf("failed to open database connection: %w", err)
 		}
 	}
 	// Test connection
@@ -120,7 +120,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	// Set connection pool size
 	client.SetMaxOpenConns(m.config.MaxThreads)
 	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %s", err)
+		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	var resolved *time.Location
@@ -190,7 +190,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	query := jdbc.MySQLDiscoverTablesQuery()
 	rows, err := m.client.QueryContext(ctx, query, m.config.Database)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %s", err)
+		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
 	defer rows.Close()
 
@@ -198,7 +198,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&tableName, &schemaName); err != nil {
-			return nil, fmt.Errorf("failed to scan table: %s", err)
+			return nil, fmt.Errorf("failed to scan table: %w", err)
 		}
 		tableNames = append(tableNames, types.StreamID{Namespace: schemaName, Name: tableName})
 	}
@@ -214,14 +214,14 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query column information: %s", err)
+			return nil, fmt.Errorf("failed to query column information: %w", err)
 		}
 		defer rows.Close()
 
 		for rows.Next() {
 			var columnName, columnType, dataType, isNullable, columnKey string
 			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
-				return nil, fmt.Errorf("failed to scan column: %s", err)
+				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			stream.WithCursorField(columnName)
 			var datatype types.DataType
@@ -243,9 +243,9 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 	stream, err := produceTableSchema(ctx, streamName)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
+		return nil, fmt.Errorf("failed to process table[%s]: %w", streamName, err)
 	}
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
@@ -308,14 +308,14 @@ func (m *MySQL) Close() error {
 func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
 	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
-		return false, fmt.Errorf("failed to get binlog position: %s", err)
+		return false, fmt.Errorf("failed to get binlog position: %w", err)
 	}
 
 	// checkMySQLConfig checks a MySQL configuration value against an expected value
 	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
 		var name, value string
 		if err := m.client.QueryRowxContext(ctx, query).Scan(&name, &value); err != nil {
-			return false, fmt.Errorf("failed to check %s: %s", name, err)
+			return false, fmt.Errorf("failed to check %s: %w", name, err)
 		}
 
 		if strings.ToUpper(value) != expectedValue {

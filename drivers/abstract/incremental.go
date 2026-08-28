@@ -10,6 +10,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
@@ -35,7 +36,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 
 			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.driver.FetchMaxCursorValues(mainCtx, stream)
 			if err != nil {
-				return fmt.Errorf("failed to fetch max cursor values: %s", err)
+				return fmt.Errorf("failed to fetch max cursor values: %w", err)
 			}
 
 			a.state.SetCursor(stream.Self(), primaryCursor, a.FormatCursorValue(maxPrimaryCursorValue))
@@ -53,7 +54,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 		return a.Backfill(mainCtx, backfillWaitChannel, pool, stream)
 	})
 	if err != nil {
-		return fmt.Errorf("backfill failed: %s", err)
+		return fmt.Errorf("backfill failed: %w", err)
 	}
 
 	// Wait for all backfill processes to complete
@@ -66,7 +67,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			// get cursor column from state and typecast it to cursor column type for comparisons
 			maxPrimaryCursorValue, maxSecondaryCursorValue, err := a.getIncrementCursorFromState(primaryCursor, secondaryCursor, stream)
 			if err != nil {
-				return fmt.Errorf("failed to get incremental cursor value from state: %s", err)
+				return fmt.Errorf("failed to get incremental cursor value from state: %w", err)
 			}
 
 			// create incremental context, so that main context not affected if incremental retries
@@ -76,7 +77,7 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			threadID := generateThreadID(stream.ID(), fmt.Sprintf("%v_%v", maxPrimaryCursorValue, maxSecondaryCursorValue))
 			inserter, prevMetadataState, err := pool.NewWriter(incrementalCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
 			if err != nil {
-				return fmt.Errorf("failed to create new writer thread: %s", err)
+				return fmt.Errorf("failed to create new writer thread: %w", err)
 			}
 
 			defer func(ctx context.Context) {
@@ -102,17 +103,21 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 			if prevMetadataState != nil && threadID == prevMetadataState.ID && prevMetadataState.State != nil {
 				stateString, ok := prevMetadataState.State.(string)
 				if !ok {
-					return fmt.Errorf("failed to unmarshal previous metadata state of type[%T]", prevMetadataState.State)
+					return errs.Precondition(errs.StateInvalid,
+						fmt.Sprintf("%s.metadata_state_invalid", a.driver.Type()),
+						fmt.Errorf("failed to unmarshal previous metadata state of type[%T]", prevMetadataState.State))
 				}
 
 				var mtState map[string]any
 				if err := json.Unmarshal([]byte(stateString), &mtState); err != nil {
-					return fmt.Errorf("failed to unmarshal previous metadata state: %s", err)
+					return fmt.Errorf("failed to unmarshal previous metadata state: %w", err)
 				}
 
 				// detect cursor value difference
 				if mtState[primaryCursor] == nil || (secondaryCursor != "" && mtState[secondaryCursor] == nil) {
-					return fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID)
+					return errs.Precondition(errs.StateInvalid,
+						fmt.Sprintf("%s.cursor_field_changed", a.driver.Type()),
+						fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID))
 				}
 
 				logger.Infof("Stream[%s] cursor(s) mismatch, updating cursor(s) in state", stream.ID())
@@ -156,7 +161,7 @@ func ReformatCursorValue(cursorField string, cursorValue any, stream types.Strea
 	}
 	cursorColType, err := stream.Schema().GetType(cursorField)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get cursor column type: %s", err)
+		return nil, fmt.Errorf("failed to get cursor column type: %w", err)
 	}
 	return typeutils.ReformatValue(cursorColType, cursorValue)
 }
@@ -169,11 +174,11 @@ func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, 
 	// typecast in case state was read from file
 	primaryCursorValue, err := ReformatCursorValue(primaryCursorField, primaryStateCursorValue, stream)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to typecast primary cursor value: %s", err)
+		return nil, nil, fmt.Errorf("failed to typecast primary cursor value: %w", err)
 	}
 	secondaryCursorValue, err := ReformatCursorValue(secondaryCursorField, secondaryStateCursorValue, stream)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to typecast secondary cursor value: %s", err)
+		return nil, nil, fmt.Errorf("failed to typecast secondary cursor value: %w", err)
 	}
 	return primaryCursorValue, secondaryCursorValue, nil
 }

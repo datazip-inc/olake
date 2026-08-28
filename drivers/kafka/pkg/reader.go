@@ -34,7 +34,7 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 
 		partitionsMetadata, err := r.PartitionsForStream(ctx, stream)
 		if err != nil {
-			return fmt.Errorf("failed to get partitions for stream %s: %s", stream.ID(), err)
+			return fmt.Errorf("failed to get partitions for stream %s: %w", stream.ID(), err)
 		}
 		for key, meta := range partitionsMetadata {
 			r.partitionMeta[key] = meta
@@ -58,7 +58,7 @@ func (r *ReaderManager) CreateReaders(ctx context.Context, streams []types.Strea
 		// create reader (rebalance callbacks disabled during initial reader creation and partition assignment)
 		reader, err := r.CreateReader(readerID, clientID, false)
 		if err != nil {
-			return fmt.Errorf("failed to create reader %d: %s", readerIndex, err)
+			return fmt.Errorf("failed to create reader %d: %w", readerIndex, err)
 		}
 
 		// add reader to manager
@@ -104,18 +104,18 @@ func (r *ReaderManager) PartitionsForStream(ctx context.Context, stream types.St
 	topic := stream.Name()
 	topicDetail, topicDetailErr := r.GetTopicMetadata(ctx, topic)
 	if topicDetailErr != nil {
-		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", topic, topicDetailErr)
+		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %w", topic, topicDetailErr)
 	}
 
 	startOffsets, endOffsets, listOffsetsErr := r.ListTopicOffsets(ctx, topic)
 	if listOffsetsErr != nil {
-		return nil, fmt.Errorf("failed to list offsets for topic %s: %s", topic, listOffsetsErr)
+		return nil, fmt.Errorf("failed to list offsets for topic %s: %w", topic, listOffsetsErr)
 	}
 
 	// fetch already committed offset of partition
 	committedTopicOffsets, committedOffsetsErr := r.FetchCommittedOffsets(ctx, topic)
 	if committedOffsetsErr != nil {
-		return nil, fmt.Errorf("failed to fetch committed offsets for topic %s: %s", topic, committedOffsetsErr)
+		return nil, fmt.Errorf("failed to fetch committed offsets for topic %s: %w", topic, committedOffsetsErr)
 	}
 
 	partitionsMetadata := make(map[string]kafkatypes.PartitionMetaData)
@@ -161,12 +161,12 @@ func PartitionMetadataKey(topic string, partition int32) string {
 func (r *ReaderManager) ListTopicOffsets(ctx context.Context, topic string) (kadm.ListedOffsets, kadm.ListedOffsets, error) {
 	startOffsets, err := r.config.AdminClient.ListStartOffsets(ctx, topic)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list start offsets for topic %s: %s", topic, err)
+		return nil, nil, fmt.Errorf("failed to list start offsets for topic %s: %w", topic, err)
 	}
 
 	endOffsets, err := r.config.AdminClient.ListEndOffsets(ctx, topic)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to list end offsets for topic %s: %s", topic, err)
+		return nil, nil, fmt.Errorf("failed to list end offsets for topic %s: %w", topic, err)
 	}
 
 	return startOffsets, endOffsets, nil
@@ -193,7 +193,7 @@ func (r *ReaderManager) GetPartitionOffsets(startOffsets, endOffsets kadm.Listed
 func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*kadm.TopicDetail, error) {
 	metadata, err := r.config.AdminClient.ListTopics(ctx, topic)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %s", topic, err)
+		return nil, fmt.Errorf("failed to fetch topic metadata for topic %s: %w", topic, err)
 	}
 
 	topicDetail, exists := metadata[topic]
@@ -207,7 +207,7 @@ func (r *ReaderManager) GetTopicMetadata(ctx context.Context, topic string) (*ka
 func (r *ReaderManager) FetchCommittedOffsets(ctx context.Context, topic string) (map[int32]int64, error) {
 	offsets, err := r.config.AdminClient.FetchOffsetsForTopics(ctx, r.config.ConsumerGroupID, topic)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch committed offsets for group %s topic %s: %s", r.config.ConsumerGroupID, topic, err)
+		return nil, fmt.Errorf("failed to fetch committed offsets for group %s topic %s: %w", r.config.ConsumerGroupID, topic, err)
 	}
 
 	committedTopicOffsets := make(map[int32]int64, len(offsets[topic]))
@@ -233,14 +233,14 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 		}
 		select {
 		case <-cleanupCtx.Done():
-			return fmt.Errorf("describe groups failed: %s", describeErr)
+			return fmt.Errorf("describe groups failed: %w", describeErr)
 		case <-time.After(2 * time.Second):
 		}
 	}
 
 	describedGroup := describedGroups[r.config.ConsumerGroupID]
 	if describedGroup.Err != nil && describedGroup.Err != kerr.GroupIDNotFound {
-		return fmt.Errorf("describe groups error: %s", describedGroup.Err)
+		return fmt.Errorf("describe groups error: %w", describedGroup.Err)
 	}
 
 	if len(describedGroup.Members) > 0 {
@@ -256,7 +256,7 @@ func (r *ReaderManager) RemoveExistingConsumers(ctx context.Context, client *kgo
 
 		leaveGroupResponse, leaveGroupResponseErr := leaveGroupRequest.RequestWith(cleanupCtx, client)
 		if leaveGroupResponseErr != nil {
-			return fmt.Errorf("leave group request failed: %s", leaveGroupResponseErr)
+			return fmt.Errorf("leave group request failed: %w", leaveGroupResponseErr)
 		}
 
 		if leaveGroupResponse.ErrorCode != 0 {
@@ -284,7 +284,7 @@ func (r *ReaderManager) RestartReader(readerIndex int) (*kgo.Client, error) {
 
 	newReader, err := r.CreateReader(readerID, clientID, true)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to recreate kafka reader %d after close: %s", constants.ErrNonRetryable, readerIndex, err)
+		return nil, fmt.Errorf("%w: failed to recreate kafka reader %d after close: %w", constants.ErrNonRetryable, readerIndex, err)
 	}
 
 	r.readers[readerIndex].reader = newReader

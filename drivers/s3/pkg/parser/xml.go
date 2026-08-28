@@ -34,14 +34,15 @@ func NewXMLParser(config XMLConfig, stream *types.Stream) *XMLParser {
 
 // InferSchema reads the first few records of an XML file to infer the schema
 // Supports XML with a specified record tag or entire document as a single record
-func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
+func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (_ *types.Stream, err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	logger.Debug("Inferring XML schema from sample data")
 
 	//TODO : implement sampling of records from first and last files to get more accurate schema
 	maxSamples := 100
 
 	var data []byte
-	var err error
 
 	if p.config.RowIdentifier == "" {
 		data, err = io.ReadAll(reader)
@@ -50,7 +51,7 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 		data, err = io.ReadAll(limitedReader)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to read XML file: %s", err)
+		return nil, fmt.Errorf("failed to read XML file: %w", err)
 	}
 
 	trimmed := bytes.TrimSpace(data)
@@ -60,7 +61,7 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 
 	sampleRecords, err := p.parseSampleXMLContent(trimmed, maxSamples)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse XML: %s", err)
+		return nil, fmt.Errorf("failed to parse XML: %w", err)
 	}
 
 	if len(sampleRecords) == 0 {
@@ -70,7 +71,7 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 	// Resolve schema for each sample Record and update stream schema
 	for i, record := range sampleRecords {
 		if err := typeutils.Resolve(p.stream, record); err != nil {
-			return nil, fmt.Errorf("failed to resolve schema for record %d: %s", i, err)
+			return nil, fmt.Errorf("failed to resolve schema for record %d: %w", i, err)
 		}
 	}
 
@@ -86,7 +87,9 @@ func (p *XMLParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 }
 
 // StreamRecords reads and streams records from XML reader with context support
-func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) error {
+func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) (err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	recordCount := 0
 
 	if p.config.RowIdentifier == "" {
@@ -97,11 +100,11 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 		default:
 			record, err := p.parseXMLDocumentAsMap(reader)
 			if err != nil {
-				return fmt.Errorf("failed to parse XML document: %s", err)
+				return fmt.Errorf("failed to parse XML document: %w", err)
 			}
 
 			if err := callback(ctx, record); err != nil {
-				return fmt.Errorf("failed to process record: %s", err)
+				return fmt.Errorf("failed to process record: %w", err)
 			}
 			recordCount++
 		}
@@ -121,7 +124,7 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 			if err == io.EOF {
 				break
 			} else if err != nil {
-				return fmt.Errorf("error reading XML token at record %d: %v", recordCount, err)
+				return fmt.Errorf("error reading XML token at record %d: %w", recordCount, err)
 			}
 
 			// Process only start elements that match the specified record tag
@@ -149,7 +152,7 @@ func (p *XMLParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 
 			// callback processing the record
 			if err := callback(ctx, recordMap); err != nil {
-				return fmt.Errorf("failed to process record: %s", err)
+				return fmt.Errorf("failed to process record: %w", err)
 			}
 			recordCount++
 		}
@@ -184,7 +187,7 @@ func (p *XMLParser) parseSampleXMLContent(data []byte, maxSamples int) ([]map[st
 				logger.Warnf("Stopped reading XML after %d records (truncated): %v", len(records), err)
 				break
 			}
-			return nil, fmt.Errorf("xml token error: %s", err)
+			return nil, fmt.Errorf("xml token error: %w", err)
 		}
 
 		// process start elements matching record tag
@@ -229,7 +232,7 @@ func (p *XMLParser) parseXMLDocumentAsMap(reader io.Reader) (map[string]any, err
 			return nil, fmt.Errorf("empty XML document")
 		}
 		if err != nil {
-			return nil, fmt.Errorf("xml token error: %s", err)
+			return nil, fmt.Errorf("xml token error: %w", err)
 		}
 
 		startElement, ok := token.(xml.StartElement)

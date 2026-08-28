@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/postgres/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pgx/v5"
@@ -80,25 +82,25 @@ func (p *Postgres) CDCSupported() bool {
 func (p *Postgres) Setup(ctx context.Context) error {
 	err := p.config.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate config: %s", err)
+		return fmt.Errorf("failed to validate config: %w", err)
 	}
 
 	if p.config.SSHConfig != nil && p.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		p.sshClient, err = p.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 	}
 
 	var db *sql.DB
 	pgCfg, err := pgx.ParseConfig(p.config.Connection.String())
 	if err != nil {
-		return fmt.Errorf("failed to parse postgres connection string: %s", err)
+		return fmt.Errorf("failed to parse postgres connection string: %w", err)
 	}
 	tlsConfig, err := p.config.buildTLSConfig()
 	if err != nil {
-		return fmt.Errorf("failed to build tls config: %s", err)
+		return fmt.Errorf("failed to build tls config: %w", err)
 	}
 	if tlsConfig != nil {
 		pgCfg.TLSConfig = tlsConfig
@@ -122,7 +124,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	// force a connection and test that it worked
 	err = pgClient.PingContext(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to ping database: %s", err)
+		return fmt.Errorf("failed to ping database: %w", err)
 	}
 	// TODO: correct cdc setup
 	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")
@@ -137,21 +139,24 @@ func (p *Postgres) Setup(ctx context.Context) error {
 
 		// check if initial wait time is valid or not
 		if cdc.InitialWaitTime < 120 {
-			return fmt.Errorf("the CDC initial wait time must be at least 120 seconds")
+			return errs.Precondition(errs.ConfigInvalid, codeCDCWaitTimeTooLow,
+				fmt.Errorf("the CDC initial wait time must be at least 120 seconds"))
 		}
 
 		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
 
 		exists, err := doesReplicationSlotExists(ctx, pgClient, cdc.ReplicationSlot, cdc.Publication, p.config.Database)
 		if err != nil {
-			if strings.Contains(err.Error(), "sql: no rows in result set") {
-				err = fmt.Errorf("no record found")
+			if errors.Is(err, sql.ErrNoRows) {
+				return errs.Precondition(errs.CDCPreconditionFailed, codeReplicationSlotMissing,
+					fmt.Errorf("failed to validate cdc configuration for slot %s: no record found", cdc.ReplicationSlot))
 			}
-			return fmt.Errorf("failed to validate cdc configuration for slot %s: %s", cdc.ReplicationSlot, err)
+			return fmt.Errorf("failed to validate cdc configuration for slot %s: %w", cdc.ReplicationSlot, err)
 		}
 
 		if !exists {
-			return fmt.Errorf("replication slot '%s' does not exist in the current database '%s'", cdc.ReplicationSlot, p.config.Database)
+			return errs.Precondition(errs.CDCPreconditionFailed, codeReplicationSlotMissing,
+				fmt.Errorf("replication slot '%s' does not exist in the current database '%s'", cdc.ReplicationSlot, p.config.Database))
 		}
 		// no use of it if check not being called while sync run
 		p.CDCSupport = true
@@ -214,7 +219,7 @@ func (p *Postgres) GetStreamNames(ctx context.Context) ([]types.StreamID, error)
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve table names: %s", err)
+		return nil, fmt.Errorf("failed to retrieve table names: %w", err)
 	}
 
 	tablesNames := make([]types.StreamID, 0, len(tableNamesOutput))
@@ -231,7 +236,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 		var columnSchemaOutput []ColumnDetails
 		err := p.client.SelectContext(ctx, &columnSchemaOutput, getTableSchemaTmpl, schemaName, streamName)
 		if err != nil {
-			return stream, fmt.Errorf("failed to retrieve column details for table %s: %s", streamName, err)
+			return stream, fmt.Errorf("failed to retrieve column details for table %s: %w", streamName, err)
 		}
 
 		if len(columnSchemaOutput) == 0 {
@@ -242,7 +247,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 		var primaryKeyOutput []ColumnDetails
 		err = p.client.SelectContext(ctx, &primaryKeyOutput, getTablePrimaryKey, schemaName, streamName)
 		if err != nil {
-			return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %s", streamName, err)
+			return stream, fmt.Errorf("failed to retrieve primary key columns for table %s: %w", streamName, err)
 		}
 
 		for _, column := range columnSchemaOutput {
@@ -275,7 +280,7 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 	stream, err := populateStream(streamID)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %w", ctx.Err())
 		}
 		return nil, err
 	}

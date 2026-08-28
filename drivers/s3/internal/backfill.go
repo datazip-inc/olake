@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/s3/pkg/parser"
 	"github.com/datazip-inc/olake/pkg/objstorage"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -159,7 +160,7 @@ func (s *S3) ChunkIterator(ctx context.Context, stream types.StreamInterface, ch
 		fileSize := s.getFileSize(stream.Name(), key)
 		lastModified := s.getFileLastModified(stream.Name(), key)
 		if err := s.processFile(ctx, stream, key, fileSize, lastModified, processFn); err != nil {
-			return fmt.Errorf("failed to process file %s in chunk: %s", key, err)
+			return fmt.Errorf("failed to process file %s in chunk: %w", key, err)
 		}
 	}
 
@@ -186,7 +187,7 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 				logger.Warnf("File %s was deleted or not found, skipping", key)
 				return nil // Don't fail the entire sync for a missing file
 			}
-			return fmt.Errorf("failed to get reader: %s", err)
+			return fmt.Errorf("failed to get reader: %w", err)
 		}
 		wrapper := parser.NewParquetReaderWrapper(readerAt, size)
 		return s.parseFileWithReader(ctx, stream, key, wrapper, lastModified, processFn)
@@ -200,7 +201,7 @@ func (s *S3) processFile(ctx context.Context, stream types.StreamInterface, key 
 			logger.Warnf("File %s was deleted or not found, skipping", key)
 			return nil // Don't fail the entire sync for a missing file
 		}
-		return fmt.Errorf("failed to get reader: %s", err)
+		return fmt.Errorf("failed to get reader: %w", err)
 	}
 	defer reader.Close()
 
@@ -246,11 +247,12 @@ func (s *S3) parseFileWithReader(ctx context.Context, stream types.StreamInterfa
 		xmlParser := parser.NewXMLParser(xmlCfg, underlyingStream)
 		parseErr = xmlParser.StreamRecords(ctx, reader, callback)
 	default:
-		return fmt.Errorf("unsupported file format: %s", s.config.FileFormat)
+		return errs.Precondition(errs.ConfigInvalid, codeUnsupportedFileFormat,
+			fmt.Errorf("unsupported file format: %s", s.config.FileFormat))
 	}
 
 	if parseErr != nil {
-		return fmt.Errorf("failed to process file %s: %s", key, parseErr)
+		return fmt.Errorf("failed to process file %s: %w", key, parseErr)
 	}
 
 	return nil
