@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"slices"
@@ -149,8 +150,37 @@ func (cfg *IntegrationTest) prepareDVSync(ctx context.Context, t *testing.T, upd
 		return fmt.Errorf("failed to reset state file: %w", err)
 	}
 
-	if err := os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index")); err != nil {
+	if err := dvClearTableIndex(ctx, t, cfg); err != nil {
 		return fmt.Errorf("failed to clear table index: %w", err)
+	}
+	return nil
+}
+
+// dvClearTableIndex wipes the on-disk table index between scenarios. Deliberately NOT
+// os.RemoveAll from the host: the driver image has no USER directive (runs as root), so the
+// index files it writes into the bind mount are root-owned, and a non-root host process (a CI
+// runner, most dev machines) gets "permission denied" trying to unlink them directly - the same
+// class of UID mismatch the CI workflow already chowns around for the iceberg-postgres bind
+// mount. Deleting from inside a container run as the same root user sidesteps that instead of
+// hoping a host-side removal happens to succeed, or silently ignoring a failure that would
+// leave a stale WAL for the next scenario to wrongly replay (see prepareDVSync).
+func dvClearTableIndex(ctx context.Context, t *testing.T, cfg *IntegrationTest) error {
+	t.Helper()
+	indexDir := filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index")
+	if _, err := os.Stat(indexDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	args := []string{
+		"run", "--rm",
+		"-v", fmt.Sprintf("%s:%s", cfg.TestConfig.HostTestDataPath, containerTestDataDir),
+		"--entrypoint", "rm",
+		driverImageRef(cfg.TestConfig.Driver),
+		"-rf", path.Join(containerTestDataDir, "olake-table-index"),
+	}
+	out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("container rm failed: %w: %s", err, out)
 	}
 	return nil
 }
