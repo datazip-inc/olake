@@ -42,17 +42,33 @@ fi
 echo "built the iceberg jar in $((SECONDS - started))s"
 
 # TODO: we can use make command for build once this PR merges as local builds gets tagged as olake/source... instead of olakego/source...
+#
+# Output is collected and printed whole, in a group per driver: several of these run at once, and
+# interleaved --progress=plain streams leave you unable to tell how many images actually built.
 build_one() {
-  docker buildx build --progress=plain --cache-from type=gha,scope=olake-base \
-    --load --build-arg DRIVER_NAME="$1" -t "olakego/source-$1:$TAG" "$SRC"
+  local log="$WORK/$1.log"
+  if ! docker buildx build --progress=plain --cache-from type=gha,scope=olake-base \
+      --load --build-arg DRIVER_NAME="$1" -t "olakego/source-$1:$TAG" "$SRC" > "$log" 2>&1; then
+    echo "::group::build $1 -- FAILED"
+    cat "$log"
+    echo "::endgroup::"
+    return 1
+  fi
 
   # Non-fatal: a fork's token is read-only, and failing to publish only costs the next run the
   # build this one just did.
   docker tag "olakego/source-$1:$TAG" "$CACHE_REPO/source-$1:$TAG"
-  docker push "$CACHE_REPO/source-$1:$TAG" || echo "::notice::could not publish source-$1:$TAG (read-only token?)"
+  docker push "$CACHE_REPO/source-$1:$TAG" >> "$log" 2>&1 \
+    || echo "::notice::could not publish source-$1:$TAG (read-only token?)"
+
+  echo "::group::build $1 -- built and published"
+  cat "$log"
+  echo "::endgroup::"
 }
 export -f build_one
-export TAG SRC CACHE_REPO
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+export TAG SRC CACHE_REPO WORK
 
 # xargs -P fans these out with no pids to track and no marker files: if any build fails it still
 # finishes the rest and exits 123, which set -e turns into this script's failure. -e on the child
