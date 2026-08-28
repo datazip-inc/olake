@@ -26,3 +26,4 @@ runs:
         name: driver-image-${{ inputs.driver }}
         path: ${{ runner.temp }}/source-${{ inputs.driver }}.tar
         retention-days: ${{ inputs.retention-days }}
+        overwrite: true

@@ -223,7 +223,7 @@ jobs:
       - name: Wait for the image upload
         wait: [publish]
 
-  compatibility-base:
+  test-backward-compatibility:
     name: Backwards Compatibility with ${{ github.event.pull_request.base.ref || 'the base branch' }}
     needs: [approve, integration-tests]
     permissions:
@@ -257,26 +257,7 @@ jobs:
         timeout-minutes: 30
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh run download "$GITHUB_RUN_ID" --pattern 'driver-image-*' --dir "$RUNNER_TEMP/images" || true
-          missing=()
-          for d in $DRIVERS; do
-            tar="$RUNNER_TEMP/images/driver-image-$d/source-$d.tar"
-            if [ -f "$tar" ]; then
-              docker load -i "$tar"
-            else
-              missing+=("$d")
-            fi
-          done
-          # An if, not `[ ... ] && exit 0`: on the false branch that list returns non-zero and
-          # set -e would end the step right here, silently skipping the build below.
-          if [ ${#missing[@]} -eq 0 ]; then
-            echo "every driver image came from this run's integration build"
-            exit 0
-          fi
-          echo "::notice::no artifact for ${missing[*]}; building them here"
-          make -j --output-sync=target docker.all.build DRIVERS="${missing[*]}" DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --load"
+        run: .github/scripts/restore-driver-images.sh
 
       - name: Restore base branch images
         id: base-image
