@@ -1,13 +1,13 @@
-name: Commit driver image
+name: Commit driver images
 description: >
-  Makes the driver image for an arbitrary commit available locally, caching it in a container
-  registry so the first run that needs a commit builds it and every run after pulls. Tagged with the
-  abbreviated sha, which is what the test harness resolves a commit id to and the ref it looks up --
-  it then finds the image present and skips its own build.
+  Makes the driver images for an arbitrary commit available locally, caching them in a container
+  registry so the first run that needs a commit builds them and every run after pulls. Tagged with
+  the abbreviated sha, which is what the test harness resolves a commit id to and the ref it looks
+  up -- it then finds the image present and skips its own build.
 
 inputs:
-  driver:
-    description: Driver to build the image for.
+  drivers:
+    description: Space separated drivers to build images for.
     required: true
   sha:
     description: Commit to build. Empty is a no-op, for events that have no commit to compare against.
@@ -26,6 +26,12 @@ inputs:
   token:
     description: Registry token. A read-only one still pulls; publishing is skipped.
     required: true
+  max-parallel:
+    description: >
+      How many images to build at once. Each is a full Go compile, and the job that calls this
+      usually has its own builds running beside it.
+    required: false
+    default: '3'
   path:
     description: >
       Where to check the commit's tree out. actions/checkout refuses anything outside the workspace,
@@ -53,11 +59,12 @@ runs:
         username: ${{ inputs.username }}
         password: ${{ inputs.token }}
 
-    - name: Pull or build the commit's image
+    - name: Pull or build the commit's images
       shell: bash
       env:
-        DRIVER: ${{ inputs.driver }}
+        DRIVERS: ${{ inputs.drivers }}
         SHA: ${{ inputs.sha }}
         SRC: ${{ inputs.path }}
         CACHE_REPO: ${{ inputs.cache-repo }}
-      run: ${{ github.action_path }}/commit-image.sh
+        MAX_PARALLEL: ${{ inputs.max-parallel }}
+      run: ${{ github.action_path }}/build-images-from-commit.sh

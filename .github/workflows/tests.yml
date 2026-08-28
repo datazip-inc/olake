@@ -87,18 +87,12 @@ jobs:
 
       - run: echo "Approved -- running the end to end tests"
 
-  e2e-tests:
-    name: E2E Test ${{ matrix.driver }}
+  integration-tests:
+    name: Integration Test ${{ matrix.driver }}
     needs: [preflight, approve]
-    # packages: write publishes the baseline image below; a fork PR's token stays read-only.
-    permissions:
-      contents: read
-      packages: write
     if: needs.preflight.outputs.drivers != '[]'
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
-    # The two suites run concurrently, so this is the slower of them plus what they cost each other
-    # in contention -- not the sum.
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -164,21 +158,6 @@ jobs:
         timeout-minutes: 20
         run: make docker.${{ matrix.driver }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ matrix.driver }} --load"
 
-      - name: Build base branch image
-        id: base-image
-        background: true
-        timeout-minutes: 20
-        uses: ./.github/actions/commit-image
-        with:
-          driver: ${{ matrix.driver }}
-          sha: ${{ github.event.pull_request.base.sha }}
-          cache-repo: ghcr.io/${{ github.repository }}
-          username: ${{ github.actor }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # Under tests/, which .dockerignore already excludes, so it stays out of the candidate
-          # image's build context without an entry of its own.
-          path: tests/.compat-base
-
       # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
       - &go
         name: Set up Go
@@ -202,7 +181,7 @@ jobs:
 
       - &wait-background
         name: Wait for background jobs
-        wait: [containers, image, base-image, go-build]
+        wait: [containers, image, go-build]
 
       - &wait-ready
         name: Wait for source + destination readiness
@@ -223,18 +202,90 @@ jobs:
             "olakego/source-${{ matrix.driver }}:local" \
             check --destination /testdata/iceberg_destination.json
 
-      - name: Run E2E tests
+      - name: Run integration tests
         env:
           OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
-          COMPATIBILITY_BASELINE: ${{ github.event.pull_request.base.sha }}
+        run: make test.integration.${{ matrix.driver }}
+
+  compatibility-base:
+    name: Backwards Compatibility with ${{ github.event.pull_request.base.ref || 'the base branch' }}
+    needs: [preflight, approve, integration-tests]
+    permissions:
+      contents: read
+      packages: write
+    if: github.event_name == 'pull_request' && needs.preflight.outputs.drivers != '[]'
+    runs-on: 32gb-runner
+    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    timeout-minutes: 90
+    env:
+      DRIVERS: ${{ join(fromJSON(needs.preflight.outputs.drivers), ' ') }}
+    steps:
+      - *checkout
+      - *data-dirs
+      - *driver-deps
+
+      - name: Start containers
+        id: containers
+        background: true
+        timeout-minutes: 20
+        run: make -j --output-sync=target olake.all.up DRIVERS="$DRIVERS"
+
+      - *docker-login
+      - *buildx
+      - *jar
+
+      - name: Build driver images
+        id: image
+        background: true
+        timeout-minutes: 30
+        run: make -j3 --output-sync=target docker.all.build DRIVERS="$DRIVERS" DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --load"
+
+      - name: Build base branch images
+        id: base-image
+        background: true
+        timeout-minutes: 30
+        uses: ./.github/actions/commit-image
+        with:
+          drivers: ${{ join(fromJSON(needs.preflight.outputs.drivers), ' ') }}
+          sha: ${{ github.event.pull_request.base.sha }}
+          cache-repo: ghcr.io/${{ github.repository }}
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: tests/.compat-base
+
+      - *go
+      - *go-caches
+
+      - name: Install Dependencies
+        id: go-build
+        timeout-minutes: 20
+        run: make test.build.all DRIVERS="$DRIVERS"
+
+      - name: Wait for background jobs
+        wait: [containers, image, base-image, go-build]
+
+      - name: Wait for source + destination readiness
+        timeout-minutes: 5
+        run: make -j --output-sync=target olake.all.wait DRIVERS="$DRIVERS"
+
+      - name: Check destination (bootstrap Iceberg catalog)
         run: |
           set -euo pipefail
-          if [ -n "$COMPATIBILITY_BASELINE" ]; then
-            make test.e2e.${{ matrix.driver }} COMPATIBILITY_BASELINE="$COMPATIBILITY_BASELINE"
-          else
-            make test.integration.${{ matrix.driver }}
-          fi
+          driver=${DRIVERS%% *}
+          echo "Bootstrapping Iceberg catalog via '$driver'..."
+          docker run --rm \
+            -v "$PWD/tests/testdata:/testdata" \
+            --add-host host.docker.internal:host-gateway \
+            -e TELEMETRY_DISABLED=true \
+            "olakego/source-$driver:local" \
+            check --destination /testdata/iceberg_destination.json
 
+      # All of them at once: -k so one driver failing still leaves the rest reported, and
+      # --output-sync so each driver's log arrives whole instead of woven into the others'.
+      - name: Run the compatibility tests
+        env:
+          OLAKE_PRE_BUILT_IMAGE: "true"
+        run: make -k -j --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ github.event.pull_request.base.sha }}"
 
   compatibility-sweep:
     name: ${{ fromJSON(needs.preflight.outputs.driver-labels)[matrix.driver] }} Backward Compatibility Sweep
@@ -260,9 +311,7 @@ jobs:
       - *go
       - *go-caches
       - *test-build
-      - name: Wait for background jobs
-        wait: [containers, image, go-build]
-
+      - *wait-background
       - *wait-ready
       - *catalog
 

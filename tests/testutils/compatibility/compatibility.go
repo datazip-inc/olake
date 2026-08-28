@@ -220,6 +220,9 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 	// Whichever side fails first stops every group at its next variant boundary: the comparison
 	// is skipped either way, so the remaining syncs would be minutes of output nothing reads.
 	aborted := &atomic.Bool{}
+	// What every failed variant found, so the assertion at the end of this function -- the one CI
+	// shows in red -- can report the findings themselves rather than the fact that there were some.
+	report := &failureReport{driver: driver, spec: spec, baseline: baselineImage, candidate: candidateImage}
 	// Subtest names double as suite segments, so they stay terse: the table and (postgres) slot
 	// names built from the suite must clear a 63-byte identifier limit on sweep runs.
 	completed := t.Run("g", func(t *testing.T) {
@@ -230,6 +233,7 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 						t.Logf("compatibility group %s: skipping variant %q onwards; another run already failed", g.name, v.name)
 						break
 					}
+					diag := &diagnostics{}
 					ok := t.Run(v.name, func(t *testing.T) {
 						// Both sides start on the baseline version; pick moves the upgrade side's
 						// stateful syncs to the candidate.
@@ -246,11 +250,12 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 								runSide(t, upg, g, v, upgradePick, policies)
 							})
 						}) {
-							t.Fatalf("a %s side failed; the comparison would be noise", v.name)
+							diag.fatalf(t, "a %s side never finished, so the two destinations were never compared; the side's own subtest output has why", v.name)
 						}
-						compareVariant(t, policies, ref, upg, g, v)
+						compareVariant(t, diag, policies, ref, upg, g, v)
 					})
 					if !ok {
+						report.add(g.name, v.name, diag)
 						aborted.Store(true)
 						t.Logf("compatibility group %s: stopping after variant %q", g.name, v.name)
 						break
@@ -260,7 +265,7 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 			t.Run(g.name, func(t *testing.T) { t.Parallel(); runGroup(t) })
 		}
 	})
-	require.True(t, completed, "a compatibility run failed")
+	require.Truef(t, completed, "%s", report.render(baseline.OlakeRootPath))
 }
 
 // getCompatibilityBaselines returns the baselines to run driver against: the
@@ -341,7 +346,7 @@ func compatibilityVariantGroups(driver string) []compatibilityGroup {
 
 // compareVariant asserts the upgrade run's destination for one scenario is indistinguishable from
 // the reference run's.
-func compareVariant(t *testing.T, policies *assertionPolicies, ref, upg *testutils.TestConfig, g compatibilityGroup, v compatibilityVariant) {
+func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies, ref, upg *testutils.TestConfig, g compatibilityGroup, v compatibilityVariant) {
 	ctx := t.Context()
 	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "failed to connect to Spark Connect server")
@@ -362,10 +367,12 @@ func compareVariant(t *testing.T, policies *assertionPolicies, ref, upg *testuti
 		// (emptyFinalState), and a shared failure to produce rows for any other -- the one shape
 		// of regression a row diff can never catch, because there are no rows to diff.
 		if refRel == "" || upgRel == "" {
-			require.Equalf(t, refRel == "", upgRel == "",
-				"only one run produced parquet files for %s (reference %q, upgrade %q): the binaries disagree about whether this case writes output", v.name, refDB, upgDB)
-			require.Truef(t, v.emptyFinalState,
-				"neither run left parquet files for %s (reference %q, upgrade %q), but its last case writes rows: both binaries produced nothing where output is expected", v.name, refDB, upgDB)
+			if (refRel == "") != (upgRel == "") {
+				diag.fatalf(t, "only one run produced parquet files for %s (reference %q, upgrade %q): the binaries disagree about whether this case writes output", v.name, refDB, upgDB)
+			}
+			if !v.emptyFinalState {
+				diag.fatalf(t, "neither run left parquet files for %s (reference %q, upgrade %q), but its last case writes rows: both binaries produced nothing where output is expected", v.name, refDB, upgDB)
+			}
 			t.Logf("verified: neither run leaves parquet files for %s -- its last case is a delete-only batch, which writes none", v.name)
 			return
 		}
@@ -373,7 +380,7 @@ func compareVariant(t *testing.T, policies *assertionPolicies, ref, upg *testuti
 		t.Fatalf("unknown destination %q", g.destination)
 	}
 
-	compareRelations(ctx, t, spark, refRel, upgRel, policies.typeOnly)
+	compareRelations(ctx, t, diag, spark, refRel, upgRel, policies.typeOnly)
 }
 
 // icebergRelation refreshes and returns the fully-qualified name of an Iceberg table: the shared
@@ -403,29 +410,35 @@ func parquetRelation(ctx context.Context, t *testing.T, spark sql.SparkSession, 
 
 // compareRelations is the assertion. Order matters: a schema mismatch has to be reported before a
 // row query that would fail confusingly because of it.
-func compareRelations(ctx context.Context, t *testing.T, spark sql.SparkSession, refRel, upgRel string, volatile []string) {
+func compareRelations(ctx context.Context, t *testing.T, diag *diagnostics, spark sql.SparkSession, refRel, upgRel string, volatile []string) {
 	// 1. Non-vacuity FIRST. Two empty tables satisfy every diff below, and an empty reference is a
 	//    plausible outcome, not a far-fetched one: a stream the baseline binary could not validate
 	//    is skipped with a Warn and the sync still exits 0 (protocol/sync.go, D3 in the doc). Without
 	//    this guard that scenario reports a green.
 	refCount := scalarCount(ctx, t, spark, "SELECT COUNT(*) AS n FROM "+refRel)
-	require.Greaterf(t, refCount, int64(0),
-		"the reference run produced no rows in %s; it is the source of truth, so an empty one makes the whole comparison vacuous (a silently skipped stream looks exactly like this)", refRel)
+	if refCount == 0 {
+		diag.fatalf(t, "the reference run produced no rows in %s; it is the source of truth, so an empty one makes the whole comparison vacuous (a silently skipped stream looks exactly like this)", refRel)
+	}
 	upgCount := scalarCount(ctx, t, spark, "SELECT COUNT(*) AS n FROM "+upgRel)
-	require.Equalf(t, refCount, upgCount, "row count differs: reference %s has %d, upgrade %s has %d", refRel, refCount, upgRel, upgCount)
+	if refCount != upgCount {
+		diag.fatalf(t, "row count differs: reference %s has %d, upgrade %s has %d", refRel, refCount, upgRel, upgCount)
+	}
 
 	// 2. Schema. Compared as a map, so a column order difference (schema evolution appends in
 	//    record-arrival order) is not a failure while an added, dropped or retyped column is. This
 	//    is the assertion that catches a type-mapping change -- I6 in the doc.
 	refSchema := describeRelation(ctx, t, spark, refRel)
 	upgSchema := describeRelation(ctx, t, spark, upgRel)
-	require.Equalf(t, refSchema, upgSchema,
-		"destination schema differs between the reference and upgrade runs.\n  reference (%s): %v\n  upgrade   (%s): %v", refRel, refSchema, upgRel, upgSchema)
+	if !maps.Equal(refSchema, upgSchema) {
+		diag.fatalf(t, "destination schema differs between the reference and upgrade runs.\n  reference (%s): %v\n  upgrade   (%s): %v", refRel, refSchema, upgRel, upgSchema)
+	}
 
 	// 3. Per-op-type counts, so a row diff reads as "5 'u' rows where the reference had 6" rather
 	//    than an opaque set difference.
-	require.Equal(t, opTypeCounts(ctx, t, spark, refRel), opTypeCounts(ctx, t, spark, upgRel),
-		"per-_op_type row counts differ between the reference and upgrade runs")
+	refOps, upgOps := opTypeCounts(ctx, t, spark, refRel), opTypeCounts(ctx, t, spark, upgRel)
+	if !maps.Equal(refOps, upgOps) {
+		diag.fatalf(t, "per-_op_type row counts differ between the reference and upgrade runs: reference %v, upgrade %v", refOps, upgOps)
+	}
 
 	// 4. Values, both directions. This is the assertion that catches a changed record: every
 	//    non-volatile column of every row must hold the same value on both sides.
@@ -442,25 +455,24 @@ func compareRelations(ctx context.Context, t *testing.T, spark sql.SparkSession,
 
 	// Name the columns that actually differ before dumping rows -- with 30-odd columns, a row dump
 	// alone leaves you diffing two long tuples by eye.
-	reportColumnDiffs(ctx, t, spark, refRel, upgRel, cols)
-	logSampleRows(t, "only in the reference run", refRel, onlyInRef)
-	logSampleRows(t, "only in the upgrade run", upgRel, onlyInUpg)
-	t.Fatalf("row values differ between the reference and upgrade runs: %d row(s) only in %s, %d row(s) only in %s",
+	reportColumnDiffs(ctx, t, diag, spark, refRel, upgRel, cols)
+	logSampleRows(t, diag, "only in the reference run", refRel, onlyInRef)
+	logSampleRows(t, diag, "only in the upgrade run", upgRel, onlyInUpg)
+	diag.fatalf(t, "row values differ between the reference and upgrade runs: %d row(s) only in %s, %d row(s) only in %s",
 		len(onlyInRef), refRel, len(onlyInUpg), upgRel)
 }
 
 // reportColumnDiffs names the columns whose values differ, with a sample from each side. Runs one
 // query per column, so it is called only after a diff has already been found.
-func reportColumnDiffs(ctx context.Context, t *testing.T, spark sql.SparkSession, refRel, upgRel string, cols []string) {
+func reportColumnDiffs(ctx context.Context, t *testing.T, diag *diagnostics, spark sql.SparkSession, refRel, upgRel string, cols []string) {
 	for _, col := range cols {
 		n := scalarCount(ctx, t, spark, fmt.Sprintf(
 			"SELECT COUNT(*) AS n FROM (SELECT %s FROM %s EXCEPT ALL SELECT %s FROM %s)", col, refRel, col, upgRel))
 		if n == 0 {
 			continue
 		}
-		t.Logf("  column %s differs in %d row(s)", col, n)
-		t.Logf("    reference: %v", sampleColumn(ctx, spark, refRel, col))
-		t.Logf("    upgrade:   %v", sampleColumn(ctx, spark, upgRel, col))
+		diag.logf(t, "column %s differs in %d row(s)\n  reference: %v\n  upgrade:   %v",
+			col, n, sampleColumn(ctx, spark, refRel, col), sampleColumn(ctx, spark, upgRel, col))
 	}
 }
 
@@ -481,13 +493,13 @@ func sampleColumn(ctx context.Context, spark sql.SparkSession, relation, col str
 	return values
 }
 
-func logSampleRows(t *testing.T, what, relation string, rows []types.Row) {
+func logSampleRows(t *testing.T, diag *diagnostics, what, relation string, rows []types.Row) {
 	for i, row := range rows {
 		if i == 5 {
-			t.Logf("  ... and %d more %s", len(rows)-5, what)
+			diag.logf(t, "... and %d more %s", len(rows)-5, what)
 			break
 		}
-		t.Logf("  %s (%s): %v", what, relation, row)
+		diag.logf(t, "%s (%s): %v", what, relation, row)
 	}
 }
 

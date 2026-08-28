@@ -36,6 +36,9 @@ $(addsuffix .build,$(addprefix docker.,$(DRIVERS))): docker.%.build:
 		--build-arg DRIVER_NAME=$* \
 		-t olakego/source-$*:$(IMAGE_TAG) .
 
+.PHONY: docker.all.build
+docker.all.build: $(addsuffix .build,$(addprefix docker.,$(DRIVERS)))
+
 gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
@@ -340,16 +343,6 @@ test.integration.$(1): prepare.$(1)
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_TEST_template,$(d))))
 
-define E2E_TEST_template
-.PHONY: test.e2e.$(1)
-test.e2e.$(1): prepare.$(1)
-	@$$(call driver_test_setup,$(1))
-	$$(GO_ENV.$(1)) cd tests && \
-		OLAKE_COMPATIBILITY_TEST_BASELINE=$$(COMPATIBILITY_BASELINE) \
-		go test -v ./$(1)/... -timeout 0 -count=1 -parallel 8 -skip 'Performance'
-endef
-$(foreach d,$(SOURCE_DRIVERS),$(eval $(call E2E_TEST_template,$(d))))
-
 define DRIVER_SUITE_template
 .PHONY: test.$(2).$(1)
 test.$(2).$(1): prepare.$(1)
@@ -388,7 +381,7 @@ test.compatibility.$(1): prepare.$(1)
 	@$$(call driver_test_setup,$(1))
 	$$(GO_ENV.$(1)) cd tests && \
 		OLAKE_COMPATIBILITY_TEST_BASELINE=$$(COMPATIBILITY_BASELINE) \
-		go test -v ./$(1)/... -timeout 0 -count=1 -parallel 8 -run 'Compatibility'
+		go test -v ./$(1)/... -timeout 0 -count=1 -run 'Compatibility'
 endef
 $(foreach d,$(SOURCE_DRIVERS),$(eval $(call COMPATIBILITY_TEST_template,$(d))))
 
@@ -450,7 +443,7 @@ help:
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.performance.$(d)" "benchmark suite for $(d) (remote instances, no local stack)";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.compatibility.$(d)" "backward-compatibility for upgrading from baseline to latest $(d): COMPATIBILITY_BASELINE=<tag|image|sha>, empty = sweep every baseline in state-versions.json";)
 	@printf "  %-44s %s\n" "test.discover | test.sync | test.2pc | test.unit" "aggregate runs (all drivers at once)"
-	@printf "  %-44s %s\n" "test.compatibility" "backward-compatibility for every driver, sequentially (COMPATIBILITY_BASELINE as above)"
+	@printf "  %-44s %s\n" "test.compatibility" "backward-compatibility for every driver (add -j to run them at once; COMPATIBILITY_BASELINE as above)"
 	@printf "  %-44s %s\n" "test.build.all" "compile every driver's test binary (CI cache warm)"
 	@if [ -n "$(strip $(HELP_TARGETS))" ]; then \
 		echo ""; \
