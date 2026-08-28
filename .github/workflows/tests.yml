@@ -188,18 +188,13 @@ jobs:
         name: Wait for background jobs
         wait: [containers, image, go-build]
 
-      - name: Save the driver image for the compatibility job
-        run: docker save -o "$RUNNER_TEMP/source-${{ matrix.driver }}.tar" "olakego/source-${{ matrix.driver }}:local"
-
-      - name: Upload the driver image
+      - name: Publish the driver image
         id: publish
         background: true
         timeout-minutes: 20
-        uses: actions/upload-artifact@v7
+        uses: ./.github/actions/driver-image
         with:
-          name: driver-image-${{ matrix.driver }}
-          path: ${{ runner.temp }}/source-${{ matrix.driver }}.tar
-          retention-days: 1
+          driver: ${{ matrix.driver }}
 
       - &wait-ready
         name: Wait for source + destination readiness

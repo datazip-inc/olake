@@ -1,0 +1,28 @@
+name: Driver image artifact
+description: >
+  Exports the driver image this run built and uploads it as a run artifact, so a later job can load
+  it instead of building its own copy. Run-scoped on purpose: the image is read within the run and
+  never after it, so retention expires it without anything having to clean up.
+
+inputs:
+  driver:
+    description: Driver whose local image to export.
+    required: true
+  retention-days:
+    description: How long the artifact lives. A day is already far longer than the run that reads it.
+    required: false
+    default: '1'
+
+runs:
+  using: composite
+  steps:
+    - name: Export the image
+      shell: bash
+      run: docker save -o "$RUNNER_TEMP/source-${{ inputs.driver }}.tar" "olakego/source-${{ inputs.driver }}:local"
+
+    - name: Upload the image
+      uses: actions/upload-artifact@v7
+      with:
+        name: driver-image-${{ inputs.driver }}
+        path: ${{ runner.temp }}/source-${{ inputs.driver }}.tar
+        retention-days: ${{ inputs.retention-days }}
