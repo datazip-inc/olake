@@ -6,7 +6,7 @@ import org.apache.iceberg.Table;
 import org.apache.iceberg.data.GenericAppenderFactory;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.deletes.DeleteGranularity;
-import org.apache.iceberg.io.TaskWriter;
+import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.OutputFileFactory;
 
 import org.apache.iceberg.util.PropertyUtil;
@@ -35,7 +35,7 @@ public class IcebergTableWriterFactory {
   // delete files, which matters once deletes can reference arbitrary historical files.
   private static final DeleteGranularity DELETE_GRANULARITY = DeleteGranularity.PARTITION;
 
-  public TaskWriter<Record> create(Table icebergTable) {
+  public BaseTaskWriter<Record> create(Table icebergTable) {
 
     // file format of the table parquet, orc ...
     FileFormat format = IcebergUtil.getTableFileFormat(icebergTable);
@@ -63,7 +63,7 @@ public class IcebergTableWriterFactory {
     }
   }
 
-  private TaskWriter<Record> appendWriter(Table icebergTable, FileFormat format, GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory, long targetFileSize) {
+  private BaseTaskWriter<Record> appendWriter(Table icebergTable, FileFormat format, GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory, long targetFileSize) {
 
     if (icebergTable.spec().isUnpartitioned()) {
       // table is un partitioned use un partitioned append writer
@@ -76,7 +76,7 @@ public class IcebergTableWriterFactory {
     }
   }
 
-  private TaskWriter<Record> deltaWriter(Table icebergTable, FileFormat format, GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory, long targetFileSize) {
+  private BaseTaskWriter<Record> deltaWriter(Table icebergTable, FileFormat format, GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory, long targetFileSize) {
 
     if (deleteMode.addressesPositions()) {
       // One writer for both layouts: an unpartitioned table is a single entry keyed

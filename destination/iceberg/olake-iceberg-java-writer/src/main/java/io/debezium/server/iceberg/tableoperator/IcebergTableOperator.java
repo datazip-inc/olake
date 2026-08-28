@@ -38,7 +38,6 @@ import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.io.BaseTaskWriter;
-import org.apache.iceberg.io.TaskWriter;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.io.FileIO;
@@ -67,7 +66,7 @@ public class IcebergTableOperator {
 
   IcebergTableWriterFactory writerFactory2;
 
-  TaskWriter<Record> writer;
+  BaseTaskWriter<Record> writer;
 
   ArrayList<Pair<ArrayList<DeleteFile>, ArrayList<DataFile>>> filesToCommit = new ArrayList<>();
 
