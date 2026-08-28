@@ -129,9 +129,15 @@ func TrackSyncStarted(syncID string, selectedStreams, fullLoadStreams, cdcStream
 			catalogType = destinationConfig.WriterConfig.(map[string]interface{})["catalog_type"].(string)
 		}
 
+		// Count streams per configured delete mode (eq/pos/dv). Emitted as a map so a
+		// new delete mode shows up in analytics without another code change here.
+		// streamWithPosDeleteMode is kept for back-compat with existing dashboards.
 		streamWithPosDeleteMode := 0
+		deleteModeCounts := make(map[string]int)
 		_ = utils.ForEach(catalog.Streams, func(s *types.ConfiguredStream) error {
-			if s.Self().GetDeleteMode() == types.DeleteModePosition {
+			deleteMode := string(s.Self().GetDeleteMode())
+			deleteModeCounts[deleteMode]++
+			if deleteMode == string(types.DeleteModePosition) {
 				streamWithPosDeleteMode++
 			}
 			return nil
@@ -150,6 +156,7 @@ func TrackSyncStarted(syncID string, selectedStreams, fullLoadStreams, cdcStream
 			"normalized_streams":          countNormalizedStreams(catalog),
 			"partitioned_streams":         countPartitionedStreams(catalog),
 			"stream_with_pos_delete_mode": streamWithPosDeleteMode,
+			"stream_delete_modes":         deleteModeCounts,
 		}
 
 		if err := telemetry.sendEvent("Sync Started - CLI", props); err != nil {
