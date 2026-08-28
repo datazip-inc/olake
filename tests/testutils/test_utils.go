@@ -748,6 +748,34 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 	return nil
 }
 
+func deleteParquetTable(t *testing.T, parquetDB, tableName string) error {
+	t.Helper()
+	parquetPath := parquetTablePath(parquetDB, tableName)
+
+	minioClient, err := newMinIOClient()
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	deletedCount := 0
+	for object := range minioClient.ListObjects(ctx, parquetTestBucket, minio.ListObjectsOptions{
+		Prefix:    parquetPath,
+		Recursive: true,
+	}) {
+		if object.Err != nil {
+			return fmt.Errorf("error listing objects: %s", object.Err)
+		}
+		if err := minioClient.RemoveObject(ctx, parquetTestBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
+		}
+		deletedCount++
+	}
+
+	t.Logf("--- Parquet Table Cleanup Complete: Deleted %d objects ---", deletedCount)
+	return nil
+}
+
 // syncTestCase represents a test case for sync operations
 type syncTestCase struct {
 	name                     string
@@ -950,6 +978,9 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	if err := cfg.resetTable(ctx, t); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
 	}
+	if err := deleteParquetTable(t, cfg.DestinationDB, testTable); err != nil {
+		return fmt.Errorf("failed to reset parquet table: %s", err)
+	}
 
 	dbTestCases := []syncTestCase{
 		{
@@ -1135,6 +1166,9 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 
 	if err := cfg.resetTable(ctx, t); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
+	}
+	if err := deleteParquetTable(t, cfg.DestinationDB, testTable); err != nil {
+		return fmt.Errorf("failed to reset parquet table: %s", err)
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
