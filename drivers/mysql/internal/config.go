@@ -59,11 +59,11 @@ func (c *Config) URI() (string, error) {
 		case utils.SSLModeRequire, utils.SSLModeVerifyCA, utils.SSLModeVerifyFull:
 			tlsConfig, err := c.buildTLSConfig()
 			if err != nil {
-				return "", fmt.Errorf("failed to build TLS config: %s", err)
+				return "", fmt.Errorf("failed to build TLS config: %w", err)
 			}
 			tlsConfigName := "mysql_" + utils.ULID()
 			if err := mysql.RegisterTLSConfig(tlsConfigName, tlsConfig); err != nil {
-				return "", fmt.Errorf("failed to register TLS config: %s", err)
+				return "", fmt.Errorf("failed to register TLS config: %w", err)
 			}
 			cfg.TLSConfig = tlsConfigName
 		}
@@ -125,7 +125,7 @@ func (c *Config) Validate() error {
 	// Validate SSL configuration if provided
 	if c.SSLConfiguration != nil {
 		if err := c.SSLConfiguration.Validate(); err != nil {
-			return fmt.Errorf("failed to validate SSL config: %s", err)
+			return fmt.Errorf("failed to validate SSL config: %w", err)
 		}
 
 		if c.SSLConfiguration.Mode == utils.SSLModeVerifyCA || c.SSLConfiguration.Mode == utils.SSLModeVerifyFull {

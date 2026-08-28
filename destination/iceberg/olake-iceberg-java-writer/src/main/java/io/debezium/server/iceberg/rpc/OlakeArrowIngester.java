@@ -193,7 +193,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
         } catch (Exception e) {
             String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
             LOGGER.error(errorMessage, e);
-            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(errorMessage).asRuntimeException());
+            responseObserver.onError(OlakeFailures.toStatusException(e, request.getType().name(), errorMessage));
         }
     }
 

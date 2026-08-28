@@ -96,7 +96,7 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 	}
 
 	if err := writer.initialize(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize: %s", err)
+		return nil, fmt.Errorf("failed to initialize: %w", err)
 	}
 
 	return writer, nil
@@ -256,7 +256,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 	var err error
 
 	if err := w.extract(ctx, records); err != nil {
-		return fmt.Errorf("failed to partition data: %s", err)
+		return fmt.Errorf("failed to partition data: %w", err)
 	}
 
 	for pKey, writer := range w.writers {
@@ -349,7 +349,7 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, part
 
 	newFilePath, err := w.allocateFilePath(ctx, partitionKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to allocate new file path after flush: %s", err)
+		return nil, fmt.Errorf("failed to allocate new file path after flush: %w", err)
 	}
 	newWriter.filePath = newFilePath
 
@@ -367,7 +367,7 @@ func (w *ArrowWriter) flush(ctx context.Context, rw *RollingWriter, partitionKey
 	}
 
 	if err := w.uploadFile(ctx, rw, partitionKey); err != nil {
-		return fmt.Errorf("failed to upload parquet during flush: %s", err)
+		return fmt.Errorf("failed to upload parquet during flush: %w", err)
 	}
 
 	return nil
@@ -375,13 +375,13 @@ func (w *ArrowWriter) flush(ctx context.Context, rw *RollingWriter, partitionKey
 
 func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]string) error {
 	if err := w.completeWriters(ctx); err != nil {
-		return fmt.Errorf("failed to flush writers during schema evolution: %s", err)
+		return fmt.Errorf("failed to flush writers during schema evolution: %w", err)
 	}
 
 	w.schema = newSchema
 
 	if err := w.initialize(ctx); err != nil {
-		return fmt.Errorf("failed to reinitialize with evolved schema: %s", err)
+		return fmt.Errorf("failed to reinitialize with evolved schema: %w", err)
 	}
 
 	return nil
@@ -390,7 +390,7 @@ func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]str
 // Close flushes all writers and commits files to Iceberg.
 func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err error) {
 	if err := w.completeWriters(ctx); err != nil {
-		return fmt.Errorf("failed to close arrow writers: %s", err)
+		return fmt.Errorf("failed to close arrow writers: %w", err)
 	}
 
 	// The trailing partial batch has to reach the server before the commit, which is where the vectors holding it are published.
@@ -570,7 +570,7 @@ func (w *ArrowWriter) initializeDeleteSchemas() error {
 func (w *ArrowWriter) createWriter(ctx context.Context, pKey string, values []any, schema arrow.Schema, fileType string) (*RollingWriter, error) {
 	filePath, err := w.allocateFilePath(ctx, pKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to allocate file path: %s", err)
+		return nil, fmt.Errorf("failed to allocate file path: %w", err)
 	}
 
 	rw, err := w.newRollingWriter(ctx, schema, fileType, values, filePath)
@@ -681,7 +681,7 @@ func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string)
 
 	resp, err := w.server.SendClientRequest(reqCtx, request)
 	if err != nil {
-		return "", fmt.Errorf("failed to allocate file path: %s", err)
+		return "", fmt.Errorf("failed to allocate file path: %w", err)
 	}
 
 	basePath := resp.(*proto.ArrowIngestResponse).GetResult()
@@ -711,7 +711,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	defer cancel()
 
 	if _, err := w.server.SendClientRequest(uploadCtx, request); err != nil {
-		return fmt.Errorf("failed to upload %s file: %s", rw.fileType, err)
+		return fmt.Errorf("failed to upload %s file: %w", rw.fileType, err)
 	}
 
 	protoPartitionValues, err := toProtoPartitionValues(rw.partitionValues)
@@ -758,7 +758,7 @@ func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 
 	resp, err := w.server.SendClientRequest(schemaCtx, request)
 	if err != nil {
-		return fmt.Errorf("failed to fetch schema JSON from server: %s", err)
+		return fmt.Errorf("failed to fetch schema JSON from server: %w", err)
 	}
 
 	w.fileschemajson = resp.(*proto.ArrowIngestResponse).GetIcebergSchemas()
