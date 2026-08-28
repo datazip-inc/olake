@@ -95,7 +95,7 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	}
 
 	upsertMode := isUpsertMode(stream, options.Backfill)
-	deleteMode := stream.GetDeleteMode()
+	deleteMode := stream.GetUpdateType()
 
 	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
 	iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
@@ -625,14 +625,14 @@ func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 
 // protoDeleteMode maps the config-facing delete mode onto the wire enum. An
 // unknown mode reaches the server as UNSPECIFIED, which it rejects; config is
-// validated by types.DeleteMode.Validate() long before this point.
-func protoDeleteMode(mode types.DeleteMode) proto.IcebergPayload_DeleteMode {
+// validated by types.UpdateType.Validate() long before this point.
+func protoDeleteMode(mode types.UpdateType) proto.IcebergPayload_DeleteMode {
 	switch mode {
-	case types.DeleteModeEquality:
+	case types.UpdateTypeEquality:
 		return proto.IcebergPayload_DELETE_MODE_EQUALITY
-	case types.DeleteModePosition:
+	case types.UpdateTypePosition:
 		return proto.IcebergPayload_DELETE_MODE_POSITION
-	case types.DeleteModeDeletionVector:
+	case types.UpdateTypeDeletionVector:
 		return proto.IcebergPayload_DELETE_MODE_DELETION_VECTOR
 	default:
 		return proto.IcebergPayload_DELETE_MODE_UNSPECIFIED

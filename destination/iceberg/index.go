@@ -28,14 +28,14 @@ func (i *Iceberg) reconcileTableIndex(ctx context.Context, index types.StreamInd
 		// Rewrite straight into the stream's target encoding, one commit, not eq -> pos -> dv.
 		migrated, err := i.server.tableIndexClient.MigrateEqualityDeletes(ctx, &proto.MigrateEqualityDeletesRequest{
 			ThreadId:   i.options.ThreadID,
-			TargetMode: protoDeleteMode(i.stream.GetDeleteMode()),
+			TargetMode: protoDeleteMode(i.stream.GetUpdateType()),
 		})
 		if err != nil {
 			return fmt.Errorf("failed to migrate equality deletes of table[%s]: %s", table, err)
 		}
 
 		logger.Infof("Table[%s]: rewrote %d equality delete file(s) as %d %s delete(s)",
-			table, migrated.GetRewrittenDeleteFiles(), migrated.GetPositionalDeletesWritten(), i.stream.GetDeleteMode())
+			table, migrated.GetRewrittenDeleteFiles(), migrated.GetPositionalDeletesWritten(), i.stream.GetUpdateType())
 	}
 
 	indexedSnapshotID, err := index.LastCommittedSnapshot()

@@ -34,7 +34,7 @@ type ArrowWriter struct {
 	upsertMode     bool
 	indexThread    *types.StreamIndexThread
 	// deleteMode decides how superseded rows are expressed: under DeletionVector, positions stream to the server as Puffin vectors instead of a delete file.
-	deleteMode types.DeleteMode
+	deleteMode types.UpdateType
 	// pendingVectors buffers positions per data file until a batch is worth sending. Only used under DeleteModeDeletionVector.
 	pendingVectors     map[string]*pendingVector
 	pendingVectorCount int
@@ -90,7 +90,7 @@ func New(ctx context.Context, options *destination.Options, partitionInfo []inte
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
 		indexThread:   types.NewStreamIndexThread(options.TableIndex),
-		deleteMode:    stream.GetDeleteMode(),
+		deleteMode:    stream.GetUpdateType(),
 
 		pendingVectors: make(map[string]*pendingVector),
 	}
@@ -164,7 +164,7 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 		}
 		// Deletion vectors are encoded server-side from streamed positions, so this
 		// mode writes no delete file of its own - see sendPendingVectors.
-		if writer.positionalDeleteWriter == nil && w.deleteMode != types.DeleteModeDeletionVector {
+		if writer.positionalDeleteWriter == nil && w.deleteMode != types.UpdateTypeDeletionVector {
 			if writer.positionalDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypePositionalDelete], fileTypePositionalDelete); err != nil {
 				return nil, err
 			}
@@ -265,7 +265,7 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		}
 
 		if w.upsertMode {
-			if w.deleteMode == types.DeleteModeDeletionVector {
+			if w.deleteMode == types.UpdateTypeDeletionVector {
 				if err := w.queueVectorDeletes(ctx, writer.positionalDeletes, writer.dataWriter.partitionValues); err != nil {
 					return err
 				}
