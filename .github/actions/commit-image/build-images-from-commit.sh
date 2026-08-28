@@ -9,18 +9,27 @@ fi
 TAG=$(git rev-parse --short "$SHA")
 
 # The pull pass first: it is what decides whether the jar below has to be built at all, and a hit
-# costs seconds against the minutes a build does.
+# costs seconds against the minutes a build does. All at once -- these are network bound, and eight
+# of them one after another is minutes spent waiting on nothing. No -e on the child shell: a pull
+# that misses is the expected case here, not a failure.
+pull_one() {
+  if docker pull -q "$CACHE_REPO/source-$1:$TAG" >/dev/null 2>&1; then
+    docker tag "$CACHE_REPO/source-$1:$TAG" "olakego/source-$1:$TAG"
+    echo "restored olakego/source-$1:$TAG from the cache"
+  fi
+}
+export -f pull_one
+export TAG CACHE_REPO
+printf '%s\n' $DRIVERS | xargs -P 0 -I{} bash -c 'pull_one {}'
+
+# Presence decides what is missing, rather than each pull reporting back: the pulls ran in their own
+# shells, and an image either landed locally or it did not.
 missing=()
 for driver in $DRIVERS; do
-  # TEMPORARY: the restore is commented out so every image is built from scratch, to time the worst
-  # case. Restore before merging, together with the lookup in test-preflight.yml.
-  # if docker pull -q "$CACHE_REPO/source-$driver:$TAG"; then
-  #   docker tag "$CACHE_REPO/source-$driver:$TAG" "olakego/source-$driver:$TAG"
-  #   echo "restored olakego/source-$driver:$TAG from the cache"
-  #   continue
-  # fi
-  echo "no cached image for $driver at $TAG; it will be built"
-  missing+=("$driver")
+  if ! docker image inspect "olakego/source-$driver:$TAG" >/dev/null 2>&1; then
+    echo "no cached image for $driver at $TAG; it will be built"
+    missing+=("$driver")
+  fi
 done
 
 if [ ${#missing[@]} -eq 0 ]; then

@@ -77,14 +77,12 @@ jobs:
           set -euo pipefail
           echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           tag=$(git rev-parse --short "$BASE_SHA")
-          # TEMPORARY: the cache check is commented out so every driver counts as a miss and the
-          # build job below runs on the full set, to time the worst case. Restore before merging.
           misses=$(for d in $(jq -r '.[]' <<<"$DRIVERS"); do
-            # if docker manifest inspect "ghcr.io/$GITHUB_REPOSITORY/source-$d:$tag" >/dev/null 2>&1; then
-            #   echo "cached: source-$d:$tag" >&2
-            # else
-            echo "$d"
-            # fi
+            if docker manifest inspect "ghcr.io/$GITHUB_REPOSITORY/source-$d:$tag" >/dev/null 2>&1; then
+              echo "cached: source-$d:$tag" >&2
+            else
+              echo "$d"
+            fi
           done | jq -Rsc 'split("\n") | map(select(length > 0))')
           echo "misses=$misses" >> "$GITHUB_OUTPUT"
           echo "base branch images to build at $tag: $misses"

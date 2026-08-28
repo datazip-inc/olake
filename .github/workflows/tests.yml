@@ -95,9 +95,6 @@ jobs:
   integration-tests:
     name: Integration Test ${{ matrix.driver }}
     needs: approve
-    permissions:
-      contents: read
-      packages: write
     if: needs.approve.outputs.drivers != '[]'
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
@@ -135,22 +132,19 @@ jobs:
         timeout-minutes: 15
         run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
 
-      # Docker Hub: compatibility pulls its baseline images from a shared-egress runner pool, which
-      # is exactly where the anonymous rate limit bites. ghcr: where this run's driver images are
-      # published for the compatibility job to reuse.
+      # Compatibility pulls its baseline images from a shared-egress runner pool, which is exactly
+      # where Docker Hub's anonymous rate limit bites.
       - &docker-login
-        name: Log in to the image registries
+        name: Log in to Docker Hub
         env:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ -n "$DOCKER_USERNAME" ]; then
             echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
           else
             echo "::notice::no Docker Hub credentials configured; pulling anonymously"
           fi
-          echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - &buildx
         name: Set up Docker Buildx
@@ -194,6 +188,19 @@ jobs:
         name: Wait for background jobs
         wait: [containers, image, go-build]
 
+      - name: Save the driver image for the compatibility job
+        run: docker save -o "$RUNNER_TEMP/source-${{ matrix.driver }}.tar" "olakego/source-${{ matrix.driver }}:local"
+
+      - name: Upload the driver image
+        id: publish
+        background: true
+        timeout-minutes: 20
+        uses: actions/upload-artifact@v7
+        with:
+          name: driver-image-${{ matrix.driver }}
+          path: ${{ runner.temp }}/source-${{ matrix.driver }}.tar
+          retention-days: 1
+
       - &wait-ready
         name: Wait for source + destination readiness
         timeout-minutes: 3
@@ -218,15 +225,8 @@ jobs:
           OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
         run: make test.integration.${{ matrix.driver }}
 
-      - name: Publish the driver image for the compatibility job
-        env:
-          CANDIDATE: ghcr.io/${{ github.repository }}/source-${{ matrix.driver }}:${{ github.sha }}
-        run: |
-          set -euo pipefail
-          docker tag "olakego/source-${{ matrix.driver }}:local" "$CANDIDATE"
-          # Non-fatal: a fork's token is read-only, and the compatibility job builds its own copy
-          # of whatever it cannot pull.
-          docker push "$CANDIDATE" || echo "::notice::could not publish $CANDIDATE (read-only token?)"
+      - name: Wait for the image upload
+        wait: [publish]
 
   compatibility-base:
     name: Backwards Compatibility with ${{ github.event.pull_request.base.ref || 'the base branch' }}
@@ -234,6 +234,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: read
     if: github.event_name == 'pull_request' && needs.approve.outputs.drivers != '[]'
     runs-on: 32gb-runner
     environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
@@ -260,14 +261,15 @@ jobs:
         background: true
         timeout-minutes: 30
         env:
-          CANDIDATE_REPO: ghcr.io/${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          gh run download "$GITHUB_RUN_ID" --pattern 'driver-image-*' --dir "$RUNNER_TEMP/images" || true
           missing=()
           for d in $DRIVERS; do
-            if docker pull -q "$CANDIDATE_REPO/source-$d:$GITHUB_SHA"; then
-              docker tag "$CANDIDATE_REPO/source-$d:$GITHUB_SHA" "olakego/source-$d:local"
-              echo "restored olakego/source-$d:local from this run's integration build"
+            tar="$RUNNER_TEMP/images/driver-image-$d/source-$d.tar"
+            if [ -f "$tar" ]; then
+              docker load -i "$tar"
             else
               missing+=("$d")
             fi
@@ -278,7 +280,7 @@ jobs:
             echo "every driver image came from this run's integration build"
             exit 0
           fi
-          echo "::notice::nothing was published for ${missing[*]}; building them here"
+          echo "::notice::no artifact for ${missing[*]}; building them here"
           make -j --output-sync=target docker.all.build DRIVERS="${missing[*]}" DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --load"
 
       - name: Restore base branch images
