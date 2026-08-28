@@ -13,7 +13,6 @@ import (
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.WriterPool, streams ...types.StreamInterface) error {
@@ -196,18 +195,13 @@ func (a *AbstractDriver) getMaxIncrementCursorFromData(primaryCursor, secondaryC
 	return primaryCursorValue, secondaryCursorValue
 }
 
-// FormatCursorValue is used to make time format and object id format consistent to be saved in state
+// FormatCursorValue is used to make cursor value formats consistent to be saved in state
 func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
-	switch v := cursorValue.(type) {
-	case time.Time:
-		// db2 timestamp does NOT store timezone information. Applying v.UTC() changes the actual time value for db2.
-		if a.driver.Type() == string(constants.DB2) {
-			return v.Format(constants.DB2StateTimestampFormat)
-		}
-		return v.UTC().Format(constants.DefaultStateTimestampFormat)
-	case primitive.ObjectID:
-		return v.Hex()
-	default:
-		return cursorValue
+	if formatter, ok := a.driver.(CursorFormatter); ok {
+		cursorValue = formatter.FormatCursorValue(cursorValue)
 	}
+	if v, ok := cursorValue.(time.Time); ok {
+		return v.UTC().Format(constants.DefaultStateTimestampFormat)
+	}
+	return cursorValue
 }

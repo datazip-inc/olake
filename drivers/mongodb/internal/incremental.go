@@ -3,11 +3,14 @@ package driver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readconcern"
@@ -86,6 +89,23 @@ func (m *Mongo) buildIncrementalCondition(stream types.StreamInterface) (bson.D,
 	}
 
 	return incrementalCondition, nil
+}
+
+// FormatCursorValue converts mongo specific cursor value types to be saved in state,
+// mirroring how filterMongoObject normalizes record data
+func (m *Mongo) FormatCursorValue(cursorValue any) any {
+	switch v := cursorValue.(type) {
+	case primitive.ObjectID:
+		return v.Hex()
+	case primitive.DateTime:
+		formatted, err := typeutils.ReformatDate(v.Time(), true)
+		if err != nil {
+			return time.Unix(0, 0).UTC()
+		}
+		return formatted
+	default:
+		return cursorValue
+	}
 }
 
 func (m *Mongo) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {

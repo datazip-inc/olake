@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
-	"github.com/datazip-inc/olake/drivers/s3/internal/pkg/parser"
+	"github.com/datazip-inc/olake/drivers/s3/pkg/parser"
 	"github.com/datazip-inc/olake/pkg/objstorage"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
