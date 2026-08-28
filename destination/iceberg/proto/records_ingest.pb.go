@@ -82,20 +82,13 @@ func (IcebergPayload_PayloadType) EnumDescriptor() ([]byte, []int) {
 	return file_records_ingest_proto_rawDescGZIP(), []int{0, 0}
 }
 
-// How the writer represents the removal of a row an earlier commit already wrote.
-// UNSPECIFIED is not a default - the server rejects it, since every current caller
-// sets the mode explicitly and a missing one means the sender is broken.
+// How a superseded row's removal is expressed: EQUALITY (no index), POSITION (needs table index, rejected on v3), or DELETION_VECTOR (v3 Puffin bitmap, needs table index); UNSPECIFIED is rejected, not a default.
 type IcebergPayload_DeleteMode int32
 
 const (
-	IcebergPayload_DELETE_MODE_UNSPECIFIED IcebergPayload_DeleteMode = 0
-	// Equality delete files keyed on the identifier field. No table index needed.
-	IcebergPayload_DELETE_MODE_EQUALITY IcebergPayload_DeleteMode = 1
-	// Positional delete files addressing (data file, ordinal). Needs the caller's
-	// table index, and is rejected on format-version 3 tables.
-	IcebergPayload_DELETE_MODE_POSITION IcebergPayload_DeleteMode = 2
-	// v3 deletion vectors: one Puffin bitmap per data file. Same addressing as
-	// POSITION, so same index requirement, but requires format version 3.
+	IcebergPayload_DELETE_MODE_UNSPECIFIED     IcebergPayload_DeleteMode = 0
+	IcebergPayload_DELETE_MODE_EQUALITY        IcebergPayload_DeleteMode = 1
+	IcebergPayload_DELETE_MODE_POSITION        IcebergPayload_DeleteMode = 2
 	IcebergPayload_DELETE_MODE_DELETION_VECTOR IcebergPayload_DeleteMode = 3
 )
 
@@ -774,15 +767,15 @@ type IcebergPayload_Metadata struct {
 	// Per-stream context (previously baked into JVM CLI args)
 	Namespace       string                           `protobuf:"bytes,7,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Upsert          bool                             `protobuf:"varint,8,opt,name=upsert,proto3" json:"upsert,omitempty"`
-	PartitionFields []*IcebergPayload_PartitionField `protobuf:"bytes,10,rep,name=partition_fields,json=partitionFields,proto3" json:"partition_fields,omitempty"`
+	PartitionFields []*IcebergPayload_PartitionField `protobuf:"bytes,9,rep,name=partition_fields,json=partitionFields,proto3" json:"partition_fields,omitempty"`
 	// COMMIT: snapshot the caller's table index is checkpointed at. The server
 	// refreshes the table and refuses the commit when the tip has moved, so
 	// positional deletes built from a stale index cannot be published.
-	BaseSnapshotId *int64 `protobuf:"varint,11,opt,name=base_snapshot_id,json=baseSnapshotId,proto3,oneof" json:"base_snapshot_id,omitempty"`
+	BaseSnapshotId *int64 `protobuf:"varint,10,opt,name=base_snapshot_id,json=baseSnapshotId,proto3,oneof" json:"base_snapshot_id,omitempty"`
 	// GET_OR_CREATE_TABLE: how this stream expresses deletes. Also decides the
 	// format version a newly created table is built at, and is validated against
 	// an existing table's version before any writer is built.
-	DeleteMode    IcebergPayload_DeleteMode `protobuf:"varint,12,opt,name=delete_mode,json=deleteMode,proto3,enum=io.debezium.server.iceberg.rpc.IcebergPayload_DeleteMode" json:"delete_mode,omitempty"`
+	DeleteMode    IcebergPayload_DeleteMode `protobuf:"varint,11,opt,name=delete_mode,json=deleteMode,proto3,enum=io.debezium.server.iceberg.rpc.IcebergPayload_DeleteMode" json:"delete_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1833,11 +1826,11 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\x83\x0e\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xfd\r\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
-	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xc8\x04\n" +
+	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xc2\x04\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
 	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12.\n" +
@@ -1846,14 +1839,13 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\apayload\x18\x06 \x01(\tR\apayload\x12\x1c\n" +
 	"\tnamespace\x18\a \x01(\tR\tnamespace\x12\x16\n" +
 	"\x06upsert\x18\b \x01(\bR\x06upsert\x12h\n" +
-	"\x10partition_fields\x18\n" +
-	" \x03(\v2=.io.debezium.server.iceberg.rpc.IcebergPayload.PartitionFieldR\x0fpartitionFields\x12-\n" +
-	"\x10base_snapshot_id\x18\v \x01(\x03H\x01R\x0ebaseSnapshotId\x88\x01\x01\x12Z\n" +
-	"\vdelete_mode\x18\f \x01(\x0e29.io.debezium.server.iceberg.rpc.IcebergPayload.DeleteModeR\n" +
+	"\x10partition_fields\x18\t \x03(\v2=.io.debezium.server.iceberg.rpc.IcebergPayload.PartitionFieldR\x0fpartitionFields\x12-\n" +
+	"\x10base_snapshot_id\x18\n" +
+	" \x01(\x03H\x01R\x0ebaseSnapshotId\x88\x01\x01\x12Z\n" +
+	"\vdelete_mode\x18\v \x01(\x0e29.io.debezium.server.iceberg.rpc.IcebergPayload.DeleteModeR\n" +
 	"deleteModeB\x13\n" +
 	"\x11_identifier_fieldB\x13\n" +
-	"\x11_base_snapshot_idJ\x04\b\t\x10\n" +
-	"\x1a:\n" +
+	"\x11_base_snapshot_id\x1a:\n" +
 	"\vSchemaField\x12\x19\n" +
 	"\bice_type\x18\x01 \x01(\tR\aiceType\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x1aD\n" +

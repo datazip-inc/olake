@@ -22,18 +22,11 @@ message IcebergPayload {
   
   PayloadType type = 1;
 
-  // How the writer represents the removal of a row an earlier commit already wrote.
-  // UNSPECIFIED is not a default - the server rejects it, since every current caller
-  // sets the mode explicitly and a missing one means the sender is broken.
+  // How a superseded row's removal is expressed: EQUALITY (no index), POSITION (needs table index, rejected on v3), or DELETION_VECTOR (v3 Puffin bitmap, needs table index); UNSPECIFIED is rejected, not a default.
   enum DeleteMode {
     DELETE_MODE_UNSPECIFIED = 0;
-    // Equality delete files keyed on the identifier field. No table index needed.
     DELETE_MODE_EQUALITY = 1;
-    // Positional delete files addressing (data file, ordinal). Needs the caller's
-    // table index, and is rejected on format-version 3 tables.
     DELETE_MODE_POSITION = 2;
-    // v3 deletion vectors: one Puffin bitmap per data file. Same addressing as
-    // POSITION, so same index requirement, but requires format version 3.
     DELETE_MODE_DELETION_VECTOR = 3;
   }
 
@@ -46,18 +39,15 @@ message IcebergPayload {
     // Per-stream context (previously baked into JVM CLI args)
     string namespace = 7;
     bool upsert = 8;
-    // 9 was use_positional_deletes, a bool that could only express eq vs pos.
-    // Replaced by delete_mode below once dv became a third option.
-    reserved 9;
-    repeated PartitionField partition_fields = 10;
+    repeated PartitionField partition_fields = 9;
     // COMMIT: snapshot the caller's table index is checkpointed at. The server
     // refreshes the table and refuses the commit when the tip has moved, so
     // positional deletes built from a stale index cannot be published.
-    optional int64 base_snapshot_id = 11;
+    optional int64 base_snapshot_id = 10;
     // GET_OR_CREATE_TABLE: how this stream expresses deletes. Also decides the
     // format version a newly created table is built at, and is validated against
     // an existing table's version before any writer is built.
-    DeleteMode delete_mode = 12;
+    DeleteMode delete_mode = 11;
   }
 
   message SchemaField {

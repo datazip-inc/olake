@@ -33,22 +33,14 @@ type ArrowWriter struct {
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
 	indexThread    *types.StreamIndexThread
-	// deleteMode decides how superseded rows are expressed. Under
-	// types.DeleteModeDeletionVector no delete file is written at all: format
-	// version 3 rejects positional delete files, so the positions are streamed to
-	// the server, which encodes them as Puffin vectors.
+	// deleteMode decides how superseded rows are expressed: under DeletionVector, positions stream to the server as Puffin vectors instead of a delete file.
 	deleteMode types.DeleteMode
-	// pendingVectors buffers positions until a batch is worth sending, grouped by
-	// the data file holding them - which is also how a vector is scoped. Only used
-	// under DeleteModeDeletionVector.
+	// pendingVectors buffers positions per data file until a batch is worth sending. Only used under DeleteModeDeletionVector.
 	pendingVectors     map[string]*pendingVector
 	pendingVectorCount int
 }
 
-// pendingVector is the positions to delete from one data file, plus the partition the
-// vector is stamped with: the one being written, not necessarily the referenced file's.
-// Matches the rows path; see the TODO on ArrowDeletionVectorWriter.add. First writer to
-// touch a path wins - a data file carries only one vector.
+// pendingVector is the positions to delete from one data file, plus the partition it's stamped with (the one being written, not necessarily the referenced file's). First writer to touch a path wins - a data file carries only one vector.
 type pendingVector struct {
 	positions       []int64
 	partitionValues []any
@@ -401,8 +393,7 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err er
 		return fmt.Errorf("failed to close arrow writers: %s", err)
 	}
 
-	// The trailing partial batch has to reach the server before the commit, which is
-	// where the vectors holding it are published.
+	// The trailing partial batch has to reach the server before the commit, which is where the vectors holding it are published.
 	if err := w.sendPendingVectors(ctx); err != nil {
 		return err
 	}
@@ -618,8 +609,6 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Sc
 }
 
 // queueVectorDeletes buffers positions and ships them once enough have accumulated.
-// Sending during the sync rather than at commit keeps memory flat on both sides.
-// partitionValues is the partition being written; see pendingVector.
 func (w *ArrowWriter) queueVectorDeletes(ctx context.Context, deletes []PositionalDelete, partitionValues []any) error {
 	for _, d := range deletes {
 		pending, exists := w.pendingVectors[d.FilePath]
@@ -637,8 +626,7 @@ func (w *ArrowWriter) queueVectorDeletes(ctx context.Context, deletes []Position
 	return w.sendPendingVectors(ctx)
 }
 
-// sendPendingVectors hands the buffered positions to the server, which folds them
-// into the deletion vectors it publishes at commit.
+// sendPendingVectors hands the buffered positions to the server, which folds them into the deletion vectors it publishes at commit.
 func (w *ArrowWriter) sendPendingVectors(ctx context.Context) error {
 	if w.pendingVectorCount == 0 {
 		return nil

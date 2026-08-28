@@ -25,9 +25,7 @@ func (i *Iceberg) reconcileTableIndex(ctx context.Context, index types.StreamInd
 	table := fmt.Sprintf("%s.%s", i.stream.GetDestinationDatabase(&i.config.IcebergDatabase), i.stream.GetDestinationTable())
 
 	if hasEqualityDeletes {
-		// Rewrite straight into whatever representation this stream is configured for,
-		// so a table switching off equality deletes lands on its target encoding in one
-		// commit instead of eq -> pos -> dv.
+		// Rewrite straight into the stream's target encoding, one commit, not eq -> pos -> dv.
 		migrated, err := i.server.tableIndexClient.MigrateEqualityDeletes(ctx, &proto.MigrateEqualityDeletesRequest{
 			ThreadId:   i.options.ThreadID,
 			TargetMode: protoDeleteMode(i.stream.GetDeleteMode()),
