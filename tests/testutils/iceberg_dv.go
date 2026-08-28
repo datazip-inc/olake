@@ -552,7 +552,7 @@ func (cfg *IntegrationTest) testIcebergEqToDVMigration(ctx context.Context, t *t
 // check and an eq/pos-rejection check, both real behavior but both writer-independent (append
 // mode never writes a delete file regardless of writer; the eq/pos rejection is enforced
 // server-side at handshake, before any writer is chosen) and both fully covered in spirit by
-// unit-level or Iceberg-bytecode verification already recorded in DV_IMPLEMENTATION.md, so
+// unit-level or Iceberg-bytecode verification already recorded, so
 // spending real container-launch time on them here wasn't worth it. A prior arrow-only
 // rolled-file scenario was cut earlier for the same reason: at a size that fits inside an
 // integration test's time budget, it never actually reached the writer's real file-roll
