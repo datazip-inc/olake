@@ -9,6 +9,7 @@ import (
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/datazip-inc/olake/utils/version"
@@ -24,7 +25,7 @@ var discoverCmd = &cobra.Command{
 			return nil
 		}
 		if configPath == "" {
-			return fmt.Errorf("--config not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
 		}
 
 		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
@@ -34,7 +35,7 @@ var discoverCmd = &cobra.Command{
 		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		if streamsPath != "" {
 			if err := utils.UnmarshalFile(streamsPath, &catalog, false); err != nil {
-				return fmt.Errorf("failed to read streams from %s: %s", streamsPath, err)
+				return fmt.Errorf("failed to read streams from %s: %w", streamsPath, err)
 			}
 		}
 
@@ -92,18 +93,18 @@ var discoverCmd = &cobra.Command{
 func compareStreams() error {
 	var oldStreams, newStreams types.Catalog
 	if serr := utils.UnmarshalFile(streamsPath, &oldStreams, false); serr != nil {
-		return fmt.Errorf("failed to read old catalog: %s", serr)
+		return fmt.Errorf("failed to read old catalog: %w", serr)
 	}
 
 	if derr := utils.UnmarshalFile(differencePath, &newStreams, false); derr != nil {
-		return fmt.Errorf("failed to read new catalog: %s", derr)
+		return fmt.Errorf("failed to read new catalog: %w", derr)
 	}
 
 	diffCatalog := types.GetStreamsDelta(&oldStreams, &newStreams)
 	// log the difference catalog to stdout
 
 	if err := logger.FileLoggerWithPath(diffCatalog, viper.GetString(constants.DifferencePath)); err != nil {
-		return fmt.Errorf("failed to write difference streams: %s", err)
+		return fmt.Errorf("failed to write difference streams: %w", err)
 	}
 	logger.Infof("Successfully wrote stream differences")
 	message := types.Message{

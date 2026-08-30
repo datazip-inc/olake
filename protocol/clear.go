@@ -6,6 +6,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
@@ -15,9 +16,9 @@ var clearCmd = &cobra.Command{
 	Short: "Olake clear command to clear destination data and state for selected streams",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 		if destinationConfigPath == "" {
-			return fmt.Errorf("--destination not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
 		} else if streamsPath == "" {
-			return fmt.Errorf("--streams not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--streams not passed"))
 		}
 
 		destinationConfig = &types.WriterConfig{}
@@ -50,7 +51,7 @@ var clearCmd = &cobra.Command{
 
 		selectedStreamsMetadata, err := classifyStreams(catalog, nil, state)
 		if err != nil {
-			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
+			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
 		dropStreams := []types.StreamInterface{}
 		dropStreams = append(dropStreams, append(append(selectedStreamsMetadata.IncrementalStreams, selectedStreamsMetadata.FullLoadStreams...), selectedStreamsMetadata.CDCStreams...)...)
@@ -63,14 +64,14 @@ var clearCmd = &cobra.Command{
 		// clear state for selected streams
 		newState, err := connector.ClearState(dropStreams)
 		if err != nil {
-			return fmt.Errorf("error clearing state: %s", err)
+			return fmt.Errorf("error clearing state: %w", err)
 		}
 		logger.Infof("State for selected streams cleared successfully.")
 		// Setup new state after clear for connector
 		connector.SetupState(newState)
 
 		if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
-			return fmt.Errorf("failed to clear destination: %s", cerr)
+			return fmt.Errorf("failed to clear destination: %w", cerr)
 		}
 		logger.Infof("Successfully cleared destination data for selected streams.")
 		// save new state in state file
