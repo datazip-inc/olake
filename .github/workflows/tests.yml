@@ -335,7 +335,7 @@ jobs:
       - *driver-deps
 
       - name: Set up Java for Maven
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -370,7 +370,7 @@ jobs:
           sleep 120
 
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-session-name: performance_test_gh
           role-to-assume: ${{ secrets.AWS_GITHUB_ROLE }}
