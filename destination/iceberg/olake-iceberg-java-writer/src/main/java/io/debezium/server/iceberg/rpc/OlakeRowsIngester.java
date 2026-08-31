@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -15,6 +16,7 @@ import org.slf4j.LoggerFactory;
 
 import io.debezium.server.iceberg.IcebergUtil;
 import io.debezium.server.iceberg.SchemaConvertor;
+import io.debezium.server.iceberg.tableIndex.EqualityDeleteMigrator;
 import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.tableoperator.RecordWrapper;
 import io.grpc.stub.StreamObserver;
@@ -67,7 +69,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             // Mirrors what process exit did for free in the old per-JVM model.
             if (request.getType() == IcebergPayload.PayloadType.CLOSE_SESSION) {
                 sessions.remove(threadId);
-                sendResponse(responseObserver, requestId + " closed session " + threadId);
+                sendResponseString(responseObserver, requestId + " closed session " + threadId);
                 LOGGER.debug("{} closed session {}", requestId, threadId);
                 return;
             }
@@ -88,10 +90,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 LOGGER.warn("{} Dropping table {}.{}", requestId, dropNamespace, dropTableName);
                 boolean dropped = IcebergUtil.dropIcebergTable(dropNamespace, dropTableName, icebergCatalog);
                 if (dropped) {
-                    sendResponse(responseObserver, "Successfully dropped table " + dropTableName);
+                    sendResponseString(responseObserver, "Successfully dropped table " + dropTableName);
                     LOGGER.info("{} Table {} dropped", requestId, dropTableName);
                 } else {
-                    sendResponse(responseObserver, "Table " + dropTableName + " does not exist");
+                    sendResponseString(responseObserver, "Table " + dropTableName + " does not exist");
                     LOGGER.warn("{} Table {} not dropped, table does not exist", requestId, dropTableName);
                 }
                 LOGGER.info("{} Total time taken: {} ms", requestId, (System.currentTimeMillis() - startTime));
@@ -113,6 +115,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 }
                 String identifierField = metadata.getIdentifierField();
                 boolean upsert = metadata.getUpsert();
+                boolean usePositionalDeletes = metadata.getUsePositionalDeletes();
                 List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
                 List<Map<String, String>> partitionTransforms = toPartitionList(metadata.getPartitionFieldsList());
                 TableIdentifier tid = TableIdentifier.of(namespace, destTableName);
@@ -125,7 +128,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                         k -> {
                             Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
                             Table icebergTable = loadOrCreateTable(tid, schema, partitionTransforms);
-                            return new IcebergSession(icebergTable, upsert, identifierField);
+                            return new IcebergSession(icebergTable, upsert, identifierField, usePositionalDeletes);
                         });
             } else {
                 // RECORDS / COMMIT / EVOLVE_SCHEMA / REFRESH_TABLE_SCHEMA: the
@@ -140,8 +143,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
 
             switch (request.getType()) {
                 case COMMIT:
-                    session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable);
-                    sendResponse(responseObserver, requestId + " Successfully committed data for thread " + threadId);
+                    Long baseSnapshotId = metadata.hasBaseSnapshotId() ? metadata.getBaseSnapshotId() : null;
+                    long snapshotId = session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable,
+                            baseSnapshotId);
+                    RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder()
+                        .setResult(requestId + " Successfully committed data for thread " + threadId)
+                        .setSnapshotId(snapshotId);
+                    sendResponse(responseObserver, builder.build());
                     LOGGER.debug("{} Successfully committed data for thread: {}", requestId, threadId);
                     break;
 
@@ -151,7 +159,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.icebergTable.refresh();
                     // complete current writer
                     session.op.completeWriter();
-                    sendResponse(responseObserver, session.icebergTable.schema().toString());
+                    sendResponseString(responseObserver, session.icebergTable.schema().toString());
                     LOGGER.info("{} Successfully applied schema evolution for thread: {}", requestId, threadId);
                     break;
 
@@ -159,14 +167,14 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     session.icebergTable.refresh();
                     // complete current writer
                     session.op.completeWriter();
-                    sendResponse(responseObserver, session.icebergTable.schema().toString());
+                    sendResponseString(responseObserver, session.icebergTable.schema().toString());
                     break;
 
                 case GET_OR_CREATE_TABLE:
                     session.icebergTable.refresh();
                     String commitState = session.op.getCommitState(session.icebergTable);
-                    sendResponse(responseObserver, session.icebergTable.schema().toString(),
-                            commitState != null ? commitState : "");
+                    sendTableResponse(responseObserver, session.icebergTable.schema().toString(),
+                            commitState != null ? commitState : "", session);
                     break;
 
                 case RECORDS:
@@ -174,9 +182,13 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     SchemaConvertor recordsConvertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
                     List<RecordWrapper> finalRecords = recordsConvertor.convert(session.upsert, session.icebergTable.schema(), request.getRecordsList());
                     
-                    session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords);
+                    List<RecordIngest.FilePositionMap> positionMaps = session.op.addToTablePerSchema(threadId, session.icebergTable, finalRecords);
                     
-                    sendResponse(responseObserver, "successfully pushed records: " + request.getRecordsCount());
+                    sendResponse(responseObserver, io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse.newBuilder()
+                        .setResult("successfully pushed records: " + request.getRecordsCount())
+                        .setSuccess(true)
+                        .addAllFilePositionMaps(positionMaps)
+                        .build());
                     LOGGER.debug("{} Successfully wrote {} records for thread {}", requestId, request.getRecordsCount(), threadId);
                     break;
 
@@ -188,19 +200,47 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
         } catch (Exception e) {
             String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
             LOGGER.error(errorMessage, e);
-            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(errorMessage).asRuntimeException());
+            responseObserver.onError(OlakeFailures.toStatusException(e, request.getType().name(), errorMessage));
         }
     }
 
-    private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message) {
-        sendResponse(responseObserver, message, null);
+    private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, io.debezium.server.iceberg.rpc.RecordIngest.RecordIngestResponse response) {
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
     }
 
-    private void sendResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message, String olake2pcState) {
+    private void sendResponseString(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message) {
+        sendResponseString(responseObserver, message, null);
+    }
+
+    private void sendResponseString(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver, String message, String olake2pcState) {
         RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder().setResult(message);
         if (olake2pcState != null) {
             builder.setOlake2PcState(olake2pcState);
         }
+        responseObserver.onNext(builder.build());
+        responseObserver.onCompleted();
+    }
+
+    /**
+     * Answers the GET_OR_CREATE_TABLE handshake with the table's current snapshot
+     * and whether it still carries equality deletes.
+     */
+    private void sendTableResponse(StreamObserver<RecordIngest.RecordIngestResponse> responseObserver,
+            String message, String olake2pcState, IcebergSession session) throws Exception {
+        RecordIngest.RecordIngestResponse.Builder builder = RecordIngest.RecordIngestResponse.newBuilder()
+                .setResult(message)
+                .setOlake2PcState(olake2pcState);
+
+        Table table = session.icebergTable;
+        Snapshot current = table.currentSnapshot();
+        if (current != null) {
+            builder.setSnapshotId(current.snapshotId());
+            if (session.usePositionalDeletes) {
+                builder.setHasEqualityDeletes(EqualityDeleteMigrator.hasEqualityDeletes(table));
+            }
+        }
+
         responseObserver.onNext(builder.build());
         responseObserver.onCompleted();
     }
