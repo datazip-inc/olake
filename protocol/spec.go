@@ -22,13 +22,13 @@ var specCmd = &cobra.Command{
 
 		var specData map[string]interface{}
 		if err := utils.UnmarshalFile(specPath, &specData, false); err != nil {
-			return fmt.Errorf("failed to read spec file %s: %v", specPath, err)
+			return fmt.Errorf("failed to read spec file %s: %w", specPath, err)
 		}
 
 		schemaType := utils.Ternary(destinationType == "not-set", connector.Type(), destinationType).(string)
 		uiSchema, err := spec.LoadUISchema(schemaType)
 		if err != nil {
-			return fmt.Errorf("failed to get ui schema: %v", err)
+			return fmt.Errorf("failed to get ui schema: %w", err)
 		}
 
 		specSchema := map[string]interface{}{
