@@ -48,7 +48,7 @@
              CVE-2026-54399 (fixed in httpcore5 5.4.3). Bumping the parent client
              pulls the fixed core transitively; Apache Iceberg main pins this same
              5.6.3. Drop when Iceberg itself ships httpclient5 >= 5.6.2. -->
-    <version.httpclient5>5.6.3</version.httpclient5>
+    <version.httpclient5>5.6.4</version.httpclient5>
   </properties>
   <dependencyManagement>
     <dependencies>
