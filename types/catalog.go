@@ -66,6 +66,18 @@ type Catalog struct {
 	Streams         []*ConfiguredStream         `json:"streams,omitempty"`
 }
 
+// StreamMix is the per-sync breakdown of the streams a run actually syncs. Only streams that
+// survived selection and validation are counted, so the sync-mode counters sum to Selected.
+type StreamMix struct {
+	FullRefresh int `json:"full_refresh_streams_count"`
+	Incremental int `json:"incremental_streams_count"`
+	CDC         int `json:"cdc_streams_count"`
+	StrictCDC   int `json:"strict_cdc_streams_count"`
+	Selected    int `json:"selected_streams_count"`
+	Normalized  int `json:"normalized_streams_count"`
+	Partitioned int `json:"partitioned_streams_count"`
+}
+
 func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
