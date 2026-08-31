@@ -36,7 +36,9 @@ func NewCSVParser(config CSVConfig, stream *types.Stream) *CSVParser {
 
 // InferSchema reads the first few rows of a CSV file to infer the schema
 // Uses small samples to avoid loading entire file into memory
-func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
+func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (_ *types.Stream, err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	logger.Debug("Inferring CSV schema from sample data")
 
 	// Create CSV reader
@@ -50,23 +52,22 @@ func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 	for i := 0; i < p.config.SkipRows; i++ {
 		_, err := csvReader.Read()
 		if err != nil {
-			return nil, fmt.Errorf("failed to skip row %d: %s", i, err)
+			return nil, fmt.Errorf("failed to skip row %d: %w", i, err)
 		}
 	}
 
 	var headers []string
-	var err error
 	if p.config.HasHeader {
 		// Read header row
 		headers, err = csvReader.Read()
 		if err != nil {
-			return nil, fmt.Errorf("failed to read CSV headers: %s", err)
+			return nil, fmt.Errorf("failed to read CSV headers: %w", err)
 		}
 	} else {
 		// Read first data row to determine column count
 		firstRow, err := csvReader.Read()
 		if err != nil {
-			return nil, fmt.Errorf("failed to read first CSV row: %s", err)
+			return nil, fmt.Errorf("failed to read first CSV row: %w", err)
 		}
 		// Generate column names as column_0, column_1, etc.
 		for i := range firstRow {
@@ -100,7 +101,9 @@ func (p *CSVParser) InferSchema(_ context.Context, reader io.Reader) (*types.Str
 }
 
 // StreamRecords reads and streams CSV records with context support
-func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) error {
+func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) (err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	csvReader := csv.NewReader(reader)
 	csvReader.Comma = rune(p.config.Delimiter[0])
 	if p.config.QuoteCharacter != "" {
@@ -111,7 +114,7 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 	for i := 0; i < p.config.SkipRows; i++ {
 		_, err := csvReader.Read()
 		if err != nil {
-			return fmt.Errorf("failed to skip row %d: %s", i, err)
+			return fmt.Errorf("failed to skip row %d: %w", i, err)
 		}
 	}
 
@@ -121,13 +124,13 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 		var err error
 		headers, err = csvReader.Read()
 		if err != nil {
-			return fmt.Errorf("failed to read CSV headers: %s", err)
+			return fmt.Errorf("failed to read CSV headers: %w", err)
 		}
 	} else {
 		// Generate default column names based on first row
 		firstRow, err := csvReader.Read()
 		if err != nil {
-			return fmt.Errorf("failed to read first row: %s", err)
+			return fmt.Errorf("failed to read first row: %w", err)
 		}
 		for i := range firstRow {
 			headers = append(headers, fmt.Sprintf("column_%d", i))
@@ -142,7 +145,7 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 						// errNullValue indicates a valid null/empty value
 						record[headers[i]] = nil
 					} else {
-						return fmt.Errorf("failed to convert value for field %s: %s", headers[i], err)
+						return fmt.Errorf("failed to convert value for field %s: %w", headers[i], err)
 					}
 				} else {
 					record[headers[i]] = convertedValue
@@ -150,7 +153,7 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 			}
 		}
 		if err := callback(ctx, record); err != nil {
-			return fmt.Errorf("failed to process first record: %s", err)
+			return fmt.Errorf("failed to process first record: %w", err)
 		}
 	}
 
@@ -183,7 +186,7 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 						// errNullValue indicates a valid null/empty value
 						record[headers[i]] = nil
 					} else {
-						return fmt.Errorf("failed to convert value for field %s in row %d: %s", headers[i], recordCount, err)
+						return fmt.Errorf("failed to convert value for field %s in row %d: %w", headers[i], recordCount, err)
 					}
 				} else {
 					record[headers[i]] = convertedValue
@@ -192,7 +195,7 @@ func (p *CSVParser) StreamRecords(ctx context.Context, reader io.Reader, callbac
 		}
 
 		if err := callback(ctx, record); err != nil {
-			return fmt.Errorf("failed to process record: %s", err)
+			return fmt.Errorf("failed to process record: %w", err)
 		}
 		recordCount++
 	}
@@ -306,19 +309,19 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 	case types.Int32:
 		intVal, err := strconv.ParseInt(trimmed, 10, 32)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert '%s' to integer: %s", trimmed, err)
+			return nil, fmt.Errorf("failed to convert '%s' to integer: %w", trimmed, err)
 		}
 		return int32(intVal), nil
 	case types.Int64:
 		intVal, err := strconv.ParseInt(trimmed, 10, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert '%s' to int64: %s", trimmed, err)
+			return nil, fmt.Errorf("failed to convert '%s' to int64: %w", trimmed, err)
 		}
 		return intVal, nil
 	case types.Float32:
 		floatVal, err := strconv.ParseFloat(trimmed, 32)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert '%s' to float32: %s", trimmed, err)
+			return nil, fmt.Errorf("failed to convert '%s' to float32: %w", trimmed, err)
 		}
 		// Handle NaN/Inf - JSON doesn't support these values, so convert to nil
 		if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
@@ -328,7 +331,7 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 	case types.Float64:
 		floatVal, err := strconv.ParseFloat(trimmed, 64)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert '%s' to float64: %s", trimmed, err)
+			return nil, fmt.Errorf("failed to convert '%s' to float64: %w", trimmed, err)
 		}
 		// Handle NaN/Inf - JSON doesn't support these values, so convert to nil
 		if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
@@ -338,14 +341,14 @@ func convertValue(value string, fieldType types.DataType) (interface{}, error) {
 	case types.Bool:
 		boolVal, err := strconv.ParseBool(trimmed)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert '%s' to boolean: %s", trimmed, err)
+			return nil, fmt.Errorf("failed to convert '%s' to boolean: %w", trimmed, err)
 		}
 		return boolVal, nil
 	case types.Timestamp, types.TimestampMilli, types.TimestampMicro, types.TimestampNano:
 		// Parse timestamp string using ReformatDate which handles multiple formats
 		timestampVal, err := typeutils.ReformatDate(trimmed, true)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert '%s' to timestamp: %s", trimmed, err)
+			return nil, fmt.Errorf("failed to convert '%s' to timestamp: %w", trimmed, err)
 		}
 		return timestampVal, nil
 	case types.Object:
