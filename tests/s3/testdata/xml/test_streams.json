@@ -2,6 +2,7 @@
     "selected_streams": {
         "s3": [
             {
+                "update_type": "eq",
                 "partition_regex": "",
                 "stream_name": "s3_xml_test_table_olake",
                 "normalization": false,
@@ -198,10 +199,10 @@
                 "sync_mode": "incremental",
                 "destination_database": "s3_olake_s3_test:s3",
                 "destination_table": "s3_xml_test_table_olake",
-                "default_stream_properties": {
+                "default_stream_properties":{
                     "normalization": false,
                     "append_mode": false
-                }
+                ,"update_type":"eq"}
             }
         }
     ]
