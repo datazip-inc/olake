@@ -36,6 +36,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: todo-issue
-        uses: DerJuulsn/todo-issue@v1.1.4
+        uses: DerJuulsn/todo-issue@v2.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
