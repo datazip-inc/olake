@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/logger"
+	s3util "github.com/datazip-inc/olake/utils/s3"
+	"github.com/spf13/viper"
 )
 
 const s3URIPrefix = "s3://"
@@ -25,39 +26,6 @@ type S3PathMapping struct {
 	Key          string
 }
 
-// newS3Client creates a new S3 client.
-func newS3Client(ctx context.Context) (*s3.Client, error) {
-	// Load the AWS config.
-	configOpts := []func(*config.LoadOptions) error{}
-
-	if region := os.Getenv("OLAKE_S3_REGION"); region != "" {
-		configOpts = append(configOpts, config.WithRegion(region))
-	}
-
-	accessKey := os.Getenv("OLAKE_S3_ACCESS_KEY_ID")
-	secretKey := os.Getenv("OLAKE_S3_SECRET_ACCESS_KEY")
-	if accessKey != "" && secretKey != "" {
-		configOpts = append(configOpts, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(accessKey, secretKey, os.Getenv("OLAKE_S3_SESSION_TOKEN")),
-		))
-	}
-
-	cfg, err := config.LoadDefaultConfig(ctx, configOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %s", err)
-	}
-
-	opts := []func(*s3.Options){}
-	if endpoint := os.Getenv("OLAKE_S3_ENDPOINT"); endpoint != "" {
-		opts = append(opts, func(o *s3.Options) {
-			o.BaseEndpoint = aws.String(endpoint)
-			o.UsePathStyle = true
-		})
-	}
-
-	return s3.NewFromConfig(cfg, opts...), nil
-}
-
 // ResolveS3Path downloads an s3:// path to a local temp file. Local paths are returned unchanged.
 func ResolveS3Path(ctx context.Context, path string) (S3PathMapping, error) {
 	if !IsS3Path(path) {
@@ -69,15 +37,7 @@ func ResolveS3Path(ctx context.Context, path string) (S3PathMapping, error) {
 		return S3PathMapping{}, err
 	}
 
-	client, err := newS3Client(ctx)
-	if err != nil {
-		return S3PathMapping{}, err
-	}
-
-	resp, err := client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-	})
+	resp, err := s3util.GetObject(ctx, bucket, key)
 	if err != nil {
 		return S3PathMapping{}, fmt.Errorf("failed to download %s: %s", path, err)
 	}
@@ -122,7 +82,6 @@ func ParseS3URI(uri string) (bucket, key string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// localPathForS3URI returns the local path for an S3 URI.
 func localPathForS3URI(bucket, key string) string {
 	return filepath.Join(os.TempDir(), "olake", "s3", bucket, key)
 }
@@ -132,35 +91,69 @@ func IsS3Path(path string) bool {
 	return strings.HasPrefix(path, s3URIPrefix)
 }
 
-// UploadFileToS3 uploads the local copy back to S3 when the original path was s3://.
-// Caller must ensure LocalPath exists.
-func UploadFileToS3(ctx context.Context, s3PathMap S3PathMapping) error {
-	if !s3PathMap.IsS3 {
-		return nil
-	}
-
-	// Create a new S3 client.
-	client, err := newS3Client(ctx)
-	if err != nil {
+// ResolveS3Paths initializes storage and downloads s3:// flag paths to local temp files.
+func ResolveS3Paths(ctx context.Context, flagPaths []*string) error {
+	if err := s3util.Init(ctx); err != nil {
 		return err
 	}
 
-	// Open the local file.
-	file, err := os.Open(s3PathMap.LocalPath)
-	if err != nil {
-		return fmt.Errorf("failed to open local file %s: %s", s3PathMap.LocalPath, err)
+	for _, flagPath := range flagPaths {
+		if err := resolveS3PathFlag(ctx, flagPath); err != nil {
+			return err
+		}
 	}
-	defer file.Close()
-
-	// Upload the file to S3.
-	_, err = client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket: aws.String(s3PathMap.Bucket),
-		Key:    aws.String(s3PathMap.Key),
-		Body:   file,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to upload %s: %s", s3PathMap.OriginalPath, err)
-	}
-
 	return nil
+}
+
+func resolveS3PathFlag(ctx context.Context, flagPath *string) error {
+	if *flagPath == "" || *flagPath == "not-set" {
+		return nil
+	}
+
+	s3PathMap, err := ResolveS3Path(ctx, *flagPath)
+	if err != nil {
+		return err
+	}
+	*flagPath = s3PathMap.LocalPath
+	return nil
+}
+
+// FinalizeS3Upload uploads local artifacts after a successful run. Deferred with
+// a named return so a failed upload is not dropped. Failures skip the upload so
+// a partial local write cannot overwrite remote streams/state.
+func FinalizeS3Upload(ctx context.Context, err *error, noSave bool) {
+	if *err != nil || noSave || s3util.JobBucket == "" {
+		return
+	}
+
+	statsPath := ""
+	if configFolder := viper.GetString(constants.ConfigFolder); configFolder != "" {
+		statsPath = filepath.Join(configFolder, "stats.json")
+	}
+
+	files := []struct {
+		local string
+		name  string
+	}{
+		{viper.GetString(constants.StreamsPath), "streams.json"},
+		{viper.GetString(constants.StatePath), "state.json"},
+		{statsPath, "stats.json"},
+		{viper.GetString(constants.DifferencePath), "difference_streams.json"},
+	}
+
+	for _, file := range files {
+		if file.local == "" {
+			continue
+		}
+		if _, statErr := os.Stat(file.local); statErr != nil {
+			continue
+		}
+
+		s3Key := path.Join(s3util.JobPrefix, file.name)
+		if uploadErr := s3util.UploadFileToS3(ctx, file.local, s3util.JobBucket, s3Key); uploadErr != nil {
+			*err = fmt.Errorf("failed to upload config folder artifacts to S3: %s", uploadErr)
+			return
+		}
+		logger.Infof("uploaded %s to s3://%s/%s", file.name, s3util.JobBucket, s3Key)
+	}
 }

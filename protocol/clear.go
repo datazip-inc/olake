@@ -42,12 +42,7 @@ var clearCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) (err error) {
-		defer func() {
-			if err != nil {
-				return
-			}
-			err = finalizeS3Upload(cmd.Context())
-		}()
+		defer utils.FinalizeS3Upload(cmd.Context(), &err, noSave)
 
 		selectedStreamsMetadata, err := classifyStreams(catalog, nil, state)
 		if err != nil {

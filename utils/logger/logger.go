@@ -10,6 +10,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/s3"
 	"github.com/rs/zerolog"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
@@ -174,6 +176,12 @@ func StatsLogger(ctx context.Context, statsFunc func() (int64, int64, int64, int
 				}
 				if err := FileLogger(stats, "stats", ".json"); err != nil {
 					Fatalf("failed to write stats in file: %s", err)
+				}
+				if s3.IsS3Job() {
+					statsPath := filepath.Join(viper.GetString(constants.ConfigFolder), "stats.json")
+					if err := s3.UploadFileToS3(ctx, statsPath, s3.JobBucket, path.Join(s3.JobPrefix, "stats.json")); err != nil {
+						Debugf("failed to upload stats.json: %s", err)
+					}
 				}
 			}
 		}

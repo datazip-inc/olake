@@ -14,6 +14,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/datazip-inc/olake/utils/s3"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -46,7 +47,7 @@ var RootCmd = &cobra.Command{
 	Short: "root command",
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 		// Resolve now as configPaths are needed by logger.Init(), but the error is handled later because the logger is not initialized yet.
-		s3Err := resolveS3Paths(cmd.Context())
+		s3Err := utils.ResolveS3Paths(cmd.Context(), []*string{&configPath, &destinationConfigPath, &streamsPath, &statePath, &differencePath})
 		// set global variables
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
@@ -68,7 +69,7 @@ var RootCmd = &cobra.Command{
 		}
 
 		// logger uses CONFIG_FOLDER; S3 jobs get JSON stdout matching olake.log
-		logger.Init(s3JobBucket != "")
+		logger.Init(s3.IsS3Job())
 		telemetry.Init()
 
 		// Checked last so a resolution failure is reported through the
