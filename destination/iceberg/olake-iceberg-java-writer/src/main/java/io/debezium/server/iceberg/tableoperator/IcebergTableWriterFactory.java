@@ -2,15 +2,13 @@ package io.debezium.server.iceberg.tableoperator;
 
 import io.debezium.server.iceberg.IcebergUtil;
 import org.apache.iceberg.FileFormat;
-import org.apache.iceberg.PartitionKey;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.data.GenericAppenderFactory;
-import org.apache.iceberg.data.InternalRecordWrapper;
 import org.apache.iceberg.data.Record;
+import org.apache.iceberg.deletes.DeleteGranularity;
 import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.OutputFileFactory;
-import org.apache.iceberg.io.PartitionedFanoutWriter;
-import org.apache.iceberg.io.UnpartitionedWriter;
+
 import org.apache.iceberg.util.PropertyUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +28,12 @@ public class IcebergTableWriterFactory {
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableWriterFactory.class);
   public boolean upsert = true;
   public boolean keepDeletes = true;
+  public boolean usePositionalDeletes = false;
+
+  // One positional delete file per referenced data file. Matches the granularity the
+  // equality path has always used. PARTITION trades reader-side skipping for far fewer
+  // delete files, which matters once deletes can reference arbitrary historical files.
+  private static final DeleteGranularity DELETE_GRANULARITY = DeleteGranularity.PARTITION;
 
   public BaseTaskWriter<Record> create(Table icebergTable) {
 
@@ -63,15 +67,24 @@ public class IcebergTableWriterFactory {
 
     if (icebergTable.spec().isUnpartitioned()) {
       // table is un partitioned use un partitioned append writer
-      return new UnpartitionedWriter<>(
+      return new OlakeUnpartitionedWriter(
           icebergTable.spec(), format, appenderFactory, fileFactory, icebergTable.io(), targetFileSize);
 
     } else {
-        return createFanoutAppendWriter(icebergTable, format, appenderFactory, fileFactory, targetFileSize);
+        return new OlakePartitionedFanoutWriter(
+          icebergTable.spec(), format, appenderFactory, fileFactory, icebergTable.io(), targetFileSize, icebergTable.schema());
     }
   }
 
   private BaseTaskWriter<Record> deltaWriter(Table icebergTable, FileFormat format, GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory, long targetFileSize) {
+
+    if (usePositionalDeletes) {
+      // One writer for both layouts: an unpartitioned table is a single entry keyed
+      // on the empty partition struct, so there is no partitioned/unpartitioned split.
+      return new PositionalDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
+          icebergTable.io(),
+          targetFileSize, icebergTable.schema(), keepDeletes, DELETE_GRANULARITY);
+    }
 
     Set<Integer> identifierFieldIds = icebergTable.schema().identifierFieldIds();
     if (icebergTable.spec().isUnpartitioned()) {
@@ -86,30 +99,4 @@ public class IcebergTableWriterFactory {
           targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes);
     }
   }
-
-  private BaseTaskWriter<Record> createFanoutAppendWriter(Table icebergTable, FileFormat format,
-                                                       GenericAppenderFactory appenderFactory,
-                                                       OutputFileFactory fileFactory, long targetFileSize) {
-    
-    // Create PartitionedFanoutWriter - this extends BaseTaskWriter<Record>
-    return new PartitionedFanoutWriter<Record>(
-        icebergTable.spec(), 
-        format, 
-        appenderFactory,  // GenericAppenderFactory works as FileAppenderFactory
-        fileFactory, 
-        icebergTable.io(), 
-        targetFileSize
-    ) {
-        // Need to provide partition logic
-        private final PartitionKey partitionKey = new PartitionKey(icebergTable.spec(), icebergTable.schema());
-        private final InternalRecordWrapper wrapper = new InternalRecordWrapper(icebergTable.schema().asStruct());
-        
-        @Override
-        protected PartitionKey partition(Record record) {
-            // Use InternalRecordWrapper to handle data type conversions correctly
-            partitionKey.partition(wrapper.wrap(record));
-            return partitionKey;
-        }
-    };
-}
 }
