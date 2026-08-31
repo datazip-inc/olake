@@ -775,9 +775,11 @@ type IcebergPayload_Metadata struct {
 	// GET_OR_CREATE_TABLE: how this stream expresses deletes. Also decides the
 	// format version a newly created table is built at, and is validated against
 	// an existing table's version before any writer is built.
-	DeleteMode    IcebergPayload_DeleteMode `protobuf:"varint,11,opt,name=delete_mode,json=deleteMode,proto3,enum=io.debezium.server.iceberg.rpc.IcebergPayload_DeleteMode" json:"delete_mode,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DeleteMode IcebergPayload_DeleteMode `protobuf:"varint,11,opt,name=delete_mode,json=deleteMode,proto3,enum=io.debezium.server.iceberg.rpc.IcebergPayload_DeleteMode" json:"delete_mode,omitempty"`
+	// Whether the catalog allows declaring identifier_field on the table; only equality deletes need it declared.
+	DeclareIdentifierFields bool `protobuf:"varint,12,opt,name=declare_identifier_fields,json=declareIdentifierFields,proto3" json:"declare_identifier_fields,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *IcebergPayload_Metadata) Reset() {
@@ -878,6 +880,13 @@ func (x *IcebergPayload_Metadata) GetDeleteMode() IcebergPayload_DeleteMode {
 		return x.DeleteMode
 	}
 	return IcebergPayload_DELETE_MODE_UNSPECIFIED
+}
+
+func (x *IcebergPayload_Metadata) GetDeclareIdentifierFields() bool {
+	if x != nil {
+		return x.DeclareIdentifierFields
+	}
+	return false
 }
 
 type IcebergPayload_SchemaField struct {
@@ -1826,11 +1835,11 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xfd\r\n" +
+	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xb9\x0e\n" +
 	"\x0eIcebergPayload\x12N\n" +
 	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
 	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
-	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xc2\x04\n" +
+	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xfe\x04\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
 	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12.\n" +
@@ -1843,7 +1852,8 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x10base_snapshot_id\x18\n" +
 	" \x01(\x03H\x01R\x0ebaseSnapshotId\x88\x01\x01\x12Z\n" +
 	"\vdelete_mode\x18\v \x01(\x0e29.io.debezium.server.iceberg.rpc.IcebergPayload.DeleteModeR\n" +
-	"deleteModeB\x13\n" +
+	"deleteMode\x12:\n" +
+	"\x19declare_identifier_fields\x18\f \x01(\bR\x17declareIdentifierFieldsB\x13\n" +
 	"\x11_identifier_fieldB\x13\n" +
 	"\x11_base_snapshot_id\x1a:\n" +
 	"\vSchemaField\x12\x19\n" +

@@ -115,6 +115,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     throw new Exception("Namespace not present in metadata");
                 }
                 String identifierField = metadata.getIdentifierField();
+                boolean declareIdentifierFields = metadata.getDeclareIdentifierFields();
                 boolean upsert = metadata.getUpsert();
                 DeleteMode deleteMode = DeleteMode.resolve(metadata.getDeleteMode());
                 List<IcebergPayload.SchemaField> schemaMetadata = metadata.getSchemaList();
@@ -127,7 +128,10 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                 // computeIfAbsent creates a new session since we just removed any existing one
                 session = sessions.computeIfAbsent(threadId,
                         k -> {
-                            Schema schema = new SchemaConvertor(identifierField, schemaMetadata).convertToIcebergSchema();
+                            // "" leaves the column undeclared, the only shape Unity Catalog accepts.
+                            Schema schema = new SchemaConvertor(
+                                    declareIdentifierFields ? identifierField : "", schemaMetadata)
+                                    .convertToIcebergSchema();
                             Table icebergTable = loadOrCreateTable(tid, schema, partitionTransforms, deleteMode);
                             return new IcebergSession(icebergTable, upsert, identifierField, deleteMode);
                         });
@@ -155,7 +159,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
                     break;
 
                 case EVOLVE_SCHEMA:
-                    SchemaConvertor convertor = new SchemaConvertor(session.identifierField, metadata.getSchemaList());
+                    SchemaConvertor convertor = new SchemaConvertor(session.createIdentifierFields() ? session.identifierField : "", metadata.getSchemaList());
                     session.op.applyFieldAddition(session.icebergTable, convertor.convertToIcebergSchema(), session.createIdentifierFields());
                     session.icebergTable.refresh();
                     // complete current writer

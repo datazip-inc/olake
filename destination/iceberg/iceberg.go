@@ -97,7 +97,8 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	upsertMode := isUpsertMode(stream, options.Backfill)
 	deleteMode := stream.GetUpdateType()
 
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	// Row-identity column, sent even where the catalog forbids declaring it.
+	identifierField := constants.OlakeID
 	iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
 	requestPayload := proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
@@ -106,10 +107,12 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 			DestTableName:   stream.GetDestinationTable(),
 			ThreadId:        options.ThreadID,
 			IdentifierField: &identifierField,
-			Namespace:       stream.GetDestinationDatabase(&i.config.IcebergDatabase),
-			Upsert:          upsertMode,
-			DeleteMode:      protoDeleteMode(deleteMode),
-			PartitionFields: icebergPartFields,
+			// Unity Catalog rejects identifier columns; only equality deletes need them declared.
+			DeclareIdentifierFields: !i.config.NoIdentifierFields,
+			Namespace:               stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+			Upsert:                  upsertMode,
+			DeleteMode:              protoDeleteMode(deleteMode),
+			PartitionFields:         icebergPartFields,
 		},
 	}
 
@@ -197,7 +200,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	// Row-identity column, sent even where the catalog forbids declaring it.
+	identifierField := constants.OlakeID
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
@@ -207,6 +211,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 			Namespace:       destinationDB,
 			Upsert:          false,
 			IdentifierField: &identifierField,
+			// Unity Catalog rejects identifier columns; only equality deletes need them declared.
+			DeclareIdentifierFields: !i.config.NoIdentifierFields,
 			// The check table is written once, appended, and never updated, so no
 			// delete mode is meaningful here. Equality is the one that constrains the
 			// table least: it creates at format version 2 and needs no table index.

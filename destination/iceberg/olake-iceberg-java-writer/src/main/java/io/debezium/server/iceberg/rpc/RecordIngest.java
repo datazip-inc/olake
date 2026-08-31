@@ -565,6 +565,16 @@ public final class RecordIngest {
        * @return The deleteMode.
        */
       io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.DeleteMode getDeleteMode();
+
+      /**
+       * <pre>
+       * Whether the catalog allows declaring identifier_field on the table; only equality deletes need it declared.
+       * </pre>
+       *
+       * <code>bool declare_identifier_fields = 12;</code>
+       * @return The declareIdentifierFields.
+       */
+      boolean getDeclareIdentifierFields();
     }
     /**
      * Protobuf type {@code io.debezium.server.iceberg.rpc.IcebergPayload.Metadata}
@@ -975,6 +985,21 @@ public final class RecordIngest {
         return result == null ? io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.DeleteMode.UNRECOGNIZED : result;
       }
 
+      public static final int DECLARE_IDENTIFIER_FIELDS_FIELD_NUMBER = 12;
+      private boolean declareIdentifierFields_ = false;
+      /**
+       * <pre>
+       * Whether the catalog allows declaring identifier_field on the table; only equality deletes need it declared.
+       * </pre>
+       *
+       * <code>bool declare_identifier_fields = 12;</code>
+       * @return The declareIdentifierFields.
+       */
+      @java.lang.Override
+      public boolean getDeclareIdentifierFields() {
+        return declareIdentifierFields_;
+      }
+
       private byte memoizedIsInitialized = -1;
       @java.lang.Override
       public final boolean isInitialized() {
@@ -1018,6 +1043,9 @@ public final class RecordIngest {
         }
         if (deleteMode_ != io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload.DeleteMode.DELETE_MODE_UNSPECIFIED.getNumber()) {
           output.writeEnum(11, deleteMode_);
+        }
+        if (declareIdentifierFields_ != false) {
+          output.writeBool(12, declareIdentifierFields_);
         }
         getUnknownFields().writeTo(output);
       }
@@ -1063,6 +1091,10 @@ public final class RecordIngest {
           size += com.google.protobuf.CodedOutputStream
             .computeEnumSize(11, deleteMode_);
         }
+        if (declareIdentifierFields_ != false) {
+          size += com.google.protobuf.CodedOutputStream
+            .computeBoolSize(12, declareIdentifierFields_);
+        }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
         return size;
@@ -1103,6 +1135,8 @@ public final class RecordIngest {
               != other.getBaseSnapshotId()) return false;
         }
         if (deleteMode_ != other.deleteMode_) return false;
+        if (getDeclareIdentifierFields()
+            != other.getDeclareIdentifierFields()) return false;
         if (!getUnknownFields().equals(other.getUnknownFields())) return false;
         return true;
       }
@@ -1144,6 +1178,9 @@ public final class RecordIngest {
         }
         hash = (37 * hash) + DELETE_MODE_FIELD_NUMBER;
         hash = (53 * hash) + deleteMode_;
+        hash = (37 * hash) + DECLARE_IDENTIFIER_FIELDS_FIELD_NUMBER;
+        hash = (53 * hash) + com.google.protobuf.Internal.hashBoolean(
+            getDeclareIdentifierFields());
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -1297,6 +1334,7 @@ public final class RecordIngest {
           bitField0_ = (bitField0_ & ~0x00000080);
           baseSnapshotId_ = 0L;
           deleteMode_ = 0;
+          declareIdentifierFields_ = false;
           return this;
         }
 
@@ -1378,6 +1416,9 @@ public final class RecordIngest {
           }
           if (((from_bitField0_ & 0x00000200) != 0)) {
             result.deleteMode_ = deleteMode_;
+          }
+          if (((from_bitField0_ & 0x00000400) != 0)) {
+            result.declareIdentifierFields_ = declareIdentifierFields_;
           }
           result.bitField0_ |= to_bitField0_;
         }
@@ -1512,6 +1553,9 @@ public final class RecordIngest {
           if (other.deleteMode_ != 0) {
             setDeleteModeValue(other.getDeleteModeValue());
           }
+          if (other.getDeclareIdentifierFields() != false) {
+            setDeclareIdentifierFields(other.getDeclareIdentifierFields());
+          }
           this.mergeUnknownFields(other.getUnknownFields());
           onChanged();
           return this;
@@ -1604,6 +1648,11 @@ public final class RecordIngest {
                   bitField0_ |= 0x00000200;
                   break;
                 } // case 88
+                case 96: {
+                  declareIdentifierFields_ = input.readBool();
+                  bitField0_ |= 0x00000400;
+                  break;
+                } // case 96
                 default: {
                   if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                     done = true; // was an endgroup tag
@@ -2663,6 +2712,50 @@ public final class RecordIngest {
         public Builder clearDeleteMode() {
           bitField0_ = (bitField0_ & ~0x00000200);
           deleteMode_ = 0;
+          onChanged();
+          return this;
+        }
+
+        private boolean declareIdentifierFields_ ;
+        /**
+         * <pre>
+         * Whether the catalog allows declaring identifier_field on the table; only equality deletes need it declared.
+         * </pre>
+         *
+         * <code>bool declare_identifier_fields = 12;</code>
+         * @return The declareIdentifierFields.
+         */
+        @java.lang.Override
+        public boolean getDeclareIdentifierFields() {
+          return declareIdentifierFields_;
+        }
+        /**
+         * <pre>
+         * Whether the catalog allows declaring identifier_field on the table; only equality deletes need it declared.
+         * </pre>
+         *
+         * <code>bool declare_identifier_fields = 12;</code>
+         * @param value The declareIdentifierFields to set.
+         * @return This builder for chaining.
+         */
+        public Builder setDeclareIdentifierFields(boolean value) {
+
+          declareIdentifierFields_ = value;
+          bitField0_ |= 0x00000400;
+          onChanged();
+          return this;
+        }
+        /**
+         * <pre>
+         * Whether the catalog allows declaring identifier_field on the table; only equality deletes need it declared.
+         * </pre>
+         *
+         * <code>bool declare_identifier_fields = 12;</code>
+         * @return This builder for chaining.
+         */
+        public Builder clearDeclareIdentifierFields() {
+          bitField0_ = (bitField0_ & ~0x00000400);
+          declareIdentifierFields_ = false;
           onChanged();
           return this;
         }
@@ -23512,13 +23605,13 @@ java.lang.String defaultValue) {
   static {
     java.lang.String[] descriptorData = {
       "\n\023record_ingest.proto\022\036io.debezium.serve" +
-      "r.iceberg.rpc\"\303\013\n\016IcebergPayload\022H\n\004type" +
+      "r.iceberg.rpc\"\346\013\n\016IcebergPayload\022H\n\004type" +
       "\030\001 \001(\0162:.io.debezium.server.iceberg.rpc." +
       "IcebergPayload.PayloadType\022I\n\010metadata\030\002" +
       " \001(\01327.io.debezium.server.iceberg.rpc.Ic" +
       "ebergPayload.Metadata\022I\n\007records\030\003 \003(\01328" +
       ".io.debezium.server.iceberg.rpc.IcebergP" +
-      "ayload.IceRecord\032\307\003\n\010Metadata\022\027\n\017dest_ta" +
+      "ayload.IceRecord\032\352\003\n\010Metadata\022\027\n\017dest_ta" +
       "ble_name\030\001 \001(\t\022\021\n\tthread_id\030\002 \001(\t\022\035\n\020ide" +
       "ntifier_field\030\003 \001(\tH\000\210\001\001\022J\n\006schema\030\004 \003(\013" +
       "2:.io.debezium.server.iceberg.rpc.Iceber" +
@@ -23528,107 +23621,108 @@ java.lang.String defaultValue) {
       "iceberg.rpc.IcebergPayload.PartitionFiel" +
       "d\022\035\n\020base_snapshot_id\030\n \001(\003H\001\210\001\001\022N\n\013dele" +
       "te_mode\030\013 \001(\01629.io.debezium.server.icebe" +
-      "rg.rpc.IcebergPayload.DeleteModeB\023\n\021_ide" +
-      "ntifier_fieldB\023\n\021_base_snapshot_id\032,\n\013Sc" +
-      "hemaField\022\020\n\010ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t" +
-      "\0322\n\016PartitionField\022\r\n\005field\030\001 \001(\t\022\021\n\ttra" +
-      "nsform\030\002 \001(\t\032\222\003\n\tIceRecord\022S\n\006fields\030\001 \003" +
-      "(\0132C.io.debezium.server.iceberg.rpc.Iceb" +
-      "ergPayload.IceRecord.FieldValue\022\023\n\013recor" +
-      "d_type\030\002 \001(\t\022\035\n\020delete_file_path\030\003 \001(\tH\000" +
-      "\210\001\001\022\034\n\017delete_position\030\004 \001(\003H\001\210\001\001\032\264\001\n\nFi" +
-      "eldValue\022\026\n\014string_value\030\001 \001(\tH\000\022\023\n\tint_" +
-      "value\030\002 \001(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022\025\n\013f" +
-      "loat_value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001" +
-      "H\000\022\024\n\nbool_value\030\006 \001(\010H\000\022\025\n\013bytes_value\030" +
-      "\007 \001(\014H\000B\007\n\005valueB\023\n\021_delete_file_pathB\022\n" +
-      "\020_delete_position\"\217\001\n\013PayloadType\022\013\n\007REC" +
-      "ORDS\020\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n" +
-      "\nDROP_TABLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030" +
-      "\n\024REFRESH_TABLE_SCHEMA\020\005\022\021\n\rCLOSE_SESSIO" +
-      "N\020\006\"~\n\nDeleteMode\022\033\n\027DELETE_MODE_UNSPECI" +
-      "FIED\020\000\022\030\n\024DELETE_MODE_EQUALITY\020\001\022\030\n\024DELE" +
-      "TE_MODE_POSITION\020\002\022\037\n\033DELETE_MODE_DELETI" +
-      "ON_VECTOR\020\003\"\320\001\n\024RecordIngestResponse\022\016\n\006" +
-      "result\030\001 \001(\t\022\017\n\007success\030\002 \001(\010\022\027\n\017olake_2" +
-      "pc_state\030\003 \001(\t\022\023\n\013snapshot_id\030\004 \001(\003\022\034\n\024h" +
-      "as_equality_deletes\030\005 \001(\010\022K\n\022file_positi" +
-      "on_maps\030\006 \003(\0132/.io.debezium.server.icebe" +
-      "rg.rpc.FilePositionMap\"\264\001\n\017FilePositionM" +
-      "ap\022\021\n\tfile_path\030\001 \001(\t\022E\n\006ranges\030\002 \003(\01325." +
-      "io.debezium.server.iceberg.rpc.FilePosit" +
-      "ionMap.Range\032G\n\005Range\022\027\n\017batch_start_idx" +
-      "\030\001 \001(\005\022\026\n\016start_position\030\002 \001(\003\022\r\n\005count\030" +
-      "\003 \001(\005\"\326\n\n\014ArrowPayload\022F\n\004type\030\001 \001(\01628.i" +
-      "o.debezium.server.iceberg.rpc.ArrowPaylo" +
-      "ad.PayloadType\022G\n\010metadata\030\002 \001(\01325.io.de" +
-      "bezium.server.iceberg.rpc.ArrowPayload.M" +
-      "etadata\032\322\002\n\014FileMetadata\022\021\n\tfile_type\030\001 " +
-      "\001(\t\022\021\n\tfile_path\030\002 \001(\t\022\024\n\014record_count\030\003" +
-      " \001(\003\022b\n\020partition_values\030\005 \003(\0132H.io.debe" +
-      "zium.server.iceberg.rpc.ArrowPayload.Fil" +
-      "eMetadata.PartitionValue\032\241\001\n\016PartitionVa" +
-      "lue\022\023\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong_value\030\002" +
-      " \001(\003H\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025\n\013float_" +
+      "rg.rpc.IcebergPayload.DeleteMode\022!\n\031decl" +
+      "are_identifier_fields\030\014 \001(\010B\023\n\021_identifi" +
+      "er_fieldB\023\n\021_base_snapshot_id\032,\n\013SchemaF" +
+      "ield\022\020\n\010ice_type\030\001 \001(\t\022\013\n\003key\030\002 \001(\t\0322\n\016P" +
+      "artitionField\022\r\n\005field\030\001 \001(\t\022\021\n\ttransfor" +
+      "m\030\002 \001(\t\032\222\003\n\tIceRecord\022S\n\006fields\030\001 \003(\0132C." +
+      "io.debezium.server.iceberg.rpc.IcebergPa" +
+      "yload.IceRecord.FieldValue\022\023\n\013record_typ" +
+      "e\030\002 \001(\t\022\035\n\020delete_file_path\030\003 \001(\tH\000\210\001\001\022\034" +
+      "\n\017delete_position\030\004 \001(\003H\001\210\001\001\032\264\001\n\nFieldVa" +
+      "lue\022\026\n\014string_value\030\001 \001(\tH\000\022\023\n\tint_value" +
+      "\030\002 \001(\005H\000\022\024\n\nlong_value\030\003 \001(\003H\000\022\025\n\013float_" +
       "value\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n" +
-      "\nbool_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021FileUplo" +
-      "adRequest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\tfile_pat" +
-      "h\030\002 \001(\t\032\207\002\n\023DeletionVectorBatch\022W\n\007entri" +
-      "es\030\001 \003(\0132F.io.debezium.server.iceberg.rp" +
-      "c.ArrowPayload.DeletionVectorBatch.Entry" +
-      "\032\226\001\n\005Entry\022\026\n\016data_file_path\030\001 \001(\t\022\021\n\tpo" +
-      "sitions\030\002 \003(\003\022b\n\020partition_values\030\003 \003(\0132" +
-      "H.io.debezium.server.iceberg.rpc.ArrowPa" +
-      "yload.FileMetadata.PartitionValue\032\255\003\n\010Me" +
-      "tadata\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tthrea" +
-      "d_id\030\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\01329.io.d" +
-      "ebezium.server.iceberg.rpc.ArrowPayload." +
-      "FileMetadata\022X\n\013file_upload\030\004 \001(\0132>.io.d" +
-      "ebezium.server.iceberg.rpc.ArrowPayload." +
-      "FileUploadRequestH\000\210\001\001\022\017\n\007payload\030\006 \001(\t\022" +
-      "\035\n\020base_snapshot_id\030\007 \001(\003H\001\210\001\001\022_\n\020deleti" +
-      "on_vectors\030\010 \001(\0132@.io.debezium.server.ic" +
-      "eberg.rpc.ArrowPayload.DeletionVectorBat" +
-      "chH\002\210\001\001B\016\n\014_file_uploadB\023\n\021_base_snapsho" +
-      "t_idB\023\n\021_deletion_vectors\"k\n\013PayloadType" +
-      "\022\017\n\013UPLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT" +
-      "\020\001\022\016\n\nJSONSCHEMA\020\002\022\014\n\010FILEPATH\020\003\022\024\n\020DELE" +
-      "TION_VECTORS\020\004\"\347\001\n\023ArrowIngestResponse\022\016" +
-      "\n\006result\030\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G" +
-      ".io.debezium.server.iceberg.rpc.ArrowIng" +
-      "estResponse.IcebergSchemasEntry\022\030\n\013snaps" +
-      "hot_id\030\003 \001(\003H\000\210\001\001\0325\n\023IcebergSchemasEntry" +
-      "\022\013\n\003key\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001B\016\n\014_sna" +
-      "pshot_id\"^\n\025TableIndexScanRequest\022\021\n\tthr" +
-      "ead_id\030\001 \001(\t\022\035\n\020from_snapshot_id\030\002 \001(\003H\000" +
-      "\210\001\001B\023\n\021_from_snapshot_id\"\266\001\n\023TableIndexS" +
-      "canBatch\022J\n\007entries\030\001 \003(\01329.io.debezium." +
-      "server.iceberg.rpc.TableIndexScanBatch.E" +
-      "ntry\022\023\n\013snapshot_id\030\002 \001(\003\032>\n\005Entry\022\020\n\010ol" +
-      "ake_id\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\020\n\010posit" +
-      "ion\030\003 \001(\003\"\202\001\n\035MigrateEqualityDeletesRequ" +
-      "est\022\021\n\tthread_id\030\001 \001(\t\022N\n\013target_mode\030\002 " +
-      "\001(\01629.io.debezium.server.iceberg.rpc.Ice" +
-      "bergPayload.DeleteMode\"y\n\036MigrateEqualit" +
-      "yDeletesResponse\022\023\n\013snapshot_id\030\001 \001(\003\022\036\n" +
-      "\026rewritten_delete_files\030\002 \001(\003\022\"\n\032positio" +
-      "nal_deletes_written\030\003 \001(\0032\212\001\n\023RecordInge" +
-      "stService\022s\n\013SendRecords\022..io.debezium.s" +
-      "erver.iceberg.rpc.IcebergPayload\0324.io.de" +
-      "bezium.server.iceberg.rpc.RecordIngestRe" +
-      "sponse2\205\001\n\022ArrowIngestService\022o\n\nIceberg" +
-      "API\022,.io.debezium.server.iceberg.rpc.Arr" +
-      "owPayload\0323.io.debezium.server.iceberg.r" +
-      "pc.ArrowIngestResponse2\264\002\n\021TableIndexSer" +
-      "vice\022\204\001\n\024ScanTableForIndexing\0225.io.debez" +
-      "ium.server.iceberg.rpc.TableIndexScanReq" +
-      "uest\0323.io.debezium.server.iceberg.rpc.Ta" +
-      "bleIndexScanBatch0\001\022\227\001\n\026MigrateEqualityD" +
-      "eletes\022=.io.debezium.server.iceberg.rpc." +
-      "MigrateEqualityDeletesRequest\032>.io.debez" +
-      "ium.server.iceberg.rpc.MigrateEqualityDe" +
-      "letesResponseB\035B\014RecordIngestZ\riceberg/p" +
-      "rotob\006proto3"
+      "\nbool_value\030\006 \001(\010H\000\022\025\n\013bytes_value\030\007 \001(\014" +
+      "H\000B\007\n\005valueB\023\n\021_delete_file_pathB\022\n\020_del" +
+      "ete_position\"\217\001\n\013PayloadType\022\013\n\007RECORDS\020" +
+      "\000\022\n\n\006COMMIT\020\001\022\021\n\rEVOLVE_SCHEMA\020\002\022\016\n\nDROP" +
+      "_TABLE\020\003\022\027\n\023GET_OR_CREATE_TABLE\020\004\022\030\n\024REF" +
+      "RESH_TABLE_SCHEMA\020\005\022\021\n\rCLOSE_SESSION\020\006\"~" +
+      "\n\nDeleteMode\022\033\n\027DELETE_MODE_UNSPECIFIED\020" +
+      "\000\022\030\n\024DELETE_MODE_EQUALITY\020\001\022\030\n\024DELETE_MO" +
+      "DE_POSITION\020\002\022\037\n\033DELETE_MODE_DELETION_VE" +
+      "CTOR\020\003\"\320\001\n\024RecordIngestResponse\022\016\n\006resul" +
+      "t\030\001 \001(\t\022\017\n\007success\030\002 \001(\010\022\027\n\017olake_2pc_st" +
+      "ate\030\003 \001(\t\022\023\n\013snapshot_id\030\004 \001(\003\022\034\n\024has_eq" +
+      "uality_deletes\030\005 \001(\010\022K\n\022file_position_ma" +
+      "ps\030\006 \003(\0132/.io.debezium.server.iceberg.rp" +
+      "c.FilePositionMap\"\264\001\n\017FilePositionMap\022\021\n" +
+      "\tfile_path\030\001 \001(\t\022E\n\006ranges\030\002 \003(\01325.io.de" +
+      "bezium.server.iceberg.rpc.FilePositionMa" +
+      "p.Range\032G\n\005Range\022\027\n\017batch_start_idx\030\001 \001(" +
+      "\005\022\026\n\016start_position\030\002 \001(\003\022\r\n\005count\030\003 \001(\005" +
+      "\"\326\n\n\014ArrowPayload\022F\n\004type\030\001 \001(\01628.io.deb" +
+      "ezium.server.iceberg.rpc.ArrowPayload.Pa" +
+      "yloadType\022G\n\010metadata\030\002 \001(\01325.io.debeziu" +
+      "m.server.iceberg.rpc.ArrowPayload.Metada" +
+      "ta\032\322\002\n\014FileMetadata\022\021\n\tfile_type\030\001 \001(\t\022\021" +
+      "\n\tfile_path\030\002 \001(\t\022\024\n\014record_count\030\003 \001(\003\022" +
+      "b\n\020partition_values\030\005 \003(\0132H.io.debezium." +
+      "server.iceberg.rpc.ArrowPayload.FileMeta" +
+      "data.PartitionValue\032\241\001\n\016PartitionValue\022\023" +
+      "\n\tint_value\030\001 \001(\005H\000\022\024\n\nlong_value\030\002 \001(\003H" +
+      "\000\022\026\n\014string_value\030\003 \001(\tH\000\022\025\n\013float_value" +
+      "\030\004 \001(\002H\000\022\026\n\014double_value\030\005 \001(\001H\000\022\024\n\nbool" +
+      "_value\030\006 \001(\010H\000B\007\n\005value\0329\n\021FileUploadReq" +
+      "uest\022\021\n\tfile_data\030\001 \001(\014\022\021\n\tfile_path\030\002 \001" +
+      "(\t\032\207\002\n\023DeletionVectorBatch\022W\n\007entries\030\001 " +
+      "\003(\0132F.io.debezium.server.iceberg.rpc.Arr" +
+      "owPayload.DeletionVectorBatch.Entry\032\226\001\n\005" +
+      "Entry\022\026\n\016data_file_path\030\001 \001(\t\022\021\n\tpositio" +
+      "ns\030\002 \003(\003\022b\n\020partition_values\030\003 \003(\0132H.io." +
+      "debezium.server.iceberg.rpc.ArrowPayload" +
+      ".FileMetadata.PartitionValue\032\255\003\n\010Metadat" +
+      "a\022\027\n\017dest_table_name\030\001 \001(\t\022\021\n\tthread_id\030" +
+      "\002 \001(\t\022P\n\rfile_metadata\030\003 \003(\01329.io.debezi" +
+      "um.server.iceberg.rpc.ArrowPayload.FileM" +
+      "etadata\022X\n\013file_upload\030\004 \001(\0132>.io.debezi" +
+      "um.server.iceberg.rpc.ArrowPayload.FileU" +
+      "ploadRequestH\000\210\001\001\022\017\n\007payload\030\006 \001(\t\022\035\n\020ba" +
+      "se_snapshot_id\030\007 \001(\003H\001\210\001\001\022_\n\020deletion_ve" +
+      "ctors\030\010 \001(\0132@.io.debezium.server.iceberg" +
+      ".rpc.ArrowPayload.DeletionVectorBatchH\002\210" +
+      "\001\001B\016\n\014_file_uploadB\023\n\021_base_snapshot_idB" +
+      "\023\n\021_deletion_vectors\"k\n\013PayloadType\022\017\n\013U" +
+      "PLOAD_FILE\020\000\022\027\n\023REGISTER_AND_COMMIT\020\001\022\016\n" +
+      "\nJSONSCHEMA\020\002\022\014\n\010FILEPATH\020\003\022\024\n\020DELETION_" +
+      "VECTORS\020\004\"\347\001\n\023ArrowIngestResponse\022\016\n\006res" +
+      "ult\030\001 \001(\t\022_\n\016icebergSchemas\030\002 \003(\0132G.io.d" +
+      "ebezium.server.iceberg.rpc.ArrowIngestRe" +
+      "sponse.IcebergSchemasEntry\022\030\n\013snapshot_i" +
+      "d\030\003 \001(\003H\000\210\001\001\0325\n\023IcebergSchemasEntry\022\013\n\003k" +
+      "ey\030\001 \001(\t\022\r\n\005value\030\002 \001(\t:\0028\001B\016\n\014_snapshot" +
+      "_id\"^\n\025TableIndexScanRequest\022\021\n\tthread_i" +
+      "d\030\001 \001(\t\022\035\n\020from_snapshot_id\030\002 \001(\003H\000\210\001\001B\023" +
+      "\n\021_from_snapshot_id\"\266\001\n\023TableIndexScanBa" +
+      "tch\022J\n\007entries\030\001 \003(\01329.io.debezium.serve" +
+      "r.iceberg.rpc.TableIndexScanBatch.Entry\022" +
+      "\023\n\013snapshot_id\030\002 \001(\003\032>\n\005Entry\022\020\n\010olake_i" +
+      "d\030\001 \001(\t\022\021\n\tfile_path\030\002 \001(\t\022\020\n\010position\030\003" +
+      " \001(\003\"\202\001\n\035MigrateEqualityDeletesRequest\022\021" +
+      "\n\tthread_id\030\001 \001(\t\022N\n\013target_mode\030\002 \001(\01629" +
+      ".io.debezium.server.iceberg.rpc.IcebergP" +
+      "ayload.DeleteMode\"y\n\036MigrateEqualityDele" +
+      "tesResponse\022\023\n\013snapshot_id\030\001 \001(\003\022\036\n\026rewr" +
+      "itten_delete_files\030\002 \001(\003\022\"\n\032positional_d" +
+      "eletes_written\030\003 \001(\0032\212\001\n\023RecordIngestSer" +
+      "vice\022s\n\013SendRecords\022..io.debezium.server" +
+      ".iceberg.rpc.IcebergPayload\0324.io.debeziu" +
+      "m.server.iceberg.rpc.RecordIngestRespons" +
+      "e2\205\001\n\022ArrowIngestService\022o\n\nIcebergAPI\022," +
+      ".io.debezium.server.iceberg.rpc.ArrowPay" +
+      "load\0323.io.debezium.server.iceberg.rpc.Ar" +
+      "rowIngestResponse2\264\002\n\021TableIndexService\022" +
+      "\204\001\n\024ScanTableForIndexing\0225.io.debezium.s" +
+      "erver.iceberg.rpc.TableIndexScanRequest\032" +
+      "3.io.debezium.server.iceberg.rpc.TableIn" +
+      "dexScanBatch0\001\022\227\001\n\026MigrateEqualityDelete" +
+      "s\022=.io.debezium.server.iceberg.rpc.Migra" +
+      "teEqualityDeletesRequest\032>.io.debezium.s" +
+      "erver.iceberg.rpc.MigrateEqualityDeletes" +
+      "ResponseB\035B\014RecordIngestZ\riceberg/protob" +
+      "\006proto3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -23645,7 +23739,7 @@ java.lang.String defaultValue) {
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_Metadata_descriptor,
-        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "Payload", "Namespace", "Upsert", "PartitionFields", "BaseSnapshotId", "DeleteMode", });
+        new java.lang.String[] { "DestTableName", "ThreadId", "IdentifierField", "Schema", "Payload", "Namespace", "Upsert", "PartitionFields", "BaseSnapshotId", "DeleteMode", "DeclareIdentifierFields", });
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_descriptor =
       internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_descriptor.getNestedTypes().get(1);
     internal_static_io_debezium_server_iceberg_rpc_IcebergPayload_SchemaField_fieldAccessorTable = new

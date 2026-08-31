@@ -48,6 +48,8 @@ message IcebergPayload {
     // format version a newly created table is built at, and is validated against
     // an existing table's version before any writer is built.
     DeleteMode delete_mode = 11;
+    // Whether the catalog allows declaring identifier_field on the table; only equality deletes need it declared.
+    bool declare_identifier_fields = 12;
   }
 
   message SchemaField {

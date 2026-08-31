@@ -80,14 +80,15 @@ public class IcebergTableOperator {
   ArrayList<DeleteFile> rewrittenDeleteFiles = new ArrayList<>();
 
   public IcebergTableOperator(boolean upsert_records) {
-    this(upsert_records, DeleteMode.EQUALITY);
+    this(upsert_records, DeleteMode.EQUALITY, null);
   }
 
-  public IcebergTableOperator(boolean upsert_records, DeleteMode deleteMode) {
+  public IcebergTableOperator(boolean upsert_records, DeleteMode deleteMode, String identifierField) {
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
     writerFactory2.upsert = upsert_records;
     writerFactory2.deleteMode = deleteMode;
+    writerFactory2.identifierField = identifierField;
     this.allowFieldAddition = true;
     this.upsert = upsert_records;
     this.deleteMode = deleteMode;

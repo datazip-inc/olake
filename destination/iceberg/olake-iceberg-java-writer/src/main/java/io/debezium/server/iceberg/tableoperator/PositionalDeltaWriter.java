@@ -85,7 +85,8 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
                         long targetFileSize,
                         Schema schema,
                         boolean keepDeletes,
-                        PositionalDeleteSink deleteSink) {
+                        PositionalDeleteSink deleteSink,
+                        String identifierField) {
     super(spec, format, appenderFactory, fileFactory, io, targetFileSize);
     this.spec = spec;
     this.keepDeletes = keepDeletes;
@@ -93,11 +94,17 @@ public class PositionalDeltaWriter extends BaseTaskWriter<Record> implements Pos
     this.partitionKeyTemplate = new PartitionKey(spec, schema);
     this.wrapper = new InternalRecordWrapper(schema.asStruct());
 
+    // Caller-named column, so insertedRows still works where the catalog refused the declaration.
     this.identifierFieldNames = new ArrayList<>();
-    for (Integer fieldId : schema.identifierFieldIds()) {
-      Types.NestedField field = schema.findField(fieldId);
-      if (field != null) {
-        identifierFieldNames.add(field.name());
+    if (identifierField != null && !identifierField.isEmpty()
+        && schema.findField(identifierField) != null) {
+      identifierFieldNames.add(identifierField);
+    } else {
+      for (Integer fieldId : schema.identifierFieldIds()) {
+        Types.NestedField field = schema.findField(fieldId);
+        if (field != null) {
+          identifierFieldNames.add(field.name());
+        }
       }
     }
   }

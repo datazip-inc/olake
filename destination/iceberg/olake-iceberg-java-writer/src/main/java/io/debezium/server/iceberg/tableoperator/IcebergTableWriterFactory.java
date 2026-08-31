@@ -29,6 +29,8 @@ public class IcebergTableWriterFactory {
   public boolean upsert = true;
   public boolean keepDeletes = true;
   public DeleteMode deleteMode = DeleteMode.EQUALITY;
+  // Row-identity column, set even where the catalog refuses to declare it; null falls back to the table's.
+  public String identifierField;
 
   // One positional delete file per referenced data file. Matches the granularity the
   // equality path has always used. PARTITION trades reader-side skipping for far fewer
@@ -50,8 +52,9 @@ public class IcebergTableWriterFactory {
     if (!upsert) {
       // RUNNING APPEND MODE
       return appendWriter(icebergTable, format, appenderFactory, fileFactory, targetFileSize);
-    } else if (icebergTable.schema().identifierFieldIds().isEmpty()) {
+    } else if (!deleteMode.addressesPositions() && icebergTable.schema().identifierFieldIds().isEmpty()) {
       // ITS UPSERT MODE BUT!!!!! TABLE DON'T HAVE identifierFieldIds(Primary Key)
+      // Only equality deletes need that declaration; position-addressed modes use the caller's table index.
       if (upsert) {
         LOGGER.info("Table don't have Pk defined upsert is not possible falling back to append!");
       }
@@ -85,7 +88,7 @@ public class IcebergTableWriterFactory {
       return new PositionalDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
           icebergTable.io(),
           targetFileSize, icebergTable.schema(), keepDeletes,
-          deleteSink(icebergTable, format, appenderFactory, fileFactory));
+          deleteSink(icebergTable, format, appenderFactory, fileFactory), identifierField);
     }
 
     Set<Integer> identifierFieldIds = icebergTable.schema().identifierFieldIds();

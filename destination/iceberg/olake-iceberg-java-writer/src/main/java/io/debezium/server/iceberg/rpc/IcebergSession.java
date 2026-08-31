@@ -24,7 +24,7 @@ public class IcebergSession {
 
     public IcebergSession(Table icebergTable, boolean upsert, String identifierField, DeleteMode deleteMode) {
         this.icebergTable = icebergTable;
-        this.op = new IcebergTableOperator(upsert, deleteMode);
+        this.op = new IcebergTableOperator(upsert, deleteMode, identifierField);
         this.identifierField = identifierField;
         this.upsert = upsert;
         this.deleteMode = deleteMode;
@@ -33,7 +33,8 @@ public class IcebergSession {
         this.fileFactory = IcebergUtil.getTableOutputFileFactory(icebergTable, fileFormat);
     }
 
+    /** Whether the table declares identifier fields; read from the table, since a catalog may refuse the declaration. */
     public boolean createIdentifierFields() {
-        return identifierField != null && !identifierField.isEmpty();
+        return !icebergTable.schema().identifierFieldIds().isEmpty();
     }
 }
