@@ -64,6 +64,11 @@ var (
 	disabledOnce sync.Once
 	disabled     bool
 
+	// initOnce keeps Init from starting a second setup goroutine. PersistentPreRunE
+	// runs twice per process (protocol init Execute, then RegisterDriver Execute);
+	// a second close(initDone) panics and kills the CLI with exit 2.
+	initOnce sync.Once
+
 	// initDone closes once Init's background setup finishes. Init does network calls, so an
 	// event sent right after start would otherwise find telemetry nil and be dropped silently.
 	initDone = make(chan struct{})
@@ -94,44 +99,46 @@ type LocationInfo struct {
 }
 
 func Init() {
-	go func() {
-		defer close(initDone)
-		// check for disable
-		if Disabled() {
-			return
-		}
-		ip := getOutboundIP()
-		eventProps := loadEventProps()
-		telemetry = &Telemetry{
-			httpClient: &http.Client{Timeout: 5 * time.Second},
-			userID:     getUserID(eventProps),
-			service:    getService(eventProps),
-			eventProps: eventProps,
-			platform: platformInfo{
-				OS:           runtime.GOOS,
-				Arch:         runtime.GOARCH,
-				OlakeVersion: version.GetOlakeCLIVersion(),
-				DeviceCPU:    fmt.Sprintf("%d cores", runtime.NumCPU()),
-			},
-			ipAddress: ip,
-		}
+	initOnce.Do(func() {
+		go func() {
+			defer close(initDone)
+			// check for disable
+			if Disabled() {
+				return
+			}
+			ip := getOutboundIP()
+			eventProps := loadEventProps()
+			telemetry = &Telemetry{
+				httpClient: &http.Client{Timeout: 5 * time.Second},
+				userID:     getUserID(eventProps),
+				service:    getService(eventProps),
+				eventProps: eventProps,
+				platform: platformInfo{
+					OS:           runtime.GOOS,
+					Arch:         runtime.GOARCH,
+					OlakeVersion: version.GetOlakeCLIVersion(),
+					DeviceCPU:    fmt.Sprintf("%d cores", runtime.NumCPU()),
+				},
+				ipAddress: ip,
+			}
 
-		if ip != ipNotFoundPlaceholder {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			loc, err := getLocationFromIP(ctx, ip)
-			if err == nil {
-				telemetry.locationInfo = &loc
-			} else {
-				logger.Debugf("Failed to fetch location for IP %s: %v", ip, err)
-				telemetry.locationInfo = &LocationInfo{
-					Country: "NA",
-					Region:  "NA",
-					City:    "NA",
+			if ip != ipNotFoundPlaceholder {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				loc, err := getLocationFromIP(ctx, ip)
+				if err == nil {
+					telemetry.locationInfo = &loc
+				} else {
+					logger.Debugf("Failed to fetch location for IP %s: %v", ip, err)
+					telemetry.locationInfo = &LocationInfo{
+						Country: "NA",
+						Region:  "NA",
+						City:    "NA",
+					}
 				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 // send runs an event in the background, recording it so Flush can wait for it. Panics are
