@@ -37,9 +37,8 @@ var (
 	timeout                   int64 // timeout in seconds
 	destinationConfig         *types.WriterConfig
 	differencePath            string
-
-	commands  = []*cobra.Command{}
-	connector *abstract.AbstractDriver
+	commands                  = []*cobra.Command{}
+	connector                 *abstract.AbstractDriver
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -49,7 +48,6 @@ var RootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 
 		// set global variables
-
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))

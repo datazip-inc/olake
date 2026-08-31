@@ -147,6 +147,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 		convStream.DefaultStreamProperties = &types.DefaultStreamProperties{
 			Normalization: types.IsDriverRelational(a.driver.Type()),
 			AppendMode:    a.driver.Type() == string(constants.Kafka),
+			UpdateType:    types.UpdateTypeEquality,
 		}
 
 		finalStreams = append(finalStreams, convStream)
