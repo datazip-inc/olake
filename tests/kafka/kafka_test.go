@@ -108,3 +108,11 @@ func TestKafkaRebalance(t *testing.T) {
 	t.Parallel()
 	kafkaJSONBaseConfig(t).TestRebalance(t)
 }
+
+func TestKafkaUpsert(t *testing.T) {
+	t.Parallel()
+	cfg := kafkaJSONBaseConfig(t)
+	cfg.DedupKeys = []string{"_kafka_key"}
+	cfg.IsolateSuite(t, "upsert")
+	cfg.TestSync(t)
+}

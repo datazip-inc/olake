@@ -339,6 +339,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldMetadata.UseSourceColumnNames != newMetadata.UseSourceColumnNames) ||
 					!reflect.DeepEqual(oldMetadata.FilterConfig, newMetadata.FilterConfig) ||
 					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
+					!reflect.DeepEqual(oldMetadata.DedupKeys, newMetadata.DedupKeys) ||
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
 					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
 					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable) ||
