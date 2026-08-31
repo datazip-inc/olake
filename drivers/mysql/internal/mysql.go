@@ -149,9 +149,9 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
 			return err
 		}
-		if cdc.InitialWaitTime < constants.MinCDCInitialWaitTime {
-			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using %d", cdc.InitialWaitTime, constants.MinCDCInitialWaitTime, constants.MinCDCInitialWaitTime)
-			cdc.InitialWaitTime = constants.MinCDCInitialWaitTime
+		if cdc.InitialWaitTime < minCDCInitialWaitTime {
+			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using %d", cdc.InitialWaitTime, minCDCInitialWaitTime, minCDCInitialWaitTime)
+			cdc.InitialWaitTime = minCDCInitialWaitTime
 		}
 
 		// Enable CDC support if binlog is configured
@@ -163,9 +163,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCUnsupported, fmt.Errorf("failed to setup CDC: binlog is not configured correctly"))
 		}
 
-		logger.Infof("CDC setup done with initial wait time %d", cdc.InitialWaitTime)
-
-		m.CDCSupport = true
+		m.CDCSupport = cdcSupported
 		m.cdcConfig = *cdc
 	}
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)

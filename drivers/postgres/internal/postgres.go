@@ -136,16 +136,10 @@ func (p *Postgres) Setup(ctx context.Context) error {
 			return err
 		}
 
-		// distinguish "not provided" from "explicitly set to 0"
-		waitTimeProvided, _ := utils.IsOfType(p.config.UpdateMethod, "initial_wait_time")
-		if !waitTimeProvided {
-			cdc.InitialWaitTime = constants.DefaultCDCInitialWaitTime
-		} else if cdc.InitialWaitTime < constants.MinCDCInitialWaitTime {
-			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using %d", cdc.InitialWaitTime, constants.MinCDCInitialWaitTime, constants.MinCDCInitialWaitTime)
-			cdc.InitialWaitTime = constants.MinCDCInitialWaitTime
+		if cdc.InitialWaitTime < minCDCInitialWaitTime {
+			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using default %d", cdc.InitialWaitTime, minCDCInitialWaitTime, defaultCDCInitialWaitTime)
+			cdc.InitialWaitTime = defaultCDCInitialWaitTime
 		}
-
-		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
 
 		exists, err := doesReplicationSlotExists(ctx, pgClient, cdc.ReplicationSlot, cdc.Publication, p.config.Database)
 		if err != nil {

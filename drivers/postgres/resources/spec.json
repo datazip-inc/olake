@@ -168,7 +168,7 @@
                             "title": "Initial Wait Time",
                             "description": "Idle timeout for wal catchup to Saved LSN",
                             "minimum": 120,
-                            "default": 1200
+                            "default": 10800
                         },
                         "replication_slot": {
                             "type": "string",
