@@ -27,14 +27,34 @@ public class RecordWrapper implements Record {
 
   private final Record delegate;
   private final Operation op;
+  private final String deleteFilePath;
+  private final Long deletePosition;
 
   public RecordWrapper(Record delegate, Operation op) {
+    this(delegate, op, null, null);
+  }
+
+  public RecordWrapper(Record delegate, Operation op, String deleteFilePath, Long deletePosition) {
     this.delegate = delegate;
     this.op = op;
+    this.deleteFilePath = deleteFilePath;
+    this.deletePosition = deletePosition;
   }
 
   public Operation op() {
     return op;
+  }
+
+  public boolean hasPositionalDelete() {
+    return deleteFilePath != null && deletePosition != null;
+  }
+
+  public String deleteFilePath() {
+    return deleteFilePath;
+  }
+
+  public long deletePosition() {
+    return deletePosition;
   }
 
   @Override
@@ -59,12 +79,12 @@ public class RecordWrapper implements Record {
 
   @Override
   public Record copy() {
-    return new RecordWrapper(delegate.copy(), op);
+    return new RecordWrapper(delegate.copy(), op, deleteFilePath, deletePosition);
   }
 
   @Override
   public Record copy(Map<String, Object> overwriteValues) {
-    return new RecordWrapper(delegate.copy(overwriteValues), op);
+    return new RecordWrapper(delegate.copy(overwriteValues), op, deleteFilePath, deletePosition);
   }
 
   @Override

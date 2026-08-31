@@ -53,6 +53,7 @@ var clearCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
+
 		dropStreams := []types.StreamInterface{}
 		dropStreams = append(dropStreams, append(append(selectedStreamsMetadata.IncrementalStreams, selectedStreamsMetadata.FullLoadStreams...), selectedStreamsMetadata.CDCStreams...)...)
 		if len(dropStreams) == 0 {

@@ -221,13 +221,15 @@ func TrackSyncStarted(syncID string, mix types.StreamMix, sourceType string, des
 
 	send("sync started", func() {
 		props := map[string]interface{}{
-			"sync_start":       time.Now(),
-			"sync_id":          syncID,
-			"stream_count":     configuredStreams,
-			"source_type":      sourceType,
-			"destination_type": destinationType,
-			"catalog_type":     catalogType,
+			"sync_start":                  time.Now(),
+			"sync_id":                     syncID,
+			"stream_count":                configuredStreams,
+			"source_type":                 sourceType,
+			"destination_type":            destinationType,
+			"catalog_type":                catalogType,
+			"stream_with_pos_update_mode": mix.StreamWithPosUpdateType,
 		}
+
 		addStreamMix(props, mix)
 
 		if err := telemetry.sendEvent(eventSyncStarted, props); err != nil {

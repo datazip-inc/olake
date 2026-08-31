@@ -11,12 +11,18 @@ package io.debezium.server.iceberg.tableoperator;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.Metrics;
@@ -25,17 +31,21 @@ import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.Transaction;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.UpdateProperties;
 import org.apache.iceberg.io.BaseTaskWriter;
+import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.DeleteSchemaUtil;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.parquet.ParquetUtil;
 import org.apache.iceberg.util.Pair;
+import io.debezium.server.iceberg.tableIndex.TableIndexScanner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,11 +71,17 @@ public class IcebergTableOperator {
   ArrayList<Pair<ArrayList<DeleteFile>, ArrayList<DataFile>>> filesToCommit = new ArrayList<>();
 
   public IcebergTableOperator(boolean upsert_records) {
+    this(upsert_records, false);
+  }
+
+  public IcebergTableOperator(boolean upsert_records, boolean usePositionalDeletes) {
     writerFactory2 = new IcebergTableWriterFactory();
     writerFactory2.keepDeletes = true;
     writerFactory2.upsert = upsert_records;
+    writerFactory2.usePositionalDeletes = usePositionalDeletes;
     this.allowFieldAddition = true;
     this.upsert = upsert_records;
+    this.usePositionalDeletes = usePositionalDeletes;
     this.cdcOpField = "_op_type";
     this.cdcSourceTsMsField = "_cdc_timestamp";
   }
@@ -89,6 +105,7 @@ public class IcebergTableOperator {
   String cdcOpField;
   boolean allowFieldAddition;
   boolean upsert;
+  boolean usePositionalDeletes;
   /**
    * If given schema contains new fields compared to target table schema then it
    * adds new fields to target iceberg
@@ -116,40 +133,47 @@ public class IcebergTableOperator {
 
   /**
    * Commits data files for a specific thread
-   * 
+   *
    * @param threadId The thread ID to commit
+   * @param baseSnapshotId when non-null, table tip after refresh must equal this
+   *                       snapshot (the caller's row-index checkpoint); otherwise
+   *                       the commit is refused so positional deletes built from a
+   *                       stale index cannot be published
    * @throws RuntimeException if commit fails
    */
-  public void commitThread(String threadId, String payload, Table table) {
+  public long commitThread(String threadId, String payload, Table table, Long baseSnapshotId) {
     if (table == null) {
       LOGGER.warn("No table found for thread: {}", threadId);
-      return;
+      return 0;
     }
   
     completeWriter();
   
     if (filesToCommit.isEmpty()) {
       LOGGER.info("No files to commit for thread: {}", threadId);
-      return;
+      if (table.currentSnapshot() != null) {
+        return 0L;
+      }
+      return 0;
     }
   
     // Refresh once before committing
     table.refresh();
-  
+
     boolean hasAnyDeletes = false;
     int totalDataFiles = 0;
     int totalDeleteFiles = 0;
-  
+
     for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
       ArrayList<DeleteFile> deletes = unit.first();
       ArrayList<DataFile> data = unit.second();
-  
+
       int del = (deletes == null) ? 0 : deletes.size();
       int df = (data == null) ? 0 : data.size();
-  
+
       totalDeleteFiles += del;
       totalDataFiles += df;
-  
+
       if (del > 0) {
         hasAnyDeletes = true;
       }
@@ -158,7 +182,7 @@ public class IcebergTableOperator {
     if (totalDataFiles == 0 && totalDeleteFiles == 0) {
       LOGGER.info("No files to commit for thread: {}", threadId);
       filesToCommit.clear();
-      return;
+      return 0L;
     }
   
     try {
@@ -190,37 +214,78 @@ public class IcebergTableOperator {
         // RowDelta path (has delete files)
         RowDelta rowDelta = transaction.newRowDelta();
         
+        if (baseSnapshotId != null) {
+          rowDelta.validateFromSnapshot(baseSnapshotId);
+          rowDelta.validateDeletedFiles();
+
+          Set<CharSequence> referencedDataFiles = new HashSet<>();
+          for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
+            ArrayList<DeleteFile> deleteFiles = unit.first();
+            if (deleteFiles != null) {
+              for (DeleteFile deleteFile : deleteFiles) {
+                if (deleteFile.content() == FileContent.POSITION_DELETES) {
+                  try (CloseableIterable<Object> rows = TableIndexScanner.openParquet(table, deleteFile.location(), DeleteSchemaUtil.pathPosSchema())) {
+                    for (Object row : rows) {
+                      Object filePath = TableIndexScanner.getFieldValue(row, "file_path");
+                      if (filePath != null) {
+                        referencedDataFiles.add(filePath.toString());
+                      }
+                    }
+                  } catch (Exception e) {
+                    LOGGER.warn("Failed to read referenced data files from positional delete file {}", deleteFile.location(), e);
+                  }
+                }
+              }
+            }
+          }
+
+          LOGGER.info("Referenced data files: {}", referencedDataFiles);
+          if (!referencedDataFiles.isEmpty()) {
+            rowDelta.validateDataFilesExist(referencedDataFiles);
+          }
+        }
+
         for (Pair<ArrayList<DeleteFile>, ArrayList<DataFile>> unit : filesToCommit) {
-          ArrayList<DeleteFile> eqDeletes = unit.first();
+          ArrayList<DeleteFile> deleteFiles = unit.first();
           ArrayList<DataFile> dataFiles = unit.second();
-  
+
           if (dataFiles != null && !dataFiles.isEmpty()) {
             dataFiles.forEach(rowDelta::addRows);
           }
-  
-          if (eqDeletes != null && !eqDeletes.isEmpty()) {
-            eqDeletes.forEach(rowDelta::addDeletes);
+
+          if (deleteFiles != null && !deleteFiles.isEmpty()) {
+            deleteFiles.forEach(rowDelta::addDeletes);
           }
         }
-        
         rowDelta.commit();
       }
 
-      // 3. Final Commit to Catalog (Creates ONE metadata file)
       transaction.commitTransaction();
 
-      LOGGER.info("Successfully committed {} data files and {} delete files for thread: {}",
-          totalDataFiles, totalDeleteFiles, threadId);
+      // take transaction snapshot id as commit id
+      Snapshot staged = transaction.table().currentSnapshot();
+      if (staged == null) {
+        throw new IllegalStateException(
+            "transaction for thread " + threadId + " staged no snapshot before catalog commit");
+      }
+
+      LOGGER.info("Successfully committed {} data files and {} delete files for thread: {} snapshot: {}",
+          totalDataFiles, totalDeleteFiles, threadId,  staged.snapshotId());
   
       filesToCommit.clear();
-  
+      LOGGER.info("Staged snapshot id: {}, base snapshot id: {}, parent snapshot id: {}", staged.snapshotId(), baseSnapshotId, staged.parentId());
+      // check commit parent snapshot if it is not equal to base, then return 0 so that indexer will not save latest snapshot
+      if  (staged.parentId() != null && !Objects.equals(baseSnapshotId, staged.parentId())) {
+        return 0L;
+      }
+
+      return  staged.snapshotId();
     } catch (Exception e) {
       String msg = String.format("Failed to commit for thread %s: %s", threadId, e.getMessage());
       LOGGER.error(msg, e);
       throw new RuntimeException(msg, e);
     }
   }
-  
 
   public void completeWriter() {
     try {
@@ -256,35 +321,92 @@ public class IcebergTableOperator {
    * @param icebergTable
    * @param events
    */
-  public void addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
+  private void addRange(Map<String, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder> positionMap,
+                        String path, int startIdx, long startPos, int count) {
+    if (positionMap != null && path != null && count > 0) {
+      positionMap.computeIfAbsent(path, p -> io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.newBuilder().setFilePath(p))
+          .addRanges(io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Range.newBuilder()
+              .setBatchStartIdx(startIdx)
+              .setStartPosition(startPos)
+              .setCount(count));
+    }
+  }
+
+  private List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> buildPositionMaps(
+      Map<String, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder> positionMap) {
+    List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> result = new ArrayList<>();
+    if (positionMap != null) {
+      for (io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder b : positionMap.values()) {
+        result.add(b.build());
+      }
+    }
+    return result;
+  }
+
+  public List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> addToTablePerSchema(String threadID, Table icebergTable, List<RecordWrapper> events) {
     if (writer == null) {
       writer = writerFactory2.create(icebergTable);
     }
+    Map<String, io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap.Builder> filePositionMap = usePositionalDeletes ? new LinkedHashMap<>() : null;
     try {
       io.grpc.Context grpcContext = io.grpc.Context.current();
-      for (RecordWrapper record : events) {
+      
+      PositionTrackableWriter trackable = usePositionalDeletes ? (PositionTrackableWriter) writer : null;
+      String currentPath = null;
+      int runStartIdx = -1;
+      long runStartPos = -1;
+      int runCount = 0;
+
+      for (int i = 0; i < events.size(); i++) {
+        RecordWrapper record = events.get(i);
         // Cooperative cancel: check on every record to stop processing early if client disconnects
         if (grpcContext.isCancelled()) {
           LOGGER.warn("Thread {}: cancellation observed mid-batch, discarding partial writer", threadID);
-          return;
+          return null;
         }
-        try{
+        try {
           // Normalise _op_type "i" → "c" before routing to any writer.
-          //   - Delta writers (upsert=true):  op() == INSERT, field == "i" → both would work
-          //   - Append writers (upsert=false, AppendMode/backfill): op() == READ, field == "i"
-          //     → op()-based check misses these entirely
-          // op() on RecordWrapper is immutable, so delta writers still see Operation.INSERT
-          // and correctly fire the equality-delete path in BaseDeltaTaskWriter.
           if ("i".equals(record.getField("_op_type"))) {
             record.setField("_op_type", "c");
           }
-           writer.write(record);
-        }catch (Exception ex) {
-          LOGGER.error("Failed to write data: {}, exception: {}", record,ex);
+
+          if (usePositionalDeletes && trackable != null) {
+            CharSequence pathCs = trackable.currentPath(record);
+            long pos = trackable.currentRows(record);
+            String path = pathCs != null ? pathCs.toString() : null;
+
+            if (currentPath == null || !currentPath.equals(path) || pos != runStartPos + runCount) {
+              addRange(filePositionMap, currentPath, runStartIdx, runStartPos, runCount);
+              currentPath = path;
+              runStartIdx = i;
+              runStartPos = pos;
+              runCount = 1;
+            } else {
+              runCount++;
+            }
+          }
+
+          writer.write(record);
+        } catch (Exception ex) {
+          LOGGER.error("Failed to write data: {}, exception: {}", record, ex);
           throw ex;
         }
       }
-      LOGGER.info("Successfully wrote {} events for thread: {}", events.size(), threadID);
+      
+      if (usePositionalDeletes) {
+        addRange(filePositionMap, currentPath, runStartIdx, runStartPos, runCount);
+      }
+
+      if (trackable != null) {
+        // Every record of the batch is written and its runs are about to be returned,
+        // so the writer's per-batch state - the supersede map - can be released.
+        trackable.batchCompleted();
+      }
+      
+      List<io.debezium.server.iceberg.rpc.RecordIngest.FilePositionMap> filePositionMaps = buildPositionMaps(filePositionMap);
+
+      LOGGER.info("Successfully wrote {} events for thread: {} across {} files", events.size(), threadID, filePositionMaps.size());
+      return filePositionMaps;
 
     } catch (Exception ex) {
       LOGGER.error("Failed to write data to table: {} for thread: {}, exception: {}", icebergTable.name(), threadID, ex);
