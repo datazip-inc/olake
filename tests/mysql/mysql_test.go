@@ -75,13 +75,7 @@ func TestMySQLPerformance(t *testing.T) {
 
 // TestMySQLCompatibility pins the backward-compatibility contract for the driver that owns three of the
 // six version gates -- the binlog timestamp location (v2), the timezone offset (v3) and the
-// UNSIGNED widening (v4), see constants/state_version.go. Note that a passing run is the
-// contract HOLDING: the candidate reading a state file at version N reproduces version N's types,
-// so it agrees with the baseline. A diff here means a gate stopped firing.
-//
-// Baseline defaults to the newest release; OLAKE_COMPATIBILITY_BASELINE picks another tag, image or
-// commit. v0.4.0 is the newest release still on state version 3, so it is the one that exercises
-// the UNSIGNED gate.
+// UNSIGNED widening (v4), see constants/state_version.go.
 func TestMySQLCompatibility(t *testing.T) {
 	t.Parallel()
 	fixture := &compatibility.Test{

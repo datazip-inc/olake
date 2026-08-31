@@ -8,13 +8,11 @@ on:
         required: false
         default: ''
         type: string
-  # A push runs the suite post-merge and publishes the caches every pull request restores from.
   push:
     branches:
       - "master"
       - "staging"
     paths: &paths
-      # olake itself: change any of it and the binary the suites run changes.
       - '**/*.go'
       - '**/go.mod'
       - '**/go.work'
@@ -26,7 +24,6 @@ on:
       - 'drivers/*/driver.mk'
       - 'drivers/**.conf'
       - 'constants/state-versions.json'
-      # what the suites are run with: the harness, the stacks they need, and the CI itself.
       - 'tests/**'
       - 'drivers/*/docker-compose.yml'
       - 'destination/iceberg/local-test/**'
@@ -41,11 +38,7 @@ on:
     paths: *paths
 
 jobs:
-  # Detect changes, publish the caches, build the jar, take the run's single approval -- once for
-  # every matrix below.
-  # go-checks runs here: this workflow owns the tests modules' lint and gosec.
   preflight:
-    # The called workflow's jobs render as "<this job's name> / <their name>".
     name: Pre-Validation
     uses: ./.github/workflows/test-preflight.yml
     permissions:
@@ -56,16 +49,10 @@ jobs:
       go-checks: true
     secrets: inherit
 
-  # The run's single approval, its own job rather than the last one inside the called workflow: it
-  # gates the suites below, so it belongs beside them rather than under the pre-validation heading.
-  # `needs: preflight` covers that whole workflow, so this runs once change detection and every
-  # cache job has finished -- which is why nothing below needs preflight as well. It forwards what
-  # they read from it, so the chain is preflight -> approve -> suites and each job names only the
-  # thing it actually waits on.
   approve:
     name: Approve Test Deployment
     needs: preflight
-    if: ${{ !cancelled() && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' }}
+    if: needs.preflight.outputs.drivers != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: ${{ github.event_name == 'pull_request' && 'integration_tests' || '' }}
@@ -95,7 +82,6 @@ jobs:
   integration-tests:
     name: Integration Test ${{ matrix.driver }}
     needs: approve
-    if: needs.approve.outputs.drivers != '[]'
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
     timeout-minutes: 60
@@ -104,8 +90,6 @@ jobs:
       matrix:
         driver: ${{ fromJSON(needs.approve.outputs.drivers) }}
     steps:
-      # Full history so the compatibility job can build the PR's base commit; the extra objects cost this
-      # job a few seconds and keep one checkout definition for both.
       - &checkout
         name: Checkout code
         uses: actions/checkout@v7
@@ -132,8 +116,6 @@ jobs:
         timeout-minutes: 15
         run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
 
-      # Compatibility pulls its baseline images from a shared-egress runner pool, which is exactly
-      # where Docker Hub's anonymous rate limit bites.
       - &docker-login
         name: Log in to Docker Hub
         env:
@@ -154,8 +136,6 @@ jobs:
         name: Restore Iceberg writer jar
         uses: ./.github/actions/iceberg-jar
 
-      # Background: the ~600MB Go cache restore below overlaps it instead of delaying it. No
-      # --cache-to -- exporting this build measured ~119s against the ~85s build it would save.
       - &driver-image
         name: Build driver image
         id: image
@@ -163,7 +143,6 @@ jobs:
         timeout-minutes: 20
         run: make docker.${{ matrix.driver }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ matrix.driver }} --load"
 
-      # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
       - &go
         name: Set up Go
         uses: actions/setup-go@v4
@@ -171,13 +150,10 @@ jobs:
           go-version-file: "go.mod"
           cache: false
 
-      # Restore-only: the modules and compiled shared deps are identical for every driver, and seven
-      # jobs saving a ~350MB copy each would evict the jar from the cache.
       - &go-caches
         name: Restore shared Go caches
         uses: ./.github/actions/go-caches
 
-      # Compiles the test binary while the container pull and the image build are still in flight.
       - &test-build
         name: Install Dependencies
         id: go-build
@@ -230,7 +206,7 @@ jobs:
       contents: read
       packages: write
       actions: read
-    if: github.event_name == 'pull_request' && needs.approve.outputs.drivers != '[]'
+    if: github.event_name == 'pull_request'
     runs-on: 32gb-runner
     environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
     timeout-minutes: 90
@@ -309,7 +285,6 @@ jobs:
     needs: approve
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
-    # One pipeline pair per baseline, run one after another.
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -324,7 +299,6 @@ jobs:
       - *buildx
       - *jar
       - *driver-image
-
       - *go
       - *go-caches
       - *test-build
@@ -332,7 +306,6 @@ jobs:
       - *wait-ready
       - *catalog
 
-      # Empty baseline is the whole manifest; a manual run can pin one instead.
       - name: Run the compatibility sweep
         env:
           OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
@@ -354,7 +327,7 @@ jobs:
       fail-fast: false
       # TODO: add benchmark tests for mongodb and oracle (instance ids TBD).
       matrix:
-        include: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/staging' && needs.approve.outputs.drivers != '[]') && '[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]' || '[]') }}
+        include: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/staging') && '[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]' || '[]') }}
 
     steps:
       - *checkout

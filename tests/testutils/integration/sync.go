@@ -103,14 +103,6 @@ func (cfg *Test) IcebergFullLoadAndCDC(
 		return fmt.Errorf("failed to reset table: %w", err)
 	}
 
-	// The seed rows sit in the CDC log, and before #843 (v0.5.1) the mssql driver captured its
-	// initial LSN without waiting for the async capture agent -- a lagging agent puts that LSN
-	// before the seed, and the first stateful sync replays the seed rows as CDC inserts
-	// (relabeling r to c through the upsert). Wait here so every binary snapshots past the seed.
-	if cfg.TestConfig.Driver == "mssql" {
-		cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "wait-cdc-catchup")
-	}
-
 	dbTestCases := []syncTestCase{
 		{
 			name:      "Full-Refresh",
@@ -218,14 +210,6 @@ func (cfg *Test) ParquetFullLoadAndCDC(
 	}
 	if err := testutils.DeleteParquetTable(t, cfg.TestConfig.DestinationDB, testTable); err != nil {
 		return fmt.Errorf("failed to reset parquet table: %s", err)
-	}
-
-	// The seed rows sit in the CDC log, and before #843 (v0.5.1) the mssql driver captured its
-	// initial LSN without waiting for the async capture agent -- a lagging agent puts that LSN
-	// before the seed, and the first stateful sync replays the seed rows as CDC inserts
-	// (relabeling r to c through the upsert). Wait here so every binary snapshots past the seed.
-	if cfg.TestConfig.Driver == "mssql" {
-		cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "wait-cdc-catchup")
 	}
 
 	dbTestCases := []syncTestCase{

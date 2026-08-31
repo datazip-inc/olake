@@ -24,7 +24,7 @@
           {
             "file_patterns": [
               "constants/state-versions.json",
-              "tests/testutils/compatibility_rules.json"
+              "tests/testutils/compatibility/compatibility_rules.json"
             ],
             "minimum_approvals": 2,
             "reviewer": {

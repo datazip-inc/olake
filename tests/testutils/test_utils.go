@@ -491,14 +491,6 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 
 // ResetStateFile clears state.json so incremental can perform its initial load
 // (equivalent to a full load on first run), irrespective of any previous CDC run.
-//
-// Every call site must keep this BEFORE a stateless (useState=false) sync, which is where they
-// all sit today. The version written here is the product's current one (ProductStateVersion), and
-// the stateless load that follows overwrites the file with whatever version the binary that ran
-// it stamps (protocol/root.go writes state next to --config even with no --state flag).
-// The compatibility suite depends on that overwrite: it is how a baseline image's own state version ends
-// up pinning the candidate's syncs. Call this after a compatibility run's initial load instead and the
-// pipeline is silently promoted to latest semantics -- the suite would pass while testing nothing.
 func ResetStateFile(config *TestConfig) error {
 	version, err := ProductStateVersion(config.OlakeRootPath)
 	if err != nil {
@@ -543,7 +535,3 @@ func RenderOlakeFailure(code int, err error, out []byte) error {
 func KeepTestData() bool {
 	return strings.EqualFold(os.Getenv(KeepTestDataEnvVar), "true")
 }
-
-// TestDiscover seeds the source with this driver's test table, runs discover against the driver
-// image and asserts the catalog it writes matches the one rendered from streams.template.json exactly.
-//

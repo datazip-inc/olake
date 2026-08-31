@@ -2,9 +2,8 @@ package compatibility
 
 // Backward-compatibility suite.
 //
-// The contract being tested is docs/backward-compatibility.md: upgrading the OLake binary must not
-// change the records or the column types an existing pipeline produces. The state file's `version`
-// pins that, so a candidate binary reading a state file an older binary wrote must keep the older
+// Upgrading the OLake binary must not change the records or the column types an existing pipeline produces.
+// The state file's `version` pins that, so a candidate binary reading a state file an older binary wrote must keep the older
 // binary's semantics.
 //
 // Rather than encode per-version expectations -- which rot, and which nobody remembers to add when
@@ -17,11 +16,6 @@ package compatibility
 // and then asserts the two destinations are indistinguishable. The reference run IS the
 // expectation. A gate that stopped firing, a type map that shifted, a state key that got renamed:
 // each shows up as a diff between two tables, with no expectation file to maintain.
-//
-// What this does NOT cover, deliberately: discover output (both runs are seeded from the same
-// frozen test_streams.json, so they differ only in the binary -- and discover is ungated by design,
-// see A4 in the doc); the reverse direction (a new state file fed to an old image is not a
-// supported operation); and any gate older than the baseline being tested.
 
 import (
 	"context"
@@ -46,32 +40,14 @@ const (
 	// per-driver overrides use the suffixed form, OLAKE_COMPATIBILITY_BASELINE_POSTGRES.
 	compatibilityBaselineEnvVar = "OLAKE_COMPATIBILITY_TEST_BASELINE"
 
-	// compatibilityExcludeColumnsEnvVar appends catalog-level column exclusions to every compatibility run, a
-	// sweep affordance for probing a baseline without editing the driver's rules.
+	// compatibilityExcludeColumnsEnvVar appends catalog-level column exclusions to every compatibility run
 	compatibilityExcludeColumnsEnvVar = "OLAKE_COMPATIBILITY_EXCLUDE_COLUMNS"
 )
 
-// Test is the basic compatibility check: one scenario run on two images, whose destinations must
-// be indistinguishable. A driver declares one -- NewConfig plus its two-image vocabulary -- and
-// the runner fills Reference and Upgrade per variant: the reference config runs the baseline end
-// to end, the upgrade config writes its stateless load on the baseline and every stateful sync
-// after it on the candidate.
 type Test struct {
-	// NewConfig builds one side's TestConfig from the subtest it runs in; the suite derived from
-	// t.Name() is what isolates the sides ((baseline x group x variant x side)).
-	NewConfig func(t *testing.T, DriverVersion string) *testutils.TestConfig
-
-	// DeclaredSchema is the driver's column -> destination-type map, what a data_types rule in
-	// compatibility_rules.json resolves against. The sync suite asserts the same map, so it cannot
-	// drift from the fixture.
-	DeclaredSchema map[string]string
-
-	// ColumnTypes tags columns with what DeclaredSchema cannot express (a charset, a modifier),
-	// derived by the fixture from its own seed DDL; a data_types rule selects on both.
-	ColumnTypes map[string][]string
-
-	// CDCColumnsSchema names the driver's CDC metadata columns, which carry source-log coordinates
-	// and so are compared by type but never by value (see volatileColumns).
+	NewConfig        func(t *testing.T, DriverVersion string) *testutils.TestConfig
+	DeclaredSchema   map[string]string
+	ColumnTypes      map[string][]string
 	CDCColumnsSchema map[string]string
 }
 
@@ -86,25 +62,12 @@ func (f *Test) Validate(t *testing.T) {
 // image and an upgrade run that hands off to the candidate after the initial load -- then asserts
 // the two destinations match. Both sides of all three writer groups (iceberg legacy, iceberg
 // arrow, parquet) run in parallel, six isolated pipelines at once.
-//
-// newConfig MUST build a fresh Test from the t it is handed: the suite -- and so every path and
-// name the side owns -- derives from that subtest's name.
-// RunBackwardCompatibility runs the compatibility scenarios against every baseline the manifest lists,
-// oldest first, stopping at the first that fails -- later baselines are newer code and would only
-// repeat it. A single explicit baseline runs on its own, without the extra subtest level.
 func (f *Test) RunBackwardCompatibility(t *testing.T) {
-	f.Validate(t)
-
 	currentConf := f.NewConfig(t, testutils.CurrentDriverVersion)
 	baselineVersions, err := getCompatibilityBaselines(t, currentConf.OlakeRootPath, currentConf.Driver)
 	require.NoError(t, err)
 
 	for _, version := range baselineVersions {
-		// Before NewConfig, which resolves the baseline's image: a driver younger than a release has
-		// no image published for it, so building the config first turns a declared skip into
-		// "failed to pull olakego/source-<driver>:<tag>" -- a hard failure the gate exists to
-		// prevent. Only the driver-level gate can be answered here; the variant gate keys on the
-		// config's data format and stays in runCompatibilityBaseline.
 		reason, err := baselineSkipReason(currentConf.OlakeRootPath, currentConf.Driver, version)
 		require.NoError(t, err)
 		if reason != "" {
@@ -151,11 +114,6 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 	spec := baseline.DriverVersion
 	driver, dataFormat := baseline.Driver, baseline.DataFormat
 
-	// The variant's own floor. A skip, not a failure: the driver declares this data format cannot
-	// run against releases this old (the why lives next to the declaration in
-	// compatibility_rules.json), and that limitation is data, not a regression. The driver-level
-	// gate and the global floor were already answered by the caller, before this baseline's image
-	// was resolved -- see baselineSkipReason.
 	baselineVersion, baselineDated := parseReleaseTag(spec)
 	floorTag, err := compatibilityGlobalFloor(baseline.OlakeRootPath)
 	require.NoError(t, err)
@@ -209,22 +167,20 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 
 	// Each variant runs as its own pair of parallel subtests -- reference entirely on the
 	// baseline, upgrade handing off to the candidate after the stateless load -- and is compared
-	// as soon as both sides finish. Every side builds its config inside its own subtest, so the
-	// suite t.Name() derives is what isolates the pipelines: (baseline x group x variant x side).
+	// as soon as both sides finish
 	referencePick := func(bool) string { return baseline.DriverVersion }
 	upgradePick := func(useState bool) string {
-		// useState is the upgrade boundary: the stateless initial load writes the state file on
-		// the baseline binary, and every sync after it reads that file on the candidate.
 		return testutils.Ternary(useState, upgrade.DriverVersion, baseline.DriverVersion).(string)
 	}
 	// Whichever side fails first stops every group at its next variant boundary: the comparison
 	// is skipped either way, so the remaining syncs would be minutes of output nothing reads.
+
 	aborted := &atomic.Bool{}
+
 	// What every failed variant found, so the assertion at the end of this function -- the one CI
 	// shows in red -- can report the findings themselves rather than the fact that there were some.
 	report := &failureReport{driver: driver, spec: spec, baseline: baselineImage, candidate: candidateImage}
-	// Subtest names double as suite segments, so they stay terse: the table and (postgres) slot
-	// names built from the suite must clear a 63-byte identifier limit on sweep runs.
+
 	completed := t.Run("g", func(t *testing.T) {
 		for _, g := range groups {
 			runGroup := func(t *testing.T) {
@@ -361,11 +317,6 @@ func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies
 	case "parquet":
 		refRel = parquetRelation(ctx, t, spark, refDB, refTable, "ref")
 		upgRel = parquetRelation(ctx, t, spark, upgDB, upgTable, "upg")
-		// Absence is a comparable state, so it is asserted rather than skipped over. One side
-		// absent is a genuine finding: the binaries disagree about whether this case writes
-		// output. Both sides absent is the verified outcome for a variant that ENDS empty
-		// (emptyFinalState), and a shared failure to produce rows for any other -- the one shape
-		// of regression a row diff can never catch, because there are no rows to diff.
 		if refRel == "" || upgRel == "" {
 			if (refRel == "") != (upgRel == "") {
 				diag.fatalf(t, "only one run produced parquet files for %s (reference %q, upgrade %q): the binaries disagree about whether this case writes output", v.name, refDB, upgDB)

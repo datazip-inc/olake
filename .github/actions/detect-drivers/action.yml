@@ -16,8 +16,7 @@ outputs:
     value: ${{ steps.resolve.outputs.drivers }}
   driver-labels:
     description: >
-      JSON object mapping each driver to its display name, for job titles: expressions cannot
-      change case, so the capitalised form is produced in the script.
+      JSON object mapping each driver to its display name
     value: ${{ steps.resolve.outputs.driver-labels }}
 
 runs:

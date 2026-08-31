@@ -71,14 +71,7 @@ func buildDriverImage(t *testing.T, cfg *TestConfig) error {
 	})
 }
 
-// buildBaselineFromCommit builds a driver image from a detached worktree at sha. This is a
-// debugging affordance for bisecting a break, not the supported path -- released tags need no
-// worktree, no maven and no old-toolchain build, and they ship the exact artifact users run.
-//
-// Two things the old tree needs that the released path does not: its OWN Iceberg writer jar (the
-// Dockerfile copies the jar out of the build context, and the old Go side speaks the old jar's
-// RPC), and a build entry point that exists in that tree -- `make docker.<d>.build IMAGE_TAG=...`
-// is recent, so fall back to a plain `docker build`, whose DRIVER_NAME build-arg is far older.
+// buildBaselineFromCommit builds a driver image from a detached worktree at sha.
 func buildImageFromCommit(t *testing.T, cfg *TestConfig, commitID string) error {
 	t.Helper()
 	imageTag := cfg.GetDriverImage()
@@ -139,11 +132,7 @@ func ensureImagePresent(t *testing.T, image string) error {
 }
 
 // DockerRunArgs builds the `docker run` argument list that invokes the driver image exactly
-// as a user would: the image's ENTRYPOINT (./olake) runs with olakeArgs appended. The
-// driver's testdata directory is mounted at /testdata so the config/catalog/state files are
-// shared with the host and the CLI writes its outputs (streams.json, state.json, ...) back
-// there. extraFlags carries per-invocation docker flags (host gateway, network, name); image is
-// explicit rather than derived so one suite can hand successive syncs to different images.
+// as a user would: the image's ENTRYPOINT (./olake) runs with olakeArgs appended.
 func DockerRunArgs(cfg *TestConfig, extraFlags []string, olakeArgs []string) []string {
 	args := []string{
 		"run", "--rm",
@@ -165,9 +154,6 @@ func generateUniqueContainerName(cfg *TestConfig) string {
 	return fmt.Sprintf("olake-it-%s-%s-%d-%d", cfg.Driver, cfg.Suite, os.Getpid(), containerSeq.Add(1))
 }
 
-// RunOlake runs the driver image once, exactly like a real user would:
-//
-//	docker run --rm -v <testdata>:/testdata olakego/source-<driver>:local <olakeArgs...>
 func RunOlake(ctx context.Context, cfg *TestConfig, olakeArgs ...string) (int, []byte, error) {
 	name := generateUniqueContainerName(cfg)
 	args := DockerRunArgs(cfg, []string{"--add-host", "host.docker.internal:host-gateway", "--name", name}, olakeArgs)
@@ -187,10 +173,7 @@ func RunOlake(ctx context.Context, cfg *TestConfig, olakeArgs ...string) (int, [
 	return DockerExitResult(out, err, olakeArgs[0])
 }
 
-// logContainerTimings re-emits the `[timing]` lines the driver wrote inside the container. A
-// successful `docker run`'s output is otherwise dropped on the floor, so without this the
-// in-container breakdown is invisible and every sync reads as one opaque span. The leading
-// log prefix is trimmed so the forwarded lines line up with the harness's own.
+// logContainerTimings re-emits the `[timing]` lines the driver wrote inside the container.
 func ContainerTimings(out []byte) []string {
 	var timings []string
 	for _, line := range strings.Split(string(out), "\n") {

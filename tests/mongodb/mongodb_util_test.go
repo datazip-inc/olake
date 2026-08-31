@@ -9,6 +9,7 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
 	"github.com/datazip-inc/olake/tests/testutils/require"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -18,14 +19,8 @@ import (
 
 var (
 	nestedDoc = bson.M{
-		"nested_string": "nested_value",
-		"nested_int":    42,
-		// A BSON DateTime below the top level, which is what the state-version-5 gate governs
-		// (drivers/mongodb/internal/mon.go: at v>=5 a custom registry decodes it to a UTC
-		// time.Time, at v<=4 the stock decoder yields a primitive.DateTime). Both marshal to the
-		// same string for an in-range year -- primitive.DateTime.MarshalJSON already normalizes to
-		// UTC -- so this pins that the decoder swap did NOT change in-range values. The versions
-		// only diverge outside [0,9999], where v<=4 fails json.Marshal outright.
+		"nested_string":    "nested_value",
+		"nested_int":       42,
 		"nested_timestamp": time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
 	}
 )
@@ -173,44 +168,44 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		}
 		return
 
-		// case "bulk_cdc_data_insert":
-		// 	backfillStreams := performance.GetBackfillStreamsFromCDC(performanceCDCStreams)
-		// 	totalRows := 15000000
+	case "bulk_cdc_data_insert":
+		backfillStreams := performance.GetBackfillStreamsFromCDC(performanceCDCStreams)
+		totalRows := 15000000
 
-		// 	// TODO: insert data in batch
-		// 	// insert the data into the cdc tables concurrently
-		// 	err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
-		// 		srcColl := client.Database(config.String("database")).Collection(backfillStreams[executionNumber])
-		// 		destColl := client.Database(config.String("database")).Collection(cdcStream)
+		// TODO: insert data in batch
+		// insert the data into the cdc tables concurrently
+		err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
+			srcColl := client.Database(config.String("database")).Collection(backfillStreams[executionNumber])
+			destColl := client.Database(config.String("database")).Collection(cdcStream)
 
-		// 		cursor, err := srcColl.Find(ctx, bson.D{}, options.Find().SetLimit(int64(totalRows)))
-		// 		if err != nil {
-		// 			return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
-		// 		}
-		// 		defer cursor.Close(ctx)
+			cursor, err := srcColl.Find(ctx, bson.D{}, options.Find().SetLimit(int64(totalRows)))
+			if err != nil {
+				return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
+			}
+			defer cursor.Close(ctx)
 
-		// 		var docs []interface{}
-		// 		for cursor.Next(ctx) {
-		// 			var doc bson.M
-		// 			if err := cursor.Decode(&doc); err != nil {
-		// 				return err
-		// 			}
-		// 			docs = append(docs, doc)
-		// 		}
-		// 		if err := cursor.Err(); err != nil {
-		// 			return err
-		// 		}
-		// 		if len(docs) == 0 {
-		// 			return nil
-		// 		}
-		// 		_, err = destColl.InsertMany(ctx, docs)
-		// 		if err != nil {
-		// 			return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
-		// 		}
-		// 		return nil
-		// 	})
-		// 	require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
-		// 	return
+			var docs []interface{}
+			for cursor.Next(ctx) {
+				var doc bson.M
+				if err := cursor.Decode(&doc); err != nil {
+					return err
+				}
+				docs = append(docs, doc)
+			}
+			if err := cursor.Err(); err != nil {
+				return err
+			}
+			if len(docs) == 0 {
+				return nil
+			}
+			_, err = destColl.InsertMany(ctx, docs)
+			if err != nil {
+				return fmt.Errorf("stream: %s, error: %s", cdcStream, err)
+			}
+			return nil
+		})
+		require.NoError(t, err, fmt.Sprintf("failed to execute %s operation", operation), err)
+		return
 	}
 }
 

@@ -33,11 +33,6 @@ inputs:
     required: false
     default: '3'
   path:
-    description: >
-      Where to check the commit's tree out. actions/checkout refuses anything outside the workspace,
-      so it lands beside the caller's own checkout and must sit somewhere .dockerignore already
-      excludes -- otherwise it joins the context of every other image the job builds, changing that
-      context and evicting its layer cache. tests/ is excluded in this repo, hence the default.
     required: false
     default: tests/.commit-image-src
 

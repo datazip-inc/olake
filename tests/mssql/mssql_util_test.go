@@ -220,7 +220,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	case "add":
 		insertTestData(ctx, t, db, integrationTestTable)
-		return
 
 	case "insert":
 		insertOne := fmt.Sprintf(`
@@ -359,13 +358,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		_, err := db.ExecContext(ctx, stmt)
 		require.NoError(t, err, "failed to evolve schema")
 
-	case "wait-cdc-catchup":
-		// The caller just committed DML it expects the next CDC sync to pick up; wait for the
-		// asynchronous capture job to scan it.
-		waitForCDCCapture(ctx, t, db)
-
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
+	}
+
+	switch operation {
+	case "add", "insert", "insert_2pc", "update", "delete":
+		waitForCDCCapture(ctx, t, db)
 	}
 }
 
@@ -376,10 +375,7 @@ var (
 	suiteDatabasesEnsuredMu sync.Mutex
 )
 
-// ensureSuiteDatabase creates the suite's CDC-enabled database when the volume lacks it. Lazy and
-// harness-owned rather than 01-init.sql: an init script runs only on a fresh volume, and every new
-// suite needed a hand-edit there plus a refresh -- this way any volume converges on first touch.
-// Runs against master, since the suite connection names a database that cannot exist before it does.
+// ensureSuiteDatabase creates the suite's CDC-enabled database when the volume lacks it.
 func ensureSuiteDatabase(ctx context.Context, t *testing.T, config testutils.SourceConfig, dbName string) {
 	t.Helper()
 	suiteDatabasesEnsuredMu.Lock()
@@ -458,10 +454,7 @@ func startCDCCapture(ctx context.Context, t *testing.T, db *sqlx.DB) {
 }
 
 // ensureFastCDCPolling drops this database's CDC capture job to the minimum 1s polling interval
-// (default 5s) -- the cycle every create / wait-cdc-catchup, and the driver's own catch-up, waits
-// out. Only the interval is written: it takes effect on the next start, which is startCDCCapture's
-// job, and starting it here too leaves that one racing the agent's own pending request. Best-effort
-// -- a job still on 5s is slower, not wrong -- and a no-op once it reports 1s.
+// (default 5s) -- the cycle every create / wait-cdc-catchup, and the driver's own catch-up, waits out.
 func ensureFastCDCPolling(ctx context.Context, t *testing.T, db *sqlx.DB) {
 	t.Helper()
 

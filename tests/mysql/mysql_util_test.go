@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,105 +21,134 @@ import (
 // PerformanceTest config and the perf operations below.
 var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
 
-// versionedSeedColumns are the columns a suite can leave out of the seed data through
-// TestConfig.SeedExcludedColumns -- the backward-compatibility suite drops the ones an old
-// baseline cannot sync; every other suite leaves the list empty and seeds all of them.
-var versionedSeedColumns = []struct {
-	name, ddl, value, filteredValue, updateExpr string
-}{
-	{"name_ucs2", "name_ucs2 VARCHAR(100) CHARACTER SET ucs2", "'ucs2_val'", "'filtered ucs2'", "name_ucs2 = 'updated ucs2'"},
-	{"name_utf16le", "name_utf16le VARCHAR(100) CHARACTER SET utf16le", "'utf16le_val'", "'filtered utf16le'", "name_utf16le = 'updated utf16le'"},
-	{"grade", "grade ENUM('naïve','café','résumé') CHARACTER SET latin1", "'naïve'", "'naïve'", "grade = 'café'"},
-	{"name_latin1", "name_latin1 VARCHAR(100) CHARACTER SET latin1", "'latin1_val'", "'filtered latin1'", "name_latin1 = 'updated latin1'"},
-	{"permissions", "permissions SET('read','write','execute') CHARACTER SET latin1 DEFAULT NULL", "'read,write'", "'execute'", "permissions = 'read,write,execute'"},
-	{"id_bigint_unsigned", "id_bigint_unsigned BIGINT UNSIGNED", "5003", "0", "id_bigint_unsigned = 6003"},
-	{"id_bigint_unsigned_signbit", "id_bigint_unsigned_signbit BIGINT UNSIGNED", "9223372036854775808", "0", "id_bigint_unsigned_signbit = 9223372036854775809"},
-	{"id_bigint_unsigned_max", "id_bigint_unsigned_max BIGINT UNSIGNED", "18446744073709551615", "0", "id_bigint_unsigned_max = 18446744073709551614"},
+type seedColumn struct {
+	name     string
+	datatype string
+	value    string
+	filtered string
+	updated  string
 }
 
-// seedTableDDL is the seed table's column list, the one place the fixture's schema lives: create
-// renders it and seedColumnTypes reads it; the versioned columns splice in at %s.
-const seedTableDDL = `
-				id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-				id_bigint BIGINT,
-				id_int INT,
-				id_cursor INT,
-				id_int_unsigned INT UNSIGNED,
-				id_integer INT,
-				id_integer_unsigned INT UNSIGNED,
-				id_mediumint MEDIUMINT,
-				id_mediumint_unsigned MEDIUMINT UNSIGNED,
-				id_smallint SMALLINT,
-				id_smallint_unsigned SMALLINT UNSIGNED,
-				id_tinyint TINYINT,
-				id_tinyint_unsigned TINYINT UNSIGNED,
-				id_tinyint_unsigned_max TINYINT UNSIGNED,
-				id_smallint_unsigned_max SMALLINT UNSIGNED,
-				id_mediumint_unsigned_max MEDIUMINT UNSIGNED,
-				id_mediumint_unsigned_signbit MEDIUMINT UNSIGNED,
-				id_int_unsigned_max INT UNSIGNED,
-				price_decimal DECIMAL(10,2),
-				amount_decimal_9_2 DECIMAL(9,2),
-				price_double DOUBLE,
-				price_double_precision DOUBLE,
-				price_float FLOAT,
-				price_numeric DECIMAL(10,2),
-				price_real DOUBLE,
-				name_char CHAR(50),
-				name_varchar VARCHAR(100),
-				name_text TEXT,
-				name_tinytext TINYTEXT,
-				name_mediumtext MEDIUMTEXT,
-				name_longtext LONGTEXT,
-				created_date DATETIME,
-				created_timestamp TIMESTAMP NULL,
-				is_active TINYINT(1),
-				long_varchar MEDIUMTEXT,
-		name_bool TINYINT(1) DEFAULT '1',
-		status ENUM('active','inactive','pending') DEFAULT NULL,
-		priority ENUM('low','medium','high') DEFAULT 'low',%s
-		tags SET('sports','music','gaming','reading') DEFAULT NULL,
-		PRIMARY KEY (id),
-		excludedColumn INT
-	`
+func (c seedColumn) definition() string { return c.name + " " + c.datatype }
 
-// seedColumnTypes derives every seed column's type tags from the DDL, versioned columns included,
-// so a data_types rule in compatibility_rules.json follows a seed edit with nothing to declare.
+var seedColumns = []seedColumn{
+	{name: "id", datatype: "INT UNSIGNED NOT NULL AUTO_INCREMENT", value: "", filtered: "", updated: ""},
+	{name: "id_bigint", datatype: "BIGINT", value: "123456789012345", filtered: "111111111111111", updated: "987654321098765"},
+	{name: "id_int", datatype: "INT", value: "100", filtered: "0", updated: "200"},
+	{name: "id_cursor", datatype: "INT", value: "", filtered: "-1", updated: "NULL"},
+	{name: "id_int_unsigned", datatype: "INT UNSIGNED", value: "4294967295", filtered: "0", updated: "4294967293"},
+	{name: "id_integer", datatype: "INT", value: "102", filtered: "0", updated: "202"},
+	{name: "id_integer_unsigned", datatype: "INT UNSIGNED", value: "4294967294", filtered: "0", updated: "4294967292"},
+	{name: "id_mediumint", datatype: "MEDIUMINT", value: "5001", filtered: "0", updated: "6001"},
+	{name: "id_mediumint_unsigned", datatype: "MEDIUMINT UNSIGNED", value: "5002", filtered: "0", updated: "6002"},
+	{name: "id_smallint", datatype: "SMALLINT", value: "101", filtered: "0", updated: "201"},
+	{name: "id_smallint_unsigned", datatype: "SMALLINT UNSIGNED", value: "102", filtered: "0", updated: "202"},
+	{name: "id_tinyint", datatype: "TINYINT", value: "50", filtered: "0", updated: "60"},
+	{name: "id_tinyint_unsigned", datatype: "TINYINT UNSIGNED", value: "51", filtered: "0", updated: "61"},
+	{name: "id_tinyint_unsigned_max", datatype: "TINYINT UNSIGNED", value: "255", filtered: "0", updated: "254"},
+	{name: "id_smallint_unsigned_max", datatype: "SMALLINT UNSIGNED", value: "65535", filtered: "0", updated: "65534"},
+	{name: "id_mediumint_unsigned_max", datatype: "MEDIUMINT UNSIGNED", value: "16777215", filtered: "0", updated: "16777214"},
+	{name: "id_mediumint_unsigned_signbit", datatype: "MEDIUMINT UNSIGNED", value: "8388608", filtered: "0", updated: "8388609"},
+	{name: "id_int_unsigned_max", datatype: "INT UNSIGNED", value: "4294967295", filtered: "0", updated: "4294967294"},
+	{name: "price_decimal", datatype: "DECIMAL(10,2)", value: "123.45", filtered: "50.123", updated: "543.21"},
+	{name: "amount_decimal_9_2", datatype: "DECIMAL(9,2)", value: "5330197.27", filtered: "50.12", updated: "1234567.89"},
+	{name: "price_double", datatype: "DOUBLE", value: "123.456", filtered: "50.123", updated: "654.321"},
+	{name: "price_double_precision", datatype: "DOUBLE", value: "123.456", filtered: "50.123", updated: "654.321"},
+	{name: "price_float", datatype: "FLOAT", value: "123.45", filtered: "50.0", updated: "543.21"},
+	{name: "price_numeric", datatype: "DECIMAL(10,2)", value: "123.45", filtered: "50.123", updated: "543.21"},
+	{name: "price_real", datatype: "DOUBLE", value: "123.456", filtered: "50.123", updated: "654.321"},
+	{name: "name_char", datatype: "CHAR(50)", value: "'c'", filtered: "'x'", updated: "'X'"},
+	{name: "name_varchar", datatype: "VARCHAR(100)", value: "'varchar_val'", filtered: "'filtered_val'", updated: "'updated varchar'"},
+	{name: "name_text", datatype: "TEXT", value: "'text_val'", filtered: "'filtered text'", updated: "'updated text'"},
+	{name: "name_tinytext", datatype: "TINYTEXT", value: "'tinytext_val'", filtered: "'filtered tiny'", updated: "'upd tiny'"},
+	{name: "name_mediumtext", datatype: "MEDIUMTEXT", value: "'mediumtext_val'", filtered: "'filtered medium'", updated: "'upd medium'"},
+	{name: "name_longtext", datatype: "LONGTEXT", value: "'longtext_val'", filtered: "'filtered long'", updated: "'upd long'"},
+	{name: "created_date", datatype: "DATETIME", value: "'2023-01-01 12:00:00'", filtered: "'2022-06-15 10:00:00'", updated: "'2024-07-01 15:30:00'"},
+	{name: "created_timestamp", datatype: "TIMESTAMP NULL", value: "'2023-01-01 12:00:00'", filtered: "'2021-06-15 10:00:00'", updated: "'2024-07-01 15:30:00'"},
+	{name: "is_active", datatype: "TINYINT(1)", value: "1", filtered: "0", updated: "0"},
+	{name: "long_varchar", datatype: "MEDIUMTEXT", value: "'long_varchar_val'", filtered: "'filtered long varchar'", updated: "'updated long...'"},
+	{name: "name_bool", datatype: "TINYINT(1) DEFAULT '1'", value: "1", filtered: "0", updated: "0"},
+	{name: "status", datatype: "ENUM('active','inactive','pending') DEFAULT NULL", value: "'active'", filtered: "'inactive'", updated: "'pending'"},
+	{name: "priority", datatype: "ENUM('low','medium','high') DEFAULT 'low'", value: "'high'", filtered: "'low'", updated: "'low'"},
+	{name: "name_ucs2", datatype: "VARCHAR(100) CHARACTER SET ucs2", value: "'ucs2_val'", filtered: "'filtered ucs2'", updated: "'updated ucs2'"},
+	{name: "name_utf16le", datatype: "VARCHAR(100) CHARACTER SET utf16le", value: "'utf16le_val'", filtered: "'filtered utf16le'", updated: "'updated utf16le'"},
+	{name: "grade", datatype: "ENUM('naïve','café','résumé') CHARACTER SET latin1", value: "'naïve'", filtered: "'naïve'", updated: "'café'"},
+	{name: "name_latin1", datatype: "VARCHAR(100) CHARACTER SET latin1", value: "'latin1_val'", filtered: "'filtered latin1'", updated: "'updated latin1'"},
+	{name: "permissions", datatype: "SET('read','write','execute') CHARACTER SET latin1 DEFAULT NULL", value: "'read,write'", filtered: "'execute'", updated: "'read,write,execute'"},
+	{name: "id_bigint_unsigned", datatype: "BIGINT UNSIGNED", value: "5003", filtered: "0", updated: "6003"},
+	{name: "id_bigint_unsigned_signbit", datatype: "BIGINT UNSIGNED", value: "9223372036854775808", filtered: "0", updated: "9223372036854775809"},
+	{name: "id_bigint_unsigned_max", datatype: "BIGINT UNSIGNED", value: "18446744073709551615", filtered: "0", updated: "18446744073709551614"},
+	{name: "tags", datatype: "SET('sports','music','gaming','reading') DEFAULT NULL", value: "'sports,reading'", filtered: "'music'", updated: "'gaming,reading'"},
+	{name: "excludedColumn", datatype: "INT", value: "", filtered: "", updated: "102"},
+}
+
+// seedColumnTypes derives every seed column's type tags, excluded ones included, so a data_types
+// rule in compatibility_rules.json follows a seed edit with nothing to declare.
 func seedColumnTypes() map[string][]string {
-	ddl := fmt.Sprintf(seedTableDDL, "")
-	for _, col := range versionedSeedColumns {
-		ddl += "\n" + col.ddl
+	types := make(map[string][]string, len(seedColumns))
+	for _, col := range seedColumns {
+		types[col.name] = testutils.DataTypeTags(col.datatype)
 	}
-	return testutils.DDLColumnTypes(ddl)
+	return types
 }
 
-// seedColumnFragments renders the versioned columns NOT being excluded as the fragments each seed
-// statement splices in after name_latin1; excluding nothing reproduces the full fixture.
-func seedColumnFragments(t *testing.T, excluded []string) (ddl, cols, vals, filteredVals, updates string) {
+func filterSeedColumns(t *testing.T, excluded []string) []seedColumn {
 	t.Helper()
-	supported := make([]string, 0, len(versionedSeedColumns))
-	for _, col := range versionedSeedColumns {
-		supported = append(supported, col.name)
+	names := make([]string, 0, len(seedColumns))
+	for _, col := range seedColumns {
+		names = append(names, col.name)
 	}
-	drop, err := testutils.SeedColumnsExcluded(excluded, supported)
+	drop, err := testutils.SeedColumnsExcluded(excluded, names)
 	require.NoError(t, err, "mysql seed exclusion")
 
-	var names, values, filtered, sets []string
-	for _, col := range versionedSeedColumns {
-		if drop[col.name] {
+	kept := make([]seedColumn, 0, len(seedColumns))
+	for _, col := range seedColumns {
+		if !drop[col.name] {
+			kept = append(kept, col)
+		}
+	}
+	return kept
+}
+
+func createTableQuery(table string, cols []seedColumn) string {
+	defs := make([]string, 0, len(cols)+1)
+	for _, col := range cols {
+		defs = append(defs, col.definition())
+	}
+	defs = append(defs, "PRIMARY KEY (id)")
+	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\t%s\n)", table, strings.Join(defs, ",\n\t"))
+}
+
+func insertRowQuery(table string, cols []seedColumn, filtered bool, overrides map[string]string) string {
+	names := make([]string, 0, len(cols))
+	values := make([]string, 0, len(cols))
+	for _, col := range cols {
+		value := col.value
+		if filtered {
+			value = col.filtered
+		}
+		if override, ok := overrides[col.name]; ok {
+			value = override
+		}
+		if value == "" {
 			continue
 		}
-		ddl += "\n\t\t" + col.ddl + ","
 		names = append(names, col.name)
-		values = append(values, col.value)
-		filtered = append(filtered, col.filteredValue)
-		sets = append(sets, col.updateExpr)
+		values = append(values, value)
 	}
-	if len(names) == 0 {
-		return "", "", "", "", ""
+	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, strings.Join(names, ", "), strings.Join(values, ", "))
+}
+
+func updateRowQuery(table string, cols []seedColumn) string {
+	sets := make([]string, 0, len(cols)+1)
+	for _, col := range cols {
+		if col.updated == "" {
+			continue
+		}
+		sets = append(sets, col.name+" = "+col.updated)
 	}
-	join := func(parts []string) string { return " " + strings.Join(parts, ", ") + "," }
-	return ddl, join(names), join(values), join(filtered), join(sets)
+	sets = append(sets, "includedColumn = 202")
+	return fmt.Sprintf("UPDATE %s SET %s WHERE id = 1", table, strings.Join(sets, ", "))
 }
 
 // ExecuteQuery executes MySQL queries for testing based on the operation type. Columns named in
@@ -127,7 +157,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	t.Helper()
 
 	excludedColumns := conf.SeedExcludedColumns
-	seedDDL, seedCols, seedVals, seedFilteredVals, seedUpdates := seedColumnFragments(t, excludedColumns)
+	seedCols := filterSeedColumns(t, excludedColumns)
 
 	var connStr, database string
 	config := conf.SourceBaseConfig
@@ -151,7 +181,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	switch operation {
 	case "create":
-		query = fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (%s)", integrationTestTable, fmt.Sprintf(seedTableDDL, seedDDL))
+		query = createTableQuery(integrationTestTable, seedCols)
 
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
@@ -169,143 +199,21 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return // Early return since we handle all inserts in the helper function
 
 	case "insert":
-		query = fmt.Sprintf(`
-			INSERT INTO %s (
-			id_cursor, id, id_bigint,
-			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
-			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned,
-			id_tinyint_unsigned_max, id_smallint_unsigned_max,
-			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			price_decimal, amount_decimal_9_2, price_double,
-			price_double_precision, price_float, price_numeric, price_real,
-			name_char, name_varchar, name_text, name_tinytext,
-			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active,
-			long_varchar, name_bool, status, priority,
-			%s
-			tags,
-			excludedColumn
-		) VALUES (
-			6, 6, 123456789012345,
-			100, 4294967295, 102, 4294967294,
-			5001, 5002, 101, 102,
-			50, 51,
-			255, 65535,
-			16777215, 8388608, 4294967295,
-			123.45, 5330197.27, 123.456,
-			123.456,  123.45, 123.45, 123.456,
-			'c', 'varchar_val', 'text_val', 'tinytext_val',
-			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1,
-			'long_varchar_val', 1, 'active', 'high',
-			%s
-			'sports,reading',
-			101
-		)`, integrationTestTable, seedCols, seedVals)
-		_, err = db.ExecContext(ctx, query)
+		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, false,
+			map[string]string{"id": "6", "id_cursor": "6", "excludedColumn": "101"}))
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
-		filteredQuery := fmt.Sprintf(`
-			INSERT INTO %s (
-			id_cursor, id, id_bigint,
-			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
-			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned,
-			id_tinyint_unsigned_max, id_smallint_unsigned_max,
-			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			price_decimal, amount_decimal_9_2, price_double,
-			price_double_precision, price_float, price_numeric, price_real,
-			name_char, name_varchar, name_text, name_tinytext,
-			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active,
-			long_varchar, name_bool, status, priority,
-			%s
-			tags,
-			excludedColumn
-		) VALUES (
-			-1, 999, 111111111111111,
-			0, 0, 0, 0,
-			0, 0, 0, 0,
-			0, 0,
-			0, 0,
-			0, 0, 0,
-			50.123, 50.12, 50.123,
-			50.123, 50.0, 50.123, 50.123,
-			'x', 'filtered_val', 'filtered text', 'filtered tiny',
-			'filtered medium', 'filtered long', '2022-06-15 10:00:00',
-			'2021-06-15 10:00:00', 0,
-			'filtered long varchar', 0, 'inactive', 'low',
-			%s
-			'music',
-			200
-		)`, integrationTestTable, seedCols, seedFilteredVals)
-		_, err = db.ExecContext(ctx, filteredQuery)
+		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, true,
+			map[string]string{"id": "999", "excludedColumn": "200"}))
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
 
 	case "insert_2pc":
-		query = fmt.Sprintf(`
-			INSERT INTO %s (
-			id_cursor, id, id_bigint,
-			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
-			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned,
-			id_tinyint_unsigned_max, id_smallint_unsigned_max,
-			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			price_decimal, amount_decimal_9_2, price_double,
-			price_double_precision, price_float, price_numeric, price_real,
-			name_char, name_varchar, name_text, name_tinytext,
-			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active,
-			long_varchar, name_bool, status, priority,
-			%s
-			tags
-		) VALUES (
-			7, 7, 123456789012345,
-			100, 4294967295, 102, 4294967294,
-			5001, 5002, 101, 102,
-			50, 51,
-			255, 65535,
-			16777215, 8388608, 4294967295,
-			123.45, 5330197.27, 123.456,
-			123.456,  123.45, 123.45, 123.456,
-			'c', 'varchar_val', 'text_val', 'tinytext_val',
-			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1,
-			'long_varchar_val', 1, 'active', 'high',
-			%s
-			'sports,reading'
-		)`, integrationTestTable, seedCols, seedVals)
+		query = insertRowQuery(integrationTestTable, seedCols, false,
+			map[string]string{"id": "7", "id_cursor": "7"})
 
 	case "update":
-		query = fmt.Sprintf(`
-			UPDATE %s SET
-				id_cursor = NULL,
-				id_bigint = 987654321098765,
-				id_int = 200, id_int_unsigned = 4294967293,
-				id_integer = 202, id_integer_unsigned = 4294967292,
-				id_mediumint = 6001, id_mediumint_unsigned = 6002,
-				id_smallint = 201, id_smallint_unsigned = 202,
-				id_tinyint = 60, id_tinyint_unsigned = 61,
-				id_tinyint_unsigned_max = 254, id_smallint_unsigned_max = 65534,
-				id_mediumint_unsigned_max = 16777214, id_mediumint_unsigned_signbit = 8388609,
-				id_int_unsigned_max = 4294967294,
-				price_decimal = 543.21, amount_decimal_9_2 = 1234567.89, price_double = 654.321,
-				price_double_precision = 654.321, price_float = 543.21,
-				price_numeric = 543.21, price_real = 654.321,
-				name_char = 'X', name_varchar = 'updated varchar',
-				name_text = 'updated text', name_tinytext = 'upd tiny',
-				name_mediumtext = 'upd medium', name_longtext = 'upd long',
-				created_date = '2024-07-01 15:30:00',
-				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
-				long_varchar = 'updated long...', name_bool = 0,
-			status = 'pending', priority = 'low',
-			%s
-			tags = 'gaming,reading',
-			excludedColumn = 102,
-			includedColumn = 202
-		WHERE id = 1`, integrationTestTable, seedUpdates)
+		query = updateRowQuery(integrationTestTable, seedCols)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
@@ -359,78 +267,25 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName string, excludedColumns []string) {
 	t.Helper()
 
-	_, seedCols, seedVals, seedFilteredVals, _ := seedColumnFragments(t, excludedColumns)
+	seedCols := filterSeedColumns(t, excludedColumns)
 	for i := 1; i <= 5; i++ {
-		query := fmt.Sprintf(`
-		INSERT INTO %s (
-			id_cursor, id, id_bigint,
-			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
-			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned,
-			id_tinyint_unsigned_max, id_smallint_unsigned_max,
-			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			price_decimal, amount_decimal_9_2, price_double,
-			price_double_precision, price_float, price_numeric, price_real,
-			name_char, name_varchar, name_text, name_tinytext,
-			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active, long_varchar, name_bool, status, priority,
-			%s
-			tags,
-			excludedColumn
-		) VALUES (
-			%d, %d, 123456789012345,
-			100, 4294967295, 102, 4294967294,
-			5001, 5002, 101, 102,
-			50, 51,
-			255, 65535,
-			16777215, 8388608, 4294967295,
-			123.45, 5330197.27, 123.456,
-			123.456,  123.45, 123.45, 123.456,
-			'c', 'varchar_val', 'text_val', 'tinytext_val',
-			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high',
-			%s
-			'sports,reading',
-			100
-		)`, tableName, seedCols, i, i, seedVals)
-
-		_, err := db.ExecContext(ctx, query)
+		_, err := db.ExecContext(ctx, insertRowQuery(tableName, seedCols, false,
+			map[string]string{"id": strconv.Itoa(i), "id_cursor": strconv.Itoa(i), "excludedColumn": "100"}))
 		require.NoError(t, err, "Failed to insert test data row %d", i)
 	}
 	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
-	filteredQuery := fmt.Sprintf(`
-		INSERT INTO %s (
-			id_cursor, id, id_bigint,
-			id_int, id_int_unsigned, id_integer, id_integer_unsigned,
-			id_mediumint, id_mediumint_unsigned, id_smallint, id_smallint_unsigned,
-			id_tinyint, id_tinyint_unsigned,
-			id_tinyint_unsigned_max, id_smallint_unsigned_max,
-			id_mediumint_unsigned_max, id_mediumint_unsigned_signbit, id_int_unsigned_max,
-			price_decimal, amount_decimal_9_2, price_double,
-			price_double_precision, price_float, price_numeric, price_real,
-			name_char, name_varchar, name_text, name_tinytext,
-			name_mediumtext, name_longtext, created_date,
-			created_timestamp, is_active, long_varchar, name_bool, status, priority,
-			%s
-			tags,
-			excludedColumn
-		) VALUES (
-			-1, 998, 111111111111111,
-			0, 0, 0, 0,
-			0, 0, 0, 0,
-			0, 0,
-			0, 0,
-			0, 0, 0,
-			500234.123, 500234.12, 500234.123,
-			500234.123, 500234.0, 500234.123, 500234.123,
-			'x', 'filtered_val', 'filtered text', 'filtered tiny',
-			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
-			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low',
-			%s
-			'music',
-			200
-		)`, tableName, seedCols, seedFilteredVals)
-	_, err := db.ExecContext(ctx, filteredQuery)
+	_, err := db.ExecContext(ctx, insertRowQuery(tableName, seedCols, true, map[string]string{
+		"id":                     "998",
+		"excludedColumn":         "200",
+		"price_decimal":          "500234.123",
+		"amount_decimal_9_2":     "500234.12",
+		"price_double":           "500234.123",
+		"price_double_precision": "500234.123",
+		"price_float":            "500234.0",
+		"price_numeric":          "500234.123",
+		"price_real":             "500234.123",
+		"created_date":           "'2021-06-15 10:00:00'",
+	}))
 	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 

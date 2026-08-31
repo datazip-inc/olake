@@ -9,13 +9,6 @@ import (
 	"sync"
 )
 
-// The product's constants/state-versions.json is the single source of truth for state-file
-// semantics: the version the build writes today, and the release history behind every bump. The
-// harness holds no copy of its own -- go:embed cannot reach the file from another module, so it is
-// read at runtime, once per process.
-
-// StateVersionBaseline is one entry of the manifest's release history: the release that introduced
-// a state version, which drivers it gated, and why. The compatibility suite sweeps these tags.
 type StateVersionBaseline struct {
 	StateVersion int    `json:"state_version"`
 	ReleaseTag   string `json:"release_tag"`

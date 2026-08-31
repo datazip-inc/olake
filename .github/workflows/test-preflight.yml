@@ -17,8 +17,6 @@ on:
         value: ${{ jobs.preflight.outputs.driver-labels }}
 
 jobs:
-  # Ungated, like the three cache jobs below it: the environment prompts once per wave of jobs that
-  # reach it, so gating these too would cost three approvals a run. Cheap: a file list and 3 lookups.
   preflight:
     name: Detect changes
     runs-on: ubuntu-latest
@@ -41,8 +39,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Shared with any workflow that wants to skip untouched drivers; the caller's matrix fans out
-      # over whatever it returns, and an empty array skips the driver jobs entirely.
       - name: Resolve driver matrix
         id: drivers
         uses: ./.github/actions/detect-drivers
@@ -99,8 +95,6 @@ jobs:
         with:
           mode: lookup
 
-      # A marker, since buildx's own gha cache keys are internal and cannot be looked up: it records
-      # that the runtime-base stage was warmed. Eviction can outdate it, and a miss is only a slow build.
       - name: Look up base docker layer marker
         id: apt-cache
         uses: actions/cache/restore@v4
@@ -112,16 +106,10 @@ jobs:
   base-images:
     name: Build base branch image
     needs: preflight
-    # Guarded rather than left to an empty matrix: inside a called workflow an empty matrix never
-    # resolves, and the calling job hangs on it instead of completing -- which skips everything
-    # gated on that job. A skipped job, which is what the three below do, is resolved and fine.
     if: needs.preflight.outputs.base-image-misses != '' && needs.preflight.outputs.base-image-misses != '[]'
     permissions:
       contents: read
       packages: write
-    # One machine rather than a driver each: the images share one Iceberg jar, which a job per
-    # driver would rebuild per driver, and the script fans the builds out beneath it. Hosted, since
-    # this overlaps the approval wait and the self-hosted pool is about to be wanted by the matrix.
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -154,8 +142,6 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           path: tests/.compat-base
 
-  # Only when the jar is missing: preflight already looked up the cache, so an unchanged writer
-  # skips Maven and this whole job.
   build-jar:
     name: Build Iceberg writer jar
     needs: preflight
@@ -181,8 +167,6 @@ jobs:
         with:
           mode: save
 
-  # Skipped while the Dockerfile is unchanged and already warmed. Failure here is never fatal: the
-  # driver build just re-runs the layers it would have hit from cache.
   apt-warm:
     name: Warm base docker layers
     needs: preflight
@@ -196,8 +180,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: ./.github/actions/buildx
 
-      # Exits 0 either way: a failed warm must not block the matrix, it only leaves those layers to
-      # the driver build. The marker is what tells the next run to try again.
       - name: Warm base docker layers
         run: |
           docker buildx build --target runtime-base \
@@ -205,7 +187,6 @@ jobs:
             && echo "$GITHUB_SHA" > .apt-warmed \
             || echo "::warning::base layer warm failed (non-fatal)"
 
-      # Only on success, so a failed warm leaves the marker missing and the next run retries.
       - name: Save base layer marker
         if: hashFiles('.apt-warmed') != ''
         uses: actions/cache/save@v4
@@ -213,8 +194,6 @@ jobs:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
 
-  # The modules and compiled shared deps every driver job restores, plus the tests modules' lint
-  # and gosec; skipped when the cache is published and no go-check input changed in the PR.
   go-cache:
     name: Go checks + cache
     needs: preflight
@@ -225,7 +204,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
 
-      # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -242,18 +220,13 @@ jobs:
         with:
           save: "true"
 
-      # Every tests module, not just testutils, so the matrix jobs download nothing.
-      - name: Download Go modules
-        run: cd tests && for d in $(go list -m -f '{{.Dir}}'); do go -C "$d" mod download; done
-
-      # The same targets the driver jobs run, so their compile and link both hit this cache.
       - name: Compile the driver test binaries
         run: make test.build.all
 
-      # Installs golangci-lint as a side effect (the Makefile guard skips it when the restored
-      # cache already carries the binary), so it rides into the post-job save with gosec below.
       - name: golangci-lint tests modules
-        if: inputs.go-checks
+        id: lint
+        background: true
+        timeout-minutes: 15
         run: make test.lint
 
       - name: install gosec
@@ -266,3 +239,6 @@ jobs:
         if: inputs.go-checks
         working-directory: tests
         run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
+
+      - name: Wait for the lint
+        wait: [lint]

@@ -109,12 +109,6 @@ func runSide(
 	// scenarios themselves never clear, so the candidate binary meets the table the baseline made.
 	clearDestination(t, g, cfg.DestinationDB, table)
 
-	// The slot lives as long as the source config that names it, and olake validates the CDC
-	// configuration at startup for every sync -- the incremental ones included; only postgres needs it.
-	if cfg.Driver == string(constants.Postgres) {
-		cfg.ExecuteQuery(ctx, t, cfg, "create-slot")
-		defer cfg.ExecuteQuery(ctx, t, cfg, "drop-slot")
-	}
 	if testutils.KeepTestData() {
 		t.Logf("compatibility side %q: leaving source table %s in place (%s is set); it holds the last case's data",
 			cfg.Suite, table, testutils.KeepTestDataEnvVar)
@@ -126,14 +120,6 @@ func runSide(
 	cfg.ExecuteQuery(ctx, t, cfg, "drop")
 	cfg.ExecuteQuery(ctx, t, cfg, "create")
 	cfg.ExecuteQuery(ctx, t, cfg, "add")
-	if cfg.Driver == string(constants.DB2) {
-		cfg.ExecuteQuery(ctx, t, cfg, "populate-stats")
-	}
-	// The seed rows sit in the CDC log, and before #843 the mssql driver captured its initial LSN
-	// without waiting for the async capture agent -- wait here so every binary snapshots past the seed.
-	if v.kind == scenarioCDC && cfg.Driver == string(constants.MSSQL) {
-		cfg.ExecuteQuery(ctx, t, cfg, "wait-cdc-catchup")
-	}
 	if v.kind == scenarioIncremental {
 		require.NoError(t, testutils.ResetStateFile(cfg), "failed to reset state for incremental")
 	}
@@ -144,9 +130,6 @@ func runSide(
 		}
 		if c.useState && c.operation != "" {
 			cfg.ExecuteQuery(ctx, t, cfg, c.operation)
-			if v.kind == scenarioCDC && cfg.Driver == string(constants.MSSQL) {
-				cfg.ExecuteQuery(ctx, t, cfg, "wait-cdc-catchup")
-			}
 		}
 		// Successive syncs write the same parquet column with different types, which Spark refuses
 		// to read together (CANNOT_MERGE_SCHEMAS; F2 in docs/backward-compatibility.md) -- so a

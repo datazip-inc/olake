@@ -64,7 +64,6 @@ func TestS3Compatibility(t *testing.T) {
 			t.Parallel()
 			fixture := &compatibility.Test{
 				DeclaredSchema: variant.DestinationSchema,
-				ColumnTypes:    variant.ColumnTypes(),
 			}
 			fixture.NewConfig = func(t *testing.T, version string) *testutils.TestConfig {
 				return s3BaseConfig(t, variant, testutils.WithDriverVersion(version)).TestConfig

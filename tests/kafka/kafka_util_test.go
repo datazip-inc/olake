@@ -23,12 +23,10 @@ import (
 )
 
 const (
-	partitionCount            = 5
-	rebalanceBulkMessageCount = 100_000
-	rebalanceBulkPartition    = int32(0)
-	rebalanceBulkBatchSize    = 500
-	// The broker advertises a listener per network: source.json names the one the driver container
-	// reaches (host.docker.internal:39092), and dialing it from the host fails on the advertised name.
+	partitionCount             = 5
+	rebalanceBulkMessageCount  = 100_000
+	rebalanceBulkPartition     = int32(0)
+	rebalanceBulkBatchSize     = 500
 	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
 	kafkaAvroIntegrationBroker = "127.0.0.1:29192"
 	avroSchemaRegistryURL      = "http://127.0.0.1:8081"

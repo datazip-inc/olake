@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -55,8 +54,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	switch operation {
 	case "create":
-		ensureReplicationSlot(ctx, t, conf, replicationSlot)
-
 		query = fmt.Sprintf(`
 			CREATE TABLE IF NOT EXISTS %s (
 				col_bigint BIGINT,
@@ -510,30 +507,3 @@ var ExpectedPostgresDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_timestamp": "timestamp",
 	"_cdc_lsn":       "string",
 }
-
-// ensureReplicationSlot creates the slot this suite's source config names, once. olake validates
-// the CDC config on every command it runs, so the slot has to outlive the whole suite -- hence the
-// once: "create" is called again by every subtest that resets the table, and a t.Cleanup registered
-// there would drop the slot while the suite is still running.
-func ensureReplicationSlot(ctx context.Context, t *testing.T, conf *testutils.TestConfig, slot string) {
-	t.Helper()
-	slotsEnsuredMu.Lock()
-	defer slotsEnsuredMu.Unlock()
-	if slotsEnsured[slot] {
-		return
-	}
-	slotsEnsured[slot] = true
-
-	ExecuteQuery(ctx, t, conf, "create-slot")
-	t.Cleanup(func() {
-		slotsEnsuredMu.Lock()
-		delete(slotsEnsured, slot)
-		slotsEnsuredMu.Unlock()
-		ExecuteQuery(context.WithoutCancel(ctx), t, conf, "drop-slot")
-	})
-}
-
-var (
-	slotsEnsuredMu sync.Mutex
-	slotsEnsured   = map[string]bool{}
-)

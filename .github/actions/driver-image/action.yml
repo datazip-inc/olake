@@ -1,13 +1,25 @@
 name: Driver image artifact
 description: >
-  Exports the driver image this run built and uploads it as a run artifact, so a later job can load
-  it instead of building its own copy. Run-scoped on purpose: the image is read within the run and
-  never after it, so retention expires it without anything having to clean up.
+  Exports the driver image this run built and uploads it as a run artifact
 
 inputs:
   driver:
-    description: Driver whose local image to export.
+    description: Driver whose image to export.
     required: true
+  tag:
+    description: >
+      Tag to export. The suites build and run the current code as `local`; a released baseline or a
+      commit-tagged build can be exported by naming its tag instead.
+    required: false
+    default: local
+  artifact-name:
+    description: >
+      What to publish under. Defaults to driver-image-<driver>, which is the name the compatibility
+      job looks for. Exporting more than one tag of the same driver in a run needs distinct names
+      here: an artifact name can only be uploaded once, and this action overwrites, so a second
+      export under the same name would replace the first rather than fail.
+    required: false
+    default: ''
   retention-days:
     description: How long the artifact lives. A day is already far longer than the run that reads it.
     required: false
@@ -18,12 +30,15 @@ runs:
   steps:
     - name: Export the image
       shell: bash
-      run: docker save -o "$RUNNER_TEMP/source-${{ inputs.driver }}.tar" "olakego/source-${{ inputs.driver }}:local"
+      env:
+        IMAGE: olakego/source-${{ inputs.driver }}:${{ inputs.tag }}
+        TAR: ${{ runner.temp }}/source-${{ inputs.driver }}.tar
+      run: docker save -o "$TAR" "$IMAGE"
 
     - name: Upload the image
       uses: actions/upload-artifact@v7
       with:
-        name: driver-image-${{ inputs.driver }}
+        name: ${{ inputs.artifact-name || format('driver-image-{0}', inputs.driver) }}
         path: ${{ runner.temp }}/source-${{ inputs.driver }}.tar
         retention-days: ${{ inputs.retention-days }}
         overwrite: true

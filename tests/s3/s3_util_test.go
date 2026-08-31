@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -781,17 +782,17 @@ func ExecuteQueryFactory(variant S3TestVariant, cfg *integration.Test) func(ctx 
 		case "add":
 			// One plain file and, where the variant allows it, one gzipped: a single stream
 			// mixing both proves compression is detected per file rather than per stream.
-			variant.putFile(ctx, t, src, prefix, "seed_1", variant.BuildFile, 1, seedValues, false, excluded)
-			variant.putFile(ctx, t, src, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped, excluded)
+			variant.putFile(ctx, t, src, prefix, "seed_1", variant.BuildFile, 1, seedValues, false, false, excluded)
+			variant.putFile(ctx, t, src, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped, false, excluded)
 
 		case "insert":
 			// A file the incremental cursor has not seen: it is stamped after the previous
 			// sync, so only its rows are re-read.
-			variant.putFilePastCursor(ctx, t, src, prefix, "insert_1", variant.BuildFile, 7, seedValues, false, excluded)
+			variant.putFile(ctx, t, src, prefix, "insert_1", variant.BuildFile, 7, seedValues, false, true, excluded)
 
 		case "update":
 			// Object stores have no in-place update: changed data arrives as another file.
-			variant.putFilePastCursor(ctx, t, src, prefix, "update_1", variant.BuildFile, 10, updatedValues, false, excluded)
+			variant.putFile(ctx, t, src, prefix, "update_1", variant.BuildFile, 10, updatedValues, false, true, excluded)
 
 		case "evolve-schema":
 			// An object store's ALTER TABLE: a file whose rows carry a column discover has
@@ -801,7 +802,7 @@ func ExecuteQueryFactory(variant S3TestVariant, cfg *integration.Test) func(ctx 
 			// ExpectedUpdatedData; evolvedColumn itself is asserted through the schema, not
 			// per row, since the "update" file's rows sync a null there.
 			if variant.BuildEvolvedFile != nil {
-				variant.putFilePastCursor(ctx, t, src, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false, excluded)
+				variant.putFile(ctx, t, src, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false, true, excluded)
 			}
 
 		default:
@@ -813,7 +814,7 @@ func ExecuteQueryFactory(variant S3TestVariant, cfg *integration.Test) func(ctx 
 // putFile renders one file with build and uploads it under prefix. Gzipped files get a
 // ".gz" suffix, which is what both the driver's file matcher and its reader use to detect
 // compression.
-func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped bool, excluded []string) string {
+func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped, wait bool, excluded []string) {
 	t.Helper()
 
 	data := build(t, startID, vals, excluded)
@@ -824,38 +825,17 @@ func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, 
 	}
 
 	key := prefix + name + ext
+
+	// TODO: the driver should handle same-second arrivals itself (`>=` plus tracking the file keys
+	// already synced at the cursor's second); this guard papers over real, silent data loss.
+	if wait {
+		t.Logf("waiting before putting file to avoid s3 driver skipping the new file...")
+		time.Sleep(1 * time.Second)
+	}
+
 	_, err := src.client.PutObject(ctx, src.bucket, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
 	require.NoError(t, err, "failed to upload %s", key)
 	t.Logf("Uploaded s3://%s/%s (%d bytes)", src.bucket, key, len(data))
-	return key
-}
-
-// putFilePastCursor is putFile for a file the next incremental sync must pick up: the driver's
-// cursor keeps LastModified at whole seconds with a strict >, so a file landing in the same second
-// as the previous sync's newest object is silently skipped. Re-upload until the object's second is
-// past every object already under the prefix.
-// TODO: the driver should handle same-second arrivals itself (`>=` plus tracking the file keys
-// already synced at the cursor's second); this guard papers over real, silent data loss.
-func (v S3TestVariant) putFilePastCursor(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped bool, excluded []string) {
-	t.Helper()
-
-	var prevMax time.Time
-	for obj := range src.client.ListObjects(ctx, src.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
-		require.NoError(t, obj.Err, "failed to list objects under %s", prefix)
-		if obj.LastModified.After(prevMax) {
-			prevMax = obj.LastModified
-		}
-	}
-	prevSecond := prevMax.UTC().Truncate(time.Second)
-	for {
-		key := v.putFile(ctx, t, src, prefix, name, build, startID, vals, gzipped, excluded)
-		info, err := src.client.StatObject(ctx, src.bucket, key, minio.StatObjectOptions{})
-		require.NoError(t, err, "failed to stat %s", key)
-		if info.LastModified.UTC().Truncate(time.Second).After(prevSecond) {
-			return
-		}
-		time.Sleep(200 * time.Millisecond)
-	}
 }
 
 // Sub-second timestamp layouts for the text variants. Fixed-width fractions (not the
@@ -1138,18 +1118,22 @@ func parquetTestGroup() pq.Group {
 	}
 }
 
-// parquetExcludableColumns are the seed columns the fixture knows how to leave out, all of them
-// #1020 (v0.9.1) fixes: the group-typed three panic a older parser on Kind(), and int96 is typed
-// timestamptz by discover while the reader hands back a string, which the iceberg flush rejects.
-var parquetExcludableColumns = []string{"map_col", "struct_col", "list_col", "int96_col"}
-
 // parquetGroupExcluding is the seed's column group minus the columns this baseline cannot read.
+// Any column the group declares can be left out, so a rule in compatibility_rules.json naming a new
+// one needs nothing declared here.
 func parquetGroupExcluding(t *testing.T, excluded []string) pq.Group {
 	t.Helper()
-	drop, err := testutils.SeedColumnsExcluded(excluded, parquetExcludableColumns)
+	group := parquetTestGroup()
+
+	names := make([]string, 0, len(group)+1)
+	for column := range group {
+		names = append(names, column)
+	}
+	names = append(names, evolvedColumn)
+
+	drop, err := testutils.SeedColumnsExcluded(excluded, names)
 	require.NoError(t, err, "s3 parquet seed exclusion")
 
-	group := parquetTestGroup()
 	for column := range drop {
 		delete(group, column)
 	}
@@ -1262,7 +1246,9 @@ func buildEvolvedParquetFile(t *testing.T, startID int64, vals rowValues, exclud
 	}
 
 	group := parquetGroupExcluding(t, excluded)
-	group[evolvedColumn] = pq.String()
+	if !slices.Contains(excluded, evolvedColumn) {
+		group[evolvedColumn] = pq.String()
+	}
 	return writeParquetRows(t, pq.NewSchema("s3_parquet_row", group), rows)
 }
 
@@ -1296,63 +1282,4 @@ func gzipBytes(t *testing.T, data []byte) []byte {
 	require.NoError(t, err, "failed to gzip data")
 	require.NoError(t, writer.Close(), "failed to close gzip writer")
 	return buf.Bytes()
-}
-
-// ColumnTypes derives type tags for the variant's seed columns, which a data_types rule in
-// compatibility_rules.json resolves against. Parquet is the one format with a declared schema,
-// parquetTestGroup, so its tags are read off that; a text file's only source type is what the
-// driver infers, which DeclaredSchema already carries.
-func (v S3TestVariant) ColumnTypes() map[string][]string {
-	if v.DataFormat != "parquet" {
-		return nil
-	}
-	types := map[string][]string{}
-	for column, node := range parquetTestGroup() {
-		types[column] = parquetNodeTags(node)
-	}
-	return types
-}
-
-// parquetNodeTags names a leaf by its physical kind and logical type, with the width, sign or time
-// unit that tells one apart (uint32, timestamp(nanos)); a group by its shape.
-func parquetNodeTags(node pq.Node) []string {
-	logical := node.Type().LogicalType()
-	if !node.Leaf() {
-		switch {
-		case logical != nil && logical.Map != nil:
-			return []string{"map"}
-		case logical != nil && logical.List != nil:
-			return []string{"list"}
-		}
-		return []string{"struct"}
-	}
-	tags := []string{strings.ToLower(node.Type().Kind().String())}
-	if logical == nil {
-		return tags
-	}
-	switch {
-	case logical.UTF8 != nil:
-		tags = append(tags, "string")
-	case logical.Enum != nil:
-		tags = append(tags, "enum")
-	case logical.Decimal != nil:
-		tags = append(tags, "decimal")
-	case logical.Date != nil:
-		tags = append(tags, "date")
-	case logical.Time != nil:
-		tags = append(tags, "time", "time("+strings.ToLower(logical.Time.Unit.String())+")")
-	case logical.Timestamp != nil:
-		tags = append(tags, "timestamp", "timestamp("+strings.ToLower(logical.Timestamp.Unit.String())+")")
-	case logical.Integer != nil:
-		sign := ""
-		if !logical.Integer.IsSigned {
-			sign = "u"
-		}
-		tags = append(tags, fmt.Sprintf("%sint%d", sign, logical.Integer.BitWidth))
-	case logical.Json != nil:
-		tags = append(tags, "json")
-	case logical.UUID != nil:
-		tags = append(tags, "uuid")
-	}
-	return tags
 }

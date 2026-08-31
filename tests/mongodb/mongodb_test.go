@@ -7,6 +7,7 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/compatibility"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 	"github.com/datazip-inc/olake/tests/testutils/integration"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
@@ -58,26 +59,22 @@ func TestMongodb2PC(t *testing.T) {
 	mongodbBaseConfig(t).Test2PCIntegration(t)
 }
 
-// func TestMongodbPerformance(t *testing.T) {
-// 	cfg, err := testutils.NewTestConfig(constants.MongoDB, "twitter_data", "", ExecuteQuery, "")
-// 	require.NoError(t, err, "failed to build the test config")
+func TestMongodbPerformance(t *testing.T) {
+	cfg, err := testutils.NewTestConfig(t, constants.MongoDB, "twitter_data", "", ExecuteQuery)
+	require.NoError(t, err, "failed to build the test config")
 
-// 	perf := &performance.Test{
-// 		TestConfig:      cfg,
-// 		BackfillStreams: performance.GetBackfillStreamsFromCDC(performanceCDCStreams),
-// 		CDCStreams:      performanceCDCStreams,
-// 	}
+	perf := &performance.Test{
+		TestConfig:      cfg,
+		BackfillStreams: performance.GetBackfillStreamsFromCDC(performanceCDCStreams),
+		CDCStreams:      performanceCDCStreams,
+	}
 
-// 	perf.TestPerformance(t)
-// }
+	perf.TestPerformance(t)
+}
 
 // TestMongodbCompatibility pins the backward-compatibility contract for the driver owning the v5 gate
 // (BSON DateTime decoded as UTC time.Time at any depth, constants/state_version.go). v0.6.1 is
 // the newest release still on state version 4, so it is the one that exercises it.
-//
-// _id and _olake_id are volatile here, unlike every other driver: the seed inserts documents
-// without an _id, so the server generates a fresh ObjectID per run and _olake_id, which hashes the
-// primary key, follows it. Both are still compared by TYPE -- only their values are exempt.
 func TestMongodbCompatibility(t *testing.T) {
 	t.Parallel()
 	fixture := &compatibility.Test{

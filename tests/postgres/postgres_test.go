@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
@@ -44,8 +45,19 @@ func postgresBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integ
 	}
 }
 
+func createReplicationSlot(t *testing.T, cfg *testutils.TestConfig) {
+	t.Helper()
+	ctx := t.Context()
+	ExecuteQuery(ctx, t, cfg, "create-slot")
+	t.Cleanup(func() {
+		ExecuteQuery(context.WithoutCancel(ctx), t, cfg, "drop-slot")
+	})
+}
+
 func TestPostgresDiscover(t *testing.T) {
-	postgresBaseConfig(t).TestDiscover(t)
+	cfg := postgresBaseConfig(t)
+	createReplicationSlot(t, cfg.TestConfig)
+	cfg.TestDiscover(t)
 }
 
 func TestPostgresSync(t *testing.T) {
@@ -53,12 +65,15 @@ func TestPostgresSync(t *testing.T) {
 	cfg := postgresBaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedPostgresToDestinationSchema
+	createReplicationSlot(t, cfg.TestConfig)
 	cfg.TestSync(t)
 }
 
 func TestPostgres2PC(t *testing.T) {
 	t.Parallel()
-	postgresBaseConfig(t).Test2PCIntegration(t)
+	cfg := postgresBaseConfig(t)
+	createReplicationSlot(t, cfg.TestConfig)
+	cfg.Test2PCIntegration(t)
 }
 
 func TestPostgresPerformance(t *testing.T) {
@@ -83,7 +98,9 @@ func TestPostgresCompatibility(t *testing.T) {
 	// No column rules: postgres compares clean on every reachable baseline (COMPAT_RESULTS_v2.md).
 	fixture := &compatibility.Test{
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
-			return postgresBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+			cfg := postgresBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+			createReplicationSlot(t, cfg)
+			return cfg
 		},
 		DeclaredSchema:   PostgresToDestinationSchema,
 		CDCColumnsSchema: ExpectedPostgresDefaultCDCColumnsSchema,

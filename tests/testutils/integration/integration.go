@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
-	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
 const (
@@ -25,10 +24,6 @@ type Test struct {
 	DestinationDataTypeSchema        map[string]string
 	UpdatedDestinationDataTypeSchema map[string]string
 	DefaultCDCColumnsSchema          map[string]string
-
-	// The fields below exist for the backward-compatibility suite (compatibility.go) and are zero for
-	// every other suite, which keeps their behavior identical to before they existed.
-
 }
 
 // reset table and add back data to the table
@@ -36,10 +31,6 @@ func (cfg *Test) resetTable(ctx context.Context, t *testing.T) error {
 	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
 	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "create")
 	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "add")
-	if cfg.TestConfig.Driver == string(constants.DB2) {
-		// to populate stats for DB2
-		cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "populate-stats")
-	}
 	return nil
 }
 
@@ -60,13 +51,6 @@ func (cfg *Test) runSyncAndVerify(
 	// Execute operation before sync if needed
 	if useState && operation != "" {
 		cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, operation)
-		// SQL Server CDC is asynchronous: the capture job only picks up the DML above on its next
-		// transaction-log scan, and the sync's change window ends at the job's processed max LSN
-		// (sys.fn_cdc_get_max_lsn), so syncing too early would see no changes. Wait for the capture
-		// job to advance past the DML. Incremental runs read the table directly and need no wait.
-		if isCDC && cfg.TestConfig.Driver == "mssql" {
-			cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "wait-cdc-catchup")
-		}
 	}
 
 	// Run sync against the driver image
