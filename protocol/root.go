@@ -174,9 +174,8 @@ func recoverToError(err *error) {
 	}
 }
 
-// ReportFailure classifies a failed run, reports it, and waits for the report to be delivered.
-// The wait is the point: check and discover leave through logger.Fatal, and telemetry sends in
-// the background, so without flushing the event is built and then discarded as the process dies.
+// ReportFailure classifies and reports a failed run, blocking until sent: telemetry sends in the
+// background and the process exits right after. check calls it directly: FAILED status, nil error.
 func ReportFailure(err error) {
 	if err == nil {
 		return
