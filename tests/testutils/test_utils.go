@@ -631,6 +631,23 @@ func updateStreamConfig(config *TestConfig, namespace, streamName, syncMode, cur
 	})
 }
 
+// updateUpdateType sets update_type in selected_streams for the stream identified by namespace+streamName.
+func updateUpdateType(config *TestConfig, namespace, streamName, updateType string) error {
+	streamName = normalizeStreamName(config.Driver, streamName)
+	return editJSONFile(config.HostCatalogPath, func(doc map[string]interface{}) error {
+		selected, _ := doc["selected_streams"].(map[string]interface{})
+		nsStreams, _ := selected[namespace].([]interface{})
+		for _, raw := range nsStreams {
+			stream, ok := raw.(map[string]interface{})
+			if !ok || fmt.Sprint(stream["stream_name"]) != streamName {
+				continue
+			}
+			stream["update_type"] = updateType
+		}
+		return nil
+	})
+}
+
 // resetStateFile clears state.json so incremental can perform its initial load
 // (equivalent to a full load on first run), irrespective of any previous CDC run.
 func resetStateFile(config *TestConfig) error {
@@ -745,6 +762,34 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 	}
 
 	t.Logf("--- Cleanup Complete: Deleted %d files ---", len(objects))
+	return nil
+}
+
+func deleteParquetTable(t *testing.T, parquetDB, tableName string) error {
+	t.Helper()
+	parquetPath := parquetTablePath(parquetDB, tableName)
+
+	minioClient, err := newMinIOClient()
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	deletedCount := 0
+	for object := range minioClient.ListObjects(ctx, parquetTestBucket, minio.ListObjectsOptions{
+		Prefix:    parquetPath,
+		Recursive: true,
+	}) {
+		if object.Err != nil {
+			return fmt.Errorf("error listing objects: %s", object.Err)
+		}
+		if err := minioClient.RemoveObject(ctx, parquetTestBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
+		}
+		deletedCount++
+	}
+
+	t.Logf("--- Parquet Table Cleanup Complete: Deleted %d objects ---", deletedCount)
 	return nil
 }
 
@@ -950,6 +995,9 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	if err := cfg.resetTable(ctx, t); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
 	}
+	if err := deleteParquetTable(t, cfg.DestinationDB, testTable); err != nil {
+		return fmt.Errorf("failed to reset parquet table: %s", err)
+	}
 
 	dbTestCases := []syncTestCase{
 		{
@@ -1135,6 +1183,9 @@ func (cfg *IntegrationTest) testParquetFullLoadAndIncremental(
 
 	if err := cfg.resetTable(ctx, t); err != nil {
 		return fmt.Errorf("failed to reset table: %s", err)
+	}
+	if err := deleteParquetTable(t, cfg.DestinationDB, testTable); err != nil {
+		return fmt.Errorf("failed to reset parquet table: %s", err)
 	}
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field = "id"
@@ -1706,6 +1757,24 @@ func (cfg *IntegrationTest) TestSync(t *testing.T) {
 				t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
 			}
 		})
+
+		if hasIcebergTableIndexTest(cfg.TestConfig.Driver) {
+			t.Run("Iceberg Table Index Eq to Pos Conversion", func(t *testing.T) {
+				if err := cfg.testIcebergEqToPosConversion(ctx, t, currentTestTable); err != nil {
+					t.Fatalf("Iceberg Table Index Eq to Pos Conversion test failed: %v", err)
+				}
+			})
+			t.Run("Iceberg Table Index Clean Table Positional", func(t *testing.T) {
+				if err := cfg.testIcebergCleanTablePositionalWithPebbleIndex(ctx, t, currentTestTable); err != nil {
+					t.Fatalf("Iceberg Table Index Clean Table Positional test failed: %v", err)
+				}
+			})
+			t.Run("Iceberg Table Index Rebuild Index From Scratch", func(t *testing.T) {
+				if err := cfg.testIcebergRebuildIndexFromScratch(ctx, t, currentTestTable); err != nil {
+					t.Fatalf("Iceberg Table Index Rebuild Index From Scratch test failed: %v", err)
+				}
+			})
+		}
 	}
 
 	// Skip incremental tests for drivers not supporting incremental mode
