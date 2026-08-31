@@ -22,7 +22,7 @@ import (
 
 // various stream formats
 type StreamClassification struct {
-	SelectedStreams    []string
+	SelectedStreams    []types.StreamInterface
 	CDCStreams         []types.StreamInterface
 	IncrementalStreams []types.StreamInterface
 	FullLoadStreams    []types.StreamInterface
@@ -122,6 +122,7 @@ var syncCmd = &cobra.Command{
 			if state, err = connector.ClearState(dropStreams); err != nil {
 				return fmt.Errorf("error clearing state for full refresh streams: %w", err)
 			}
+
 			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
 				return fmt.Errorf("failed to clear destination: %w", cerr)
 			}
@@ -190,7 +191,7 @@ var syncCmd = &cobra.Command{
 func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
-		SelectedStreams:    []string{},
+		SelectedStreams:    []types.StreamInterface{},
 		CDCStreams:         []types.StreamInterface{},
 		IncrementalStreams: []types.StreamInterface{},
 		FullLoadStreams:    []types.StreamInterface{},
@@ -235,6 +236,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
+		if err := elem.GetUpdateType().Validate(); err != nil {
+			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
+			return false
+		}
+
 		filter, isLegacy, err := elem.GetFilter()
 		if err != nil {
 			logger.Warnf("Skipping; Configured Stream %s failed to get filter: %s", elem.ID(), err)
@@ -264,16 +270,22 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
-		classifications.SelectedStreams = append(classifications.SelectedStreams, elem.ID())
+		classifications.SelectedStreams = append(classifications.SelectedStreams, elem)
 		// Past every skip branch, so the mix describes what this run actually syncs rather
 		// than everything the catalog configured.
 		classifications.Mix.Selected++
 		if elem.StreamMetadata.Normalization {
 			classifications.Mix.Normalized++
 		}
+
 		if elem.StreamMetadata.PartitionRegex != "" {
 			classifications.Mix.Partitioned++
 		}
+
+		if elem.GetUpdateType() == types.UpdateTypePosition {
+			classifications.Mix.StreamWithPosUpdateType++
+		}
+
 		switch elem.Stream.SyncMode {
 		case types.CDC, types.STRICTCDC:
 			// One read path, two counters: the sync treats them alike, telemetry does not.
@@ -311,6 +323,10 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			fmt.Errorf("no valid streams found in catalog"))
 	}
 
-	logger.Infof("Valid selected streams are %s", strings.Join(classifications.SelectedStreams, ", "))
+	selectedStreamNames := make([]string, len(classifications.SelectedStreams))
+	for i, stream := range classifications.SelectedStreams {
+		selectedStreamNames[i] = stream.ID()
+	}
+	logger.Infof("Valid selected streams are %v", strings.Join(selectedStreamNames, ", "))
 	return classifications, nil
 }

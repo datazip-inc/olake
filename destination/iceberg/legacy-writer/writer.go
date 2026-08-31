@@ -16,18 +16,22 @@ import (
 )
 
 type LegacyWriter struct {
-	options *destination.Options
-	schema  map[string]string
-	stream  types.StreamInterface
-	server  internal.ServerClient
+	options     *destination.Options
+	schema      map[string]string
+	stream      types.StreamInterface
+	server      internal.ServerClient
+	indexThread *types.StreamIndexThread
+	upsertMode  bool
 }
 
-func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient) *LegacyWriter {
+func New(options *destination.Options, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) *LegacyWriter {
 	return &LegacyWriter{
-		options: options,
-		schema:  schema,
-		stream:  stream,
-		server:  server,
+		options:     options,
+		schema:      schema,
+		stream:      stream,
+		server:      server,
+		upsertMode:  upsertMode,
+		indexThread: types.NewStreamIndexThread(options.TableIndex),
 	}
 }
 
@@ -45,6 +49,7 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	//   normalization=false: StringifiedData + OlakeColumns + partition columns
 	// A single loop over protoSchema covers both cases.
 	protoRecords := make([]*proto.IcebergPayload_IceRecord, 0, len(records))
+	sentRecords := make([]types.RawRecord, 0, len(records))
 	for _, record := range records {
 		if record.Data == nil {
 			continue
@@ -64,12 +69,33 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 			protoColumnsValue = append(protoColumnsValue, fv)
 		}
 
-		if len(protoColumnsValue) > 0 {
-			protoRecords = append(protoRecords, &proto.IcebergPayload_IceRecord{
-				Fields:     protoColumnsValue,
-				RecordType: record.OlakeColumns[constants.OpType].(string),
-			})
+		if len(protoColumnsValue) == 0 {
+			continue
 		}
+
+		opType := record.OlakeColumns[constants.OpType].(string)
+		iceRecord := &proto.IcebergPayload_IceRecord{
+			Fields:     protoColumnsValue,
+			RecordType: opType,
+		}
+
+		// check if we need to write pos for the current record
+		if w.indexThread != nil && (opType != "r" && opType != "c") {
+			olakeID := record.OlakeColumns[constants.OlakeID].(string)
+			previous, found, err := w.indexThread.Lookup(olakeID)
+			if err != nil {
+				return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
+			}
+			if found {
+				filePath := previous.FilePath
+				position := previous.Position
+				iceRecord.DeleteFilePath = &filePath
+				iceRecord.DeletePosition = &position
+			}
+		}
+
+		protoRecords = append(protoRecords, iceRecord)
+		sentRecords = append(sentRecords, record)
 	}
 
 	if len(protoRecords) == 0 {
@@ -99,7 +125,33 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	ingestResponse := res.(*proto.RecordIngestResponse)
 	logger.Debugf("Thread[%s]: sent batch to Iceberg server, response: %s", w.options.ThreadID, ingestResponse.GetResult())
 
+	if w.indexThread != nil {
+		for _, fileMap := range ingestResponse.GetFilePositionMaps() {
+			logger.Debugf("Thread[%s]: file position map: %s (%d ranges)", w.options.ThreadID, fileMap.GetFilePath(), len(fileMap.GetRanges()))
+			for _, r := range fileMap.GetRanges() {
+				logger.Debugf("Thread[%s]:   range startIdx:%d startPos:%d count:%d", w.options.ThreadID, r.GetBatchStartIdx(), r.GetStartPosition(), r.GetCount())
+				for i := int32(0); i < r.GetCount(); i++ {
+					rec := sentRecords[r.GetBatchStartIdx()+i]
+					olakeID := rec.OlakeColumns[constants.OlakeID].(string)
+					// Soft-delete keeps the tombstone row on disk, so the index must
+					// point at the new location just like any other write (matches arrow).
+					w.indexThread.Put(olakeID, types.RowLocation{
+						FilePath: fileMap.GetFilePath(),
+						Position: r.GetStartPosition() + int64(i),
+					})
+				}
+			}
+		}
+	}
+
 	return nil
+}
+
+// Abort drops the buffered index entries of a thread that never reaches a
+// commit. Nothing was written to the index, so releasing the buffer is the
+// entire rollback.
+func (w *LegacyWriter) Abort() {
+	w.indexThread = nil
 }
 
 func (w *LegacyWriter) EvolveSchema(_ context.Context, newSchema map[string]string) error {
@@ -124,6 +176,15 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 		},
 	}
 
+	if w.indexThread != nil {
+		indexBaseSnapshotID, err := w.options.TableIndex.LastCommittedSnapshot()
+		if err != nil {
+			return fmt.Errorf("failed to get last committed snapshot ID: %s", err)
+		}
+
+		request.Metadata.BaseSnapshotId = &indexBaseSnapshotID
+	}
+
 	// Send commit request with timeout
 	ctx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
@@ -135,6 +196,16 @@ func (w *LegacyWriter) Close(ctx context.Context, finalMetadataState any) error 
 
 	ingestResponse := res.(*proto.RecordIngestResponse)
 	logger.Debugf("Thread[%s]: Sent commit message: %s", w.options.ThreadID, ingestResponse.GetResult())
+
+	// ingestResponse.SnapshotId is 0 if there are external snapshots present or there is no records to commit
+	// in that case we will not apply stream index, next sync run will create indexes
+	if w.indexThread != nil && ingestResponse.SnapshotId != 0 {
+		batch := w.indexThread
+		w.indexThread = nil
+		if err := w.options.TableIndex.Commit(batch, &ingestResponse.SnapshotId); err != nil {
+			return fmt.Errorf("failed to apply stream index: %s", err)
+		}
+	}
 
 	return nil
 }
