@@ -25,6 +25,11 @@ import (
 )
 
 const (
+	minCDCInitialWaitTime     = 120
+	defaultCDCInitialWaitTime = 10800
+)
+
+const (
 	// get all schemas and table
 	getPrivilegedTablesTmpl = `SELECT nspname as table_schema,
 		relname as table_name

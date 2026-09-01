@@ -26,16 +26,10 @@ type Config struct {
 	Schemas          []string          `json:"schemas,omitempty"`
 }
 
-const (
-	minCDCInitialWaitTime     = 120
-	defaultCDCInitialWaitTime = 10800
-)
-
 // Capture Write Ahead Logs
 type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
-	// initial wait time defaults to 10800s when not provided or below 120s
-	InitialWaitTime int `json:"initial_wait_time"`
+	InitialWaitTime int    `json:"initial_wait_time"`
 	// Publications used when OutputPlugin is pgoutput
 	Publication string `json:"publication"`
 }

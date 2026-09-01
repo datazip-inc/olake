@@ -29,6 +29,8 @@ import (
 // MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
 const maxUint24 = 1<<24 - 1
 
+const minCDCInitialWaitTime = 120
+
 // MySQL represents the MySQL database driver
 type MySQL struct {
 	config     *Config

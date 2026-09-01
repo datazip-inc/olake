@@ -27,8 +27,6 @@ type Config struct {
 	SSHConfig        *utils.SSHConfig  `json:"ssh_config"`
 }
 
-const minCDCInitialWaitTime = 120
-
 type CDC struct {
 	InitialWaitTime int `json:"initial_wait_time"`
 }
