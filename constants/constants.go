@@ -57,6 +57,15 @@ const (
 
 	// MaxDestinationBatchBytes is the maximum source bytes held in a writer thread buffer before flush.
 	MaxDestinationBatchBytes = int64(1) * 1024 * 1024 * 1024 // 1 GB
+
+	// Index store constants
+	IndexDBDir                = "OLAKE_INDEX_DB_DIR"
+	IndexDBCacheSizePerStream = "OLAKE_INDEX_DB_CACHE_SIZE"
+	MaxOpenFilesPerStream     = "OLAKE_INDEX_DB_MAX_OPEN_FILES"
+	DefaultDirName            = "olake-table-index"
+	DefaultCacheSize          = 128 * 1024 * 1024 // 128 MB default block cache
+	DefaultMemTableSize       = 64 * 1024 * 1024  // 64 MB default memtable
+	DefaultMaxOpenFiles       = 1000
 )
 
 // DriverType identifies a source/destination driver.

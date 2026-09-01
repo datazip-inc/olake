@@ -49,10 +49,11 @@ type Stream struct {
 }
 
 type DefaultStreamProperties struct {
-	Normalization       bool   `json:"normalization"`
-	AppendMode          bool   `json:"append_mode"`
-	DestinationDatabase string `json:"destination_database,omitempty"`
-	DestinationTable    string `json:"destination_table,omitempty"`
+	Normalization       bool       `json:"normalization"`
+	AppendMode          bool       `json:"append_mode"`
+	DestinationDatabase string     `json:"destination_database,omitempty"`
+	DestinationTable    string     `json:"destination_table,omitempty"`
+	UpdateType          UpdateType `json:"update_type"`
 }
 
 func NewStream(name, namespace string, sourceDatabase *string) *Stream {

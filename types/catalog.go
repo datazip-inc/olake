@@ -52,6 +52,7 @@ type StreamMetadata struct {
 	StreamName     string `json:"stream_name"`
 	AppendMode     bool   `json:"append_mode,omitempty"`
 	Normalization  bool   `json:"normalization"`
+	UpdateType     string `json:"update_type,omitempty"`
 	// When enabled, source column names are preserved as-is; otherwise utils.Reformat() is applied to generate destination-safe lowercase column names.
 	UseSourceColumnNames bool `json:"use_source_column_names"`
 	//legacy filter input
@@ -96,13 +97,14 @@ type Catalog struct {
 // StreamMix is the per-sync breakdown of the streams a run actually syncs. Only streams that
 // survived selection and validation are counted, so the sync-mode counters sum to Selected.
 type StreamMix struct {
-	FullRefresh int `json:"full_refresh_streams_count"`
-	Incremental int `json:"incremental_streams_count"`
-	CDC         int `json:"cdc_streams_count"`
-	StrictCDC   int `json:"strict_cdc_streams_count"`
-	Selected    int `json:"selected_streams_count"`
-	Normalized  int `json:"normalized_streams_count"`
-	Partitioned int `json:"partitioned_streams_count"`
+	FullRefresh             int `json:"full_refresh_streams_count"`
+	Incremental             int `json:"incremental_streams_count"`
+	CDC                     int `json:"cdc_streams_count"`
+	StrictCDC               int `json:"strict_cdc_streams_count"`
+	Selected                int `json:"selected_streams_count"`
+	Normalized              int `json:"normalized_streams_count"`
+	Partitioned             int `json:"partitioned_streams_count"`
+	StreamWithPosUpdateType int `json:"stream_with_pos_update_type_count"`
 }
 
 // ResolveCatalog loads a catalog from disk, handling both the default (combined) and
@@ -170,6 +172,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			StreamName:          stream.Name,
 			AppendMode:          utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
 			Normalization:       IsDriverRelational(driver),
+			UpdateType:          string(UpdateTypeEquality),
 			SelectedColumns:     selectedCols,
 			SyncMode:            stream.SyncMode,
 			CursorField:         stream.CursorField,
@@ -426,6 +429,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// cursor field change , Format: "primary_cursor:secondary_cursor"
 			// sync mode change
 			// destination table change
+
+			// NOTE: we are not droping table if there is delete mode change
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
 				oldSyncMode := resolveConfigurableField(oldMetadata.SyncMode, oldStream.Stream.SyncMode)
