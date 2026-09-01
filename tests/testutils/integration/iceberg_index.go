@@ -26,8 +26,8 @@ func hasIcebergTableIndexTest(driver string) bool {
 	return slices.Contains(icebergTableIndexTestDrivers, constants.DriverType(driver))
 }
 
-// updateUpdateType sets update_type in selected_streams for the stream identified by namespace+streamName.
-func updateUpdateType(config *testutils.TestConfig, namespace, streamName, updateType string) error {
+// setUpdateType sets update_type in selected_streams for the stream identified by namespace+streamName.
+func setUpdateType(config *testutils.TestConfig, namespace, streamName, updateType string) error {
 	streamName = testutils.NormalizeStreamName(config.Driver, streamName)
 	return testutils.EditJSONFile(config.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
 		selected, _ := doc["selected_streams"].(map[string]interface{})
@@ -162,7 +162,7 @@ func (cfg *Test) testIcebergEqToPosConversion(ctx context.Context, t *testing.T,
 	}
 
 	// Step 1: full load + CDC update with equality deletes
-	if err := updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "eq"); err != nil {
+	if err := setUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "eq"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
 	if err := cfg.runIcebergSync(ctx, "initial full load sync"); err != nil {
@@ -184,7 +184,7 @@ func (cfg *Test) testIcebergEqToPosConversion(ctx context.Context, t *testing.T,
 	// Step 2: CDC insert with positional deletes (triggers eq -> pos conversion)
 	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "insert")
 
-	if err := updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+	if err := setUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
 	if err := cfg.runIcebergSync(ctx, "cdc pos sync"); err != nil {
@@ -212,7 +212,7 @@ func (cfg *Test) testIcebergCleanTablePositionalWithPebbleIndex(ctx context.Cont
 		return err
 	}
 
-	if err := updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+	if err := setUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
 	if err := cfg.runIcebergSync(ctx, "initial full load"); err != nil {
@@ -249,7 +249,7 @@ func (cfg *Test) testIcebergRebuildIndexFromScratch(ctx context.Context, t *test
 		return err
 	}
 
-	if err := updateUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+	if err := setUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
 	if err := cfg.runIcebergSync(ctx, "initial full load"); err != nil {
