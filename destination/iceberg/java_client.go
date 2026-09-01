@@ -31,6 +31,7 @@ type serverInstance struct {
 	cmd                *exec.Cmd
 	client             proto.RecordIngestServiceClient
 	arrowClient        proto.ArrowIngestServiceClient
+	tableIndexClient   proto.TableIndexServiceClient
 	conn               *grpc.ClientConn
 	defaultServerID    string
 	gcpCredentialsTemp string // temp file holding gcp_service_account_json content, if used; cleaned up on Shutdown
@@ -239,6 +240,7 @@ func startServer(config *Config) (*serverInstance, error) {
 		cmd:                serverCmd,
 		client:             proto.NewRecordIngestServiceClient(conn),
 		arrowClient:        proto.NewArrowIngestServiceClient(conn),
+		tableIndexClient:   proto.NewTableIndexServiceClient(conn),
 		conn:               conn,
 		defaultServerID:    serverID,
 		gcpCredentialsTemp: gcpCredsTemp,
