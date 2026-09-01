@@ -480,6 +480,9 @@ func RetryWithSkip(ctx context.Context, maxRetries int, sleep time.Duration, sho
 
 // RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
 func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
+	// Add 1 because attempts represents the number of retries,
+	// while the function needs the total number of attempts.
+	attempts = attempts + 1
 	for cur := range attempts {
 		select {
 		case <-ctx.Done():

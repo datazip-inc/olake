@@ -110,6 +110,41 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectErr: true,
 		},
+		{
+			name: "invalid missing database",
+			config: &Config{
+				Host:     "localhost",
+				Port:     5432,
+				Username: "postgres",
+				Password: "secret",
+				Database: "",
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid negative max threads",
+			config: &Config{
+				Host:       "localhost",
+				Port:       5432,
+				Username:   "postgres",
+				Password:   "secret",
+				Database:   "postgres",
+				MaxThreads: -1,
+			},
+			expectErr: true,
+		},
+		{
+			name: "invalid negative retry count",
+			config: &Config{
+				Host:       "localhost",
+				Port:       5432,
+				Username:   "postgres",
+				Password:   "secret",
+				Database:   "postgres",
+				RetryCount: -1,
+			},
+			expectErr: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -51,11 +51,19 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("database is required")
 	}
 
-	if c.MaxThreads <= 0 {
+	if c.MaxThreads < 0 {
+		return fmt.Errorf("max threads is required")
+	}
+
+	if c.MaxThreads == 0 {
 		c.MaxThreads = constants.DefaultThreadCount
 	}
 
-	if c.RetryCount <= 0 {
+	if c.RetryCount < 0 {
+		return fmt.Errorf("retry count is required")
+	}
+
+	if c.RetryCount == 0 {
 		c.RetryCount = constants.DefaultRetryCount
 	}
 

@@ -154,7 +154,6 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		m.cdcConfig = *cdc
 	}
 	m.client = client
-	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if binlog is configured
 	cdcSupported, err := m.IsCDCSupported(ctx)
 	if err != nil {
