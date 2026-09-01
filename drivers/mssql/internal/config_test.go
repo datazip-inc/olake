@@ -137,6 +137,19 @@ func TestConfig_Validate(t *testing.T) {
 			expectErr: true,
 		},
 		{
+			// Rejects config with a negative max threads.
+			name: "invalid config - negative max threads",
+			config: &Config{
+				Host:       "mssql-host",
+				Port:       1433,
+				Database:   "testdb",
+				Username:   "sa",
+				Password:   "Password!123",
+				MaxThreads: -1,
+			},
+			expectErr: true,
+		},
+		{
 			// Rejects config with a negative retry count.
 			name: "invalid config - negative retry count",
 			config: &Config{

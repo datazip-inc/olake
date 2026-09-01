@@ -325,15 +325,28 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectErr: true,
 		},
-		// Rejects empty database.
+		// Defaults database to mysql when empty.
 		{
-			name: "invalid config - missing database",
+			name: "valid config - defaults database",
 			config: &Config{
 				Host:     "localhost",
 				Port:     3306,
 				Username: "testuser",
 				Password: "testpass",
 				Database: "",
+			},
+			expectErr: false,
+		},
+		// Rejects negative max threads.
+		{
+			name: "invalid config - negative max threads",
+			config: &Config{
+				Host:       "localhost",
+				Port:       3306,
+				Username:   "testuser",
+				Password:   "testpass",
+				Database:   "testdb",
+				MaxThreads: -1,
 			},
 			expectErr: true,
 		},
@@ -360,6 +373,9 @@ func TestConfig_Validate(t *testing.T) {
 			}
 			if !tt.expectErr && err != nil {
 				t.Errorf("Expected no error but got: %v", err)
+			}
+			if !tt.expectErr && err == nil && tt.name == "valid config - defaults database" && tt.config.Database != "mysql" {
+				t.Errorf("Expected database to default to 'mysql', got %q", tt.config.Database)
 			}
 		})
 	}

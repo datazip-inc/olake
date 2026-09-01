@@ -107,12 +107,17 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("password is required")
 	}
 
+	// Optional database name, default to 'mysql'
 	if c.Database == "" {
-		return fmt.Errorf("database name is required")
+		c.Database = "mysql"
 	}
 
 	// Set default number of threads if not provided
-	if c.MaxThreads <= 0 {
+	if c.MaxThreads < 0 {
+		return fmt.Errorf("max threads is required")
+	}
+
+	if c.MaxThreads == 0 {
 		c.MaxThreads = constants.DefaultThreadCount // Aligned with PostgreSQL default
 	}
 
@@ -120,6 +125,7 @@ func (c *Config) Validate() error {
 	if c.RetryCount < 0 {
 		return fmt.Errorf("retry count is required")
 	}
+
 	if c.RetryCount == 0 {
 		c.RetryCount = constants.DefaultRetryCount // Reasonable default for retries
 	}
