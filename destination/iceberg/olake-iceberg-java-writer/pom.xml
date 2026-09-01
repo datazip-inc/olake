@@ -43,12 +43,12 @@
              own 1.67.x grpc modules that this does not reach -->
     <version.grpc>1.83.1</version.grpc>
     <!-- AWS SDK v2, managed by its BOM (AWS's documented pattern). -->
-    <version.awssdk>2.51.3</version.awssdk>
+    <version.awssdk>2.54.2</version.awssdk>
     <!-- iceberg-core 1.10.2 ships httpclient5 5.5, whose httpcore5 5.3.4 has
              CVE-2026-54399 (fixed in httpcore5 5.4.3). Bumping the parent client
              pulls the fixed core transitively; Apache Iceberg main pins this same
              5.6.3. Drop when Iceberg itself ships httpclient5 >= 5.6.2. -->
-    <version.httpclient5>5.6.3</version.httpclient5>
+    <version.httpclient5>5.6.4</version.httpclient5>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -633,7 +633,7 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
-        <version>3.5.2</version>
+        <version>3.5.6</version>
         <executions>
           <execution>
             <id>integration-test</id>

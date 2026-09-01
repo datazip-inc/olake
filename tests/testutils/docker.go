@@ -20,6 +20,9 @@ const (
 	// olake input and output lives under it, since the CLI writes next to --config
 	containerTestDataDir = "/testdata"
 
+	// containerTableIndexDir is where the table index database is mounted in the container
+	containerTableIndexDir = containerTestDataDir + "/olake-table-index"
+
 	// driverVersionEnvVar is used to specify what is the version of the driver to run the test for
 	// by default the driver version is the current code, which is built as `local`
 	driverVersionEnvVar = "OLAKE_DRIVER_VERSION"
@@ -140,6 +143,7 @@ func DockerRunArgs(cfg *TestConfig, extraFlags []string, olakeArgs []string) []s
 		"--tmpfs", fmt.Sprintf("%s/logs", containerTestDataDir),
 		"-e", "TELEMETRY_DISABLED=true",
 		"-e", "OLAKE_TIMING=1",
+		"-e", fmt.Sprintf("OLAKE_INDEX_DB_DIR=%s", containerTableIndexDir),
 	}
 
 	if cfg.ImagePlatform != "" {

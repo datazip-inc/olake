@@ -53,6 +53,26 @@ func (cfg *Test) TestSync(t *testing.T) {
 				t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
 			}
 		})
+
+		// Iceberg row-index / delete-mode tests run on the base (legacy) writer config, the one
+		// the java writer's table indexer serves; IcebergWriter pins it back after the arrow runs.
+		if hasIcebergTableIndexTest(cfg.Driver) {
+			t.Run("Iceberg Table Index Eq to Pos Conversion", func(t *testing.T) {
+				if err := cfg.IcebergWriter(ctx, t, testTable, false, cfg.testIcebergEqToPosConversion); err != nil {
+					t.Fatalf("Iceberg Table Index Eq to Pos Conversion test failed: %v", err)
+				}
+			})
+			t.Run("Iceberg Table Index Clean Table Positional", func(t *testing.T) {
+				if err := cfg.IcebergWriter(ctx, t, testTable, false, cfg.testIcebergCleanTablePositionalWithPebbleIndex); err != nil {
+					t.Fatalf("Iceberg Table Index Clean Table Positional test failed: %v", err)
+				}
+			})
+			t.Run("Iceberg Table Index Rebuild Index From Scratch", func(t *testing.T) {
+				if err := cfg.IcebergWriter(ctx, t, testTable, false, cfg.testIcebergRebuildIndexFromScratch); err != nil {
+					t.Fatalf("Iceberg Table Index Rebuild Index From Scratch test failed: %v", err)
+				}
+			})
+		}
 	}
 
 	// Skip incremental tests for drivers not supporting incremental mode

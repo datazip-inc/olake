@@ -2,6 +2,7 @@
     "selected_streams": {
         "s3": [
             {
+                "update_type": "eq",
                 "partition_regex": "",
                 "stream_name": "test_table_olake_${suite}",
                 "normalization": false,
@@ -200,7 +201,8 @@
                 "destination_table": "test_table_olake_${suite}",
                 "default_stream_properties": {
                     "normalization": false,
-                    "append_mode": false
+                    "append_mode": false,
+                    "update_type": "eq"
                 }
             }
         }
