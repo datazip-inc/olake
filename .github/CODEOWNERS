@@ -1,13 +1,7 @@
 # CODEOWNERS
 
-## Ownership and review routing only -- the 2-approval requirement for these paths is a repository ruleset (required reviewer rule on the same teams), since CODEOWNERS with branch protection is satisfied by any one owner. A team needs write access to the repo for CODEOWNERS to resolve it
-
-## GitHub reads this file from the branch a pull request targets, so it governs merges into master and staging once it is on them, and never the branch proposing it. An owner it cannot resolve is dropped rather than enforced, silently -- the ruleset in .github/rulesets carries the enforcement for these paths, naming the teams directly
-
-## The state configuration and the compat rules pin backward-compatibility semantics forever, so changes need 2 sign-offs from the people who own those semantics. CODEOWNERS takes one pattern per line, so the team repeats; the ruleset groups both paths under a single rule
-
-## TODO(settings): create @datazip-inc/olake-admins and @datazip-inc/state-version-owners with WRITE access -- read-only resolves to nobody and the entry is dropped
-## TODO(settings): the counts these paths need live in .github/rulesets/state-version-approval.json, which is not applied yet -- see that directory's README
+## TODO(settings): create @datazip-inc/olake-admins and @datazip-inc/state-version-owners with WRITE access
+## TODO(settings): the counts these paths need live in .github/rulesets/state-version-approval.json
 
 /.github/CODEOWNERS @datazip-inc/olake-admins
 

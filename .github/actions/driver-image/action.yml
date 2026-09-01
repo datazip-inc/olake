@@ -12,14 +12,6 @@ inputs:
       commit-tagged build can be exported by naming its tag instead.
     required: false
     default: local
-  artifact-name:
-    description: >
-      What to publish under. Defaults to driver-image-<driver>, which is the name the compatibility
-      job looks for. Exporting more than one tag of the same driver in a run needs distinct names
-      here: an artifact name can only be uploaded once, and this action overwrites, so a second
-      export under the same name would replace the first rather than fail.
-    required: false
-    default: ''
   retention-days:
     description: How long the artifact lives. A day is already far longer than the run that reads it.
     required: false
@@ -38,7 +30,7 @@ runs:
     - name: Upload the image
       uses: actions/upload-artifact@v7
       with:
-        name: ${{ inputs.artifact-name || format('driver-image-{0}', inputs.driver) }}
+        name: driver-image-${{ inputs.driver }}
         path: ${{ runner.temp }}/source-${{ inputs.driver }}.tar
         retention-days: ${{ inputs.retention-days }}
         overwrite: true
