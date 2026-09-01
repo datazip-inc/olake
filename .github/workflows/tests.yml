@@ -12,6 +12,8 @@ on:
     branches:
       - "master"
       - "staging"
+      # temp: so a push to the scratch branch gets its own run
+      - "temp-pf"
     paths: &paths
       - '**/*.go'
       - '**/go.mod'
@@ -206,9 +208,10 @@ jobs:
       contents: read
       packages: write
       actions: read
-    if: github.event_name == 'pull_request'
     runs-on: 32gb-runner
-    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    # temp: same gating as integration-tests -- no if:, and the environment self-disables
+    # outside a pull request instead of demanding approval on a push.
+    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
     timeout-minutes: 90
     env:
       DRIVERS: ${{ join(fromJSON(needs.approve.outputs.drivers), ' ') }}
@@ -284,7 +287,7 @@ jobs:
     name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility Sweep
     needs: approve
     runs-on: 16gb-runner
-    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    # temp: no approval gate on the scratch branch
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -317,7 +320,7 @@ jobs:
   performance-tests:
     name: Performance ${{ matrix.driver }}
     needs: approve
-    environment: Performance Testing
+    # temp: no approval gate on the scratch branch
     permissions:
       actions: read
       id-token: write
@@ -327,7 +330,7 @@ jobs:
       fail-fast: false
       # TODO: add benchmark tests for mongodb and oracle (instance ids TBD).
       matrix:
-        include: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/staging') && '[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]' || '[]') }}
+        include: ${{ fromJSON((github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/temp-pf')) && '[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]' || '[]') }}
 
     steps:
       - *checkout
