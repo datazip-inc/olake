@@ -69,38 +69,64 @@ func FileLoggerWithPath(content any, path string) error {
 	return nil
 }
 
-// NormalizedEqual compares two JSON documents ignoring whitespace and ordering.
+// NormalizedEqual reports whether two JSON documents are structurally equal, ignoring
+// whitespace, object key order and array order.
 func NormalizedEqual(strune1, strune2 string) bool {
-	normalize := func(s string) (string, error) {
+	decode := func(s string) (interface{}, bool) {
+		var doc interface{}
+		if json.Unmarshal([]byte(s), &doc) == nil {
+			return canonicalJSON(doc), true
+		}
 		start := strings.IndexRune(s, '{')
 		end := strings.LastIndex(s, "}")
 		if start < 0 || end < 0 || start > end {
-			return "", fmt.Errorf("no valid JSON object found")
+			return nil, false
 		}
-		core := s[start : end+1]
-		core = strings.ReplaceAll(core, " ", "")
-		core = strings.ReplaceAll(core, "\n", "")
-		core = strings.ReplaceAll(core, "\t", "")
-		return core, nil
+		if json.Unmarshal([]byte(s[start:end+1]), &doc) != nil {
+			return nil, false
+		}
+		return canonicalJSON(doc), true
 	}
 
-	c1, err := normalize(strune1)
-	if err != nil {
+	d1, ok1 := decode(strune1)
+	d2, ok2 := decode(strune2)
+	if !ok1 || !ok2 {
 		return false
 	}
-	c2, err := normalize(strune2)
-	if err != nil {
-		return false
-	}
+	return jsonCanonicalString(d1) == jsonCanonicalString(d2)
+}
 
-	rune1 := []rune(c1)
-	rune2 := []rune(c2)
-	if len(rune1) != len(rune2) {
-		return false
+// canonicalJSON rewrites a decoded document so that array order carries no meaning: every array
+// is sorted by its own serialization. Object key order is already canonical because encoding/json
+// marshals map keys sorted.
+func canonicalJSON(v interface{}) interface{} {
+	switch v := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			out[key] = canonicalJSON(val)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, 0, len(v))
+		for _, elem := range v {
+			out = append(out, canonicalJSON(elem))
+		}
+		sort.Slice(out, func(i, j int) bool {
+			return jsonCanonicalString(out[i]) < jsonCanonicalString(out[j])
+		})
+		return out
+	default:
+		return v
 	}
-	sort.Slice(rune1, func(i, j int) bool { return rune1[i] < rune1[j] })
-	sort.Slice(rune2, func(i, j int) bool { return rune2[i] < rune2[j] })
-	return string(rune1) == string(rune2)
+}
+
+func jsonCanonicalString(v interface{}) string {
+	encoded, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(encoded)
 }
 
 // Reformat lowercases key and replaces every non-alphanumeric symbol with '_', matching how

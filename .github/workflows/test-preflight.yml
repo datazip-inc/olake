@@ -229,6 +229,13 @@ jobs:
         timeout-minutes: 15
         run: make test.lint
 
+      - name: Unit tests for the test harness
+        id: harness-unit
+        background: true
+        timeout-minutes: 10
+        working-directory: tests
+        run: go test -v -count=1 ./testutils/...
+
       - name: install gosec
         if: inputs.go-checks
         env:
@@ -240,5 +247,5 @@ jobs:
         working-directory: tests
         run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
 
-      - name: Wait for the lint
-        wait: [lint]
+      - name: Wait for the lint and harness unit tests
+        wait: [lint, harness-unit]
