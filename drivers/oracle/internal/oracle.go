@@ -31,14 +31,14 @@ type Oracle struct {
 func (o *Oracle) Setup(ctx context.Context) error {
 	err := o.config.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate config: %s", err)
+		return fmt.Errorf("failed to validate config: %w", err)
 	}
 
 	if o.config.SSHConfig != nil && o.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		o.sshClient, err = o.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 	}
 
@@ -48,7 +48,7 @@ func (o *Oracle) Setup(ctx context.Context) error {
 
 		oracleCfg, err := go_ora.ParseConfig(o.config.connectionString())
 		if err != nil {
-			return fmt.Errorf("failed to parse oracle connection string: %s", err)
+			return fmt.Errorf("failed to parse oracle connection string: %w", err)
 		}
 
 		// Allows oracle driver to use the SSH client to connect to the database
@@ -64,13 +64,13 @@ func (o *Oracle) Setup(ctx context.Context) error {
 
 		client, err = sqlx.Open("oracle", "")
 		if err != nil {
-			return fmt.Errorf("failed to open tunneled database connection: %s", err)
+			return fmt.Errorf("failed to open tunneled database connection: %w", err)
 		}
 	} else {
 		// TODO: Add support for more encryption options provided in OracleDB
 		client, err = sqlx.Open("oracle", o.config.connectionString())
 		if err != nil {
-			return fmt.Errorf("failed to open database connection: %s", err)
+			return fmt.Errorf("failed to open database connection: %w", err)
 		}
 	}
 
@@ -81,7 +81,7 @@ func (o *Oracle) Setup(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %s", err)
+		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	o.client = client
@@ -137,7 +137,7 @@ func (o *Oracle) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	query := jdbc.OracleTableDiscoveryQuery()
 	rows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %s", err)
+		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
 	defer rows.Close()
 
@@ -145,12 +145,12 @@ func (o *Oracle) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	for rows.Next() {
 		var owner, tableName string
 		if err := rows.Scan(&owner, &tableName); err != nil {
-			return nil, fmt.Errorf("failed to scan table: %s", err)
+			return nil, fmt.Errorf("failed to scan table: %w", err)
 		}
 		streamNames = append(streamNames, types.StreamID{Namespace: owner, Name: tableName})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating tables: %s", err)
+		return nil, fmt.Errorf("error iterating tables: %w", err)
 	}
 
 	return streamNames, nil
@@ -166,7 +166,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName types.StreamID) (
 	query := jdbc.OracleTableDetailsQuery(schemaName, tableName)
 	rows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query column information: %s", err)
+		return nil, fmt.Errorf("failed to query column information: %w", err)
 	}
 	defer rows.Close()
 
@@ -174,7 +174,7 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName types.StreamID) (
 		var columnName, dataType, isNullable string
 		var dataPrecision, dataScale sql.NullInt64
 		if err := rows.Scan(&columnName, &dataType, &isNullable, &dataPrecision, &dataScale); err != nil {
-			return nil, fmt.Errorf("failed to scan column: %s", err)
+			return nil, fmt.Errorf("failed to scan column: %w", err)
 		}
 		stream.WithCursorField(columnName)
 		var datatype types.DataType
@@ -194,14 +194,14 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName types.StreamID) (
 	query = jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)
 	pkRows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query primary key information: %s", err)
+		return nil, fmt.Errorf("failed to query primary key information: %w", err)
 	}
 	defer pkRows.Close()
 
 	for pkRows.Next() {
 		var columnName string
 		if err := pkRows.Scan(&columnName); err != nil {
-			return nil, fmt.Errorf("failed to scan primary key column: %s", err)
+			return nil, fmt.Errorf("failed to scan primary key column: %w", err)
 		}
 		stream.WithPrimaryKey(columnName)
 	}

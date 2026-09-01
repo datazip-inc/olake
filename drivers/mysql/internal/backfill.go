@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -17,6 +18,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
@@ -45,12 +47,12 @@ func (m *MySQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return fmt.Errorf("failed to set threshold filter: %w", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, m.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %w", err)
 	}
 	// Begin transaction with repeatable read isolation
 	return jdbc.WithIsolation(ctx, m.client, true, func(tx *sql.Tx) error {
@@ -89,7 +91,13 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	tableStatsQuery := jdbc.MySQLTableStatsQuery()
 	err := m.client.QueryRowContext(ctx, tableStatsQuery, stream.Name()).Scan(&approxRowCount, &avgRowSize, &approxTableSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch TableStats query for table=%s: %s", stream.Name(), err)
+		// information_schema hides rows the user has no privilege on, so a dropped table and an
+		// ungranted one are the same empty result. MySQL raises no error number for either.
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errs.Precondition(errs.ObjectNotFound, codeTableNotVisible,
+				fmt.Errorf("failed to fetch TableStats query for table=%s: %w", stream.Name(), err))
+		}
+		return nil, fmt.Errorf("failed to fetch TableStats query for table=%s: %w", stream.Name(), err)
 	}
 
 	if approxRowCount == 0 {
@@ -97,7 +105,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		existsQuery := jdbc.MySQLTableExistsQuery(stream)
 		err := m.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check if table has rows: %s", err)
+			return nil, fmt.Errorf("failed to check if table has rows: %w", err)
 		}
 		if hasRows {
 			return nil, fmt.Errorf("stats not populated for table[%s]. Please run ANALYZE TABLE to update table statistics", stream.ID())
@@ -111,7 +119,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// avgRowSize is returned as []uint8 which is converted to float64.
 	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get avg row size: %s", err)
+		return nil, fmt.Errorf("failed to get avg row size: %w", err)
 	}
 	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
 
@@ -129,7 +137,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	if len(pkColumns) > 0 {
 		minVal, maxVal, err = m.getTableExtremes(ctx, stream, pkColumns)
 		if err != nil {
-			return nil, fmt.Errorf("stream %s: Failed to get table extremes: %s", stream.ID(), err)
+			return nil, fmt.Errorf("stream %s: Failed to get table extremes: %w", stream.ID(), err)
 		}
 	}
 
@@ -143,7 +151,7 @@ func (m *MySQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		query := jdbc.MySQLColumnStatsQuery()
 		err = m.client.QueryRowContext(ctx, query, stream.Name(), pkColumns[0]).Scan(&dataType, &dataMaxLength, &columnCollationType)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch column datatype and max length for column %s: %s", pkColumns[0], err)
+			return nil, fmt.Errorf("failed to fetch column datatype and max length for column %s: %w", pkColumns[0], err)
 		}
 
 		// 1. Try Numeric Strategy
@@ -247,7 +255,7 @@ func (m *MySQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 			if err == sql.ErrNoRows || nextValRaw == nil {
 				break
 			} else if err != nil {
-				return fmt.Errorf("failed to get next chunk end: %s", err)
+				return fmt.Errorf("failed to get next chunk end: %w", err)
 			}
 			if currentVal != nil {
 				chunks.Insert(types.Chunk{
@@ -373,7 +381,7 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 		query, args := jdbc.MySQLDistinctAlignedPKValuesWithCollationQuery(stream, pkColumn, rangeSlice, columnCollationType, bounds.MinPadded, bounds.MaxPadded)
 		rows, err := m.client.QueryContext(ctx, query, args...)
 		if err != nil {
-			boundaryQueryErr = fmt.Errorf("distinct boundary query failed for stream %s: %s", stream.ID(), err)
+			boundaryQueryErr = fmt.Errorf("distinct boundary query failed for stream %s: %w", stream.ID(), err)
 			logger.Debugf("%s", boundaryQueryErr)
 			break
 		}
@@ -383,12 +391,12 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 			for rows.Next() {
 				var val string
 				if err := rows.Scan(&val); err != nil {
-					return fmt.Errorf("failed to scan row: %s", err)
+					return fmt.Errorf("failed to scan row: %w", err)
 				}
 				rangeSlice = append(rangeSlice, val)
 			}
 			if err := rows.Err(); err != nil {
-				return fmt.Errorf("row iteration error during distinct boundaries iteration: %s", err)
+				return fmt.Errorf("row iteration error during distinct boundaries iteration: %w", err)
 			}
 			return nil
 		}(); err != nil {

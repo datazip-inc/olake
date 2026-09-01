@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/datazip-inc/olake/utils/typeutils"
@@ -21,11 +22,13 @@ import (
 
 // various stream formats
 type StreamClassification struct {
-	SelectedStreams    []string
+	SelectedStreams    []types.StreamInterface
 	CDCStreams         []types.StreamInterface
 	IncrementalStreams []types.StreamInterface
 	FullLoadStreams    []types.StreamInterface
 	NewStreamsState    []*types.StreamState
+	// Telemetry-only: the stream breakdown of this run, counted as streams are classified.
+	Mix types.StreamMix
 }
 
 // syncCmd represents the read command
@@ -34,11 +37,11 @@ var syncCmd = &cobra.Command{
 	Short: "Olake sync command",
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
 		if configPath == "" {
-			return fmt.Errorf("--config not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
 		} else if destinationConfigPath == "" {
-			return fmt.Errorf("--destination not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
 		} else if streamsPath == "" {
-			return fmt.Errorf("--catalog not passed")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--catalog not passed"))
 		}
 
 		// unmarshal source config
@@ -87,9 +90,9 @@ var syncCmd = &cobra.Command{
 		logger.Infof("Running sync with state: %s", stateBytes)
 		return nil
 	},
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	RunE: func(cmd *cobra.Command, _ []string) (err error) {
 		// setup conector first
-		err := connector.Setup(cmd.Context())
+		err = connector.Setup(cmd.Context())
 		if err != nil {
 			return err
 		}
@@ -102,7 +105,7 @@ var syncCmd = &cobra.Command{
 		// get all types of selected streams
 		selectedStreamsMetadata, err := classifyStreams(catalog, streams, state)
 		if err != nil {
-			return fmt.Errorf("failed to get selected streams for clearing: %s", err)
+			return fmt.Errorf("failed to get selected streams for clearing: %w", err)
 		}
 
 		if streams == nil {
@@ -117,10 +120,11 @@ var syncCmd = &cobra.Command{
 			// get the state for modification in clearstate
 			connector.SetupState(state)
 			if state, err = connector.ClearState(dropStreams); err != nil {
-				return fmt.Errorf("error clearing state for full refresh streams: %s", err)
+				return fmt.Errorf("error clearing state for full refresh streams: %w", err)
 			}
+
 			if cerr := destination.DropStreams(cmd.Context(), destinationConfig, dropStreams); cerr != nil {
-				return fmt.Errorf("failed to clear destination: %s", cerr)
+				return fmt.Errorf("failed to clear destination: %w", cerr)
 			}
 		}
 
@@ -151,20 +155,24 @@ var syncCmd = &cobra.Command{
 
 		// Added this check to avoid the sleep when tracking telemetry is disabled
 		if !telemetry.Disabled() {
-			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.SelectedStreams, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, connector.Type(), destinationConfig, catalog)
+			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.Mix, connector.Type(), destinationConfig, len(catalog.Streams))
 			defer func() {
 				stats := pool.GetStats()
-				telemetry.TrackSyncCompleted(syncID, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
+				telemetry.TrackSyncCompleted(syncID, selectedStreamsMetadata.Mix, destinationConfig, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
 				logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 				time.Sleep(5 * time.Second)
 			}()
 		}
 
+		// Registered after the telemetry defer so LIFO runs it first, before TrackSyncCompleted
+		// reads err. Without it a panic leaves err nil and the run reports sync_status SUCCESS.
+		defer recoverToError(&err)
+
 		stopRead := logger.TrackTiming("sync", "read records")
 		err = connector.Read(cmd.Context(), pool, selectedStreamsMetadata.FullLoadStreams, selectedStreamsMetadata.CDCStreams, selectedStreamsMetadata.IncrementalStreams)
 		stopRead()
 		if err != nil {
-			return fmt.Errorf("error occurred while reading records: %s", err)
+			return fmt.Errorf("error occurred while reading records: %w", err)
 		}
 
 		state.LogWithLock()
@@ -183,7 +191,7 @@ var syncCmd = &cobra.Command{
 func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
-		SelectedStreams:    []string{},
+		SelectedStreams:    []types.StreamInterface{},
 		CDCStreams:         []types.StreamInterface{},
 		IncrementalStreams: []types.StreamInterface{},
 		FullLoadStreams:    []types.StreamInterface{},
@@ -228,6 +236,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
+		if err := elem.GetUpdateType().Validate(); err != nil {
+			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
+			return false
+		}
+
 		filter, isLegacy, err := elem.GetFilter()
 		if err != nil {
 			logger.Warnf("Skipping; Configured Stream %s failed to get filter: %s", elem.ID(), err)
@@ -257,21 +270,44 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
-		classifications.SelectedStreams = append(classifications.SelectedStreams, elem.ID())
+		classifications.SelectedStreams = append(classifications.SelectedStreams, elem)
+		// Past every skip branch, so the mix describes what this run actually syncs rather
+		// than everything the catalog configured.
+		classifications.Mix.Selected++
+		if elem.StreamMetadata.Normalization {
+			classifications.Mix.Normalized++
+		}
+
+		if elem.StreamMetadata.PartitionRegex != "" {
+			classifications.Mix.Partitioned++
+		}
+
+		if elem.GetUpdateType() == types.UpdateTypePosition {
+			classifications.Mix.StreamWithPosUpdateType++
+		}
+
 		switch elem.Stream.SyncMode {
 		case types.CDC, types.STRICTCDC:
+			// One read path, two counters: the sync treats them alike, telemetry does not.
+			if elem.Stream.SyncMode == types.STRICTCDC {
+				classifications.Mix.StrictCDC++
+			} else {
+				classifications.Mix.CDC++
+			}
 			classifications.CDCStreams = append(classifications.CDCStreams, elem)
 			streamState, exists := stateStreamMap[elem.ID()]
 			if exists {
 				classifications.NewStreamsState = append(classifications.NewStreamsState, streamState)
 			}
 		case types.INCREMENTAL:
+			classifications.Mix.Incremental++
 			classifications.IncrementalStreams = append(classifications.IncrementalStreams, elem)
 			streamState, exists := stateStreamMap[elem.ID()]
 			if exists {
 				classifications.NewStreamsState = append(classifications.NewStreamsState, streamState)
 			}
 		default:
+			classifications.Mix.FullRefresh++
 			classifications.FullLoadStreams = append(classifications.FullLoadStreams, elem)
 		}
 
@@ -283,9 +319,14 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		state.Streams = classifications.NewStreamsState
 	}
 	if len(classifications.SelectedStreams) == 0 {
-		return nil, fmt.Errorf("no valid streams found in catalog")
+		return nil, errs.Precondition(errs.ConfigInvalid, codeNoValidStreams,
+			fmt.Errorf("no valid streams found in catalog"))
 	}
 
-	logger.Infof("Valid selected streams are %s", strings.Join(classifications.SelectedStreams, ", "))
+	selectedStreamNames := make([]string, len(classifications.SelectedStreams))
+	for i, stream := range classifications.SelectedStreams {
+		selectedStreamNames[i] = stream.ID()
+	}
+	logger.Infof("Valid selected streams are %v", strings.Join(selectedStreamNames, ", "))
 	return classifications, nil
 }
