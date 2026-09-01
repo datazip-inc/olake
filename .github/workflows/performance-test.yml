@@ -37,12 +37,15 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7
 
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
         go-version-file: "go.mod"
+
+    - name: Restore driver external dependencies
+      uses: ./.github/actions/driver-deps
 
     - name: Set up Java for Maven
       uses: actions/setup-java@v3
@@ -94,8 +97,10 @@ jobs:
       working-directory: ./destination/iceberg/olake-iceberg-java-writer
       run: mvn clean package -DskipTests
 
-    - name: Build Test Base Image
-      run: make docker.base.build
+    # The image the suite runs against. Built here rather than left to the harness, which would
+    # otherwise build it inside `go test` where it is invisible in the step timings.
+    - name: Build Driver Image
+      run: make docker.${{ matrix.driver }}.build
 
     - name: Create source
       run: |
@@ -118,7 +123,7 @@ jobs:
 
     - name: Download Benchmarks History
       if: steps.last_run.outputs.id != ''
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       continue-on-error: true
       with:
         name: benchmarks_${{ matrix.driver }}
@@ -126,11 +131,14 @@ jobs:
         run-id: ${{ steps.last_run.outputs.id }}
         github-token: ${{ github.token }}
 
+    # Points the harness at the image built above; without it getOrBuildDriverImage rebuilds it.
     - name: Run Performance Tests
+      env:
+        OLAKE_DRIVER_IMAGE: olake/source-${{ matrix.driver }}:local
       run: make test.performance.${{ matrix.driver }}
 
     - name: Upload Benchmarks History
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: success()
       continue-on-error: true
       with:

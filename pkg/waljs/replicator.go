@@ -62,7 +62,7 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 
 	cfg, err := pgconn.ParseConfig(connURL.String())
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection url: %s", err)
+		return nil, fmt.Errorf("failed to parse connection url: %w", err)
 	}
 
 	if config.SSHClient != nil {
@@ -91,13 +91,13 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 	// Establish PostgreSQL connection
 	pgConn, err := pgconn.ConnectConfig(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create postgres connection: %s", err)
+		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
 
 	// System identification
 	sysident, err := pglogrepl.IdentifySystem(ctx, pgConn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to indentify system: %s", err)
+		return nil, fmt.Errorf("failed to indentify system: %w", err)
 	}
 	logger.Infof("SystemID:%s Timeline:%d XLogPos:%s Database:%s",
 		sysident.SystemID, sysident.Timeline, sysident.XLogPos, sysident.DBName)
@@ -144,7 +144,7 @@ func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) er
 		var slotName string
 		var endLSN pglogrepl.LSN
 		if err := db.QueryRowContext(timeoutCtx, fmt.Sprintf(AdvanceLSNTemplate, slot, currentWalPos)).Scan(&slotName, &endLSN); err != nil {
-			return fmt.Errorf("failed to advance replication slot: %s", err)
+			return fmt.Errorf("failed to advance replication slot: %w", err)
 		}
 		if endLSN >= target {
 			logger.Debugf("advanced LSN to %s", currentWalPos)
@@ -155,7 +155,7 @@ func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) er
 		logger.Debugf("slot advance clamped at %s (target %s), retrying", endLSN, target)
 		select {
 		case <-timeoutCtx.Done():
-			return fmt.Errorf("slot advance stopped at %s and could not reach target %s: %s", endLSN, target, timeoutCtx.Err())
+			return fmt.Errorf("slot advance stopped at %s and could not reach target %s: %w", endLSN, target, timeoutCtx.Err())
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
@@ -172,7 +172,7 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 		ReplyRequested:   false,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to send standby status message on wal position[%s]: %s", walPosition.String(), err)
+		return fmt.Errorf("failed to send standby status message on wal position[%s]: %w", walPosition.String(), err)
 	}
 
 	logger.Debugf("sent standby status message at LSN#%s", walPosition.String())
@@ -197,7 +197,7 @@ func AcknowledgeLSN(ctx context.Context, db *sqlx.DB, socket *Socket, fakeAck bo
 		case <-ticker.C:
 			slot, err := GetSlotPosition(ctx, db, socket.ReplicationSlot)
 			if err != nil {
-				return fmt.Errorf("failed to get slot position: %s", err)
+				return fmt.Errorf("failed to get slot position: %w", err)
 			}
 
 			if slot.LSN == walPosition {

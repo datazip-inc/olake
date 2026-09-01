@@ -124,11 +124,15 @@ func (m *Mongo) CDCSupported() bool {
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {
+	if err := m.config.Validate(); err != nil {
+		return fmt.Errorf("failed to validate config: %w", err)
+	}
+
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		sshClient, err := m.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 		m.sshDialer = &MongoSSHDialer{sshClient: sshClient}
 	}
@@ -136,6 +140,13 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 
 	opts.ApplyURI(m.config.URI())
+	tlsConfig, err := m.config.buildTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build tls config: %w", err)
+	}
+	if tlsConfig != nil {
+		opts.SetTLSConfig(tlsConfig)
+	}
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {
@@ -154,7 +165,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	// Validate the connection by pinging the database
 	if err := conn.Ping(connectCtx, nil); err != nil {
-		return fmt.Errorf("failed to connect to MongoDB: %s", err)
+		return fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
 
 	m.client = conn
@@ -213,7 +224,7 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	for collections.Next(ctx) {
 		var collectionInfo bson.M
 		if err := collections.Decode(&collectionInfo); err != nil {
-			return nil, fmt.Errorf("failed to decode collection: %s", err)
+			return nil, fmt.Errorf("failed to decode collection: %w", err)
 		}
 
 		// Skip if collection is a view
@@ -276,9 +287,9 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 	stream, err := produceCollectionSchema(ctx, database, streamID.Name)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamID.Name, err)
+		return nil, fmt.Errorf("failed to process collection[%s]: %w", streamID.Name, err)
 	}
 	// Add all discovered fields as potential cursor fields
 	stream.Schema.Properties.Range(func(key, _ interface{}) bool {

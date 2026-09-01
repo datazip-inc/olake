@@ -17,7 +17,7 @@ on:
 #     name: Create Issues from TODO
 #     runs-on: ubuntu-latest
 #     steps:
-#       - uses: actions/checkout@v3
+#       - uses: actions/checkout@v7
 #       - name: todo-actions
 #         uses: dtinth/todo-actions@v0.2.0
 #         env:
@@ -34,7 +34,7 @@ jobs:
     name: Create Issues from TODO
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
       - name: todo-issue
         uses: DerJuulsn/todo-issue@v1.1.4
         env:
