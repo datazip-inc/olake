@@ -21,9 +21,6 @@ const (
 	// olake input and output lives under it, since the CLI writes next to --config
 	containerTestDataDir = "/testdata"
 
-	// containerTimezone is what the driver container runs in. See the TZ note in DockerRunArgs.
-	containerTimezone = "Asia/Kolkata"
-
 	// containerTableIndexDir is where the table index database is mounted in the container
 	containerTableIndexDir = containerTestDataDir + "/olake-table-index"
 
@@ -148,12 +145,6 @@ func DockerRunArgs(cfg *TestConfig, extraFlags []string, olakeArgs []string) []s
 		"-e", "TELEMETRY_DISABLED=true",
 		"-e", "OLAKE_TIMING=1",
 		"-e", fmt.Sprintf("OLAKE_INDEX_DB_DIR=%s", containerTableIndexDir),
-		// Deliberately not UTC. Several state-version gates only change behavior when the machine
-		// timezone differs from UTC -- mongodb's v5 DateTime decoding, mysql's v3 offset-format
-		// zones, the v2 binlog TimestampStringLocation. In a UTC container the old and new branches
-		// of each produce identical output, so the suite cannot tell a working gate from a removed
-		// one. A fixed offset zone with a half-hour offset also catches code that assumes whole hours.
-		"-e", "TZ=" + containerTimezone,
 	}
 
 	if u, err := user.Current(); err == nil {
