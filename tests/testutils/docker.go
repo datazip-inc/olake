@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -144,6 +145,10 @@ func DockerRunArgs(cfg *TestConfig, extraFlags []string, olakeArgs []string) []s
 		"-e", "TELEMETRY_DISABLED=true",
 		"-e", "OLAKE_TIMING=1",
 		"-e", fmt.Sprintf("OLAKE_INDEX_DB_DIR=%s", containerTableIndexDir),
+	}
+
+	if u, err := user.Current(); err == nil {
+		args = append(args, "--user", u.Uid+":"+u.Gid)
 	}
 
 	if cfg.ImagePlatform != "" {
