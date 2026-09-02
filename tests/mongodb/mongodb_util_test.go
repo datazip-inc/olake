@@ -9,26 +9,19 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
-	"github.com/stretchr/testify/require"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// MongoDB connection constants
-const (
-	MongoDBPort       = 27017
-	MongoDBDatabase   = "olake_mongodb_test"
-	MongoDBReplicaSet = "rs0"
-	MongoDBAdminUser  = "admin"
-	MongoDBAdminPass  = "password"
-)
-
 var (
 	nestedDoc = bson.M{
-		"nested_string": "nested_value",
-		"nested_int":    42,
+		"nested_string":    "nested_value",
+		"nested_int":       42,
+		"nested_timestamp": time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
 	}
 )
 
@@ -39,31 +32,27 @@ var performanceCDCStreams = []string{"tweets_cdc"}
 func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	var connStr string
+	// directConnection because the replica set advertises its member as host.docker.internal,
+	// which only the driver's container resolves; the harness dials the published port directly.
 	config := conf.SourceBaseConfig
-	if config != nil {
-		connStr = fmt.Sprintf(
-			"mongodb://%s:%s@%s/?authSource=%s&readPreference=%s",
-			config.String("username"),
-			config.String("password"),
-			strings.Join(config.Strings("hosts"), ","),
-			config.String("authdb"),
-			config.String("read_preference"),
-		)
-	} else {
-		connStr = fmt.Sprintf("mongodb://%s:%s@localhost:%d/admin?replicaSet=%s&directConnection=true",
-			MongoDBAdminUser, MongoDBAdminPass, MongoDBPort, MongoDBReplicaSet)
-	}
+	connStr := fmt.Sprintf(
+		"mongodb://%s:%s@%s/?authSource=%s&readPreference=%s&directConnection=true",
+		config.String("username"),
+		config.String("password"),
+		strings.Join(config.Hosts("hosts"), ","),
+		config.String("authdb"),
+		config.String("read_preference"),
+	)
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(connStr))
-	require.NoError(t, err, "Failed to connect to MongoDB replica set at localhost:%d", MongoDBPort)
+	require.NoError(t, err, "failed to connect to mongodb at %s", strings.Join(config.Hosts("hosts"), ","))
 	defer func() {
 		if err := client.Disconnect(ctx); err != nil {
 			t.Logf("warning: failed to disconnect from MongoDB: %v", err)
 		}
 	}()
 
-	integrationTestCollection := testutils.TestTableName(conf)
-	db := client.Database(MongoDBDatabase)
+	integrationTestCollection := conf.GetTableName()
+	db := client.Database(config.String("database"))
 	collection := db.Collection(integrationTestCollection)
 
 	switch operation {
@@ -180,7 +169,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		return
 
 	case "bulk_cdc_data_insert":
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
+		backfillStreams := performance.GetBackfillStreamsFromCDC(performanceCDCStreams)
 		totalRows := 15000000
 
 		// TODO: insert data in batch
@@ -220,26 +209,47 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	}
 }
 
+// seedDocument is the document every seeded row starts from; callers set the per-row fields, and
+// seedColumnTypes reads the types off it.
+func seedDocument() bson.M {
+	return bson.M{
+		"id_bigint":         int64(123456789012345),
+		"id_int":            int32(100),
+		"id_timestamp":      time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
+		"id_double":         float64(123.456),
+		"id_bool":           true,
+		"created_timestamp": primitive.Timestamp{T: uint32(1754905992), I: 1},
+		"id_nil":            nil,
+		"id_regex":          primitive.Regex{Pattern: "test.*", Options: "i"},
+		"id_nested":         nestedDoc,
+		"id_minkey":         primitive.MinKey{},
+		"id_maxkey":         primitive.MaxKey{},
+		"name_varchar":      "varchar_val",
+		"excludedColumn":    100,
+	}
+}
+
+// seedColumnTypes tags every seed field with its BSON type name (regex, date, ...), read off the
+// seed document itself, so a data_types rule in compatibility_rules.json follows a seed edit with
+// nothing to declare.
+func seedColumnTypes() map[string][]string {
+	types := map[string][]string{}
+	for field, value := range seedDocument() {
+		bsonType, _, err := bson.MarshalValue(value)
+		if err != nil {
+			continue
+		}
+		types[field] = []string{strings.ToLower(bsonType.String())}
+	}
+	return types
+}
+
 func insertTestData(ctx context.Context, t *testing.T, collection *mongo.Collection) {
 	t.Helper()
 	for i := 1; i <= 5; i++ {
-		doc := bson.M{
-			"id":                i,
-			"id_cursor":         i,
-			"id_bigint":         int64(123456789012345),
-			"id_int":            int32(100),
-			"id_timestamp":      time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC),
-			"id_double":         float64(123.456),
-			"id_bool":           true,
-			"created_timestamp": primitive.Timestamp{T: uint32(1754905992), I: 1},
-			"id_nil":            nil,
-			"id_regex":          primitive.Regex{Pattern: "test.*", Options: "i"},
-			"id_nested":         nestedDoc,
-			"id_minkey":         primitive.MinKey{},
-			"id_maxkey":         primitive.MaxKey{},
-			"name_varchar":      "varchar_val",
-			"excludedColumn":    100,
-		}
+		doc := seedDocument()
+		doc["id"] = i
+		doc["id_cursor"] = i
 
 		_, err := collection.InsertOne(ctx, doc)
 		require.NoError(t, err, "Failed to insert test data row %d", i)
@@ -266,7 +276,7 @@ var ExpectedMongoData = map[string]interface{}{
 	"id_bool":           true,
 	"created_timestamp": int32(1754905992),
 	"id_regex":          `{"Pattern":"test.*","Options":"i"}`,
-	"id_nested":         `{"nested_int":42,"nested_string":"nested_value"}`,
+	"id_nested":         `{"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "varchar_val",
@@ -280,7 +290,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"id_bool":           false,
 	"created_timestamp": int32(1754905699),
 	"id_regex":          `{"Pattern":"updated.*","Options":"i"}`,
-	"id_nested":         `{"nested_int":42,"nested_string":"nested_value"}`,
+	"id_nested":         `{"nested_int":42,"nested_string":"nested_value","nested_timestamp":"2023-01-01T12:00:00Z"}`,
 	"id_minkey":         `{}`,
 	"id_maxkey":         `{}`,
 	"name_varchar":      "updated varchar",

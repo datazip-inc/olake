@@ -1,0 +1,9 @@
+# CODEOWNERS
+
+## TODO(settings): create @datazip-inc/olake-admins and @datazip-inc/state-version-owners with WRITE access
+## TODO(settings): the counts these paths need live in .github/rulesets/state-version-approval.json
+
+/.github/CODEOWNERS @datazip-inc/olake-admins
+
+/constants/state-versions.json @datazip-inc/state-version-owners
+/tests/testutils/compatibility/compatibility_rules.json @datazip-inc/state-version-owners

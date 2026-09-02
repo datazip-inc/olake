@@ -14,8 +14,8 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	"github.com/linkedin/goavro/v2"
-	"github.com/stretchr/testify/require"
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -28,6 +28,7 @@ const (
 	rebalanceBulkPartition     = int32(0)
 	rebalanceBulkBatchSize     = 500
 	kafkaJSONIntegrationBroker = "127.0.0.1:29092"
+	kafkaAvroIntegrationBroker = "127.0.0.1:29192"
 	avroSchemaRegistryURL      = "http://127.0.0.1:8081"
 	schemaRegistryTopic        = "_schemas"
 	topicDeletionAttempts      = 8
@@ -129,13 +130,8 @@ var (
 func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	topic := testutils.TestTableName(conf)
-	var kafkaJSONBroker string
-	if conf.SourceBaseConfig != nil {
-		kafkaJSONBroker = conf.SourceBaseConfig.String("bootstrap_servers")
-	} else {
-		kafkaJSONBroker = kafkaJSONIntegrationBroker
-	}
+	topic := conf.GetTableName()
+	kafkaJSONBroker := kafkaJSONIntegrationBroker
 
 	// kafka client
 	client, err := kgo.NewClient(
@@ -184,7 +180,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestCon
 
 	case "insert_rebalance":
 		addRebalanceBulkMessages(ctx, t, client, topic)
-		startRebalanceTrigger(ctx, t, suiteConsumerGroup(t, conf), topic, conf.HostStatsPath)
+		startRebalanceTrigger(ctx, t, suiteConsumerGroup(t, conf), topic, conf.GetFilePath("stats.json"))
 
 	case "stop_rebalance":
 		stopRebalanceTrigger()
@@ -220,8 +216,8 @@ func addRebalanceBulkMessages(ctx context.Context, t *testing.T, client *kgo.Cli
 
 func suiteConsumerGroup(t *testing.T, conf *testutils.TestConfig) string {
 	t.Helper()
-	consumerGroupID := testutils.ReadSourceConfig(t, conf.HostSourcePath).String("consumer_group_id")
-	require.NotEmpty(t, consumerGroupID, "no consumer_group_id in %s", conf.HostSourcePath)
+	consumerGroupID := conf.SourceBaseConfig.String("consumer_group_id")
+	require.NotEmpty(t, consumerGroupID, "no consumer_group_id in the source config of suite %q", conf.Suite)
 	return consumerGroupID
 }
 
@@ -245,7 +241,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, consumerGroupID, t
 			close(done)
 		}()
 
-		testutils.WaitForSyncProgress(rebalanceCtx, t, statsPath)
+		waitForSyncProgress(rebalanceCtx, t, statsPath)
 		if rebalanceCtx.Err() != nil {
 			return
 		}
@@ -290,13 +286,8 @@ func stopRebalanceTrigger() {
 func ExecuteQueryAvro(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	topic := testutils.TestTableName(conf)
-	var kafkaAvroBroker string
-	if conf.SourceBaseConfig != nil {
-		kafkaAvroBroker = conf.SourceBaseConfig.String("bootstrap_servers")
-	} else {
-		kafkaAvroBroker = "127.0.0.1:29192"
-	}
+	topic := conf.GetTableName()
+	kafkaAvroBroker := kafkaAvroIntegrationBroker
 	// kafka client
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(kafkaAvroBroker),

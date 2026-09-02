@@ -11,9 +11,9 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/microsoft/go-mssqldb"
-	"github.com/stretchr/testify/require"
 )
 
 // cdcMetadataMu serializes CDC enable/disable: both write the server-wide msdb.dbo.cdc_jobs, so two
@@ -53,19 +53,16 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	// and fail the loser as the deadlock victim. This has to resolve to the same name
 	// variantSourceOverride writes into the suite's source.json, or olake and these queries end up
 	// in different databases. 01-init.sql provisions each with CDC enabled.
-	var connStr string
-	if config := conf.SourceBaseConfig; config != nil {
-		connStr = fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable",
-			config.String("username"),
-			config.String("password"),
-			config.String("host"),
-			config.Int("port"),
-			testutils.SuiteDatabase(config.String("database"), conf.Suite),
-		)
-	} else {
-		connStr = fmt.Sprintf("sqlserver://sa:Password!123@localhost:1433?database=%s&encrypt=disable",
-			testutils.SuiteDatabase("olake_mssql_test", conf.Suite))
-	}
+	config := conf.SourceBaseConfig
+	dbName := config.String("database")
+	ensureSuiteDatabase(ctx, t, config, dbName)
+	connStr := fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=%s&encrypt=disable",
+		config.String("username"),
+		config.String("password"),
+		config.Host("host"),
+		config.Int("port"),
+		dbName,
+	)
 
 	db, err := sqlx.ConnectContext(ctx, "sqlserver", connStr)
 	require.NoError(t, err, "failed to connect to mssql")
@@ -74,7 +71,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := testutils.TestTableName(conf)
+	integrationTestTable := conf.GetTableName()
 
 	// A capture instance is SQL Server’s logical CDC stream for a table.
 	captureInstance := fmt.Sprintf("dbo_%s", integrationTestTable)
@@ -162,6 +159,9 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		`, integrationTestTable, captureInstance)
 		require.NoError(t, execCDCMetadata(ctx, t, db, enableTableCDC), "failed to enable CDC on integration test table")
 
+		ensureFastCDCPolling(ctx, t, db)
+		startCDCCapture(ctx, t, db)
+
 		// Wait until current_max_lsn >= start_lsn of the capture instance so CDC is ready for sync
 		verifyCDCEnabled(ctx, t, db, captureInstance)
 
@@ -220,7 +220,6 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	case "add":
 		insertTestData(ctx, t, db, integrationTestTable)
-		return
 
 	case "insert":
 		insertOne := fmt.Sprintf(`
@@ -359,13 +358,115 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		_, err := db.ExecContext(ctx, stmt)
 		require.NoError(t, err, "failed to evolve schema")
 
-	case "wait-cdc-catchup":
-		// The caller just committed DML it expects the next CDC sync to pick up; wait for the
-		// asynchronous capture job to scan it.
-		waitForCDCCapture(ctx, t, db)
-
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
+	}
+
+	switch operation {
+	case "add", "insert", "insert_2pc", "update", "delete":
+		waitForCDCCapture(ctx, t, db)
+	}
+}
+
+// suiteDatabasesEnsured tracks the databases this process has provisioned, so ensureSuiteDatabase
+// touches master once per suite, not once per operation.
+var (
+	suiteDatabasesEnsured   = map[string]bool{}
+	suiteDatabasesEnsuredMu sync.Mutex
+)
+
+// ensureSuiteDatabase creates the suite's CDC-enabled database when the volume lacks it.
+func ensureSuiteDatabase(ctx context.Context, t *testing.T, config testutils.SourceConfig, dbName string) {
+	t.Helper()
+	suiteDatabasesEnsuredMu.Lock()
+	defer suiteDatabasesEnsuredMu.Unlock()
+	if suiteDatabasesEnsured[dbName] {
+		return
+	}
+
+	master, err := sqlx.ConnectContext(ctx, "sqlserver",
+		fmt.Sprintf("sqlserver://%s:%s@%s:%d?database=master&encrypt=disable",
+			config.String("username"), config.String("password"), config.Host("host"), config.Int("port")))
+	require.NoError(t, err, "failed to connect to master to provision %s", dbName)
+	defer func() { require.NoError(t, master.Close()) }()
+
+	_, err = master.ExecContext(ctx, fmt.Sprintf(`IF DB_ID(N'%s') IS NULL CREATE DATABASE [%s];`, dbName, dbName))
+	require.NoError(t, err, "failed to create database %s", dbName)
+	// sp_cdc_enable_db acts on the current database; USE binds it within this one batch. Through
+	// execCDCMetadata for the msdb mutex: enabling CDC writes the same shared job metadata.
+	require.NoError(t, execCDCMetadata(ctx, t, master, fmt.Sprintf(
+		`USE [%s]; IF EXISTS (SELECT 1 FROM sys.databases WHERE name = N'%s' AND is_cdc_enabled = 0) EXEC sys.sp_cdc_enable_db;`,
+		dbName, dbName)), "failed to enable CDC on database %s", dbName)
+	suiteDatabasesEnsured[dbName] = true
+}
+
+// cdcCaptureJobStatus reports this database's capture job: 1 running, 0 stopped, -1 not registered.
+// Pinned to the agent's current session, so rows a previous one left behind do not read as running.
+func cdcCaptureJobStatus(ctx context.Context, db *sqlx.DB) (int, error) {
+	var status int
+	err := db.QueryRowContext(ctx, `
+		DECLARE @job_id UNIQUEIDENTIFIER = (
+			SELECT job_id FROM msdb.dbo.sysjobs WHERE name = N'cdc.' + DB_NAME() + N'_capture');
+		SELECT CASE
+			WHEN @job_id IS NULL THEN -1
+			WHEN EXISTS (
+				SELECT 1 FROM msdb.dbo.sysjobactivity
+				WHERE job_id = @job_id
+					AND session_id = (SELECT MAX(session_id) FROM msdb.dbo.syssessions)
+					AND start_execution_date IS NOT NULL AND stop_execution_date IS NULL) THEN 1
+			ELSE 0 END;`).Scan(&status)
+	return status, err
+}
+
+// startCDCCapture starts the database's capture job and waits for the agent to report it running.
+// drop-all's sp_cdc_disable_table stops the job as it removes the last capture instance, and
+// re-enabling the table does not start it again -- so without this the LSN verifyCDCEnabled waits
+// for never moves.
+func startCDCCapture(ctx context.Context, t *testing.T, db *sqlx.DB) {
+	t.Helper()
+	const (
+		pollInterval = 500 * time.Millisecond
+		timeout      = 30 * time.Second
+	)
+
+	deadline := time.Now().Add(timeout)
+	for {
+		switch status, err := cdcCaptureJobStatus(ctx, db); {
+		case err != nil:
+			t.Logf("startCDCCapture: read capture job status: %s", err)
+		case status != 0:
+			return // running, or no job to start
+		}
+		// A start the agent is already working on is refused ("already running", "already has a
+		// pending request"); the agent raises those, so T-SQL cannot trap them and the poll above
+		// is what settles whether the job came up.
+		if err := execCDCMetadata(ctx, t, db, `
+			DECLARE @job SYSNAME = N'cdc.' + DB_NAME() + N'_capture';
+			IF EXISTS (SELECT 1 FROM msdb.dbo.sysjobs WHERE name = @job)
+				EXEC msdb.dbo.sp_start_job @job_name = @job;`); err != nil {
+			t.Logf("startCDCCapture: start request refused: %s", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("CDC capture job did not start within %v", timeout)
+		}
+		time.Sleep(pollInterval)
+	}
+}
+
+// ensureFastCDCPolling drops this database's CDC capture job to the minimum 1s polling interval
+// (default 5s) -- the cycle every create / wait-cdc-catchup, and the driver's own catch-up, waits out.
+func ensureFastCDCPolling(ctx context.Context, t *testing.T, db *sqlx.DB) {
+	t.Helper()
+
+	var interval int
+	err := db.QueryRowContext(ctx,
+		`SELECT pollinginterval FROM msdb.dbo.cdc_jobs WHERE database_id = DB_ID() AND job_type = N'capture'`).Scan(&interval)
+	if err != nil || interval == 1 {
+		return // no capture job registered yet, or already fast
+	}
+	if err := execCDCMetadata(ctx, t, db,
+		`EXEC sys.sp_cdc_change_job @job_type = N'capture', @pollinginterval = 1;`); err != nil {
+		t.Logf("could not lower the CDC capture polling interval (staying on the 5s default): %s", err)
 	}
 }
 
