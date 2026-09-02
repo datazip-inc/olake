@@ -467,8 +467,23 @@ func TestConfiguredStream_GetSyncMode(t *testing.T) {
 			want:     SyncMode("cdc"),
 		},
 		{
-			name:     "metadata wins over stream when both set",
+			name:     "manual streams[] edit wins over selected_streams",
 			stream:   &Stream{SyncMode: SyncMode("full_refresh")},
+			metadata: StreamMetadata{SyncMode: SyncMode("cdc")},
+			want:     SyncMode("full_refresh"),
+		},
+		{
+			name: "falls back to default_stream_properties when metadata and stream empty",
+			stream: &Stream{
+				DefaultStreamProperties: &DefaultStreamProperties{SyncMode: SyncMode("incremental")},
+			},
+			want: SyncMode("incremental"),
+		},
+		{
+			name: "selected_streams wins over default_stream_properties when streams[] empty",
+			stream: &Stream{
+				DefaultStreamProperties: &DefaultStreamProperties{SyncMode: SyncMode("incremental")},
+			},
 			metadata: StreamMetadata{SyncMode: SyncMode("cdc")},
 			want:     SyncMode("cdc"),
 		},
@@ -504,10 +519,17 @@ func TestConfiguredStream_Cursor(t *testing.T) {
 			wantSec:  "",
 		},
 		{
-			name:     "metadata wins over stream when both set",
+			name:     "manual streams[] edit wins over selected_streams",
 			stream:   &Stream{CursorField: "created_at"},
 			metadata: StreamMetadata{CursorField: "updated_at"},
-			wantPri:  "updated_at",
+			wantPri:  "created_at",
+		},
+		{
+			name: "falls back to default_stream_properties when metadata and stream empty",
+			stream: &Stream{
+				DefaultStreamProperties: &DefaultStreamProperties{CursorField: "updated_at"},
+			},
+			wantPri: "updated_at",
 		},
 	}
 
@@ -540,10 +562,10 @@ func TestConfiguredStream_GetDestinationDatabase(t *testing.T) {
 			want:     "new_db",
 		},
 		{
-			name:     "metadata wins over stream when both set",
+			name:     "manual streams[] edit wins over selected_streams",
 			stream:   &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"},
 			metadata: StreamMetadata{DestinationDatabase: "new_db"},
-			want:     "new_db",
+			want:     "legacy_db",
 		},
 		{
 			name: "falls back to default_stream_properties when metadata and stream empty",
@@ -590,10 +612,10 @@ func TestConfiguredStream_GetDestinationTable(t *testing.T) {
 			want:     "new_table",
 		},
 		{
-			name:     "metadata wins over stream when both set",
+			name:     "manual streams[] edit wins over selected_streams",
 			stream:   &Stream{Name: "users", DestinationTable: "legacy_table"},
 			metadata: StreamMetadata{DestinationTable: "new_table"},
-			want:     "new_table",
+			want:     "legacy_table",
 		},
 		{
 			name: "falls back to default_stream_properties when metadata and stream empty",

@@ -162,15 +162,21 @@ func (s *ConfiguredStream) SupportedSyncModes() *Set[SyncMode] {
 	return s.Stream.SupportedSyncModes
 }
 
+func (s *ConfiguredStream) defaultStreamProperties() DefaultStreamProperties {
+	if s.Stream != nil && s.Stream.DefaultStreamProperties != nil {
+		return *s.Stream.DefaultStreamProperties
+	}
+	return DefaultStreamProperties{}
+}
+
 func (s *ConfiguredStream) GetSyncMode() SyncMode {
-	return resolveConfigurableField(s.StreamMetadata.SyncMode, s.Stream.SyncMode)
+	defaults := s.defaultStreamProperties()
+	return resolveConfigurableField(s.Stream.SyncMode, s.StreamMetadata.SyncMode, defaults.SyncMode)
 }
 
 func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
-	destDB := resolveConfigurableField(s.StreamMetadata.DestinationDatabase, s.Stream.DestinationDatabase)
-	if destDB == "" && s.Stream.DefaultStreamProperties != nil {
-		destDB = s.Stream.DefaultStreamProperties.DestinationDatabase
-	}
+	defaults := s.defaultStreamProperties()
+	destDB := resolveConfigurableField(s.Stream.DestinationDatabase, s.StreamMetadata.DestinationDatabase, defaults.DestinationDatabase)
 	if destDB != "" {
 		return utils.Reformat(destDB)
 	}
@@ -181,10 +187,8 @@ func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 }
 
 func (s *ConfiguredStream) GetDestinationTable() string {
-	destTable := resolveConfigurableField(s.StreamMetadata.DestinationTable, s.Stream.DestinationTable)
-	if destTable == "" && s.Stream.DefaultStreamProperties != nil {
-		destTable = s.Stream.DefaultStreamProperties.DestinationTable
-	}
+	defaults := s.defaultStreamProperties()
+	destTable := resolveConfigurableField(s.Stream.DestinationTable, s.StreamMetadata.DestinationTable, defaults.DestinationTable)
 	return utils.Ternary(destTable == "", s.Stream.Name, destTable).(string)
 }
 
@@ -194,7 +198,8 @@ func (s *ConfiguredStream) GetPartitionRegex() string {
 
 // returns primary and secondary cursor
 func (s *ConfiguredStream) Cursor() (string, string) {
-	cursorField := resolveConfigurableField(s.StreamMetadata.CursorField, s.Stream.CursorField)
+	defaults := s.defaultStreamProperties()
+	cursorField := resolveConfigurableField(s.Stream.CursorField, s.StreamMetadata.CursorField, defaults.CursorField)
 	cursorFields := strings.Split(cursorField, ":")
 	primaryCursor := cursorFields[0]
 	secondaryCursor := ""

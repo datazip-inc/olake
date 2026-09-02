@@ -211,8 +211,12 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
 	}
 
+	matchedSelected := make(map[string]struct{}, len(selectedStreamsMap))
 	_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 		sMetadata, selected := selectedStreamsMap[elem.ID()]
+		if selected {
+			matchedSelected[elem.ID()] = struct{}{}
+		}
 		// Check if the stream is in the selectedStreamMap
 		if !(catalog.SelectedStreams == nil || selected) {
 			logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
@@ -286,10 +290,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			classifications.Mix.StreamWithPosUpdateType++
 		}
 
-		switch elem.GetSyncMode() {
+		syncMode := elem.GetSyncMode()
+		switch syncMode {
 		case types.CDC, types.STRICTCDC:
 			// One read path, two counters: the sync treats them alike, telemetry does not.
-			if elem.Stream.SyncMode == types.STRICTCDC {
+			if syncMode == types.STRICTCDC {
 				classifications.Mix.StrictCDC++
 			} else {
 				classifications.Mix.CDC++
@@ -313,6 +318,14 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 
 		return false
 	})
+
+	// in case of split-streams, streams.json & schema.json are maintained separately.
+	// so we need to check if all the selected streams are present in the streams[]
+	for id := range selectedStreamsMap {
+		if _, ok := matchedSelected[id]; !ok {
+			logger.Warnf("Skipping; selected stream %s has no matching entry in streams[]. Rediscover or check schema.json.", id)
+		}
+	}
 	// Clear previous state streams for non-selected streams.
 	// Must not be called during clear destination to retain the global and stream state. (clear dest. -> when streams == nil)
 	if streams != nil {

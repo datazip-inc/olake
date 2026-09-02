@@ -66,22 +66,29 @@ type StreamMetadata struct {
 	DestinationTable    string           `json:"destination_table,omitempty"`
 }
 
-// resolveConfigurableField returns metadata value when set, otherwise stream value.
-func resolveConfigurableField[T comparable](metadataValue, streamValue T) T {
+// resolveConfigurableField returns the first non-zero value.
+// Callers pass values in priority order: streams[] (manual/legacy edit), selected_streams, default_stream_properties.
+// After discover, streams[] configurable fields are always empty unless the user put them back.
+func resolveConfigurableField[T comparable](values ...T) T {
 	var zero T
-	if metadataValue != zero {
-		return metadataValue
+	for _, v := range values {
+		if v != zero {
+			return v
+		}
 	}
-	return streamValue
+	return zero
 }
 
 func migrateConfigurableFieldsFromStream(metadata *StreamMetadata, stream *Stream) {
-	metadata.SyncMode = resolveConfigurableField(metadata.SyncMode, stream.SyncMode)
-	metadata.CursorField = resolveConfigurableField(metadata.CursorField, stream.CursorField)
-	metadata.DestinationDatabase = resolveConfigurableField(metadata.DestinationDatabase, stream.DestinationDatabase)
-	metadata.DestinationTable = resolveConfigurableField(metadata.DestinationTable, stream.DestinationTable)
+	metadata.SyncMode = resolveConfigurableField(stream.SyncMode, metadata.SyncMode)
+	metadata.CursorField = resolveConfigurableField(stream.CursorField, metadata.CursorField)
+	metadata.DestinationDatabase = resolveConfigurableField(stream.DestinationDatabase, metadata.DestinationDatabase)
+	metadata.DestinationTable = resolveConfigurableField(stream.DestinationTable, metadata.DestinationTable)
 }
 
+// TODO[BEFORE_MERGE]: update the version to release version
+// legacy: some configurable fields belong to the []streams
+// v0.9.6: all configurable fields belong to []selected_streams
 func clearStreamConfigurableFields(stream *Stream) {
 	stream.SyncMode = ""
 	stream.CursorField = ""
@@ -119,7 +126,7 @@ type StreamMix struct {
 func ResolveCatalog(streamsFilePath, schemaFilePath string) (*Catalog, error) {
 	catalog := &Catalog{}
 	if err := utils.UnmarshalFile(streamsFilePath, catalog, false); err != nil {
-		return nil, fmt.Errorf("failed to read streams from %s: %s", streamsFilePath, err)
+		return nil, fmt.Errorf("failed to read streams from %s: %w", streamsFilePath, err)
 	}
 
 	// streams[] is present — this is the default combined layout
@@ -134,7 +141,7 @@ func ResolveCatalog(streamsFilePath, schemaFilePath string) (*Catalog, error) {
 		}
 		schemaCatalog := &Catalog{}
 		if err := utils.UnmarshalFile(schemaFilePath, schemaCatalog, false); err != nil {
-			return nil, fmt.Errorf("failed to read schema from %s: %s", schemaFilePath, err)
+			return nil, fmt.Errorf("failed to read schema from %s: %w", schemaFilePath, err)
 		}
 		catalog.Streams = schemaCatalog.Streams
 		return catalog, nil
@@ -229,38 +236,14 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		newCatalog.SelectedStreams = selectedStreams
 	}
 
-	constantValue, prefix := getDestDBPrefix(oldCatalog)
-
 	// merge streams metadata
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
-
-		var destDB string
 		if exists {
 			newStream.Stream.SourceDefinedPrimaryKey = oldStream.Stream.SourceDefinedPrimaryKey
-		} else {
-			// NOTE: new streams are not added to selected_streams, user needs to manually enable them
-			// manipulate destination db in new streams according to old streams
-
-			// prefix == "" means old stream when db normalization feature not introduced.
-			// getDestDBPrefix already resolves dest db via metadata (new format) with Stream fallback,
-			// so `prefix` holds the constant value directly when constantValue is true.
-			if constantValue {
-				destDB = prefix
-			} else if prefix != "" {
-				destDB = fmt.Sprintf("%s:%s", prefix, utils.Reformat(newStream.Stream.Namespace))
-			}
-			// Keep discover-generated default when the job has no established dest-db pattern.
-			if destDB == "" {
-				destDB = newStream.Stream.DestinationDatabase
-			}
 		}
-
-		// set destination database to the stream
-		clearStreamConfigurableFields(newStream.Stream)
-		if !exists && destDB != "" {
-			newStream.Stream.DestinationDatabase = destDB
-		}
+		// NOTE: new streams are not added to selected_streams; user needs to enable them.
+		// Discover defaults stay on default_stream_properties — do not rewrite them here.
 		return nil
 	})
 
@@ -332,7 +315,7 @@ func getDestDBPrefix(catalog *Catalog) (constantValue bool, prefix string) {
 	for namespace, metadataList := range catalog.SelectedStreams {
 		for _, metadata := range metadataList {
 			streamID := fmt.Sprintf("%s.%s", namespace, metadata.StreamName)
-			destDBs = append(destDBs, resolveConfigurableField(metadata.DestinationDatabase, streamDestDB[streamID]))
+			destDBs = append(destDBs, resolveConfigurableField(streamDestDB[streamID], metadata.DestinationDatabase))
 		}
 	}
 
@@ -433,14 +416,14 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// NOTE: we are not droping table if there is delete mode change
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
-				oldSyncMode := resolveConfigurableField(oldMetadata.SyncMode, oldStream.Stream.SyncMode)
-				newSyncMode := resolveConfigurableField(newMetadata.SyncMode, newStream.Stream.SyncMode)
-				oldCursorField := resolveConfigurableField(oldMetadata.CursorField, oldStream.Stream.CursorField)
-				newCursorField := resolveConfigurableField(newMetadata.CursorField, newStream.Stream.CursorField)
-				oldDestinationDatabase := resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
-				newDestinationDatabase := resolveConfigurableField(newMetadata.DestinationDatabase, newStream.Stream.DestinationDatabase)
-				oldDestinationTable := resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
-				newDestinationTable := resolveConfigurableField(newMetadata.DestinationTable, newStream.Stream.DestinationTable)
+				oldSyncMode := resolveConfigurableField(oldStream.Stream.SyncMode, oldMetadata.SyncMode)
+				newSyncMode := resolveConfigurableField(newStream.Stream.SyncMode, newMetadata.SyncMode)
+				oldCursorField := resolveConfigurableField(oldStream.Stream.CursorField, oldMetadata.CursorField)
+				newCursorField := resolveConfigurableField(newStream.Stream.CursorField, newMetadata.CursorField)
+				oldDestinationDatabase := resolveConfigurableField(oldStream.Stream.DestinationDatabase, oldMetadata.DestinationDatabase)
+				newDestinationDatabase := resolveConfigurableField(newStream.Stream.DestinationDatabase, newMetadata.DestinationDatabase)
+				oldDestinationTable := resolveConfigurableField(oldStream.Stream.DestinationTable, oldMetadata.DestinationTable)
+				newDestinationTable := resolveConfigurableField(newStream.Stream.DestinationTable, newMetadata.DestinationTable)
 
 				// check cursor field if SyncMode is incremental
 				cursorDelta := utils.Ternary(newSyncMode == INCREMENTAL, oldCursorField != newCursorField, false).(bool)
@@ -466,8 +449,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				}
 
 				// keep the user's existing destination mapping in the diff output even when discover produced new values
-				oldDestinationDatabase := resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
-				oldDestinationTable := resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
+				oldDestinationDatabase := resolveConfigurableField(oldStream.Stream.DestinationDatabase, oldMetadata.DestinationDatabase)
+				oldDestinationTable := resolveConfigurableField(oldStream.Stream.DestinationTable, oldMetadata.DestinationTable)
 				deltaStream.Stream.DestinationDatabase = oldDestinationDatabase
 				deltaStream.Stream.DestinationTable = oldDestinationTable
 				newMetadata.DestinationDatabase = oldDestinationDatabase

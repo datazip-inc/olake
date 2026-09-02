@@ -78,6 +78,7 @@ func compareCatalogs(t *testing.T, expected, actual *Catalog, testName string) {
 		assert.Equal(t, es.CursorField, as.CursorField)
 		assert.Equal(t, es.DestinationDatabase, as.DestinationDatabase)
 		assert.Equal(t, es.DestinationTable, as.DestinationTable)
+		assert.Equal(t, es.DefaultStreamProperties, as.DefaultStreamProperties)
 		validateBasicSchemas(t, es.Schema, as.Schema, testName)
 	}
 
@@ -254,7 +255,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:      "",
 							AppendMode:          false,
 							Normalization:       true,
-							UpdateType:      "eq",
+							UpdateType:          "eq",
 							SelectedColumns:     createSelectedColumns(nil, true),
 							SyncMode:            SyncMode("incremental"),
 							CursorField:         "updated_at",
@@ -266,7 +267,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:      "",
 							AppendMode:          false,
 							Normalization:       true,
-							UpdateType:      "eq",
+							UpdateType:          "eq",
 							SelectedColumns:     createSelectedColumns(nil, true),
 							SyncMode:            SyncMode("cdc"),
 							DestinationDatabase: "analytics",
@@ -372,12 +373,14 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Namespace:               "namespace1",
 							Schema:                  newSchema(),
 							SupportedSyncModes:      NewSet(SyncMode("incremental"), SyncMode("full_refresh")),
-							SyncMode:                SyncMode("incremental"),
 							AvailableCursorFields:   NewSet("created_at"),
 							SourceDefinedPrimaryKey: NewSet("id"),
-							CursorField:             "created_at",
-							DestinationDatabase:     "db:namespace1",
-							DestinationTable:        "stream1",
+							DefaultStreamProperties: &DefaultStreamProperties{
+								SyncMode:            SyncMode("incremental"),
+								CursorField:         "created_at",
+								DestinationDatabase: "db:namespace1",
+								DestinationTable:    "stream1",
+							},
 						},
 					},
 				},
@@ -397,6 +400,12 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							SupportedSyncModes:      NewSet(SyncMode("incremental"), SyncMode("full_refresh")),
 							SourceDefinedPrimaryKey: NewSet("id"),
 							AvailableCursorFields:   NewSet("created_at"),
+							DefaultStreamProperties: &DefaultStreamProperties{
+								SyncMode:            SyncMode("incremental"),
+								CursorField:         "created_at",
+								DestinationDatabase: "db:namespace1",
+								DestinationTable:    "stream1",
+							},
 						},
 					},
 				},
@@ -449,11 +458,13 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Name:                    "stream1",
 							Namespace:               "namespace1",
 							Schema:                  oldSchema(),
-							SyncMode:                SyncMode("cdc"),
-							CursorField:             "id",
 							SourceDefinedPrimaryKey: NewSet("id"),
-							DestinationDatabase:     "db:newNamespace1",
-							DestinationTable:        "newStream1",
+							DefaultStreamProperties: &DefaultStreamProperties{
+								DestinationDatabase: "db:newNamespace1",
+								DestinationTable:    "newStream1",
+								SyncMode:            SyncMode("cdc"),
+								CursorField:         "id",
+							},
 						},
 					},
 					{
@@ -461,10 +472,11 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Name:                    "stream2",
 							Namespace:               "namespace2",
 							Schema:                  newSchema(),
-							SyncMode:                SyncMode("full_refresh"),
 							SourceDefinedPrimaryKey: NewSet("id"),
-							DestinationDatabase:     "db:namespace2",
-							DestinationTable:        "stream2",
+							DefaultStreamProperties: &DefaultStreamProperties{
+								DestinationTable: "stream2",
+								SyncMode:         SyncMode("full_refresh"),
+							},
 						},
 					},
 				},
@@ -485,6 +497,12 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Namespace:               "namespace1",
 							Schema:                  oldSchema(),
 							SourceDefinedPrimaryKey: NewSet("id"),
+							DefaultStreamProperties: &DefaultStreamProperties{
+								DestinationDatabase: "db:newNamespace1",
+								DestinationTable:    "newStream1",
+								SyncMode:            SyncMode("cdc"),
+								CursorField:         "id",
+							},
 						},
 					},
 					{
@@ -493,7 +511,10 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Namespace:               "namespace2",
 							Schema:                  newSchema(),
 							SourceDefinedPrimaryKey: NewSet("id"),
-							DestinationDatabase:     "db:namespace2",
+							DefaultStreamProperties: &DefaultStreamProperties{
+								DestinationTable: "stream2",
+								SyncMode:         SyncMode("full_refresh"),
+							},
 						},
 					},
 				},
@@ -562,11 +583,13 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Namespace:               "namespace1",
 							Schema:                  oldSchema(),
 							SupportedSyncModes:      NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
-							SyncMode:                SyncMode("incremental"),
 							SourceDefinedPrimaryKey: NewSet("id"),
-							CursorField:             "updated_at",
-							DestinationDatabase:     "db:namespace1",
-							DestinationTable:        "stream1",
+							DefaultStreamProperties: &DefaultStreamProperties{
+								SyncMode:            SyncMode("incremental"),
+								CursorField:         "updated_at",
+								DestinationDatabase: "db:namespace1",
+								DestinationTable:    "stream1",
+							},
 						},
 					},
 				},
@@ -585,6 +608,12 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Schema:                  oldSchema(),
 							SourceDefinedPrimaryKey: NewSet("id"),
 							SupportedSyncModes:      NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
+							DefaultStreamProperties: &DefaultStreamProperties{
+								SyncMode:            SyncMode("incremental"),
+								CursorField:         "updated_at",
+								DestinationDatabase: "db:namespace1",
+								DestinationTable:    "stream1",
+							},
 						},
 					},
 				},
@@ -606,7 +635,8 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 			},
 		},
-		// when destination database is updated, old catalog metadata should be preserved
+		// when destination database is updated, old catalog metadata should be preserved;
+		// new streams carry discover defaults on default_stream_properties (streams[] dest is cleared).
 		{
 			name: "destination database updation",
 			oldCatalog: &Catalog{
@@ -639,11 +669,13 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Namespace:               "namespace1",
 							Schema:                  oldSchema(),
 							SupportedSyncModes:      NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
-							SyncMode:                SyncMode("incremental"),
 							SourceDefinedPrimaryKey: NewSet("id"),
-							CursorField:             "updated_at",
-							DestinationDatabase:     "db:namespace1",
-							DestinationTable:        "newStream1",
+							DefaultStreamProperties: &DefaultStreamProperties{
+								DestinationDatabase: "db:namespace1",
+								DestinationTable:    "newStream1",
+								SyncMode:            SyncMode("incremental"),
+								CursorField:         "updated_at",
+							},
 						},
 					},
 					{
@@ -652,10 +684,12 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Namespace:               "namespace2",
 							Schema:                  newSchema(),
 							SupportedSyncModes:      NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
-							SyncMode:                SyncMode("full_refresh"),
 							SourceDefinedPrimaryKey: NewSet("id"),
-							DestinationDatabase:     "db:namespace2",
-							DestinationTable:        "newStream2",
+							DefaultStreamProperties: &DefaultStreamProperties{
+								DestinationDatabase: "db:namespace2",
+								DestinationTable:    "newStream2",
+								SyncMode:            SyncMode("full_refresh"),
+							},
 						},
 					},
 				},
@@ -677,6 +711,12 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Schema:                  oldSchema(),
 							SupportedSyncModes:      NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
 							SourceDefinedPrimaryKey: NewSet("id"),
+							DefaultStreamProperties: &DefaultStreamProperties{
+								DestinationDatabase: "db:namespace1",
+								DestinationTable:    "newStream1",
+								SyncMode:            SyncMode("incremental"),
+								CursorField:         "updated_at",
+							},
 						},
 					},
 					{
@@ -686,7 +726,11 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Schema:                  newSchema(),
 							SupportedSyncModes:      NewSet(SyncMode("cdc"), SyncMode("incremental"), SyncMode("full_refresh")),
 							SourceDefinedPrimaryKey: NewSet("id"),
-							DestinationDatabase:     "db:namespace2",
+							DefaultStreamProperties: &DefaultStreamProperties{
+								DestinationDatabase: "db:namespace2",
+								DestinationTable:    "newStream2",
+								SyncMode:            SyncMode("full_refresh"),
+							},
 						},
 					},
 				},
@@ -734,13 +778,15 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				Streams: []*ConfiguredStream{
 					{
 						Stream: &Stream{
-							Name:                "users",
-							Namespace:           "public",
-							Schema:              newSchema(),
-							SyncMode:            SyncMode("incremental"),
-							CursorField:         "created_at",
-							DestinationDatabase: "db:public",
-							DestinationTable:    "users",
+							Name:      "users",
+							Namespace: "public",
+							Schema:    newSchema(),
+							DefaultStreamProperties: &DefaultStreamProperties{
+								SyncMode:            SyncMode("incremental"),
+								CursorField:         "created_at",
+								DestinationDatabase: "db:public",
+								DestinationTable:    "users",
+							},
 						},
 					},
 				},
@@ -757,6 +803,12 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Name:      "users",
 							Namespace: "public",
 							Schema:    newSchema(),
+							DefaultStreamProperties: &DefaultStreamProperties{
+								SyncMode:            SyncMode("incremental"),
+								CursorField:         "created_at",
+								DestinationDatabase: "db:public",
+								DestinationTable:    "users",
+							},
 						},
 					},
 				},
@@ -776,7 +828,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 			},
 		},
 		{
-			name: "selected_streams drives dest db prefix for new stream",
+			name: "new stream is not selected and keeps discover dest on DSP",
 			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{Stream: &Stream{Name: "a", Namespace: "ns1", Schema: oldSchema()}},
@@ -791,7 +843,15 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				Streams: []*ConfiguredStream{
 					{Stream: &Stream{Name: "a", Namespace: "ns1", Schema: newSchema()}},
 					{Stream: &Stream{Name: "b", Namespace: "ns2", Schema: newSchema()}},
-					{Stream: &Stream{Name: "c", Namespace: "ns3", Schema: newSchema(), DestinationDatabase: ""}},
+					{Stream: &Stream{
+						Name:      "c",
+						Namespace: "ns3",
+						Schema:    newSchema(),
+						DefaultStreamProperties: &DefaultStreamProperties{
+							DestinationDatabase: "discover_ns3",
+							DestinationTable:    "c",
+						},
+					}},
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"ns1": {{StreamName: "a", Normalization: true, SelectedColumns: createSelectedColumns([]string{"id"}, true)}},
@@ -802,7 +862,15 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				Streams: []*ConfiguredStream{
 					{Stream: &Stream{Name: "a", Namespace: "ns1", Schema: newSchema()}},
 					{Stream: &Stream{Name: "b", Namespace: "ns2", Schema: newSchema()}},
-					{Stream: &Stream{Name: "c", Namespace: "ns3", Schema: newSchema(), DestinationDatabase: "pg:ns3"}},
+					{Stream: &Stream{
+						Name:      "c",
+						Namespace: "ns3",
+						Schema:    newSchema(),
+						DefaultStreamProperties: &DefaultStreamProperties{
+							DestinationDatabase: "discover_ns3",
+							DestinationTable:    "c",
+						},
+					}},
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"ns1": {{StreamName: "a", Normalization: false, SelectedColumns: createSelectedColumns([]string{"id", "email"}, true), DestinationDatabase: "pg:ns1"}},
@@ -1295,7 +1363,7 @@ func TestMigrateConfigurableFieldsFromStream(t *testing.T) {
 		assert.Equal(t, "users", metadata.DestinationTable)
 	})
 
-	t.Run("does not overwrite fields already set in metadata", func(t *testing.T) {
+	t.Run("streams[] edit overwrites fields already set in metadata", func(t *testing.T) {
 		metadata := StreamMetadata{
 			StreamName:          "users",
 			SyncMode:            SyncMode("cdc"),
@@ -1310,10 +1378,10 @@ func TestMigrateConfigurableFieldsFromStream(t *testing.T) {
 			DestinationTable:    "old_table",
 		}
 		migrateConfigurableFieldsFromStream(&metadata, stream)
-		assert.Equal(t, SyncMode("cdc"), metadata.SyncMode)
-		assert.Equal(t, "updated_at", metadata.CursorField)
-		assert.Equal(t, "new_db", metadata.DestinationDatabase)
-		assert.Equal(t, "new_table", metadata.DestinationTable)
+		assert.Equal(t, SyncMode("incremental"), metadata.SyncMode)
+		assert.Equal(t, "created_at", metadata.CursorField)
+		assert.Equal(t, "old_db", metadata.DestinationDatabase)
+		assert.Equal(t, "old_table", metadata.DestinationTable)
 	})
 }
 
@@ -1607,16 +1675,18 @@ func TestLogCatalog(t *testing.T) {
 
 		newDiscovered := []*Stream{
 			{
-				Name:      "users",
-				Namespace: "public",
-				Schema:    newSchema(),
-				SyncMode:  CDC,
+				Name:                    "users",
+				Namespace:               "public",
+				Schema:                  newSchema(),
+				SyncMode:                CDC,
+				DefaultStreamProperties: &DefaultStreamProperties{SyncMode: CDC},
 			},
 			{
-				Name:      "orders",
-				Namespace: "public",
-				Schema:    newSchema(),
-				SyncMode:  FULLREFRESH,
+				Name:                    "orders",
+				Namespace:               "public",
+				Schema:                  newSchema(),
+				SyncMode:                FULLREFRESH,
+				DefaultStreamProperties: &DefaultStreamProperties{SyncMode: FULLREFRESH},
 			},
 		}
 
