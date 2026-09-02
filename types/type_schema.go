@@ -252,30 +252,33 @@ type typeNode struct {
 }
 
 var typecastTree = &typeNode{
-	t: String,
+	t: Binary,
 	left: &typeNode{
-		t: Float64,
+		t: String,
 		left: &typeNode{
-			t: Int64,
+			t: Float64,
 			left: &typeNode{
-				t: Int32,
+				t: Int64,
 				left: &typeNode{
-					t: Bool,
+					t: Int32,
+					left: &typeNode{
+						t: Bool,
+					},
 				},
+			},
+			right: &typeNode{
+				t: Float32,
 			},
 		},
 		right: &typeNode{
-			t: Float32,
-		},
-	},
-	right: &typeNode{
-		t: TimestampNano,
-		left: &typeNode{
-			t: TimestampMicro,
+			t: TimestampNano,
 			left: &typeNode{
-				t: TimestampMilli,
+				t: TimestampMicro,
 				left: &typeNode{
-					t: Timestamp,
+					t: TimestampMilli,
+					left: &typeNode{
+						t: Timestamp,
+					},
 				},
 			},
 		},
