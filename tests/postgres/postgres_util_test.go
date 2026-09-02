@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -314,7 +315,44 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	}
 
 	_, err := db.ExecContext(ctx, query)
-	require.NoError(t, err, "Failed to execute %s operation", operation)
+	// TEMPORARY: catalogContext is debug scaffolding -- see its doc comment for how to revert.
+	require.NoError(t, err, "Failed to execute %s operation on %s%s", operation, integrationTestTable, catalogContext(ctx, db, integrationTestTable))
+}
+
+// TEMPORARY -- REMOVE ONCE THE CONCURRENT-CREATE FAILURE IS DIAGNOSED.
+//
+// This exists only to identify the object behind an intermittent compatibility-suite failure
+// (`duplicate key value violates unique constraint "pg_class_relname_nsp_index"` on create, seen
+// on CI runners and locally). It adds a catalog round-trip to every failing query in this driver
+// and has no place in the suite once the cause is known. Delete this function and restore the
+// call site to:
+//
+//	require.NoError(t, err, "Failed to execute %s operation", operation)
+//
+// catalogContext describes what the catalog already holds under this suite's table prefix.
+//
+// Postgres reports a concurrent-DDL conflict as `duplicate key value violates unique constraint
+// "pg_class_relname_nsp_index"` and names no relation, which leaves the two candidate causes
+// indistinguishable: two suites deriving the same name, or two suites racing on names that only
+// collide after the server truncates them to 63 bytes. Both are visible by comparing the name
+// this suite wanted against the ones already present, so report exactly that. Returns "" when
+// the query fails, so a diagnostic can never mask the error it is describing.
+func catalogContext(ctx context.Context, db *sqlx.DB, table string) string {
+	var existing []string
+	if err := db.SelectContext(ctx, &existing,
+		`SELECT relname FROM pg_class WHERE relname LIKE 'test_table_olake%' ORDER BY relname`); err != nil {
+		return ""
+	}
+
+	note := fmt.Sprintf("\n  wanted:    %s (%d bytes; postgres truncates relation names at 63)", table, len(table))
+	if len(table) > 63 {
+		note += fmt.Sprintf("\n  TRUNCATED: %s  <- every suite whose name shares this prefix collides here", table[:63])
+	}
+	if len(existing) == 0 {
+		return note + "\n  catalog:   no test_table_olake* relations present"
+	}
+	return note + fmt.Sprintf("\n  catalog:   %d test_table_olake* relation(s) present:\n    %s",
+		len(existing), strings.Join(existing, "\n    "))
 }
 
 // insertTestData inserts test data into the specified table
