@@ -246,80 +246,91 @@ func (p *Property) Nullable() bool {
 // Tree that is being used for typecasting
 
 type typeNode struct {
-	t     DataType
-	left  *typeNode
-	right *typeNode
+	t        DataType
+	children []*typeNode
 }
 
+// typecastTree is the promotion hierarchy: the lowest common ancestor of two types is the
+// narrowest type both can be cast to. Weighted types keep their TypeWeights ordering; the
+// unweighted Object and Array hang directly off String so that any mix with them promotes
+// to String. Binary sits above String because every value can be carried as raw bytes.
+// Null and Unknown are fallback types rather than real column types, so they are not part
+// of the tree; typeParent attaches them under String explicitly.
+//
+//	Binary
+//	└── String
+//	    ├── Float64
+//	    │   ├── Int64 ── Int32 ── Bool
+//	    │   └── Float32
+//	    ├── TimestampNano ── TimestampMicro ── TimestampMilli ── Timestamp
+//	    ├── Object
+//	    ├── Array
+//	    ├── (Null)     - via typeParent only
+//	    └── (Unknown)  - via typeParent only
 var typecastTree = &typeNode{
 	t: Binary,
-	left: &typeNode{
+	children: []*typeNode{{
 		t: String,
-		left: &typeNode{
-			t: Float64,
-			left: &typeNode{
-				t: Int64,
-				left: &typeNode{
-					t: Int32,
-					left: &typeNode{
-						t: Bool,
-					},
+		children: []*typeNode{
+			{
+				t: Float64,
+				children: []*typeNode{
+					{t: Int64, children: []*typeNode{{t: Int32, children: []*typeNode{{t: Bool}}}}},
+					{t: Float32},
 				},
 			},
-			right: &typeNode{
-				t: Float32,
+			{
+				t:        TimestampNano,
+				children: []*typeNode{{t: TimestampMicro, children: []*typeNode{{t: TimestampMilli, children: []*typeNode{{t: Timestamp}}}}}},
 			},
+			{t: Object},
+			{t: Array},
 		},
-		right: &typeNode{
-			t: TimestampNano,
-			left: &typeNode{
-				t: TimestampMicro,
-				left: &typeNode{
-					t: TimestampMilli,
-					left: &typeNode{
-						t: Timestamp,
-					},
-				},
-			},
-		},
-	},
+	}},
 }
+
+// typeParent maps every promotable DataType to its parent; the root maps to "". It is built
+// from typecastTree, then the unweighted fallback types are attached as direct children of
+// String so they promote to String against anything but themselves.
+var typeParent = func() map[DataType]DataType {
+	parents := make(map[DataType]DataType)
+	var walk func(node *typeNode, parent DataType)
+	walk = func(node *typeNode, parent DataType) {
+		parents[node.t] = parent
+		for _, child := range node.children {
+			walk(child, node.t)
+		}
+	}
+	walk(typecastTree, "")
+	parents[Null] = String
+	parents[Unknown] = String
+	return parents
+}()
 
 // GetCommonAncestorType returns lowest common ancestor type
 func GetCommonAncestorType(t1, t2 DataType) DataType {
-	return lowestCommonAncestor(typecastTree, t1, t2)
+	return lowestCommonAncestor(t1, t2)
 }
 
-func lowestCommonAncestor(
-	root *typeNode,
-	t1, t2 DataType,
-) DataType {
-	node := root
+// lowestCommonAncestor walks typecastTree upwards from t1 and t2 and returns the first type
+// on both paths. A type that is not part of the tree cannot be promoted, so it resolves to
+// String, the widest textual representation.
+func lowestCommonAncestor(t1, t2 DataType) DataType {
+	if _, ok := typeParent[t1]; !ok {
+		return String
+	}
+	if _, ok := typeParent[t2]; !ok {
+		return String
+	}
 
-	for node != nil {
-		wt1, t1Exist := TypeWeights[t1]
-		wt2, t2Exist := TypeWeights[t2]
-		rootW, rootExist := TypeWeights[node.t]
-
-		if !rootExist {
-			return Unknown
-		}
-
-		// If any type is not found in weights map, return Unknown
-		if !t1Exist || !t2Exist {
-			return node.t
-		}
-
-		if wt1 > rootW && wt2 > rootW {
-			// If both t1 and t2 have greater weights than parent
-			node = node.right
-		} else if wt1 < rootW && wt2 < rootW {
-			// If both t1 and t2 have lesser weights than parent
-			node = node.left
-		} else {
-			// We have found the split point, i.e. the LCA node.
-			return node.t
+	ancestors := make(map[DataType]bool)
+	for t := t1; t != ""; t = typeParent[t] {
+		ancestors[t] = true
+	}
+	for t := t2; t != ""; t = typeParent[t] {
+		if ancestors[t] {
+			return t
 		}
 	}
-	return Unknown
+	return String
 }
