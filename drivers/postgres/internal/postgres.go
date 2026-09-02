@@ -25,7 +25,9 @@ import (
 )
 
 const (
-	minCDCInitialWaitTime     = 120
+	// minCDCInitialWaitTime is the minimum wait time in seconds for CDC synchronization.
+	minCDCInitialWaitTime = 120
+	// defaultCDCInitialWaitTime is the default wait time in seconds for CDC synchronization.
 	defaultCDCInitialWaitTime = 10800
 )
 
