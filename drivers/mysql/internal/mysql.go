@@ -26,10 +26,13 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
-const maxUint24 = 1<<24 - 1
+const (
+	// MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
+	maxUint24 = 1<<24 - 1
 
-const minCDCInitialWaitTime = 120
+	// minCDCInitialWaitTime is the minimum wait time in seconds for CDC sync.
+	minCDCInitialWaitTime = 120
+)
 
 // MySQL represents the MySQL database driver
 type MySQL struct {
