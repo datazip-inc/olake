@@ -12,7 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Validate Documentation
-      uses: actions/github-script@v6
+      if: github.event.pull_request.user.login != 'dependabot[bot]'
+      uses: actions/github-script@v9
       with:
         script: |
           const { body } = context.payload.pull_request;
