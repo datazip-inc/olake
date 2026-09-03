@@ -391,8 +391,8 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 				if !tlsCfg.InsecureSkipVerify {
 					t.Fatalf("expected InsecureSkipVerify to be true for verify-ca")
 				}
-				if tlsCfg.VerifyPeerCertificate == nil {
-					t.Fatalf("expected VerifyPeerCertificate callback to be set")
+				if tlsCfg.VerifyConnection == nil {
+					t.Fatalf("expected VerifyConnection callback to be set")
 				}
 			},
 		},

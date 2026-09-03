@@ -2,6 +2,7 @@ package typeutils
 
 import (
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -150,9 +151,10 @@ func ReformatDate(v interface{}, isTimestampInDB bool) (time.Time, error) {
 			strVal := string(v)
 			return parseStringTimestamp(strVal, isTimestampInDB)
 		case []int8:
-			b := make([]byte, 0, len(v))
-			for _, i := range v {
-				b = append(b, byte(i))
+			// the driver hands the text back as signed chars, so lay them back out as raw bytes
+			b, err := binary.Append(nil, binary.NativeEndian, v)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("failed to read date text: %s", err)
 			}
 			strVal := string(b)
 			return parseStringTimestamp(strVal, isTimestampInDB)

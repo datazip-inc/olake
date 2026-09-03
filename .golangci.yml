@@ -1,4 +1,7 @@
-linters-settings:
+version: "2"
+
+linters:
+  settings:
   # depguard:
     # list-type: blacklist
     # packages:
@@ -7,68 +10,79 @@ linters-settings:
     #   - github.com/sirupsen/logrus
     # packages-with-error-message:
     #   - github.com/sirupsen/logrus: "logging is allowed only by logutils.Log"
-  dupl:
-    threshold: 100
-  exhaustive:
-    default-signifies-exhaustive: false
-  funlen:
-    lines: 100
-    statements: 50
-  gci:
-    sections:
-      - standard
-      - default
-      - prefix(github.com/golangci/golangci-lint)
-  goconst:
-    min-len: 2
-    min-occurrences: 2
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - dupImport # https://github.com/go-critic/go-critic/issues/845
-      - ifElseChain
-      - octalLiteral
-      - whyNoLint
-      - wrapperFunc
-  gocyclo:
-    min-complexity: 15
-  goimports:
-    local-prefixes: github.com/golangci/golangci-lint
-  gosec:
-    excludes:
-      - G204
-  govet:
-    settings:
-      printf:
-        funcs:
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
-          - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
-  lll:
-    line-length: 950
-  misspell:
-    locale: US
-    ignore-words:
-      - eles
-  nolintlint:
-    allow-unused: false
-    require-explanation: false
-    require-specific: false
+    dupl:
+      threshold: 100
+    errorlint:
+      # %s error formatting is house style; flip to %w codebase-wide before enabling this
+      errorf: false
+      # err == sentinel and err.(*T) are spread across the codebase; moving them to
+      # errors.Is/errors.As is one codebase-wide sweep, to be picked up later in one go
+      comparison: false
+      asserts: false
+    exhaustive:
+      default-signifies-exhaustive: false
+    funlen:
+      lines: 100
+      statements: 50
+    goconst:
+      min-len: 2
+      min-occurrences: 2
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - dupImport # https://github.com/go-critic/go-critic/issues/845
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+        - wrapperFunc
+    gocyclo:
+      min-complexity: 15
+    gosec:
+      excludes:
+        - G204
+    govet:
+      enable:
+        - nilness
+      settings:
+        printf:
+          funcs:
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Infof
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Warnf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Errorf
+            - (github.com/golangci/golangci-lint/pkg/logutils.Log).Fatalf
+    lll:
+      line-length: 950
+    misspell:
+      locale: US
+      ignore-rules:
+        - eles
+    nolintlint:
+      allow-unused: false
+      require-explanation: false
+      require-specific: false
+    revive:
+      enable-default-rules: true
+      rules:
+        - name: defer
+          arguments: [["loop"]]
+        - name: atomic
+        - name: waitgroup-by-value
+        - name: unconditional-recursion
+        - name: identical-branches
+        - name: constant-logical-expr
+        - name: time-equal
 
-linters:
   # please, do not use `enable-all`: it's deprecated and will be removed soon.
   # inverted configuration with `enable-all` and `disable` is not scalable during updates of golangci-lint
-  disable-all: true
+  default: none
   enable:
     - bodyclose
     # - dupl
-    # - deadcode
     - dogsled
     - errcheck
     # - exhaustive
@@ -76,49 +90,77 @@ linters:
     # - goconst
     # - gocritic
     # - gocyclo
-    - gofmt
-    - goimports
     - revive
     - gosec
-    # - gomnd
+    # - mnd
     # - goprintffuncname
-    - gosimple
     - govet
     - ineffassign
-    # - interfacer
     - lll
     - misspell
     # - nakedret
     # - nolintlint
-    # - rowserrcheck
-    # - scopelint
     - staticcheck
-    # - structcheck
-    - stylecheck
-    - typecheck
     # - unconvert
     # - unparam
     - unused
-    # - varcheck
     - whitespace
     - nilnil
     - nilerr
+    - asasalint
+    - bidichk
+    - durationcheck
+    - errorlint
+    - makezero
+    - nilnesserr
+    - rowserrcheck
+    - sqlclosecheck
 
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gomnd
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - mnd
 
-    # https://github.com/go-critic/go-critic/issues/926
-    - linters:
-        - gocritic
-      text: "unnecessaryDefer:"
-  exclude-dirs:
-    - test/testdata_etc
-    - internal/cache
-    - internal/renameio
-    - internal/robustio
+      # Fixture connection strings in test tables spell out fake credentials
+      - path: _test\.go
+        linters:
+          - gosec
+        text: "G101:"
 
-run:
-  timeout: 5m
+      # https://github.com/go-critic/go-critic/issues/926
+      - linters:
+          - gocritic
+        text: "unnecessaryDefer:"
+    paths: &exclude-paths
+      - test/testdata_etc
+      - internal/cache
+      - internal/renameio
+      - internal/robustio
+      # v1 skipped these by default (issues.exclude-dirs-use-default), v2 needs them spelled out
+      - third_party$
+      - builtin$
+      - examples$
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/golangci/golangci-lint)
+    goimports:
+      local-prefixes:
+        - github.com/golangci/golangci-lint
+  exclusions:
+    generated: lax
+    paths: *exclude-paths
