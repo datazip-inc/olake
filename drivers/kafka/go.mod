@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/kafka
 
-go 1.25.13
+go 1.26.0
 
 replace (
 	github.com/datazip-inc/olake => ../../
@@ -120,7 +120,7 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.mongodb.org/mongo-driver v1.17.3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
 	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.58.0 // indirect

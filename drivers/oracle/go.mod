@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/oracle
 
-go 1.25.13
+go 1.26.0
 
 replace (
 	github.com/datazip-inc/olake => ../../
@@ -11,7 +11,7 @@ require (
 	github.com/datazip-inc/olake v0.0.0-00010101000000-000000000000
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/sijms/go-ora/v2 v2.8.24
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (

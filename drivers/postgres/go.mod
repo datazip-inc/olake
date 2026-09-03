@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/postgres
 
-go 1.25.13
+go 1.26.0
 
 replace (
 	github.com/datazip-inc/olake => ../../
@@ -12,7 +12,7 @@ require (
 	github.com/jackc/pglogrepl v0.0.0-20250322012620-f1e2b1498ed6
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/lib/pq v1.10.9
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (

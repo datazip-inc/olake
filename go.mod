@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake
 
-go 1.25.13
+go 1.26.0
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.17
@@ -135,7 +135,7 @@ require (
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
 	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.58.0 // indirect

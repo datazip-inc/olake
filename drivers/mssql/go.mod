@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/mssql
 
-go 1.25.13
+go 1.26.0
 
 replace (
 	github.com/datazip-inc/olake => ../../
@@ -12,7 +12,7 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/microsoft/go-mssqldb v1.9.5
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (

@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/mysql
 
-go 1.25.13
+go 1.26.0
 
 replace (
 	github.com/datazip-inc/olake => ../../
@@ -149,7 +149,7 @@ require (
 	github.com/spf13/viper v1.20.1 // indirect
 	github.com/xitongsys/parquet-go v1.6.2 // indirect
 	github.com/xitongsys/parquet-go-source v0.0.0-20241021075129-b732d2ac9c9b // indirect
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect

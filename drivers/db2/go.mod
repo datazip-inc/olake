@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/db2
 
-go 1.25.13
+go 1.26.0
 
 replace (
 	cloud.google.com/go/compute => cloud.google.com/go/compute v1.23.3
@@ -14,7 +14,7 @@ require (
 	github.com/datazip-inc/olake v0.3.4
 	github.com/ibmdb/go_ibm_db v0.4.5
 	github.com/jmoiron/sqlx v1.4.0
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (
