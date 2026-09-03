@@ -25,6 +25,13 @@ import (
 )
 
 const (
+	// minCDCInitialWaitTime is the minimum wait time in seconds for CDC sync.
+	minCDCInitialWaitTime = 120
+	// defaultCDCInitialWaitTime is the default wait time in seconds for CDC sync.
+	defaultCDCInitialWaitTime = 10800
+)
+
+const (
 	// get all schemas and table
 	getPrivilegedTablesTmpl = `SELECT nspname as table_schema,
 		relname as table_name
@@ -126,6 +133,7 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to ping database: %w", err)
 	}
+	p.client = pgClient
 	// TODO: correct cdc setup
 	found, _ := utils.IsOfType(p.config.UpdateMethod, "replication_slot")
 	if found {
@@ -134,16 +142,11 @@ func (p *Postgres) Setup(ctx context.Context) error {
 		if err := utils.Unmarshal(p.config.UpdateMethod, cdc); err != nil {
 			return err
 		}
-		// set default value
-		cdc.InitialWaitTime = utils.Ternary(cdc.InitialWaitTime == 0, 10800, cdc.InitialWaitTime).(int)
 
-		// check if initial wait time is valid or not
-		if cdc.InitialWaitTime < 120 {
-			return errs.Precondition(errs.ConfigInvalid, codeCDCWaitTimeTooLow,
-				fmt.Errorf("the CDC initial wait time must be at least 120 seconds"))
+		if cdc.InitialWaitTime < minCDCInitialWaitTime {
+			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using default %d", cdc.InitialWaitTime, minCDCInitialWaitTime, defaultCDCInitialWaitTime)
+			cdc.InitialWaitTime = defaultCDCInitialWaitTime
 		}
-
-		logger.Infof("CDC initial wait time set to: %d", cdc.InitialWaitTime)
 
 		exists, err := doesReplicationSlotExists(ctx, pgClient, cdc.ReplicationSlot, cdc.Publication, p.config.Database)
 		if err != nil {
@@ -164,7 +167,6 @@ func (p *Postgres) Setup(ctx context.Context) error {
 	} else {
 		logger.Info("Standard Replication is selected")
 	}
-	p.client = pgClient
 	p.config.RetryCount = utils.Ternary(p.config.RetryCount <= 0, 1, p.config.RetryCount+1).(int)
 	return nil
 }
