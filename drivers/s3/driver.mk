@@ -20,6 +20,6 @@ olake.s3.stop olake.s3.teardown:
 
 olake.s3.restart olake.s3.refresh: olake.s3.start
 
-HELP_TARGETS += olake.s3.start olake.s3.stop
-HELP.olake.s3.start = bring up only the destination stack's MinIO (the s3 source) and wait for it
-HELP.olake.s3.stop = no-op, like olake.s3.teardown: MinIO is owned by olake.destination.all.*
+HELP_TARGETS += olake.s3.start olake.s3.stop|teardown|restart|refresh
+HELP.olake.s3.start = up + wait for the destination stack's MinIO, the s3 source (olake.s3.up | olake.s3.wait are its halves)
+HELP.olake.s3.stop|teardown|restart|refresh = stop and teardown are no-ops (MinIO is owned by olake.destination.all.*); restart and refresh just start
