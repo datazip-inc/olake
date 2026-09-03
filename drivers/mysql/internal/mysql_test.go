@@ -275,12 +275,18 @@ func TestDataTypeConverter(t *testing.T) {
 			value:      "POINT(1 2)",
 			expected:   "POINT(1 2)",
 		},
-		// non-geospatial binary keeps the plain string conversion
+		// non-geospatial binary keeps its bytes
 		{
 			name:       "varbinary is not geospatial",
 			columnType: "varbinary(16)",
 			value:      []byte("abc"),
-			expected:   "abc",
+			expected:   []byte("abc"),
+		},
+		{
+			name:       "blob keeps non-utf8 bytes",
+			columnType: "blob",
+			value:      []byte{0xff, 0x00, 0x80},
+			expected:   []byte{0xff, 0x00, 0x80},
 		},
 
 		// ===== signed and non-integer columns =====

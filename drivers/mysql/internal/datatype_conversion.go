@@ -1,6 +1,9 @@
 package driver
 
 import (
+	"regexp"
+	"strconv"
+
 	"github.com/datazip-inc/olake/types"
 )
 
@@ -39,13 +42,14 @@ var mysqlTypeToDataTypes = map[string]types.DataType{
 	"mediumtext": types.String,
 	"longtext":   types.String,
 
-	// Binary types
-	"binary":     types.String,
-	"varbinary":  types.String,
-	"tinyblob":   types.String,
-	"blob":       types.String,
-	"mediumblob": types.String,
-	"longblob":   types.String,
+	// Binary types travel as bytes. BINARY(n) is fixed width; discover resolves the n from
+	// COLUMN_TYPE (see fixedBinaryType), the value path only needs the family.
+	"binary":     types.Binary,
+	"varbinary":  types.Binary,
+	"tinyblob":   types.Binary,
+	"blob":       types.Binary,
+	"mediumblob": types.Binary,
+	"longblob":   types.Binary,
 
 	// Date and time types
 	"date":      types.Timestamp,
@@ -71,4 +75,24 @@ var mysqlTypeToDataTypes = map[string]types.DataType{
 	"multilinestring":    types.String,
 	"multipolygon":       types.String,
 	"geometrycollection": types.String,
+}
+
+var columnTypeLengthPattern = regexp.MustCompile(`^\s*\w+\s*\((\d+)\)`)
+
+// fixedBinaryType returns fixed_binary(n) for a BINARY(n) column, using the length that
+// information_schema's COLUMN_TYPE carries (e.g. "binary(16)"); any other column keeps the
+// DataType the type map produced.
+func fixedBinaryType(dataType string, columnType string, mapped types.DataType) types.DataType {
+	if mapped != types.Binary || dataType != "binary" {
+		return mapped
+	}
+	match := columnTypeLengthPattern.FindStringSubmatch(columnType)
+	if match == nil {
+		return mapped
+	}
+	length, err := strconv.Atoi(match[1])
+	if err != nil || length <= 0 {
+		return mapped
+	}
+	return types.FixedBinaryOf(length)
 }
