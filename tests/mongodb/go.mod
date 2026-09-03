@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/tests/mongodb
 
-go 1.26.0
+go 1.26.8
 
 require (
 	github.com/apache/arrow-go/v18 v18.2.0

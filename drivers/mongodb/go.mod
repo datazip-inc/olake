@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/mongodb
 
-go 1.26.0
+go 1.26.8
 
 replace (
 	github.com/datazip-inc/olake => ../../
@@ -48,7 +48,6 @@ require (
 	github.com/ebitengine/purego v0.10.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/getsentry/sentry-go v0.27.0 // indirect
-	github.com/go-errors/errors v1.5.1 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect

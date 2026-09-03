@@ -1,6 +1,6 @@
 module github.com/datazip-inc/olake/drivers/s3
 
-go 1.26.0
+go 1.26.8
 
 replace (
 	github.com/datazip-inc/olake => ../..
