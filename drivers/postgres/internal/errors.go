@@ -10,7 +10,6 @@ import (
 // Codes for conditions this driver detects itself, where the server never named the failure.
 const (
 	codeReplicationSlotMissing = "postgres.replication_slot_missing"
-	codeCDCWaitTimeTooLow      = "postgres.cdc_initial_wait_time_too_low"
 )
 
 // sqlStateCategories maps a PostgreSQL SQLSTATE to a failure category. SQLSTATE rather than the
