@@ -74,7 +74,7 @@ func TestTypeFromValue(t *testing.T) {
 		{name: "string_timestamp_nano", input: "2024-12-18T10:30:00.123456789Z", expected: types.TimestampNano},
 		{name: "string_invalid_date_shape", input: "2024-13-40", expected: types.String},
 
-		{name: "byte_slice", input: []byte("hello"), expected: types.String},
+		{name: "byte_slice", input: []byte("hello"), expected: types.Binary},
 
 		{name: "int_slice", input: []int{1, 2, 3}, expected: types.Array},
 		{name: "empty_string_slice", input: []string{}, expected: types.Array},
@@ -116,6 +116,11 @@ func TestTypeFromValue(t *testing.T) {
 			assert.Equal(t, tc.expected, TypeFromValue(tc.input))
 		})
 	}
+}
+
+func TestTypeFromValueBytes(t *testing.T) {
+	assert.Equal(t, types.Binary, TypeFromValue([]byte{0xff, 0x00}))
+	assert.Equal(t, types.Binary, TypeFromValue([]byte{}))
 }
 
 func TestMaximumOnDataTypeTimestamp(t *testing.T) {

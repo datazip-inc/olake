@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
@@ -247,6 +248,17 @@ func RawDataColumnBuffer(record types.RawRecord, protoSchema []*proto.IcebergPay
 }
 
 func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord_FieldValue, error) {
+	// binary and fixed[n] travel as bytes; a string field would fail the proto UTF-8 check
+	if dataType := types.IcebergTypeToDatatype(iceType); dataType.IsBinary() {
+		b, err := typeutils.ReformatBytes(dataType, val)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reformat rawValue of type[%T] as %s value: %s", val, iceType, err)
+		}
+		return &proto.IcebergPayload_IceRecord_FieldValue{
+			Value: &proto.IcebergPayload_IceRecord_FieldValue_BytesValue{BytesValue: b},
+		}, nil
+	}
+
 	switch iceType {
 	case "boolean":
 		v, err := typeutils.ReformatBool(val)
@@ -305,7 +317,7 @@ func toProtoFieldValue(iceType string, val any) (*proto.IcebergPayload_IceRecord
 	default:
 		return &proto.IcebergPayload_IceRecord_FieldValue{
 			Value: &proto.IcebergPayload_IceRecord_FieldValue_StringValue{
-				StringValue: fmt.Sprintf("%v", val),
+				StringValue: utils.ConvertToString(val),
 			},
 		}, nil
 	}
