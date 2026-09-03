@@ -48,7 +48,7 @@ jobs:
       apt-warmed: ${{ steps.apt-cache.outputs.cache-hit }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       # Shared with any workflow that wants to skip untouched drivers; the matrix below fans out
       # over whatever it returns, and an empty array skips the driver jobs entirely.
@@ -106,10 +106,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Set up Java for Maven
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
@@ -133,7 +133,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/buildx
@@ -165,7 +165,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
       - name: Set up Go
@@ -227,7 +227,7 @@ jobs:
         driver: ${{ fromJSON(needs.preflight.outputs.drivers) }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       # The iceberg catalog's postgres runs as uid 999 and has to own its bind mount.
       - name: Set up Data Directories

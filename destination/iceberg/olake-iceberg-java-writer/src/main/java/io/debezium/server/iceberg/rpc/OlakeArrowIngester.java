@@ -122,10 +122,19 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                         }
                     }
 
-                    session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable);
-                    sendResponse(responseObserver, String.format(
-                            "Successfully committed %d data files, %d equality delete files, and %d positional delete files for thread %s",
-                            dataFileCount, eqDeleteFileCount, posDeleteFileCount, threadId));
+                    Long baseSnapshotId = metadata.hasBaseSnapshotId() ? metadata.getBaseSnapshotId() : null;
+                    long snapshotId = session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable,
+                            baseSnapshotId);
+
+                    RecordIngest.ArrowIngestResponse.Builder response = RecordIngest.ArrowIngestResponse.newBuilder()
+                            .setResult(String.format(
+                                    "Successfully committed %d data files, %d equality delete files, and %d positional delete files for thread %s",
+                                    dataFileCount, eqDeleteFileCount, posDeleteFileCount, threadId));
+                    if (snapshotId != 0) {
+                        response.setSnapshotId(snapshotId);
+                    }
+                    responseObserver.onNext(response.build());
+                    responseObserver.onCompleted();
                 }
 
                 case UPLOAD_FILE -> {
@@ -152,7 +161,7 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
         } catch (Exception e) {
             String errorMessage = String.format("%s Failed to process request: %s", requestId, e.getMessage());
             LOGGER.error(errorMessage, e);
-            responseObserver.onError(io.grpc.Status.INTERNAL.withDescription(errorMessage).asRuntimeException());
+            responseObserver.onError(OlakeFailures.toStatusException(e, request.getType().name(), errorMessage));
         }
     }
 

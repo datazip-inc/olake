@@ -24,7 +24,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to build incremental condition: %s", err)
+		return fmt.Errorf("failed to build incremental condition: %w", err)
 	}
 
 	setter := jdbc.NewReader(ctx, incrementalQuery, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -32,7 +32,7 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 	}, queryArgs...)
 
 	if err := jdbc.MapScanConcurrent(setter, o.dataTypeConverter, processFn, oracleColumnSizer); err != nil {
-		return fmt.Errorf("incremental process error: %s", err)
+		return fmt.Errorf("incremental process error: %w", err)
 	}
 	return nil
 }

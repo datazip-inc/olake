@@ -332,13 +332,14 @@ const S3UISchema = `{
     { "file_pattern": 12, "compression": 12 },
     { "retry_count": 12, "max_threads": 12 },
     { "file_format": 12},
-    { "csv": 12, "parquet": 12, "json": 12 }
+    { "csv": 12, "parquet": 12, "json": 12, "xml": 12 }
   ],
   "file_format": {
     "ui:enumNames": [
       "CSV",
       "JSON",
-      "Parquet"
+      "Parquet",
+      "XML"
     ]
   },
   "csv": {
@@ -377,12 +378,22 @@ const S3UISchema = `{
     "streaming_enabled": {
       "ui:widget": "boolean"
     }
+  },
+  "xml": {
+    "ui:options": {
+      "title": false,
+      "description": false
+    },
+    "ui:grid": [
+      { "row_identifier": 12 }
+    ]
   }
 }`
 
 const KafkaUISchema = `{
   "ui:grid": [
-    { "bootstrap_servers": 12, "consumer_group_id": 12 },
+    { "bootstrap_servers": 24 },
+    { "consumer_group_id": 12, "topic_pattern": 12 },
     { "threads_equal_total_partitions": 12, "max_threads": 12 },
     { "backoff_retry_count": 12, "protocol": 12 },
     { "use_schema_registry": 24 },

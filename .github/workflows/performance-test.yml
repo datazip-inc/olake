@@ -37,7 +37,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v7
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -48,7 +48,7 @@ jobs:
       uses: ./.github/actions/driver-deps
 
     - name: Set up Java for Maven
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v5
       with:
         distribution: 'temurin'
         java-version: '17'
@@ -83,7 +83,7 @@ jobs:
         sleep 120
 
     - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         role-session-name: performance_test_gh
         role-to-assume: ${{ secrets.AWS_GITHUB_ROLE }}
@@ -123,7 +123,7 @@ jobs:
 
     - name: Download Benchmarks History
       if: steps.last_run.outputs.id != ''
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       continue-on-error: true
       with:
         name: benchmarks_${{ matrix.driver }}
@@ -138,7 +138,7 @@ jobs:
       run: make test.performance.${{ matrix.driver }}
 
     - name: Upload Benchmarks History
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       if: success()
       continue-on-error: true
       with:

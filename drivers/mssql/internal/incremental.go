@@ -19,7 +19,7 @@ func (m *MSSQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to build incremental condition: %s", err)
+		return fmt.Errorf("failed to build incremental condition: %w", err)
 	}
 
 	setter := jdbc.NewReader(ctx, incrementalQuery, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
@@ -27,7 +27,7 @@ func (m *MSSQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}, queryArgs...)
 
 	if err := jdbc.MapScanConcurrent(setter, m.dataTypeConverter, processFn, mssqlColumnSizer); err != nil {
-		return fmt.Errorf("incremental process error: %s", err)
+		return fmt.Errorf("incremental process error: %w", err)
 	}
 
 	return nil
