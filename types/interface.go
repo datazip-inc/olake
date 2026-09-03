@@ -38,4 +38,5 @@ type StateInterface interface {
 type Iterable interface {
 	Next() bool
 	Err() error
+	Close() error
 }

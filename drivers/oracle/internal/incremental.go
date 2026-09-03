@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -26,24 +27,14 @@ func (o *Oracle) StreamIncrementalChanges(ctx context.Context, stream types.Stre
 		return fmt.Errorf("failed to build incremental condition: %w", err)
 	}
 
-	rows, err := o.client.QueryContext(ctx, incrementalQuery, queryArgs...)
-	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %w", err)
-	}
-	defer rows.Close()
+	setter := jdbc.NewReader(ctx, incrementalQuery, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		return o.client.QueryContext(ctx, query, args...)
+	}, queryArgs...)
 
-	for rows.Next() {
-		record := make(types.Record)
-		rowBytes, err := jdbc.MapScan(rows, record, o.dataTypeConverter, oracleColumnSizer)
-		if err != nil {
-			return fmt.Errorf("failed to scan record: %w", err)
-		}
-
-		if err := processFn(ctx, record, rowBytes); err != nil {
-			return fmt.Errorf("process error: %w", err)
-		}
+	if err := jdbc.MapScanConcurrent(setter, o.dataTypeConverter, processFn, oracleColumnSizer); err != nil {
+		return fmt.Errorf("incremental process error: %w", err)
 	}
-	return rows.Err()
+	return nil
 }
 
 func (o *Oracle) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
