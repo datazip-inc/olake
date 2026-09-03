@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/parquet-go/parquet-go"
@@ -24,6 +26,7 @@ const (
 	TimestampMicro DataType = "timestamp_micro" // storing datetime up to 6 precisions
 	TimestampNano  DataType = "timestamp_nano"  // storing datetime up to 9 precisions
 	Binary         DataType = "binary"
+	FixedBinary    DataType = "fixed_binary" // parameterised: FixedBinaryOf(n) yields fixed_binary(n)
 )
 
 // Tree Representation of TypeWeights
@@ -81,6 +84,7 @@ var destinationTypes = map[DataType]destinationType{
 	Object:         {"string", parquet.String}, // nested structures are serialized as strings
 	Array:          {"string", parquet.String},
 	Binary:         {"binary", leafNode(parquet.ByteArrayType)},
+	FixedBinary:    {"binary", leafNode(parquet.ByteArrayType)}, // length-less fallback; fixed_binary(n) maps to fixed[n] / FIXED_LEN_BYTE_ARRAY(n)
 }
 
 // icebergToDataType maps each iceberg type back to one canonical DataType — several DataTypes
@@ -123,6 +127,9 @@ func GetIcebergRawSchema() []*proto.IcebergPayload_SchemaField {
 }
 
 func (d DataType) ToNewParquet() parquet.Node {
+	if length, ok := d.FixedLength(); ok {
+		return parquet.Optional(fixedBinaryNode(length))
+	}
 	construct := func() parquet.Node { return parquet.Leaf(parquet.ByteArrayType) } // fallback for unregistered types
 	if mapping, ok := destinationTypes[d]; ok && mapping.parquetNode != nil {
 		construct = mapping.parquetNode
@@ -131,6 +138,9 @@ func (d DataType) ToNewParquet() parquet.Node {
 }
 
 func (d DataType) ToIceberg() string {
+	if length, ok := d.FixedLength(); ok {
+		return fmt.Sprintf("fixed[%d]", length)
+	}
 	if mapping, ok := destinationTypes[d]; ok && mapping.icebergType != "" {
 		return mapping.icebergType
 	}
@@ -138,6 +148,9 @@ func (d DataType) ToIceberg() string {
 }
 
 func IcebergTypeToDatatype(d string) DataType {
+	if length, ok := icebergFixedLength(d); ok {
+		return FixedBinaryOf(length)
+	}
 	if dataType, ok := icebergToDataType[d]; ok {
 		return dataType
 	}

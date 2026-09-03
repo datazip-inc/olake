@@ -253,20 +253,22 @@ type typeNode struct {
 // typecastTree is the promotion hierarchy: the lowest common ancestor of two types is the
 // narrowest type both can be cast to. Weighted types keep their TypeWeights ordering; the
 // unweighted Object and Array hang directly off String so that any mix with them promotes
-// to String. Binary sits above String because every value can be carried as raw bytes.
-// Null and Unknown are fallback types rather than real column types, so they are not part
-// of the tree; typeParent attaches them under String explicitly.
+// to String. Binary sits above String because every value can be carried as raw bytes, and
+// FixedBinary is its own child: a fixed-length column can only widen to variable-length
+// bytes, never to text. Null and Unknown are fallback types rather than real column types,
+// so they are not part of the tree; typeParent attaches them under String explicitly.
 //
 //	Binary
-//	└── String
-//	    ├── Float64
-//	    │   ├── Int64 ── Int32 ── Bool
-//	    │   └── Float32
-//	    ├── TimestampNano ── TimestampMicro ── TimestampMilli ── Timestamp
-//	    ├── Object
-//	    ├── Array
-//	    ├── (Null)     - via typeParent only
-//	    └── (Unknown)  - via typeParent only
+//	├── String
+//	│   ├── Float64
+//	│   │   ├── Int64 ── Int32 ── Bool
+//	│   │   └── Float32
+//	│   ├── TimestampNano ── TimestampMicro ── TimestampMilli ── Timestamp
+//	│   ├── Object
+//	│   ├── Array
+//	│   ├── (Null)     - via typeParent only
+//	│   └── (Unknown)  - via typeParent only
+//	└── FixedBinary    - fixed_binary(n); two different lengths promote to Binary
 var typecastTree = &typeNode{
 	t: Binary,
 	children: []*typeNode{{
@@ -286,6 +288,8 @@ var typecastTree = &typeNode{
 			{t: Object},
 			{t: Array},
 		},
+	}, {
+		t: FixedBinary,
 	}},
 }
 
@@ -314,20 +318,32 @@ func GetCommonAncestorType(t1, t2 DataType) DataType {
 
 // lowestCommonAncestor walks typecastTree upwards from t1 and t2 and returns the first type
 // on both paths. A type that is not part of the tree cannot be promoted, so it resolves to
-// String, the widest textual representation.
+// String, the widest textual representation. Parameterised types take part through their
+// base: equal parameters resolve to the type itself, differing parameters (fixed_binary(16)
+// against fixed_binary(32)) can only meet at the base's parent.
 func lowestCommonAncestor(t1, t2 DataType) DataType {
-	if _, ok := typeParent[t1]; !ok {
+	base1, base2 := t1.Base(), t2.Base()
+	if _, ok := typeParent[base1]; !ok {
 		return String
 	}
-	if _, ok := typeParent[t2]; !ok {
+	if _, ok := typeParent[base2]; !ok {
 		return String
+	}
+	if t1 == t2 {
+		return t1
+	}
+	if base1 == base2 {
+		if parent := typeParent[base1]; parent != "" {
+			return parent
+		}
+		return base1
 	}
 
 	ancestors := make(map[DataType]bool)
-	for t := t1; t != ""; t = typeParent[t] {
+	for t := base1; t != ""; t = typeParent[t] {
 		ancestors[t] = true
 	}
-	for t := t2; t != ""; t = typeParent[t] {
+	for t := base2; t != ""; t = typeParent[t] {
 		if ancestors[t] {
 			return t
 		}

@@ -39,6 +39,13 @@ func TestGetCommonAncestorType(t *testing.T) {
 		{"binary absorbs numerics", Int64, Binary, Binary},
 		{"binary absorbs timestamps", TimestampNano, Binary, Binary},
 		{"object meets binary through string", Object, Binary, Binary},
+		{"fixed binary resolves to itself", FixedBinaryOf(16), FixedBinaryOf(16), FixedBinaryOf(16)},
+		{"fixed binaries of different lengths widen to binary", FixedBinaryOf(16), FixedBinaryOf(32), Binary},
+		{"length-less fixed binary widens to binary against a sized one", FixedBinary, FixedBinaryOf(16), Binary},
+		{"binary absorbs fixed binary", FixedBinaryOf(16), Binary, Binary},
+		{"fixed binary and string meet at binary", FixedBinaryOf(16), String, Binary},
+		{"fixed binary and numerics meet at binary", FixedBinaryOf(16), Int64, Binary},
+		{"fixed binary and object meet at binary", FixedBinaryOf(16), Object, Binary},
 	}
 
 	for _, tc := range testCases {
@@ -118,6 +125,8 @@ func TestPropertyDataType(t *testing.T) {
 		{"mixed numerics promote to ancestor", []DataType{Int32, Float32}, Float64},
 		{"incompatible types meet at string", []DataType{Int64, Timestamp}, String},
 		{"string with binary promotes to binary", []DataType{String, Binary}, Binary},
+		{"fixed binary keeps its length", []DataType{Null, FixedBinaryOf(16)}, FixedBinaryOf(16)},
+		{"mixed fixed binary lengths widen to binary", []DataType{FixedBinaryOf(16), FixedBinaryOf(32)}, Binary},
 		{"null with incompatible types still meets at string", []DataType{Null, Int64, Timestamp}, String},
 	}
 
@@ -225,6 +234,7 @@ func TestTypeSchemaJSONRoundTrip(t *testing.T) {
 	schema := NewTypeSchema()
 	schema.AddTypes("User ID", false, Int64, Null)
 	schema.AddTypes("_meta_col", true, String)
+	schema.AddTypes("Digest", false, FixedBinaryOf(32))
 
 	data, err := json.Marshal(schema)
 	require.NoError(t, err)
@@ -243,6 +253,12 @@ func TestTypeSchemaJSONRoundTrip(t *testing.T) {
 	found, prop = restored.GetProperty("_meta_col")
 	require.True(t, found)
 	require.True(t, prop.OlakeColumn)
+
+	// the fixed length rides inside the type string, so it must survive the catalog round trip
+	found, prop = restored.GetProperty("Digest")
+	require.True(t, found)
+	require.Equal(t, FixedBinaryOf(32), prop.DataType())
+	require.Equal(t, "fixed[32]", prop.DataType().ToIceberg())
 }
 
 func parquetFieldNames(schema *parquet.Schema) []string {

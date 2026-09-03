@@ -34,6 +34,8 @@ func TestToIceberg(t *testing.T) {
 		{Object, "string"},
 		{Array, "string"},
 		{Binary, "binary"},
+		{FixedBinaryOf(16), "fixed[16]"},
+		{FixedBinary, "binary"}, // no length known: degrade to variable-length bytes
 		{DataType("undeclared_type"), "string"},
 	}
 
@@ -65,6 +67,8 @@ func TestToNewParquet(t *testing.T) {
 		{Object, parquet.String()},
 		{Array, parquet.String()},
 		{Binary, parquet.Leaf(parquet.ByteArrayType)},
+		{FixedBinaryOf(16), parquet.Leaf(parquet.FixedLenByteArrayType(16))},
+		{FixedBinary, parquet.Leaf(parquet.ByteArrayType)}, // no length known: degrade to variable-length bytes
 		{DataType("undeclared_type"), parquet.Leaf(parquet.ByteArrayType)},
 	}
 
@@ -92,6 +96,10 @@ func TestIcebergTypeToDatatype(t *testing.T) {
 		{"timestamptz", TimestampMilli},
 		{"string", String},
 		{"binary", Binary},
+		{"fixed[16]", FixedBinaryOf(16)},
+		{"fixed[0]", String},   // iceberg fixed needs a positive length
+		{"fixed[abc]", String}, // malformed length
+		{"fixed", String},      // length missing
 		{"undeclared_type", String},
 	}
 
