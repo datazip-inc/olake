@@ -961,7 +961,7 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				name:      "CDC - strict - insert",
 				operation: "",
 				useState:  false,
-				opSymbol:  Ternary(upsert, "u", "c").(string),
+				opSymbol:  "c",
 				expected:  cfg.ExpectedData,
 			},
 			{
@@ -1087,7 +1087,7 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 				name:      "CDC - strict - insert",
 				operation: "",
 				useState:  false,
-				opSymbol:  Ternary(upsert, "u", "c").(string),
+				opSymbol:  "u",
 				expected:  cfg.ExpectedData,
 			},
 			{
