@@ -116,6 +116,7 @@ func (c *Config) Validate() error {
 	if c.CatalogType == "biglake" {
 		c.RestAuthType = "org.apache.iceberg.gcp.auth.GoogleAuthManager"
 	}
+	c.RestAuthType = icebergRESTAuthType(c.RestAuthType)
 	if slices.Contains(constants.RESTCatalogs, string(c.CatalogType)) {
 		c.CatalogType = RestCatalog
 	}
@@ -201,4 +202,25 @@ func (c *Config) Validate() error {
 		c.ServerHost = "localhost"
 	}
 	return utils.Validate(c)
+}
+
+func icebergRESTAuthType(authType string) string {
+	switch strings.ToLower(strings.TrimSpace(authType)) {
+	case "":
+		return ""
+	case "oauth2", "oauth2 u2m", "oauth2 m2m", "token", "token federation",
+		"personal access token (pat)", "pat":
+		return "oauth2"
+	case "none":
+		return "none"
+	case "sigv4":
+		return "sigv4"
+	case "google", "gcp":
+		return "google"
+	default:
+		if strings.Contains(authType, ".") && !strings.Contains(authType, " ") {
+			return authType
+		}
+		return ""
+	}
 }
