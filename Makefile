@@ -242,8 +242,13 @@ olake.source.all.refresh:
 	@$(MAKE) --no-print-directory olake.source.all.start
 
 # --- destination stack --------------------------------------------------------
-olake.destination.all.up:
-	mkdir -p $(DEST_DATA_DIR)/minio-data $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
+.PHONY: olake.minio.up
+olake.minio.up:
+	mkdir -p $(DEST_DATA_DIR)/minio-data
+	$(COMPOSE) -f $(DEST_COMPOSE) up -d minio
+
+olake.destination.all.up: olake.minio.up
+	mkdir -p $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
 	$(COMPOSE) -f $(DEST_COMPOSE) up -d $(DEST_SERVICES)
 
 olake.destination.all.wait:
