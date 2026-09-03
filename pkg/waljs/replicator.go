@@ -130,32 +130,31 @@ func NewReplicator(ctx context.Context, config *Config, slot ReplicationSlot, re
 	}
 }
 
-// AdvanceLSN moves the slot to currentWalPos and retries until postgres confirms it there:
-// pg_replication_slot_advance silently clamps its target to the flushed WAL position.
-func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) error {
+// AdvanceLSN moves the slot to currentWalPos, retrying until postgres confirms it there, and
+// returns the confirmed position: pg_replication_slot_advance silently clamps to the flushed WAL.
+func AdvanceLSN(ctx context.Context, db *sqlx.DB, slot, currentWalPos string) (pglogrepl.LSN, error) {
 	target, err := pglogrepl.ParseLSN(currentWalPos)
 	if err != nil {
-		return fmt.Errorf("failed to parse advance target lsn[%s]: %s", currentWalPos, err)
+		return 0, fmt.Errorf("failed to parse advance target lsn[%s]: %s", currentWalPos, err)
 	}
 
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	for {
-		var slotName string
 		var endLSN pglogrepl.LSN
-		if err := db.QueryRowContext(timeoutCtx, fmt.Sprintf(AdvanceLSNTemplate, slot, currentWalPos)).Scan(&slotName, &endLSN); err != nil {
-			return fmt.Errorf("failed to advance replication slot: %w", err)
+		if err := db.QueryRowContext(ctx, fmt.Sprintf(AdvanceLSNTemplate, slot, currentWalPos)).Scan(&endLSN); err != nil {
+			return 0, fmt.Errorf("failed to advance replication slot: %w", err)
 		}
 		if endLSN >= target {
-			logger.Debugf("advanced LSN to %s", currentWalPos)
-			return nil
+			logger.Debugf("advanced LSN to %s", endLSN)
+			return endLSN, nil
 		}
 		// end_lsn short of the request means the advance was clamped to the flushed position;
 		// wait for the walwriter to catch up (bounded by ~3x wal_writer_delay) and re-advance
 		logger.Debugf("slot advance clamped at %s (target %s), retrying", endLSN, target)
 		select {
 		case <-timeoutCtx.Done():
-			return fmt.Errorf("slot advance stopped at %s and could not reach target %s: %w", endLSN, target, timeoutCtx.Err())
+			return 0, fmt.Errorf("slot advance stopped at %s and could not reach target %s: %w", endLSN, target, timeoutCtx.Err())
 		case <-time.After(100 * time.Millisecond):
 		}
 	}

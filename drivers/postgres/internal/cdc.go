@@ -49,12 +49,13 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 
 	globalState := p.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
-		// advance before seeding state: AdvanceLSN returns only once the slot has confirmed
-		// the target, so the state file and confirmed_flush_lsn agree by construction
-		if err := waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String()); err != nil {
+		// advance before seeding state: AdvanceLSN returns the position the slot confirmed,
+		// so the state file and confirmed_flush_lsn agree by construction
+		confirmedLSN, err := waljs.AdvanceLSN(ctx, p.client, p.cdcConfig.ReplicationSlot, slot.CurrentLSN.String())
+		if err != nil {
 			return err
 		}
-		p.state.SetGlobal(waljs.WALState{LSN: slot.CurrentLSN.String()})
+		p.state.SetGlobal(waljs.WALState{LSN: confirmedLSN.String()})
 		p.state.ResetStreams()
 	}
 	p.streams = streams
