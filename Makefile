@@ -441,9 +441,10 @@ help:
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.sync.$(d)" "sync suite for $(d) (full load, CDC, incremental)";)
 	@$(foreach d,$(CDC_DRIVERS),printf "  %-44s %s\n" "test.2pc.$(d)" "2PC recovery suite for $(d)";)
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.performance.$(d)" "benchmark suite for $(d) (remote instances, no local stack)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.compatibility.$(d)" "backward-compatibility for upgrading from baseline to latest $(d): COMPATIBILITY_BASELINE=<tag|image|sha>, empty = sweep every baseline in state-versions.json";)
+	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.compatibility.$(d)" "backward-compatibility suite for $(d)";)
 	@printf "  %-44s %s\n" "test.discover | test.sync | test.2pc | test.unit" "aggregate runs (all drivers at once)"
-	@printf "  %-44s %s\n" "test.compatibility" "backward-compatibility for every driver (add -j to run them at once; COMPATIBILITY_BASELINE as above)"
+	@printf "  %-44s %s\n" "test.compatibility" "backward-compatibility for every driver (add -j to run them at once)"
+	@printf "  %-44s %s\n" "" "COMPATIBILITY_BASELINE=<tag|image|sha> is the build to upgrade from; empty = sweep every baseline in state-versions.json"
 	@printf "  %-44s %s\n" "test.build.all" "compile every driver's test binary (CI cache warm)"
 	@if [ -n "$(strip $(HELP_TARGETS))" ]; then \
 		echo ""; \

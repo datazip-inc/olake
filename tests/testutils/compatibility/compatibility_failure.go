@@ -26,13 +26,13 @@ type diagnostics struct {
 	lines  []string
 }
 
-// logf logs a line of detail and keeps a copy. The subtest's own output remains the fuller story
-// -- it carries the passing variants too -- but everything logged through here also survives into
-// the final report.
+// logf logs a line of detail, in the red a failure is reported in, and keeps a plain copy. The
+// subtest's own output remains the fuller story -- it carries the passing variants too -- but
+// everything logged through here also survives into the final report, which paints itself.
 func (d *diagnostics) logf(t *testing.T, format string, args ...any) {
 	t.Helper()
 	line := fmt.Sprintf(format, args...)
-	t.Log(line)
+	t.Log(testutils.Red(line))
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.lines = append(d.lines, line)
@@ -46,7 +46,7 @@ func (d *diagnostics) fatalf(t *testing.T, format string, args ...any) {
 	d.mu.Lock()
 	d.reason = line
 	d.mu.Unlock()
-	t.Fatal(line)
+	t.Fatal(testutils.Red(line))
 }
 
 func (d *diagnostics) collected() (string, []string) {

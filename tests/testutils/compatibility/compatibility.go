@@ -381,14 +381,16 @@ func compareRelations(ctx context.Context, t *testing.T, diag *diagnostics, spar
 	refSchema := describeRelation(ctx, t, spark, refRel)
 	upgSchema := describeRelation(ctx, t, spark, upgRel)
 	if !maps.Equal(refSchema, upgSchema) {
-		diag.fatalf(t, "destination schema differs between the reference and upgrade runs.\n  reference (%s): %v\n  upgrade   (%s): %v", refRel, refSchema, upgRel, upgSchema)
+		diag.fatalf(t, "destination schema differs between the reference and upgrade runs.\n%s\n  full reference schema (%s): %v\n  full upgrade schema   (%s): %v",
+			indent(require.MapDiff("column", "reference run", "post olake upgrade", refSchema, upgSchema), "  "), refRel, refSchema, upgRel, upgSchema)
 	}
 
 	// 3. Per-op-type counts, so a row diff reads as "5 'u' rows where the reference had 6" rather
 	//    than an opaque set difference.
 	refOps, upgOps := opTypeCounts(ctx, t, spark, refRel), opTypeCounts(ctx, t, spark, upgRel)
 	if !maps.Equal(refOps, upgOps) {
-		diag.fatalf(t, "per-_op_type row counts differ between the reference and upgrade runs: reference %v, upgrade %v", refOps, upgOps)
+		diag.fatalf(t, "per-_op_type row counts differ between the reference and upgrade runs.\n%s\n  reference: %v\n  upgrade:   %v",
+			indent(require.MapDiff("op type", "reference run", "post olake upgrade", refOps, upgOps), "  "), refOps, upgOps)
 	}
 
 	// 4. Values, both directions. This is the assertion that catches a changed record: every

@@ -306,3 +306,21 @@ func ResolveToCommit(gitRootPath, str string) (string, bool) {
 
 	return strings.TrimSpace(string(short)), true
 }
+
+const (
+	red   = "\033[31m"
+	reset = "\033[0m"
+)
+
+// Red paints every non-empty line of message red, the color the harness reports a failure in:
+// an assertion's own report, or a diagnostic logged on the way to one. Painting per line
+// survives the indentation go test adds to continuation lines.
+func Red(message string) string {
+	lines := strings.Split(message, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = red + line + reset
+		}
+	}
+	return strings.Join(lines, "\n")
+}
