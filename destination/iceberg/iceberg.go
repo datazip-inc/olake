@@ -514,6 +514,10 @@ func isValidTransition(oldType, newType string) bool {
 	if oldType == newType {
 		return true
 	}
+	// detection from values cannot know a fixed width, so bytes always fit an existing fixed[n] column
+	if newType == "binary" && strings.HasPrefix(oldType, "fixed[") {
+		return true
+	}
 	if transitions, ok := validTypeTransitions[oldType]; ok {
 		if transitions[newType] {
 			return true

@@ -19,6 +19,7 @@ import (
 	"github.com/apache/arrow-go/v18/parquet/schema"
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/typeutils"
 )
 
@@ -169,7 +170,12 @@ func toArrowType(icebergType string) arrow.DataType {
 		return arrow.PrimitiveTypes.Float64
 	case "timestamptz":
 		return arrow.FixedWidthTypes.Timestamp_us
+	case "binary":
+		return arrow.BinaryTypes.Binary
 	default:
+		if length, ok := types.IcebergTypeToDatatype(icebergType).FixedLength(); ok {
+			return &arrow.FixedSizeBinaryType{ByteWidth: length}
+		}
 		return arrow.BinaryTypes.String
 	}
 }
@@ -333,6 +339,19 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 		} else {
 			return err
 		}
+	case *array.BinaryBuilder:
+		b, err := typeutils.ReformatBytes(types.Binary, val)
+		if err != nil {
+			return err
+		}
+		builder.Append(b)
+	case *array.FixedSizeBinaryBuilder:
+		width := builder.Type().(*arrow.FixedSizeBinaryType).ByteWidth
+		b, err := typeutils.ReformatBytes(types.FixedBinaryOf(width), val)
+		if err != nil {
+			return err
+		}
+		builder.Append(b)
 	case *array.StringBuilder:
 		// OLake converts the data column to json format for a denormalized table
 		if mapVal, ok := val.(map[string]interface{}); ok {
@@ -342,7 +361,7 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 			}
 			builder.Append(string(jsonBytes))
 		} else {
-			builder.Append(fmt.Sprintf("%v", val))
+			builder.Append(utils.ConvertToString(val))
 		}
 	default:
 		return fmt.Errorf("unsupported builder type: %T", builder)
@@ -411,6 +430,13 @@ func arrowFieldsToParquet(field arrow.Field) (schema.Node, error) {
 	case arrow.STRING:
 		pqType = parquet.Types.ByteArray
 		logicalType = schema.StringLogicalType{}
+
+	case arrow.BINARY:
+		pqType = parquet.Types.ByteArray
+
+	case arrow.FIXED_SIZE_BINARY:
+		pqType = parquet.Types.FixedLenByteArray
+		typeLength = int32(field.Type.(*arrow.FixedSizeBinaryType).ByteWidth)
 
 	case arrow.TIMESTAMP:
 		pqType = parquet.Types.Int64

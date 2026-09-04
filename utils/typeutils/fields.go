@@ -82,6 +82,11 @@ func (f Fields) Process(record types.Record) (bool, bool, Fields) {
 		detectedType := TypeFromValue(value)
 		if val, found := f[key]; found {
 			currentType := val.getType()
+			// a byte value cannot reveal a fixed width, so it fits an existing fixed_binary(n)
+			// column as is; the length is enforced when the value is written
+			if detectedType == types.Binary && currentType.Base() == types.FixedBinary {
+				continue
+			}
 			if detectedType != types.Null && currentType != detectedType { // compare current type
 				f[key].Merge(NewField(detectedType)) // merged data types for this field
 				updatedType := f[key].getType()

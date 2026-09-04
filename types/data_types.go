@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/parquet-go/parquet-go"
@@ -23,10 +25,14 @@ const (
 	TimestampMilli DataType = "timestamp_milli" // storing datetime up to 3 precisions
 	TimestampMicro DataType = "timestamp_micro" // storing datetime up to 6 precisions
 	TimestampNano  DataType = "timestamp_nano"  // storing datetime up to 9 precisions
+	Binary         DataType = "binary"
+	FixedBinary    DataType = "fixed_binary" // parameterised: FixedBinaryOf(n) yields fixed_binary(n)
 )
 
 // Tree Representation of TypeWeights
-//
+// 								 10 (Binary)
+// 									 /
+//									/
 //                              5 (String)
 //                            /       	   \
 //             3 (Float64)   /              \ 9 (TimestampNano)
@@ -49,6 +55,7 @@ var TypeWeights = map[DataType]int{
 	TimestampMicro: 8,
 	TimestampMilli: 7,
 	Timestamp:      6,
+	Binary:         10,
 }
 
 var RawSchema = map[string]DataType{
@@ -57,6 +64,40 @@ var RawSchema = map[string]DataType{
 	constants.OlakeTimestamp:  Timestamp,
 	constants.OpType:          String,
 	constants.OlakeID:         String,
+}
+
+// destinationTypes is the canonical DataType -> destination type mapping. Every declared DataType
+// must have an entry here (enforced by TestDeclaredTypesHaveExplicitIcebergMapping and
+// TestDeclaredTypesHaveExplicitParquetMapping); the ToIceberg/ToNewParquet fallbacks are reserved
+// for types that are not declared constants.
+var destinationTypes = map[DataType]destinationType{
+	Bool:           {"boolean", leafNode(parquet.BooleanType)},
+	Int32:          {"int", leafNode(parquet.Int32Type)},
+	Int64:          {"long", leafNode(parquet.Int64Type)},
+	Float32:        {"float", leafNode(parquet.FloatType)},
+	Float64:        {"double", leafNode(parquet.DoubleType)},
+	String:         {"string", parquet.String},
+	Timestamp:      {"timestamptz", timestampNode}, // timestamptz as we use default utc
+	TimestampMilli: {"timestamptz", timestampNode},
+	TimestampMicro: {"timestamptz", timestampNode},
+	TimestampNano:  {"timestamptz", timestampNode},
+	Object:         {"string", parquet.String}, // nested structures are serialized as strings
+	Array:          {"string", parquet.String},
+	Binary:         {"binary", leafNode(parquet.ByteArrayType)},
+	FixedBinary:    {"binary", leafNode(parquet.ByteArrayType)}, // length-less fallback; fixed_binary(n) maps to fixed[n] / FIXED_LEN_BYTE_ARRAY(n)
+}
+
+// icebergToDataType maps each iceberg type back to one canonical DataType — several DataTypes
+// share the same iceberg type. IcebergTypeToDatatype's fallback is String.
+var icebergToDataType = map[string]DataType{
+	"boolean":     Bool,
+	"int":         Int32,
+	"long":        Int64,
+	"float":       Float32,
+	"double":      Float64,
+	"timestamptz": TimestampMilli,
+	"string":      String,
+	"binary":      Binary,
 }
 
 type Record map[string]any
@@ -84,69 +125,34 @@ func GetIcebergRawSchema() []*proto.IcebergPayload_SchemaField {
 	}
 	return icebergFields
 }
+
 func (d DataType) ToNewParquet() parquet.Node {
-	var n parquet.Node
-
-	switch d {
-	case Int32:
-		n = parquet.Leaf(parquet.Int32Type)
-	case Float32:
-		n = parquet.Leaf(parquet.FloatType)
-	case Int64:
-		n = parquet.Leaf(parquet.Int64Type)
-	case Float64:
-		n = parquet.Leaf(parquet.DoubleType)
-	case String:
-		n = parquet.String()
-	case Bool:
-		n = parquet.Leaf(parquet.BooleanType)
-	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
-		n = parquet.Timestamp(parquet.Microsecond)
-	case Object, Array:
-		// Ensure proper handling of nested structures
-		n = parquet.String()
-	default:
-		n = parquet.Leaf(parquet.ByteArrayType)
+	if length, ok := d.FixedLength(); ok {
+		return parquet.Optional(fixedBinaryNode(length))
 	}
-
-	n = parquet.Optional(n) // Ensure the field is nullable
-	return n
+	construct := func() parquet.Node { return parquet.Leaf(parquet.ByteArrayType) } // fallback for unregistered types
+	if mapping, ok := destinationTypes[d]; ok && mapping.parquetNode != nil {
+		construct = mapping.parquetNode
+	}
+	return parquet.Optional(construct()) // Ensure the field is nullable
 }
 
 func (d DataType) ToIceberg() string {
-	switch d {
-	case Bool:
-		return "boolean"
-	case Int32:
-		return "int"
-	case Int64:
-		return "long"
-	case Float32:
-		return "float"
-	case Float64:
-		return "double"
-	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
-		return "timestamptz" // use with timezone as we use default utc
-	default:
-		return "string"
+	if length, ok := d.FixedLength(); ok {
+		return fmt.Sprintf("fixed[%d]", length)
 	}
+	if mapping, ok := destinationTypes[d]; ok && mapping.icebergType != "" {
+		return mapping.icebergType
+	}
+	return "string" // fallback for unregistered types
 }
 
 func IcebergTypeToDatatype(d string) DataType {
-	switch d {
-	case "boolean":
-		return Bool
-	case "int":
-		return Int32
-	case "long":
-		return Int64
-	case "float":
-		return Float32
-	case "double":
-		return Float64
-	case "timestamptz":
-		return TimestampMilli
-	default:
-		return String
+	if length, ok := icebergFixedLength(d); ok {
+		return FixedBinaryOf(length)
 	}
+	if dataType, ok := icebergToDataType[d]; ok {
+		return dataType
+	}
+	return String // fallback for unregistered types
 }

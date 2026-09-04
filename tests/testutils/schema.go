@@ -55,13 +55,14 @@ var GlobalTypeMapping = map[string]string{
 	"bpchar":            "string",
 	"name":              "string",
 
-	// Binary Types
-	"binary":     "string",
-	"varbinary":  "string",
-	"tinyblob":   "string",
-	"blob":       "string",
-	"mediumblob": "string",
-	"longblob":   "string",
+	// Binary Types: MySQL carries them as bytes (BINARY(n) lands as iceberg fixed[n], which Spark
+	// also reports as binary); the other drivers still map theirs to string
+	"binary":     "binary",
+	"varbinary":  "binary",
+	"tinyblob":   "binary",
+	"blob":       "binary",
+	"mediumblob": "binary",
+	"longblob":   "binary",
 	"bytea":      "string",
 
 	// JSON and Document Types

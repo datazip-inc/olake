@@ -234,7 +234,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 			stream.WithCursorField(columnName)
 			var datatype types.DataType
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
-				datatype = val
+				datatype = fixedBinaryType(dataType, columnType, val)
 			} else {
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				datatype = types.String

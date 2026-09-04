@@ -267,11 +267,21 @@ func IsJSON(str string) bool {
 }
 
 // GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
+// keyString renders one primary key value for the olake id. Byte values (binary keys) are hex
+// encoded: the id must be valid text, and hex is what a binary key already looked like where a
+// source hex-encoded it itself.
+func keyString(v any) string {
+	if b, ok := v.([]byte); ok {
+		return hex.EncodeToString(b)
+	}
+	return fmt.Sprint(v)
+}
+
 func GetKeysHash(m map[string]interface{}, keys ...string) string {
 	// if single primary key is present use as it is
 	if len(keys) == 1 {
 		if _, ok := m[keys[0]]; ok {
-			return fmt.Sprint(m[keys[0]])
+			return keyString(m[keys[0]])
 		}
 	}
 
@@ -283,7 +293,7 @@ func GetKeysHash(m map[string]interface{}, keys ...string) string {
 
 	var str strings.Builder
 	for _, k := range keys {
-		str.WriteString(fmt.Sprint(m[k]))
+		str.WriteString(keyString(m[k]))
 		str.WriteRune('|')
 	}
 	//nolint:gosec // G115: overflow not applicable for md5.Sum input size

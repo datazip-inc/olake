@@ -131,6 +131,7 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 	// differ from SELECT output due to SQL-layer formatting/rounding.
 	record := make(map[string]interface{})
 	for i, val := range row {
+		columnType := columnTypes[i]
 		if tableMap.IsEnumColumn(i) {
 			if val != nil && enumP < len(enumRaw) {
 				// for an update CDC event, the key of enum value is passed in binlog events which is always in int64
@@ -183,13 +184,21 @@ func convertRowToMap(row []interface{}, tableMap *replication.TableMapEvent, col
 				raw = v
 			}
 			if raw != nil {
-				if decoded, decErr := decodeBytesToString(raw, collID); decErr == nil {
+				if isBinaryCollation(collID) {
+					// BINARY/VARBINARY/BLOB share the CHAR/VARCHAR/BLOB wire types with their
+					// text counterparts and differ only by the binary charset: keep the raw
+					// bytes and name the binary type so the converter maps the column to Binary.
+					val = raw
+					columnType = binaryTypeName(columnType)
+				} else if decoded, decErr := decodeBytesToString(raw, collID); decErr == nil {
+					// TEXT columns use the BLOB wire types; name the text type so they map to String.
 					val = decoded
+					columnType = textTypeName(columnType)
 				}
 			}
 		}
 
-		convertedVal, err := converter(val, columnTypes[i])
+		convertedVal, err := converter(val, columnType)
 		if err != nil && err != typeutils.ErrNullValue {
 			return nil, err
 		}
@@ -346,6 +355,46 @@ func decodeUTF16BE(b []byte) (string, error) {
 func decodeUTF16LE(b []byte) (string, error) {
 	out, err := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewDecoder().Bytes(b)
 	return string(out), err
+}
+
+// isBinaryCollation reports whether a binlog collation ID is the binary charset, which is how
+// BINARY, VARBINARY and BLOB columns are told apart from CHAR, VARCHAR and TEXT on the wire.
+func isBinaryCollation(collationID uint64) bool {
+	if collationID > math.MaxInt32 {
+		return false
+	}
+	coll, _ := charset.GetCollationByID(int(collationID)) //nolint:gosec // bounds checked above
+	return coll != nil && coll.CharsetName == charset.CharsetBin
+}
+
+// binaryTypeName maps the wire type name of a binary-charset column to the MySQL binary type
+// with the same storage: CHAR -> BINARY, VARCHAR -> VARBINARY; the BLOB family is already binary.
+func binaryTypeName(wireType string) string {
+	switch wireType {
+	case "CHAR":
+		return "BINARY"
+	case "VARCHAR":
+		return "VARBINARY"
+	default:
+		return wireType
+	}
+}
+
+// textTypeName maps the BLOB wire type of a text-charset column to its TEXT counterpart; the
+// CHAR and VARCHAR wire types are text already.
+func textTypeName(wireType string) string {
+	switch wireType {
+	case "TINYBLOB":
+		return "TINYTEXT"
+	case "BLOB":
+		return "TEXT"
+	case "MEDIUMBLOB":
+		return "MEDIUMTEXT"
+	case "LONGBLOB":
+		return "LONGTEXT"
+	default:
+		return wireType
+	}
 }
 
 // decodeBytesToString converts raw binlog bytes to a UTF-8 string using the MySQL collation ID.
