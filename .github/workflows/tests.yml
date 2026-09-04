@@ -44,7 +44,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      packages: write
+      packages: read
     with:
       go-checks: true
     secrets: inherit
@@ -60,6 +60,7 @@ jobs:
       attempt: ${{ github.run_attempt }}
       drivers: ${{ needs.preflight.outputs.drivers }}
       driver-labels: ${{ needs.preflight.outputs.driver-labels }}
+      base-image-misses: ${{ needs.preflight.outputs.base-image-misses }}
     env:
       GATE_ENVIRONMENT: integration_tests
     steps:
@@ -199,14 +200,42 @@ jobs:
       - name: Wait for the image upload
         wait: [publish]
 
+  base-images:
+    name: Build base branch driver images
+    needs: approve
+    if: github.event_name == 'pull_request' && needs.approve.outputs.base-image-misses != '' && needs.approve.outputs.base-image-misses != '[]'
+    runs-on: 16gb-runner
+    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 30
+    steps:
+      - *checkout
+      - *docker-login
+      - *buildx
+
+      - name: Build base branch images
+        uses: ./.github/actions/commit-image
+        with:
+          drivers: ${{ join(fromJSON(needs.approve.outputs.base-image-misses), ' ') }}
+          sha: ${{ github.event.pull_request.base.sha }}
+          cache-repo: ghcr.io/${{ github.repository }}
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: tests/.compat-base
+
   test-backward-compatibility:
-    name: Backwards Compatibility with ${{ github.event.pull_request.base.ref || 'the base branch' }}
-    needs: [approve, integration-tests]
+    name: Backwards Compatibility with ${{ github.event.pull_request.base.ref }}
+    needs: [approve, integration-tests, base-images]
+    if: ${{ !cancelled() && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
       actions: read
-    if: github.event_name == 'pull_request'
+    strategy:
+      matrix:
+        baseline: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', github.event.pull_request.base.sha) || '[]') }}
     runs-on: 32gb-runner
     environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
     timeout-minutes: 90
@@ -242,7 +271,7 @@ jobs:
         uses: ./.github/actions/commit-image
         with:
           drivers: ${{ join(fromJSON(needs.approve.outputs.drivers), ' ') }}
-          sha: ${{ github.event.pull_request.base.sha }}
+          sha: ${{ matrix.baseline }}
           cache-repo: ghcr.io/${{ github.repository }}
           username: ${{ github.actor }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -278,7 +307,7 @@ jobs:
       - name: Run the compatibility tests
         env:
           OLAKE_PRE_BUILT_IMAGE: "true"
-        run: make -k -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ github.event.pull_request.base.sha }}"
+        run: make -k -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ matrix.baseline }}"
 
   compatibility-sweep:
     name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility Sweep

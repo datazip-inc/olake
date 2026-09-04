@@ -15,6 +15,9 @@ on:
       driver-labels:
         description: 'JSON object of driver -> display name, for the caller job titles.'
         value: ${{ jobs.preflight.outputs.driver-labels }}
+      base-image-misses:
+        description: 'JSON array of drivers whose base branch image is not in the registry yet; [] or empty means nothing to build.'
+        value: ${{ jobs.preflight.outputs.base-image-misses }}
 
 jobs:
   preflight:
@@ -102,45 +105,6 @@ jobs:
           path: .apt-warmed
           key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
           lookup-only: true
-
-  base-images:
-    name: Build base branch image
-    needs: preflight
-    if: needs.preflight.outputs.base-image-misses != '' && needs.preflight.outputs.base-image-misses != '[]'
-    permissions:
-      contents: read
-      packages: write
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Log in to Docker Hub
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-        run: |
-          if [ -n "$DOCKER_USERNAME" ]; then
-            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-          else
-            echo "::notice::no Docker Hub credentials configured; pulling anonymously"
-          fi
-
-      - name: Set up Docker Buildx
-        uses: ./.github/actions/buildx
-
-      - name: Build base branch image
-        uses: ./.github/actions/commit-image
-        with:
-          drivers: ${{ join(fromJSON(needs.preflight.outputs.base-image-misses), ' ') }}
-          sha: ${{ github.event.pull_request.base.sha }}
-          cache-repo: ghcr.io/${{ github.repository }}
-          username: ${{ github.actor }}
-          token: ${{ secrets.GITHUB_TOKEN }}
-          path: tests/.compat-base
 
   build-jar:
     name: Build Iceberg writer jar

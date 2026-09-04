@@ -207,7 +207,7 @@ func (c *TestConfig) resolveImage(t *testing.T) error {
 		return buildImageFromCommit(t, c, commitID)
 	}
 
-	return ensureImagePresent(t, c.GetDriverImage())
+	return ensureImagePresent(t, c.GetDriverImage(), c.ImagePlatform)
 }
 
 func (c *TestConfig) addTimingLogsMiddleware() {

@@ -118,7 +118,7 @@ func buildImageFromCommit(t *testing.T, cfg *TestConfig, commitID string) error 
 	})
 }
 
-func ensureImagePresent(t *testing.T, image string) error {
+func ensureImagePresent(t *testing.T, image, platform string) error {
 	t.Helper()
 	return resolveImageOnce(image, func() error {
 		defer TrackPhaseTiming(t, "driver-image", "ensure "+image)()
@@ -127,7 +127,11 @@ func ensureImagePresent(t *testing.T, image string) error {
 		}
 		t.Logf("pulling driver image %s", image)
 		defer TrackPhaseTiming(t, "driver-image", "pull "+image)()
-		args := []string{"pull", image}
+		args := []string{"pull"}
+		if platform != "" {
+			args = append(args, "--platform", platform)
+		}
+		args = append(args, image)
 		if out, err := exec.Command("docker", args...).CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to pull %s: %s\n%s", image, err, out)
 		}
