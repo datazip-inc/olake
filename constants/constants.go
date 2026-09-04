@@ -100,4 +100,5 @@ var RESTCatalogs = []string{
 	"unity",
 	"polaris",
 	"biglake",
+	"horizon",
 }

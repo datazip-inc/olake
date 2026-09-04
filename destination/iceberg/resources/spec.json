@@ -20,7 +20,8 @@
             "s3tables",
             "unity",
             "polaris",
-            "biglake"
+            "biglake",
+            "horizon"
           ],
           "default": "glue",
           "title": "Catalog Type",
@@ -809,7 +810,7 @@
                   "description": "Endpoint URL for the Big Lake REST catalog service"
                 },
                 "iceberg_s3_path": {
-                  "title":"BigLake Catalog Path",
+                  "title": "BigLake Catalog Path",
                   "description": "Path to your BigLake catalog"
                 },
                 "rest_auth_type": {
@@ -842,6 +843,152 @@
                 "rest_catalog_url",
                 "gcp_service_account_json"
               ]
+            },
+            {
+              "properties": {
+                "catalog_type": {
+                  "const": "horizon"
+                },
+                "catalog_name": {
+                  "type": "string",
+                  "title": "Catalog Name",
+                  "pattern": "^[a-z_]+$",
+                  "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
+                },
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "Authentication Type",
+                  "enum": [
+                    "External OAuth",
+                    "Key-Pair Authentication",
+                    "Programmatic Access Token (PAT)",
+                    "Workload Identity Federation(WIF)/OIDC"
+                  ],
+                  "description": "Methods to obtain access token for Horizon Iceberg REST Catalog API"
+                },
+                "rest_catalog_url": {
+                  "type": "string",
+                  "title": "Horizon Iceberg REST Catalog URI",
+                  "description": "Snowflake Horizon Catalog REST API endpoint"
+                },
+                "iceberg_s3_path": {
+                  "title": "Snowflake Database",
+                  "description": "Snowflake database name used as Iceberg Warehouse"
+                },
+                "s3_endpoint": {
+                  "type": "string",
+                  "title": "S3 Endpoint",
+                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
+                },
+                "aws_secret_key": {
+                  "type": "string",
+                  "format": "password",
+                  "title": "AWS Secret Key",
+                  "description": "The AWS secret key for S3 authentication-typically 40+ characters long"
+                },
+                "aws_access_key": {
+                  "type": "string",
+                  "format": "password",
+                  "title": "AWS Access Key",
+                  "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
+                },
+                "aws_region": {
+                  "type": "string",
+                  "title": "Cloud Storage Region",
+                  "description": "Snowflake client.region (e.g. eastus2)"
+                },
+                "scope": {
+                  "type": "string",
+                  "title": "Session Role Scope",
+                  "description": "Snowflake session role scope in the format of 'session:role:<role>' (space separated for more than one)"
+                }
+              },
+              "required": [
+                "rest_catalog_url",
+                "rest_auth_type",
+                "aws_region",
+                "scope"
+              ],
+              "dependencies": {
+                "rest_auth_type": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "rest_auth_type": {
+                          "const": "External OAuth"
+                        },
+                        "token": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "External OAuth Token",
+                          "description": "Bearer access token for token-based authentication"
+                        }
+                      },
+                      "required": [
+                        "token"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "rest_auth_type": {
+                          "const": "Key-Pair Authentication"
+                        },
+                        "credential": {
+                          "type": "string",
+                          "title": "Key-pair JWT",
+                          "description": "JWT signed with your snowflake key pair used as iceberg credential"
+                        },
+                        "oauth2_uri": {
+                          "type": "string",
+                          "title": "OAuth2 Token Endpoint",
+                          "description": "OAuth token endpoint URL (e.g. `https://<account_identifier>.snowflakecomputing.com/polaris/api/catalog/v1/oauth/tokens`)"
+                        }
+                      },
+                      "required": [
+                        "credential",
+                        "oauth2_uri"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "rest_auth_type": {
+                          "const": "Programmatic Access Token (PAT)"
+                        },
+                        "credential": {
+                          "type": "string",
+                          "title": "Programmatic Access Token",
+                          "description": "Snowflake PAT used as iceberg credential"
+                        }
+                      },
+                      "required": [
+                        "credential"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "rest_auth_type": {
+                          "const": "Workload Identity Federation(WIF)/OIDC"
+                        },
+                        "credential": {
+                          "type": "string",
+                          "title": "OIDC Token",
+                          "description": "Short lived OIDC token used as iceberg credential"
+                        },
+                        "snowflake_workload_identity_provider": {
+                          "type": "string",
+                          "title": "Workload Identity Provider",
+                          "default": "OIDC",
+                          "description": "Snowflake header X-Snowflake-Workload-Identity-Provider. (e.g. 'OIDC')"
+                        }
+                      },
+                      "required": [
+                        "credential",
+                        "snowflake_workload_identity_provider"
+                      ]
+                    }
+                  ]
+                }
+              }
             },
             {
               "properties": {
