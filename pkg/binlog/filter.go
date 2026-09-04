@@ -25,7 +25,7 @@ const (
 
 )
 
-// TableMapEvent wraps replication.TableMapEvent so we can define receiver methods (unsignedMap, isNumericColumn).
+// TableMapEvent wraps replication.TableMapEvent so we can define receiver methods on it.
 type TableMapEvent struct {
 	*replication.TableMapEvent
 }
@@ -39,8 +39,7 @@ type ChangeFilter struct {
 }
 
 // NewChangeFilter creates a filter for the given streams. schemaClient backs the
-// information_schema fallback used when the server does not emit full binlog row
-// metadata (MySQL < 8.0.1, binlog_row_metadata != FULL, or any MariaDB version).
+// information_schema fallback for servers that omit binlog row metadata.
 func NewChangeFilter(schemaClient *sqlx.DB, typeConverter func(value interface{}, columnType string) (interface{}, error), streams ...types.StreamInterface) ChangeFilter {
 	filter := ChangeFilter{
 		streams:   make(map[string]types.StreamInterface),
@@ -117,9 +116,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 	return nil
 }
 
-// columnView is everything needed to decode one RowsEvent, resolved once per event
-// from either the binlog's optional metadata or the information_schema cache.
-// All slices are indexed by ordinal column position.
+// columnView is everything needed to decode one RowsEvent. Indexed by ordinal position.
 type columnView struct {
 	names      []string
 	types      []string   // mysqlTypeName output, e.g. "UNSIGNED BIGINT"
@@ -128,9 +125,10 @@ type columnView struct {
 	collations []uint64   // 0 = no charset decoding
 }
 
-// resolveColumns prefers the binlog's own metadata (binlog_row_metadata=FULL) and falls
-// back to information_schema when it is absent. Type bytes and ENUM/SET detection always
-// come from the TableMapEvent — those are mandatory fields present on every server.
+// resolveColumns takes each field from the binlog when the server logged it and from
+// information_schema otherwise. Field by field, not all-or-nothing: MINIMAL logs signedness
+// and charsets while omitting names and ENUM/SET members. Type bytes and ENUM/SET detection
+// are mandatory TableMapEvent fields, so they always come from the binlog.
 func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEvent) (*columnView, error) {
 	tableMap := e.Table
 	n := len(tableMap.ColumnType)
@@ -143,28 +141,31 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 		collations: make([]uint64, n),
 	}
 
-	unsignedMap := (&TableMapEvent{tableMap}).unsignedMap()
-	fallback := len(view.names) != n
+	tm := &TableMapEvent{tableMap}
+	unsignedMap := tm.unsignedMap()
+	namesMissing := len(view.names) != n
+	// MySQL omits the SignednessBitmap for tables with no numeric column, so a nil map only
+	// means missing metadata when there is a numeric column. Without the second test, a plain
+	// (varchar, text, datetime) table would query information_schema on a path that otherwise
+	// needs no database access, inheriting that query's failure modes.
+	signednessMissing := unsignedMap == nil && tm.hasNumericColumn()
 
-	// unsignedMap is nil both when SignednessBitmap is absent and when the table simply
-	// has no numeric columns. Treating that as "needs fallback" costs one extra query per
-	// such table and is strictly safer than guessing signed.
+	// Remaining fields fall back per column in fillEnumSetAndCollations.
 	var meta *tableMeta
-	if fallback || unsignedMap == nil {
+	if namesMissing || signednessMissing {
 		var err error
 		meta, err = f.schema.get(ctx, string(tableMap.Schema), string(tableMap.Table))
 		if err != nil {
 			return nil, err
 		}
 		if len(meta.Columns) != n {
-			// The table was altered between this event and our information_schema read.
-			// Refuse rather than write rows against a mismatched schema.
+			// Altered between this event and the read; refuse rather than write mismatched rows.
 			return nil, fmt.Errorf("schema drift for %s.%s: binlog has %d columns, information_schema has %d",
 				tableMap.Schema, tableMap.Table, n, len(meta.Columns))
 		}
 	}
 
-	if fallback {
+	if namesMissing {
 		view.names = make([]string, n)
 		for i, col := range meta.Columns {
 			view.names[i] = col.Name
@@ -172,59 +173,54 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 	}
 
 	for i := 0; i < n; i++ {
-		isUnsigned := unsignedMap != nil && unsignedMap[i]
-		if unsignedMap == nil {
+		// A nil unsignedMap reads false, which is correct here: that only pairs with
+		// !signednessMissing when no column is numeric, and mysqlTypeName ignores the flag
+		// for every non-numeric type.
+		isUnsigned := unsignedMap[i]
+		if signednessMissing {
 			isUnsigned = meta.Columns[i].Unsigned
 		}
 		view.types[i] = mysqlTypeName(tableMap.ColumnType[i], isUnsigned)
 	}
 
-	// meta is also loaded when only signedness was missing; in that case the binlog still
-	// carries its own ENUM/SET members and collations, so keep using them.
-	var fallbackMeta *tableMeta
-	if fallback {
-		fallbackMeta = meta
-	}
-	fillEnumSetAndCollations(view, tableMap, fallbackMeta)
+	fillEnumSetAndCollations(view, tableMap, meta)
 	return view, nil
 }
 
-// fillEnumSetAndCollations populates the ENUM/SET members and collation IDs. meta is nil
-// when the binlog carried its own metadata, in which case members arrive as raw bytes in
-// the column's charset and are decoded here; when meta is set, the members came back from
-// information_schema already decoded to UTF-8 through the connection charset and must not
-// be decoded a second time.
+// fillEnumSetAndCollations populates ENUM/SET members and collation IDs, preferring the
+// binlog per field. It matters at MINIMAL, which logs charsets but not members: binlog
+// collations describe the table as of the event, information_schema only as it is now.
+//
+// meta may be non-nil while the binlog still wins. Binlog members are raw bytes in the
+// column's charset and are decoded here; information_schema members already came back as
+// UTF-8 through the connection charset and must not be decoded twice.
 func fillEnumSetAndCollations(view *columnView, tableMap *replication.TableMapEvent, meta *tableMeta) {
-	if meta == nil {
-		enumSetCollations := tableMap.EnumSetCollationMap()
-		collations := tableMap.CollationMap()
-		enumP, setP := 0, 0
-		for i := range view.types {
-			switch {
-			case tableMap.IsEnumColumn(i):
-				if enumP < len(tableMap.EnumStrValue) {
-					view.enumValues[i] = decodeMembers(tableMap.EnumStrValue[enumP], enumSetCollations[i])
-				}
-				enumP++ // always advance, even for empty metadata, to stay in step
-			case tableMap.IsSetColumn(i):
-				if setP < len(tableMap.SetStrValue) {
-					view.setMembers[i] = decodeMembers(tableMap.SetStrValue[setP], enumSetCollations[i])
-				}
-				setP++
-			default:
-				view.collations[i] = collations[i]
-			}
-		}
-		return
-	}
+	enumSetCollations := tableMap.EnumSetCollationMap()
+	collations := tableMap.CollationMap()
+	// Empty means no charset metadata was logged at all (MySQL < 8.0.1, MariaDB). A table
+	// with no character columns still gets a populated map with no entry for them, read as 0.
+	haveBinlogCollations := len(collations) != 0
 
+	enumP, setP := 0, 0
 	for i := range view.types {
 		switch {
 		case tableMap.IsEnumColumn(i):
-			view.enumValues[i] = meta.Columns[i].EnumValues
+			if enumP < len(tableMap.EnumStrValue) {
+				view.enumValues[i] = decodeMembers(tableMap.EnumStrValue[enumP], enumSetCollations[i])
+			} else if meta != nil {
+				view.enumValues[i] = meta.Columns[i].EnumValues
+			}
+			enumP++ // advance even when empty, to stay in step with EnumStrValue
 		case tableMap.IsSetColumn(i):
-			view.setMembers[i] = meta.Columns[i].SetMembers
-		default:
+			if setP < len(tableMap.SetStrValue) {
+				view.setMembers[i] = decodeMembers(tableMap.SetStrValue[setP], enumSetCollations[i])
+			} else if meta != nil {
+				view.setMembers[i] = meta.Columns[i].SetMembers
+			}
+			setP++
+		case haveBinlogCollations:
+			view.collations[i] = collations[i]
+		case meta != nil:
 			view.collations[i] = meta.Columns[i].CollationID
 		}
 	}
@@ -254,9 +250,8 @@ func convertRowToMap(row []interface{}, view *columnView, converter func(value i
 	for i, val := range row {
 		switch {
 		case view.enumValues[i] != nil:
-			// For an update CDC event, the key of the enum value is passed in binlog events
-			// as the 1-based member index, always int64. MySQL stores an invalid ENUM insert
-			// as index 0 (special error value), which maps to the empty string.
+			// ENUM arrives as the 1-based member index (int64). Index 0 is MySQL's marker
+			// for an invalid insert and maps to the empty string.
 			if idx, isInt64 := val.(int64); isInt64 {
 				val = ""
 				if idx > 0 && int(idx) <= len(view.enumValues[i]) {
@@ -403,6 +398,17 @@ func (e *TableMapEvent) unsignedMap() map[int]bool {
 		}
 	}
 	return ret
+}
+
+// hasNumericColumn reports whether any column would carry a signedness bit. MySQL writes
+// the SignednessBitmap only for such tables, so its absence is otherwise ambiguous.
+func (e *TableMapEvent) hasNumericColumn() bool {
+	for i := range e.ColumnType {
+		if e.isNumericColumn(i) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *TableMapEvent) isNumericColumn(i int) bool {

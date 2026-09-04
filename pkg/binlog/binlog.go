@@ -132,9 +132,8 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 				}
 
 			case *replication.QueryEvent:
-				// QueryEvent carries DDL (and transaction control statements) even when
-				// binlog_format=ROW. Any DDL may have changed a cached table's shape, so drop
-				// the cache and let the next RowsEvent reload it from information_schema.
+				// QueryEvent carries DDL even under binlog_format=ROW. Any DDL may have
+				// reshaped a cached table, so drop the cache and reload lazily.
 				if isDDL(e.Query) {
 					logger.Infof("DDL observed in binlog, invalidating cached column metadata: %s", string(e.Query))
 					c.changeFilter.schema.invalidate()

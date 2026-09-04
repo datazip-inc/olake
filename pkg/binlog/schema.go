@@ -12,9 +12,8 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/charset"
 )
 
-// columnMeta is one column's decoding info, derived from information_schema.
-// Index in tableMeta.Columns is the column's ordinal position, which matches
-// TableMapEvent.ColumnType ordering.
+// columnMeta is one column's decoding info from information_schema. Its index in
+// tableMeta.Columns is the ordinal position, matching TableMapEvent.ColumnType.
 type columnMeta struct {
 	Name        string
 	Unsigned    bool
@@ -27,9 +26,8 @@ type tableMeta struct {
 	Columns []columnMeta
 }
 
-// schemaCache supplies the column metadata the binlog omits when the server does not
-// emit full row metadata. Safe for concurrent use; StreamMessages is single-goroutine
-// today but the cache outlives one event.
+// schemaCache supplies the column metadata the binlog omits. Safe for concurrent use:
+// StreamMessages is single-goroutine today, but the cache outlives one event.
 type schemaCache struct {
 	mu     sync.RWMutex
 	client *sqlx.DB
@@ -66,9 +64,9 @@ func (c *schemaCache) get(ctx context.Context, schema, table string) (*tableMeta
 	return meta, nil
 }
 
-// invalidate drops every cached table. Called on any DDL seen in the binlog: DDL is
-// rare enough that a full drop is cheaper to reason about than tracking which table
-// a statement touched, and lazy reload means we only pay for tables still streaming.
+// invalidate drops every cached table, on any DDL seen in the binlog. DDL is rare enough
+// that a full drop beats tracking which table a statement touched, and the lazy reload
+// only pays for tables still streaming.
 func (c *schemaCache) invalidate() {
 	c.mu.Lock()
 	c.tables = map[string]*tableMeta{}
@@ -100,15 +98,14 @@ func (c *schemaCache) load(ctx context.Context, schema, table string) (*tableMet
 	return meta, nil
 }
 
-// binaryCollationID is MySQL's `binary` collation. TableMapEvent labels BINARY, VARBINARY
-// and BLOB columns with it when metadata is FULL, and decodeBytesToString passes their
-// bytes through unchanged. Some servers report COLLATION_NAME as NULL for these columns
-// rather than 'binary', so the type is checked as well to keep both paths identical.
+// binaryCollationID is MySQL's `binary` collation, which TableMapEvent gives BINARY,
+// VARBINARY and BLOB columns under FULL and decodeBytesToString passes through unchanged.
+// Some servers report COLLATION_NAME as NULL for these, so the type is checked too.
 const binaryCollationID = 63
 
-// binaryStringTypeRe matches the COLUMN_TYPE values MySQL stores with charset `binary`.
-// GEOMETRY is deliberately absent: go-mysql decodes it as a blob, but TableMapEvent does
-// not count it as a character column outside MariaDB, so it carries no collation.
+// binaryStringTypeRe matches COLUMN_TYPE values MySQL stores with charset `binary`.
+// GEOMETRY is deliberately absent: TableMapEvent does not count it as a character column
+// outside MariaDB, so it carries no collation.
 var binaryStringTypeRe = regexp.MustCompile(`^(binary|varbinary|tinyblob|blob|mediumblob|longblob)\b`)
 
 // columnMetaFrom builds one column's decoding info from its information_schema row.
@@ -134,9 +131,8 @@ func columnMetaFrom(name, columnType, collationName string) columnMeta {
 	return col
 }
 
-// collationIDByName resolves a MySQL collation name to its numeric ID, matching the
-// IDs the binlog carries when metadata is FULL. Returns 0 for binary/unknown columns,
-// which decodeBytesToString already treats as passthrough.
+// collationIDByName resolves a collation name to the numeric ID the binlog carries under
+// FULL. Returns 0 for binary/unknown, which decodeBytesToString treats as passthrough.
 func collationIDByName(name string) uint64 {
 	if name == "" {
 		return 0
@@ -148,9 +144,8 @@ func collationIDByName(name string) uint64 {
 	return uint64(coll.ID)
 }
 
-// parseEnumSetMembers extracts members from an information_schema COLUMN_TYPE value
-// such as enum('a','b') or set('x','y,z','it”s'). Handles both quote-escaping forms
-// MySQL emits: doubled quotes (”) and backslash escapes (\').
+// parseEnumSetMembers extracts members from a COLUMN_TYPE such as enum('a','b') or
+// set('x','y,z'), handling both quote-escaping forms MySQL emits: doubled and backslashed.
 func parseEnumSetMembers(columnType string) []string {
 	open := strings.Index(columnType, "(")
 	closing := strings.LastIndex(columnType, ")")
@@ -186,22 +181,17 @@ func parseEnumSetMembers(columnType string) []string {
 	return members
 }
 
-// ddlRe matches the DDL that can change a table's column layout. BEGIN, COMMIT, ROLLBACK
-// and SAVEPOINT also arrive as QueryEvents and must not invalidate, and neither must
-// TRUNCATE — it removes rows, not columns. Leading comments are skipped so annotated
-// migrations still match.
+// ddlRe matches DDL that can change a table's column layout. BEGIN, COMMIT, ROLLBACK and
+// SAVEPOINT arrive as QueryEvents too and must not invalidate; neither must TRUNCATE, which
+// removes rows, not columns. Leading comments are skipped so annotated migrations match.
+// CREATE stays in the list for MariaDB's CREATE OR REPLACE TABLE, which reshapes an
+// existing name.
 //
-// CREATE stays in the list even though a table already in the cache cannot be created:
-// MariaDB's CREATE OR REPLACE TABLE drops and recreates, which does reshape an existing
-// name.
-//
-// TODO: attribute DDL to the table it touches, so a migration against a table we do not
-// capture — gh-ost/pt-osc shadow tables, partition maintenance elsewhere — stops evicting
-// every cached stream. Needs real statement parsing to be safe: RENAME and DROP TABLE
-// accept table lists, and the two-table swap those tools use at cutover
+// TODO: attribute DDL to the table it touches, so migrations on tables we do not capture
+// (gh-ost/pt-osc shadow tables, partition maintenance) stop evicting every cached stream.
+// Needs real parsing: RENAME and DROP accept table lists, and the cutover swap
 // (RENAME TABLE users TO _users_del, _users_gho TO users) must not be attributed to its
-// first name alone. Until then every invalidation is logged by the caller; a log full of
-// them during a migration is the signal to pick this up.
+// first name alone. Until then the caller logs every invalidation.
 var ddlRe = regexp.MustCompile(`(?is)^\s*(?:/\*.*?\*/\s*)*(alter|rename|drop|create)\s`)
 
 func isDDL(query []byte) bool {

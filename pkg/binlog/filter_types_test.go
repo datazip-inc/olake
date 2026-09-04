@@ -11,20 +11,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This file pins convertRowToMap against every MySQL column type the binlog can carry,
-// decoding the same row three ways:
+// This file pins convertRowToMap against every column type the binlog can carry, decoding
+// the same row three ways:
 //
-//	1. reading binlog metadata (binlog_row_metadata=FULL)
-//	2. reading information_schema (MySQL 5.7, MariaDB, or the MINIMAL default)
-//	3. reading information_schema on a server that reports NULL rather than 'binary'
-//	   as the collation of BINARY/VARBINARY/BLOB columns
+//	1. from binlog metadata (binlog_row_metadata=FULL) — the reference
+//	2. from information_schema (MySQL 5.7, MariaDB, or the MINIMAL default)
+//	3. from information_schema on a server reporting NULL rather than 'binary' as the
+//	   collation of BINARY/VARBINARY/BLOB columns
 //
-// All three must agree: (1) is the reference, and any divergence in (2) or (3) is a
-// record whose values change depending on how the server happens to be configured.
+// Divergence means a record whose values depend on how the server is configured.
 
-// fixtureColumn declares one column in both dialects: the fields a TableMapEvent carries
-// and the row information_schema returns for it, plus a value shaped the way go-mysql's
-// decodeValue produces it for that type.
+// fixtureColumn declares one column in both dialects — the TableMapEvent fields and the
+// information_schema row — plus a value shaped the way go-mysql's decodeValue produces it.
 type fixtureColumn struct {
 	name        string
 	columnType  byte   // TableMapEvent.ColumnType
@@ -43,10 +41,10 @@ func stringColumnMeta(length uint16) uint16 {
 	return uint16(mysql.MYSQL_TYPE_STRING)<<8 | length
 }
 
-// allTypeColumns covers every type go-mysql's decodeValue can hand us, with the Go value
-// it produces: signed and unsigned integers of each width, both decimal families, BIT,
-// the temporal types, character types under three collations, binary types, JSON,
-// GEOMETRY, ENUM, SET, and a NULL of each kind that takes a special branch.
+// allTypeColumns covers every type go-mysql's decodeValue produces: signed and unsigned
+// integers of each width, both decimal families, BIT, the temporal types, character types
+// under three collations, binary types, JSON, GEOMETRY, ENUM, SET, and the NULLs that take
+// a special branch.
 func allTypeColumns() []fixtureColumn {
 	return []fixtureColumn{
 		{name: "c_tinyint", columnType: mysql.MYSQL_TYPE_TINY, sqlType: "tinyint(4)",
@@ -67,8 +65,8 @@ func allTypeColumns() []fixtureColumn {
 			value: int64(4000000000), want: int64(4000000000)},
 		{name: "c_bigint", columnType: mysql.MYSQL_TYPE_LONGLONG, sqlType: "bigint(20)",
 			value: int64(-9007199254740993), want: int64(-9007199254740993)},
-		// go-mysql sign-extends, so the maximum unsigned BIGINT arrives as -1; the driver's
-		// stripSignExtension undoes that using the UNSIGNED prefix in the resolved type.
+		// go-mysql sign-extends, so max unsigned BIGINT arrives as -1; the driver's
+		// stripSignExtension undoes that from the UNSIGNED prefix in the resolved type.
 		{name: "c_bigint_u", columnType: mysql.MYSQL_TYPE_LONGLONG, sqlType: "bigint(20) unsigned",
 			value: int64(-1), want: int64(-1)},
 		{name: "c_decimal", columnType: mysql.MYSQL_TYPE_NEWDECIMAL, columnMeta: 10<<8 | 2,
@@ -143,8 +141,7 @@ func allTypeColumns() []fixtureColumn {
 	}
 }
 
-// bareTableMapFrom builds the half of TableMapEvent every server writes, whatever
-// binlog_row_metadata says.
+// bareTableMapFrom builds the half of TableMapEvent every server writes.
 func bareTableMapFrom(cols []fixtureColumn) *replication.TableMapEvent {
 	e := &replication.TableMapEvent{
 		Schema:      []byte("shop"),
@@ -160,10 +157,9 @@ func bareTableMapFrom(cols []fixtureColumn) *replication.TableMapEvent {
 	return e
 }
 
-// fullTableMapFrom adds the optional metadata a server emits with
-// binlog_row_metadata=FULL, laid out the way the binlog actually packs it: signedness as
-// one bit per numeric column, and charsets as one entry per character (or enum/set)
-// column rather than per column.
+// fullTableMapFrom adds what binlog_row_metadata=FULL emits, packed the way the binlog
+// packs it: signedness one bit per numeric column, charsets one entry per character (or
+// enum/set) column rather than per column.
 func fullTableMapFrom(t *testing.T, cols []fixtureColumn) *replication.TableMapEvent {
 	t.Helper()
 	e := bareTableMapFrom(cols)
@@ -209,8 +205,7 @@ func mustCollationID(t *testing.T, name string) uint64 {
 	return id
 }
 
-// metaFrom builds the cache entry that loading this table from information_schema
-// produces, going through the same columnMetaFrom the loader uses.
+// metaFrom builds the cache entry the loader would produce, via the same columnMetaFrom.
 func metaFrom(cols []fixtureColumn) *tableMeta {
 	meta := &tableMeta{}
 	for _, c := range cols {
@@ -219,9 +214,9 @@ func metaFrom(cols []fixtureColumn) *tableMeta {
 	return meta
 }
 
-// metaFromNullBinaryCollation is metaFrom for servers that report COLLATION_NAME as NULL
-// on BINARY/VARBINARY/BLOB columns instead of 'binary'. Those columns must still resolve
-// to the binary collation, or their bytes would decode differently from the binlog path.
+// metaFromNullBinaryCollation is metaFrom for servers reporting COLLATION_NAME as NULL on
+// BINARY/VARBINARY/BLOB instead of 'binary'. Those must still resolve to the binary
+// collation, or their bytes decode differently from the binlog path.
 func metaFromNullBinaryCollation(cols []fixtureColumn) *tableMeta {
 	meta := &tableMeta{}
 	for _, c := range cols {
@@ -279,8 +274,8 @@ func TestConvertRowToMapAllTypes(t *testing.T) {
 	assert.Equal(t, fromFull, fromNullCollation, "binary columns must not depend on COLLATION_NAME being reported")
 }
 
-// TestResolvedTypesAllTypes pins the SQL type strings handed to the driver's converter,
-// since those select the destination type and the unsigned handling downstream.
+// TestResolvedTypesAllTypes pins the type strings handed to the driver's converter, which
+// select the destination type and the unsigned handling downstream.
 func TestResolvedTypesAllTypes(t *testing.T) {
 	cols := allTypeColumns()
 	full := fullTableMapFrom(t, cols)
@@ -312,9 +307,8 @@ func TestResolvedTypesAllTypes(t *testing.T) {
 	}
 }
 
-// TestConvertRowToMapAllTypesUnsignedFallback checks the signedness half of the fallback
-// on its own: with the binlog's SignednessBitmap absent, every UNSIGNED column must still
-// resolve to an UNSIGNED type name.
+// TestConvertRowToMapAllTypesUnsignedFallback checks the signedness half alone: with the
+// SignednessBitmap absent, every UNSIGNED column must still resolve to an UNSIGNED name.
 func TestConvertRowToMapAllTypesUnsignedFallback(t *testing.T) {
 	cols := allTypeColumns()
 	bare := bareTableMapFrom(cols)
@@ -331,9 +325,8 @@ func TestConvertRowToMapAllTypesUnsignedFallback(t *testing.T) {
 	}
 }
 
-// TestColumnMetaFromBinaryCollation pins the binary-collation rule in both directions:
-// servers that report 'binary' and servers that report NULL must produce the same
-// collation, and non-string types must stay at 0 so their values pass through untouched.
+// TestColumnMetaFromBinaryCollation pins the rule both ways: 'binary' and NULL must give
+// the same collation, and non-string types must stay at 0 so their values pass through.
 func TestColumnMetaFromBinaryCollation(t *testing.T) {
 	tests := []struct {
 		sqlType   string

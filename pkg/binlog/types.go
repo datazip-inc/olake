@@ -25,8 +25,8 @@ type Config struct {
 	SSHClient               *ssh.Client
 	TLSConfig               *tls.Config
 	TimestampStringLocation *time.Location
-	// SchemaClient backs the information_schema fallback used when the server does not
-	// emit full binlog row metadata. Must be non-nil.
+	// SchemaClient backs the information_schema fallback for servers that omit binlog
+	// row metadata. Must be non-nil.
 	SchemaClient *sqlx.DB
 }
 
