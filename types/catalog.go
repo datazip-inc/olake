@@ -147,8 +147,6 @@ func GetWrappedCatalog(streams []*Stream, _ string) *Catalog {
 			Stream: stream,
 		})
 
-		// Lean discover output: stream_name, partition_regex, and cursor_field only when incremental.
-		// StreamMetadata still carries every other field; users and mergeCatalogs can populate them later.
 		metadata := StreamMetadata{
 			StreamName:     stream.Name,
 			PartitionRegex: "",
@@ -207,7 +205,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		newCatalog.SelectedStreams = selectedStreams
 	}
 
-	constantValue, prefix := getDestDBPrefix(oldCatalog)
+	constantValue, prefix := getDestDBPrefix(oldCatalog.Streams)
 
 	// merge streams metadata
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
@@ -223,7 +221,10 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 			return nil
 		}
 
-		// NOTE: new streams are not added to selected_streams; user needs to enable them.
+		// NOTE: new streams are not added to selected_streams, user needs to manually enable them
+		// manipulate destination db in new streams according to old streams
+
+		// prefix == "" means old stream when db normalization feature not introduced
 		if constantValue {
 			newStream.Stream.DestinationDatabase = oldCatalog.Streams[0].Stream.DestinationDatabase
 		} else if prefix != "" {
@@ -236,11 +237,10 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	return newCatalog
 }
 
-// MergeSelectedColumns merges the selected columns based on the following rules:
-// - If selectedColumns is not present or empty, initialize with columns from new schema
-// - Preserve previously selected columns
-// - If sync_new_columns is true, add newly discovered columns to the selected columns
-// takes old stream and new stream to merge the selected columns and old stream metadata
+// MergeSelectedColumns updates an existing selected_columns list against the new schema.
+// If selected_columns is absent or has no columns, it is left unset so sync keeps all columns.
+// Otherwise previously selected columns are preserved, OLake columns are always kept, and
+// newly discovered columns are added when sync_new_columns is true.
 func MergeSelectedColumns(metadata *StreamMetadata, oldStream *Stream, newStream *Stream) {
 	if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
 		return
@@ -279,41 +279,16 @@ func MergeSelectedColumns(metadata *StreamMetadata, oldStream *Stream, newStream
 //	bool: true if the common value is a constant (no colon present),
 //	      false if it's a prefix (colon present in original string)
 //	string: the common prefix or constant value, or empty string if no common value exists
-func getDestDBPrefix(catalog *Catalog) (constantValue bool, prefix string) {
-	if catalog == nil {
+func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix string) {
+	if len(streams) == 0 {
 		return false, ""
 	}
 
-	streamDestDB := make(map[string]string, len(catalog.Streams))
-	for _, s := range catalog.Streams {
-		streamDestDB[s.Stream.ID()] = s.Stream.DestinationDatabase
-	}
-
-	var destDBs []string
-	for namespace, metadataList := range catalog.SelectedStreams {
-		for _, metadata := range metadataList {
-			streamID := fmt.Sprintf("%s.%s", namespace, metadata.StreamName)
-			destDBs = append(destDBs, resolveConfigurableField(metadata.DestinationDatabase, streamDestDB[streamID]))
-		}
-	}
-
-	// Legacy catalogs: dest DB may live only on streams[] when selected_streams is empty or nil.
-	if len(destDBs) == 0 {
-		for _, s := range catalog.Streams {
-			if s.Stream != nil && s.Stream.DestinationDatabase != "" {
-				destDBs = append(destDBs, s.Stream.DestinationDatabase)
-			}
-		}
-	}
-
-	if len(destDBs) == 0 {
-		return false, ""
-	}
-
-	prefixOrConstValue := strings.Split(destDBs[0], ":")
-	for _, db := range destDBs[1:] {
-		parts := strings.Split(db, ":")
-		if parts[0] != prefixOrConstValue[0] {
+	prefixOrConstValue := strings.Split(streams[0].Stream.DestinationDatabase, ":")
+	for _, s := range streams {
+		streamDBPrefixOrConstValue := strings.Split(s.Stream.DestinationDatabase, ":")
+		if streamDBPrefixOrConstValue[0] != prefixOrConstValue[0] {
+			// Not all same → bail out
 			return false, ""
 		}
 	}
@@ -394,6 +369,9 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// NOTE: we are not droping table if there is delete mode change
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
+				oldConfigured := &ConfiguredStream{Stream: oldStream.Stream, StreamMetadata: oldMetadata}
+				newConfigured := &ConfiguredStream{Stream: newStream.Stream, StreamMetadata: newMetadata}
+
 				oldSyncMode := resolveConfigurableField(oldMetadata.SyncMode, oldStream.Stream.SyncMode)
 				newSyncMode := resolveConfigurableField(newMetadata.SyncMode, newStream.Stream.SyncMode)
 				oldCursorField := resolveConfigurableField(oldMetadata.CursorField, oldStream.Stream.CursorField)
@@ -406,12 +384,12 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				// check cursor field if SyncMode is incremental
 				cursorDelta := utils.Ternary(newSyncMode == INCREMENTAL, oldCursorField != newCursorField, false).(bool)
 
-				return !reflect.DeepEqual(oldMetadata.Normalization, newMetadata.Normalization) ||
+				return oldConfigured.NormalizationEnabled() != newConfigured.NormalizationEnabled() ||
+					oldConfigured.AppendModeEnabled() != newConfigured.AppendModeEnabled() ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
 					(oldMetadata.UseSourceColumnNames != newMetadata.UseSourceColumnNames) ||
 					!reflect.DeepEqual(oldMetadata.FilterConfig, newMetadata.FilterConfig) ||
-					!reflect.DeepEqual(oldMetadata.AppendMode, newMetadata.AppendMode) ||
 					(oldSyncMode != newSyncMode) ||
 					(oldDestinationDatabase != newDestinationDatabase) ||
 					(oldDestinationTable != newDestinationTable) ||

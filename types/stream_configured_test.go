@@ -662,10 +662,10 @@ func TestConfiguredStream_NormalizationEnabled(t *testing.T) {
 			want:     false,
 		},
 		{
-			name:     "nil metadata does not use DSP",
+			name:     "nil metadata falls back to DSP (true)",
 			stream:   &Stream{DefaultStreamProperties: &DefaultStreamProperties{Normalization: true}},
 			metadata: StreamMetadata{},
-			want:     false,
+			want:     true,
 		},
 		{
 			name:   "nil metadata returns false",
@@ -726,39 +726,6 @@ func TestConfiguredStream_AppendModeEnabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
 			assert.Equal(t, tt.want, s.AppendModeEnabled())
-		})
-	}
-}
-
-func TestConfiguredStream_GetUpdateType(t *testing.T) {
-	tests := []struct {
-		name     string
-		stream   *Stream
-		metadata StreamMetadata
-		want     UpdateType
-	}{
-		{
-			name:     "metadata update type used",
-			metadata: StreamMetadata{UpdateType: string(UpdateTypePosition)},
-			stream:   &Stream{},
-			want:     UpdateTypePosition,
-		},
-		{
-			name:   "empty metadata does not use DSP",
-			stream: &Stream{DefaultStreamProperties: &DefaultStreamProperties{UpdateType: UpdateTypePosition}},
-			want:   UpdateTypeEquality,
-		},
-		{
-			name:   "defaults to UpdateTypeEquality when empty",
-			stream: &Stream{},
-			want:   UpdateTypeEquality,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
-			assert.Equal(t, tt.want, s.GetUpdateType())
 		})
 	}
 }

@@ -10,6 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func boolPtr(b bool) *bool {
+	return &b
+}
+
 // This package's init runs RootCmd.Execute, so the file logger is already pointed at ./logs
 // before a test can redirect it. classifyStreams logs its skips, which creates that directory;
 // drop it afterwards rather than leaving it in the tree.
@@ -46,7 +50,7 @@ func catalogOf(streams ...stream) *types.Catalog {
 		if s.unselected {
 			continue
 		}
-		metadata := types.StreamMetadata{StreamName: s.name, Normalization: s.normalized, FilterConfig: s.filter}
+		metadata := types.StreamMetadata{StreamName: s.name, Normalization: boolPtr(s.normalized), FilterConfig: s.filter}
 		if s.partitioned {
 			metadata.PartitionRegex = "/{now,year}"
 		}
