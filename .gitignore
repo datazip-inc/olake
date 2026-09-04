@@ -8,6 +8,7 @@ __debug_bin*
 go.sum
 go.work.sum
 */**/examples
+*/**/olake-table-index
 olake-data/
 olake-iceberg-java-writer-0.0.1-SNAPSHOT.jar
 destination/iceberg/olake-iceberg-java-writer/target/
@@ -20,3 +21,4 @@ destination/iceberg/olake-iceberg-java-writer/dependency-reduced-pom.xml
 tests/*/testdata/**/logs
 .cocoindex_code/
 CLAUDE.local.md
+

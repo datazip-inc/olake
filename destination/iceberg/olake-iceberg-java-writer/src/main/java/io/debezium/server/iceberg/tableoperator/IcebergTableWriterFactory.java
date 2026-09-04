@@ -28,7 +28,9 @@ public class IcebergTableWriterFactory {
   private static final Logger LOGGER = LoggerFactory.getLogger(IcebergTableWriterFactory.class);
   public boolean upsert = true;
   public boolean keepDeletes = true;
-  public boolean usePositionalDeletes = false;
+  public DeleteMode deleteMode = DeleteMode.EQUALITY;
+  // Row-identity column, set even where the catalog refuses to declare it; null falls back to the table's.
+  public String identifierField;
 
   // One positional delete file per referenced data file. Matches the granularity the
   // equality path has always used. PARTITION trades reader-side skipping for far fewer
@@ -50,8 +52,9 @@ public class IcebergTableWriterFactory {
     if (!upsert) {
       // RUNNING APPEND MODE
       return appendWriter(icebergTable, format, appenderFactory, fileFactory, targetFileSize);
-    } else if (icebergTable.schema().identifierFieldIds().isEmpty()) {
+    } else if (!deleteMode.addressesPositions() && icebergTable.schema().identifierFieldIds().isEmpty()) {
       // ITS UPSERT MODE BUT!!!!! TABLE DON'T HAVE identifierFieldIds(Primary Key)
+      // Only equality deletes need that declaration; position-addressed modes use the caller's table index.
       if (upsert) {
         LOGGER.info("Table don't have Pk defined upsert is not possible falling back to append!");
       }
@@ -78,12 +81,14 @@ public class IcebergTableWriterFactory {
 
   private BaseTaskWriter<Record> deltaWriter(Table icebergTable, FileFormat format, GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory, long targetFileSize) {
 
-    if (usePositionalDeletes) {
+    if (deleteMode.addressesPositions()) {
       // One writer for both layouts: an unpartitioned table is a single entry keyed
       // on the empty partition struct, so there is no partitioned/unpartitioned split.
+      // pos vs dv is entirely the sink's concern from here - the writer never branches.
       return new PositionalDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
           icebergTable.io(),
-          targetFileSize, icebergTable.schema(), keepDeletes, DELETE_GRANULARITY);
+          targetFileSize, icebergTable.schema(), keepDeletes,
+          deleteSink(icebergTable, format, appenderFactory, fileFactory), identifierField);
     }
 
     Set<Integer> identifierFieldIds = icebergTable.schema().identifierFieldIds();
@@ -99,4 +104,20 @@ public class IcebergTableWriterFactory {
           targetFileSize, icebergTable.schema(), identifierFieldIds, keepDeletes);
     }
   }
+
+  private PositionalDeleteSink deleteSink(Table icebergTable, FileFormat format,
+      GenericAppenderFactory appenderFactory, OutputFileFactory fileFactory) {
+    if (deleteMode == DeleteMode.DELETION_VECTOR) {
+      // Deletion vectors are Puffin, not the table's data format. OutputFileFactory
+      // takes its file extension from the format it was built with, so reusing
+      // fileFactory here would name Puffin blobs ".parquet".
+      OutputFileFactory dvFileFactory = IcebergUtil.getTableOutputFileFactory(icebergTable, FileFormat.PUFFIN);
+      // A vector replaces the data file's previous one, so it has to be seeded with
+      // the positions already deleted or this commit would resurrect them.
+      return new PositionalDeleteSink.DeletionVectors(
+          dvFileFactory, new io.debezium.server.iceberg.tableIndex.PreviousDeleteLoader(icebergTable));
+    }
+    return new PositionalDeleteSink.PositionalFiles(format, appenderFactory, fileFactory, DELETE_GRANULARITY);
+  }
+
 }
