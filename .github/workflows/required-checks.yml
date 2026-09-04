@@ -1,20 +1,14 @@
 name: Required Checks
 
-# The one status check a pull request must pass before it can be merged. It runs no tests itself:
-# it watches every other workflow run on the PR's head commit and turns green only once all of them
-# have finished successfully.
+# Aggregator for the required merge check. Does not run tests; turns green
+# only after the other pull_request workflows on this head SHA have passed.
 #
-# Why one aggregate check instead of listing every job in the ruleset:
-#
-#   * Job names drift. The integration matrix names its jobs per driver ("Test postgres"), and a
-#     driver a PR does not touch never reports. A required check that never reports blocks the PR
-#     forever, with no re-run able to clear it.
-#   * A fork PR whose workflows are parked on "Approve and run" produces no check runs at all. This
-#     job is parked with them, so its check stays unreported, and the merge button stays disabled
-#     until a maintainer approves the runs AND the runs pass.
+# One check in the ruleset, not every job name: names change, and a required
+# job that never starts on a given PR would block merge forever.
 
 on:
   pull_request:
+    types: [opened, edited, reopened, synchronize, ready_for_review]
 
 # A new push supersedes the previous head commit, so the in-flight watcher for the old commit is
 # pointless. Cancelled, not left to burn a runner for an hour.
@@ -101,12 +95,22 @@ jobs:
           started=$(date +%s)
           deadline=$(( started + WATCH_MINUTES * 60 ))
 
-          # The full list of workflows that must appear, assembled from the two lists above.
+          # The full list of workflows that must appear. Both lists are YAML block scalars, so each
+          # already ends in a newline and plain concatenation is enough.
           must_run="$ALWAYS_REQUIRED"
           if [ "$CODE_CHANGED" = "true" ]; then
-            must_run="${must_run}
-          ${CODE_REQUIRED}"
+            must_run="${must_run}${CODE_REQUIRED}"
           fi
+
+          # Every exit prints the same shape: "<workflow>\t<status>\t<conclusion>" rows, to the log
+          # and to the job summary. $1 is the heading, $2 the rows.
+          report() {
+            printf '%s\n' "$2" | awk -F'\t' '{printf "  %-14s %s (%s)\n", toupper($2), $1, $3}'
+            {
+              echo "### Required checks: $1"
+              printf '%s\n' "$2" | awk -F'\t' '{print "- **" $1 "** — `" $2 "` / `" $3 "`"}'
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
 
           while :; do
             # All pull_request runs for this SHA.
@@ -123,52 +127,44 @@ jobs:
 
             # Failed: completed unsuccessfully, or fork still on "Approve and run".
             # skipped/neutral count as pass (same as GitHub required checks).
-            failed=$(awk -F'\t' '$2=="action_required" || ($2=="completed" && $3!="success" && $3!="skipped" && $3!="neutral")' state.tsv || true)
+            failed=$(awk -F'\t' '$2=="action_required" || ($2=="completed" && $3!="success" && $3!="skipped" && $3!="neutral")' state.tsv)
 
             # Not done yet: queued, in_progress, or waiting on environment approval.
-            pending=$(awk -F'\t' '$2!="completed" && $2!="action_required"' state.tsv || true)
+            pending=$(awk -F'\t' '$2!="completed" && $2!="action_required"' state.tsv)
 
             # A failure is final - no point waiting out the remaining hour of integration tests.
             if [ -n "$failed" ]; then
               echo "::error::workflows did not pass on $HEAD_SHA"
-              printf '%s\n' "$failed" | awk -F'\t' '{print "  FAILED  " $1 " (status=" $2 " conclusion=" $3 ")"}'
-              {
-                echo "### Required checks: failed"
-                printf '%s\n' "$failed" | awk -F'\t' '{print "- **" $1 "** — status `" $2 "`, conclusion `" $3 "`"}'
-              } >> "$GITHUB_STEP_SUMMARY"
+              report "failed" "$failed"
               exit 1
             fi
 
-            # Required workflows that have not shown up in the run list at all.
+            # Required workflows absent from the run list, shaped like the rows above so `report`
+            # can print them too. Read the names once: `cut | grep -q` would trip pipefail on the
+            # SIGPIPE cut takes when grep exits early, turning a match into a false "missing".
+            names=$(cut -f1 state.tsv)
             missing=""
             while IFS= read -r wf; do
-              wf=$(echo "$wf" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
               [ -n "$wf" ] || continue
-              cut -f1 state.tsv | grep -Fxq "$wf" || missing="${missing}${wf}"$'\n'
+              grep -Fxq "$wf" <<< "$names" || missing="${missing}${wf}"$'\tnot_started\t-\n'
             done <<< "$must_run"
+            missing=${missing%$'\n'}
 
             # The only green exit: nothing outstanding and nothing required is absent.
             if [ -z "$pending" ] && [ -z "$missing" ]; then
-              echo "All workflows on $HEAD_SHA passed:"
-              awk -F'\t' '{print "  ok  " $1 " (" $3 ")"}' state.tsv
-              {
-                echo "### Required checks: passed"
-                awk -F'\t' '{print "- " $1 " — `" $3 "`"}' state.tsv
-              } >> "$GITHUB_STEP_SUMMARY"
+              echo "All workflows on $HEAD_SHA passed"
+              report "passed" "$(cat state.tsv)"
               exit 0
             fi
 
+            outstanding=$(printf '%s\n%s\n' "$pending" "$missing" | grep -v '^$' || true)
             now=$(date +%s)
 
             # Runs register within seconds of the PR event, so past the grace window a required
             # workflow that is still absent is not late - it is not running at all.
             if [ -n "$missing" ] && [ $(( now - started )) -gt "$MUST_RUN_GRACE_SECONDS" ]; then
               echo "::error::required workflows never started on $HEAD_SHA"
-              printf '%s' "$missing" | sed 's/^/  MISSING  /'
-              {
-                echo "### Required checks: required workflows never started"
-                printf '%s' "$missing" | sed 's/^/- /'
-              } >> "$GITHUB_STEP_SUMMARY"
+              report "required workflows never started" "$missing"
               exit 1
             fi
 
@@ -176,13 +172,11 @@ jobs:
             # way, and the log says which run to go look at.
             if [ "$now" -ge "$deadline" ]; then
               echo "::error::timed out after $(( (now - started) / 60 ))m waiting on workflows"
-              [ -n "$pending" ] && printf '%s\n' "$pending" | awk -F'\t' '{print "  WAITING  " $1 " (" $2 ")"}'
-              [ -n "$missing" ] && printf '%s' "$missing" | sed 's/^/  MISSING  /'
+              report "timed out" "$outstanding"
               exit 1
             fi
 
             # Progress line each poll, so a long integration run shows what is holding the gate.
-            [ -n "$pending" ] && printf '%s\n' "$pending" | awk -F'\t' '{print "waiting: " $1 " (" $2 ")"}'
-            [ -n "$missing" ] && printf '%s' "$missing" | sed 's/^/not started yet: /'
+            printf '%s\n' "$outstanding" | awk -F'\t' '{print "waiting: " $1 " (" $2 ")"}'
             sleep "$POLL_SECONDS"
           done
