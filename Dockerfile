@@ -1,10 +1,10 @@
-FROM golang:1.25.13-bookworm AS makefiles
+FROM golang:1.26.8-bookworm AS makefiles
 WORKDIR /home/app
 COPY . .
 RUN mkdir /out && cp --parents Makefile $(find drivers -maxdepth 2 -name driver.mk) /out
 
 # Build Stage
-FROM golang:1.25.13-bookworm AS builder
+FROM golang:1.26.8-bookworm AS builder
 
 WORKDIR /home/app
 
