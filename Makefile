@@ -40,7 +40,7 @@ gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
 golangci.install:
-	@test -x $(GOPATH)/bin/golangci-lint || GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 # One golangci-lint run over every product module in go.work. Relative patterns on purpose: an
 # absolute <dir>/... for the root module sweeps into tests/, while ./... stays module-scoped.
