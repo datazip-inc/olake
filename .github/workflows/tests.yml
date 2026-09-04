@@ -1,0 +1,490 @@
+name: Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: 'Compat baseline: a release tag (v0.6.5), a full image ref, or a commit sha. Empty = the full manifest sweep.'
+        required: false
+        default: ''
+        type: string
+  push:
+    branches:
+      - "master"
+      - "staging"
+    paths: &paths
+      - '**/*.go'
+      - '**/go.mod'
+      - '**/go.work'
+      - '**/*.java'
+      - '**/pom.xml'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'Makefile'
+      - 'drivers/*/driver.mk'
+      - 'drivers/**.conf'
+      - 'constants/state-versions.json'
+      - 'tests/**'
+      - 'drivers/*/docker-compose.yml'
+      - 'destination/iceberg/local-test/**'
+      - '.golangci.yml'
+      - '.github/actions/**'
+      - '.github/scripts/**'
+      - '.github/workflows/tests.yml'
+      - '.github/workflows/test-preflight.yml'
+  pull_request:
+    branches:
+      - "*"
+    paths: *paths
+
+jobs:
+  preflight:
+    name: Pre-Validation
+    uses: ./.github/workflows/test-preflight.yml
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: read
+    with:
+      go-checks: true
+    secrets: inherit
+
+  approve:
+    name: Approve Test Deployment
+    needs: preflight
+    if: needs.preflight.outputs.drivers != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: ${{ github.event_name == 'pull_request' && 'integration_tests' || '' }}
+    outputs:
+      attempt: ${{ github.run_attempt }}
+      drivers: ${{ needs.preflight.outputs.drivers }}
+      driver-labels: ${{ needs.preflight.outputs.driver-labels }}
+      base-image-misses: ${{ needs.preflight.outputs.base-image-misses }}
+    env:
+      GATE_ENVIRONMENT: integration_tests
+    steps:
+      - name: Verify the approval gate is configured
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rules=$(gh api "repos/$GITHUB_REPOSITORY/environments/$GATE_ENVIRONMENT" --jq '[.protection_rules[].type] | join(",")')
+          echo "protection rules on $GATE_ENVIRONMENT: ${rules:-none}"
+          case ",$rules," in
+            *,required_reviewers,*) echo "the approval gate is configured" ;;
+            *) echo "::error::environment $GATE_ENVIRONMENT has no required_reviewers, so nothing was reviewed; add them in Settings -> Environments"
+               exit 1 ;;
+          esac
+
+      - run: echo "Approved -- running the end to end tests"
+
+  integration-tests:
+    name: Integration Test ${{ matrix.driver }}
+    needs: approve
+    runs-on: 16gb-runner
+    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: ${{ fromJSON(needs.approve.outputs.drivers) }}
+    steps:
+      - &checkout
+        name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # The iceberg catalog's postgres runs as uid 999 and has to own its bind mount.
+      - &data-dirs
+        name: Set up Data Directories
+        run: |
+          sudo mkdir -p destination/iceberg/local-test/data/{postgres-data,minio-data,ivy-cache}
+          sudo chown -R 999:999 destination/iceberg/local-test/data
+          sudo chmod -R 777 destination/iceberg/local-test/data
+
+      - &driver-deps
+        name: Restore driver external dependencies
+        uses: ./.github/actions/driver-deps
+
+      # Bounded so a wedged pull is a killed step rather than the job's whole budget.
+      - &containers
+        name: Start containers
+        id: containers
+        background: true
+        timeout-minutes: 15
+        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
+
+      - &docker-login
+        name: Log in to Docker Hub
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        run: |
+          if [ -n "$DOCKER_USERNAME" ]; then
+            echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+          else
+            echo "::notice::no Docker Hub credentials configured; pulling anonymously"
+          fi
+
+      - &buildx
+        name: Set up Docker Buildx
+        uses: ./.github/actions/buildx
+
+      - &jar
+        name: Restore Iceberg writer jar
+        uses: ./.github/actions/iceberg-jar
+
+      - &driver-image
+        name: Build driver image
+        id: image
+        background: true
+        timeout-minutes: 20
+        run: make docker.${{ matrix.driver }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ matrix.driver }} --load"
+
+      - &go
+        name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - &go-caches
+        name: Restore shared Go caches
+        uses: ./.github/actions/go-caches
+
+      - &test-build
+        name: Install Dependencies
+        id: go-build
+        timeout-minutes: 15
+        run: make test.build.${{ matrix.driver }}
+
+      - &wait-background
+        name: Wait for background jobs
+        wait: [containers, image, go-build]
+
+      - name: Publish the driver image
+        id: publish
+        background: true
+        timeout-minutes: 20
+        uses: ./.github/actions/driver-image
+        with:
+          driver: ${{ matrix.driver }}
+
+      - &wait-ready
+        name: Wait for source + destination readiness
+        timeout-minutes: 3
+        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
+
+      # Serial, once: olake processes reaching a fresh catalog race each other's CREATE TABLE on
+      # iceberg_tables, and the harness has no runtime fallback for that.
+      - &catalog
+        name: Check destination (bootstrap Iceberg catalog)
+        run: |
+          set -euo pipefail
+          echo "Bootstrapping Iceberg catalog via '${{ matrix.driver }}'..."
+          docker run --rm \
+            -v "$PWD/tests/testdata:/testdata" \
+            --add-host host.docker.internal:host-gateway \
+            -e TELEMETRY_DISABLED=true \
+            "olakego/source-${{ matrix.driver }}:local" \
+            check --destination /testdata/iceberg_destination.json
+
+      - name: Run integration tests
+        env:
+          OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
+        run: make test.integration.${{ matrix.driver }}
+
+      - name: Wait for the image upload
+        wait: [publish]
+
+  base-images:
+    name: Build base branch driver images
+    needs: approve
+    if: github.event_name == 'pull_request' && needs.approve.outputs.base-image-misses != '' && needs.approve.outputs.base-image-misses != '[]'
+    runs-on: 16gb-runner
+    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    permissions:
+      contents: read
+      packages: write
+    timeout-minutes: 30
+    steps:
+      - *checkout
+      - *docker-login
+      - *buildx
+
+      - name: Build base branch images
+        uses: ./.github/actions/commit-image
+        with:
+          drivers: ${{ join(fromJSON(needs.approve.outputs.base-image-misses), ' ') }}
+          sha: ${{ github.event.pull_request.base.sha }}
+          cache-repo: ghcr.io/${{ github.repository }}
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: tests/.compat-base
+
+  test-backward-compatibility:
+    name: Backwards Compatibility with ${{ github.event.pull_request.base.ref }}
+    needs: [approve, integration-tests, base-images]
+    if: ${{ !cancelled() && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+    strategy:
+      matrix:
+        baseline: ${{ fromJSON(github.event_name == 'pull_request' && format('["{0}"]', github.event.pull_request.base.sha) || '[]') }}
+    runs-on: 32gb-runner
+    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    timeout-minutes: 90
+    env:
+      DRIVERS: ${{ join(fromJSON(needs.approve.outputs.drivers), ' ') }}
+    steps:
+      - *checkout
+      - *data-dirs
+      - *driver-deps
+
+      - name: Start containers
+        id: containers
+        background: true
+        timeout-minutes: 20
+        run: make -j --output-sync=target olake.all.up DRIVERS="$DRIVERS"
+
+      - *docker-login
+      - *buildx
+      - *jar
+
+      - name: Restore driver images
+        id: image
+        background: true
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .github/scripts/restore-driver-images.sh
+
+      - name: Restore base branch images
+        id: base-image
+        background: true
+        timeout-minutes: 30
+        uses: ./.github/actions/commit-image
+        with:
+          drivers: ${{ join(fromJSON(needs.approve.outputs.drivers), ' ') }}
+          sha: ${{ matrix.baseline }}
+          cache-repo: ghcr.io/${{ github.repository }}
+          username: ${{ github.actor }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          path: tests/.compat-base
+
+      - *go
+      - *go-caches
+
+      - name: Install Dependencies
+        id: go-build
+        timeout-minutes: 20
+        run: make test.build.all DRIVERS="$DRIVERS"
+
+      - name: Wait for background jobs
+        wait: [containers, image, base-image, go-build]
+
+      - name: Wait for source + destination readiness
+        timeout-minutes: 5
+        run: make -j --output-sync=target olake.all.wait DRIVERS="$DRIVERS"
+
+      - name: Check destination (bootstrap Iceberg catalog)
+        run: |
+          set -euo pipefail
+          driver=${DRIVERS%% *}
+          echo "Bootstrapping Iceberg catalog via '$driver'..."
+          docker run --rm \
+            -v "$PWD/tests/testdata:/testdata" \
+            --add-host host.docker.internal:host-gateway \
+            -e TELEMETRY_DISABLED=true \
+            "olakego/source-$driver:local" \
+            check --destination /testdata/iceberg_destination.json
+
+      - name: Run the compatibility tests
+        env:
+          OLAKE_PRE_BUILT_IMAGE: "true"
+        run: make -k -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ matrix.baseline }}"
+
+  compatibility-sweep:
+    name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility Sweep
+    needs: approve
+    runs-on: 16gb-runner
+    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        driver: ${{ fromJSON((github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.base_ref == 'master')) && needs.approve.outputs.drivers || '[]') }}
+    steps:
+      - *checkout
+      - *data-dirs
+      - *driver-deps
+      - *containers
+      - *docker-login
+      - *buildx
+      - *jar
+      - *driver-image
+      - *go
+      - *go-caches
+      - *test-build
+      - *wait-background
+      - *wait-ready
+      - *catalog
+
+      - name: Run the compatibility sweep
+        env:
+          OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
+        run: make test.compatibility.${{ matrix.driver }} COMPATIBILITY_BASELINE="${{ inputs.baseline }}"
+
+  # Benchmarks against the remote instances, so it shares this run's preflight but none of its
+  # stack: no local containers, and the approval is its own environment (which is also where its AWS
+  # and VPN secrets live). Staging pushes only, which is where the benchmark history is kept.
+  performance-tests:
+    name: Performance ${{ matrix.driver }}
+    needs: approve
+    environment: Performance Testing
+    permissions:
+      actions: read
+      id-token: write
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # TODO: add benchmark tests for mongodb and oracle (instance ids TBD).
+      matrix:
+        include: ${{ fromJSON((github.event_name == 'push' && github.ref == 'refs/heads/staging') && '[{"driver":"mysql","driver_upper":"MYSQL","instance_id":8},{"driver":"postgres","driver_upper":"POSTGRES","instance_id":9}]' || '[]') }}
+
+    steps:
+      - *checkout
+      - *go
+      - *driver-deps
+
+      - name: Set up Java for Maven
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup VPN Client
+        if: matrix.driver != 'oracle'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y openvpn iproute2 iputils-ping netcat-openbsd telnet
+          sudo mkdir -p /etc/openvpn/client && sudo chmod 700 /etc/openvpn/client
+          echo "${{ secrets[format('{0}_OPENVPN_CONFIG', matrix.driver_upper)] }}" | base64 --decode | sudo tee /etc/openvpn/client/client.ovpn > /dev/null
+          echo "${{ secrets.OPENVPN_USERNAME }}" | sudo tee /etc/openvpn/client/auth.txt > /dev/null
+          sudo chmod 600 /etc/openvpn/client/client.ovpn /etc/openvpn/client/auth.txt
+          sudo chown root:root /etc/openvpn/client/client.ovpn /etc/openvpn/client/auth.txt
+          sudo openvpn --config /etc/openvpn/client/client.ovpn --daemon ovpn-client --log /var/log/openvpn-client.log --verb 3
+          echo "Establishing VPN connection..."
+          for i in {1..30}; do
+            if ip addr show | grep -q "tun0\|tap0"; then echo "✅ VPN connected"; break; fi
+            [ $i -eq 30 ] && { echo "❌ VPN timeout"; sudo cat /var/log/openvpn-client.log; exit 1; }
+            sleep 2
+          done
+          sudo resolvectl dns tun0 ${{ secrets.VPN_DNS_SERVER }}
+          sudo resolvectl domain tun0 ~private.postgres.database.azure.com
+
+      - name: Wake up server
+        if: matrix.driver != 'oracle'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.TESTING_SERVER_SSH_KEY }}" | base64 --decode > ~/.ssh/key.pem
+          chmod 600 ~/.ssh/key.pem
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/key.pem ${{ secrets.TESTING_SERVER_SSH_USER_HOST }} "/usr/local/bin/wake-up ${{ matrix.instance_id }}"
+          echo "Waiting 2 minutes for database to be ready..."
+          sleep 120
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-session-name: performance_test_gh
+          role-to-assume: ${{ secrets.AWS_GITHUB_ROLE }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Install Go Dependencies
+        working-directory: ./tests/testutils
+        run: go mod download
+
+      - *jar
+
+      - name: Build Driver Image
+        run: make docker.${{ matrix.driver }}.build
+
+      - name: Create source
+        run: |
+          echo '${{ secrets[format('{0}_SOURCE_JSON', matrix.driver_upper)] }}' | base64 --decode > ./tests/${{ matrix.driver }}/testdata/source.json
+
+      - name: Create destination
+        run: |
+          echo '${{ secrets[format('{0}_DESTINATION_JSON', matrix.driver_upper)] }}' | base64 --decode > ./tests/${{ matrix.driver }}/testdata/iceberg_destination.json
+    
+      - name: Get Last Successful Run ID
+        id: last_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PREVIOUS_ID=$(gh run list --workflow ".github/workflows/tests.yml" --branch "staging" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          
+          if [ -n "$PREVIOUS_ID" ]; then
+            echo "id=$PREVIOUS_ID" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download Benchmarks History
+        if: steps.last_run.outputs.id != ''
+        uses: actions/download-artifact@v8
+        continue-on-error: true
+        with:
+          name: benchmarks_${{ matrix.driver }}
+          path: ./tests/${{ matrix.driver }}/testdata/
+          run-id: ${{ steps.last_run.outputs.id }}
+          github-token: ${{ github.token }}
+
+      - name: Run Performance Tests
+        run: make test.performance.${{ matrix.driver }}
+
+      - name: Upload Benchmarks History
+        uses: actions/upload-artifact@v7
+        if: success()
+        continue-on-error: true
+        with:
+          name: benchmarks_${{ matrix.driver }}
+          path: ./tests/${{ matrix.driver }}/testdata/benchmarks.json
+          retention-days: 90
+   
+      - name: Sleep server
+        if: always() && matrix.driver != 'oracle'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.TESTING_SERVER_SSH_KEY }}" | base64 --decode > ~/.ssh/key.pem
+          chmod 600 ~/.ssh/key.pem
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -i ~/.ssh/key.pem ${{ secrets.TESTING_SERVER_SSH_USER_HOST }} "/usr/local/bin/sleep-off ${{ matrix.instance_id }}"
+          rm -f ~/.ssh/key.pem
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Delete all Glue databases matching prefix
+          for db in $(aws glue get-databases \
+            --query "DatabaseList[?starts_with(Name, 'performance_${{ matrix.driver }}')].Name" \
+            --output text); do
+            echo "Deleting Glue database: $db"
+            aws glue delete-database --name "$db" \
+            || echo "Failed to delete Glue database: $db"
+          done
+
+          # Delete corresponding S3 path
+          aws s3 rm s3://dz-stag-github-actions/performance_${{ matrix.driver }}/ --recursive \
+          || { echo "Failed to delete S3 bucket: performance_${{ matrix.driver }}"; \
+          aws s3 ls s3://dz-stag-github-actions/performance_${{ matrix.driver }} || true; }
+
+          echo "Catalog cleanup completed"
+
+          if [[ "${{ matrix.driver }}" != "oracle" ]]; then
+              sudo pkill -f "openvpn.*client.ovpn" || true
+              sudo rm -rf /etc/openvpn/client/ /var/log/openvpn-client.log || true
+              echo "VPN cleanup completed"
+          fi

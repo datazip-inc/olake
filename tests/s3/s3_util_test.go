@@ -10,22 +10,22 @@ import (
 	"maps"
 	"math"
 	"math/big"
-	"net"
 	"net/url"
 	"os"
-	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 	pq "github.com/parquet-go/parquet-go"
 	"github.com/parquet-go/parquet-go/deprecated"
-	"github.com/stretchr/testify/require"
 )
 
 // The S3 integration test reuses the MinIO instance from the Iceberg destination stack
@@ -229,7 +229,7 @@ var (
 
 	// S3CSVToDestinationSchema and S3JSONToDestinationSchema are the expected destination
 	// schemas for the two text variants, whose parsers infer every number as double. They
-	// share the text columns and differ where the formats do: only CSV can carry an
+	// share the text columns and differ where the variants do: only CSV can carry an
 	// all-empty column, only JSON can carry missing fields and nested values.
 	S3CSVToDestinationSchema = s3TextDestinationSchema(map[string]string{
 		"null_col": "string",
@@ -516,7 +516,9 @@ func mustJSON(v any) string {
 }
 
 // buildFileFn renders rowsPerFile rows carrying vals, with ids startID..startID+rowsPerFile-1.
-type buildFileFn func(t *testing.T, startID int64, vals rowValues) []byte
+// buildFileFn renders one source file. excluded names the seed columns the compatibility suite is
+// leaving out for this baseline (CompatibilityColumnRule.ExcludeBelow); it is empty everywhere else.
+type buildFileFn func(t *testing.T, startID int64, vals rowValues, excluded []string) []byte
 
 // S3TestVariant describes one source file format exercised by TestS3Integration. Each
 // variant owns a testdata/<DataFormat>/ directory holding its committed source.json,
@@ -536,10 +538,11 @@ type S3TestVariant struct {
 	// UpdatedDestinationSchema is the destination schema after the "evolve-schema"
 	// operation ran; same as DestinationSchema where BuildEvolvedFile is nil.
 	UpdatedDestinationSchema map[string]string
-	// ExpectedData and ExpectedUpdatedData are the values every synced row must carry. They
-	// are per variant because a Parquet file can express types that CSV and JSON cannot.
-	ExpectedData        map[string]interface{}
-	ExpectedUpdatedData map[string]interface{}
+	// ExpectedRowData builds the values every synced row must carry -- per variant, because a
+	// Parquet file can express types CSV and JSON cannot. A builder rather than a map: each
+	// config needs its own, since applyWriterExpectations rewrites them per destination writer
+	// and the compatibility suite runs six configs of one variant at once.
+	ExpectedRowData func(v rowValues) map[string]interface{}
 	// WriterExpectedData returns the expected values for the columns whose synced value
 	// depends on which destination writer ran (see textWriterExpectedData). Merged into
 	// ExpectedData/ExpectedUpdatedData by applyWriterExpectations; nil when every column
@@ -548,6 +551,9 @@ type S3TestVariant struct {
 	// ParquetStreaming is the parquet.streaming_enabled value every sync of the variant
 	// runs with; meaningful only when DataFormat is "parquet" (see applyParquetStreamingMode).
 	ParquetStreaming bool
+	// FilterConfig is the filter every sync of the variant runs with. XML infers every column
+	// as a string, so its conditions stay string-only or they match no row at all.
+	FilterConfig string
 }
 
 // S3TestVariants lists every source format covered by TestS3Integration.
@@ -561,9 +567,9 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedCSVFile,
 		DestinationSchema:        S3CSVToDestinationSchema,
 		UpdatedDestinationSchema: S3CSVUpdatedDestinationSchema,
-		ExpectedData:             expectedCSVData(seedValues),
-		ExpectedUpdatedData:      expectedCSVData(updatedValues),
+		ExpectedRowData:          expectedCSVData,
 		WriterExpectedData:       textWriterExpectedData,
+		FilterConfig:             S3FilterConfig,
 	},
 	{
 		Name:                     "JSON",
@@ -574,9 +580,9 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedJSONLFile,
 		DestinationSchema:        S3JSONToDestinationSchema,
 		UpdatedDestinationSchema: S3JSONUpdatedDestinationSchema,
-		ExpectedData:             expectedJSONData(seedValues),
-		ExpectedUpdatedData:      expectedJSONData(updatedValues),
+		ExpectedRowData:          expectedJSONData,
 		WriterExpectedData:       textWriterExpectedData,
+		FilterConfig:             S3FilterConfig,
 	},
 	{
 		// Identical to Parquet except streaming_enabled=false: every sync loads whole files
@@ -588,9 +594,9 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedParquetFile,
 		DestinationSchema:        S3ParquetToDestinationSchema,
 		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
-		ExpectedData:             expectedParquetData(seedValues),
-		ExpectedUpdatedData:      expectedParquetData(updatedValues),
+		ExpectedRowData:          expectedParquetData,
 		WriterExpectedData:       parquetWriterExpectedData,
+		FilterConfig:             S3FilterConfig,
 	},
 	{
 		// The driver's file matcher recognizes no gzip variant for Parquet, so this stream
@@ -602,10 +608,10 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedParquetFile,
 		DestinationSchema:        S3ParquetToDestinationSchema,
 		UpdatedDestinationSchema: S3ParquetUpdatedDestinationSchema,
-		ExpectedData:             expectedParquetData(seedValues),
-		ExpectedUpdatedData:      expectedParquetData(updatedValues),
+		ExpectedRowData:          expectedParquetData,
 		WriterExpectedData:       parquetWriterExpectedData,
 		ParquetStreaming:         true,
+		FilterConfig:             S3FilterConfig,
 	},
 	{
 		Name:                     "XML",
@@ -616,9 +622,9 @@ var S3TestVariants = []S3TestVariant{
 		BuildEvolvedFile:         buildEvolvedXMLFile,
 		DestinationSchema:        S3XMLToDestinationSchema,
 		UpdatedDestinationSchema: S3XMLUpdatedDestinationSchema,
-		ExpectedData:             expectedXMLData(seedValues),
-		ExpectedUpdatedData:      expectedXMLData(updatedValues),
+		ExpectedRowData:          expectedXMLData,
 		WriterExpectedData:       textWriterExpectedData,
+		FilterConfig:             S3XMLFilterConfig,
 	},
 }
 
@@ -630,13 +636,15 @@ type s3Source struct {
 	prefix string
 }
 
-func (v S3TestVariant) source(t *testing.T) s3Source {
+// source reads the suite's own source config: applySuite rewrites path_prefix there per suite, and
+// uploads have to land where discover will look.
+func (v S3TestVariant) source(t *testing.T, conf *testutils.TestConfig) s3Source {
 	t.Helper()
 
-	config := testutils.ReadSourceConfig(t, filepath.Join("testdata", v.DataFormat, "source.json"))
+	config := conf.SourceBaseConfig
 	endpoint, err := url.Parse(config.String("endpoint"))
 	require.NoError(t, err, "failed to parse endpoint")
-	client, err := minio.New(net.JoinHostPort("127.0.0.1", endpoint.Port()), &minio.Options{
+	client, err := minio.New(testutils.HostAddress(endpoint.Host), &minio.Options{
 		Creds: credentials.NewStaticV4(config.String("access_key_id"), config.String("secret_access_key"), ""),
 	})
 	require.NoError(t, err, "failed to create MinIO client")
@@ -674,14 +682,12 @@ const (
 	writerArrow s3DestinationWriter = "arrow"
 )
 
-// currentDestinationWriter reads the live arrow_writes flag from the destination config the
-// next sync will run with, and reports which writer that is.
-func (v S3TestVariant) currentDestinationWriter(t *testing.T, config *testutils.TestConfig) s3DestinationWriter {
+// currentDestinationWriter reads the arrow_writes flag out of destinationFile, the destination
+// config the next sync will run with, and reports which writer that is.
+func (v S3TestVariant) currentDestinationWriter(t *testing.T, config *testutils.TestConfig, destinationFile string) s3DestinationWriter {
 	t.Helper()
 
-	// The harness picks a writer by swapping IcebergDestinationPath between two files in its
-	// private working directory (see testIcebergWriter)
-	destPath := filepath.Join(config.HostTestDataPath, filepath.Base(config.IcebergDestinationPath))
+	destPath := config.GetFilePath(destinationFile)
 	data, err := os.ReadFile(destPath)
 	require.NoError(t, err, "failed to read %s", destPath)
 	var destConfig struct {
@@ -698,19 +704,18 @@ func (v S3TestVariant) currentDestinationWriter(t *testing.T, config *testutils.
 }
 
 // applyWriterExpectations retargets the writer-dependent expected values at the writer the
-// next sync will use. The harness toggles arrow_writes in the variant's
-// iceberg_destination.json before each Iceberg writer block but asserts every block against
-// the same ExpectedData maps, so this hook -- the only variant-owned code that runs between
-// the toggle and the verification -- reads the live flag and updates the maps in place.
-func (v S3TestVariant) applyWriterExpectations(t *testing.T, config *testutils.TestConfig) {
+// next sync will use. Each Iceberg writer block names its own destination config but asserts
+// against the same ExpectedData maps, so this hook -- the only variant-owned code that runs
+// between the switch and the verification -- reads the live flag and updates the maps in place.
+func (v S3TestVariant) applyWriterExpectations(t *testing.T, cfg *integration.Test, config *testutils.TestConfig) {
 	t.Helper()
 	if v.WriterExpectedData == nil {
 		return
 	}
 
-	writer := v.currentDestinationWriter(t, config)
-	maps.Copy(v.ExpectedData, v.WriterExpectedData(seedValues, writer))
-	maps.Copy(v.ExpectedUpdatedData, v.WriterExpectedData(updatedValues, writer))
+	writer := v.currentDestinationWriter(t, config, cfg.IcebergDestinationFile())
+	maps.Copy(cfg.ExpectedData, v.WriterExpectedData(seedValues, writer))
+	maps.Copy(cfg.ExpectedUpdatedData, v.WriterExpectedData(updatedValues, writer))
 }
 
 // applyParquetStreamingMode pins parquet.streaming_enabled in this config's source.json
@@ -720,7 +725,7 @@ func (v S3TestVariant) applyParquetStreamingMode(t *testing.T, config *testutils
 		return
 	}
 
-	path := config.HostSourcePath
+	path := config.GetFilePath("source.json")
 	data, err := os.ReadFile(path)
 	require.NoError(t, err, "failed to read %s", path)
 
@@ -740,18 +745,20 @@ func (v S3TestVariant) applyParquetStreamingMode(t *testing.T, config *testutils
 // the variant's path prefix: "create" ensures the bucket exists, "add" seeds the stream,
 // "insert"/"update" upload a further file each, and "clean"/"drop" remove everything under
 // the prefix.
-func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
+// Columns named in conf.SeedExcludedColumns are left out of the files this uploads entirely.
+func ExecuteQueryFactory(variant S3TestVariant, cfg *integration.Test) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	return func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 		t.Helper()
+		excluded := conf.SeedExcludedColumns
 
 		// Every destination block starts by re-seeding the source through this hook, so
 		// refreshing the expectations here keeps them aligned with whichever writer the
-		// harness toggled the destination to since the last operation.
-		variant.applyWriterExpectations(t, conf)
+		// harness pointed the destination at since the last operation.
+		variant.applyWriterExpectations(t, cfg, conf)
 		variant.applyParquetStreamingMode(t, conf)
 
-		src := variant.source(t)
-		prefix := src.prefix + "/" + testutils.TestTableName(conf) + "/"
+		src := variant.source(t, conf)
+		prefix := src.prefix + "/" + conf.GetTableName() + "/"
 
 		switch operation {
 		case "drop-all":
@@ -773,19 +780,19 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 			src.removeUnder(ctx, t, prefix)
 
 		case "add":
-			// One plain file and, where the format allows it, one gzipped: a single stream
+			// One plain file and, where the variant allows it, one gzipped: a single stream
 			// mixing both proves compression is detected per file rather than per stream.
-			variant.putFile(ctx, t, src, prefix, "seed_1", variant.BuildFile, 1, seedValues, false, false)
-			variant.putFile(ctx, t, src, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped, false)
+			variant.putFile(ctx, t, src, prefix, "seed_1", variant.BuildFile, 1, seedValues, false, false, excluded)
+			variant.putFile(ctx, t, src, prefix, "seed_2", variant.BuildFile, 4, seedValues, variant.Gzipped, false, excluded)
 
 		case "insert":
 			// A file the incremental cursor has not seen: it is stamped after the previous
 			// sync, so only its rows are re-read.
-			variant.putFile(ctx, t, src, prefix, "insert_1", variant.BuildFile, 7, seedValues, false, true)
+			variant.putFile(ctx, t, src, prefix, "insert_1", variant.BuildFile, 7, seedValues, false, true, excluded)
 
 		case "update":
 			// Object stores have no in-place update: changed data arrives as another file.
-			variant.putFile(ctx, t, src, prefix, "update_1", variant.BuildFile, 10, updatedValues, false, true)
+			variant.putFile(ctx, t, src, prefix, "update_1", variant.BuildFile, 10, updatedValues, false, true, excluded)
 
 		case "evolve-schema":
 			// An object store's ALTER TABLE: a file whose rows carry a column discover has
@@ -795,7 +802,7 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 			// ExpectedUpdatedData; evolvedColumn itself is asserted through the schema, not
 			// per row, since the "update" file's rows sync a null there.
 			if variant.BuildEvolvedFile != nil {
-				variant.putFile(ctx, t, src, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false, true)
+				variant.putFile(ctx, t, src, prefix, "evolve_1", variant.BuildEvolvedFile, 13, updatedValues, false, true, excluded)
 			}
 
 		default:
@@ -807,10 +814,10 @@ func ExecuteQueryFactory(variant S3TestVariant) func(ctx context.Context, t *tes
 // putFile renders one file with build and uploads it under prefix. Gzipped files get a
 // ".gz" suffix, which is what both the driver's file matcher and its reader use to detect
 // compression.
-func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped bool, wait bool) {
+func (v S3TestVariant) putFile(ctx context.Context, t *testing.T, src s3Source, prefix, name string, build buildFileFn, startID int64, vals rowValues, gzipped, wait bool, excluded []string) {
 	t.Helper()
 
-	data := build(t, startID, vals)
+	data := build(t, startID, vals, excluded)
 	ext := v.PlainExt
 	if gzipped {
 		data = gzipBytes(t, data)
@@ -854,14 +861,15 @@ func mixedValue(id int64) (csvCell, jsonToken string) {
 	}
 }
 
-func buildCSVFile(_ *testing.T, startID int64, vals rowValues) []byte {
+func buildCSVFile(t *testing.T, startID int64, vals rowValues, excluded []string) []byte {
+	evolvedColumnExcluded(t, excluded)
 	return csvFile(startID, vals, false)
 }
 
 // buildEvolvedCSVFile is buildCSVFile plus evolvedColumn: a header the discovered schema
 // lacks, which the parser must stream through for the destination to evolve.
-func buildEvolvedCSVFile(_ *testing.T, startID int64, vals rowValues) []byte {
-	return csvFile(startID, vals, true)
+func buildEvolvedCSVFile(t *testing.T, startID int64, vals rowValues, excluded []string) []byte {
+	return csvFile(startID, vals, !evolvedColumnExcluded(t, excluded))
 }
 
 func csvFile(startID int64, vals rowValues, evolved bool) []byte {
@@ -875,7 +883,7 @@ func csvFile(startID int64, vals rowValues, evolved bool) []byte {
 		id := startID + i
 		mixed, _ := mixedValue(id)
 		// null_col is the empty cell after mixed_col: CSV cannot omit a column, so an
-		// empty value is how the format spells null.
+		// empty value is how the variant spells null.
 		b.WriteString(fmt.Sprintf("%d,%s,%t,%v,%d,%s,,%s,%s,%s,%s,%s,%s",
 			id, vals.Str, vals.Bool, vals.Float, vals.Int64, mixed,
 			vals.TS.UTC().Format(time.DateOnly),
@@ -892,13 +900,14 @@ func csvFile(startID int64, vals rowValues, evolved bool) []byte {
 	return []byte(b.String())
 }
 
-func buildJSONLFile(_ *testing.T, startID int64, vals rowValues) []byte {
+func buildJSONLFile(t *testing.T, startID int64, vals rowValues, excluded []string) []byte {
+	evolvedColumnExcluded(t, excluded)
 	return jsonlFile(startID, vals, false)
 }
 
 // buildEvolvedJSONLFile is buildJSONLFile plus evolvedColumn on every record.
-func buildEvolvedJSONLFile(_ *testing.T, startID int64, vals rowValues) []byte {
-	return jsonlFile(startID, vals, true)
+func buildEvolvedJSONLFile(t *testing.T, startID int64, vals rowValues, excluded []string) []byte {
+	return jsonlFile(startID, vals, !evolvedColumnExcluded(t, excluded))
 }
 
 func jsonlFile(startID int64, vals rowValues, evolved bool) []byte {
@@ -937,12 +946,13 @@ func jsonlFile(startID int64, vals rowValues, evolved bool) []byte {
 	return []byte(b.String())
 }
 
-func buildXMLFile(_ *testing.T, startID int64, vals rowValues) []byte {
+func buildXMLFile(t *testing.T, startID int64, vals rowValues, excluded []string) []byte {
+	evolvedColumnExcluded(t, excluded)
 	return xmlFile(startID, vals, false)
 }
 
-func buildEvolvedXMLFile(_ *testing.T, startID int64, vals rowValues) []byte {
-	return xmlFile(startID, vals, true)
+func buildEvolvedXMLFile(t *testing.T, startID int64, vals rowValues, excluded []string) []byte {
+	return xmlFile(startID, vals, !evolvedColumnExcluded(t, excluded))
 }
 
 func xmlFile(startID int64, vals rowValues, evolved bool) []byte {
@@ -1108,17 +1118,37 @@ func parquetTestGroup() pq.Group {
 	}
 }
 
-var (
-	parquetTestSchema = pq.NewSchema("s3_parquet_row", parquetTestGroup())
+// parquetGroupExcluding is the seed's column group minus the columns this baseline cannot read.
+// Any column the group declares can be left out, so a rule in compatibility_rules.json naming a new
+// one needs nothing declared here.
+func parquetGroupExcluding(t *testing.T, excluded []string) pq.Group {
+	t.Helper()
+	group := parquetTestGroup()
 
-	// evolvedParquetTestSchema is the base schema plus evolvedColumn, for the file the
-	// "evolve-schema" operation uploads.
-	evolvedParquetTestSchema = pq.NewSchema("s3_parquet_row", func() pq.Group {
-		group := parquetTestGroup()
-		group[evolvedColumn] = pq.String()
-		return group
-	}())
-)
+	names := make([]string, 0, len(group)+1)
+	for column := range group {
+		names = append(names, column)
+	}
+	names = append(names, evolvedColumn)
+
+	drop, err := testutils.SeedColumnsExcluded(excluded, names)
+	require.NoError(t, err, "s3 parquet seed exclusion")
+
+	for column := range drop {
+		delete(group, column)
+	}
+	return group
+}
+
+// evolvedColumnExcluded reports whether the compatibility suite is holding the evolve column back for
+// this baseline. It is the one column the text variants know how to leave out, so it doubles as
+// their guard: any other name fails loudly rather than seeding what the baseline cannot survive.
+func evolvedColumnExcluded(t *testing.T, excluded []string) bool {
+	t.Helper()
+	drop, err := testutils.SeedColumnsExcluded(excluded, []string{evolvedColumn})
+	require.NoError(t, err, "s3 seed exclusion")
+	return drop[evolvedColumn]
+}
 
 func makeParquetRow(id int64, vals rowValues) parquetRow {
 	row := parquetRow{
@@ -1178,14 +1208,14 @@ func makeParquetRow(id int64, vals rowValues) parquetRow {
 	return row
 }
 
-func buildParquetFile(t *testing.T, startID int64, vals rowValues) []byte {
+func buildParquetFile(t *testing.T, startID int64, vals rowValues, excluded []string) []byte {
 	t.Helper()
 	rows := make([]parquetRow, 0, rowsPerFile)
 	for i := int64(0); i < rowsPerFile; i++ {
 		rows = append(rows, makeParquetRow(startID+i, vals))
 	}
 
-	return writeParquetRows(t, parquetTestSchema, rows)
+	return writeParquetRows(t, pq.NewSchema("s3_parquet_row", parquetGroupExcluding(t, excluded)), rows)
 }
 
 func writeParquetRows(t *testing.T, schema *pq.Schema, rows []parquetRow) []byte {
@@ -1206,7 +1236,7 @@ func writeParquetRows(t *testing.T, schema *pq.Schema, rows []parquetRow) []byte
 
 // buildEvolvedParquetFile is buildParquetFile plus evolvedColumn on every row: a column
 // the discovered schema lacks, which the parser hands through for the destination to evolve.
-func buildEvolvedParquetFile(t *testing.T, startID int64, vals rowValues) []byte {
+func buildEvolvedParquetFile(t *testing.T, startID int64, vals rowValues, excluded []string) []byte {
 	t.Helper()
 	rows := make([]parquetRow, 0, rowsPerFile)
 	for i := int64(0); i < rowsPerFile; i++ {
@@ -1215,7 +1245,11 @@ func buildEvolvedParquetFile(t *testing.T, startID int64, vals rowValues) []byte
 		rows = append(rows, row)
 	}
 
-	return writeParquetRows(t, evolvedParquetTestSchema, rows)
+	group := parquetGroupExcluding(t, excluded)
+	if !slices.Contains(excluded, evolvedColumn) {
+		group[evolvedColumn] = pq.String()
+	}
+	return writeParquetRows(t, pq.NewSchema("s3_parquet_row", group), rows)
 }
 
 // decimalToFixedBytes renders the unscaled integer as the 16 byte big-endian two's

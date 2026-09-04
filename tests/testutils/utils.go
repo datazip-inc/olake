@@ -4,10 +4,15 @@
 package testutils
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,38 +69,64 @@ func FileLoggerWithPath(content any, path string) error {
 	return nil
 }
 
-// NormalizedEqual compares two JSON documents ignoring whitespace and ordering.
+// NormalizedEqual reports whether two JSON documents are structurally equal, ignoring
+// whitespace, object key order and array order.
 func NormalizedEqual(strune1, strune2 string) bool {
-	normalize := func(s string) (string, error) {
+	decode := func(s string) (interface{}, bool) {
+		var doc interface{}
+		if json.Unmarshal([]byte(s), &doc) == nil {
+			return canonicalJSON(doc), true
+		}
 		start := strings.IndexRune(s, '{')
 		end := strings.LastIndex(s, "}")
 		if start < 0 || end < 0 || start > end {
-			return "", fmt.Errorf("no valid JSON object found")
+			return nil, false
 		}
-		core := s[start : end+1]
-		core = strings.ReplaceAll(core, " ", "")
-		core = strings.ReplaceAll(core, "\n", "")
-		core = strings.ReplaceAll(core, "\t", "")
-		return core, nil
+		if json.Unmarshal([]byte(s[start:end+1]), &doc) != nil {
+			return nil, false
+		}
+		return canonicalJSON(doc), true
 	}
 
-	c1, err := normalize(strune1)
-	if err != nil {
+	d1, ok1 := decode(strune1)
+	d2, ok2 := decode(strune2)
+	if !ok1 || !ok2 {
 		return false
 	}
-	c2, err := normalize(strune2)
-	if err != nil {
-		return false
-	}
+	return jsonCanonicalString(d1) == jsonCanonicalString(d2)
+}
 
-	rune1 := []rune(c1)
-	rune2 := []rune(c2)
-	if len(rune1) != len(rune2) {
-		return false
+// canonicalJSON rewrites a decoded document so that array order carries no meaning: every array
+// is sorted by its own serialization. Object key order is already canonical because encoding/json
+// marshals map keys sorted.
+func canonicalJSON(v interface{}) interface{} {
+	switch v := v.(type) {
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			out[key] = canonicalJSON(val)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, 0, len(v))
+		for _, elem := range v {
+			out = append(out, canonicalJSON(elem))
+		}
+		sort.Slice(out, func(i, j int) bool {
+			return jsonCanonicalString(out[i]) < jsonCanonicalString(out[j])
+		})
+		return out
+	default:
+		return v
 	}
-	sort.Slice(rune1, func(i, j int) bool { return rune1[i] < rune1[j] })
-	sort.Slice(rune2, func(i, j int) bool { return rune2[i] < rune2[j] })
-	return string(rune1) == string(rune2)
+}
+
+func jsonCanonicalString(v interface{}) string {
+	encoded, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(encoded)
 }
 
 // Reformat lowercases key and replaces every non-alphanumeric symbol with '_', matching how
@@ -169,4 +200,127 @@ func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f fu
 		}
 	}
 	return err
+}
+
+func Combine(components ...string) string {
+	parts := make([]string, 0, len(components))
+	for _, str := range components {
+		if str != "" {
+			parts = append(parts, str)
+		}
+	}
+	return strings.Join(parts, "_")
+}
+
+type editFunc func(map[string]interface{}) error
+
+// CopyJSONWithEdit reads the JSON at src, applies edit, and writes the result to dst --
+// used to derive a per-suite config from a shared base file without touching the base.
+func CopyJSONWithEdit(src, dst string, edit editFunc) error {
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %s", src, err)
+	}
+	doc, err := ParseJSONDoc(raw)
+	if err != nil {
+		return fmt.Errorf("failed to parse %s: %s", src, err)
+	}
+	if err := edit(doc); err != nil {
+		return err
+	}
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s: %s", dst, err)
+	}
+	return WriteHostFile(dst, out)
+}
+
+// ParseJSONDoc decodes a JSON object keeping numbers as json.Number, so values the edit does not
+// touch round-trip as their original literals instead of through float64 (which corrupts int64s
+// beyond 2^53 and renders large values in scientific notation).
+func ParseJSONDoc(raw []byte) (map[string]interface{}, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var doc map[string]interface{}
+	return doc, dec.Decode(&doc)
+}
+
+// SeedColumnsExcluded is the fixture-side guard for seed exclusion: it verifies every requested
+// column is one the fixture knows how to leave out, so an unknown name fails loudly instead of
+// silently seeding a column the baseline cannot survive.
+func SeedColumnsExcluded(excluded, supported []string) (map[string]bool, error) {
+	drop := make(map[string]bool, len(excluded))
+	for _, col := range excluded {
+		if !slices.Contains(supported, col) {
+			return nil, fmt.Errorf("column %q cannot be excluded from the seed data; the fixture supports excluding only %s",
+				col, strings.Join(supported, ", "))
+		}
+		drop[col] = true
+	}
+	return drop, nil
+}
+
+// CopyDirFiles copies every file in src into dst, replacing what is already there. Files only:
+// a driver's data-format fixtures are a directory of their own, copied as their own source.
+func CopyDirFiles(src, dst string) error {
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %s", src, err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if err := CopyFile(filepath.Join(src, entry.Name()), filepath.Join(dst, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RepoRoot is the git checkout the tests run from. Read straight from git rather than derived from
+// the running test's directory, which is the one thing here the repo layout does not fix.
+func RepoRoot() (string, error) {
+	root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(root)), nil
+}
+
+// ResolveToCommit tells if the string passed resolved to a git commit and returns it, abbreviated
+// the way git itself abbreviates: the short form is what names the image and every path and
+// identifier derived from it, and a full 40-char sha overruns limits those have -- Postgres caps a
+// replication slot name at 63 characters and truncates the overflow silently.
+func ResolveToCommit(gitRootPath, str string) (string, bool) {
+	str = strings.TrimPrefix(str, "sha:")
+	commitPattern := regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+	if !commitPattern.MatchString(str) {
+		return "", false
+	}
+	// --short both verifies the commit exists and picks a length git considers unambiguous here.
+	short, err := exec.Command("git", "-C", gitRootPath, "rev-parse", "--short", str+"^{commit}").Output()
+	if err != nil {
+		return "", false
+	}
+
+	return strings.TrimSpace(string(short)), true
+}
+
+const (
+	red   = "\033[31m"
+	reset = "\033[0m"
+)
+
+// Red paints every non-empty line of message red, the color the harness reports a failure in:
+// an assertion's own report, or a diagnostic logged on the way to one. Painting per line
+// survives the indentation go test adds to continuation lines.
+func Red(message string) string {
+	lines := strings.Split(message, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = red + line + reset
+		}
+	}
+	return strings.Join(lines, "\n")
 }

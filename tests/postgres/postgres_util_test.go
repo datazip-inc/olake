@@ -8,8 +8,10 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
+	"github.com/datazip-inc/olake/tests/testutils/performance"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	"github.com/jmoiron/sqlx"
-	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -24,18 +26,21 @@ var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
 func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	var connStr string
-	if config := conf.SourceBaseConfig; config != nil {
-		connStr = fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=require",
-			config.String("username"),
-			config.String("password"),
-			config.String("host"),
-			config.Int("port"),
-			config.String("database"),
-		)
-	} else {
-		connStr = "postgres://postgres@localhost:5433/postgres?sslmode=disable"
+	config := conf.SourceBaseConfig
+	// A config without an ssl block is a remote one (the perf instances); those are reached over
+	// TLS, which is what this connection assumed before it read the mode from the config at all.
+	sslMode := config.Sub("ssl").String("mode")
+	if sslMode == "" {
+		sslMode = "require"
 	}
+	connStr := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		config.String("username"),
+		config.String("password"),
+		config.Host("host"),
+		config.Int("port"),
+		config.String("database"),
+		sslMode,
+	)
 	db, ok := sqlx.ConnectContext(ctx, "postgres", connStr)
 	require.NoError(t, ok, "failed to connect to postgres")
 	defer func() {
@@ -43,7 +48,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	}()
 
 	// integration test uses only one stream for testing
-	integrationTestTable := testutils.TestTableName(conf)
+	integrationTestTable := conf.GetTableName()
+	replicationSlot := config.Sub("update_method").String("replication_slot")
 	var query string
 
 	switch operation {
@@ -264,7 +270,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		// insert records in batches
 		batchSize := 300_000
 		totalRows := 15_000_000
-		backfillStreams := testutils.GetBackfillStreamsFromCDC(performanceCDCStreams)
+		backfillStreams := performance.GetBackfillStreamsFromCDC(performanceCDCStreams)
 
 		err := testutils.Concurrent(ctx, performanceCDCStreams, len(performanceCDCStreams), func(ctx context.Context, cdcStream string, executionNumber int) error {
 			for offset := 0; offset < totalRows; offset += batchSize {
@@ -292,16 +298,16 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		// exceeds the small roll threshold and is split into many files.
 		query = fmt.Sprintf(`INSERT INTO %s (col_text)
 			SELECT md5(random()::text) || md5(random()::text) || md5(random()::text)
-			FROM generate_series(1, %d)`, integrationTestTable, testutils.RollingSeedRows)
+			FROM generate_series(1, %d)`, integrationTestTable, integration.RollingSeedRows)
 
 	case "create-slot":
-		_, _ = db.ExecContext(ctx, fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, integrationTestTable))
-		query = fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput')`, integrationTestTable)
+		_, _ = db.ExecContext(ctx, fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, replicationSlot))
+		query = fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput')`, replicationSlot)
 
 	case "drop-slot":
 		// Asserted like every other op: the NOT-active guard makes "nothing to drop" a no-op,
 		// so an error here means the cleanup itself is broken.
-		query = fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, integrationTestTable)
+		query = fmt.Sprintf(`SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name = '%s' AND NOT active`, replicationSlot)
 
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)

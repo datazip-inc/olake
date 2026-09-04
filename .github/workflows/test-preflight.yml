@@ -1,0 +1,215 @@
+name: Test Preflight
+
+on:
+  workflow_call:
+    inputs:
+      go-checks:
+        description: 'Run lint + gosec with the Go cache job. The suite that owns the checks sets it; the others just consume the cache.'
+        required: false
+        default: false
+        type: boolean
+    outputs:
+      drivers:
+        description: 'JSON array of drivers the caller should fan its matrix out over; [] means nothing to test.'
+        value: ${{ jobs.preflight.outputs.drivers }}
+      driver-labels:
+        description: 'JSON object of driver -> display name, for the caller job titles.'
+        value: ${{ jobs.preflight.outputs.driver-labels }}
+      base-image-misses:
+        description: 'JSON array of drivers whose base branch image is not in the registry yet; [] or empty means nothing to build.'
+        value: ${{ jobs.preflight.outputs.base-image-misses }}
+
+jobs:
+  preflight:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      packages: read
+    outputs:
+      drivers: ${{ steps.drivers.outputs.drivers }}
+      driver-labels: ${{ steps.drivers.outputs.driver-labels }}
+      jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
+      go-cached: ${{ steps.go-cache.outputs.cache-hit }}
+      go-checks-changed: ${{ steps.go-checks.outputs.changed }}
+      apt-warmed: ${{ steps.apt-cache.outputs.cache-hit }}
+      base-image-misses: ${{ steps.base-images.outputs.misses }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Resolve driver matrix
+        id: drivers
+        uses: ./.github/actions/detect-drivers
+
+      - name: Detect go-check input changes
+        id: go-checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GO_CHECK_PATHS: |
+            tests/**/*.go
+            tests/**/go.mod
+            tests/go.work
+            Makefile
+            drivers/*/driver.mk
+            .golangci.yml
+            .github/workflows/test-preflight.yml
+            .github/workflows/tests.yml
+        run: |
+          changed=$(.github/scripts/changed-in-paths.sh <<<"$GO_CHECK_PATHS")
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "Go-check inputs changed: $changed"
+
+      - name: Look up base branch images
+        id: base-images
+        if: github.event_name == 'pull_request'
+        env:
+          DOCKER_CLI_EXPERIMENTAL: enabled
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          DRIVERS: ${{ steps.drivers.outputs.drivers }}
+        run: |
+          set -euo pipefail
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          tag=$(git rev-parse --short "$BASE_SHA")
+          misses=$(for d in $(jq -r '.[]' <<<"$DRIVERS"); do
+            if docker manifest inspect "ghcr.io/$GITHUB_REPOSITORY/source-$d:$tag" >/dev/null 2>&1; then
+              echo "cached: source-$d:$tag" >&2
+            else
+              echo "$d"
+            fi
+          done | jq -Rsc 'split("\n") | map(select(length > 0))')
+          echo "misses=$misses" >> "$GITHUB_OUTPUT"
+          echo "base branch images to build at $tag: $misses"
+
+      - name: Look up Iceberg writer jar cache
+        id: jar-cache
+        uses: ./.github/actions/iceberg-jar
+        with:
+          mode: lookup
+
+      - name: Look up Go module + build cache
+        id: go-cache
+        uses: ./.github/actions/go-caches
+        with:
+          mode: lookup
+
+      - name: Look up base docker layer marker
+        id: apt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .apt-warmed
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
+          lookup-only: true
+
+  build-jar:
+    name: Build Iceberg writer jar
+    needs: preflight
+    if: needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.jar-cached != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Java for Maven
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: maven
+
+      - name: Build Iceberg writer jar
+        run: make iceberg.jar
+
+      - name: Save Iceberg writer jar cache
+        uses: ./.github/actions/iceberg-jar
+        with:
+          mode: save
+
+  apt-warm:
+    name: Warm base docker layers
+    needs: preflight
+    if: needs.preflight.outputs.drivers != '[]' && needs.preflight.outputs.apt-warmed != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/buildx
+
+      - name: Warm base docker layers
+        run: |
+          docker buildx build --target runtime-base \
+            --cache-to type=gha,mode=max,scope=olake-base --cache-from type=gha,scope=olake-base . \
+            && echo "$GITHUB_SHA" > .apt-warmed \
+            || echo "::warning::base layer warm failed (non-fatal)"
+
+      - name: Save base layer marker
+        if: hashFiles('.apt-warmed') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .apt-warmed
+          key: ${{ runner.os }}-aptwarm-${{ hashFiles('Dockerfile') }}
+
+  go-cache:
+    name: Go checks + cache
+    needs: preflight
+    if: needs.preflight.outputs.drivers != '[]' && (needs.preflight.outputs.go-cached != 'true' || needs.preflight.outputs.go-checks-changed == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Cache Go modules + build cache
+        uses: ./.github/actions/go-caches
+        with:
+          mode: save
+
+      - name: Cache driver external dependencies
+        uses: ./.github/actions/driver-deps
+        with:
+          save: "true"
+
+      - name: Compile the driver test binaries
+        run: make test.build.all
+
+      - name: golangci-lint tests modules
+        id: lint
+        background: true
+        timeout-minutes: 15
+        run: make test.lint
+
+      - name: Unit tests for the test harness
+        id: harness-unit
+        background: true
+        timeout-minutes: 10
+        working-directory: tests
+        run: go test -v -count=1 ./testutils/...
+
+      - name: install gosec
+        if: inputs.go-checks
+        env:
+          GOSEC_VERSION: v2.22.11
+        run: $(go env GOPATH)/bin/gosec --version 2>/dev/null | grep -q "${GOSEC_VERSION#v}" || curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin $GOSEC_VERSION
+
+      - name: Run Gosec on tests modules
+        if: inputs.go-checks
+        working-directory: tests
+        run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
+
+      - name: Wait for the lint and harness unit tests
+        wait: [lint, harness-unit]
