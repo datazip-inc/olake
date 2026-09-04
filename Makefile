@@ -160,18 +160,17 @@ HELP_TARGETS :=
 -include drivers/*/driver.mk
 
 # --- driver lists -------------------------------------------------------------
-# A driver is any drivers/ subdir with its own go.mod; the ones that also have
-# a docker-compose.yml get olake.* stacks and test targets.
-SOURCE_DRIVERS := $(filter $(DRIVERS),$(notdir $(patsubst %/docker-compose.yml,%,$(wildcard drivers/*/docker-compose.yml))))
-CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
-SOURCE_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
+# A driver is any drivers/ subdir with its own go.mod
+STACK_DRIVERS := $(filter $(DRIVERS),$(notdir $(patsubst %/docker-compose.yml,%,$(wildcard drivers/*/docker-compose.yml))))
+CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(DRIVERS))
+DRIVER_PKGS := $(addsuffix /...,$(addprefix ./,$(DRIVERS)))
 CDC_PKGS := $(addsuffix /...,$(addprefix ./,$(CDC_DRIVERS)))
 
 # The drivers the integration suites cover, queried by CI (integration-tests.yml) so the list
 # lives in this file only: it is what the driver matrix fans out to on a push to master.
 .PHONY: print.source-drivers
 print.source-drivers:
-	@echo $(SOURCE_DRIVERS)
+	@echo $(DRIVERS)
 
 # Every driver module, suite or not. CI subtracts the two lists to tell a driver with no suite
 # apart from shared code, so a PR touching only that driver runs nothing instead of everything.
@@ -227,13 +226,13 @@ olake.$(1).refresh:
 	@$$(MAKE) --no-print-directory olake.$(1).teardown
 	@$$(MAKE) --no-print-directory olake.$(1).start
 endef
-$(foreach d,$(SOURCE_DRIVERS),$(eval $(call SOURCE_DB_template,$(d))))
+$(foreach d,$(STACK_DRIVERS),$(eval $(call SOURCE_DB_template,$(d))))
 
-olake.source.all.up: $(addprefix olake.,$(addsuffix .up,$(SOURCE_DRIVERS)))
-olake.source.all.wait: $(addprefix olake.,$(addsuffix .wait,$(SOURCE_DRIVERS)))
-olake.source.all.start: $(addprefix olake.,$(addsuffix .start,$(SOURCE_DRIVERS)))
-olake.source.all.stop: $(addprefix olake.,$(addsuffix .stop,$(SOURCE_DRIVERS)))
-olake.source.all.teardown: $(addprefix olake.,$(addsuffix .teardown,$(SOURCE_DRIVERS)))
+olake.source.all.up: $(addprefix olake.,$(addsuffix .up,$(DRIVERS)))
+olake.source.all.wait: $(addprefix olake.,$(addsuffix .wait,$(DRIVERS)))
+olake.source.all.start: $(addprefix olake.,$(addsuffix .start,$(DRIVERS)))
+olake.source.all.stop: $(addprefix olake.,$(addsuffix .stop,$(DRIVERS)))
+olake.source.all.teardown: $(addprefix olake.,$(addsuffix .teardown,$(DRIVERS)))
 olake.source.all.restart:
 	@$(MAKE) --no-print-directory olake.source.all.stop
 	@$(MAKE) --no-print-directory olake.source.all.start
@@ -242,8 +241,13 @@ olake.source.all.refresh:
 	@$(MAKE) --no-print-directory olake.source.all.start
 
 # --- destination stack --------------------------------------------------------
-olake.destination.all.up:
-	mkdir -p $(DEST_DATA_DIR)/minio-data $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
+.PHONY: olake.minio.up
+olake.minio.up:
+	mkdir -p $(DEST_DATA_DIR)/minio-data
+	$(COMPOSE) -f $(DEST_COMPOSE) up -d minio
+
+olake.destination.all.up: olake.minio.up
+	mkdir -p $(DEST_DATA_DIR)/postgres-data $(DEST_DATA_DIR)/ivy-cache
 	$(COMPOSE) -f $(DEST_COMPOSE) up -d $(DEST_SERVICES)
 
 olake.destination.all.wait:
@@ -325,12 +329,12 @@ define TEST_BUILD_template
 test.build.$(1): prepare.$(1)
 	$$(GO_ENV.$(1)) cd tests && go test -c -o /dev/null ./$(1)/...
 endef
-$(foreach d,$(SOURCE_DRIVERS),$(eval $(call TEST_BUILD_template,$(d))))
+$(foreach d,$(DRIVERS),$(eval $(call TEST_BUILD_template,$(d))))
 
 # Every driver's test binary at once. `cd tests && go build ./...` cannot do this: tests/ is a
 # workspace root, not a module, so ./... matches nothing there.
 .PHONY: test.build.all
-test.build.all: $(addprefix test.build.,$(SOURCE_DRIVERS))
+test.build.all: $(addprefix test.build.,$(DRIVERS))
 
 # The whole CI surface for one driver -- Discover, Sync, 2PC and (kafka) Rebalance in one `go test`.
 # Performance is excluded: it needs external infra and has its own workflow.
@@ -340,7 +344,7 @@ test.integration.$(1): prepare.$(1)
 	@$$(call driver_test_setup,$(1))
 	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -skip 'Performance'
 endef
-$(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_TEST_template,$(d))))
+$(foreach d,$(DRIVERS),$(eval $(call DRIVER_TEST_template,$(d))))
 
 define DRIVER_SUITE_template
 .PHONY: test.$(2).$(1)
@@ -348,8 +352,8 @@ test.$(2).$(1): prepare.$(1)
 	@$$(call driver_test_setup,$(1))
 	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run '$(3)'
 endef
-$(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_SUITE_template,$(d),discover,Discover)))
-$(foreach d,$(SOURCE_DRIVERS),$(eval $(call DRIVER_SUITE_template,$(d),sync,Sync)))
+$(foreach d,$(DRIVERS),$(eval $(call DRIVER_SUITE_template,$(d),discover,Discover)))
+$(foreach d,$(DRIVERS),$(eval $(call DRIVER_SUITE_template,$(d),sync,Sync)))
 $(foreach d,$(CDC_DRIVERS),$(eval $(call DRIVER_SUITE_template,$(d),2pc,2PC)))
 
 # Benchmarks. Deliberately no stack prerequisites: these run against the remote instances named
@@ -360,13 +364,13 @@ define PERFORMANCE_TEST_template
 test.performance.$(1): prepare.$(1) $$(ICEBERG_JAR)
 	$$(GO_ENV.$(1)) cd tests && go test -v ./$(1)/... -timeout 0 -count=1 -run 'Performance'
 endef
-$(foreach d,$(SOURCE_DRIVERS),$(eval $(call PERFORMANCE_TEST_template,$(d))))
+$(foreach d,$(DRIVERS),$(eval $(call PERFORMANCE_TEST_template,$(d))))
 
-test.discover: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
-	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(SOURCE_PKGS) -timeout 0 -count=1 -run 'Discover'
+test.discover: $(addprefix prepare.,$(DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(DRIVERS)) $(DRIVER_PKGS) -timeout 0 -count=1 -run 'Discover'
 
-test.sync: $(addprefix prepare.,$(SOURCE_DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
-	$(foreach d,$(SOURCE_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(SOURCE_DRIVERS)) $(SOURCE_PKGS) -timeout 0 -count=1 -run 'Sync'
+test.sync: $(addprefix prepare.,$(DRIVERS)) olake.all.start $(IMAGE_JAR_DEP)
+	$(foreach d,$(DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(DRIVERS)) $(DRIVER_PKGS) -timeout 0 -count=1 -run 'Sync'
 
 test.2pc: $(addprefix prepare.,$(CDC_DRIVERS)) $(addprefix olake.,$(addsuffix .start,$(CDC_DRIVERS))) olake.destination.all.start $(IMAGE_JAR_DEP)
 	$(foreach d,$(CDC_DRIVERS),$(GO_ENV.$(d))) cd tests && go test -v -p $(words $(CDC_DRIVERS)) $(CDC_PKGS) -timeout 0 -count=1 -run '2PC'
@@ -385,7 +389,7 @@ endef
 
 # --- help ----------------------------------------------------------------------
 help:
-	@echo "OLake Makefile  (SOURCE_DRIVERS: $(SOURCE_DRIVERS))"
+	@echo "OLake Makefile  (DRIVERS: $(DRIVERS))"
 	@echo ""
 	@echo "Code quality:"
 	@printf "  %-44s %s\n" "lint" "run CI lint locally (olake.lint + test.lint)"
@@ -394,12 +398,12 @@ help:
 	@printf "  %-44s %s\n" "build" "compile the root module (CI build-check)"
 	@printf "  %-44s %s\n" "gomod / golangci.install / trivy / gofmt / pre-commit" "tidy, lint-install, format and git-hook targets"
 	@echo ""
-	@echo "Source stacks (compose up + wait until ready; stop keeps volumes):"
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).start" "start + wait for $(d) (= olake.$(d).up then olake.$(d).wait)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).stop" "stop $(d) (keep volumes + data)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).teardown" "stop $(d) + remove volumes";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).restart" "stop then start $(d) (keep data)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).refresh" "teardown then start $(d) (wipe data)";)
+	@echo "Source stacks (drivers with their own compose file: up + wait until ready; stop keeps volumes; s3 is under Driver-specific):"
+	@$(foreach d,$(STACK_DRIVERS),printf "  %-44s %s\n" "olake.$(d).start" "start + wait for $(d) (= olake.$(d).up then olake.$(d).wait)";)
+	@$(foreach d,$(STACK_DRIVERS),printf "  %-44s %s\n" "olake.$(d).stop" "stop $(d) (keep volumes + data)";)
+	@$(foreach d,$(STACK_DRIVERS),printf "  %-44s %s\n" "olake.$(d).teardown" "stop $(d) + remove volumes";)
+	@$(foreach d,$(STACK_DRIVERS),printf "  %-44s %s\n" "olake.$(d).restart" "stop then start $(d) (keep data)";)
+	@$(foreach d,$(STACK_DRIVERS),printf "  %-44s %s\n" "olake.$(d).refresh" "teardown then start $(d) (wipe data)";)
 	@printf "  %-44s %s\n" "olake.source.all.<verb>" "verb = start|stop|teardown|restart|refresh, all source stacks (make -j8)"
 	@printf "  %-44s %s\n" "olake.<driver>.up | olake.<driver>.wait" "the two halves of start, for running each in parallel"
 	@echo ""
@@ -420,11 +424,11 @@ help:
 	@echo ""
 	@echo "Tests (auto-provision the stacks they need):"
 	@printf "  %-44s %s\n" "iceberg.jar" "build the Iceberg writer JAR (skips maven when up to date)"
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.integration.$(d)" "every suite for $(d) (what the matrix job runs)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.discover.$(d)" "discover suite for $(d) (catalog equality check)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.sync.$(d)" "sync suite for $(d) (full load, CDC, incremental)";)
+	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "test.integration.$(d)" "every suite for $(d) (what the matrix job runs)";)
+	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "test.discover.$(d)" "discover suite for $(d) (catalog equality check)";)
+	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "test.sync.$(d)" "sync suite for $(d) (full load, CDC, incremental)";)
 	@$(foreach d,$(CDC_DRIVERS),printf "  %-44s %s\n" "test.2pc.$(d)" "2PC recovery suite for $(d)";)
-	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "test.performance.$(d)" "benchmark suite for $(d) (remote instances, no local stack)";)
+	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "test.performance.$(d)" "benchmark suite for $(d) (remote instances, no local stack)";)
 	@printf "  %-44s %s\n" "test.discover | test.sync | test.2pc | test.unit" "aggregate runs (all drivers at once)"
 	@printf "  %-44s %s\n" "test.build.all" "compile every driver's test binary (CI cache warm)"
 	@if [ -n "$(strip $(HELP_TARGETS))" ]; then \
@@ -433,7 +437,7 @@ help:
 		$(call print_help_targets) \
 	fi
 	@echo ""
-	@echo "Overridables: SOURCE_DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG"
+	@echo "Overridables: DRIVERS COMPOSE WAIT_RETRIES WAIT_SLEEP IMAGE_TAG"
 
 .PHONY: lint olake.lint test.lint build \
 	olake.source.all.start olake.source.all.stop olake.source.all.teardown olake.source.all.restart olake.source.all.refresh \
