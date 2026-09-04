@@ -524,6 +524,27 @@ func MySQLBinlogRowMetadataQuery() string {
 	return "SHOW VARIABLES LIKE 'binlog_row_metadata'"
 }
 
+// MySQLBinlogRowImageQuery returns the query to fetch the binlog_row_image variable in MySQL
+func MySQLBinlogRowImageQuery() string {
+	return "SHOW VARIABLES LIKE 'binlog_row_image'"
+}
+
+// MySQLCDCColumnMetadataQuery returns the per-column metadata needed to decode binlog
+// rows when the server does not emit optional TableMapEvent metadata: MySQL < 8.0.1,
+// binlog_row_metadata != FULL, or any MariaDB version.
+// Ordered by ORDINAL_POSITION so the result aligns 1:1 with TableMapEvent.ColumnType.
+func MySQLCDCColumnMetadataQuery() string {
+	return `
+		SELECT
+			COLUMN_NAME,
+			COLUMN_TYPE,
+			COALESCE(COLLATION_NAME, '')
+		FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+		ORDER BY ORDINAL_POSITION
+	`
+}
+
 // MySQLTableColumnsQuery returns the query to fetch column names of a table in MySQL
 func MySQLTableColumnsQuery() string {
 	return `

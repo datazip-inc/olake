@@ -2,6 +2,8 @@ package driver
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -313,10 +315,35 @@ func (m *MySQL) Close() error {
 	return nil
 }
 
+// binlogRowMetadataFull reports whether the server emits full optional metadata in
+// TableMapEvent. The variable does not exist before MySQL 8.0.1 or on MariaDB, in which
+// case the answer is simply false — the decoder falls back to information_schema.
+func (m *MySQL) binlogRowMetadataFull(ctx context.Context) bool {
+	var name, value string
+	if err := m.client.QueryRowxContext(ctx, jdbc.MySQLBinlogRowMetadataQuery()).Scan(&name, &value); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			logger.Warnf("failed to read binlog_row_metadata, assuming MINIMAL: %s", err)
+		}
+		return false
+	}
+	return strings.EqualFold(value, "FULL")
+}
+
 func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
 	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
 		return false, fmt.Errorf("failed to get binlog position: %w", err)
+	}
+
+	// go-mysql parses 5.7 binlogs correctly, so 5.7 is the supported floor. Below that,
+	// fail here rather than with a decode error partway through a sync.
+	flavor, major, minor, err := jdbc.MySQLVersion(ctx, m.client)
+	if err != nil {
+		return false, fmt.Errorf("failed to get MySQL version: %w", err)
+	}
+	if flavor == "MySQL" && (major < 5 || (major == 5 && minor < 7)) {
+		logger.Warnf("MySQL %d.%d is below the supported CDC floor of 5.7", major, minor)
+		return false, nil
 	}
 
 	// checkMySQLConfig checks a MySQL configuration value against an expected value
@@ -342,13 +369,25 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	}{
 		{jdbc.MySQLLogBinQuery(), "ON", "log_bin is not enabled"},
 		{jdbc.MySQLBinlogFormatQuery(), "ROW", "binlog_format is not set to ROW"},
-		{jdbc.MySQLBinlogRowMetadataQuery(), "FULL", "binlog_row_metadata is not set to FULL"},
+		// At MINIMAL or NOBLOB the binlog carries only some columns per row, which the
+		// decoder cannot map back to a complete record.
+		{jdbc.MySQLBinlogRowImageQuery(), "FULL", "binlog_row_image is not set to FULL"},
 	}
 
 	for _, check := range configChecks {
 		if ok, err := checkMySQLConfig(ctx, check.query, check.expectedValue, check.errMessage); err != nil || !ok {
 			return ok, err
 		}
+	}
+
+	// binlog_row_metadata=FULL lets the decoder read column names, ENUM/SET members,
+	// charsets and signedness straight from the binlog. Without it — MySQL < 8.0.1, any
+	// MariaDB, or the MINIMAL default — that metadata is rebuilt from information_schema,
+	// which costs one query per table and cannot see a column rename that has not yet
+	// reached the reader in the binlog stream.
+	if !m.binlogRowMetadataFull(ctx) {
+		logger.Warn("binlog_row_metadata is not FULL; falling back to information_schema for " +
+			"column metadata. Set binlog_row_metadata=FULL (MySQL 8.0.1+) for best fidelity.")
 	}
 
 	return true, nil
