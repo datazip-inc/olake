@@ -82,6 +82,10 @@ var (
 	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
 
+	upsertKey    = []byte(`{"key":"upsert-key"}`)
+	upsertAdd    = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
+	upsertUpdate = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+
 	// Avro
 	avroKey   = []byte(`{"key":"avro-key"}`)
 	avroValue = map[string]interface{}{
@@ -189,6 +193,18 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestCon
 	case "stop_rebalance":
 		stopRebalanceTrigger()
 		t.Logf("stopped rebalance trigger consumer")
+
+	case "upsert_add":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertAdd, Partition: 0})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_update":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertUpdate, Partition: 0})
+		t.Logf("Added 1 updated message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_tombstone":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: nil, Partition: 0})
+		t.Logf("Deleted 1 message from topic '%s' on partition %d", topic, 0)
 
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
