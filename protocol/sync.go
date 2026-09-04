@@ -96,8 +96,13 @@ var syncCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		// Get Source Streams, sending 0 max discover threads to discover
-		streams, err := connector.Discover(cmd.Context(), 0, true)
+		if discoverSchema {
+			logger.Infof("Schema discovery enabled for sync; validating configured streams against source")
+		}
+
+		// Default: skip ProduceSchema (fast path). With --discover-schema, full
+		// Get Source Streams. Pass --discover-schema to re-discover and validate.
+		streams, err := connector.Discover(cmd.Context(), maxDiscoverThreads, !discoverSchema)
 		if err != nil {
 			return err
 		}
@@ -227,8 +232,6 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 				logger.Warnf("Skipping; Configured Stream %s not found in source", elem.ID())
 				return false
 			}
-			// TODO: addition of validation of fields during sync
-			// along with option to discover schema during sync
 			err := elem.Validate(source)
 			if err != nil {
 				logger.Warnf("Skipping; Configured Stream %s found invalid due to reason: %s", elem.ID(), err)
