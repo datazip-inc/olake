@@ -1,6 +1,9 @@
 package types
 
 import (
+	"path/filepath"
+	"sort"
+
 	"github.com/goccy/go-json"
 	"github.com/spf13/viper"
 
@@ -44,6 +47,9 @@ type Stream struct {
 	// Normalized Destination Database and Table used as default values for destination database and table
 	DestinationDatabase string `json:"destination_database,omitempty"`
 	DestinationTable    string `json:"destination_table,omitempty"`
+	// Columns that can be selected for this stream, including OLake columns.
+	// Populated on discover from type_schema (source columns + OLake columns).
+	SelectableColumns []string `json:"selectable_columns,omitempty"`
 	// Default stream properties (connector level)
 	DefaultStreamProperties *DefaultStreamProperties `json:"default_stream_properties,omitempty"`
 }
@@ -102,6 +108,17 @@ func (s *Stream) WithSchema(schema *TypeSchema) *Stream {
 	return s
 }
 
+// RefreshSelectableColumns sets selectable_columns from the current schema,
+// including OLake columns.
+func (s *Stream) RefreshSelectableColumns() {
+	if s == nil || s.Schema == nil {
+		return
+	}
+	cols := s.Schema.ColumnNames()
+	sort.Strings(cols)
+	s.SelectableColumns = cols
+}
+
 // Add or Update Column in Stream Type Schema
 func (s *Stream) UpsertField(column string, typ DataType, nullable bool, isOlakeColumn bool) {
 	types := []DataType{typ}
@@ -156,8 +173,27 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	// write catalog to the specified file
 	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
 
-	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
+	streamsFilePath := viper.GetString(constants.StreamsPath)
+	selectedStreamsFilePath := viper.GetString(constants.SelectedStreamsPath)
+	if selectedStreamsFilePath != "" {
+		streamsContent, selectedContent := splitCatalogForWrite(message.Catalog)
+		if err := logger.FileLoggerWithPath(streamsContent, streamsFilePath); err != nil {
+			logger.Fatalf("failed to create streams file: %s", err)
+		}
+		if err := logger.FileLoggerWithPath(selectedContent, selectedStreamsFilePath); err != nil {
+			logger.Fatalf("failed to create selected_streams file: %s", err)
+		}
+		return
+	}
+
+	err := logger.FileLoggerWithPath(message.Catalog, streamsFilePath)
 	if err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
+	}
+
+	// selected_streams.json that can be opted-in later if user prefers split-write (streams.json + selected_streams.json)
+	newSelectedStreamsCatalog := filepath.Join(filepath.Dir(streamsFilePath), "selected_streams.json")
+	if err := logger.FileLoggerWithPath(&Catalog{SelectedStreams: message.Catalog.SelectedStreams}, newSelectedStreamsCatalog); err != nil {
+		logger.Fatalf("failed to create selected_streams preview file: %s", err)
 	}
 }

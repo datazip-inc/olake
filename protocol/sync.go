@@ -35,7 +35,7 @@ type StreamClassification struct {
 var syncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "Olake sync command",
-	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+	PersistentPreRunE: func(_ *cobra.Command, _ []string) (err error) {
 		if configPath == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
 		} else if destinationConfigPath == "" {
@@ -45,13 +45,13 @@ var syncCmd = &cobra.Command{
 		}
 
 		// unmarshal source config
-		if err := utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
+		if err = utils.UnmarshalFile(configPath, connector.GetConfigRef(), true); err != nil {
 			return err
 		}
 
 		// unmarshal destination config
 		destinationConfig = &types.WriterConfig{}
-		if err := utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
+		if err = utils.UnmarshalFile(destinationConfigPath, destinationConfig, true); err != nil {
 			return err
 		}
 
@@ -60,8 +60,8 @@ var syncCmd = &cobra.Command{
 			viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		}
 
-		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
+		catalog, err = types.ResolveCatalog(streamsPath, selectedStreamsPath)
+		if err != nil {
 			return err
 		}
 
@@ -211,8 +211,12 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		stateStreamMap[fmt.Sprintf("%s.%s", stream.Namespace, stream.Stream)] = stream
 	}
 
+	matchedSelected := make(map[string]struct{}, len(selectedStreamsMap))
 	_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 		sMetadata, selected := selectedStreamsMap[elem.ID()]
+		if selected {
+			matchedSelected[elem.ID()] = struct{}{}
+		}
 		// Check if the stream is in the selectedStreamMap
 		if !(catalog.SelectedStreams == nil || selected) {
 			logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
@@ -274,7 +278,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		// Past every skip branch, so the mix describes what this run actually syncs rather
 		// than everything the catalog configured.
 		classifications.Mix.Selected++
-		if elem.StreamMetadata.Normalization {
+		if elem.NormalizationEnabled() {
 			classifications.Mix.Normalized++
 		}
 
@@ -286,10 +290,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			classifications.Mix.StreamWithPosUpdateType++
 		}
 
-		switch elem.Stream.SyncMode {
+		syncMode := elem.GetSyncMode()
+		switch syncMode {
 		case types.CDC, types.STRICTCDC:
 			// One read path, two counters: the sync treats them alike, telemetry does not.
-			if elem.Stream.SyncMode == types.STRICTCDC {
+			if syncMode == types.STRICTCDC {
 				classifications.Mix.StrictCDC++
 			} else {
 				classifications.Mix.CDC++
@@ -313,6 +318,14 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 
 		return false
 	})
+
+	// in case of split-write, streams.json & selected_streams.json are maintained separately.
+	// so we need to check if all the selected streams are present in the streams[]
+	for id := range selectedStreamsMap {
+		if _, ok := matchedSelected[id]; !ok {
+			logger.Warnf("Skipping; selected stream %s has no matching entry in streams[]. Rediscover or check streams.json.", id)
+		}
+	}
 	// Clear previous state streams for non-selected streams.
 	// Must not be called during clear destination to retain the global and stream state. (clear dest. -> when streams == nil)
 	if streams != nil {

@@ -761,7 +761,7 @@ func testConfiguredStream() *types.ConfiguredStream {
 	return &types.ConfiguredStream{
 		Stream: stream,
 		StreamMetadata: types.StreamMetadata{
-			Normalization: false,
+			Normalization: boolPtr(false),
 		},
 	}
 }

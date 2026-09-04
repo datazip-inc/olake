@@ -10,6 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func boolPtr(b bool) *bool {
+	return &b
+}
+
 // This package's init runs RootCmd.Execute, so the file logger is already pointed at ./logs
 // before a test can redirect it. classifyStreams logs its skips, which creates that directory;
 // drop it afterwards rather than leaving it in the tree.
@@ -24,12 +28,13 @@ func discardStrayLogs(t *testing.T) {
 // stream is one configured stream in a test catalog. The metadata lives on the catalog's
 // selected_streams block, not here: classifyStreams overwrites StreamMetadata from that map.
 type stream struct {
-	name        string
-	mode        types.SyncMode
-	normalized  bool
-	partitioned bool
-	unselected  bool                // present in streams but absent from selected_streams
-	filter      *types.FilterConfig // only read when normalized, so it can be made invalid
+	name          string
+	mode          types.SyncMode
+	normalized    bool
+	partitioned   bool
+	unselected    bool                // present in streams but absent from selected_streams
+	schemaMissing bool                // in selected_streams but absent from streams[]
+	filter        *types.FilterConfig // only read when normalized, so it can be made invalid
 }
 
 // catalogOf builds the two halves classifyStreams reads: the configured streams and the
@@ -37,13 +42,15 @@ type stream struct {
 func catalogOf(streams ...stream) *types.Catalog {
 	catalog := &types.Catalog{SelectedStreams: map[string][]types.StreamMetadata{}}
 	for _, s := range streams {
-		catalog.Streams = append(catalog.Streams, &types.ConfiguredStream{
-			Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode},
-		})
+		if !s.schemaMissing {
+			catalog.Streams = append(catalog.Streams, &types.ConfiguredStream{
+				Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode},
+			})
+		}
 		if s.unselected {
 			continue
 		}
-		metadata := types.StreamMetadata{StreamName: s.name, Normalization: s.normalized, FilterConfig: s.filter}
+		metadata := types.StreamMetadata{StreamName: s.name, Normalization: boolPtr(s.normalized), FilterConfig: s.filter}
 		if s.partitioned {
 			metadata.PartitionRegex = "/{now,year}"
 		}
@@ -95,6 +102,15 @@ func TestClassifyStreamsMix(t *testing.T) {
 				FullRefresh: 1, CDC: 1, Incremental: 1,
 				Selected: 3, Normalized: 2, Partitioned: 2,
 			},
+		},
+		// selected but missing from streams[] is never visited, so it reaches no counter
+		{
+			name: "selected streams missing from streams[] are not counted",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.FULLREFRESH, schemaMissing: true},
+			},
+			expectedMix: types.StreamMix{CDC: 1, Selected: 1},
 		},
 		// a stream missing from selected_streams is never synced, so it reaches no counter
 		{
