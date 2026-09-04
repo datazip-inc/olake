@@ -60,7 +60,7 @@ var syncCmd = &cobra.Command{
 			viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		}
 
-		catalog, err = types.ResolveCatalog(streamsPath, schemaPath)
+		catalog, err = types.ResolveCatalog(streamsPath, selectedStreamsPath)
 		if err != nil {
 			return err
 		}
@@ -278,7 +278,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		// Past every skip branch, so the mix describes what this run actually syncs rather
 		// than everything the catalog configured.
 		classifications.Mix.Selected++
-		if elem.StreamMetadata.Normalization {
+		if elem.NormalizationEnabled() {
 			classifications.Mix.Normalized++
 		}
 
@@ -319,11 +319,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		return false
 	})
 
-	// in case of split-streams, streams.json & schema.json are maintained separately.
+	// in case of split-write, streams.json & selected_streams.json are maintained separately.
 	// so we need to check if all the selected streams are present in the streams[]
 	for id := range selectedStreamsMap {
 		if _, ok := matchedSelected[id]; !ok {
-			logger.Warnf("Skipping; selected stream %s has no matching entry in streams[]. Rediscover or check schema.json.", id)
+			logger.Warnf("Skipping; selected stream %s has no matching entry in streams[]. Rediscover or check streams.json.", id)
 		}
 	}
 	// Clear previous state streams for non-selected streams.

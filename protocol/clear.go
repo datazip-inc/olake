@@ -26,7 +26,7 @@ var clearCmd = &cobra.Command{
 			return err
 		}
 
-		catalog, err = types.ResolveCatalog(streamsPath, schemaPath)
+		catalog, err = types.ResolveCatalog(streamsPath, selectedStreamsPath)
 		if err != nil {
 			return err
 		}

@@ -1,6 +1,9 @@
 package types
 
 import (
+	"path/filepath"
+	"sort"
+
 	"github.com/goccy/go-json"
 	"github.com/spf13/viper"
 
@@ -44,18 +47,17 @@ type Stream struct {
 	// Normalized Destination Database and Table used as default values for destination database and table
 	DestinationDatabase string `json:"destination_database,omitempty"`
 	DestinationTable    string `json:"destination_table,omitempty"`
+	// Columns that can be selected for this stream, including OLake columns.
+	// Populated on discover from type_schema (source columns + OLake columns).
+	SelectableColumns []string `json:"selectable_columns,omitempty"`
 	// Default stream properties (connector level)
 	DefaultStreamProperties *DefaultStreamProperties `json:"default_stream_properties,omitempty"`
 }
 
 type DefaultStreamProperties struct {
-	Normalization       bool       `json:"normalization"`
-	AppendMode          bool       `json:"append_mode"`
-	UpdateType          UpdateType `json:"update_type"`
-	DestinationDatabase string     `json:"destination_database,omitempty"`
-	DestinationTable    string     `json:"destination_table,omitempty"`
-	SyncMode            SyncMode   `json:"sync_mode,omitempty"`
-	CursorField         string     `json:"cursor_field,omitempty"`
+	Normalization bool       `json:"normalization"`
+	AppendMode    bool       `json:"append_mode"`
+	UpdateType    UpdateType `json:"update_type"`
 }
 
 func NewStream(name, namespace string, sourceDatabase *string) *Stream {
@@ -104,6 +106,17 @@ func (s *Stream) WithCursorField(columns ...string) *Stream {
 func (s *Stream) WithSchema(schema *TypeSchema) *Stream {
 	s.Schema = schema
 	return s
+}
+
+// RefreshSelectableColumns sets selectable_columns from the current schema,
+// including OLake columns.
+func (s *Stream) RefreshSelectableColumns() {
+	if s == nil || s.Schema == nil {
+		return
+	}
+	cols := s.Schema.ColumnNames()
+	sort.Strings(cols)
+	s.SelectableColumns = cols
 }
 
 // Add or Update Column in Stream Type Schema
@@ -161,14 +174,14 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
 
 	streamsFilePath := viper.GetString(constants.StreamsPath)
-	schemaFilePath := viper.GetString(constants.SchemaPath)
-	if schemaFilePath != "" {
-		streamsContent, schemaContent := splitCatalogForWrite(message.Catalog)
+	selectedStreamsFilePath := viper.GetString(constants.SelectedStreamsPath)
+	if selectedStreamsFilePath != "" {
+		streamsContent, selectedContent := splitCatalogForWrite(message.Catalog)
 		if err := logger.FileLoggerWithPath(streamsContent, streamsFilePath); err != nil {
 			logger.Fatalf("failed to create streams file: %s", err)
 		}
-		if err := logger.FileLoggerWithPath(schemaContent, schemaFilePath); err != nil {
-			logger.Fatalf("failed to create schema file: %s", err)
+		if err := logger.FileLoggerWithPath(selectedContent, selectedStreamsFilePath); err != nil {
+			logger.Fatalf("failed to create selected_streams file: %s", err)
 		}
 		return
 	}
@@ -176,5 +189,11 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	err := logger.FileLoggerWithPath(message.Catalog, streamsFilePath)
 	if err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
+	}
+
+	// selected_streams.json that can be opted-in later if user prefers split-write (streams.json + selected_streams.json)
+	newSelectedStreamsCatalog := filepath.Join(filepath.Dir(streamsFilePath), "selected_streams.json")
+	if err := logger.FileLoggerWithPath(&Catalog{SelectedStreams: message.Catalog.SelectedStreams}, newSelectedStreamsCatalog); err != nil {
+		logger.Fatalf("failed to create selected_streams preview file: %s", err)
 	}
 }

@@ -170,13 +170,11 @@ func (s *ConfiguredStream) defaultStreamProperties() DefaultStreamProperties {
 }
 
 func (s *ConfiguredStream) GetSyncMode() SyncMode {
-	defaults := s.defaultStreamProperties()
-	return resolveConfigurableField(s.Stream.SyncMode, s.StreamMetadata.SyncMode, defaults.SyncMode)
+	return resolveConfigurableField(s.StreamMetadata.SyncMode, s.Stream.SyncMode)
 }
 
 func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
-	defaults := s.defaultStreamProperties()
-	destDB := resolveConfigurableField(s.Stream.DestinationDatabase, s.StreamMetadata.DestinationDatabase, defaults.DestinationDatabase)
+	destDB := resolveConfigurableField(s.StreamMetadata.DestinationDatabase, s.Stream.DestinationDatabase)
 	if destDB != "" {
 		return utils.Reformat(destDB)
 	}
@@ -187,8 +185,7 @@ func (s *ConfiguredStream) GetDestinationDatabase(icebergDB *string) string {
 }
 
 func (s *ConfiguredStream) GetDestinationTable() string {
-	defaults := s.defaultStreamProperties()
-	destTable := resolveConfigurableField(s.Stream.DestinationTable, s.StreamMetadata.DestinationTable, defaults.DestinationTable)
+	destTable := resolveConfigurableField(s.StreamMetadata.DestinationTable, s.Stream.DestinationTable)
 	return utils.Ternary(destTable == "", s.Stream.Name, destTable).(string)
 }
 
@@ -198,8 +195,7 @@ func (s *ConfiguredStream) GetPartitionRegex() string {
 
 // returns primary and secondary cursor
 func (s *ConfiguredStream) Cursor() (string, string) {
-	defaults := s.defaultStreamProperties()
-	cursorField := resolveConfigurableField(s.Stream.CursorField, s.StreamMetadata.CursorField, defaults.CursorField)
+	cursorField := resolveConfigurableField(s.StreamMetadata.CursorField, s.Stream.CursorField)
 	cursorFields := strings.Split(cursorField, ":")
 	primaryCursor := cursorFields[0]
 	secondaryCursor := ""
@@ -226,7 +222,7 @@ func (s *ConfiguredStream) Cursor() (string, string) {
 //     to parse; new structured filters do not return parse errors here.
 func (s *ConfiguredStream) GetFilter() (FilterConfig, bool, error) {
 	//new filter input — only apply structured filter_config when normalization is enabled
-	if s.StreamMetadata.Normalization && s.StreamMetadata.FilterConfig != nil && len(s.StreamMetadata.FilterConfig.Conditions) > 0 {
+	if s.NormalizationEnabled() && s.StreamMetadata.FilterConfig != nil && len(s.StreamMetadata.FilterConfig.Conditions) > 0 {
 		// Copy before normalizing to avoid a data race: GetFilter is called concurrently
 		// from multiple chunk goroutines that share the same ConfiguredStream pointer.
 		fc := *s.StreamMetadata.FilterConfig
@@ -309,7 +305,17 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 }
 
 func (s *ConfiguredStream) NormalizationEnabled() bool {
-	return s.StreamMetadata.Normalization
+	if s.StreamMetadata.Normalization != nil {
+		return *s.StreamMetadata.Normalization
+	}
+	return s.defaultStreamProperties().Normalization
+}
+
+func (s *ConfiguredStream) AppendModeEnabled() bool {
+	if s.StreamMetadata.AppendMode != nil {
+		return *s.StreamMetadata.AppendMode
+	}
+	return s.defaultStreamProperties().AppendMode
 }
 
 func (s *ConfiguredStream) GetUpdateType() UpdateType {

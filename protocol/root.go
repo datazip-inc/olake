@@ -24,8 +24,7 @@ var (
 	destinationConfigPath     string
 	statePath                 string
 	streamsPath               string
-	schemaPath                string
-	splitStreams              bool
+	selectedStreamsPath       string
 	destinationDatabasePrefix string
 	syncID                    string
 	batchSize                 int64
@@ -61,9 +60,8 @@ var RootCmd = &cobra.Command{
 			viper.Set(constants.StatePath, statePathEnv)
 			viper.Set(constants.StreamsPath, streamsPathEnv)
 			viper.Set(constants.DifferencePath, differencePathEnv)
-			if splitStreams || schemaPath != "" {
-				schemaPath = utils.Ternary(schemaPath == "", filepath.Join(filepath.Dir(streamsPathEnv), "schema.json"), schemaPath).(string)
-				viper.Set(constants.SchemaPath, schemaPath)
+			if selectedStreamsPath != "" {
+				viper.Set(constants.SelectedStreamsPath, selectedStreamsPath)
 			}
 		}
 
@@ -142,8 +140,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&destinationType, "destination-type", "", "not-set", "Destination type for spec")
 	RootCmd.PersistentFlags().StringVarP(&streamsPath, "catalog", "", "", "Path to the streams file for the connector")
 	RootCmd.PersistentFlags().StringVarP(&streamsPath, "streams", "", "", "Path to the streams file for the connector")
-	RootCmd.PersistentFlags().BoolVar(&splitStreams, "split-streams", false, "Write catalog as separate streams.json (selected_streams) and schema.json (streams[])")
-	RootCmd.PersistentFlags().StringVarP(&schemaPath, "schema", "", "", "Path to schema file (streams[] metadata). Implies --split-streams")
+	RootCmd.PersistentFlags().StringVarP(&selectedStreamsPath, "selected-streams", "", "", "Path to selected_streams file (opt-in split layout). Passing this writes streams.json as streams[]-only and this file as selected_streams-only.")
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "destination-buffer-size", "", 10000, "(Optional) Batch size for destination")
 	RootCmd.PersistentFlags().IntVarP(&maxDiscoverThreads, "max-discover-threads", "", 50, "(Optional) Max number of parallel threads for discovery of table in database")

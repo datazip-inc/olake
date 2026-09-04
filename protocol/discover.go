@@ -34,7 +34,7 @@ var discoverCmd = &cobra.Command{
 		destinationDatabasePrefix = utils.Ternary(destinationDatabasePrefix == "", connector.Type(), destinationDatabasePrefix).(string)
 		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		if streamsPath != "" {
-			catalog, err = types.ResolveCatalog(streamsPath, schemaPath)
+			catalog, err = types.ResolveCatalog(streamsPath, selectedStreamsPath)
 			if err != nil {
 				return err
 			}
@@ -85,12 +85,12 @@ var discoverCmd = &cobra.Command{
 
 // compareStreams reads two streams.json files, computes the difference, and writes the result to difference_streams.json
 func compareStreams() error {
-	oldStreams, err := types.ResolveCatalog(streamsPath, schemaPath)
+	oldStreams, err := types.ResolveCatalog(streamsPath, selectedStreamsPath)
 	if err != nil {
 		return fmt.Errorf("failed to read old catalog: %w", err)
 	}
 
-	newStreams, err := types.ResolveCatalog(differencePath, schemaPath)
+	newStreams, err := types.ResolveCatalog(differencePath, selectedStreamsPath)
 	if err != nil {
 		return fmt.Errorf("failed to read new catalog: %w", err)
 	}

@@ -449,6 +449,8 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 }
 
 func TestConfiguredStream_GetSyncMode(t *testing.T) {
+	// Priority: selected_streams (metadata) > streams[]
+	// No DSP fallback for SyncMode.
 	tests := []struct {
 		name     string
 		stream   *Stream
@@ -456,36 +458,28 @@ func TestConfiguredStream_GetSyncMode(t *testing.T) {
 		want     SyncMode
 	}{
 		{
-			name:   "legacy format reads from stream",
+			name:   "legacy format: reads from stream when no metadata",
 			stream: &Stream{SyncMode: SyncMode("cdc")},
 			want:   SyncMode("cdc"),
 		},
 		{
-			name:     "new format reads from metadata",
+			name:     "metadata-only: reads from selected_streams",
 			stream:   &Stream{},
 			metadata: StreamMetadata{SyncMode: SyncMode("cdc")},
 			want:     SyncMode("cdc"),
 		},
 		{
-			name:     "manual streams[] edit wins over selected_streams",
+			// selected_streams wins when both are set
+			name:     "selected_streams wins over streams[]",
 			stream:   &Stream{SyncMode: SyncMode("full_refresh")},
 			metadata: StreamMetadata{SyncMode: SyncMode("cdc")},
-			want:     SyncMode("full_refresh"),
-		},
-		{
-			name: "falls back to default_stream_properties when metadata and stream empty",
-			stream: &Stream{
-				DefaultStreamProperties: &DefaultStreamProperties{SyncMode: SyncMode("incremental")},
-			},
-			want: SyncMode("incremental"),
-		},
-		{
-			name: "selected_streams wins over default_stream_properties when streams[] empty",
-			stream: &Stream{
-				DefaultStreamProperties: &DefaultStreamProperties{SyncMode: SyncMode("incremental")},
-			},
-			metadata: StreamMetadata{SyncMode: SyncMode("cdc")},
 			want:     SyncMode("cdc"),
+		},
+		{
+			// Both empty → empty SyncMode
+			name:   "both empty returns empty",
+			stream: &Stream{},
+			want:   SyncMode(""),
 		},
 	}
 
@@ -498,6 +492,8 @@ func TestConfiguredStream_GetSyncMode(t *testing.T) {
 }
 
 func TestConfiguredStream_Cursor(t *testing.T) {
+	// Priority: selected_streams (metadata) > streams[]
+	// No DSP fallback for CursorField.
 	tests := []struct {
 		name     string
 		stream   *Stream
@@ -506,30 +502,37 @@ func TestConfiguredStream_Cursor(t *testing.T) {
 		wantSec  string
 	}{
 		{
-			name:    "legacy format reads from stream",
+			name:    "legacy format: reads from stream when no metadata",
 			stream:  &Stream{CursorField: "updated_at"},
 			wantPri: "updated_at",
 			wantSec: "",
 		},
 		{
-			name:     "new format reads from metadata",
+			name:     "metadata-only: reads from selected_streams",
 			stream:   &Stream{},
 			metadata: StreamMetadata{CursorField: "updated_at"},
 			wantPri:  "updated_at",
 			wantSec:  "",
 		},
 		{
-			name:     "manual streams[] edit wins over selected_streams",
+			// selected_streams wins when both are set
+			name:     "selected_streams wins over streams[]",
 			stream:   &Stream{CursorField: "created_at"},
 			metadata: StreamMetadata{CursorField: "updated_at"},
-			wantPri:  "created_at",
+			wantPri:  "updated_at",
 		},
 		{
-			name: "falls back to default_stream_properties when metadata and stream empty",
-			stream: &Stream{
-				DefaultStreamProperties: &DefaultStreamProperties{CursorField: "updated_at"},
-			},
-			wantPri: "updated_at",
+			name:     "secondary cursor parsed from colon-separated metadata cursor",
+			stream:   &Stream{},
+			metadata: StreamMetadata{CursorField: "updated_at:id"},
+			wantPri:  "updated_at",
+			wantSec:  "id",
+		},
+		{
+			name:    "both empty returns empty",
+			stream:  &Stream{},
+			wantPri: "",
+			wantSec: "",
 		},
 	}
 
@@ -544,6 +547,9 @@ func TestConfiguredStream_Cursor(t *testing.T) {
 }
 
 func TestConfiguredStream_GetDestinationDatabase(t *testing.T) {
+	// Priority: selected_streams (metadata) > streams[]
+	// Falls back to stream.Namespace when both are empty.
+	// No DSP fallback for DestinationDatabase.
 	tests := []struct {
 		name     string
 		stream   *Stream
@@ -551,49 +557,52 @@ func TestConfiguredStream_GetDestinationDatabase(t *testing.T) {
 		want     string
 	}{
 		{
-			name:   "legacy format reads from stream",
+			name:   "legacy format: reads from stream when no metadata",
 			stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"},
 			want:   "legacy_db",
 		},
 		{
-			name:     "new format reads from metadata",
+			name:     "metadata-only: reads from selected_streams",
 			stream:   &Stream{Name: "users", Namespace: "public"},
 			metadata: StreamMetadata{DestinationDatabase: "new_db"},
 			want:     "new_db",
 		},
 		{
-			name:     "manual streams[] edit wins over selected_streams",
+			// selected_streams wins when both are set
+			name:     "selected_streams wins over streams[]",
 			stream:   &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"},
 			metadata: StreamMetadata{DestinationDatabase: "new_db"},
-			want:     "legacy_db",
-		},
-		{
-			name: "falls back to default_stream_properties when metadata and stream empty",
-			stream: &Stream{
-				Name:      "users",
-				Namespace: "public",
-				DefaultStreamProperties: &DefaultStreamProperties{
-					DestinationDatabase: "discover_db_public",
-				},
-			},
-			want: "discover_db_public",
+			want:     "new_db",
 		},
 		{
 			name:   "falls back to namespace when all empty",
 			stream: &Stream{Name: "users", Namespace: "public"},
 			want:   "public",
 		},
+		{
+			name:   "icebergDB used when stream and metadata are empty",
+			stream: &Stream{Name: "users", Namespace: "public"},
+			want:   "iceberg_db",
+		},
 	}
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
-			assert.Equal(t, tt.want, s.GetDestinationDatabase(nil))
+			var icebergDB *string
+			if i == len(tests)-1 { // last test uses icebergDB
+				db := "iceberg_db"
+				icebergDB = &db
+			}
+			assert.Equal(t, tt.want, s.GetDestinationDatabase(icebergDB))
 		})
 	}
 }
 
 func TestConfiguredStream_GetDestinationTable(t *testing.T) {
+	// Priority: selected_streams (metadata) > streams[]
+	// Falls back to stream.Name when both are empty.
+	// No DSP fallback for DestinationTable.
 	tests := []struct {
 		name     string
 		stream   *Stream
@@ -601,31 +610,22 @@ func TestConfiguredStream_GetDestinationTable(t *testing.T) {
 		want     string
 	}{
 		{
-			name:   "legacy format reads from stream",
+			name:   "legacy format: reads from stream when no metadata",
 			stream: &Stream{Name: "users", DestinationTable: "legacy_table"},
 			want:   "legacy_table",
 		},
 		{
-			name:     "new format reads from metadata",
+			name:     "metadata-only: reads from selected_streams",
 			stream:   &Stream{Name: "users"},
 			metadata: StreamMetadata{DestinationTable: "new_table"},
 			want:     "new_table",
 		},
 		{
-			name:     "manual streams[] edit wins over selected_streams",
+			// selected_streams wins when both are set
+			name:     "selected_streams wins over streams[]",
 			stream:   &Stream{Name: "users", DestinationTable: "legacy_table"},
 			metadata: StreamMetadata{DestinationTable: "new_table"},
-			want:     "legacy_table",
-		},
-		{
-			name: "falls back to default_stream_properties when metadata and stream empty",
-			stream: &Stream{
-				Name: "users",
-				DefaultStreamProperties: &DefaultStreamProperties{
-					DestinationTable: "discover_users",
-				},
-			},
-			want: "discover_users",
+			want:     "new_table",
 		},
 		{
 			name:   "falls back to stream name when all empty",
@@ -638,6 +638,127 @@ func TestConfiguredStream_GetDestinationTable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
 			assert.Equal(t, tt.want, s.GetDestinationTable())
+		})
+	}
+}
+
+func TestConfiguredStream_NormalizationEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     bool
+	}{
+		{
+			name:     "explicit true in metadata",
+			stream:   &Stream{},
+			metadata: StreamMetadata{Normalization: boolPtr(true)},
+			want:     true,
+		},
+		{
+			name:     "explicit false in metadata",
+			stream:   &Stream{},
+			metadata: StreamMetadata{Normalization: boolPtr(false)},
+			want:     false,
+		},
+		{
+			name:     "nil metadata does not use DSP",
+			stream:   &Stream{DefaultStreamProperties: &DefaultStreamProperties{Normalization: true}},
+			metadata: StreamMetadata{},
+			want:     false,
+		},
+		{
+			name:   "nil metadata returns false",
+			stream: &Stream{},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.NormalizationEnabled())
+		})
+	}
+}
+
+func TestConfiguredStream_AppendModeEnabled(t *testing.T) {
+	// Priority: metadata (*bool) > DSP.AppendMode
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     bool
+	}{
+		{
+			name:     "explicit true in metadata",
+			metadata: StreamMetadata{AppendMode: boolPtr(true)},
+			stream:   &Stream{},
+			want:     true,
+		},
+		{
+			name:     "explicit false in metadata",
+			metadata: StreamMetadata{AppendMode: boolPtr(false)},
+			stream:   &Stream{},
+			want:     false,
+		},
+		{
+			name:     "nil metadata falls back to DSP (true)",
+			stream:   &Stream{DefaultStreamProperties: &DefaultStreamProperties{AppendMode: true}},
+			metadata: StreamMetadata{},
+			want:     true,
+		},
+		{
+			// explicit false in metadata wins over DSP=true
+			name:     "explicit false in metadata wins over DSP true",
+			stream:   &Stream{DefaultStreamProperties: &DefaultStreamProperties{AppendMode: true}},
+			metadata: StreamMetadata{AppendMode: boolPtr(false)},
+			want:     false,
+		},
+		{
+			name:   "nil metadata and nil DSP returns false (zero value)",
+			stream: &Stream{},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.AppendModeEnabled())
+		})
+	}
+}
+
+func TestConfiguredStream_GetUpdateType(t *testing.T) {
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     UpdateType
+	}{
+		{
+			name:     "metadata update type used",
+			metadata: StreamMetadata{UpdateType: string(UpdateTypePosition)},
+			stream:   &Stream{},
+			want:     UpdateTypePosition,
+		},
+		{
+			name:   "empty metadata does not use DSP",
+			stream: &Stream{DefaultStreamProperties: &DefaultStreamProperties{UpdateType: UpdateTypePosition}},
+			want:   UpdateTypeEquality,
+		},
+		{
+			name:   "defaults to UpdateTypeEquality when empty",
+			stream: &Stream{},
+			want:   UpdateTypeEquality,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.GetUpdateType())
 		})
 	}
 }
