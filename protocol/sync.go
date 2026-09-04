@@ -91,6 +91,8 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) (err error) {
+		defer utils.FinalizeS3Upload(cmd.Context(), &err, noSave)
+
 		// setup conector first
 		err = connector.Setup(cmd.Context())
 		if err != nil {
