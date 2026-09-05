@@ -197,10 +197,17 @@ prepare.all: $(addprefix prepare.,$(DRIVERS))
 # at once, and `make -j olake.all.wait` collapses all the probes into one parallel
 # step, so slow boots (db2, spark) overlap with each other and with whatever
 # runs between the two -- what CI does.
+# The compose files one driver's stack is made of: its own, plus the override named by
+# EXTRA_COMPOSE_<d> when set. CI sets EXTRA_COMPOSE_mysql for the mysql-5.7 matrix entry, so
+# the same olake.mysql.* targets bring up a 5.7 server without a second set of targets; unset,
+# every stack stays a plain single-file one. Only files named exactly docker-compose.yml make a
+# directory a driver (see SOURCE_DRIVERS), so an override never becomes a driver of its own.
+compose_files = -f drivers/$(1)/docker-compose.yml $(if $(EXTRA_COMPOSE_$(1)),-f $(EXTRA_COMPOSE_$(1)))
+
 define SOURCE_DB_template
 .PHONY: olake.$(1).up olake.$(1).wait olake.$(1).start olake.$(1).stop olake.$(1).teardown olake.$(1).restart olake.$(1).refresh
 olake.$(1).up:
-	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml up -d
+	$$(COMPOSE) $$(call compose_files,$(1)) up -d
 
 olake.$(1).wait:
 	@$$(call wait_ready,$(1))
@@ -212,10 +219,10 @@ olake.$(1).start:
 	@$$(MAKE) --no-print-directory olake.$(1).wait
 
 olake.$(1).stop:
-	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml down --remove-orphans
+	$$(COMPOSE) $$(call compose_files,$(1)) down --remove-orphans
 
 olake.$(1).teardown:
-	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml down --volumes --remove-orphans
+	$$(COMPOSE) $$(call compose_files,$(1)) down --volumes --remove-orphans
 
 # restart = stop then start (keeps volumes + data); refresh = teardown then start
 # (wipes them). Both sequenced via sub-make so `make -j` can't start the stack

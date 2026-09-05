@@ -1,0 +1,28 @@
+# MySQL 5.7 override for the mysql stack:
+#
+#   docker compose -f drivers/mysql/docker-compose.yml -f drivers/mysql/docker-compose.5.7.yml up -d
+#
+# or, through the Makefile, EXTRA_COMPOSE_mysql=drivers/mysql/docker-compose.5.7.yml make olake.mysql.start
+#
+# 5.7 predates binlog_row_metadata (MySQL 8.0.1), so its binlog carries no column names,
+# ENUM/SET members, charsets or signedness. That is the point of this file: it is the only
+# stack that exercises the information_schema fallback in pkg/binlog. Do not add the flag
+# here to "fix" a failure -- the server would reject it, and a passing run would prove
+# nothing the 8.0 stack does not already cover.
+#
+# Compose replaces `command` wholesale rather than merging it, so the 8.0 command is
+# restated below minus that one flag.
+services:
+  mysql:
+    image: mysql:5.7.28
+    # 5.7 was never published for arm64; without this an Apple Silicon host cannot start
+    # the stack at all. Emulated, it is slower than the 8.0 stack but workable.
+    platform: linux/amd64
+    command: >
+      --server-id=1
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --binlog-row-image=FULL
+      --max_allowed_packet=256M
+      --innodb_buffer_pool_size=512M
+      --default-authentication-plugin=mysql_native_password

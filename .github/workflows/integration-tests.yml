@@ -42,6 +42,7 @@ jobs:
       pull-requests: read
     outputs:
       drivers: ${{ steps.drivers.outputs.drivers }}
+      driver-matrix: ${{ steps.matrix.outputs.matrix }}
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
       go-checks-changed: ${{ steps.go-checks.outputs.changed }}
@@ -55,6 +56,25 @@ jobs:
       - name: Resolve driver matrix
         id: drivers
         uses: ./.github/actions/detect-drivers
+
+      # The driver matrix, plus the pseudo-driver "mysql-5.7". It is the mysql driver against a
+      # 5.7 server -- same module, same image, its own runner -- so it fans out beside the real
+      # drivers instead of extending the mysql job. 5.7 predates binlog_row_metadata, making it
+      # the only stack that covers the information_schema fallback in pkg/binlog. Added only when
+      # mysql is already in the matrix: a PR that touches nothing mysql should not boot a mysql
+      # stack to test it.
+      - name: Build driver matrix
+        id: matrix
+        env:
+          DRIVERS: ${{ steps.drivers.outputs.drivers }}
+        run: |
+          set -euo pipefail
+          matrix="$DRIVERS"
+          if jq -e 'index("mysql")' <<<"$DRIVERS" >/dev/null; then
+            matrix=$(jq -c '. + ["mysql-5.7"]' <<<"$DRIVERS")
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Driver matrix: $matrix"
 
       - name: Detect go-check input changes
         id: go-checks
@@ -224,10 +244,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        driver: ${{ fromJSON(needs.preflight.outputs.drivers) }}
+        driver: ${{ fromJSON(needs.preflight.outputs.driver-matrix) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
+
+      # Maps a matrix entry to the driver module it builds, the compose override it runs against
+      # and the suites it runs. Every step below reads these rather than matrix.driver, so the
+      # mysql-5.7 entry reuses the mysql image, the mysql buildx cache and the mysql test binary.
+      # EXTRA_COMPOSE_mysql lands in the job env, so every make call picks up the override without
+      # threading it through each one.
+      - name: Resolve driver variant
+        env:
+          MATRIX_DRIVER: ${{ matrix.driver }}
+        run: |
+          set -euo pipefail
+          case "$MATRIX_DRIVER" in
+            mysql-5.7)
+              echo "DRIVER=mysql" >> "$GITHUB_ENV"
+              echo "EXTRA_COMPOSE_mysql=drivers/mysql/docker-compose.5.7.yml" >> "$GITHUB_ENV"
+              # Sync only: it covers backfill, CDC and schema evolution over the fixture, which is
+              # where every fallback-sensitive type lives -- ENUM, SET, latin1/ucs2/utf16le columns
+              # and the unsigned maxima. Discover and 2PC are orthogonal to binlog metadata and
+              # already run on 8.0 in the sibling job.
+              echo "TEST_TARGET=test.sync.mysql" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "DRIVER=$MATRIX_DRIVER" >> "$GITHUB_ENV"
+              echo "TEST_TARGET=test.integration.$MATRIX_DRIVER" >> "$GITHUB_ENV"
+              ;;
+          esac
 
       # The iceberg catalog's postgres runs as uid 999 and has to own its bind mount.
       - name: Set up Data Directories
@@ -244,7 +290,7 @@ jobs:
         id: containers
         background: true
         timeout-minutes: 15
-        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
+        run: make -j2 --output-sync=target olake.${{ env.DRIVER }}.up olake.destination.all.up
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/buildx
@@ -258,7 +304,7 @@ jobs:
         id: image
         background: true
         timeout-minutes: 20
-        run: make docker.${{ matrix.driver }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ matrix.driver }} --load"
+        run: make docker.${{ env.DRIVER }}.build DOCKER_BUILD="docker buildx build --progress=plain --cache-from type=gha,scope=olake-base --cache-from type=gha,scope=olake-${{ env.DRIVER }} --load"
 
       # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
       - name: Set up Go
@@ -276,30 +322,48 @@ jobs:
       - name: Install Dependencies
         id: go-build
         timeout-minutes: 15
-        run: make test.build.${{ matrix.driver }}
+        run: make test.build.${{ env.DRIVER }}
 
       - name: Wait for background jobs
         wait: [containers, image, go-build]
 
       - name: Wait for source + destination readiness
         timeout-minutes: 3
-        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
+        run: make -j2 --output-sync=target olake.${{ env.DRIVER }}.wait olake.destination.all.wait
 
       # Serial, once: olake processes reaching a fresh catalog race each other's CREATE TABLE on
       # iceberg_tables, and the harness has no runtime fallback for that.
       - name: Check destination (bootstrap Iceberg catalog)
         run: |
           set -euo pipefail
-          echo "Bootstrapping Iceberg catalog via '${{ matrix.driver }}'..."
+          echo "Bootstrapping Iceberg catalog via '${{ env.DRIVER }}'..."
           docker run --rm \
             -v "$PWD/tests/testdata:/testdata" \
             --add-host host.docker.internal:host-gateway \
             -e TELEMETRY_DISABLED=true \
-            "olake/source-${{ matrix.driver }}:local" \
+            "olake/source-${{ env.DRIVER }}:local" \
             check --destination /testdata/iceberg_destination.json
 
-      # Integration + 2PC + (kafka) Rebalance in one go test, against the image built above.
+      # Fails loudly rather than silently re-running the 8.0 suite: every assertion in the suite
+      # passes against 8.0 too, so an override that stopped threading through must not look green.
+      # Runs only for the mysql-5.7 entry, the only one that sets an override.
+      - name: Verify server is 5.7 without binlog_row_metadata
+        if: ${{ env.EXTRA_COMPOSE_mysql != '' }}
+        run: |
+          set -euo pipefail
+          mysql_q() { docker exec olake_mysql-test mysql -h localhost -u root -proot1234 -N -B -e "$1" 2>/dev/null; }
+          version=$(mysql_q "SELECT VERSION()")
+          echo "Server version: $version"
+          case "$version" in 5.7.*) ;; *) echo "expected a 5.7 server, got '$version'"; exit 1 ;; esac
+          metadata=$(mysql_q "SHOW VARIABLES LIKE 'binlog_row_metadata'")
+          if [ -n "$metadata" ]; then
+            echo "expected binlog_row_metadata to be absent, got: $metadata"
+            exit 1
+          fi
+
+      # Integration + 2PC + (kafka) Rebalance in one go test, against the image built above --
+      # or, for the mysql-5.7 entry, the sync suite alone. See "Resolve driver variant".
       - name: Run tests
         env:
-          OLAKE_DRIVER_IMAGE: olake/source-${{ matrix.driver }}:local
-        run: make test.integration.${{ matrix.driver }}
+          OLAKE_DRIVER_IMAGE: olake/source-${{ env.DRIVER }}:local
+        run: make "$TEST_TARGET"
