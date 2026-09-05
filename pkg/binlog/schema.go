@@ -28,6 +28,16 @@ type tableMeta struct {
 
 // schemaCache supplies the column metadata the binlog omits. Safe for concurrent use:
 // StreamMessages is single-goroutine today, but the cache outlives one event.
+//
+// An entry is the server's schema when it was loaded, not the schema at the binlog position
+// being decoded. Those agree in steady state, since invalidate() drops the entry as the
+// reader passes the DDL, but diverge when a table's first load happens while the reader is
+// already behind one -- a stale state file, or a backlog.
+//
+// TODO: key the cache to the reader's position rather than the server's present, by applying
+// each DDL from its QueryEvent in stream order. Same-arity drift needs it: a reorder, a
+// reordered ENUM/SET, or a changed signedness or charset all pass resolveColumns'
+// column-count check and decode silently wrong.
 type schemaCache struct {
 	mu     sync.RWMutex
 	client *sqlx.DB
