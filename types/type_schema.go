@@ -175,7 +175,7 @@ func (t *TypeSchema) ToIceberg(defaultColumns bool, stream StreamInterface, incl
 		colName := key.(string)
 		outName := stream.ResolveColumnName(colName)
 		// skip non-olake columns in defaultColumns mode unless explicitly included (e.g. partition columns)
-		if !isSelected(outName) || (defaultColumns && !prop.OlakeColumn && !includeSet.Exists(colName)) {
+		if (!prop.OlakeColumn && !isSelected(outName)) || (defaultColumns && !prop.OlakeColumn && !includeSet.Exists(colName)) {
 			return true
 		}
 		icebergFields = append(icebergFields, &proto.IcebergPayload_SchemaField{
