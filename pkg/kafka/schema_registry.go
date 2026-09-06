@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/linkedin/goavro/v2"
 )
@@ -26,7 +27,7 @@ func (c *SchemaRegistryClient) schemaRegistryGetRequest(path string) (*http.Resp
 	url := fmt.Sprintf("%s%s", c.Endpoint, path)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %s", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	// Set authentication headers (bearer token takes priority over basic auth)
@@ -51,12 +52,13 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 	// fetch schema from registry
 	resp, err := c.schemaRegistryGetRequest(fmt.Sprintf("/schemas/ids/%d", schemaID))
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch schema: %s", err)
+		return nil, fmt.Errorf("failed to fetch schema: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("schema registry returned status %d for schema ID %d", resp.StatusCode, schemaID)
+		return nil, registryStatusFailure(resp.StatusCode,
+			fmt.Errorf("schema registry returned status %d for schema ID %d", resp.StatusCode, schemaID))
 	}
 
 	var schemaResp struct {
@@ -64,7 +66,7 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 		SchemaType string `json:"schemaType"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&schemaResp); err != nil {
-		return nil, fmt.Errorf("failed to decode schema response: %s", err)
+		return nil, fmt.Errorf("failed to decode schema response: %w", err)
 	}
 
 	// determine schema type
@@ -81,11 +83,11 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 	if schemaType == types.SchemaTypeAvro {
 		normalizedSchema, err := typeutils.NormalizeAvroSchema(schemaResp.Schema)
 		if err != nil {
-			return nil, fmt.Errorf("failed to normalize schema ID %d: %s", schemaID, err)
+			return nil, fmt.Errorf("failed to normalize schema ID %d: %w", schemaID, err)
 		}
 		codec, err := goavro.NewCodec(normalizedSchema)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create Avro codec for schema ID %d: %s", schemaID, err)
+			return nil, fmt.Errorf("failed to create Avro codec for schema ID %d: %w", schemaID, err)
 		}
 		registered.Codec = codec
 	}
@@ -99,19 +101,52 @@ func (c *SchemaRegistryClient) FetchSchema(schemaID uint32) (*types.RegisteredSc
 func (c *SchemaRegistryClient) Validate() error {
 	resp, err := c.schemaRegistryGetRequest("/subjects")
 	if err != nil {
-		return fmt.Errorf("failed to connect to schema registry: %s", err)
+		return fmt.Errorf("failed to connect to schema registry: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("schema registry authentication failed: invalid credentials")
+		return registryStatusFailure(resp.StatusCode,
+			fmt.Errorf("schema registry authentication failed: invalid credentials"))
 	}
 	if resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("schema registry authentication failed: access forbidden")
+		return registryStatusFailure(resp.StatusCode,
+			fmt.Errorf("schema registry authentication failed: access forbidden"))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("schema registry returned unexpected status: %d", resp.StatusCode)
+		return registryStatusFailure(resp.StatusCode,
+			fmt.Errorf("schema registry returned unexpected status: %d", resp.StatusCode))
 	}
 
 	return nil
+}
+
+// registryStatusFailure classifies a schema-registry response by its HTTP status. The registry
+// is plain HTTP with no typed errors, and the status is gone by the time the error reaches the
+// command, so it is classified here rather than in the driver. Unmapped statuses pass through.
+func registryStatusFailure(status int, err error) error {
+	var category errs.Category
+	switch {
+	case status == http.StatusUnauthorized:
+		category = errs.AuthFailed
+	case status == http.StatusForbidden:
+		category = errs.PermissionDenied
+	case status == http.StatusNotFound:
+		category = errs.ObjectNotFound
+	case status == http.StatusRequestTimeout:
+		category = errs.Timeout
+	case status == http.StatusTooManyRequests:
+		category = errs.ResourceExhausted
+	case status >= 500:
+		category = errs.NetworkUnreachable
+	default:
+		return err
+	}
+	return errs.Attach(err, errs.Failure{
+		Category:     category,
+		ClassifiedBy: errs.ClassifiedByVendor,
+		// Prefixed so it cannot be read as a Kafka protocol code, which is a bare number in
+		// the same telemetry field.
+		Code: fmt.Sprintf("schema_registry.http_%d", status),
+	})
 }

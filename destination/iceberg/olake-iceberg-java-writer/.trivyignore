@@ -1,0 +1,17 @@
+# Trivy suppressions -- validated 2026-07-30.
+#
+# Both entries come from parquet-jackson, which ships its own copy of
+# jackson-databind relocated under shaded.parquet.*. Being a renamed package it
+# is not a Maven coordinate, so no pin, BOM or exclusion can reach it, and
+# Parquet is not removable (it is our primary file format). Our own resolved
+# jackson-databind is 2.22.1 and is patched.
+#
+# Upgrading Parquet does not help: 1.16.0 shades jackson 2.19.2 and the latest
+# 1.17.1 still shades 2.21.3, while the fix requires >= 2.21.4.
+#
+# Apache Iceberg suppresses these same CVEs for the same reason, see
+# https://github.com/apache/iceberg/blob/main/.github/trivyignore/kafka-connect-runtime.trivyignore
+#
+# Clears when Apache Parquet re-shades jackson >= 2.21.4.
+CVE-2026-54512
+CVE-2026-54513

@@ -33,11 +33,11 @@ func NewChangeFilter(typeConverter func(value interface{}, columnType string) (i
 func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFiltered abstract.CDCMsgFn) (*pglogrepl.LSN, int, error) {
 	var changes WALMessage
 	if err := json.NewDecoder(bytes.NewReader(change)).Decode(&changes); err != nil {
-		return nil, 0, fmt.Errorf("failed to parse change received from wal logs: %s", err)
+		return nil, 0, fmt.Errorf("failed to parse change received from wal logs: %w", err)
 	}
 	nextLSN, err := pglogrepl.ParseLSN(changes.NextLSN)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to parse received lsn: %s", err)
+		return nil, 0, fmt.Errorf("failed to parse received lsn: %w", err)
 	}
 
 	if len(changes.Change) == 0 {
@@ -72,13 +72,13 @@ func (c ChangeFilter) FilterWalJsChange(ctx context.Context, change []byte, OnFi
 		}
 
 		if err != nil {
-			return nil, rowsCount, fmt.Errorf("failed to convert change data: %s", err)
+			return nil, rowsCount, fmt.Errorf("failed to convert change data: %w", err)
 		}
 
 		// Deprecated wal2json path: bytes not tracked, pgoutput is the supported replicator.
 		if err := OnFiltered(ctx, abstract.NewCDCChange(stream, changes.Timestamp.Time, ch.Kind, changesMap,
 			map[string]any{CDCLSN: changes.NextLSN}, 0)); err != nil {
-			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %s", err)
+			return nil, rowsCount, fmt.Errorf("failed to write filtered change: %w", err)
 		}
 	}
 	return &nextLSN, rowsCount, nil

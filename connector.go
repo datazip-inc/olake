@@ -17,6 +17,7 @@ func RegisterDriver(driver abstract.DriverInterface) {
 	// Execute the root command
 	err := protocol.CreateRootCommand(true, driver).Execute()
 	if err != nil {
+		protocol.ReportFailure(err)
 		logger.Fatal(err)
 	}
 

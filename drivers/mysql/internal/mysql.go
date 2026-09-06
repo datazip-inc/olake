@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"regexp"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
@@ -22,6 +24,14 @@ import (
 
 	// MySQL driver
 	"github.com/go-sql-driver/mysql"
+)
+
+const (
+	// MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
+	maxUint24 = 1<<24 - 1
+
+	// minCDCInitialWaitTime is the minimum wait time in seconds for CDC sync.
+	minCDCInitialWaitTime = 120
 )
 
 // MySQL represents the MySQL database driver
@@ -64,14 +74,14 @@ func (m *MySQL) Spec() any {
 func (m *MySQL) Setup(ctx context.Context) error {
 	err := m.config.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate config: %s", err)
+		return fmt.Errorf("failed to validate config: %w", err)
 	}
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 	}
 
@@ -81,33 +91,33 @@ func (m *MySQL) Setup(ctx context.Context) error {
 
 		uri, err := m.config.URI()
 		if err != nil {
-			return fmt.Errorf("failed to setup config uri: %s", err)
+			return fmt.Errorf("failed to setup config uri: %w", err)
 		}
 
 		cfg, err := mysql.ParseDSN(uri)
 		if err != nil {
-			return fmt.Errorf("failed to parse mysql DSN: %s", err)
+			return fmt.Errorf("failed to parse mysql DSN: %w", err)
 		}
 
 		// Allows mysql driver to use the SSH client to connect to the database
 		cfg.Net = "mysqlTcp"
-		mysql.RegisterDialContext(cfg.Net, func(ctx context.Context, addr string) (net.Conn, error) {
+		mysql.RegisterDialContext(cfg.Net, func(_ context.Context, addr string) (net.Conn, error) {
 			return m.sshClient.Dial("tcp", addr)
 		})
 
 		client, err = sqlx.Open("mysql", cfg.FormatDSN())
 		if err != nil {
-			return fmt.Errorf("failed to open tunneled database connection: %s", err)
+			return fmt.Errorf("failed to open tunneled database connection: %w", err)
 		}
 	} else {
 		uri, err := m.config.URI()
 		if err != nil {
-			return fmt.Errorf("failed to setup config uri: %s", err)
+			return fmt.Errorf("failed to setup config uri: %w", err)
 		}
 
 		client, err = sqlx.Open("mysql", uri)
 		if err != nil {
-			return fmt.Errorf("failed to open database connection: %s", err)
+			return fmt.Errorf("failed to open database connection: %w", err)
 		}
 	}
 	// Test connection
@@ -116,7 +126,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	// Set connection pool size
 	client.SetMaxOpenConns(m.config.MaxThreads)
 	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %s", err)
+		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	var resolved *time.Location
@@ -135,7 +145,8 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	}
 	m.effectiveTZ = resolved
 
-	// TODO: If CDC config exists and permission check fails, fail the setup
+	m.client = client
+
 	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
 	if found {
 		logger.Info("Found CDC Configuration")
@@ -143,23 +154,24 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
 			return err
 		}
-		if cdc.InitialWaitTime == 0 {
-			// default set 10 sec
-			cdc.InitialWaitTime = 10
+		if cdc.InitialWaitTime < minCDCInitialWaitTime {
+			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using %d", cdc.InitialWaitTime, minCDCInitialWaitTime, minCDCInitialWaitTime)
+			cdc.InitialWaitTime = minCDCInitialWaitTime
 		}
+
+		// Enable CDC support if binlog is configured
+		cdcSupported, err := m.IsCDCSupported(ctx)
+		if err != nil {
+			return err
+		}
+		if !cdcSupported {
+			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCUnsupported, fmt.Errorf("failed to setup CDC: binlog is not configured correctly"))
+		}
+
+		m.CDCSupport = cdcSupported
 		m.cdcConfig = *cdc
 	}
-	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
-	// Enable CDC support if binlog is configured
-	cdcSupported, err := m.IsCDCSupported(ctx)
-	if err != nil {
-		logger.Warnf("failed to check CDC support: %s", err)
-	}
-	if !cdcSupported {
-		logger.Warnf("CDC is not supported")
-	}
-	m.CDCSupport = cdcSupported
 	return nil
 }
 
@@ -186,7 +198,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	query := jdbc.MySQLDiscoverTablesQuery()
 	rows, err := m.client.QueryContext(ctx, query, m.config.Database)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %s", err)
+		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
 	defer rows.Close()
 
@@ -194,7 +206,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&tableName, &schemaName); err != nil {
-			return nil, fmt.Errorf("failed to scan table: %s", err)
+			return nil, fmt.Errorf("failed to scan table: %w", err)
 		}
 		tableNames = append(tableNames, types.StreamID{Namespace: schemaName, Name: tableName})
 	}
@@ -210,17 +222,17 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query column information: %s", err)
+			return nil, fmt.Errorf("failed to query column information: %w", err)
 		}
 		defer rows.Close()
 
 		for rows.Next() {
 			var columnName, columnType, dataType, isNullable, columnKey string
 			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
-				return nil, fmt.Errorf("failed to scan column: %s", err)
+				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			stream.WithCursorField(columnName)
-			datatype := types.Unknown
+			var datatype types.DataType
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
 				datatype = val
 			} else {
@@ -239,9 +251,9 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 	stream, err := produceTableSchema(ctx, streamName)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
+		return nil, fmt.Errorf("failed to process table[%s]: %w", streamName, err)
 	}
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
@@ -268,28 +280,11 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 	}
 
 	// The go-mysql binlog parser always returns integer values as their signed Go equivalents
-	// (int8, int16, int32, int64) regardless of the MySQL UNSIGNED flag. For unsigned columns
-	// whose values exceed the signed type's max value, we must reinterpret the raw bits as the
-	// corresponding unsigned type before further conversion so the value is preserved correctly.
+	// (int8, int16, int32, int64) regardless of the MySQL UNSIGNED flag, sign-extending anything
+	// with the high bit set. Masking the value back to the column's storage width undoes that:
+	// it recovers the stored value without a signed-to-unsigned conversion that could overflow.
 	if constants.LoadedStateVersion > 3 {
-		switch strings.ToLower(columnType) {
-		case "unsigned tinyint":
-			if v, ok := value.(int8); ok {
-				value = uint8(v)
-			}
-		case "unsigned smallint":
-			if v, ok := value.(int16); ok {
-				value = uint16(v)
-			}
-		case "unsigned mediumint", "unsigned int", "unsigned integer":
-			if v, ok := value.(int32); ok {
-				value = uint32(v)
-			}
-		case "unsigned bigint":
-			if v, ok := value.(int64); ok {
-				value = uint64(v)
-			}
-		}
+		value = stripSignExtension(value, strings.ToLower(columnType))
 	} else {
 		if strings.Contains(strings.ToLower(columnType), "unsigned") {
 			columnType = strings.TrimSpace(strings.TrimPrefix(strings.ToLower(columnType), "unsigned "))
@@ -321,14 +316,14 @@ func (m *MySQL) Close() error {
 func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
 	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
-		return false, fmt.Errorf("failed to get binlog position: %s", err)
+		return false, fmt.Errorf("failed to get binlog position: %w", err)
 	}
 
 	// checkMySQLConfig checks a MySQL configuration value against an expected value
 	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
 		var name, value string
 		if err := m.client.QueryRowxContext(ctx, query).Scan(&name, &value); err != nil {
-			return false, fmt.Errorf("failed to check %s: %s", name, err)
+			return false, fmt.Errorf("failed to check %s: %w", name, err)
 		}
 
 		if strings.ToUpper(value) != expectedValue {
@@ -415,4 +410,31 @@ func parseMySQLTimeZoneOffset(s string) (int, bool) {
 	}
 	offsetSeconds := hours*3600 + minutes*60
 	return utils.Ternary(signStr == "-", -offsetSeconds, offsetSeconds).(int), true
+}
+
+// stripSignExtension masks an UNSIGNED column's value back to its storage width, undoing the sign
+// extension the binlog parser applies. The result comes back in the narrowest signed Go type that
+// holds the column's whole range, so no case widens further than its own values need.
+// UNSIGNED BIGINT is absent on purpose: it has no spare width, so its bits are already final.
+// TODO: olake has no uint64 data type, so UNSIGNED BIGINT above MaxInt64 stays wrapped negative.
+func stripSignExtension(value any, columnType string) any {
+	switch columnType {
+	case "unsigned tinyint":
+		if v, ok := value.(int8); ok {
+			return int16(v) & math.MaxUint8
+		}
+	case "unsigned smallint":
+		if v, ok := value.(int16); ok {
+			return int32(v) & math.MaxUint16
+		}
+	case "unsigned mediumint":
+		if v, ok := value.(int32); ok {
+			return v & maxUint24
+		}
+	case "unsigned int", "unsigned integer":
+		if v, ok := value.(int32); ok {
+			return int64(v) & math.MaxUint32
+		}
+	}
+	return value
 }

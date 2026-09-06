@@ -29,8 +29,7 @@ type Config struct {
 // Capture Write Ahead Logs
 type CDC struct {
 	ReplicationSlot string `json:"replication_slot"`
-	// initial wait time must be in range [120,2400), default value 1200
-	InitialWaitTime int `json:"initial_wait_time"`
+	InitialWaitTime int    `json:"initial_wait_time"`
 	// Publications used when OutputPlugin is pgoutput
 	Publication string `json:"publication"`
 }
@@ -82,7 +81,7 @@ func (c *Config) Validate() error {
 
 	err := c.SSLConfiguration.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate ssl config: %s", err)
+		return fmt.Errorf("failed to validate ssl config: %w", err)
 	}
 
 	parsed.RawQuery = query.Encode()

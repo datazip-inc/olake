@@ -98,7 +98,7 @@ type MongoSSHDialer struct {
 	sshClient *ssh.Client
 }
 
-func (d *MongoSSHDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+func (d *MongoSSHDialer) DialContext(ctx context.Context, _, address string) (net.Conn, error) {
 	if d.sshClient == nil {
 		return nil, fmt.Errorf("SSH client is not initialized")
 	}
@@ -124,12 +124,15 @@ func (m *Mongo) CDCSupported() bool {
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {
+	if err := m.config.Validate(); err != nil {
+		return fmt.Errorf("failed to validate config: %w", err)
+	}
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		sshClient, err := m.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 		m.sshDialer = &MongoSSHDialer{sshClient: sshClient}
 	}
@@ -137,12 +140,21 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 
 	opts.ApplyURI(m.config.URI())
+	tlsConfig, err := m.config.buildTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build tls config: %w", err)
+	}
+	if tlsConfig != nil {
+		opts.SetTLSConfig(tlsConfig)
+	}
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}
-	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
+	if maxPoolSize := m.config.MaxThreads; maxPoolSize > 0 {
+		opts.SetMaxPoolSize(uint64(maxPoolSize))
+	}
 	connectCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
@@ -153,7 +165,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	// Validate the connection by pinging the database
 	if err := conn.Ping(connectCtx, nil); err != nil {
-		return fmt.Errorf("failed to connect to MongoDB: %s", err)
+		return fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
 
 	m.client = conn
@@ -212,7 +224,7 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	for collections.Next(ctx) {
 		var collectionInfo bson.M
 		if err := collections.Decode(&collectionInfo); err != nil {
-			return nil, fmt.Errorf("failed to decode collection: %s", err)
+			return nil, fmt.Errorf("failed to decode collection: %w", err)
 		}
 
 		// Skip if collection is a view
@@ -247,7 +259,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 		}
 
-		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, _ int) error {
 			cursor, err := collection.Find(ctx, bson.D{}, findOpt)
 			if err != nil {
 				return err
@@ -275,12 +287,12 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 	stream, err := produceCollectionSchema(ctx, database, streamID.Name)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamID.Name, err)
+		return nil, fmt.Errorf("failed to process collection[%s]: %w", streamID.Name, err)
 	}
 	// Add all discovered fields as potential cursor fields
-	stream.Schema.Properties.Range(func(key, value interface{}) bool {
+	stream.Schema.Properties.Range(func(key, _ interface{}) bool {
 		if fieldName, ok := key.(string); ok {
 			stream.WithCursorField(fieldName)
 		}

@@ -6,7 +6,7 @@ To ensure consistency, we follow a structured contribution process. All guidelin
 - [Contribute To OLake](https://olake.io/docs/community/contributing)
 - [How To Raise A PR](https://olake.io/docs/community/issues-and-prs)
 - [Setting Up A Development Environment](https://olake.io/docs/community/setting-up-a-dev-env)
-- **Running tests locally** — run `make help` for all local database-stack and test targets (e.g. `make test.integration.<driver>`, `make test.2pc`, `make test.unit`)
+- **Running tests locally** — run `make help` for all local database-stack and test targets (e.g. `make test.integration.<driver>` for a driver's whole suite, `make test.discover.<driver>` / `make test.sync.<driver>` / `make test.2pc.<driver>` for one of them, `make test.unit`)
 
 ---
 

@@ -1,2 +1,11 @@
 .git
 test/
+destination/iceberg/local-test/data/
+tests/
+drivers/*/olake
+# Other gitignored local artifacts (native-run outputs, debugger binaries,
+# editor and Finder junk).
+olake-data
+**/__debug_bin*
+**/.DS_Store
+.vscode

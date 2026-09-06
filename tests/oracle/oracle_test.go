@@ -1,0 +1,56 @@
+package oracle
+
+import (
+	"testing"
+
+	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
+)
+
+// oracleBaseConfig returns an IntegrationTest pre-populated with all fields shared
+// by the oracle suites.
+func oracleBaseConfig(t *testing.T) *testutils.IntegrationTest {
+	return &testutils.IntegrationTest{
+		TestConfig:                testutils.GetTestConfig(t, string(constants.Oracle)),
+		Namespace:                 "MYUSER",
+		ExpectedData:              ExpectedOracleData,
+		DestinationDataTypeSchema: OracleToDestinationSchema,
+		ExecuteQuery:              ExecuteQuery,
+		DestinationDB:             "oracle_myuser",
+		CursorField:               "COL_CURSOR:COL_SMALLINT",
+		PartitionRegex:            "/{id, identity}",
+		ColumnToExclude:           "EXCLUDEDCOLUMN",
+		FilterConfig: `{
+                    "logical_operator": "And",
+                    "conditions": [
+                        {
+                            "column": "COL_DOUBLE_PRECISION",
+                            "operator": "<",
+                            "value": 239834.89
+                        },
+                        {
+                            "column": "COL_TIMESTAMP",
+                            "operator": ">=",
+                            "value": "2022-07-01T15:30:00.000+00:00"
+                        }
+                    ]
+                }`,
+	}
+}
+
+func TestOracleDiscover(t *testing.T) {
+	oracleBaseConfig(t).TestDiscover(t)
+}
+
+func TestOracleSync(t *testing.T) {
+	t.Parallel()
+	cfg := oracleBaseConfig(t)
+	cfg.ExpectedUpdatedData = ExpectedUpdatedOracleData
+	cfg.UpdatedDestinationDataTypeSchema = UpdatedOracleToDestinationSchema
+	cfg.TestSync(t)
+}
+
+func TestOracle2PC(t *testing.T) {
+	t.Parallel()
+	oracleBaseConfig(t).Test2PCIntegration(t)
+}

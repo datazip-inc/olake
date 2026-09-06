@@ -545,7 +545,7 @@ func MySQLVersion(ctx context.Context, client *sqlx.DB) (string, int, int, error
 	var version string
 	err := client.QueryRowContext(ctx, "SELECT @@version").Scan(&version)
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("failed to get MySQL version: %s", err)
+		return "", 0, 0, fmt.Errorf("failed to get MySQL version: %w", err)
 	}
 
 	parts := strings.Split(version, ".")
@@ -554,12 +554,12 @@ func MySQLVersion(ctx context.Context, client *sqlx.DB) (string, int, int, error
 	}
 	majorVersion, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("invalid major version: %s", err)
+		return "", 0, 0, fmt.Errorf("invalid major version: %w", err)
 	}
 
 	minorVersion, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return "", 0, 0, fmt.Errorf("invalid minor version: %s", err)
+		return "", 0, 0, fmt.Errorf("invalid minor version: %w", err)
 	}
 
 	mysqlFlavor := "MySQL"
@@ -576,7 +576,7 @@ func WithIsolation(ctx context.Context, client *sqlx.DB, readOnly bool, fn func(
 		ReadOnly:  readOnly,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
 		if rerr := tx.Rollback(); rerr != nil && rerr != sql.ErrTxDone {
@@ -1195,13 +1195,13 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 	// remove cursorField conversion to lower case once column normalization is based on writer side
 	datatype, err := stream.Self().Stream.Schema.GetType(cursorField)
 	if err != nil {
-		return "", nil, fmt.Errorf("cursor field %s not found in schema: %s", cursorField, err)
+		return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
 	}
 
 	isTimestamp := strings.Contains(string(datatype), "timestamp")
 	formattedValue, err := typeutils.ReformatValue(datatype, lastCursorValue)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to reformat value %v of type %T: %s", lastCursorValue, lastCursorValue, err)
+		return "", nil, fmt.Errorf("failed to reformat value %v of type %T: %w", lastCursorValue, lastCursorValue, err)
 	}
 
 	quotedCol := QuoteIdentifier(cursorField, opts.Driver)
@@ -1215,7 +1215,7 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 		query := OracleColumnDataTypeQuery(stream.Namespace(), stream.Name(), cursorField)
 		err = opts.Client.QueryRowContext(ctx, query).Scan(&dbDatatype)
 		if err != nil {
-			return "", nil, fmt.Errorf("failed to get column datatype: %s", err)
+			return "", nil, fmt.Errorf("failed to get column datatype: %w", err)
 		}
 		// if the cursor field is a timestamp and not timezone aware, we need to cast the value as timestamp
 		if isTimestamp && !strings.Contains(dbDatatype, "TIME ZONE") {
@@ -1225,7 +1225,7 @@ func IncrementalValueFormatter(ctx context.Context, cursorField, argumentPlaceho
 		query := "SELECT TYPENAME FROM SYSCAT.COLUMNS WHERE TABSCHEMA = ? AND TABNAME = ? AND COLNAME = ?"
 		err = opts.Client.QueryRowContext(ctx, query, stream.Namespace(), stream.Name(), cursorField).Scan(&dbDatatype)
 		if err != nil {
-			return "", nil, fmt.Errorf("failed to get db2 column datatype: %s", err)
+			return "", nil, fmt.Errorf("failed to get db2 column datatype: %w", err)
 		}
 
 		if isTimestamp && strings.Contains(strings.ToUpper(dbDatatype), "TIMESTAMP") {
@@ -1262,7 +1262,7 @@ func SQLFilter(stream types.StreamInterface, driver string, thresholdFilter stri
 
 	filter, isLegacy, err := stream.GetFilter()
 	if err != nil {
-		return "", fmt.Errorf("failed to parse stream filter: %s", err)
+		return "", fmt.Errorf("failed to parse stream filter: %w", err)
 	}
 
 	formatFilterBoolValue := func(driverType constants.DriverType, value bool) string {
@@ -1425,7 +1425,7 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 	// Build primary cursor condition
 	incrementalCondition, primaryArg, err := buildCursorCondition(primaryCursor, lastPrimaryCursorValue, 1)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to format primary cursor value: %s", err)
+		return "", nil, fmt.Errorf("failed to format primary cursor value: %w", err)
 	}
 	queryArgs := []any{primaryArg}
 
@@ -1433,7 +1433,7 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 	if secondaryCursor != "" && lastSecondaryCursorValue != nil {
 		secondaryCondition, secondaryArg, err := buildCursorCondition(secondaryCursor, lastSecondaryCursorValue, 2)
 		if err != nil {
-			return "", nil, fmt.Errorf("failed to format secondary cursor value: %s", err)
+			return "", nil, fmt.Errorf("failed to format secondary cursor value: %w", err)
 		}
 		quotedPrimaryCursor := QuoteIdentifier(primaryCursor, opts.Driver)
 		incrementalCondition = fmt.Sprintf("%s OR (%s IS NULL AND %s)",
@@ -1475,13 +1475,13 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 	if secondaryCursor != "" {
 		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to scan the cursor values: %s", err)
+			return nil, nil, fmt.Errorf("failed to scan the cursor values: %w", err)
 		}
 		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
 	} else {
 		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %s", err)
+			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %w", err)
 		}
 	}
 	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
@@ -1507,7 +1507,7 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 
 	thresholdFilter, argument, err := createThresholdCondition(1, primaryCursor, primaryCursorValue)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to format primary cursor value: %s", err)
+		return "", nil, fmt.Errorf("failed to format primary cursor value: %w", err)
 	}
 	// IS NULL condition is required to handle the case where cursor value is NULL for some rows.
 	// Some driver will avoid returning such rows when <= condition is used.
@@ -1517,7 +1517,7 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 		secondaryCursorValue := opts.State.GetCursor(opts.Stream.Self(), secondaryCursor)
 		secondaryCondition, argument, err := createThresholdCondition(2, secondaryCursor, secondaryCursorValue)
 		if err != nil {
-			return "", nil, fmt.Errorf("failed to format secondary cursor value: %s", err)
+			return "", nil, fmt.Errorf("failed to format secondary cursor value: %w", err)
 		}
 		thresholdFilter = fmt.Sprintf("%s AND (%s IS NULL OR %s)", thresholdFilter, QuoteIdentifier(secondaryCursor, opts.Driver), secondaryCondition)
 		arguments = append(arguments, argument)

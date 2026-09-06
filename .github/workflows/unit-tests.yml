@@ -1,7 +1,6 @@
 name: Unit Tests
 
 on:
-  push:
   pull_request:
 
 jobs:
@@ -9,24 +8,33 @@ jobs:
     name: Run Unit Tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v4
         with:
           go-version-file: "go.mod"
 
-      - name: Install Dependencies
-        run: go mod download
-
-      - name: Install DB2 CLI Driver
-        run: |
-          go run -C drivers/db2 github.com/ibmdb/go_ibm_db/installer@v0.4.5 "$(pwd)"
-          IBM_DB_HOME="$(pwd)/clidriver"
-          echo "IBM_DB_HOME=$IBM_DB_HOME" >> $GITHUB_ENV
-          echo "CGO_CFLAGS=-I$IBM_DB_HOME/include" >> $GITHUB_ENV
-          echo "CGO_LDFLAGS=-L$IBM_DB_HOME/lib -Wl,-rpath,$IBM_DB_HOME/lib" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=$IBM_DB_HOME/lib" >> $GITHUB_ENV
+      - name: Cache driver external dependencies
+        uses: ./.github/actions/driver-deps
+        with:
+          save: "true"
 
       - name: Run All Unit Tests
-        run: |
-          go list -m | awk '{print $1"/..."}' | xargs go test -v -count=1 -skip 'Integration|2PC|Performance|Rebalance'
+        run: make test.unit
+
+  java-unit-tests:
+    name: Run Java Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Run Java Unit Tests
+        working-directory: destination/iceberg/olake-iceberg-java-writer
+        run: mvn -B --no-transfer-progress test

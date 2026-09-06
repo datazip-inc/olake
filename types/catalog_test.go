@@ -147,6 +147,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:  "",
 							AppendMode:      false,
 							Normalization:   true,
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns(nil, true),
 						},
 					},
@@ -181,6 +182,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:  "",
 							AppendMode:      false,
 							Normalization:   false,
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns(nil, true),
 						},
 					},
@@ -253,6 +255,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:  "",
 							AppendMode:      false,
 							Normalization:   true,
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns(nil, true),
 						},
 						{
@@ -260,6 +263,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:  "",
 							AppendMode:      false,
 							Normalization:   true,
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns(nil, true),
 						},
 					},
@@ -694,6 +698,74 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							Normalization:   true,
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
+						},
+					},
+				},
+			},
+		},
+		// when old stream has empty CursorField, new-catalogs CursorField should be used instead of being overwritten
+		{
+			name: "use new cursor field when old cursor field is empty",
+			oldCatalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:                "users",
+							Namespace:           "public",
+							Schema:              oldSchema(),
+							SyncMode:            SyncMode("full_refresh"),
+							CursorField:         "",
+							DestinationDatabase: "db:public",
+							DestinationTable:    "users",
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"public": {
+						{StreamName: "users", Normalization: true, SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
+					},
+				},
+			},
+			newCatalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:                "users",
+							Namespace:           "public",
+							Schema:              newSchema(),
+							SyncMode:            SyncMode("incremental"),
+							CursorField:         "created_at",
+							DestinationDatabase: "db:public",
+							DestinationTable:    "users",
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"public": {
+						{StreamName: "users", Normalization: true, SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
+					},
+				},
+			},
+			expected: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:                "users",
+							Namespace:           "public",
+							Schema:              newSchema(),
+							SyncMode:            SyncMode("full_refresh"),
+							CursorField:         "created_at",
+							DestinationDatabase: "db:public",
+							DestinationTable:    "users",
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"public": {
+						{
+							StreamName:      "users",
+							Normalization:   true,
+							SelectedColumns: createSelectedColumns([]string{"id"}, false),
 						},
 					},
 				},
