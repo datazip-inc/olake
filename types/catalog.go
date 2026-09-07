@@ -3,10 +3,12 @@ package types
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // Message is a dto for olake output row representation
@@ -127,6 +129,34 @@ func ResolveCatalog(streamsFilePath, selectedStreamsFilePath string) (*Catalog, 
 	}
 
 	return catalog, nil
+}
+
+// sortByNamespaceStreamName orders streams[] by namespace then name, and each selected_streams
+// namespace slice by stream_name. encoding/json already sorts selected_streams map keys.
+func (c *Catalog) sortByNamespaceStreamName() {
+	if c == nil {
+		return
+	}
+
+	// sort []streams
+	slices.SortFunc(c.Streams, func(left, right *ConfiguredStream) int {
+		if cmp := strings.Compare(left.Stream.Namespace, right.Stream.Namespace); cmp != 0 {
+			return cmp
+		}
+		return strings.Compare(left.Stream.Name, right.Stream.Name)
+	})
+
+	// sort []selected_streams
+	for namespace := range c.SelectedStreams {
+		slices.SortFunc(c.SelectedStreams[namespace], func(a, b StreamMetadata) int {
+			return strings.Compare(a.StreamName, b.StreamName)
+		})
+	}
+}
+
+func (c *Catalog) WriteToFile(path string) error {
+	c.sortByNamespaceStreamName()
+	return logger.FileLoggerWithPath(c, path)
 }
 
 // splitCatalogForWrite returns two Catalog values for the opt-in split file layout:

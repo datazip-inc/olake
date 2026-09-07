@@ -69,6 +69,16 @@ func createSelectedColumns(columns []string, syncNewColumns bool) *SelectedColum
 	}
 }
 
+func streamIDs(streams []*ConfiguredStream) []string {
+	ids := make([]string, 0, len(streams))
+	for _, s := range streams {
+		if s != nil && s.Stream != nil {
+			ids = append(ids, s.Stream.ID())
+		}
+	}
+	return ids
+}
+
 func compareCatalogs(t *testing.T, expected, actual *Catalog, testName string) {
 	assert.Equal(t, len(expected.Streams), len(actual.Streams))
 
@@ -1248,6 +1258,35 @@ func TestGetStreamsDelta(t *testing.T) {
 		assert.Equal(t, "users", delta.Streams[0].Stream.Name)
 	})
 
+	t.Run("delta streams sorted by namespace then name", func(t *testing.T) {
+		old := &Catalog{
+			Streams:         []*ConfiguredStream{},
+			SelectedStreams: map[string][]StreamMetadata{},
+		}
+		newCat := &Catalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "sales"}},
+				{Stream: &Stream{Name: "orders", Namespace: "public"}},
+				{Stream: &Stream{Name: "accounts", Namespace: "sales"}},
+			},
+			SelectedStreams: map[string][]StreamMetadata{
+				"sales":  {{StreamName: "users"}, {StreamName: "accounts"}},
+				"public": {{StreamName: "orders"}},
+			},
+		}
+		delta := GetStreamsDelta(old, newCat)
+		path := filepath.Join(t.TempDir(), "difference_streams.json")
+		require.NoError(t, delta.WriteToFile(path))
+		data, err := os.ReadFile(path)
+		require.NoError(t, err)
+		var written Catalog
+		require.NoError(t, json.Unmarshal(data, &written))
+		assert.Equal(t, []string{"public.orders", "sales.accounts", "sales.users"}, streamIDs(written.Streams))
+		require.Len(t, written.SelectedStreams["sales"], 2)
+		assert.Equal(t, "accounts", written.SelectedStreams["sales"][0].StreamName)
+		assert.Equal(t, "users", written.SelectedStreams["sales"][1].StreamName)
+	})
+
 	t.Run("sync mode change detected -- metadata priority over stream", func(t *testing.T) {
 		// old: metadata.SyncMode = cdc (overrides stream.SyncMode = full_refresh)
 		// new: metadata.SyncMode = incremental
@@ -1672,6 +1711,46 @@ func TestLogCatalog(t *testing.T) {
 		}
 		assert.Equal(t, "updated_at", names["users"])
 		assert.Equal(t, "", names["orders"])
+	})
+
+	t.Run("writes streams and selected_streams sorted by namespace then name", func(t *testing.T) {
+		dir := t.TempDir()
+		streamsPath := filepath.Join(dir, "streams.json")
+		selectedStreamsPath := filepath.Join(dir, "selected_streams.json")
+
+		viper.Set(constants.StreamsPath, streamsPath)
+		viper.Set(constants.SelectedStreamsPath, selectedStreamsPath)
+		t.Cleanup(func() {
+			viper.Set(constants.StreamsPath, "")
+			viper.Set(constants.SelectedStreamsPath, "")
+		})
+
+		discovered := []*Stream{
+			{Name: "users", Namespace: "sales", Schema: oldSchema()},
+			{Name: "orders", Namespace: "public", Schema: oldSchema()},
+			{Name: "accounts", Namespace: "sales", Schema: oldSchema()},
+			{Name: "zebra", Namespace: "public", Schema: oldSchema()},
+		}
+
+		LogCatalog(discovered, nil, "postgres")
+
+		streamsData, err := os.ReadFile(streamsPath)
+		require.NoError(t, err)
+		var streamsFile Catalog
+		require.NoError(t, json.Unmarshal(streamsData, &streamsFile))
+		require.Len(t, streamsFile.Streams, 4)
+		assert.Equal(t, []string{"public.orders", "public.zebra", "sales.accounts", "sales.users"}, streamIDs(streamsFile.Streams))
+
+		selectedData, err := os.ReadFile(selectedStreamsPath)
+		require.NoError(t, err)
+		var selectedFile Catalog
+		require.NoError(t, json.Unmarshal(selectedData, &selectedFile))
+		require.Len(t, selectedFile.SelectedStreams["public"], 2)
+		assert.Equal(t, "orders", selectedFile.SelectedStreams["public"][0].StreamName)
+		assert.Equal(t, "zebra", selectedFile.SelectedStreams["public"][1].StreamName)
+		require.Len(t, selectedFile.SelectedStreams["sales"], 2)
+		assert.Equal(t, "accounts", selectedFile.SelectedStreams["sales"][0].StreamName)
+		assert.Equal(t, "users", selectedFile.SelectedStreams["sales"][1].StreamName)
 	})
 
 	t.Run("merge preserves old selected_streams config on combined write", func(t *testing.T) {

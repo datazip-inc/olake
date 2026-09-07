@@ -177,23 +177,22 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
 	selectedStreamsFilePath := viper.GetString(constants.SelectedStreamsPath)
 	if selectedStreamsFilePath != "" {
 		streamsContent, selectedContent := splitCatalogForWrite(message.Catalog)
-		if err := logger.FileLoggerWithPath(streamsContent, streamsFilePath); err != nil {
+		if err := streamsContent.WriteToFile(streamsFilePath); err != nil {
 			logger.Fatalf("failed to create streams file: %s", err)
 		}
-		if err := logger.FileLoggerWithPath(selectedContent, selectedStreamsFilePath); err != nil {
+		if err := selectedContent.WriteToFile(selectedStreamsFilePath); err != nil {
 			logger.Fatalf("failed to create selected_streams file: %s", err)
 		}
 		return
 	}
 
-	err := logger.FileLoggerWithPath(message.Catalog, streamsFilePath)
-	if err != nil {
+	if err := message.Catalog.WriteToFile(streamsFilePath); err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
 	}
 
 	// selected_streams.json that can be opted-in later if user prefers split-write (streams.json + selected_streams.json)
 	newSelectedStreamsCatalog := filepath.Join(filepath.Dir(streamsFilePath), "selected_streams.json")
-	if err := logger.FileLoggerWithPath(&Catalog{SelectedStreams: message.Catalog.SelectedStreams}, newSelectedStreamsCatalog); err != nil {
+	if err := (&Catalog{SelectedStreams: message.Catalog.SelectedStreams}).WriteToFile(newSelectedStreamsCatalog); err != nil {
 		logger.Fatalf("failed to create selected_streams preview file: %s", err)
 	}
 }
