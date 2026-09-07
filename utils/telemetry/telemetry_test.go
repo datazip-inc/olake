@@ -190,7 +190,7 @@ func TestEventPropertyNames(t *testing.T) {
 			track: func() { TrackSyncCompleted("sync-1", mix, "postgres", destination, false, 100, 2048) },
 			expectedKeys: []string{
 				"sync_id", "sync_end", "sync_status", "records_synced", "bytes_read",
-				"destination_type", "catalog_type",
+				"source_type", "destination_type", "catalog_type",
 			},
 			expectedValues: streamMixProps,
 		},
