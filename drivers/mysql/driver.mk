@@ -11,8 +11,11 @@ PROBE.mysql = docker exec olake_mysql-test mysql -h localhost -u root -proot1234
 # On 5.7 binlog_row_metadata does not exist at all. That absence is the whole reason the
 # information_schema fallback in pkg/binlog exists, so it is asserted rather than assumed.
 MYSQL_QUERY = docker exec olake_mysql-test mysql -h localhost -u root -proot1234 -N -B -e
+
+# sed rather than $${tag\#*:}: "#" opens a comment inside a make variable assignment, which
+# would truncate this value mid-expansion. Greedy .* also strips a registry host:port prefix.
 VERIFY_STACK.mysql = \
-	tag=$$($(COMPOSE) $(call SOURCE_COMPOSE_FILE,mysql) config --images | head -1); tag=$${tag#*:}; \
+	tag=$$($(COMPOSE) $(call SOURCE_COMPOSE_FILE,mysql) config --images | head -1 | sed 's|.*:||'); \
 	version=$$($(MYSQL_QUERY) "SELECT VERSION()"); \
 	echo "mysql image tag $$tag; server reports $$version"; \
 	case "$$version" in "$$tag"*) ;; \
