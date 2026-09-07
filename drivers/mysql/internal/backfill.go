@@ -386,17 +386,21 @@ func (m *MySQL) splitEvenlyForString(ctx context.Context, stream types.StreamInt
 			break
 		}
 		rangeSlice = rangeSlice[:0]
-		for rows.Next() {
-			var val string
-			if err := rows.Scan(&val); err != nil {
-				rows.Close()
-				return nil, fmt.Errorf("failed to scan row: %w", err)
+		if err := func() error {
+			defer rows.Close()
+			for rows.Next() {
+				var val string
+				if err := rows.Scan(&val); err != nil {
+					return fmt.Errorf("failed to scan row: %w", err)
+				}
+				rangeSlice = append(rangeSlice, val)
 			}
-			rangeSlice = append(rangeSlice, val)
-		}
-
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("row iteration error during distinct boundaries iteration: %w", err)
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("row iteration error during distinct boundaries iteration: %w", err)
+			}
+			return nil
+		}(); err != nil {
+			return nil, err
 		}
 		if len(rangeSlice) > len(chunkBoundaries) {
 			chunkBoundaries = slices.Clone(rangeSlice)

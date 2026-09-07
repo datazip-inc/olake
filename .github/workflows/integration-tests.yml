@@ -206,20 +206,26 @@ jobs:
         working-directory: tests
         run: $(go env GOPATH)/bin/gosec -exclude=G115 -tests -severity=high -confidence=medium ./...
 
+  approve:
+    name: Approve integration tests
+    needs: preflight
+    if: ${{ github.event_name == 'pull_request' && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && github.run_attempt == '1' }}
+    runs-on: ubuntu-latest
+    environment: integration_tests
+    steps:
+      - run: 'true'
+
   # One job per driver, each on its own VM with its own Docker daemon: it brings up its own source
   # plus destination stack, builds its own image and runs every suite for that driver.
   integration-tests:
     name: Test ${{ matrix.driver }}
-    needs: [preflight, build-jar, apt-warm, go-cache]
-    # Every need above this can legitimately be skipped, and a skipped need would otherwise skip
-    # this too -- so gate on "not failed" rather than on success. go-cache is exempt entirely: its
-    # cache warm and db2 clidriver download must not block seven drivers, and its lint and gosec
-    # failures already surface as their own check.
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.preflight.result == 'success' && needs.preflight.outputs.drivers != '[]' && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
+    needs: [preflight, approve, build-jar, apt-warm, go-cache]
+    # Attempt 1 is released by approve; re-run attempts skip it and are gated by this job's own environment instead.
+    if: ${{ !cancelled() && (needs.approve.result == 'success' || github.run_attempt != '1') && needs.build-jar.result != 'failure' && needs.apt-warm.result != 'failure' }}
     runs-on: 16gb-runner
-    # The whole workflow's approval, deliberately on the only job that spends a 16gb runner: one
-    # prompt releases every driver, and "Re-run failed jobs" re-enters it so a replay costs another.
-    environment: integration_tests
+    # Empty on attempt 1 (approve already holds the one approval); on re-runs each replayed leg
+    # re-enters the environment so a replay still costs an approval, priced per leg re-run.
+    environment: ${{ github.run_attempt != '1' && 'integration_tests' || '' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false

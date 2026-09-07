@@ -143,6 +143,8 @@ func TestMaximumOnDataTypeTimestamp(t *testing.T) {
 		{name: "date_vs_millisecond_datetime_right_is_max", leftArgument: "2024-12-18", rightArgument: "2024-12-18T00:00:00.001Z", expected: "2024-12-18T00:00:00.001Z"},
 		{name: "millisecond_datetime_vs_date_left_is_max", leftArgument: "2024-12-18T23:59:59.999Z", rightArgument: "2024-12-18", expected: "2024-12-18T23:59:59.999Z"},
 		{name: "equal_timestamps_return_left_value", leftArgument: &leftPointer, rightArgument: &rightPointer, expected: &leftPointer},
+		// the same instant written in two zones is still a tie, so the left value wins
+		{name: "equal_instants_across_zones_return_left", leftArgument: "2024-12-18T10:30:00+05:30", rightArgument: "2024-12-18T05:00:00Z", expected: "2024-12-18T10:30:00+05:30"},
 		{name: "invalid_left_value", leftArgument: "invalid-date", rightArgument: "2024-12-18", expectError: true},
 		{name: "invalid_right_value", leftArgument: "2024-12-18", rightArgument: "invalid-date", expectError: true},
 		{name: "nil_left_time_pointer_returns_error_and_left", leftArgument: nilLeftPointer, rightArgument: &rightValue, expectError: true},

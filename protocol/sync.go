@@ -214,7 +214,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 	_, _ = utils.ArrayContains(catalog.Streams, func(elem *types.ConfiguredStream) bool {
 		sMetadata, selected := selectedStreamsMap[elem.ID()]
 		// Check if the stream is in the selectedStreamMap
-		if !(catalog.SelectedStreams == nil || selected) {
+		if catalog.SelectedStreams != nil && !selected {
 			logger.Debugf("Skipping stream %s.%s; not in selected streams.", elem.Namespace(), elem.Name())
 			return false
 		}

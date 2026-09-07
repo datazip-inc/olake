@@ -421,8 +421,8 @@ func (m *MSSQL) probeIAMWalkCapability(ctx context.Context) bool {
 		logger.Debugf("IAM walk probe: permission test failed (likely missing VIEW DATABASE STATE): %s", err)
 		return false
 	}
-	rows.Close()
-	return true
+	defer rows.Close()
+	return rows.Err() == nil
 }
 
 // getColumnTypeMSSQL returns SQL data type for the requested column.

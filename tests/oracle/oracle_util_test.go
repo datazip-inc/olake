@@ -45,6 +45,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	if conf.SourceBaseConfig != nil {
 		connStr = connectionString(conf.SourceBaseConfig)
 	} else {
+		// #nosec G101 -- the fixture password from drivers/oracle/docker-compose.yml, not a secret
 		connStr = "oracle://myuser:secret1234@localhost:1521/orcl"
 	}
 

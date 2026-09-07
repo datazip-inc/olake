@@ -283,7 +283,7 @@ func GetKeysHash(m map[string]interface{}, keys ...string) string {
 
 	var str strings.Builder
 	for _, k := range keys {
-		str.WriteString(fmt.Sprint(m[k]))
+		fmt.Fprint(&str, m[k])
 		str.WriteRune('|')
 	}
 	//nolint:gosec // G115: overflow not applicable for md5.Sum input size
@@ -389,7 +389,7 @@ func Reformat(key string) string {
 	var result strings.Builder
 	for _, symbol := range key {
 		if IsLetterOrNumber(symbol) {
-			result.WriteByte(byte(symbol))
+			result.WriteRune(symbol)
 		} else {
 			result.WriteRune('_')
 		}

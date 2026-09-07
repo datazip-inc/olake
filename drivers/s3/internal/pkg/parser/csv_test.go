@@ -156,10 +156,11 @@ func TestConvertValue_Int32Int64(t *testing.T) {
 				assert.NoError(t, err, tt.description)
 				assert.Equal(t, tt.expected, result, tt.description)
 				// Verify the actual type
-				if tt.fieldType == types.Int32 {
+				switch tt.fieldType {
+				case types.Int32:
 					_, ok := result.(int32)
 					assert.True(t, ok, "Result should be int32 type")
-				} else if tt.fieldType == types.Int64 {
+				case types.Int64:
 					_, ok := result.(int64)
 					assert.True(t, ok, "Result should be int64 type")
 				}
@@ -211,11 +212,12 @@ func TestConvertValue_Float32Float64(t *testing.T) {
 			} else {
 				assert.NoError(t, err, tt.description)
 				// Use approximate comparison for floats
-				if tt.fieldType == types.Float32 {
+				switch tt.fieldType {
+				case types.Float32:
 					assert.InDelta(t, tt.expected.(float32), result.(float32), 0.0001, tt.description)
 					_, ok := result.(float32)
 					assert.True(t, ok, "Result should be float32 type")
-				} else if tt.fieldType == types.Float64 {
+				case types.Float64:
 					assert.InDelta(t, tt.expected.(float64), result.(float64), 0.0000001, tt.description)
 					_, ok := result.(float64)
 					assert.True(t, ok, "Result should be float64 type")
