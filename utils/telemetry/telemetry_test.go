@@ -187,7 +187,7 @@ func TestEventPropertyNames(t *testing.T) {
 		},
 		{
 			name:  "sync completed",
-			track: func() { TrackSyncCompleted("sync-1", mix, destination, false, 100, 2048) },
+			track: func() { TrackSyncCompleted("sync-1", mix, "postgres", destination, false, 100, 2048) },
 			expectedKeys: []string{
 				"sync_id", "sync_end", "sync_status", "records_synced", "bytes_read",
 				"destination_type", "catalog_type",
@@ -435,7 +435,7 @@ func TestTrackEventsSurviveASendFailure(t *testing.T) {
 	}{
 		{name: "discover", track: func() { TrackDiscover(1, "postgres") }},
 		{name: "sync started", track: func() { TrackSyncStarted("s", mix, "postgres", destination, 1) }},
-		{name: "sync completed", track: func() { TrackSyncCompleted("s", mix, destination, true, 1, 1) }},
+		{name: "sync completed", track: func() { TrackSyncCompleted("s", mix, "postgres", destination, true, 1, 1) }},
 		{name: "failure", track: func() { TrackFailure("sync", "postgres", "s", errs.Failure{Category: errs.AuthFailed}) }},
 	}
 

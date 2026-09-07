@@ -11,10 +11,13 @@ import (
 // Codes for conditions this driver detects itself. Capture instances are catalog rows, so CDC
 // prerequisites are validated up front and those failures carry no server error.
 const (
-	codeCDCNotEnabledOnTable  = "mssql.cdc_not_enabled_on_table"
-	codeLSNBeforeCaptureStart = "mssql.lsn_before_capture_instance"
-	codeLSNUnavailable        = "mssql.lsn_unavailable"
-	codeMetadataStateInvalid  = "mssql.metadata_state_invalid"
+	codeCDCNotEnabledOnTable          = "mssql.cdc_not_enabled_on_table"
+	codeLSNBeforeCaptureStart         = "mssql.lsn_before_capture_instance"
+	codeLSNUnavailable                = "mssql.lsn_unavailable"
+	codeMetadataStateInvalid          = "mssql.metadata_state_invalid"
+	codeDatabaseMissing               = "mssql.database_missing"
+	codeConfigValidationFailed        = "mssql.config_validation_failed"
+	codePrimaryConfigValidationFailed = "mssql.primary_config_validation_failed"
 )
 
 // errorNumberCategories maps a SQL Server error number to a failure category. No code table
