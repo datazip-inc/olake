@@ -194,7 +194,7 @@ jobs:
 
       # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
           cache: false
@@ -287,7 +287,7 @@ jobs:
 
       # setup-go's cache keys on go.sum, which this repo does not track, so it would cache nothing.
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v7
         with:
           go-version-file: "go.mod"
           cache: false
