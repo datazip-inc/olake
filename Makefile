@@ -143,7 +143,7 @@ wait_ready = echo "Waiting for $(1) (up to $(or $(WAIT_RETRIES.$(1)),$(WAIT_RETR
 #   RECOVER.<d>                        nudge hook run after each failed probe
 #   POST_SETUP.<d>                     one-time init after the stack is ready (idempotent)
 #   VERIFY_STACK.<d>                   assertions that the running stack is the one asked for,
-#                                      run by olake.<d>.verify (EXTRA_COMPOSE_<d> can change it)
+#                                      run by olake.<d>.verify (SOURCE_COMPOSE_<d> can change it)
 #   prepare.<d>                        override of the no-op default below: provision
 #                                      host build deps (every build/test target that
 #                                      compiles <d> already depends on it). The driver
@@ -199,10 +199,10 @@ prepare.all: $(addprefix prepare.,$(DRIVERS))
 # at once, and `make -j olake.all.wait` collapses all the probes into one parallel
 # step, so slow boots (db2, spark) overlap with each other and with whatever
 # runs between the two -- what CI does.
-# The driver's compose file, plus the override named by EXTRA_COMPOSE_<d> when set -- CI passes
-# it per make call so the same olake.<d>.* targets bring up an alternate server. The destination
+# The compose files for one source stack: the driver's own, and the override in SOURCE_COMPOSE_<d>
+# when CI sets it so the same olake.<d>.* targets bring up an alternate server. The destination
 # half is $(DEST_COMPOSE), which would grow a DEST_COMPOSE_FILE counterpart if it needs the same.
-SOURCE_COMPOSE_FILE = -f drivers/$(1)/docker-compose.yml $(if $(EXTRA_COMPOSE_$(1)),-f $(EXTRA_COMPOSE_$(1)))
+SOURCE_COMPOSE_FILE = -f drivers/$(1)/docker-compose.yml $(if $(SOURCE_COMPOSE_$(1)),-f $(SOURCE_COMPOSE_$(1)))
 
 define SOURCE_DB_template
 .PHONY: olake.$(1).up olake.$(1).wait olake.$(1).verify olake.$(1).start olake.$(1).stop olake.$(1).teardown olake.$(1).restart olake.$(1).refresh

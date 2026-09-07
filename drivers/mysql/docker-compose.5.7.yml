@@ -2,7 +2,7 @@
 #
 #   docker compose -f drivers/mysql/docker-compose.yml -f drivers/mysql/docker-compose.5.7.yml up -d
 #
-# or, through the Makefile, EXTRA_COMPOSE_mysql=drivers/mysql/docker-compose.5.7.yml make olake.mysql.start
+# or, through the Makefile, SOURCE_COMPOSE_mysql=drivers/mysql/docker-compose.5.7.yml make olake.mysql.start
 #
 # 5.7 predates binlog_row_metadata (MySQL 8.0.1), so its binlog carries no column names,
 # ENUM/SET members, charsets or signedness. That is the point of this file: it is the only
