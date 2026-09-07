@@ -142,11 +142,8 @@ wait_ready = echo "Waiting for $(1) (up to $(or $(WAIT_RETRIES.$(1)),$(WAIT_RETR
 #   WAIT_RETRIES.<d> / WAIT_SLEEP.<d>  probe retry overrides
 #   RECOVER.<d>                        nudge hook run after each failed probe
 #   POST_SETUP.<d>                     one-time init after the stack is ready (idempotent)
-#   VERIFY_STACK.<d>                   assertions that the stack which came up is the one
-#                                      asked for, run by olake.<d>.verify. Driver-version
-#                                      logic belongs here, not in CI: with EXTRA_COMPOSE_<d>
-#                                      the same targets can bring up a different server, and
-#                                      a suite that passes on either would not notice
+#   VERIFY_STACK.<d>                   assertions that the running stack is the one asked for,
+#                                      run by olake.<d>.verify (EXTRA_COMPOSE_<d> can change it)
 #   prepare.<d>                        override of the no-op default below: provision
 #                                      host build deps (every build/test target that
 #                                      compiles <d> already depends on it). The driver
@@ -202,14 +199,9 @@ prepare.all: $(addprefix prepare.,$(DRIVERS))
 # at once, and `make -j olake.all.wait` collapses all the probes into one parallel
 # step, so slow boots (db2, spark) overlap with each other and with whatever
 # runs between the two -- what CI does.
-# The compose files one source stack is made of: the driver's own, plus the override named by
-# EXTRA_COMPOSE_<d> when set. CI sets EXTRA_COMPOSE_mysql for the mysql-5.7 matrix entry, so the
-# same olake.mysql.* targets bring up a 5.7 server without a second set of targets; unset, every
-# stack stays a plain single-file one. Only files named exactly docker-compose.yml make a
-# directory a driver (see SOURCE_DRIVERS), so an override never becomes a driver of its own.
-#
-# Named for the half it covers: the destination stack is $(DEST_COMPOSE) and would grow a
-# DEST_COMPOSE_FILE counterpart here if it ever needs overriding the same way.
+# The driver's compose file, plus the override named by EXTRA_COMPOSE_<d> when set -- CI passes
+# it per make call so the same olake.<d>.* targets bring up an alternate server. The destination
+# half is $(DEST_COMPOSE), which would grow a DEST_COMPOSE_FILE counterpart if it needs the same.
 SOURCE_COMPOSE_FILE = -f drivers/$(1)/docker-compose.yml $(if $(EXTRA_COMPOSE_$(1)),-f $(EXTRA_COMPOSE_$(1)))
 
 define SOURCE_DB_template
@@ -221,8 +213,7 @@ olake.$(1).wait:
 	@$$(call wait_ready,$(1))
 	@$$(POST_SETUP.$(1))
 
-# Asserts the running stack is the one the compose files asked for -- see VERIFY_STACK.<d> in
-# the fragment contract. A no-op for drivers that define none, so CI can call it unconditionally.
+# No-op unless the fragment defines VERIFY_STACK.<d>, so CI can call it for every driver.
 olake.$(1).verify:
 	@$$(or $$(VERIFY_STACK.$(1)),echo "no stack verification defined for $(1)")
 
