@@ -16,6 +16,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
@@ -25,8 +26,13 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
-const maxUint24 = 1<<24 - 1
+const (
+	// MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
+	maxUint24 = 1<<24 - 1
+
+	// minCDCInitialWaitTime is the minimum wait time in seconds for CDC sync.
+	minCDCInitialWaitTime = 120
+)
 
 // MySQL represents the MySQL database driver
 type MySQL struct {
@@ -139,7 +145,8 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	}
 	m.effectiveTZ = resolved
 
-	// TODO: If CDC config exists and permission check fails, fail the setup
+	m.client = client
+
 	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
 	if found {
 		logger.Info("Found CDC Configuration")
@@ -147,23 +154,24 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
 			return err
 		}
-		if cdc.InitialWaitTime == 0 {
-			// default set 10 sec
-			cdc.InitialWaitTime = 10
+		if cdc.InitialWaitTime < minCDCInitialWaitTime {
+			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using %d", cdc.InitialWaitTime, minCDCInitialWaitTime, minCDCInitialWaitTime)
+			cdc.InitialWaitTime = minCDCInitialWaitTime
 		}
+
+		// Enable CDC support if binlog is configured
+		cdcSupported, err := m.IsCDCSupported(ctx)
+		if err != nil {
+			return err
+		}
+		if !cdcSupported {
+			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCUnsupported, fmt.Errorf("failed to setup CDC: binlog is not configured correctly"))
+		}
+
+		m.CDCSupport = cdcSupported
 		m.cdcConfig = *cdc
 	}
-	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
-	// Enable CDC support if binlog is configured
-	cdcSupported, err := m.IsCDCSupported(ctx)
-	if err != nil {
-		logger.Warnf("failed to check CDC support: %s", err)
-	}
-	if !cdcSupported {
-		logger.Warnf("CDC is not supported")
-	}
-	m.CDCSupport = cdcSupported
 	return nil
 }
 
