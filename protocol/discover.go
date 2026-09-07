@@ -90,7 +90,9 @@ func compareStreams() error {
 		return fmt.Errorf("failed to read old catalog: %w", err)
 	}
 
-	newStreams, err := types.ResolveCatalog(differencePath, selectedStreamsPath)
+	// NOTE: always pass the legacy format for the new streams when using stream-difference
+	// new streams is of the legacy format ([]selected_streams + []streams)
+	newStreams, err := types.ResolveCatalog(differencePath, "")
 	if err != nil {
 		return fmt.Errorf("failed to read new catalog: %w", err)
 	}
