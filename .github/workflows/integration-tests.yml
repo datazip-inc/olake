@@ -59,23 +59,24 @@ jobs:
 
       # One entry per selected driver, plus "<driver>-<suffix>" for each
       # drivers/<d>/docker-compose.<s>.yml -- an alternate server for that driver, on its own
-      # runner. Each entry carries the compose override and the server version it expects, so
-      # downstream steps pass both explicitly instead of re-deriving them.
+      # runner. Only a variant carries make_vars (the compose override and the version to
+      # assert); an absent key expands to nothing, so default runs stay flagless.
       - name: Resolve source stacks
         id: sources
         env:
           DRIVERS: ${{ steps.drivers.outputs.drivers }}
         run: |
           set -euo pipefail
-          sources=$(jq -c '[.[] | {name: ., driver: ., compose: "", version: ""}]' <<<"$DRIVERS")
+          sources=$(jq -c '[.[] | {name: ., driver: .}]' <<<"$DRIVERS")
           shopt -s nullglob
           for override in drivers/*/docker-compose.*.yml; do
             driver=$(basename "$(dirname "$override")")
             suffix=$(basename "$override" .yml)
             suffix=${suffix#docker-compose.}
             jq -e --arg d "$driver" 'index($d)' <<<"$DRIVERS" >/dev/null || continue
-            sources=$(jq -c --arg n "$driver-$suffix" --arg d "$driver" --arg c "$override" --arg v "$suffix" \
-              '. + [{name: $n, driver: $d, compose: $c, version: $v}]' <<<"$sources")
+            sources=$(jq -c --arg n "$driver-$suffix" --arg d "$driver" \
+              --arg m "SOURCE_COMPOSE_$driver=$override EXPECT_VERSION=$suffix" \
+              '. + [{name: $n, driver: $d, make_vars: $m}]' <<<"$sources")
           done
           echo "sources=$sources" >> "$GITHUB_OUTPUT"
           echo "Source stacks: $sources"
@@ -268,7 +269,7 @@ jobs:
         id: containers
         background: true
         timeout-minutes: 15
-        run: make -j2 --output-sync=target SOURCE_COMPOSE_${{ matrix.driver }}="${{ matrix.compose }}" olake.${{ matrix.driver }}.up olake.destination.all.up
+        run: make ${{ matrix.make_vars }} -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/buildx
@@ -307,7 +308,7 @@ jobs:
 
       - name: Wait for source + destination readiness
         timeout-minutes: 3
-        run: make -j2 --output-sync=target SOURCE_COMPOSE_${{ matrix.driver }}="${{ matrix.compose }}" olake.${{ matrix.driver }}.wait olake.destination.all.wait
+        run: make ${{ matrix.make_vars }} -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
 
       # Serial, once: olake processes reaching a fresh catalog race each other's CREATE TABLE on
       # iceberg_tables, and the harness has no runtime fallback for that.
@@ -326,10 +327,10 @@ jobs:
       # fails here instead of silently re-running the default server's suite. Rules live in
       # drivers/<d>/driver.mk (VERIFY_STACK.<d>); a no-op where none is defined.
       - name: Verify source stack
-        run: make SOURCE_COMPOSE_${{ matrix.driver }}="${{ matrix.compose }}" EXPECT_VERSION="${{ matrix.version }}" olake.${{ matrix.driver }}.verify
+        run: make ${{ matrix.make_vars }} olake.${{ matrix.driver }}.verify
 
       # Integration + 2PC + (kafka) Rebalance in one go test, against the image built above.
       - name: Run tests
         env:
           OLAKE_DRIVER_IMAGE: olake/source-${{ matrix.driver }}:local
-        run: make SOURCE_COMPOSE_${{ matrix.driver }}="${{ matrix.compose }}" test.integration.${{ matrix.driver }}
+        run: make ${{ matrix.make_vars }} test.integration.${{ matrix.driver }}
