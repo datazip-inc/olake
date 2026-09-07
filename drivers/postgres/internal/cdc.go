@@ -53,16 +53,15 @@ func checkStreamsInPublication(publication string, pubTables []pubTable, streams
 	}
 
 	// Build a normalised lookup set: "schema.table" -> present
-	pubSet := make(map[string]struct{}, len(pubTables))
+	pubSet := types.NewSet[string]()
 	for _, r := range pubTables {
-		key := strings.ToLower(r.Schema) + "." + strings.ToLower(r.Table)
-		pubSet[key] = struct{}{}
+		id := utils.StreamIdentifier(r.Table, r.Schema)
+		pubSet.Insert(id)
 	}
 
 	var missing []string
 	for _, stream := range streams {
-		key := strings.ToLower(stream.ID())
-		if _, ok := pubSet[key]; !ok {
+		if !pubSet.Exists(stream.ID()) {
 			missing = append(missing, stream.ID())
 		}
 	}

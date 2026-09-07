@@ -113,7 +113,7 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			isNonRetryable: true,
 		},
 		{
-			name:        "case-insensitive match — DB side uppercase, stream.ID() lowercase",
+			name:        "case-sensitive match DB side uppercase, stream.ID() lowercase",
 			publication: "pub",
 			pubTables: []pubTable{
 				{Schema: "PUBLIC", Table: "ORDERS"},
@@ -121,10 +121,12 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			streams: []types.StreamInterface{
 				ms("public", "orders"),
 			},
-			wantErr: false,
+			wantErr:        true,
+			errContains:    []string{"public.orders"},
+			isNonRetryable: true,
 		},
 		{
-			name:        "case-insensitive match — stream.ID() uppercase, DB side lowercase",
+			name:        "case-sensitive match stream.ID() uppercase, DB side lowercase",
 			publication: "pub",
 			pubTables: []pubTable{
 				{Schema: "public", Table: "orders"},
@@ -132,7 +134,9 @@ func TestCheckStreamsInPublication(t *testing.T) {
 			streams: []types.StreamInterface{
 				ms("PUBLIC", "ORDERS"),
 			},
-			wantErr: false,
+			wantErr:        true,
+			errContains:    []string{"PUBLIC.ORDERS"},
+			isNonRetryable: true,
 		},
 		{
 			name:        "multiple schemas — correct matching via ID()",
