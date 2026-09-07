@@ -180,6 +180,7 @@ func GetWrappedCatalog(streams []*Stream, _ string) *Catalog {
 		metadata := StreamMetadata{
 			StreamName:     stream.Name,
 			PartitionRegex: "",
+			SyncMode:       stream.SyncMode,
 		}
 		if stream.SyncMode == INCREMENTAL {
 			metadata.CursorField = stream.CursorField
