@@ -59,7 +59,7 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		syncer:          replication.NewBinlogSyncer(syncerConfig),
 		CurrentPos:      pos,
 		initialWaitTime: config.InitialWaitTime,
-		changeFilter:    NewChangeFilter(typeConverter, streams...),
+		changeFilter:    NewChangeFilter(config.SchemaClient, typeConverter, streams...),
 	}, nil
 }
 
@@ -129,6 +129,14 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 				messageReceived = true
 				if err := c.changeFilter.FilterRowsEvent(ctx, e, ev, c.CurrentPos, callback); err != nil {
 					return err
+				}
+
+			case *replication.QueryEvent:
+				// QueryEvent carries DDL even under binlog_format=ROW. Any DDL may have
+				// reshaped a cached table, so drop the cache and reload lazily.
+				if isDDL(e.Query) {
+					logger.Infof("DDL observed in binlog, invalidating cached column metadata: %s", string(e.Query))
+					c.changeFilter.schema.invalidate()
 				}
 			}
 		}

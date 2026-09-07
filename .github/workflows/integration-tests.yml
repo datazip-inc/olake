@@ -42,6 +42,7 @@ jobs:
       pull-requests: read
     outputs:
       drivers: ${{ steps.drivers.outputs.drivers }}
+      sources: ${{ steps.sources.outputs.sources }}
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
       go-checks-changed: ${{ steps.go-checks.outputs.changed }}
@@ -55,6 +56,30 @@ jobs:
       - name: Resolve driver matrix
         id: drivers
         uses: ./.github/actions/detect-drivers
+
+      # One entry per selected driver, plus "<driver>-<suffix>" for each
+      # drivers/<d>/docker-compose.<s>.yml -- an alternate server for that driver, on its own
+      # runner. Only a variant carries make_vars (the compose override and the version to
+      # assert); an absent key expands to nothing, so default runs stay flagless.
+      - name: Resolve source stacks
+        id: sources
+        env:
+          DRIVERS: ${{ steps.drivers.outputs.drivers }}
+        run: |
+          set -euo pipefail
+          sources=$(jq -c '[.[] | {name: ., driver: .}]' <<<"$DRIVERS")
+          shopt -s nullglob
+          for override in drivers/*/docker-compose.*.yml; do
+            driver=$(basename "$(dirname "$override")")
+            suffix=$(basename "$override" .yml)
+            suffix=${suffix#docker-compose.}
+            jq -e --arg d "$driver" 'index($d)' <<<"$DRIVERS" >/dev/null || continue
+            sources=$(jq -c --arg n "$driver-$suffix" --arg d "$driver" \
+              --arg m "SOURCE_COMPOSE_$driver=$override EXPECT_VERSION=$suffix" \
+              '. + [{name: $n, driver: $d, make_vars: $m}]' <<<"$sources")
+          done
+          echo "sources=$sources" >> "$GITHUB_OUTPUT"
+          echo "Source stacks: $sources"
 
       - name: Detect go-check input changes
         id: go-checks
@@ -209,7 +234,7 @@ jobs:
   # One job per driver, each on its own VM with its own Docker daemon: it brings up its own source
   # plus destination stack, builds its own image and runs every suite for that driver.
   integration-tests:
-    name: Test ${{ matrix.driver }}
+    name: Test ${{ matrix.name }}
     needs: [preflight, build-jar, apt-warm, go-cache]
     # Every need above this can legitimately be skipped, and a skipped need would otherwise skip
     # this too -- so gate on "not failed" rather than on success. go-cache is exempt entirely: its
@@ -224,7 +249,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        driver: ${{ fromJSON(needs.preflight.outputs.drivers) }}
+        include: ${{ fromJSON(needs.preflight.outputs.sources) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -244,7 +269,7 @@ jobs:
         id: containers
         background: true
         timeout-minutes: 15
-        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
+        run: make ${{ matrix.make_vars }} -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
 
       - name: Set up Docker Buildx
         uses: ./.github/actions/buildx
@@ -283,7 +308,7 @@ jobs:
 
       - name: Wait for source + destination readiness
         timeout-minutes: 3
-        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
+        run: make ${{ matrix.make_vars }} -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
 
       # Serial, once: olake processes reaching a fresh catalog race each other's CREATE TABLE on
       # iceberg_tables, and the harness has no runtime fallback for that.
@@ -298,8 +323,14 @@ jobs:
             "olake/source-${{ matrix.driver }}:local" \
             check --destination /testdata/iceberg_destination.json
 
+      # EXPECT_VERSION comes from the matrix, not from the compose files, so a lost override
+      # fails here instead of silently re-running the default server's suite. Rules live in
+      # drivers/<d>/driver.mk (VERIFY_STACK.<d>); a no-op where none is defined.
+      - name: Verify source stack
+        run: make ${{ matrix.make_vars }} olake.${{ matrix.driver }}.verify
+
       # Integration + 2PC + (kafka) Rebalance in one go test, against the image built above.
       - name: Run tests
         env:
           OLAKE_DRIVER_IMAGE: olake/source-${{ matrix.driver }}:local
-        run: make test.integration.${{ matrix.driver }}
+        run: make ${{ matrix.make_vars }} test.integration.${{ matrix.driver }}
