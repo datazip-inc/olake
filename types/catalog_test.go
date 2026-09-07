@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -262,11 +263,13 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 						{
 							StreamName:     "users",
 							PartitionRegex: "",
+							SyncMode:       SyncMode("incremental"),
 							CursorField:    "updated_at",
 						},
 						{
 							StreamName:     "orders",
 							PartitionRegex: "",
+							SyncMode:       SyncMode("cdc"),
 						},
 					},
 				},
@@ -1601,6 +1604,9 @@ func TestResolveCatalog(t *testing.T) {
 		_, err := ResolveCatalog(selectedOnlyPath, "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no streams[]")
+		got := errs.From(errs.Classify(err))
+		assert.Equal(t, errs.CatalogError, got.Category)
+		assert.Equal(t, codeStreamsMissing, got.Code)
 	})
 
 	t.Run("selectedStreamsFile missing returns error", func(t *testing.T) {
@@ -1614,12 +1620,37 @@ func TestResolveCatalog(t *testing.T) {
 		_, err := ResolveCatalog(streamsOnlyPath, emptySelectedPath)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no selected_streams")
+		got := errs.From(errs.Classify(err))
+		assert.Equal(t, errs.CatalogError, got.Category)
+		assert.Equal(t, codeSelectedStreamsEmpty, got.Code)
 	})
 
 	t.Run("missing streamsFile returns error", func(t *testing.T) {
 		_, err := ResolveCatalog(filepath.Join(dir, "no-such-streams.json"), "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read streams")
+	})
+
+	t.Run("streams-only file without --selected-streams returns error", func(t *testing.T) {
+		_, err := ResolveCatalog(streamsOnlyPath, "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no selected_streams")
+		got := errs.From(errs.Classify(err))
+		assert.Equal(t, errs.CatalogError, got.Category)
+		assert.Equal(t, codeSelectedStreamsFlagMissing, got.Code)
+	})
+
+	t.Run("streams-only file with --selected-streams loads", func(t *testing.T) {
+		resolved, err := ResolveCatalog(streamsOnlyPath, selectedOnlyPath)
+		require.NoError(t, err)
+		require.Len(t, resolved.Streams, 1)
+		require.Len(t, resolved.SelectedStreams["public"], 1)
+	})
+
+	t.Run("combined file loads without --selected-streams", func(t *testing.T) {
+		resolved, err := ResolveCatalog(combinedPath, "")
+		require.NoError(t, err)
+		require.Len(t, resolved.SelectedStreams["public"], 1)
 	})
 }
 

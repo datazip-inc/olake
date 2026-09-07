@@ -8,7 +8,14 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
+)
+
+const (
+	codeSelectedStreamsEmpty       = "catalog.selected_streams_empty"
+	codeStreamsMissing             = "catalog.streams_missing"
+	codeSelectedStreamsFlagMissing = "catalog.selected_streams_flag_missing"
 )
 
 // Message is a dto for olake output row representation
@@ -98,19 +105,18 @@ type StreamMix struct {
 	StreamWithPosUpdateType int `json:"stream_with_pos_update_type_count"`
 }
 
-// ResolveCatalog loads a catalog from disk, handling both the default (combined) and
-// split (--selected-streams) file layouts.
-//
-// Default layout: streams.json contains both streams[] and selected_streams.
-// This is the normal output of discover and is returned as-is when selectedStreamsFilePath is empty.
-//
-// Split layout (opt-in via --selected-streams): streams.json contains streams[];
-// selected_streams lives in a separate selected_streams.json. When selectedStreamsFilePath is
-// set, that file's selected_streams overlay the catalog loaded from streams.json.
+// ResolveCatalog loads a catalog from disk.
+// Combined layout: streams.json has both streams[] and selected_streams.
+// Split layout: pass --selected-streams so selected_streams is overlaid from that file.
 func ResolveCatalog(streamsFilePath, selectedStreamsFilePath string) (*Catalog, error) {
 	catalog := &Catalog{}
 	if err := utils.UnmarshalFile(streamsFilePath, catalog, false); err != nil {
 		return nil, fmt.Errorf("failed to read streams from %s: %w", streamsFilePath, err)
+	}
+
+	if selectedStreamsFilePath == "" && len(catalog.Streams) > 0 && len(catalog.SelectedStreams) == 0 {
+		return nil, errs.Precondition(errs.CatalogError, codeSelectedStreamsFlagMissing,
+			fmt.Errorf("streams file %s has streams[] but no selected_streams", streamsFilePath))
 	}
 
 	if selectedStreamsFilePath != "" {
@@ -119,13 +125,15 @@ func ResolveCatalog(streamsFilePath, selectedStreamsFilePath string) (*Catalog, 
 			return nil, fmt.Errorf("failed to read selected_streams from %s: %w", selectedStreamsFilePath, err)
 		}
 		if len(selectedCatalog.SelectedStreams) == 0 {
-			return nil, fmt.Errorf("selected_streams file %s has no selected_streams", selectedStreamsFilePath)
+			return nil, errs.Precondition(errs.CatalogError, codeSelectedStreamsEmpty,
+				fmt.Errorf("selected_streams file %s has no selected_streams", selectedStreamsFilePath))
 		}
 		catalog.SelectedStreams = selectedCatalog.SelectedStreams
 	}
 
 	if len(catalog.Streams) == 0 && len(catalog.SelectedStreams) > 0 {
-		return nil, fmt.Errorf("streams file %s has selected_streams but no streams[]", streamsFilePath)
+		return nil, errs.Precondition(errs.CatalogError, codeStreamsMissing,
+			fmt.Errorf("streams file %s has selected_streams but no streams[]", streamsFilePath))
 	}
 
 	return catalog, nil
@@ -161,7 +169,7 @@ func (c *Catalog) WriteToFile(path string) error {
 
 // splitCatalogForWrite returns two Catalog values for the opt-in split file layout:
 // streams[] only, and selected_streams only.
-func splitCatalogForWrite(catalog *Catalog) (streamsFile, selectedStreamsFile *Catalog) {
+func splitCatalogForWrite(catalog *Catalog) (*Catalog, *Catalog) {
 	return &Catalog{Streams: catalog.Streams}, &Catalog{SelectedStreams: catalog.SelectedStreams}
 }
 
