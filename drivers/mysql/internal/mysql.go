@@ -2,6 +2,8 @@ package driver
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -313,6 +315,20 @@ func (m *MySQL) Close() error {
 	return nil
 }
 
+// binlogRowMetadataFull reports whether the server emits full optional TableMapEvent
+// metadata. The variable is absent before MySQL 8.0.1 and on MariaDB, where false is the
+// right answer anyway: the decoder falls back to information_schema.
+func (m *MySQL) binlogRowMetadataFull(ctx context.Context) bool {
+	var name, value string
+	if err := m.client.QueryRowxContext(ctx, jdbc.MySQLBinlogRowMetadataQuery()).Scan(&name, &value); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			logger.Warnf("failed to read binlog_row_metadata, assuming MINIMAL: %s", err)
+		}
+		return false
+	}
+	return strings.EqualFold(value, "FULL")
+}
+
 func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
 	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
@@ -342,13 +358,23 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	}{
 		{jdbc.MySQLLogBinQuery(), "ON", "log_bin is not enabled"},
 		{jdbc.MySQLBinlogFormatQuery(), "ROW", "binlog_format is not set to ROW"},
-		{jdbc.MySQLBinlogRowMetadataQuery(), "FULL", "binlog_row_metadata is not set to FULL"},
+		// At MINIMAL or NOBLOB the binlog carries only some columns per row, which cannot
+		// be mapped back to a complete record.
+		{jdbc.MySQLBinlogRowImageQuery(), "FULL", "binlog_row_image is not set to FULL"},
 	}
 
 	for _, check := range configChecks {
 		if ok, err := checkMySQLConfig(ctx, check.query, check.expectedValue, check.errMessage); err != nil || !ok {
 			return ok, err
 		}
+	}
+
+	// FULL puts column names, ENUM/SET members, charsets and signedness in the binlog
+	// itself. Without it, that metadata is rebuilt from information_schema: one query per
+	// table, and blind to a rename the reader has not reached yet.
+	if !m.binlogRowMetadataFull(ctx) {
+		logger.Warn("binlog_row_metadata is not FULL; falling back to information_schema for " +
+			"column metadata. Set binlog_row_metadata=FULL (MySQL 8.0.1+) for best fidelity.")
 	}
 
 	return true, nil
