@@ -42,7 +42,7 @@ jobs:
       pull-requests: read
     outputs:
       drivers: ${{ steps.drivers.outputs.drivers }}
-      driver-matrix: ${{ steps.matrix.outputs.matrix }}
+      sources: ${{ steps.sources.outputs.sources }}
       jar-cached: ${{ steps.jar-cache.outputs.cache-hit }}
       go-cached: ${{ steps.go-cache.outputs.cache-hit }}
       go-checks-changed: ${{ steps.go-checks.outputs.changed }}
@@ -57,24 +57,33 @@ jobs:
         id: drivers
         uses: ./.github/actions/detect-drivers
 
-      # The driver matrix, plus the pseudo-driver "mysql-5.7". It is the mysql driver against a
-      # 5.7 server -- same module, same image, its own runner -- so it fans out beside the real
-      # drivers instead of extending the mysql job. 5.7 predates binlog_row_metadata, making it
-      # the only stack that covers the information_schema fallback in pkg/binlog. Added only when
-      # mysql is already in the matrix: a PR that touches nothing mysql should not boot a mysql
-      # stack to test it.
-      - name: Build driver matrix
-        id: matrix
+      # Every source stack the suites run against: one entry per selected driver, plus one
+      # "<driver>-<suffix>" entry per drivers/<d>/docker-compose.<s>.yml found on disk. Such a
+      # file is an alternate server for that driver -- another engine version, a different
+      # configuration -- and its entry reuses the driver's module, image and test binary against
+      # that stack, on its own runner. drivers/mysql/docker-compose.5.7.yml is the first: 5.7
+      # predates binlog_row_metadata, so it is the only stack covering the information_schema
+      # fallback in pkg/binlog. Adding another variant is a compose file and nothing else.
+      #
+      # Variants only for drivers already selected -- a PR touching nothing mysql should not boot
+      # a mysql stack to test a variant of it.
+      - name: Resolve source stacks
+        id: sources
         env:
           DRIVERS: ${{ steps.drivers.outputs.drivers }}
         run: |
           set -euo pipefail
-          matrix="$DRIVERS"
-          if jq -e 'index("mysql")' <<<"$DRIVERS" >/dev/null; then
-            matrix=$(jq -c '. + ["mysql-5.7"]' <<<"$DRIVERS")
-          fi
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "Driver matrix: $matrix"
+          sources="$DRIVERS"
+          shopt -s nullglob
+          for override in drivers/*/docker-compose.*.yml; do
+            driver=$(basename "$(dirname "$override")")
+            suffix=$(basename "$override" .yml)
+            suffix=${suffix#docker-compose.}
+            jq -e --arg d "$driver" 'index($d)' <<<"$DRIVERS" >/dev/null || continue
+            sources=$(jq -c --arg v "$driver-$suffix" '. + [$v]' <<<"$sources")
+          done
+          echo "sources=$sources" >> "$GITHUB_OUTPUT"
+          echo "Source stacks: $sources"
 
       - name: Detect go-check input changes
         id: go-checks
@@ -244,36 +253,44 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        driver: ${{ fromJSON(needs.preflight.outputs.driver-matrix) }}
+        driver: ${{ fromJSON(needs.preflight.outputs.sources) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
 
       # Maps a matrix entry to the driver module it builds, the compose override it runs against
-      # and the suites it runs. Every step below reads these rather than matrix.driver, so the
-      # mysql-5.7 entry reuses the mysql image, the mysql buildx cache and the mysql test binary.
-      # EXTRA_COMPOSE_mysql lands in the job env, so every make call picks up the override without
-      # threading it through each one.
+      # and the suites it runs. Every step below reads these rather than matrix.driver, so a
+      # "<driver>-<suffix>" entry reuses that driver's image, buildx cache and test binary.
+      # EXTRA_COMPOSE_<driver> lands in the job env, so every make call picks up the override
+      # without threading it through each one (see SOURCE_COMPOSE_FILE in the Makefile).
+      #
+      # A real driver always has a drivers/<name>/ directory; anything else is a variant, which
+      # keeps the split unambiguous even for a driver name containing a dash.
       - name: Resolve driver variant
         env:
           MATRIX_DRIVER: ${{ matrix.driver }}
         run: |
           set -euo pipefail
-          case "$MATRIX_DRIVER" in
-            mysql-5.7)
-              echo "DRIVER=mysql" >> "$GITHUB_ENV"
-              echo "EXTRA_COMPOSE_mysql=drivers/mysql/docker-compose.5.7.yml" >> "$GITHUB_ENV"
-              # Sync only: it covers backfill, CDC and schema evolution over the fixture, which is
-              # where every fallback-sensitive type lives -- ENUM, SET, latin1/ucs2/utf16le columns
-              # and the unsigned maxima. Discover and 2PC are orthogonal to binlog metadata and
-              # already run on 8.0 in the sibling job.
-              echo "TEST_TARGET=test.sync.mysql" >> "$GITHUB_ENV"
-              ;;
-            *)
-              echo "DRIVER=$MATRIX_DRIVER" >> "$GITHUB_ENV"
-              echo "TEST_TARGET=test.integration.$MATRIX_DRIVER" >> "$GITHUB_ENV"
-              ;;
-          esac
+          if [ -d "drivers/$MATRIX_DRIVER" ]; then
+            echo "DRIVER=$MATRIX_DRIVER" >> "$GITHUB_ENV"
+            echo "TEST_TARGET=test.integration.$MATRIX_DRIVER" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          driver=${MATRIX_DRIVER%%-*}
+          suffix=${MATRIX_DRIVER#*-}
+          override="drivers/$driver/docker-compose.$suffix.yml"
+          if [ ! -f "$override" ]; then
+            echo "matrix entry '$MATRIX_DRIVER' resolves to neither a driver nor $override"
+            exit 1
+          fi
+
+          echo "DRIVER=$driver" >> "$GITHUB_ENV"
+          echo "EXTRA_COMPOSE_$driver=$override" >> "$GITHUB_ENV"
+          # Sync only. It covers backfill, CDC and schema evolution over the driver's fixture,
+          # which is where a server difference shows up; Discover and 2PC exercise no
+          # server-version-specific path and already run on the default stack in the sibling job.
+          echo "TEST_TARGET=test.sync.$driver" >> "$GITHUB_ENV"
 
       # The iceberg catalog's postgres runs as uid 999 and has to own its bind mount.
       - name: Set up Data Directories
@@ -344,22 +361,12 @@ jobs:
             "olake/source-${{ env.DRIVER }}:local" \
             check --destination /testdata/iceberg_destination.json
 
-      # Fails loudly rather than silently re-running the 8.0 suite: every assertion in the suite
-      # passes against 8.0 too, so an override that stopped threading through must not look green.
-      # Runs only for the mysql-5.7 entry, the only one that sets an override.
-      - name: Verify server is 5.7 without binlog_row_metadata
-        if: ${{ env.EXTRA_COMPOSE_mysql != '' }}
-        run: |
-          set -euo pipefail
-          mysql_q() { docker exec olake_mysql-test mysql -h localhost -u root -proot1234 -N -B -e "$1" 2>/dev/null; }
-          version=$(mysql_q "SELECT VERSION()")
-          echo "Server version: $version"
-          case "$version" in 5.7.*) ;; *) echo "expected a 5.7 server, got '$version'"; exit 1 ;; esac
-          metadata=$(mysql_q "SHOW VARIABLES LIKE 'binlog_row_metadata'")
-          if [ -n "$metadata" ]; then
-            echo "expected binlog_row_metadata to be absent, got: $metadata"
-            exit 1
-          fi
+      # Asserts the stack that came up is the one the variant asked for -- a compose override
+      # that stopped threading through would otherwise re-run the default server's suite and
+      # still go green. The rules are the driver's own (VERIFY_STACK.<d> in drivers/<d>/driver.mk);
+      # this step just calls the target, and it is a no-op for drivers that define none.
+      - name: Verify source stack
+        run: make olake.${{ env.DRIVER }}.verify
 
       # Integration + 2PC + (kafka) Rebalance in one go test, against the image built above --
       # or, for the mysql-5.7 entry, the sync suite alone. See "Resolve driver variant".

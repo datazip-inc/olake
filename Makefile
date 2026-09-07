@@ -142,6 +142,11 @@ wait_ready = echo "Waiting for $(1) (up to $(or $(WAIT_RETRIES.$(1)),$(WAIT_RETR
 #   WAIT_RETRIES.<d> / WAIT_SLEEP.<d>  probe retry overrides
 #   RECOVER.<d>                        nudge hook run after each failed probe
 #   POST_SETUP.<d>                     one-time init after the stack is ready (idempotent)
+#   VERIFY_STACK.<d>                   assertions that the stack which came up is the one
+#                                      asked for, run by olake.<d>.verify. Driver-version
+#                                      logic belongs here, not in CI: with EXTRA_COMPOSE_<d>
+#                                      the same targets can bring up a different server, and
+#                                      a suite that passes on either would not notice
 #   prepare.<d>                        override of the no-op default below: provision
 #                                      host build deps (every build/test target that
 #                                      compiles <d> already depends on it). The driver
@@ -197,21 +202,29 @@ prepare.all: $(addprefix prepare.,$(DRIVERS))
 # at once, and `make -j olake.all.wait` collapses all the probes into one parallel
 # step, so slow boots (db2, spark) overlap with each other and with whatever
 # runs between the two -- what CI does.
-# The compose files one driver's stack is made of: its own, plus the override named by
-# EXTRA_COMPOSE_<d> when set. CI sets EXTRA_COMPOSE_mysql for the mysql-5.7 matrix entry, so
-# the same olake.mysql.* targets bring up a 5.7 server without a second set of targets; unset,
-# every stack stays a plain single-file one. Only files named exactly docker-compose.yml make a
+# The compose files one source stack is made of: the driver's own, plus the override named by
+# EXTRA_COMPOSE_<d> when set. CI sets EXTRA_COMPOSE_mysql for the mysql-5.7 matrix entry, so the
+# same olake.mysql.* targets bring up a 5.7 server without a second set of targets; unset, every
+# stack stays a plain single-file one. Only files named exactly docker-compose.yml make a
 # directory a driver (see SOURCE_DRIVERS), so an override never becomes a driver of its own.
-compose_files = -f drivers/$(1)/docker-compose.yml $(if $(EXTRA_COMPOSE_$(1)),-f $(EXTRA_COMPOSE_$(1)))
+#
+# Named for the half it covers: the destination stack is $(DEST_COMPOSE) and would grow a
+# DEST_COMPOSE_FILE counterpart here if it ever needs overriding the same way.
+SOURCE_COMPOSE_FILE = -f drivers/$(1)/docker-compose.yml $(if $(EXTRA_COMPOSE_$(1)),-f $(EXTRA_COMPOSE_$(1)))
 
 define SOURCE_DB_template
-.PHONY: olake.$(1).up olake.$(1).wait olake.$(1).start olake.$(1).stop olake.$(1).teardown olake.$(1).restart olake.$(1).refresh
+.PHONY: olake.$(1).up olake.$(1).wait olake.$(1).verify olake.$(1).start olake.$(1).stop olake.$(1).teardown olake.$(1).restart olake.$(1).refresh
 olake.$(1).up:
-	$$(COMPOSE) $$(call compose_files,$(1)) up -d
+	$$(COMPOSE) $$(call SOURCE_COMPOSE_FILE,$(1)) up -d
 
 olake.$(1).wait:
 	@$$(call wait_ready,$(1))
 	@$$(POST_SETUP.$(1))
+
+# Asserts the running stack is the one the compose files asked for -- see VERIFY_STACK.<d> in
+# the fragment contract. A no-op for drivers that define none, so CI can call it unconditionally.
+olake.$(1).verify:
+	@$$(or $$(VERIFY_STACK.$(1)),echo "no stack verification defined for $(1)")
 
 # Sequenced via sub-make so `make -j` cannot probe a stack that is not up yet.
 olake.$(1).start:
@@ -219,10 +232,10 @@ olake.$(1).start:
 	@$$(MAKE) --no-print-directory olake.$(1).wait
 
 olake.$(1).stop:
-	$$(COMPOSE) $$(call compose_files,$(1)) down --remove-orphans
+	$$(COMPOSE) $$(call SOURCE_COMPOSE_FILE,$(1)) down --remove-orphans
 
 olake.$(1).teardown:
-	$$(COMPOSE) $$(call compose_files,$(1)) down --volumes --remove-orphans
+	$$(COMPOSE) $$(call SOURCE_COMPOSE_FILE,$(1)) down --volumes --remove-orphans
 
 # restart = stop then start (keeps volumes + data); refresh = teardown then start
 # (wipes them). Both sequenced via sub-make so `make -j` can't start the stack
@@ -409,6 +422,7 @@ help:
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).refresh" "teardown then start $(d) (wipe data)";)
 	@printf "  %-44s %s\n" "olake.source.all.<verb>" "verb = start|stop|teardown|restart|refresh, all source stacks (make -j8)"
 	@printf "  %-44s %s\n" "olake.<driver>.up | olake.<driver>.wait" "the two halves of start, for running each in parallel"
+	@printf "  %-44s %s\n" "olake.<driver>.verify" "assert the running stack is the one asked for (VERIFY_STACK.<driver>)"
 	@echo ""
 	@echo "Destination stack (minio + mc + iceberg catalog + spark-connect):"
 	@printf "  %-44s %s\n" "olake.destination.all.start|stop" "the iceberg/parquet test stack"
