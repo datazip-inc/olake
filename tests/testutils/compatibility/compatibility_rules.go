@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -359,6 +360,23 @@ func resolveTypeRules(rules []compatibilityTypeRule, columnTypes map[string][]st
 		out = append(out, *merged[column])
 	}
 	return out, slices.Sorted(maps.Keys(alwaysTypeOnly)), nil
+}
+
+// equivalentRelease is the release a commit baseline reads the gates and rules as: the newest release
+// tag reachable from it. "" when none is, which leaves the commit undated.
+func equivalentRelease(rootPath, commitID string) string {
+	out, err := exec.Command("git", "-C", rootPath, "tag", "--list", "--merged", commitID, "v*").Output()
+	if err != nil {
+		return ""
+	}
+	var newest string
+	var newestVersion [3]int
+	for tag := range strings.FieldsSeq(string(out)) {
+		if version, ok := parseReleaseTag(tag); ok && (newest == "" || compareRelease(version, newestVersion) > 0) {
+			newest, newestVersion = tag, version
+		}
+	}
+	return newest
 }
 
 // parseReleaseTag reads "vX.Y.Z" (optionally behind a "repo:tag" prefix) into a comparable triple;

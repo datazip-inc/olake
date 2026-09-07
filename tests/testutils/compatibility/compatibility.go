@@ -68,7 +68,18 @@ func (f *Test) RunBackwardCompatibility(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, version := range baselineVersions {
-		reason, err := baselineSkipReason(currentConf.OlakeRootPath, currentConf.Driver, version)
+		// A commit reads the gates and rules as the newest release it contains; every other spec
+		// reads them as itself.
+		ruleSpec := version
+		if commitID, ok := testutils.ResolveToCommit(currentConf.OlakeRootPath, version); ok {
+			if release := equivalentRelease(currentConf.OlakeRootPath, commitID); release != "" {
+				ruleSpec = release
+				t.Logf("compatibility: baseline %s reads the gates and rules as %s, the newest release reachable from it", version, release)
+			} else {
+				t.Logf("compatibility: baseline %s has no release reachable from it; only unconditional rules apply", version)
+			}
+		}
+		reason, err := baselineSkipReason(currentConf.OlakeRootPath, currentConf.Driver, ruleSpec)
 		require.NoError(t, err)
 		if reason != "" {
 			t.Run(version, func(t *testing.T) { t.Skip(reason) })
@@ -78,7 +89,7 @@ func (f *Test) RunBackwardCompatibility(t *testing.T) {
 		baselineConf := f.NewConfig(t, version)
 		if !t.Run(baselineConf.DriverVersion, func(t *testing.T) {
 			t.Parallel()
-			f.runCompatibilityBaseline(t, baselineConf, currentConf)
+			f.runCompatibilityBaseline(t, baselineConf, currentConf, ruleSpec)
 		}) {
 			t.Logf("compatibility: stopping the sweep at %s; the later baselines carry newer code and would repeat it", version)
 			return
@@ -110,11 +121,12 @@ func baselineSkipReason(rootPath, driver, spec string) (string, error) {
 
 // runCompatibilityBaseline runs every writer group's variants against one baseline: the reference
 // side on baseline's image throughout, the upgrade side handing its stateful syncs to upgrade's.
-func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testutils.TestConfig) {
+// ruleSpec is the release the gates and rules read this baseline as (see RunBackwardCompatibility).
+func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testutils.TestConfig, ruleSpec string) {
 	spec := baseline.DriverVersion
 	driver, dataFormat := baseline.Driver, baseline.DataFormat
 
-	baselineVersion, baselineDated := parseReleaseTag(spec)
+	baselineVersion, baselineDated := parseReleaseTag(ruleSpec)
 	floorTag, err := compatibilityGlobalFloor(baseline.OlakeRootPath)
 	require.NoError(t, err)
 	globalFloor, _ := parseReleaseTag(floorTag)
@@ -146,7 +158,7 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 
 	// Every rule -- type-keyed, column-keyed, dated, unconditional -- resolves here into the one
 	// policy set the run applies: seeding, catalog and comparison all read it, nothing re-derives.
-	policies, err := resolveAssertionPolicies(f, spec, floorTag, globalFloor, driverRules, variantRules)
+	policies, err := resolveAssertionPolicies(f, ruleSpec, floorTag, globalFloor, driverRules, variantRules)
 	require.NoError(t, err)
 	for _, note := range policies.notes {
 		t.Logf("compatibility: %s", note)

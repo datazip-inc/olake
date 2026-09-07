@@ -29,11 +29,10 @@ type columnPolicies struct {
 	notes              []string
 }
 
-// resolveColumnPolicies evaluates a driver's rules against the baseline spec. A baseline that
-// cannot be dated ("latest", an image ref, a commit sha) is treated as newest -- ExcludeBelow and
-// AssertValueFrom never fire, only TypeOnly -- mirroring resolveInputGeneration's fallback.
-// Malformed rules are an error, never a skip: a typo'd version must not silently change what a
-// green run proves.
+// resolveColumnPolicies evaluates a driver's rules against the baseline spec (a commit arrives here
+// as its equivalentRelease). A baseline that cannot be dated ("latest", an image ref) is treated as
+// newest -- ExcludeBelow and AssertValueFrom never fire, only TypeOnly. Malformed rules are an
+// error, never a skip: a typo'd version must not silently change what a green run proves.
 func resolveColumnPolicies(rules []ColumnRule, spec string) (*columnPolicies, error) {
 	version, canCompare := parseReleaseTag(spec)
 	policies := &columnPolicies{}
