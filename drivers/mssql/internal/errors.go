@@ -11,12 +11,26 @@ import (
 // Codes for conditions this driver detects itself. Capture instances are catalog rows, so CDC
 // prerequisites are validated up front and those failures carry no server error.
 const (
-	codeCDCNotEnabledOnTable          = "mssql.cdc_not_enabled_on_table"
-	codeLSNBeforeCaptureStart         = "mssql.lsn_before_capture_instance"
-	codeLSNUnavailable                = "mssql.lsn_unavailable"
-	codeMetadataStateInvalid          = "mssql.metadata_state_invalid"
-	codeDatabaseMissing               = "mssql.database_missing"
-	codeConfigValidationFailed        = "mssql.config_validation_failed"
+	codeCDCNotEnabledOnTable  = "mssql.cdc_not_enabled_on_table"
+	codeLSNBeforeCaptureStart = "mssql.lsn_before_capture_instance"
+	codeLSNUnavailable        = "mssql.lsn_unavailable"
+	codeMetadataStateInvalid  = "mssql.metadata_state_invalid"
+
+	// Connection preconditions, checked before a connection is opened.
+	codeHostMissing            = "mssql.host_missing"
+	codeHostSchemeIncluded     = "mssql.host_scheme_included"
+	codePortInvalid            = "mssql.port_invalid"
+	codeUsernameMissing        = "mssql.username_missing"
+	codePasswordMissing        = "mssql.password_missing"
+	codeDatabaseMissing        = "mssql.database_missing"
+	codeConfigValidationFailed = "mssql.config_validation_failed"
+
+	// The primary replica is a second connection block with its own fields
+	codePrimaryHostMissing            = "mssql.primary_host_missing"
+	codePrimaryHostSchemeIncluded     = "mssql.primary_host_scheme_included"
+	codePrimaryPortInvalid            = "mssql.primary_port_invalid"
+	codePrimaryUsernameMissing        = "mssql.primary_username_missing"
+	codePrimaryPasswordMissing        = "mssql.primary_password_missing" // #nosec G101 -- a failure code, not a credential
 	codePrimaryConfigValidationFailed = "mssql.primary_config_validation_failed"
 )
 

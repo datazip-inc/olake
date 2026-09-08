@@ -37,8 +37,6 @@ type SSLConfig struct {
 	ClientKey  string `mapstructure:"client_key,omitempty" json:"client_key,omitempty" yaml:"client_key,omitempty"`
 }
 
-// codeSSLConfigInvalid marks an ssl block the user filled in wrong; no server was reached.
-// One code per condition: two checks a user would fix differently never share one.
 const (
 	// The ssl block itself is missing a field.
 	codeSSLMissing         = "config.ssl_missing"

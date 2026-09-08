@@ -84,27 +84,25 @@ func (c *Config) Validate() error {
 func validateSQLConnection(host string, port int, username, password string, isPrimaryNode bool) error {
 	prefix := utils.Ternary(isPrimaryNode, "primary_config: ", "").(string)
 	// Codes carry the same scope the message does: the primary block is a separate field to fix.
-	code := func(condition string) string {
-		return "mssql." + utils.Ternary(isPrimaryNode, "primary_", "").(string) + condition
-	}
+	code := func(main, primary string) string { return utils.Ternary(isPrimaryNode, primary, main).(string) }
 	if host == "" {
-		return errs.Precondition(errs.ConfigInvalid, code("host_missing"),
+		return errs.Precondition(errs.ConfigInvalid, code(codeHostMissing, codePrimaryHostMissing),
 			fmt.Errorf("%sempty host name", prefix))
 	}
 	if strings.Contains(host, "https") || strings.Contains(host, "http") {
-		return errs.Precondition(errs.ConfigInvalid, code("host_scheme_included"),
+		return errs.Precondition(errs.ConfigInvalid, code(codeHostSchemeIncluded, codePrimaryHostSchemeIncluded),
 			fmt.Errorf("%shost should not contain http or https", prefix))
 	}
 	if port <= 0 || port > 65535 {
-		return errs.Precondition(errs.ConfigInvalid, code("port_invalid"),
+		return errs.Precondition(errs.ConfigInvalid, code(codePortInvalid, codePrimaryPortInvalid),
 			fmt.Errorf("%sinvalid port number: must be between 1 and 65535", prefix))
 	}
 	if username == "" {
-		return errs.Precondition(errs.ConfigInvalid, code("username_missing"),
+		return errs.Precondition(errs.ConfigInvalid, code(codeUsernameMissing, codePrimaryUsernameMissing),
 			fmt.Errorf("%susername is required", prefix))
 	}
 	if password == "" {
-		return errs.Precondition(errs.ConfigInvalid, code("password_missing"),
+		return errs.Precondition(errs.ConfigInvalid, code(codePasswordMissing, codePrimaryPasswordMissing),
 			fmt.Errorf("%spassword is required", prefix))
 	}
 	return nil
