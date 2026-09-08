@@ -46,7 +46,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 		w.socket.ConfirmedFlushLSN,
 		pglogrepl.StartReplicationOptions{PluginArgs: pluginArguments},
 	); err != nil {
-		return fmt.Errorf("starting replication slot failed: %s", err)
+		return fmt.Errorf("starting replication slot failed: %w", err)
 	}
 	logger.Infof("Started logical replication for slot[%s] from lsn[%s] to lsn[%s]", w.socket.ReplicationSlot, w.socket.ConfirmedFlushLSN, w.socket.CurrentWalPosition)
 	messageReceived := false
@@ -70,7 +70,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 				if strings.Contains(err.Error(), "EOF") {
 					return nil
 				}
-				return fmt.Errorf("failed to receive message from wal logs: %s", err)
+				return fmt.Errorf("failed to receive message from wal logs: %w", err)
 			}
 
 			// Process only CopyData messages.
@@ -84,7 +84,7 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 				// For keepalive messages, process them (but no ack is sent here).
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
 				if err != nil {
-					return fmt.Errorf("failed to parse primary keepalive message: %s", err)
+					return fmt.Errorf("failed to parse primary keepalive message: %w", err)
 				}
 				w.socket.ClientXLogPos = pkm.ServerWALEnd
 				if pkm.ReplyRequested {
@@ -92,19 +92,19 @@ func (w *wal2jsonReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, cal
 					// send fake acknowledgement
 					err := AcknowledgeLSN(ctx, db, w.socket, true)
 					if err != nil {
-						return fmt.Errorf("failed to ack lsn: %s", err)
+						return fmt.Errorf("failed to ack lsn: %w", err)
 					}
 				}
 			case pglogrepl.XLogDataByteID:
 				// Reset the idle timer on receiving WAL data.
 				xld, err := pglogrepl.ParseXLogData(copyData.Data[1:])
 				if err != nil {
-					return fmt.Errorf("failed to parse XLogData: %s", err)
+					return fmt.Errorf("failed to parse XLogData: %w", err)
 				}
 				// Process change with the provided callback.
 				nextLSN, records, err := w.socket.changeFilter.FilterWalJsChange(ctx, xld.WALData, callback)
 				if err != nil {
-					return fmt.Errorf("failed to filter change: %s", err)
+					return fmt.Errorf("failed to filter change: %w", err)
 				}
 				messageReceived = records > 0 || messageReceived
 				w.socket.ClientXLogPos = *nextLSN

@@ -5,12 +5,14 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
@@ -22,15 +24,21 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		var err error
 		tlsConfig, err = m.config.buildTLSConfig()
 		if err != nil {
-			return nil, fmt.Errorf("failed to build TLS config for binlog: %s", err)
+			return nil, fmt.Errorf("failed to build TLS config for binlog: %w", err)
 		}
+	}
+
+	port := m.config.Port
+	if port <= 0 || port > math.MaxUint16 {
+		return nil, errs.Precondition(errs.ConfigInvalid, codePortInvalid,
+			fmt.Errorf("invalid mysql port: %d", port))
 	}
 
 	config := &binlog.Config{
 		ServerID:                mySQLGlobalState.ServerID,
 		Flavor:                  "mysql",
 		Host:                    m.config.Host,
-		Port:                    uint16(m.config.Port),
+		Port:                    uint16(port),
 		User:                    m.config.Username,
 		Password:                m.config.Password,
 		Charset:                 "utf8mb4",
@@ -40,6 +48,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		InitialWaitTime:         time.Duration(m.cdcConfig.InitialWaitTime) * time.Second,
 		SSHClient:               m.sshClient,
 		TLSConfig:               tlsConfig,
+		SchemaClient:            m.client,
 	}
 
 	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, streamsToSync, m.dataTypeConverter)
@@ -49,37 +58,49 @@ func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
 	return true, false, false
 }
 
+// minServerID is the lower bound for generated replication server IDs.
+const minServerID = 1000
+
+// newServerID derives a pseudo-random replication server ID in [minServerID, math.MaxUint32).
+func newServerID() uint32 {
+	offset := time.Now().UnixNano() % (math.MaxUint32 - minServerID)
+	if offset < 0 || offset > math.MaxUint32-minServerID {
+		return minServerID
+	}
+	return minServerID + uint32(offset)
+}
+
 func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	// Load or initialize global state
 	globalState := m.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
 		binlogPos, err := binlog.GetCurrentBinlogPosition(ctx, m.client)
 		if err != nil {
-			return fmt.Errorf("failed to get current binlog position: %s", err)
+			return fmt.Errorf("failed to get current binlog position: %w", err)
 		}
-		m.state.SetGlobal(MySQLGlobalState{ServerID: uint32(1000 + time.Now().UnixNano()%4294966295), State: binlog.Binlog{Position: binlogPos}})
+		m.state.SetGlobal(MySQLGlobalState{ServerID: newServerID(), State: binlog.Binlog{Position: binlogPos}})
 		m.state.ResetStreams()
-		// reinit state
-		globalState = m.state.GetGlobal()
 	}
 	m.streams = streams
 	return nil
 }
 
-func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
+func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[string]any, OnMessage abstract.CDCMsgFn) (any, error) {
 	savedState := m.state.GetGlobal()
 	if savedState == nil || savedState.State == nil {
-		return nil, fmt.Errorf("invalid global state; state is missing")
+		return nil, errs.Precondition(errs.StateInvalid, codeGlobalStateInvalid,
+			fmt.Errorf("invalid global state; state is missing"))
 	}
 
 	var mySQLGlobalState MySQLGlobalState
 	if err := utils.Unmarshal(savedState.State, &mySQLGlobalState); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
+		return nil, fmt.Errorf("failed to unmarshal global state: %w", err)
 	}
 
 	// validate server id
 	if mySQLGlobalState.ServerID == 0 {
-		return nil, fmt.Errorf("invalid global state; server_id is missing")
+		return nil, errs.Precondition(errs.StateInvalid, codeServerIDMissing,
+			fmt.Errorf("invalid global state; server_id is missing"))
 	}
 
 	var finishedStreams []string
@@ -93,7 +114,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 			var mysqlMetadataState binlog.Binlog
 			err := json.Unmarshal([]byte(mtState), &mysqlMetadataState)
 			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
+				return nil, fmt.Errorf("failed to unmarshal metadata state: %w", err)
 			}
 
 			// Recovery is only needed when metadata is strictly AHEAD of state.
@@ -107,7 +128,8 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 			}
 			// state >= metadata: blank sync scenario — stream forward normally
 		} else {
-			return nil, fmt.Errorf("failed to typecast raw metadata state of type[%T] to string", rawMtState)
+			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
+				fmt.Errorf("failed to typecast raw metadata state of type[%T] to string", rawMtState))
 		}
 	}
 
@@ -127,7 +149,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 
 	conn, err := m.prepareBinlogConn(ctx, mySQLGlobalState, remainingStreams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare binlog conn: %s", err)
+		return nil, fmt.Errorf("failed to prepare binlog conn: %w", err)
 	}
 
 	// persist binlog connection for post cdc

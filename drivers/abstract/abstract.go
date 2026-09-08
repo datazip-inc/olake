@@ -2,7 +2,9 @@ package abstract
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -10,7 +12,11 @@ import (
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 )
+
+// codeWriterPanicRecovered names a panic recovered inside a writer thread, distinct from sync command.
+const codeWriterPanicRecovered = "sync.writer_panic_recovered"
 
 type CDCChange struct {
 	Stream       types.StreamInterface
@@ -18,6 +24,18 @@ type CDCChange struct {
 	Kind         string
 	Data         map[string]any
 	ExtraColumns map[string]any // Driver-specific CDC metadata (e.g., LSN, binlog position, resume token)
+	Bytes        int64
+}
+
+func NewCDCChange(stream types.StreamInterface, timestamp time.Time, kind string, data, extraColumns map[string]any, sourceBytes int64) CDCChange {
+	return CDCChange{
+		Stream:       stream,
+		Timestamp:    timestamp,
+		Kind:         kind,
+		Data:         data,
+		ExtraColumns: extraColumns,
+		Bytes:        sourceBytes,
+	}
 }
 
 type AbstractDriver struct { //nolint:gosec,revive
@@ -62,7 +80,7 @@ func (a *AbstractDriver) Type() string {
 func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, isSync bool) ([]*types.Stream, error) {
 	streams, err := a.driver.GetStreamNames(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get stream names: %s", err)
+		return nil, fmt.Errorf("failed to get stream names: %w", err)
 	}
 
 	// During sync, skip ProduceSchema entirely streams.json already holds
@@ -83,17 +101,17 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 
 	var streamMap sync.Map
 
-	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream string) error {
+	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream types.StreamID) error {
 		streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
 		if err != nil {
-			return fmt.Errorf("%w: failed to produce schema for stream %s: %s", constants.ErrNonRetryable, stream, err)
+			return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrNonRetryable, stream, err)
 		}
 		streamMap.Store(streamSchema.ID(), streamSchema)
 		return nil
 	})
 
 	if err := a.GlobalConnGroup.Block(); err != nil {
-		return nil, fmt.Errorf("error occurred while waiting for connection group: %s", err)
+		return nil, fmt.Errorf("error occurred while waiting for connection group: %w", err)
 	}
 
 	var finalStreams []*types.Stream
@@ -113,6 +131,10 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 			convStream.SyncMode = types.CDC
 		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
 			convStream.SyncMode = types.INCREMENTAL
+			// Default cursor field: lexicographically smallest available field, for deterministic output.
+			if convStream.AvailableCursorFields.Len() > 0 {
+				convStream.CursorField = slices.Min(convStream.AvailableCursorFields.Array())
+			}
 		} else if convStream.SupportedSyncModes.Exists(types.STRICTCDC) {
 			convStream.SyncMode = types.STRICTCDC
 		} else {
@@ -123,6 +145,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, i
 		convStream.DefaultStreamProperties = &types.DefaultStreamProperties{
 			Normalization: types.IsDriverRelational(a.driver.Type()),
 			AppendMode:    a.driver.Type() == string(constants.Kafka),
+			UpdateType:    types.UpdateTypeEquality,
 		}
 
 		finalStreams = append(finalStreams, convStream)
@@ -174,17 +197,19 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 	if len(cdcStreams) > 0 {
 		if a.driver.CDCSupported() {
 			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
-				return fmt.Errorf("failed to run change stream: %s", err)
+				return fmt.Errorf("failed to run change stream: %w", err)
 			}
 		} else {
-			return fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type())
+			return errs.Precondition(errs.CDCPreconditionFailed,
+				fmt.Sprintf("%s.cdc_not_configured", a.driver.Type()),
+				fmt.Errorf("%s cdc configuration not provided, use full refresh for all streams", a.driver.Type()))
 		}
 	}
 
 	// run incremental sync
 	if len(incrementalStreams) > 0 {
 		if err := a.Incremental(ctx, pool, incrementalStreams...); err != nil {
-			return fmt.Errorf("failed to run incremental sync: %s", err)
+			return fmt.Errorf("failed to run incremental sync: %w", err)
 		}
 	}
 
@@ -197,12 +222,12 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 
 	// wait for all threads to finish
 	if err := a.GlobalCtxGroup.Block(); err != nil {
-		return fmt.Errorf("error occurred while waiting for context groups: %s", err)
+		return fmt.Errorf("error occurred while waiting for context groups: %w", err)
 	}
 
 	// wait for all threads to finish
 	if err := a.GlobalConnGroup.Block(); err != nil {
-		return fmt.Errorf("error occurred while waiting for connections: %s", err)
+		return fmt.Errorf("error occurred while waiting for connections: %w", err)
 	}
 	return nil
 }
@@ -249,37 +274,59 @@ func generateThreadID(streamID, hash string) string {
 //   - map[string]*destination.WriterThread for multiple writers keyed by stream ID
 func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *error, writer any, threadID string, mtState *any, dedupInserts *bool) {
 	if r := recover(); r != nil {
-		*err = utils.Ternary(*err == nil, fmt.Errorf("panic recovered: %v", r), fmt.Errorf("%s: panic recovered: %v", *err, r)).(error)
+		// panic is classified as internal error
+		*err = utils.Ternary(*err == nil,
+			errs.Precondition(errs.InternalError, codeWriterPanicRecovered, fmt.Errorf("panic recovered: %v", r)),
+			fmt.Errorf("%w: panic recovered: %v", *err, r)).(error)
 	}
 
 	if *err != nil {
 		cancel()
 	}
 
-	var metadataState any
 	var closeErr error
-	if mtState != nil {
-		ms, setErr := types.SetMetadataState(*mtState, threadID)
-		if setErr != nil {
-			closeErr = fmt.Errorf("failed to set metadata state: %s", setErr)
-			cancel()
+
+	closeWriter := func(w *destination.WriterThread, metadataValue any) error {
+		var metadataState any
+		var setErr error
+
+		if metadataValue != nil {
+			ms, err := types.SetMetadataState(metadataValue, threadID)
+			if err != nil {
+				setErr = fmt.Errorf("failed to set metadata state: %w", err)
+				cancel()
+			}
+			types.SetDedupInserts(ms, dedupInserts)
+			metadataState = ms
 		}
-		types.SetDedupInserts(ms, dedupInserts)
-		metadataState = ms
+		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
+			setErr = errors.Join(setErr, fmt.Errorf("failed to close writer: %w", threadErr))
+		}
+
+		return setErr
 	}
 
 	switch w := writer.(type) {
 	case *destination.WriterThread:
-		if threadErr := w.Close(ctx, metadataState); threadErr != nil {
-			closeErr = fmt.Errorf("failed to close writer: %s", threadErr)
+		var mtStateValue any
+		if mtState != nil {
+			// Incremental stores cursor metadata as map[string]any; use *mtState directly (not per-stream lookup).
+			mtStateValue = *mtState
 		}
+		closeErr = closeWriter(w, mtStateValue)
 	case map[string]*destination.WriterThread:
 		// Multiple writers keyed by stream ID
 		for streamID, inserter := range w {
 			if inserter != nil {
-				if threadErr := inserter.Close(ctx, metadataState); threadErr != nil {
-					closeErr = fmt.Errorf("%s; failed closing writer[%s]: %s", closeErr, streamID, threadErr)
+				var mtStateValue any
+				if mtState != nil {
+					if mtStateValueByStream, ok := (*mtState).(map[string]any); ok {
+						mtStateValue = mtStateValueByStream[streamID]
+					} else {
+						mtStateValue = *mtState
+					}
 				}
+				closeErr = errors.Join(closeErr, closeWriter(inserter, mtStateValue))
 			}
 		}
 	default:
@@ -294,7 +341,7 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	}
 
 	if *err != nil && threadID != "" {
-		*err = fmt.Errorf("thread[%s]: %s", threadID, *err)
+		*err = fmt.Errorf("thread[%s]: %w", threadID, *err)
 	}
 }
 

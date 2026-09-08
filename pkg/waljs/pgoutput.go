@@ -9,13 +9,16 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jackc/pglogrepl"
-	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jmoiron/sqlx"
 )
+
+const olakeUnavailableValue = "__olake_unavailable_value__"
 
 // pgoutputReplicator implements Replicator for pgoutput
 type pgoutputReplicator struct {
@@ -34,7 +37,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, fmt.Sprintf("%q", p.socket.ReplicationSlot), p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
 	if err != nil {
-		return fmt.Errorf("failed to start replication: %v", err)
+		return fmt.Errorf("failed to start replication: %w", err)
 	}
 
 	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
@@ -82,7 +85,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			case pglogrepl.XLogDataByteID:
 				xld, err := pglogrepl.ParseXLogData(copyData.Data[1:])
 				if err != nil {
-					return fmt.Errorf("failed to parse XLogData: %v", err)
+					return fmt.Errorf("failed to parse XLogData: %w", err)
 				}
 				p.socket.ClientXLogPos = xld.WALStart
 				if err := p.processPgoutputWAL(ctx, xld.WALData, insertFn); err != nil {
@@ -92,12 +95,12 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
 				if err != nil {
-					return fmt.Errorf("failed to parse primary keepalive message: %v", err)
+					return fmt.Errorf("failed to parse primary keepalive message: %w", err)
 				}
 				p.socket.ClientXLogPos = pkm.ServerWALEnd
 				if pkm.ReplyRequested {
 					if err := AcknowledgeLSN(ctx, db, p.socket, true); err != nil {
-						return fmt.Errorf("failed to send standby status update: %v", err)
+						return fmt.Errorf("failed to send standby status update: %w", err)
 					}
 				}
 			default:
@@ -111,7 +114,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []byte, insertFn abstract.CDCMsgFn) error {
 	logicalMsg, err := pglogrepl.Parse(walData)
 	if err != nil {
-		return fmt.Errorf("failed to parse WAL data: %v", err)
+		return fmt.Errorf("failed to parse WAL data: %w", err)
 	}
 
 	switch msg := logicalMsg.(type) {
@@ -139,11 +142,15 @@ func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []b
 	}
 }
 
-func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, error) {
+func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tuple, oldTuple *pglogrepl.TupleData) (map[string]any, int64, error) {
 	data := make(map[string]any)
 	if tuple == nil {
-		return data, nil
+		return data, 0, nil
 	}
+
+	// rowBytes is summed inline below (attached to CDCChange.Bytes by the caller),
+	// so the tuple is walked only once.
+	var rowBytes int64
 
 	for idx, col := range tuple.Columns {
 		if idx >= len(rel.Columns) {
@@ -151,14 +158,24 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		}
 		colName := rel.Columns[idx].Name
 		colType := rel.Columns[idx].DataType
+
+		// Size the data that actually arrived in this WAL change (the new tuple),
+		// before any TOAST recovery below. Unchanged-TOAST columns carry nil Data
+		// here and add 0 — Postgres does not resend them.
+		if col.Data != nil {
+			rowBytes += oidStorageBytes(colType, col.Data)
+		}
+
+		isUnchangedToast := col.DataType == pglogrepl.TupleDataTypeToast
 		// On UPDATE, unchanged TOAST columns in the new tuple are marked TupleDataTypeToast.
 		// REPLICA IDENTITY FULL includes the complete old row and allows recovery of these values.
 		// DEFAULT, INDEX, and NOTHING do not provide old TOAST values, so recovery is not possible.
-		if col.DataType == pglogrepl.TupleDataTypeToast && oldTuple != nil && idx < len(oldTuple.Columns) {
+		if isUnchangedToast && oldTuple != nil && idx < len(oldTuple.Columns) {
 			col = oldTuple.Columns[idx]
 		}
 		if col.Data == nil {
-			data[colName] = nil
+			// If the column is a TOAST column, set the value to __olake_unavailable_value__ otherwise set it to nil
+			data[colName] = utils.Ternary(isUnchangedToast, olakeUnavailableValue, nil)
 			continue
 		}
 
@@ -166,11 +183,11 @@ func (p *pgoutputReplicator) tupleValuesToMap(rel *pglogrepl.RelationMessage, tu
 		typeName := oidToString(colType)
 		val, err := p.socket.changeFilter.converter(string(col.Data), typeName)
 		if err != nil && err != typeutils.ErrNullValue {
-			return nil, err
+			return nil, 0, err
 		}
 		data[colName] = val
 	}
-	return data, nil
+	return data, rowBytes, nil
 }
 
 func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.InsertMessage, insertFn abstract.CDCMsgFn) error {
@@ -184,18 +201,13 @@ func (p *pgoutputReplicator) emitInsert(ctx context.Context, m *pglogrepl.Insert
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.Tuple, nil)
+	values, rowBytes, err := p.tupleValuesToMap(rel, m.Tuple, nil)
 	if err != nil {
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{
-		Stream:       stream,
-		Timestamp:    p.txnCommitTime,
-		Kind:         "insert",
-		Data:         values,
-		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
-	})
+	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "insert", values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
 }
 
 func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.UpdateMessage, insertFn abstract.CDCMsgFn) error {
@@ -209,18 +221,13 @@ func (p *pgoutputReplicator) emitUpdate(ctx context.Context, m *pglogrepl.Update
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
+	values, rowBytes, err := p.tupleValuesToMap(rel, m.NewTuple, m.OldTuple)
 	if err != nil {
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{
-		Stream:       stream,
-		Timestamp:    p.txnCommitTime,
-		Kind:         "update",
-		Data:         values,
-		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
-	})
+	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "update", values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
 }
 
 func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.DeleteMessage, insertFn abstract.CDCMsgFn) error {
@@ -234,18 +241,13 @@ func (p *pgoutputReplicator) emitDelete(ctx context.Context, m *pglogrepl.Delete
 		return nil
 	}
 
-	values, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
+	values, rowBytes, err := p.tupleValuesToMap(rel, m.OldTuple, nil)
 	if err != nil {
 		return err
 	}
 
-	return insertFn(ctx, abstract.CDCChange{
-		Stream:       stream,
-		Timestamp:    p.txnCommitTime,
-		Kind:         "delete",
-		Data:         values,
-		ExtraColumns: map[string]any{CDCLSN: p.socket.ClientXLogPos.String()},
-	})
+	return insertFn(ctx, abstract.NewCDCChange(stream, p.txnCommitTime, "delete", values,
+		map[string]any{CDCLSN: p.socket.ClientXLogPos.String()}, rowBytes))
 }
 
 // OIDToString converts a PostgreSQL OID to its string representation

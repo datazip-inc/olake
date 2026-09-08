@@ -14,6 +14,12 @@ import org.apache.iceberg.types.TypeUtil;
 import java.io.IOException;
 import java.util.Set;
 
+/**
+ * Equality-delete writer. Positional deletes are handled by
+ * {@link PositionalDeltaWriter} instead, which owns its data and pos-delete
+ * writers directly rather than borrowing the private ones this class's
+ * {@code BaseEqualityDeltaWriter} superclass keeps.
+ */
 abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
 
   private final Schema schema;
@@ -47,10 +53,11 @@ abstract class BaseDeltaTaskWriter extends BaseTaskWriter<Record> {
     return wrapper;
   }
 
-  @Override/**/
+  @Override
   public void write(Record row) throws IOException {
     RowDataDeltaWriter writer = route(row);
     Operation rowOperation = ((RecordWrapper) row).op();
+
     if (rowOperation == Operation.DELETE && !keepDeletes) {
       // deletes. doing hard delete. when keepDeletes = FALSE we dont keep deleted record
       writer.deleteKey(keyProjection.wrap(row));

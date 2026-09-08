@@ -1,11 +1,13 @@
 package protocol
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/spf13/cobra"
 )
@@ -17,7 +19,8 @@ var checkCmd = &cobra.Command{
 	PreRunE: func(_ *cobra.Command, _ []string) error {
 		// If connector is not set, we are checking the destination
 		if destinationConfigPath == "not-set" && configPath == "not-set" {
-			return fmt.Errorf("no connector config or destination config provided")
+			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
+				fmt.Errorf("no connector config or destination config provided"))
 		}
 
 		// check for destination config
@@ -33,12 +36,19 @@ var checkCmd = &cobra.Command{
 
 		return nil
 	},
+	// TODO: switch back to returning err once the worker handling is added for non-zero exit.
 	Run: func(cmd *cobra.Command, _ []string) {
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
-				_, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
-				return err
+				// NewWriterPool initializes destination resources and runs Check;
+				// close immediately since a check has no further work.
+				pool, err := destination.NewWriterPool(cmd.Context(), destinationConfig, nil, batchSize)
+				if err != nil {
+					return err
+				}
+				pool.Shutdown(context.Background())
+				return nil
 			}
 
 			if configPath != "not-set" {
@@ -48,7 +58,8 @@ var checkCmd = &cobra.Command{
 			return nil
 		}()
 
-		// log success
+		// A failed connection is a successful check: the verdict is this message, not the exit
+		// code. Exiting non-zero fails the caller's activity before it ever parses the message.
 		message := types.Message{
 			Type: types.ConnectionStatusMessage,
 			ConnectionStatus: &types.StatusRow{
@@ -60,5 +71,9 @@ var checkCmd = &cobra.Command{
 			message.ConnectionStatus.Status = types.ConnectionFailed
 		}
 		logger.Info(message)
+
+		// Reported here because check exits zero: RegisterDriver's hook only fires on a returned
+		// error. PreRunE failures still reach it, so this cannot double-report.
+		ReportFailure(err)
 	},
 }

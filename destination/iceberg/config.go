@@ -3,9 +3,12 @@ package iceberg
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -77,12 +80,19 @@ type Config struct {
 	RestScope         string `json:"scope,omitempty"`
 	RestCredential    string `json:"credential,omitempty"`
 
+	// GCP auth for GoogleAuthManager (e.g. BigLake). Inline SA key JSON;
+	GCPServiceAccountJSON string `json:"gcp_service_account_json,omitempty"`
+	GCPAuthScopes         string `json:"gcp_auth_scopes,omitempty"`
+	// Required by BigLake for request routing/billing (sent as the x-goog-user-project header).
+	GCPProjectID string `json:"gcp_project_id,omitempty"`
+
 	UseArrowWrites bool `json:"arrow_writes,omitempty"`
 }
 
 func (c *Config) Validate() error {
 	if c.IcebergS3Path == "" {
-		return fmt.Errorf("s3_path is required")
+		return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+			fmt.Errorf("s3_path is required"))
 	}
 
 	// Set defaults for catalog type
@@ -92,6 +102,23 @@ func (c *Config) Validate() error {
 
 	if c.CatalogName == "" {
 		c.CatalogName = "olake_iceberg"
+	}
+	//S3 tables use SigV4 authentication and require signing name to be set to "s3tables"
+	if c.CatalogType == "s3tables" {
+		c.RestSigningV4 = true
+		c.RestSigningName = "s3tables"
+	}
+	//Unity Catalog doesn't support identifier fields (disable them)
+	if c.CatalogType == "unity" {
+		c.NoIdentifierFields = true
+	}
+	// BigLake requires GoogleAuthManager for authentication
+	if c.CatalogType == "biglake" {
+		c.RestAuthType = "org.apache.iceberg.gcp.auth.GoogleAuthManager"
+	}
+	c.RestAuthType = olakeAuthTypeToIcebergAuthType(c.RestAuthType)
+	if slices.Contains(constants.RESTCatalogs, string(c.CatalogType)) {
+		c.CatalogType = RestCatalog
 	}
 
 	// Default to path-style access for S3-compatible services
@@ -120,27 +147,31 @@ func (c *Config) Validate() error {
 	switch c.CatalogType {
 	case JDBCCatalog:
 		if c.JDBCUrl == "" {
-			return fmt.Errorf("jdbc_url is required when using JDBC catalog")
+			return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+				fmt.Errorf("jdbc_url is required when using JDBC catalog"))
 		}
 	case RestCatalog:
 		if c.RestCatalogURL == "" {
-			return fmt.Errorf("rest_catalog_url is required when using REST catalog")
+			return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+				fmt.Errorf("rest_catalog_url is required when using REST catalog"))
 		}
 	case HiveCatalog:
 		if c.HiveURI == "" {
-			return fmt.Errorf("hive_uri is required when using Hive catalog")
+			return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+				fmt.Errorf("hive_uri is required when using Hive catalog"))
 		}
 	case GlueCatalog:
 		// No additional validation required for Glue catalog
 	default:
-		return fmt.Errorf("unsupported catalog_type: %s", c.CatalogType)
+		return errs.Precondition(errs.ConfigInvalid, codeUnsupportedCatalogType,
+			fmt.Errorf("unsupported catalog_type: %s", c.CatalogType))
 	}
 
 	if c.JarPath == "" {
 		// Set JarPath based on file existence in two possible locations
 		execDir, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("failed to get current directory for searching jar file: %s", err)
+			return fmt.Errorf("failed to get current directory for searching jar file: %w", err)
 		}
 
 		// Remove /drivers/* from execDir if present
@@ -161,8 +192,9 @@ func (c *Config) Validate() error {
 				logger.Infof("Iceberg JAR file found in target directory: %s", targetJarPath)
 				c.JarPath = targetJarPath
 			} else {
-				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to destination/iceberg/olake-iceberg-java-writer/target/ directory and run mvn clean package -DskipTests",
-					baseJarPath, targetJarPath)
+				return errs.Precondition(errs.InternalError, codeJarNotFound,
+					fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to destination/iceberg/olake-iceberg-java-writer/target/ directory and run mvn clean package -DskipTests",
+						baseJarPath, targetJarPath))
 			}
 		}
 	}
@@ -170,4 +202,24 @@ func (c *Config) Validate() error {
 		c.ServerHost = "localhost"
 	}
 	return utils.Validate(c)
+}
+
+func olakeAuthTypeToIcebergAuthType(authType string) string {
+	switch strings.ToLower(strings.TrimSpace(authType)) {
+	case "oauth2", "oauth2 u2m", "oauth2 m2m", "token", "token federation",
+		"personal access token (pat)", "pat":
+		return "oauth2"
+	case "none":
+		return "none"
+	case "sigv4":
+		return "sigv4"
+	case "google", "gcp":
+		return "google"
+	default:
+		if strings.Contains(authType, ".") && !strings.Contains(authType, " ") {
+			return authType
+		}
+		logger.Warnf("unmapped rest_auth_type %q. Iceberg rest.auth.type omitted", authType)
+		return ""
+	}
 }

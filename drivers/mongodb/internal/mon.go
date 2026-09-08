@@ -98,7 +98,7 @@ type MongoSSHDialer struct {
 	sshClient *ssh.Client
 }
 
-func (d *MongoSSHDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
+func (d *MongoSSHDialer) DialContext(ctx context.Context, _, address string) (net.Conn, error) {
 	if d.sshClient == nil {
 		return nil, fmt.Errorf("SSH client is not initialized")
 	}
@@ -124,12 +124,15 @@ func (m *Mongo) CDCSupported() bool {
 }
 
 func (m *Mongo) Setup(ctx context.Context) error {
+	if err := m.config.Validate(); err != nil {
+		return fmt.Errorf("failed to validate config: %w", err)
+	}
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		sshClient, err := m.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 		m.sshDialer = &MongoSSHDialer{sshClient: sshClient}
 	}
@@ -137,12 +140,21 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	opts := options.Client()
 
 	opts.ApplyURI(m.config.URI())
+	tlsConfig, err := m.config.buildTLSConfig()
+	if err != nil {
+		return fmt.Errorf("failed to build tls config: %w", err)
+	}
+	if tlsConfig != nil {
+		opts.SetTLSConfig(tlsConfig)
+	}
 	opts.SetCompressors([]string{"snappy"}) // using Snappy compression; read here https://en.wikipedia.org/wiki/Snappy_(compression)
 	opts.SetRegistry(safeDecodeRegistry)
 	if m.sshDialer != nil {
 		opts.SetDialer(m.sshDialer)
 	}
-	opts.SetMaxPoolSize(uint64(m.config.MaxThreads))
+	if maxPoolSize := m.config.MaxThreads; maxPoolSize > 0 {
+		opts.SetMaxPoolSize(uint64(maxPoolSize))
+	}
 	connectCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
@@ -153,7 +165,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 
 	// Validate the connection by pinging the database
 	if err := conn.Ping(connectCtx, nil); err != nil {
-		return fmt.Errorf("failed to connect to MongoDB: %s", err)
+		return fmt.Errorf("failed to connect to MongoDB: %w", err)
 	}
 
 	m.client = conn
@@ -199,7 +211,7 @@ func (m *Mongo) MaxRetries() int {
 	return m.config.RetryCount
 }
 
-func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
+func (m *Mongo) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for MongoDB database %s", m.config.Database)
 	database := m.client.Database(m.config.Database)
 	collections, err := database.ListCollections(ctx, bson.M{})
@@ -207,12 +219,12 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 
-	var streamNames []string
+	var streamNames []types.StreamID
 	// Iterate through collections and check if they are views
 	for collections.Next(ctx) {
 		var collectionInfo bson.M
 		if err := collections.Decode(&collectionInfo); err != nil {
-			return nil, fmt.Errorf("failed to decode collection: %s", err)
+			return nil, fmt.Errorf("failed to decode collection: %w", err)
 		}
 
 		// Skip if collection is a view
@@ -225,19 +237,19 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]string, error) {
 			continue
 		}
 
-		streamNames = append(streamNames, collectionInfo["name"].(string))
+		streamNames = append(streamNames, types.StreamID{Namespace: m.config.Database, Name: collectionInfo["name"].(string)})
 	}
 	return streamNames, collections.Err()
 }
 
 // TODO: Add support for time series mongodb collections
-func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
 	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
 
 		// initialize stream
 		collection := db.Collection(streamName)
-		stream := types.NewStream(streamName, db.Name(), nil)
+		stream := types.NewStream(streamName, streamID.Namespace, nil)
 		// _id is the guaranteed unique, mandatory field in every MongoDB collection.
 		stream.WithPrimaryKey(constants.MongoPrimaryID)
 
@@ -247,7 +259,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 		}
 
-		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, execNumber int) error {
+		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, _ int) error {
 			cursor, err := collection.Find(ctx, bson.D{}, findOpt)
 			if err != nil {
 				return err
@@ -272,15 +284,15 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamName string) (*types.St
 	database := m.client.Database(m.config.Database)
 	// Either wait for covering 100k records from both sides for all streams
 	// Or wait till discoverCtx exits
-	stream, err := produceCollectionSchema(ctx, database, streamName)
+	stream, err := produceCollectionSchema(ctx, database, streamID.Name)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process collection[%s]: %s", streamName, err)
+		return nil, fmt.Errorf("failed to process collection[%s]: %w", streamID.Name, err)
 	}
 	// Add all discovered fields as potential cursor fields
-	stream.Schema.Properties.Range(func(key, value interface{}) bool {
+	stream.Schema.Properties.Range(func(key, _ interface{}) bool {
 		if fieldName, ok := key.(string); ok {
 			stream.WithCursorField(fieldName)
 		}

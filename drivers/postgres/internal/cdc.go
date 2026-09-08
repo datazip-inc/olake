@@ -102,7 +102,7 @@ func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.
 
 	tlsConfig, err := p.config.buildTLSConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to build tls config for wal replication: %s", err)
+		return nil, fmt.Errorf("failed to build tls config for wal replication: %w", err)
 	}
 
 	return &waljs.Config{
@@ -128,7 +128,7 @@ func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) 
 
 	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
 	if err != nil {
-		return fmt.Errorf("failed to get slot position: %s", err)
+		return fmt.Errorf("failed to get slot position: %w", err)
 	}
 
 	globalState := p.state.GetGlobal()
@@ -147,7 +147,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	var postgresGlobalState waljs.WALState
 	rawGlobalState := p.state.GetGlobal()
 	if err := utils.Unmarshal(rawGlobalState.State, &postgresGlobalState); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
+		return nil, fmt.Errorf("failed to unmarshal global state: %w", err)
 	}
 
 	var metadataCommittedLSN string
@@ -161,17 +161,17 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		if stMtState, ok := rawMtState.(string); ok {
 			var mtState waljs.WALState
 			if err := json.Unmarshal([]byte(stMtState), &mtState); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
+				return nil, fmt.Errorf("failed to unmarshal metadata state: %w", err)
 			}
 
 			// Recovery is only needed when metadata is strictly AHEAD of state .
 			parsedMetaLSN, err := pglogrepl.ParseLSN(mtState.LSN)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse metadata LSN %q: %s", mtState.LSN, err)
+				return nil, fmt.Errorf("failed to parse metadata LSN %q: %w", mtState.LSN, err)
 			}
 			parsedStateLSN, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse global state LSN %q: %s", postgresGlobalState.LSN, err)
+				return nil, fmt.Errorf("failed to parse global state LSN %q: %w", postgresGlobalState.LSN, err)
 			}
 			if parsedMetaLSN > parsedStateLSN {
 				// metadata ahead of state: genuine crash-recovery path
@@ -193,7 +193,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		// recovery sync required: read up to the LSN stored in the Iceberg metadata
 		parsed, err := pglogrepl.ParseLSN(metadataCommittedLSN)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse recovery LSN %q: %s", metadataCommittedLSN, err)
+			return nil, fmt.Errorf("failed to parse recovery LSN %q: %w", metadataCommittedLSN, err)
 		}
 		recoveryLSN = &parsed
 
@@ -211,28 +211,30 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 
 	config, err := p.prepareWALJSConfig(remainingStreams...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare wal config: %s", err)
+		return nil, fmt.Errorf("failed to prepare wal config: %w", err)
 	}
 
 	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get slot position: %s", err)
+		return nil, fmt.Errorf("failed to get slot position: %w", err)
 	}
 
 	replicator, err := waljs.NewReplicator(ctx, config, slot, recoveryLSN, p.dataTypeConverter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create wal connection: %s", err)
+		return nil, fmt.Errorf("failed to create wal connection: %w", err)
 	}
 
 	// persist replicator for post cdc
 	p.replicator = replicator
 
 	// validateGlobalState ensures slot and state agree before WAL replay begins.
-	// Skip it when remainingStreams is empty: all streams are already committed in
-	// Iceberg, so no WAL will be replayed and the slot/state relationship is irrelevant.
-	if len(remainingStreams) > 0 {
+	// Skip when remainingStreams is empty (all streams already committed in Iceberg), or
+	// when slot.confirmed_flush_lsn already equals the metadata-committed recovery LSN —
+	// the prior sync ack'd the slot but crashed before saving state, so all syncs were already committed
+	slotAtMetadataLSN := recoveryLSN != nil && slot.LSN == *recoveryLSN
+	if len(remainingStreams) > 0 && !slotAtMetadataLSN {
 		if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
-			return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
+			return nil, fmt.Errorf("%s: invalid global state: %w", constants.ErrNonRetryable, err)
 		}
 	} else {
 		logger.Infof("all streams already committed in destination, skipping state LSN validation")
@@ -283,7 +285,7 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 	}
 }
 
-func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string, database string) (bool, error) {
+func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string, _ string) (bool, error) {
 	var exists bool
 	err := conn.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = $1 AND database = current_database())`, slotName).Scan(&exists)
 	if err != nil {
@@ -315,16 +317,15 @@ func validateGlobalState(postgresGlobalState waljs.WALState, confirmedFlushLSN p
 	// global state exist check for cursor and cursor mismatch
 	if postgresGlobalState.LSN == "" {
 		return fmt.Errorf("%w: lsn is empty, please proceed with clear destination", constants.ErrNonRetryable)
-	} else {
-		parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
-		if err != nil {
-			return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
-		}
-		// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
-		// suggesting to proceed with clear destination
-		if parsed != confirmedFlushLSN {
-			return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, confirmedFlushLSN)
-		}
+	}
+	parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
+	if err != nil {
+		return fmt.Errorf("failed to parse stored lsn[%s]: %w", postgresGlobalState.LSN, err)
+	}
+	// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
+	// suggesting to proceed with clear destination
+	if parsed != confirmedFlushLSN {
+		return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, confirmedFlushLSN)
 	}
 	return nil
 }

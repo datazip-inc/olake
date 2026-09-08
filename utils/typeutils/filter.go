@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
-	"sync"
 
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -50,18 +49,21 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 	}
 	return func() ([]types.RawRecord, error) {
 		concurrency := runtime.GOMAXPROCS(0) * 16
-		var mu sync.Mutex
 		filtered := make([]types.RawRecord, 0, len(records))
+		keep := make([]bool, len(records))
 
-		err := utils.Concurrent(ctx, records, concurrency, func(_ context.Context, record types.RawRecord, _ int) error {
+		err := utils.Concurrent(ctx, records, concurrency, func(_ context.Context, record types.RawRecord, i int) error {
 			match := matches(record, conditions, filter.LogicalOperator)
 			if match {
-				mu.Lock()
-				filtered = append(filtered, record)
-				mu.Unlock()
+				keep[i] = true
 			}
 			return nil
 		})
+		for i, record := range records {
+			if keep[i] {
+				filtered = append(filtered, record)
+			}
+		}
 		return filtered, err
 	}()
 }

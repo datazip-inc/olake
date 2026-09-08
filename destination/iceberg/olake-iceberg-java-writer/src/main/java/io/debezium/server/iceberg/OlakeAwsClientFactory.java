@@ -14,6 +14,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.glue.GlueClient;
 import software.amazon.awssdk.services.glue.GlueClientBuilder;
 import software.amazon.awssdk.services.kms.KmsClient;
+import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3Client;
 
 // for custom glue endpoint credentials
@@ -41,6 +42,11 @@ public class OlakeAwsClientFactory implements AwsClientFactory {
     @Override
     public S3Client s3() {
         return delegate.s3();
+    }
+
+    @Override
+    public S3AsyncClient s3Async() {
+        return delegate.s3Async();
     }
 
     @Override

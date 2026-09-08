@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"slices"
@@ -35,12 +36,12 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return fmt.Errorf("failed to set threshold filter: %w", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, m.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during MSSQL chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during MSSQL chunk iteration: %w", err)
 	}
 
 	keyCols := stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -62,15 +63,19 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 	tx, err := m.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			logger.Warnf("failed to rollback transaction: %s", err)
+		}
+	}()
 
-	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
+	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, _ ...any) (*sql.Rows, error) {
 		return tx.QueryContext(ctx, query, args...)
 	})
 
-	return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage)
+	return jdbc.MapScanConcurrent(setter, m.dataTypeConverter, onMessage, mssqlColumnSizer)
 }
 
 // GetOrSplitChunks splits a table into chunks using PK seek or %%physloc%% fallback.
@@ -83,7 +88,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	rowStatsQuery := jdbc.MSSQLTableRowStatsQuery()
 	err := m.client.QueryRowContext(ctx, rowStatsQuery, stream.Namespace(), stream.Name()).Scan(&approxRowCount, &avgRowSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err)
+		return nil, fmt.Errorf("failed to get approx row count and avg row size: %w", err)
 	}
 
 	if approxRowCount == 0 {
@@ -91,7 +96,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		existsQuery := jdbc.MSSQLTableExistsQuery(stream)
 		err := m.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check if table has rows: %s", err)
+			return nil, fmt.Errorf("failed to check if table has rows: %w", err)
 		}
 
 		if hasRows {
@@ -107,7 +112,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// avgRowSize is returned as []uint8 which is converted to float64
 	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get avg row size: %s", err)
+		return nil, fmt.Errorf("failed to get avg row size: %w", err)
 	}
 	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
 	numberOfChunks := max(int64(math.Ceil(float64(approxRowCount)/float64(chunkSize))), int64(1))
@@ -147,10 +152,10 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 // to SQL Server's byte-by-byte BINARY(8) comparison of the equivalent %%physloc%%.
 // slot_id is fixed at 0xFFFF ("end of page") so chunk predicates split cleanly between pages.
 // Sorting []uint64 with < is cheaper than sorting [][]byte with bytes.Compare.
-func physlocSortKey(fileID, pageID int32) uint64 {
+func physlocSortKey(fileID uint16, pageID uint32) uint64 {
 	var b [8]byte
-	binary.LittleEndian.PutUint32(b[0:4], uint32(pageID))
-	binary.LittleEndian.PutUint16(b[4:6], uint16(fileID))
+	binary.LittleEndian.PutUint32(b[0:4], pageID)
+	binary.LittleEndian.PutUint16(b[4:6], fileID)
 	binary.LittleEndian.PutUint16(b[6:8], 0xFFFF)
 	return binary.BigEndian.Uint64(b[:])
 }
@@ -172,7 +177,7 @@ func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 	// Get the minimum and maximum values for the primary key columns
 	minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkCols)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get table extremes: %s", err)
+		return nil, fmt.Errorf("failed to get table extremes: %w", err)
 	}
 	// Skip if table is empty
 	if minVal == nil {
@@ -183,7 +188,7 @@ func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 	if len(pkCols) == 1 {
 		columnType, err = m.getColumnTypeMSSQL(ctx, stream, pkCols[0])
 		if err != nil {
-			return nil, fmt.Errorf("failed to get table column type: %s", err)
+			return nil, fmt.Errorf("failed to get table column type: %w", err)
 		}
 	}
 
@@ -220,7 +225,7 @@ func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to get next chunk end: %s", err)
+			return nil, fmt.Errorf("failed to get next chunk end: %w", err)
 		}
 		// Create a chunk between current and next boundary
 		if currentVal != nil {
@@ -246,7 +251,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 	// These define the boundaries of our table for chunking
 	minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
+		return nil, fmt.Errorf("failed to get %%physloc%% extremes: %w", err)
 	}
 	// Skip if table is empty (no rows to chunk)
 	if minVal == nil || maxVal == nil {
@@ -269,7 +274,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
+			return nil, fmt.Errorf("failed to get next %%physloc%% chunk end: %w", err)
 		}
 		chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: utils.HexEncode(next)})
 		current = next
@@ -288,7 +293,7 @@ func (m *MSSQL) splitViaPKSample(ctx context.Context, stream types.StreamInterfa
 
 	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLPKSampleBoundaryQuery(stream, pkCols, samplePercent))
 	if err != nil {
-		return nil, fmt.Errorf("PK TABLESAMPLE query failed: %s", err)
+		return nil, fmt.Errorf("PK TABLESAMPLE query failed: %w", err)
 	}
 	defer rows.Close()
 
@@ -308,12 +313,12 @@ func (m *MSSQL) splitViaPKSample(ctx context.Context, stream types.StreamInterfa
 	for rows.Next() {
 		var val any
 		if err := rows.Scan(&val); err != nil {
-			return nil, fmt.Errorf("failed to scan PK sample: %s", err)
+			return nil, fmt.Errorf("failed to scan PK sample: %w", err)
 		}
 		samples = append(samples, normalizeBoundaryValue(val, pkCols, columnType))
 	}
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate PK samples: %s", err)
+		return nil, fmt.Errorf("failed to iterate PK samples: %w", err)
 	}
 
 	if int64(len(samples)) < numberOfChunks {
@@ -323,7 +328,7 @@ func (m *MSSQL) splitViaPKSample(ctx context.Context, stream types.StreamInterfa
 
 	chunks := types.NewSet[types.Chunk]()
 	step := float64(len(samples)) / float64(numberOfChunks)
-	var prev any = nil
+	var prev any
 	for i := int64(0); i < numberOfChunks; i++ {
 		idx := min(int(float64(i)*step), len(samples)-1)
 		curr := samples[idx]
@@ -342,25 +347,26 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 	var objectID int64
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLObjectIDQuery(), stream.Namespace(), stream.Name()).Scan(&objectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve object_id for IAM walk: %s", err)
+		return nil, fmt.Errorf("failed to resolve object_id for IAM walk: %w", err)
 	}
 
 	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLIAMWalkQuery(), objectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to run IAM walk query: %s", err)
+		return nil, fmt.Errorf("failed to run IAM walk query: %w", err)
 	}
 	defer rows.Close()
 
 	pages := make([]uint64, 0, 1024)
 	for rows.Next() {
-		var fileID, pageID int32
+		var fileID uint16
+		var pageID uint32
 		if err := rows.Scan(&fileID, &pageID); err != nil {
-			return nil, fmt.Errorf("failed to scan IAM walk page: %s", err)
+			return nil, fmt.Errorf("failed to scan IAM walk page: %w", err)
 		}
 		pages = append(pages, physlocSortKey(fileID, pageID))
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate IAM walk rows: %s", err)
+		return nil, fmt.Errorf("failed to iterate IAM walk rows: %w", err)
 	}
 
 	total := int64(len(pages))
@@ -376,7 +382,7 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 	// Emit one open→closed chunk every pagesPerChunk pages. The trailing chunk
 	// is open-ended. If the table fits in one chunk this produces just {nil, nil}.
 	chunks := types.NewSet[types.Chunk]()
-	var prev any = nil
+	var prev any
 	for i := pagesPerChunk; i < total; i += pagesPerChunk {
 		boundary := utils.HexEncode(physLocBytes(pages[i]))
 		chunks.Insert(types.Chunk{Min: prev, Max: boundary})
@@ -470,17 +476,17 @@ func normalizeBoundaryValue(value any, pkCols []string, columnType string) strin
 }
 
 // getTableExtremes returns MIN and MAX key values for the given PK columns.
-func (m *MSSQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {
+func (m *MSSQL) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (minVal, maxVal any, err error) {
 	query := jdbc.MinMaxQueryMSSQL(stream, pkColumns)
-	err = m.client.QueryRowContext(ctx, query).Scan(&min, &max)
-	return min, max, err
+	err = m.client.QueryRowContext(ctx, query).Scan(&minVal, &maxVal)
+	return minVal, maxVal, err
 }
 
 // getPhysLocExtremes returns MIN and MAX %%physloc%% values for the table.
-func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInterface) (min, max []byte, err error) {
+func (m *MSSQL) getPhysLocExtremes(ctx context.Context, stream types.StreamInterface) (minVal, maxVal []byte, err error) {
 	query := jdbc.MSSQLPhysLocExtremesQuery(stream)
-	err = m.client.QueryRowContext(ctx, query).Scan(&min, &max)
-	return min, max, err
+	err = m.client.QueryRowContext(ctx, query).Scan(&minVal, &maxVal)
+	return minVal, maxVal, err
 }
 
 // formatUniqueIdentifierBytes converts SQL Server's mixed-endian UNIQUEIDENTIFIER

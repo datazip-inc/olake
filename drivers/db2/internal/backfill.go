@@ -28,12 +28,12 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return fmt.Errorf("failed to set threshold filter: %w", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, d.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %w", err)
 	}
 
 	// if PK present then PK based chunking else RID based chunking
@@ -49,21 +49,9 @@ func (d *DB2) ChunkIterator(ctx context.Context, stream types.StreamInterface, c
 		stmt = jdbc.DB2RidChunkScanQuery(stream, chunk, filter)
 	}
 
-	// begin transaction for chunk iteration (by default isolation mode in db2 driver is cursor stability (also known as read committed))
-	// db2 driver does not support custom isolation level setting
-	tx, err := d.client.BeginTx(ctx, &sql.TxOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
-	}
-	defer tx.Rollback()
-
 	logger.Debugf("Starting backfill for %s with chunk %v using query: %s", stream.ID(), chunk, stmt)
 
-	setter := jdbc.NewReader(ctx, stmt, func(ctx context.Context, query string, queryArgs ...any) (*sql.Rows, error) {
-		return tx.QueryContext(ctx, query, args...)
-	})
-
-	return jdbc.MapScanConcurrent(setter, d.dataTypeConverter, OnMessage)
+	return d.readBatchConcurrent(ctx, stmt, args, OnMessage)
 }
 
 func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
@@ -71,14 +59,14 @@ func (d *DB2) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool
 	var approxRowCount int64
 	rowCountQuery := jdbc.DB2ApproxRowCountQuery(stream)
 	if err := d.client.QueryRowContext(ctx, rowCountQuery).Scan(&approxRowCount); err != nil {
-		return nil, fmt.Errorf("failed to get approx row count: %s", err)
+		return nil, fmt.Errorf("failed to get approx row count: %w", err)
 	}
 	if approxRowCount == -1 || approxRowCount == 0 {
 		var hasRows bool
 		existsQuery := jdbc.DB2TableStatsExistQuery(stream)
 		err := d.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check if table has rows: %s", err)
+			return nil, fmt.Errorf("failed to check if table has rows: %w", err)
 		}
 
 		if hasRows {
@@ -100,11 +88,11 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 		avgRowSizeQuery := jdbc.DB2AvgRowSizeQuery(stream)
 		err := d.client.QueryRowContext(ctx, avgRowSizeQuery).Scan(&avgRowSize)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get avg row size: %s", err)
+			return nil, fmt.Errorf("failed to get avg row size: %w", err)
 		}
 		avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert avg row size to float: %s", err)
+			return nil, fmt.Errorf("failed to convert avg row size to float: %w", err)
 		}
 
 		// chunk size
@@ -121,7 +109,7 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 		// table extremes
 		minVal, maxVal, err := d.getTableExtremes(ctx, stream, pkColumns)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get table extremes: %s", err)
+			return nil, fmt.Errorf("failed to get table extremes: %w", err)
 		}
 		if minVal == nil {
 			return types.NewSet[types.Chunk](), nil
@@ -152,7 +140,7 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 			if err == sql.ErrNoRows || nextValRaw == nil {
 				break
 			} else if err != nil {
-				return nil, fmt.Errorf("failed to get next chunk end: %s", err)
+				return nil, fmt.Errorf("failed to get next chunk end: %w", err)
 			}
 			if currentVal != nil && nextValRaw != nil {
 				chunks.Insert(types.Chunk{
@@ -175,14 +163,14 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 	splitViaRID := func(ctx context.Context, stream types.StreamInterface) (*types.Set[types.Chunk], error) {
 		var minRID, maxRID int64
 		if err := d.client.QueryRowContext(ctx, jdbc.DB2MinMaxRidQuery(stream)).Scan(&minRID, &maxRID); err != nil {
-			return nil, fmt.Errorf("failed to get the min and max rid: %s", err)
+			return nil, fmt.Errorf("failed to get the min and max rid: %w", err)
 		}
 
 		// pages size and number of pages
 		var pageSize, nPages int64
 		pageStatsQuery := jdbc.DB2PageStatsQuery(stream)
 		if err := d.client.QueryRowContext(ctx, pageStatsQuery).Scan(&pageSize, &nPages); err != nil {
-			return nil, fmt.Errorf("failed to get the page size and number of pages: %s", err)
+			return nil, fmt.Errorf("failed to get the page size and number of pages: %w", err)
 		}
 
 		// pages to be in a chunk
@@ -212,8 +200,8 @@ func (d *DB2) splitTableIntoChunks(ctx context.Context, stream types.StreamInter
 	return splitViaRID(ctx, stream)
 }
 
-func (d *DB2) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (min, max any, err error) {
+func (d *DB2) getTableExtremes(ctx context.Context, stream types.StreamInterface, pkColumns []string) (minVal, maxVal any, err error) {
 	query := jdbc.DB2MinMaxPKQuery(stream, pkColumns)
-	err = d.client.QueryRowContext(ctx, query).Scan(&min, &max)
-	return min, max, err
+	err = d.client.QueryRowContext(ctx, query).Scan(&minVal, &maxVal)
+	return minVal, maxVal, err
 }

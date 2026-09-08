@@ -180,6 +180,10 @@ func (s *ConfiguredStream) GetDestinationTable() string {
 	return utils.Ternary(s.Stream.DestinationTable == "", s.Stream.Name, s.Stream.DestinationTable).(string)
 }
 
+func (s *ConfiguredStream) GetPartitionRegex() string {
+	return s.StreamMetadata.PartitionRegex
+}
+
 // returns primary and secondary cursor
 func (s *ConfiguredStream) Cursor() (string, string) {
 	cursorFields := strings.Split(s.Stream.CursorField, ":")
@@ -291,4 +295,11 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 
 func (s *ConfiguredStream) NormalizationEnabled() bool {
 	return s.StreamMetadata.Normalization
+}
+
+func (s *ConfiguredStream) GetUpdateType() UpdateType {
+	if s.StreamMetadata.UpdateType == "" {
+		return UpdateTypeEquality
+	}
+	return UpdateType(s.StreamMetadata.UpdateType)
 }

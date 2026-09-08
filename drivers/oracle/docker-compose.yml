@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   oracle-db:
     image: gvenzl/oracle-free:23-slim

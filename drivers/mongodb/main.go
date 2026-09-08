@@ -5,7 +5,6 @@ import (
 
 	"github.com/datazip-inc/olake"
 	driver "github.com/datazip-inc/olake/drivers/mongodb/internal"
-	_ "github.com/jackc/pgx/v4/stdlib"
 )
 
 func main() {

@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,8 +15,6 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/datazip-inc/olake/utils/typeutils"
-	_ "github.com/ibmdb/go_ibm_db"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/ssh"
 )
@@ -42,7 +41,7 @@ func (d *DB2) Setup(ctx context.Context) error {
 		var err error
 		d.sshClient, err = d.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 	}
 
@@ -52,7 +51,7 @@ func (d *DB2) Setup(ctx context.Context) error {
 
 		listener, err := net.Listen("tcp", "localhost:0")
 		if err != nil {
-			return fmt.Errorf("failed to create local listener for SSH tunnel: %s", err)
+			return fmt.Errorf("failed to create local listener for SSH tunnel: %w", err)
 		}
 		d.sshListener = listener
 
@@ -67,7 +66,7 @@ func (d *DB2) Setup(ctx context.Context) error {
 
 	client, err := sqlx.Open("go_ibm_db", dsn)
 	if err != nil {
-		return fmt.Errorf("failed to open db2 connection: %s", err)
+		return fmt.Errorf("failed to open db2 connection: %w", err)
 	}
 
 	client.SetMaxOpenConns(d.config.MaxThreads)
@@ -76,7 +75,7 @@ func (d *DB2) Setup(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping db2: %s", err)
+		return fmt.Errorf("failed to ping db2: %w", err)
 	}
 
 	d.client = client
@@ -139,9 +138,17 @@ func (d *DB2) forwardConnections(listener net.Listener, remoteAddr string) {
 			defer localConn.Close()
 			defer remoteConn.Close()
 
+			// The second copy always exits with net.ErrClosed once teardown closes both conns,
+			// so only unexpected copy failures are logged.
 			done := make(chan struct{}, 2)
-			go func() { io.Copy(localConn, remoteConn); done <- struct{}{} }()
-			go func() { io.Copy(remoteConn, localConn); done <- struct{}{} }()
+			tunnelCopy := func(dst, src net.Conn, way string) {
+				if _, err := io.Copy(dst, src); err != nil && !errors.Is(err, net.ErrClosed) {
+					logger.Warnf("ssh tunnel %s copy failed: %s", way, err)
+				}
+				done <- struct{}{}
+			}
+			go tunnelCopy(localConn, remoteConn, "remote->local")
+			go tunnelCopy(remoteConn, localConn, "local->remote")
 			<-done
 		}()
 	}
@@ -159,46 +166,41 @@ func (d *DB2) MaxRetries() int {
 	return d.config.RetryCount
 }
 
-func (d *DB2) GetStreamNames(ctx context.Context) ([]string, error) {
+func (d *DB2) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for DB2 database %s", d.config.Database)
 
 	rows, err := d.client.QueryContext(ctx, jdbc.DB2DiscoveryQuery())
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tables: %s", err)
+		return nil, fmt.Errorf("failed to list tables: %w", err)
 	}
 	defer rows.Close()
 
-	var streamNames []string
+	var streamNames []types.StreamID
 	for rows.Next() {
 		var schema, name string
 		if err := rows.Scan(&schema, &name); err != nil {
-			return nil, fmt.Errorf("failed to scan table row: %s", err)
+			return nil, fmt.Errorf("failed to scan table row: %w", err)
 		}
-		streamNames = append(streamNames, fmt.Sprintf("%s.%s", schema, name))
+		streamNames = append(streamNames, types.StreamID{Namespace: schema, Name: name})
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over table rows: %s", err)
+		return nil, fmt.Errorf("error iterating over table rows: %w", err)
 	}
 
 	return streamNames, nil
 }
 
-func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
-	populateStreams := func(ctx context.Context, streamName string) (*types.Stream, error) {
+func (d *DB2) ProduceSchema(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
+	populateStreams := func(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
 		logger.Infof("producing type schema for stream [%s]", streamName)
 
-		parts := strings.Split(streamName, ".")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-		}
-
-		schemaName, tableName := parts[0], parts[1]
+		schemaName, tableName := streamName.Namespace, streamName.Name
 		stream := types.NewStream(tableName, schemaName, &d.config.Database)
 
 		rows, err := d.client.QueryContext(ctx, jdbc.DB2TableSchemaAndPrimaryKeysQuery(), schemaName, tableName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query column metadata: %s", err)
+			return nil, fmt.Errorf("failed to query column metadata: %w", err)
 		}
 		defer rows.Close()
 
@@ -211,11 +213,11 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 			)
 
 			if err := rows.Scan(&columnName, &dataType, &isNullable, &pkColumn); err != nil {
-				return nil, fmt.Errorf("failed to scan column: %s", err)
+				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 
 			stream.WithCursorField(columnName)
-			datatype := types.Unknown
+			var datatype types.DataType
 
 			if val, found := db2TypeToDataTypes[strings.ToLower(dataType)]; found {
 				datatype = val
@@ -235,9 +237,9 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 	stream, err := populateStreams(ctx, streamName)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
+		return nil, fmt.Errorf("failed to process table[%s]: %w", streamName, err)
 	}
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
@@ -246,25 +248,4 @@ func (d *DB2) ProduceSchema(ctx context.Context, streamName string) (*types.Stre
 	}
 
 	return stream, nil
-}
-
-func (d *DB2) dataTypeConverter(value interface{}, columnType string) (interface{}, error) {
-	if value == nil {
-		return nil, typeutils.ErrNullValue
-	}
-
-	if columnType == "TIME" {
-		return typeutils.ReformatTimeValue(value)
-	}
-
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, db2TypeToDataTypes)
-
-	// in db2, string based types come in byte format
-	if olakeType == types.String {
-		if v, ok := value.([]byte); ok {
-			return strings.TrimSpace(string(v)), nil
-		}
-	}
-
-	return typeutils.ReformatValue(olakeType, value)
 }

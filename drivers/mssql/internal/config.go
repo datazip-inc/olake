@@ -67,7 +67,7 @@ func (c *Config) Validate() error {
 
 	err := c.SSLConfiguration.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate ssl config: %s", err)
+		return fmt.Errorf("failed to validate ssl config: %w", err)
 	}
 
 	if c.ManageCaptureInstances && c.PrimaryConfig != nil && c.PrimaryConfig.Host != "" {

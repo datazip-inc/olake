@@ -7,7 +7,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-type BackfillMsgFn func(ctx context.Context, message map[string]any) error
+type BackfillMsgFn func(ctx context.Context, message map[string]any, sourceBytes int64) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 
 type Config interface {
@@ -25,8 +25,8 @@ type DriverInterface interface {
 	MaxConnections() int
 	MaxRetries() int
 	// specific to discover
-	GetStreamNames(ctx context.Context) ([]string, error)
-	ProduceSchema(ctx context.Context, stream string) (*types.Stream, error)
+	GetStreamNames(ctx context.Context) ([]types.StreamID, error)
+	ProduceSchema(ctx context.Context, stream types.StreamID) (*types.Stream, error)
 	// specific to backfill
 	GetOrSplitChunks(ctx context.Context, pool *destination.WriterPool, stream types.StreamInterface) (*types.Set[types.Chunk], error)
 	ChunkIterator(ctx context.Context, stream types.StreamInterface, chunk types.Chunk, processFn BackfillMsgFn) error
