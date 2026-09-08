@@ -368,19 +368,19 @@ func TestDiscover(t *testing.T) {
 
 	testCases := []struct {
 		name               string
-		isSync             bool
+		skipSchema         bool
 		streamNamesErr     error
 		expectedNilStreams bool
 		expectedErr        bool
 		expectedCategory   errs.Category
 		expectedCode       string
 	}{
-		// sync reuses the catalog schema and must not produce a new one
-		{name: "sync skips schema production", isSync: true, expectedNilStreams: true},
-		// GetStreamNames still runs during sync; a failure is not swallowed
+		// skipSchema reuses the catalog schema and must not produce a new one
+		{name: "skipSchema skips schema production", skipSchema: true, expectedNilStreams: true},
+		// GetStreamNames still runs when skipSchema is set; a failure is not swallowed
 		{
-			name:             "sync still reports a GetStreamNames failure",
-			isSync:           true,
+			name:             "skipSchema still reports a GetStreamNames failure",
+			skipSchema:       true,
 			streamNamesErr:   networkErr,
 			expectedErr:      true,
 			expectedCategory: errs.NetworkUnreachable,
@@ -407,7 +407,7 @@ func TestDiscover(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			driver := NewAbstractDriver(ctx, stubDriver{typ: "postgres", streamNamesErr: tc.streamNamesErr})
-			streams, err := driver.Discover(ctx, 0, tc.isSync)
+			streams, err := driver.Discover(ctx, 0, tc.skipSchema)
 
 			if tc.expectedErr {
 				require.Error(t, err)

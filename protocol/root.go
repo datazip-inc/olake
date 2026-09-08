@@ -28,6 +28,7 @@ var (
 	syncID                    string
 	batchSize                 int64
 	maxDiscoverThreads        int
+	discoverSchema            bool
 	noSave                    bool
 	encryptionKey             string
 	destinationType           string
@@ -140,6 +141,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "destination-buffer-size", "", 10000, "(Optional) Batch size for destination")
 	RootCmd.PersistentFlags().IntVarP(&maxDiscoverThreads, "max-discover-threads", "", 50, "(Optional) Max number of parallel threads for discovery of table in database")
+	RootCmd.PersistentFlags().BoolVar(&discoverSchema, "discover-schema", false, "(Optional) Re-discover source schema during sync and validate sync mode, primary keys, and cursor fields")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
 	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
