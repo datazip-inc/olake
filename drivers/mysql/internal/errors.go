@@ -16,6 +16,7 @@ const (
 	codeMetadataStateInvalid = "mysql.metadata_state_invalid"
 	codePortInvalid          = "mysql.port_invalid"
 	codeTableNotVisible      = "mysql.table_not_visible"
+	codeCDCUnsupported       = "mysql.cdc_unsupported"
 )
 
 // errnoCategories maps a MySQL server error number to a failure category. Numbers are stable
