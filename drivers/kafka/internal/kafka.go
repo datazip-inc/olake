@@ -79,6 +79,10 @@ func (k *Kafka) CDCSupported() bool {
 	return true
 }
 
+func (k *Kafka) CDCColumns() map[string]types.DataType {
+	return nil
+}
+
 func (k *Kafka) SetupState(state *types.State) {
 	k.state = state
 }

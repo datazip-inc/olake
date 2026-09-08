@@ -19,6 +19,10 @@ func (s *S3) CDCSupported() bool {
 	return false
 }
 
+func (s *S3) CDCColumns() map[string]types.DataType {
+	return nil
+}
+
 // PreCDC is not supported for S3
 func (s *S3) PreCDC(_ context.Context, _ []types.StreamInterface) error {
 	return errs.Precondition(errs.UnsupportedFeature, codeCDCUnsupported,
