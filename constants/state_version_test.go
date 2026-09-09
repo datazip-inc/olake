@@ -21,7 +21,7 @@ type stateVersionEntry struct {
 // A published release: vMAJOR.MINOR.PATCH, which is what the driver images are tagged with.
 var releaseTagPattern = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
-func loadStateVersions(t *testing.T) (int, []stateVersionEntry) {
+func parseStateVersionManifest(t *testing.T) (int, []stateVersionEntry) {
 	t.Helper()
 	var doc struct {
 		LatestStateVersion int                 `json:"latest_state_version"`
@@ -33,7 +33,7 @@ func loadStateVersions(t *testing.T) (int, []stateVersionEntry) {
 }
 
 func TestStateVersionsAreContiguous(t *testing.T) {
-	latest, baselines := loadStateVersions(t)
+	latest, baselines := parseStateVersionManifest(t)
 
 	seen := make(map[int]string, len(baselines))
 	for _, baseline := range baselines {
@@ -60,7 +60,7 @@ func TestStateVersionsAreContiguous(t *testing.T) {
 }
 
 func TestStateVersionReleaseTagsAreValid(t *testing.T) {
-	_, baselines := loadStateVersions(t)
+	_, baselines := parseStateVersionManifest(t)
 
 	for _, baseline := range baselines {
 		t.Run(fmt.Sprintf("v%d", baseline.StateVersion), func(t *testing.T) {
@@ -74,7 +74,7 @@ func TestStateVersionReleaseTagsAreValid(t *testing.T) {
 // of driver names. The suite skips a baseline whose bump touched no driver it is testing, so a name
 // that matches nothing silently drops that baseline from the sweep.
 func TestStateVersionDriversAreKnown(t *testing.T) {
-	_, baselines := loadStateVersions(t)
+	_, baselines := parseStateVersionManifest(t)
 
 	known := map[string]bool{}
 	for _, driver := range []DriverType{MongoDB, Postgres, MySQL, Oracle, DB2, S3, Kafka, MSSQL} {

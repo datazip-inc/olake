@@ -34,11 +34,6 @@ import (
 const (
 	rowsPerFile = 3
 
-	// S3DestinationDB is the Iceberg database every variant syncs into: discover derives it
-	// as <driver type>_<bucket>:<namespace> and reformats it to underscores. Tables stay
-	// distinct per variant through the stream name.
-	S3DestinationDB = "s3_olake_s3_test_s3"
-
 	// S3CursorField is the cursor discover exposes on every S3 stream: the file's
 	// LastModified timestamp. An incremental sync re-reads only the files stamped after the
 	// cursor stored by the previous sync.
@@ -636,7 +631,7 @@ type s3Source struct {
 	prefix string
 }
 
-// source reads the suite's own source config: applySuite rewrites path_prefix there per suite, and
+// source reads the suite's own source config: isolateSuiteConfigs rewrites path_prefix there per suite, and
 // uploads have to land where discover will look.
 func (v S3TestVariant) source(t *testing.T, conf *testutils.TestConfig) s3Source {
 	t.Helper()
@@ -707,7 +702,7 @@ func (v S3TestVariant) currentDestinationWriter(t *testing.T, config *testutils.
 // next sync will use. Each Iceberg writer block names its own destination config but asserts
 // against the same ExpectedData maps, so this hook -- the only variant-owned code that runs
 // between the switch and the verification -- reads the live flag and updates the maps in place.
-func (v S3TestVariant) applyWriterExpectations(t *testing.T, cfg *integration.Test, config *testutils.TestConfig) {
+func (v S3TestVariant) applyWriterExpectations(t *testing.T, cfg *integration.TestHandler, config *testutils.TestConfig) {
 	t.Helper()
 	if v.WriterExpectedData == nil {
 		return
@@ -746,7 +741,7 @@ func (v S3TestVariant) applyParquetStreamingMode(t *testing.T, config *testutils
 // "insert"/"update" upload a further file each, and "clean"/"drop" remove everything under
 // the prefix.
 // Columns named in conf.SeedExcludedColumns are left out of the files this uploads entirely.
-func ExecuteQueryFactory(variant S3TestVariant, cfg *integration.Test) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
+func ExecuteQueryFactory(variant S3TestVariant, cfg *integration.TestHandler) func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	return func(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 		t.Helper()
 		excluded := conf.SeedExcludedColumns

@@ -13,7 +13,7 @@ const (
 	parquetDestinationFile      = "parquet_destination.json"
 )
 
-type Test struct {
+type TestHandler struct {
 	*testutils.TestConfig
 
 	// icebergDestination is the destination config the next iceberg sync runs against, which is how
@@ -27,15 +27,14 @@ type Test struct {
 }
 
 // reset table and add back data to the table
-func (cfg *Test) resetTable(ctx context.Context, t *testing.T) error {
-	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
-	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "create")
-	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "add")
-	return nil
+func (th *TestHandler) resetTable(ctx context.Context, t *testing.T) {
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "create")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "add")
 }
 
 // runSyncAndVerify executes a sync command and verifies the results in Iceberg
-func (cfg *Test) runSyncAndVerify(
+func (th *TestHandler) runSyncAndVerify(
 	ctx context.Context,
 	t *testing.T,
 	testTable string,
@@ -46,20 +45,17 @@ func (cfg *Test) runSyncAndVerify(
 	schema map[string]interface{},
 	isCDC bool,
 ) error {
-	cmd := testutils.SyncArgs(useState, cfg.destinationFile(destinationType), "--destination-database-prefix", cfg.UniqueID())
-
 	// Execute operation before sync if needed
 	if useState && operation != "" {
-		cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, operation)
+		th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, operation)
 	}
 
 	// Run sync against the driver image
-	code, out, err := testutils.RunOlake(ctx, cfg.TestConfig, cmd...)
-	if err != nil || code != 0 {
-		return testutils.RenderOlakeFailure(code, err, out)
+	if err := testutils.RunSync(ctx, t, th.TestConfig, th.destinationFile(destinationType), useState); err != nil {
+		return err
 	}
 
-	t.Logf("Sync successful for %s driver", cfg.TestConfig.Driver)
+	t.Logf("Sync successful for %s driver", th.TestConfig.Driver)
 
 	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
 	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
@@ -67,23 +63,23 @@ func (cfg *Test) runSyncAndVerify(
 
 	// Verification reads the destination back through Spark Connect (with retries), a real slice of
 	// sync wall-clock; time it as its own phase.
-	defer testutils.TrackPhaseTiming(t, cfg.TestConfig.Driver, destinationType+" verify")()
+	defer testutils.TrackPhaseTiming(t, th.TestConfig.Driver, destinationType+" verify")()
 
 	switch destinationType {
 	case "iceberg":
 		{
 			if evolvedSchema {
-				VerifyIcebergSync(t, testTable, cfg.TestConfig.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.PartitionRegex, cfg.TestConfig.Driver, isCDC, cfg.TestConfig.ColumnToExclude)
+				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
 			} else {
-				VerifyIcebergSync(t, testTable, cfg.TestConfig.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.PartitionRegex, cfg.TestConfig.Driver, isCDC, cfg.TestConfig.ColumnToExclude)
+				VerifyIcebergSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.PartitionRegex, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
 			}
 		}
 	case "parquet":
 		{
 			if evolvedSchema {
-				VerifyParquetSync(t, testTable, cfg.TestConfig.DestinationDB, cfg.UpdatedDestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC, cfg.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.UpdatedDestinationDataTypeSchema, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
 			} else {
-				VerifyParquetSync(t, testTable, cfg.TestConfig.DestinationDB, cfg.DestinationDataTypeSchema, cfg.DefaultCDCColumnsSchema, schema, opSymbol, cfg.TestConfig.Driver, isCDC, cfg.TestConfig.ColumnToExclude)
+				VerifyParquetSync(t, testTable, th.TestConfig.DestinationDB, th.DestinationDataTypeSchema, th.DefaultCDCColumnsSchema, schema, opSymbol, th.TestConfig.Driver, isCDC, th.TestConfig.ColumnToExclude)
 			}
 		}
 	}
@@ -93,23 +89,23 @@ func (cfg *Test) runSyncAndVerify(
 
 // destinationFile names the destination config a sync of this kind runs against. The iceberg one
 // is whichever writer variant IcebergWriter selected, defaulting to the committed base config.
-func (cfg *Test) destinationFile(destinationType string) string {
+func (th *TestHandler) destinationFile(destinationType string) string {
 	if destinationType == "parquet" {
 		return parquetDestinationFile
 	}
-	if cfg.icebergDestination == "" {
+	if th.icebergDestination == "" {
 		return icebergDestinationFile
 	}
-	return cfg.icebergDestination
+	return th.icebergDestination
 }
 
 // IcebergDestinationFile names the iceberg destination config the next sync runs against, for
 // suites whose expectations depend on which writer that config selects.
-func (cfg *Test) IcebergDestinationFile() string {
-	return cfg.destinationFile("iceberg")
+func (th *TestHandler) IcebergDestinationFile() string {
+	return th.destinationFile("iceberg")
 }
 
-func (cfg *Test) IcebergWriter(
+func (th *TestHandler) IcebergWriter(
 	ctx context.Context,
 	t *testing.T,
 	testTable string,
@@ -118,10 +114,7 @@ func (cfg *Test) IcebergWriter(
 ) error {
 	// Writer variants are separate config files, so no suite ever edits one in place; SyncArgs
 	// hands whichever is named here to --destination.
-	cfg.icebergDestination = icebergDestinationFile
-	if useArrowWriter {
-		cfg.icebergDestination = icebergArrowDestinationFile
-	}
+	th.icebergDestination = testutils.Ternary(useArrowWriter, icebergArrowDestinationFile, icebergDestinationFile).(string)
 
 	return testFunc(ctx, t, testTable)
 }

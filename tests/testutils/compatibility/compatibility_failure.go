@@ -98,7 +98,7 @@ func (r *failureReport) render(rootPath string) string {
 		fmt.Fprintf(&b, "what that state version changed: %s\n", note)
 	}
 
-	fmt.Fprintf(&b, "\n%s failed:\n", plural(len(r.failures), "scenario"))
+	fmt.Fprintf(&b, "\n%s failed:\n", testutils.Plural(len(r.failures), "scenario"))
 	for _, f := range r.failures {
 		fmt.Fprintf(&b, "\n  %s/%s\n", f.group, f.variant)
 		if f.reason != "" {
@@ -122,11 +122,11 @@ func (r *failureReport) render(rootPath string) string {
 // ref, the base branch a pull request merges into -- has no state version to name, so it says what
 // it does have.
 func (r *failureReport) headline(rootPath string) (string, string) {
-	if baselines, err := testutils.StateVersionBaselines(rootPath); err == nil {
-		for _, b := range baselines {
-			if b.ReleaseTag == r.spec {
+	if versionBumps, err := testutils.StateVersionBaselines(rootPath); err == nil {
+		for _, bump := range versionBumps {
+			if bump.ReleaseTag == r.spec {
 				return fmt.Sprintf("STATE VERSION %d FAILED for %s -- baseline %s is the release that introduced it",
-					b.StateVersion, r.driver, b.ReleaseTag), b.Note
+					bump.StateVersion, r.driver, bump.ReleaseTag), bump.Note
 			}
 		}
 	}
@@ -147,11 +147,4 @@ func indent(s, prefix string) string {
 		lines[i] = prefix + line
 	}
 	return strings.Join(lines, "\n")
-}
-
-func plural(n int, noun string) string {
-	if n == 1 {
-		return fmt.Sprintf("1 %s", noun)
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
 }

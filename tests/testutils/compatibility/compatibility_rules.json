@@ -92,18 +92,18 @@
     }
   },
     "destinations": {
-    "rules": [
-      {"column": "_olake_timestamp", "type_only": true, "note": "olake's write stamp: wall-clock, never value-comparable across two runs"}
-    ],
-    "iceberg": {
-      "arrow": {
-        "min_baseline": "v0.3.17",
-        "note": "P1: v0.3.6 through v0.3.16 arrow integer widths disagree with today's; below v0.3.6 no arrow writer exists"
+      "rules": [
+        {"column": "_olake_timestamp", "type_only": true, "note": "olake's write stamp: wall-clock, never value-comparable across two runs"}
+      ],
+      "iceberg": {
+        "arrow": {
+          "min_baseline": "v0.3.17",
+          "note": "P1: v0.3.6 through v0.3.16 arrow integer widths disagree with today's; below v0.3.6 no arrow writer exists"
+        }
+      },
+      "parquet": {
+        "skip_baselines": ["v0.3.16"],
+        "note": "P2: v0.3.16 adds the `data` column unconditionally, fixed in v0.3.17; below that the no-CDC drivers' output lacks _cdc_timestamp"
       }
-    },
-    "parquet": {
-      "skip_baselines": ["v0.3.16"],
-      "note": "P2: v0.3.16 adds the `data` column unconditionally, fixed in v0.3.17; below that the no-CDC drivers' output lacks _cdc_timestamp"
-    }
   }
 }

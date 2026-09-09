@@ -16,43 +16,35 @@ import (
 // table is the only thing in the source -- and every other suite seeds one of its own. Leaving the
 // test serial is what orders it ahead of them: Go resumes parallel tests only once the serial ones
 // in the package are done.
-func (cfg *Test) TestDiscover(t *testing.T) {
+func (th *TestHandler) TestDiscover(t *testing.T) {
 	ctx := t.Context()
 
 	// 1. Empty the source, then seed just this table. drop-all is what makes the compare below an
 	// equality one: discover enumerates everything, so anything an aborted run (or a perf seed)
 	// left behind would show up as an extra stream. Safe only here -- the discover suite runs
 	// alone, while every parallel suite owns a table drop-all would take with it.
-	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "drop-all")
-	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "create")
-	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "add")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop-all")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "create")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "add")
 	// Deferred, so a failed discover still hands the parallel suites behind it a clean source.
 	defer func() {
 		if testutils.KeepTestData() {
-			t.Logf("keeping %s discover data in source as (%s) is set", cfg.TestConfig.Driver, testutils.KeepTestDataEnvVar)
-		} else {
-			cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
+			t.Logf("keeping %s discover data in source as (%s) is set", th.TestConfig.Driver, testutils.KeepTestDataEnvVar)
+			return
 		}
+		th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
 	}()
 
-	// 2. Stage what discover has to reproduce before it writes its own streams.json next to the config
-	generateExpectedStreams(t, cfg.TestConfig)
+	// 2. Generated expected steams.json from committed template
+	require.NoError(t, th.RenderConfig("streams.template.json", "expected_discover_streams.json"), "failed to generate the expected discover catalog")
 
 	// 3. Run discover against the driver image
-	code, out, err := testutils.RunOlake(ctx, cfg.TestConfig, testutils.DiscoverArgs()...)
+	code, out, err := testutils.RunOlake(ctx, t, th.TestConfig, testutils.DiscoverArgs()...)
 	if err != nil || code != 0 {
 		t.Fatal(testutils.RenderOlakeFailure(code, err, out))
 	}
 
-	verifyDiscoveredStreams(t, cfg.GetFilePath("expected_discover_streams.json"), cfg.GetFilePath("streams.json"))
-}
-
-// generateExpectedStreams writes the catalog discover has to return: the one applySuite already
-// rendered from streams.template.json, under a name discover's own output cannot overwrite.
-func generateExpectedStreams(t *testing.T, config *testutils.TestConfig) {
-	t.Helper()
-	require.NoError(t, testutils.CopyFile(config.GetFilePath("streams.json"), config.GetFilePath("expected_discover_streams.json")),
-		"failed to generate the expected discover catalog")
+	verifyDiscoveredStreams(t, th.GetFilePath("expected_discover_streams.json"), th.GetFilePath("streams.json"))
 }
 
 // verifyDiscoveredStreams asserts the discovered catalog holds exactly the streams expected_streams.json

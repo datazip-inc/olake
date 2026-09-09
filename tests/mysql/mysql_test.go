@@ -11,10 +11,9 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-// mysqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// by the mysql suites.
-func mysqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.MySQL, "olake_mysql_test", "mysql_olake_mysql_test", ExecuteQuery, opts...)
+// mysqlTestConfig builds the config every mysql suite shares: the source, the namespace and the stream settings.
+func mysqlTestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.MySQL, "olake_mysql_test", ExecuteQuery, opts...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.CursorField = "id_cursor:id_smallint"
 	cfg.PartitionRegex = "/{id,identity}"
@@ -35,8 +34,13 @@ func mysqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integrat
                     ]
                 }`
 
-	return &integration.Test{
-		TestConfig:                cfg,
+	return cfg
+}
+
+// mysqlBaseConfig is mysqlTestConfig with the integration suites' expected data.
+func mysqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                mysqlTestConfig(t, opts...),
 		ExpectedData:              ExpectedMySQLData,
 		DestinationDataTypeSchema: MySQLToDestinationSchema,
 		DefaultCDCColumnsSchema:   ExpectedMySQLDefaultCDCColumnsSchema,
@@ -61,10 +65,10 @@ func TestMySQL2PC(t *testing.T) {
 }
 
 func TestMySQLPerformance(t *testing.T) {
-	cfg, err := testutils.NewTestConfig(t, constants.MySQL, "benchmark", "", ExecuteQuery)
+	cfg, err := testutils.NewTestConfig(t, constants.MySQL, "benchmark", ExecuteQuery)
 	require.NoError(t, err, "failed to build the test config")
 
-	perf := &performance.Test{
+	perf := &performance.TestHandler{
 		TestConfig:      cfg,
 		BackfillStreams: performance.GetBackfillStreamsFromCDC(performanceCDCStreams),
 		CDCStreams:      performanceCDCStreams,
@@ -78,13 +82,13 @@ func TestMySQLPerformance(t *testing.T) {
 // UNSIGNED widening (v4), see constants/state_version.go.
 func TestMySQLCompatibility(t *testing.T) {
 	t.Parallel()
-	fixture := &compatibility.Test{
+	testHandler := &compatibility.TestHandler{
 		DeclaredSchema:   MySQLToDestinationSchema,
 		CDCColumnsSchema: ExpectedMySQLDefaultCDCColumnsSchema,
 		ColumnTypes:      seedColumnTypes(),
 	}
-	fixture.NewConfig = func(t *testing.T, version string) *testutils.TestConfig {
-		return mysqlBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+	testHandler.NewConfig = func(t *testing.T, version string) *testutils.TestConfig {
+		return mysqlTestConfig(t, testutils.WithDriverVersion(version))
 	}
-	fixture.RunBackwardCompatibility(t)
+	testHandler.RunBackwardCompatibility(t)
 }

@@ -10,10 +10,10 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-// s3BaseConfig returns an IntegrationTest for one source format variant. Each variant owns a
+// s3BaseConfig returns an integration.TestHandler for one source format variant. Each variant owns a
 // testdata/<DataFormat>/ directory, which is what DataFormat selects.
-func s3BaseConfig(t *testing.T, variant S3TestVariant, opts ...testutils.TestConfigOption) *integration.Test {
-	config, err := testutils.NewTestConfig(t, constants.S3, "s3", S3DestinationDB, nil,
+func s3BaseConfig(t *testing.T, variant S3TestVariant, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	config, err := testutils.NewTestConfig(t, constants.S3, "s3", nil,
 		append([]testutils.TestConfigOption{testutils.WithDataFormat(variant.DataFormat)}, opts...)...)
 	require.NoError(t, err, "failed to build the test config")
 	config.ColumnToExclude = excludedColumn
@@ -21,7 +21,7 @@ func s3BaseConfig(t *testing.T, variant S3TestVariant, opts ...testutils.TestCon
 	config.PartitionRegex = S3PartitionRegex
 	config.FilterConfig = variant.FilterConfig
 
-	cfg := &integration.Test{
+	cfg := &integration.TestHandler{
 		TestConfig:                config,
 		ExpectedData:              variant.ExpectedRowData(seedValues),
 		ExpectedUpdatedData:       variant.ExpectedRowData(updatedValues),
@@ -62,13 +62,13 @@ func TestS3Compatibility(t *testing.T) {
 	for _, variant := range S3TestVariants {
 		t.Run(variant.Name, func(t *testing.T) {
 			t.Parallel()
-			fixture := &compatibility.Test{
+			testHandler := &compatibility.TestHandler{
 				DeclaredSchema: variant.DestinationSchema,
 			}
-			fixture.NewConfig = func(t *testing.T, version string) *testutils.TestConfig {
+			testHandler.NewConfig = func(t *testing.T, version string) *testutils.TestConfig {
 				return s3BaseConfig(t, variant, testutils.WithDriverVersion(version)).TestConfig
 			}
-			fixture.RunBackwardCompatibility(t)
+			testHandler.RunBackwardCompatibility(t)
 		})
 	}
 }

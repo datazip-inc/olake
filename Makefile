@@ -168,8 +168,6 @@ CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(SOURCE_DRIVERS))
 SOURCE_PKGS := $(addsuffix /...,$(addprefix ./,$(SOURCE_DRIVERS)))
 CDC_PKGS := $(addsuffix /...,$(addprefix ./,$(CDC_DRIVERS)))
 
-# The drivers the end-to-end suites cover, queried by CI (end-to-end-tests.yml) so the list
-# lives in this file only: it is what the driver matrix fans out to on a push to master.
 .PHONY: print.source-drivers
 print.source-drivers:
 	@echo $(SOURCE_DRIVERS)

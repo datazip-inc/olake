@@ -9,6 +9,17 @@ import (
 	"sync"
 )
 
+var (
+	stateVersionOnce  sync.Once
+	stateVersionValue stateVersionManifest
+	stateVersionErr   error
+)
+
+type stateVersionManifest struct {
+	LatestStateVersion int                    `json:"latest_state_version"`
+	Baselines          []StateVersionBaseline `json:"baselines"`
+}
+
 type StateVersionBaseline struct {
 	StateVersion int    `json:"state_version"`
 	ReleaseTag   string `json:"release_tag"`
@@ -19,24 +30,13 @@ type StateVersionBaseline struct {
 // Gates reports whether this release's bump changed driver's semantics: the manifest names the
 // drivers it touched, comma-separated, or "*" for all.
 func (b StateVersionBaseline) Gates(driver string) bool {
-	for _, gated := range strings.Split(b.Drivers, ",") {
+	for gated := range strings.SplitSeq(b.Drivers, ",") {
 		if gated = strings.TrimSpace(gated); gated == "*" || gated == driver {
 			return true
 		}
 	}
 	return false
 }
-
-type stateVersionManifest struct {
-	LatestStateVersion int                    `json:"latest_state_version"`
-	Baselines          []StateVersionBaseline `json:"baselines"`
-}
-
-var (
-	stateVersionOnce  sync.Once
-	stateVersionValue stateVersionManifest
-	stateVersionErr   error
-)
 
 // StateVersionManifestPath names the manifest file, for messages that point readers at it.
 func StateVersionManifestPath(rootPath string) string {

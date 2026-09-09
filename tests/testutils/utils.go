@@ -203,13 +203,15 @@ func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f fu
 }
 
 func Combine(components ...string) string {
-	parts := make([]string, 0, len(components))
-	for _, str := range components {
-		if str != "" {
-			parts = append(parts, str)
-		}
+	return strings.Join(slices.DeleteFunc(components, func(s string) bool { return s == "" }), "_")
+}
+
+// Plural formats a count with its noun, adding an "s" for anything but one.
+func Plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
 	}
-	return strings.Join(parts, "_")
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 type editFunc func(map[string]interface{}) error

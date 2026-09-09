@@ -14,18 +14,21 @@ import (
 // suite against the driver image. It exercises CDC and incremental state-recovery scenarios
 // independently of the happy-path integration tests, allowing them to be scheduled and
 // reported separately.
-func (cfg *Test) Test2PCIntegration(t *testing.T) {
+func (th *TestHandler) Test2PCIntegration(t *testing.T) {
 	ctx := t.Context()
 
-	currentTestTable := cfg.GetTableName()
+	currentTestTable := th.GetTableName()
 
 	t.Run("Sync", func(t *testing.T) {
-		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
-		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "create")
-		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "clean")
-		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "add")
+		th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
+		th.ExecuteQuery(ctx, t, th.TestConfig, "create")
+		th.ExecuteQuery(ctx, t, th.TestConfig, "clean")
+		th.ExecuteQuery(ctx, t, th.TestConfig, "add")
 
-		if err := testutils.UpdateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, cfg.ColumnToExclude); err != nil {
+		if err := th.IsolateDestinationDB(); err != nil {
+			t.Fatalf("failed to isolate the destination database in streams.json: %s", err)
+		}
+		if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{currentTestTable}, []string{th.ColumnToExclude}); err != nil {
 			t.Fatalf("failed to enable normalization and partition regex in streams.json: %s", err)
 		}
 		t.Logf("Enabled normalization and added partition regex in %s", "test_stream.json")
@@ -38,20 +41,20 @@ func (cfg *Test) Test2PCIntegration(t *testing.T) {
 			{"Arrow", true},
 		}
 
-		if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(cfg.TestConfig.Driver)) {
+		if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(th.TestConfig.Driver)) {
 			for _, wt := range writerTypes {
 				t.Run(fmt.Sprintf("Iceberg (%s) 2PC CDC Recovery tests", wt.name), func(t *testing.T) {
-					if err := cfg.IcebergWriter(ctx, t, currentTestTable, wt.useArrow, cfg.Iceberg2PCCDCRecovery); err != nil {
+					if err := th.IcebergWriter(ctx, t, currentTestTable, wt.useArrow, th.Iceberg2PCCDCRecovery); err != nil {
 						t.Fatalf("Iceberg (%s) 2PC CDC Recovery tests failed: %v", wt.name, err)
 					}
 				})
 			}
 		}
 
-		if cfg.TestConfig.Driver != string(constants.Kafka) {
+		if th.TestConfig.Driver != string(constants.Kafka) {
 			for _, wt := range writerTypes {
 				t.Run(fmt.Sprintf("Iceberg (%s) 2PC Incremental Recovery tests", wt.name), func(t *testing.T) {
-					if err := cfg.IcebergWriter(ctx, t, currentTestTable, wt.useArrow, cfg.Iceberg2PCIncrementalRecovery); err != nil {
+					if err := th.IcebergWriter(ctx, t, currentTestTable, wt.useArrow, th.Iceberg2PCIncrementalRecovery); err != nil {
 						t.Fatalf("Iceberg (%s) 2PC Incremental Recovery tests failed: %v", wt.name, err)
 					}
 				})
@@ -59,11 +62,11 @@ func (cfg *Test) Test2PCIntegration(t *testing.T) {
 		}
 
 		if testutils.KeepTestData() {
-			t.Logf("keeping %s 2PC sync test data (%s) is set", cfg.TestConfig.Driver, testutils.KeepTestDataEnvVar)
-		} else {
-			cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
-			t.Logf("%s 2PC sync test cleanup", cfg.TestConfig.Driver)
+			t.Logf("keeping %s 2PC sync test data (%s) is set", th.TestConfig.Driver, testutils.KeepTestDataEnvVar)
+			return
 		}
+		th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "drop")
+		t.Logf("%s 2PC sync test cleanup", th.TestConfig.Driver)
 	})
 }
 
@@ -71,42 +74,37 @@ func (cfg *Test) Test2PCIntegration(t *testing.T) {
 // the Iceberg destination. It simulates a state-save failure mid-sync: saves a pre-insert
 // checkpoint, performs a CDC insert, then restores to the checkpoint and inserts a second
 // record (insert_2pc) to verify the driver correctly recovers without duplicating rows.
-func (cfg *Test) Iceberg2PCCDCRecovery(
+func (th *TestHandler) Iceberg2PCCDCRecovery(
 	ctx context.Context,
 	t *testing.T,
 	testTable string,
 ) error {
 	t.Log("Starting Iceberg 2PC CDC Recovery tests")
 
-	if err := cfg.resetTable(ctx, t); err != nil {
-		return fmt.Errorf("failed to reset table: %w", err)
-	}
+	th.resetTable(ctx, t)
 
-	// Drop the Iceberg table and reset state before the first sync, so stale rows and the
-	// olake_2pc table property left by a previous run can't leak into this run's recovery timeline.
-	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
-	if err := testutils.ResetStateFile(cfg.TestConfig); err != nil {
-		return fmt.Errorf("failed to reset state: %w", err)
-	}
+	// Drop the Iceberg table before the first sync, so stale rows and the olake_2pc table property
+	// left by a previous run can't leak into this run's recovery timeline.
+	testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
 
 	twoPCCDCTestCases := []syncTestCase{
 		{
-			name:                     testutils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "CDC - initial load", "Full-Refresh").(string),
+			name:                     testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), "CDC - initial load", "Full-Refresh").(string),
 			operation:                "",
 			useState:                 false,
-			opSymbol:                 testutils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "c", "r").(string),
-			expected:                 cfg.ExpectedData,
+			opSymbol:                 testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), "c", "r").(string),
+			expected:                 th.ExpectedData,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 5,
 		},
 		{
 			name:                     "CDC - insert",
-			operation:                testutils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), "add", "insert").(string),
+			operation:                testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), "add", "insert").(string),
 			useState:                 true,
 			opSymbol:                 "c",
-			expected:                 cfg.ExpectedData,
-			preSetup:                 testutils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), []func(*testutils.TestConfig) error{}, []func(*testutils.TestConfig) error{testutils.SaveStateFile}).([]func(*testutils.TestConfig) error),
-			verifyNoDuplicates:       cfg.TestConfig.Driver == string(constants.Kafka),
+			expected:                 th.ExpectedData,
+			preSetup:                 testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), []func(*testutils.TestConfig) error{}, []func(*testutils.TestConfig) error{testutils.SaveStateFile}).([]func(*testutils.TestConfig) error),
+			verifyNoDuplicates:       th.TestConfig.Driver == string(constants.Kafka),
 			expectedRowCountByOpType: 10,
 		},
 		{
@@ -119,10 +117,10 @@ func (cfg *Test) Iceberg2PCCDCRecovery(
 			operation:                "insert_2pc",
 			useState:                 true,
 			opSymbol:                 "c",
-			expected:                 cfg.ExpectedData,
+			expected:                 th.ExpectedData,
 			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: int64(testutils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), 11, 1).(int)),
-			preSetup:                 testutils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), []func(*testutils.TestConfig) error{}, []func(*testutils.TestConfig) error{testutils.RestoreStateFile}).([]func(*testutils.TestConfig) error),
+			expectedRowCountByOpType: int64(testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 11, 1).(int)),
+			preSetup:                 testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), []func(*testutils.TestConfig) error{}, []func(*testutils.TestConfig) error{testutils.RestoreStateFile}).([]func(*testutils.TestConfig) error),
 		},
 		{
 			// After the recovery sync advanced state to the committed metadata LSN,
@@ -130,21 +128,21 @@ func (cfg *Test) Iceberg2PCCDCRecovery(
 			name:                     "CDC - Post Recovery Sync",
 			useState:                 true,
 			opSymbol:                 "c",
-			expected:                 cfg.ExpectedData,
+			expected:                 th.ExpectedData,
 			verifyNoDuplicates:       true,
-			expectedRowCountByOpType: int64(testutils.Ternary(cfg.TestConfig.Driver == string(constants.Kafka), 12, 2).(int)),
+			expectedRowCountByOpType: int64(testutils.Ternary(th.TestConfig.Driver == string(constants.Kafka), 12, 2).(int)),
 		},
 	}
 
 	for _, tc := range twoPCCDCTestCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, preSetup := range tc.preSetup {
-				if err := preSetup(cfg.TestConfig); err != nil {
+				if err := preSetup(th.TestConfig); err != nil {
 					t.Fatalf("%s pre-sync setup failed: %v", tc.name, err)
 				}
 			}
 
-			if err := cfg.runSyncAndVerify(
+			if err := th.runSyncAndVerify(
 				ctx, t, testTable, tc.useState, "iceberg",
 				tc.operation, tc.opSymbol, tc.expected,
 				tc.name != "Full-Refresh",
@@ -153,13 +151,13 @@ func (cfg *Test) Iceberg2PCCDCRecovery(
 			}
 
 			if tc.verifyNoDuplicates {
-				VerifyIcebergNoDuplicates(ctx, t, testTable, cfg.TestConfig.DestinationDB, tc.opSymbol, tc.expectedRowCountByOpType)
+				VerifyIcebergNoDuplicates(ctx, t, testTable, th.TestConfig.DestinationDB, tc.opSymbol, tc.expectedRowCountByOpType)
 			}
 		})
 	}
 
 	t.Log("Iceberg 2PC CDC Recovery tests completed successfully")
-	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
 	t.Logf("Dropped Iceberg table after 2PC CDC tests: %s", testTable)
 	return nil
 }
@@ -170,29 +168,22 @@ func (cfg *Test) Iceberg2PCCDCRecovery(
 // restores to the checkpoint and inserts a second record (insert_2pc) to verify that the
 // cursor re-reads the overlapping range, deduplicates the original insert via MERGE INTO,
 // and correctly surfaces only the net-new insert_2pc row.
-func (cfg *Test) Iceberg2PCIncrementalRecovery(
+func (th *TestHandler) Iceberg2PCIncrementalRecovery(
 	ctx context.Context,
 	t *testing.T,
 	testTable string,
 ) error {
 	t.Log("Starting Iceberg 2PC Incremental Recovery tests")
 
-	if err := cfg.resetTable(ctx, t); err != nil {
-		return fmt.Errorf("failed to reset table: %w", err)
-	}
+	th.resetTable(ctx, t)
 
 	// Drop the Iceberg table before the first sync, so stale rows and the olake_2pc table
 	// property left by a previous run can't leak into this run's recovery timeline.
-	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
 
 	// Patch streams.json: set sync_mode = incremental, cursor_field
-	if err := updateStreamConfig(cfg.TestConfig, cfg.TestConfig.Namespace, testTable, "incremental", cfg.TestConfig.CursorField); err != nil {
+	if err := updateStreamConfig(th.TestConfig, th.TestConfig.Namespace, testTable, "incremental", th.TestConfig.CursorField); err != nil {
 		return fmt.Errorf("failed to patch streams.json for incremental: %s", err)
-	}
-
-	// Reset state so initial incremental behaves like a first full incremental load
-	if err := testutils.ResetStateFile(cfg.TestConfig); err != nil {
-		return fmt.Errorf("failed to reset state for incremental: %s", err)
 	}
 
 	twoPCIncrementalTestCases := []syncTestCase{
@@ -201,7 +192,7 @@ func (cfg *Test) Iceberg2PCIncrementalRecovery(
 			operation:                "",
 			useState:                 false,
 			opSymbol:                 "r",
-			expected:                 cfg.ExpectedData,
+			expected:                 th.ExpectedData,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 5,
 		},
@@ -210,7 +201,7 @@ func (cfg *Test) Iceberg2PCIncrementalRecovery(
 			operation: "insert",
 			useState:  true,
 			opSymbol:  "u",
-			expected:  cfg.ExpectedData,
+			expected:  th.ExpectedData,
 			preSetup: []func(*testutils.TestConfig) error{
 				testutils.SaveStateFile,
 			},
@@ -224,7 +215,7 @@ func (cfg *Test) Iceberg2PCIncrementalRecovery(
 			operation:                "insert_2pc",
 			useState:                 true,
 			opSymbol:                 "u",
-			expected:                 cfg.ExpectedData,
+			expected:                 th.ExpectedData,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 1,
 			preSetup: []func(*testutils.TestConfig) error{
@@ -237,7 +228,7 @@ func (cfg *Test) Iceberg2PCIncrementalRecovery(
 			name:                     "Incremental - Post Recovery Sync",
 			useState:                 true,
 			opSymbol:                 "u",
-			expected:                 cfg.ExpectedData,
+			expected:                 th.ExpectedData,
 			verifyNoDuplicates:       true,
 			expectedRowCountByOpType: 2, // insert row + insert_2pc row, both unique by _olake_id
 		},
@@ -246,12 +237,12 @@ func (cfg *Test) Iceberg2PCIncrementalRecovery(
 	for _, tc := range twoPCIncrementalTestCases {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, preSetup := range tc.preSetup {
-				if err := preSetup(cfg.TestConfig); err != nil {
+				if err := preSetup(th.TestConfig); err != nil {
 					t.Fatalf("%s pre-sync setup failed: %v", tc.name, err)
 				}
 			}
 
-			if err := cfg.runSyncAndVerify(
+			if err := th.runSyncAndVerify(
 				ctx, t, testTable, tc.useState, "iceberg",
 				tc.operation, tc.opSymbol, tc.expected,
 				false,
@@ -260,13 +251,13 @@ func (cfg *Test) Iceberg2PCIncrementalRecovery(
 			}
 
 			if tc.verifyNoDuplicates {
-				VerifyIcebergNoDuplicates(ctx, t, testTable, cfg.TestConfig.DestinationDB, tc.opSymbol, tc.expectedRowCountByOpType)
+				VerifyIcebergNoDuplicates(ctx, t, testTable, th.TestConfig.DestinationDB, tc.opSymbol, tc.expectedRowCountByOpType)
 			}
 		})
 	}
 
 	t.Log("Iceberg 2PC Incremental Recovery tests completed successfully")
-	testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
 	t.Logf("Dropped Iceberg table after 2PC Incremental tests: %s", testTable)
 	return nil
 }

@@ -10,12 +10,12 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-// mssqlBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// by the mssql suites.
-func mssqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.MSSQL, "dbo", "mssql_olake_mssql_test_dbo", ExecuteQuery, opts...)
+// mssqlTestConfig builds the config every mssql suite shares: the source, the namespace and the stream settings.
+func mssqlTestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.MSSQL, "dbo", ExecuteQuery, opts...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.ColumnToExclude = "excludedColumn"
+	cfg.SkipSchemaEvolution = true
 	cfg.CursorField = "id_cursor:col_int"
 	cfg.PartitionRegex = "/{id,identity}"
 	cfg.FilterConfig = `{
@@ -34,8 +34,13 @@ func mssqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integrat
                     ]
                 }`
 
-	return &integration.Test{
-		TestConfig:                cfg,
+	return cfg
+}
+
+// mssqlBaseConfig is mssqlTestConfig with the integration suites' expected data.
+func mssqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                mssqlTestConfig(t, opts...),
 		ExpectedData:              ExpectedMSSQLData,
 		DestinationDataTypeSchema: MSSQLToDestinationSchema,
 		DefaultCDCColumnsSchema:   ExpectedMSSQLDefaultCDCColumnsSchema,
@@ -65,13 +70,13 @@ func TestMSSQL2PC(t *testing.T) {
 func TestMSSQLCompatibility(t *testing.T) {
 	t.Parallel()
 
-	fixture := &compatibility.Test{
+	testHandler := &compatibility.TestHandler{
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
-			return mssqlBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+			return mssqlTestConfig(t, testutils.WithDriverVersion(version))
 		},
 		DeclaredSchema:   MSSQLToDestinationSchema,
 		CDCColumnsSchema: ExpectedMSSQLDefaultCDCColumnsSchema,
 	}
 
-	fixture.RunBackwardCompatibility(t)
+	testHandler.RunBackwardCompatibility(t)
 }

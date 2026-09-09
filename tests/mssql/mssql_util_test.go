@@ -50,9 +50,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	// The suite picks the database, not just the table: separate tables still race on DDL like
 	// DROP/CREATE TABLE, which modify database-scoped shared metadata (system catalog, cdc schema)
-	// and fail the loser as the deadlock victim. This has to resolve to the same name
-	// variantSourceOverride writes into the suite's source.json, or olake and these queries end up
-	// in different databases. 01-init.sql provisions each with CDC enabled.
+	// and fail the loser as the deadlock victim. The name is read from the rendered source.json, so
+	// olake and these queries agree by construction, and ensureSuiteDatabase provisions it with CDC.
 	config := conf.SourceBaseConfig
 	dbName := config.String("database")
 	ensureSuiteDatabase(ctx, t, config, dbName)

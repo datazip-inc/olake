@@ -59,42 +59,37 @@ type TestConfig struct {
 	SeedExcludedColumns []string `json:"-"`
 
 	// SourceBaseConfig is the working copy of source.json, parsed: the suite's own credentials,
-	// database and prefixes, after applySuite renamed what it isolates. ExecuteQuery connects with
+	// database and prefixes, after isolateSuiteConfigs renamed what it isolates. ExecuteQuery connects with
 	// it, so the harness and olake always drive the same source.
 	SourceBaseConfig SourceConfig `json:"-"`
+
+	// DestinationDB is the namespace this suite's syncs write to, read out of the catalog once
+	// IsolateDestinationDB has suffixed it with the suite.
+	DestinationDB string
+
+	SkipSchemaEvolution bool
 
 	// Driver shape: the same for every suite this driver runs, so it is declared once here
 	// rather than per test.
 	Namespace       string
 	ExecuteQuery    ExecuteQueryFn `json:"-"`
-	DestinationDB   string
 	CursorField     string
 	PartitionRegex  string
 	FilterConfig    string
 	ColumnToExclude string
-
-	// sourceEdit and streamEdit are the driver's own per-suite isolation: what a driver must rename
-	// so its concurrent suites do not contend, and whatever that rename implies for the catalog.
-	sourceEdit ConfigEditFn
-	streamEdit ConfigEditFn
 }
 
 type TestConfigOption func(*TestConfig)
 
-// ConfigEditFn edits one of the suite's working-copy JSON files. It receives the config so a
-// driver can name what it isolates after the suite.
-type ConfigEditFn func(cfg *TestConfig, doc map[string]interface{}) error
-
 // NewTestConfig builds a driver's config from what a suite cannot derive for itself: the source it
-// reads, the namespace it drives and the destination olake derives from them. dataFormat names the
-// driver's testdata subdirectory, for the drivers that have one.
-func NewTestConfig(t *testing.T, driver constants.DriverType, namespace, destinationDB string, executeQuery ExecuteQueryFn, opts ...TestConfigOption) (*TestConfig, error) {
+// reads and the namespace it drives. dataFormat names the driver's testdata subdirectory, for the
+// drivers that have one.
+func NewTestConfig(t *testing.T, driver constants.DriverType, namespace string, executeQuery ExecuteQueryFn, opts ...TestConfigOption) (*TestConfig, error) {
 	t.Helper()
 	cfg := &TestConfig{
-		Driver:        string(driver),
-		Namespace:     namespace,
-		DestinationDB: destinationDB,
-		ExecuteQuery:  executeQuery,
+		Driver:       string(driver),
+		Namespace:    namespace,
+		ExecuteQuery: executeQuery,
 	}
 
 	for _, opt := range opts {
@@ -127,24 +122,12 @@ func WithDataFormat(dataFormat string) TestConfigOption {
 	}
 }
 
-func WithSourceEdit(edit ConfigEditFn) TestConfigOption {
-	return func(c *TestConfig) {
-		c.sourceEdit = edit
-	}
-}
-
-func WithStreamEdit(edit ConfigEditFn) TestConfigOption {
-	return func(c *TestConfig) {
-		c.streamEdit = edit
-	}
-}
-
 func (c *TestConfig) generateSuiteName(t *testing.T) {
 	t.Helper()
 	nonSuiteChars := regexp.MustCompile(`[^a-z0-9]+`)
 	suite := strings.ToLower(t.Name())
 	suite = strings.TrimPrefix(suite, "test")
-	suite = strings.TrimPrefix(suite, strings.ToLower(string(c.Driver)))
+	suite = strings.TrimPrefix(suite, string(c.Driver))
 	c.Suite = strings.Trim(nonSuiteChars.ReplaceAllString(suite, "_"), "_")
 }
 
@@ -161,7 +144,7 @@ func (c *TestConfig) setup(t *testing.T) error {
 	if err := c.pullOrBuildDriverImage(t); err != nil {
 		return err
 	}
-	if err := c.applySuite(); err != nil {
+	if err := c.isolateSuiteConfigs(); err != nil {
 		return err
 	}
 
@@ -170,6 +153,7 @@ func (c *TestConfig) setup(t *testing.T) error {
 		return fmt.Errorf("failed to read the source config of driver %q suite %q: %s", c.Driver, c.Suite, err)
 	}
 	c.SourceBaseConfig = sourceConfig
+	t.Logf("test config: %s", c)
 
 	return nil
 }
@@ -181,12 +165,11 @@ func (c *TestConfig) String() string {
 
 // pullOrBuildDriverImage just sets the driver image in case  builds the driver image against current codebase
 func (c *TestConfig) pullOrBuildDriverImage(t *testing.T) (err error) {
-	if c.DriverVersion == "" {
+	switch env := os.Getenv(driverVersionEnvVar); {
+	case env != "":
+		c.DriverVersion = env
+	case c.DriverVersion == "":
 		c.DriverVersion = CurrentDriverVersion
-	}
-
-	if driverVersionEnv := os.Getenv(driverVersionEnvVar); driverVersionEnv != "" {
-		c.DriverVersion = driverVersionEnv
 	}
 
 	return c.resolveImage(t)
@@ -273,11 +256,9 @@ func (c *TestConfig) setupWorkingDir(t *testing.T) (err error) {
 	return nil
 }
 
-// applySuite derives every config the driver container reads from its committed base, so the base
+// isolateSuiteConfigs derives every config the driver container reads from its committed base, so the base
 // files stay untouched, and retargets the copies at the names this suite owns.
-func (c *TestConfig) applySuite() error {
-	c.DestinationDB = c.withSuite(c.DestinationDB)
-
+func (c *TestConfig) isolateSuiteConfigs() error {
 	enableArrowWrites := func(destinationConf map[string]interface{}) error {
 		writer, ok := destinationConf["writer"].(map[string]interface{})
 		if !ok {
@@ -293,32 +274,22 @@ func (c *TestConfig) applySuite() error {
 		return fmt.Errorf("failed to derive the arrow destination config of driver %q suite %q: %s", c.Driver, c.Suite, err)
 	}
 
-	isolateSource := func(source map[string]interface{}) error {
-		if c.sourceEdit == nil {
-			return nil
-		}
-		return c.sourceEdit(c, source)
-	}
-	if err := c.getOrRenderConfig("source.template.json", "source.json", isolateSource); err != nil {
+	if err := c.getOrRenderConfig("source.template.json", "source.json"); err != nil {
 		return fmt.Errorf("failed to isolate the source config of driver %q for suite %q: %s", c.Driver, c.Suite, err)
 	}
 
-	isolateCatalog := func(catalog map[string]interface{}) error {
-		if c.streamEdit == nil {
-			return nil
-		}
-		return c.streamEdit(c, catalog)
-	}
-	if err := c.getOrRenderConfig("streams.template.json", "streams.json", isolateCatalog); err != nil {
+	if err := c.RenderConfig("streams.template.json", "streams.json"); err != nil {
 		return fmt.Errorf("failed to retarget the catalog of driver %q at suite %q table %s: %s", c.Driver, c.Suite, c.GetTableName(), err)
 	}
 	return nil
 }
 
-func (c *TestConfig) getOrRenderConfig(template, configPath string, edit editFunc) error {
+// getOrRenderConfig checks if we need to get the configFile provided by the caller or render it from committed template.
+// NOTE: Currently all the tests use templates except PerformanceTests which provides the configs directly.
+func (c *TestConfig) getOrRenderConfig(template, configPath string) error {
 	_, err := os.Stat(c.GetFilePath(configPath))
 	if errors.Is(err, os.ErrNotExist) {
-		return c.renderConfig(template, configPath, edit)
+		return c.RenderConfig(template, configPath)
 	} else if err != nil {
 		return err
 	}
@@ -326,29 +297,17 @@ func (c *TestConfig) getOrRenderConfig(template, configPath string, edit editFun
 	return nil
 }
 
-// renderConfig expands the placeholders of the committed template in base into the working copy the
-// container reads at out, and applies edit to the result.
-func (c *TestConfig) renderConfig(base, out string, edit editFunc) error {
-	raw, err := os.ReadFile(c.GetFilePath(base))
+// RenderConfig expands the placeholders of the committed template and writes the result to outputFile
+func (c *TestConfig) RenderConfig(template, outputFile string) error {
+	raw, err := os.ReadFile(c.GetFilePath(template))
 	if err != nil {
-		return fmt.Errorf("failed to read %s: %s", base, err)
+		return fmt.Errorf("failed to read %s: %s", template, err)
 	}
 	expanded, err := c.expandPlaceholders(raw)
 	if err != nil {
-		return fmt.Errorf("failed to expand %s: %s", base, err)
+		return fmt.Errorf("failed to expand %s: %s", template, err)
 	}
-	doc, err := ParseJSONDoc(expanded)
-	if err != nil {
-		return fmt.Errorf("failed to parse %s: %s", base, err)
-	}
-	if err := edit(doc); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal %s: %s", out, err)
-	}
-	return WriteHostFile(c.GetFilePath(out), data)
+	return WriteHostFile(c.GetFilePath(outputFile), expanded)
 }
 
 // placeholder matches the ${name} form alone: the source configs carry credentials, and a secret
@@ -412,9 +371,35 @@ func NormalizeStreamName(driver, streamName string) string {
 	return Ternary(slices.Contains(constants.UppercaseStreamDrivers, constants.DriverType(driver)), strings.ToUpper(streamName), streamName).(string)
 }
 
+// IsolateDestinationDB suffixes every stream's destination_database with the suite and records it as
+// DestinationDB: the driver writes a baked destination_database verbatim, ignoring the prefix flag.
+func (c *TestConfig) IsolateDestinationDB() error {
+	return EditJSONFile(c.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
+		entries, _ := doc["streams"].([]interface{})
+		for _, entry := range entries {
+			wrapper, ok := entry.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			stream, ok := wrapper["stream"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			destinationDB, ok := stream["destination_database"].(string)
+			if !ok || destinationDB == "" {
+				continue
+			}
+			destinationDB = c.withSuite(destinationDB)
+			stream["destination_database"] = destinationDB
+			c.DestinationDB = strings.ReplaceAll(destinationDB, ":", "_")
+		}
+		return nil
+	})
+}
+
 // UpdateSelectedStreams rewrites selected_streams so only the given streams stay selected, with
-// normalization enabled and the partition regex, filter config and excluded column applied.
-func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filterConfig string, streams []string, columnToExclude string, extraExcluded ...string) error {
+// normalization enabled and the partition regex, filter config and excluded columns applied.
+func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filterConfig string, streams []string, excludedColumns []string) error {
 	if len(streams) == 0 {
 		return nil
 	}
@@ -442,7 +427,7 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 			stream["normalization"] = true
 			stream["partition_regex"] = partitionRegex
 			stream["filter_config"] = filter
-			for _, excluded := range append([]string{columnToExclude}, extraExcluded...) {
+			for _, excluded := range excludedColumns {
 				if excluded == "" {
 					continue
 				}
@@ -465,38 +450,8 @@ func UpdateSelectedStreams(config *TestConfig, namespace, partitionRegex, filter
 			kept = append(kept, stream)
 		}
 		doc["selected_streams"] = map[string]interface{}{namespace: kept}
-
-		for _, entry := range doc["streams"].([]interface{}) {
-			wrapper, ok := entry.(map[string]interface{})
-			if !ok {
-				continue
-			}
-			stream, ok := wrapper["stream"].(map[string]interface{})
-			if !ok {
-				continue
-			}
-			destinationDB, ok := stream["destination_database"].(string)
-			if !ok || destinationDB == "" {
-				continue
-			}
-			if !strings.HasSuffix(destinationDB, config.Suite) {
-				destinationDB = config.withSuite(destinationDB)
-				stream["destination_database"] = destinationDB
-			}
-			config.DestinationDB = strings.ReplaceAll(destinationDB, ":", "_")
-		}
 		return nil
 	})
-}
-
-// ResetStateFile clears state.json so incremental can perform its initial load
-// (equivalent to a full load on first run), irrespective of any previous CDC run.
-func ResetStateFile(config *TestConfig) error {
-	version, err := ProductStateVersion(config.OlakeRootPath)
-	if err != nil {
-		return err
-	}
-	return WriteHostFile(config.GetFilePath("state.json"), fmt.Appendf(nil, `{"version": %d}`, version))
 }
 
 func CopyFile(src, dst string) error {

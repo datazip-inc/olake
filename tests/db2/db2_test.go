@@ -10,9 +10,9 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-// db2BaseConfig returns an IntegrationTest pre-populated with all fields shared
-func db2BaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.DB2, "DB2INST1", "db2_testdb_db2inst1", ExecuteQuery,
+// db2TestConfig builds the config every db2 suite shares: the source, the namespace and the stream settings.
+func db2TestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.DB2, "DB2INST1", ExecuteQuery,
 		append([]testutils.TestConfigOption{testutils.WithImagePlatform("linux/amd64")}, opts...)...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.CursorField = "COL_CURSOR:COL_TIMESTAMP"
@@ -34,8 +34,13 @@ func db2BaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integratio
                     ]
                 }`
 
-	return &integration.Test{
-		TestConfig:                cfg,
+	return cfg
+}
+
+// db2BaseConfig is db2TestConfig with the integration suites' expected data.
+func db2BaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                db2TestConfig(t, opts...),
 		ExpectedData:              ExpectedDB2Data,
 		DestinationDataTypeSchema: DB2ToDestinationSchema,
 	}
@@ -63,12 +68,12 @@ func TestDB22PC(t *testing.T) {
 // See tests/testutils/compatibility.go.
 func TestDB2Compatibility(t *testing.T) {
 	t.Parallel()
-	fixture := &compatibility.Test{
+	testHandler := &compatibility.TestHandler{
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
-			return db2BaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+			return db2TestConfig(t, testutils.WithDriverVersion(version))
 		},
 		DeclaredSchema: DB2ToDestinationSchema,
 		ColumnTypes:    seedColumnTypes(),
 	}
-	fixture.RunBackwardCompatibility(t)
+	testHandler.RunBackwardCompatibility(t)
 }

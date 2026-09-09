@@ -107,71 +107,64 @@ func queryLiveOpTypes(ctx context.Context, t *testing.T, spark sql.SparkSession,
 }
 
 // tableIndexHostDir is the host-side pebble index directory, the mount behind containerTableIndexDir.
-func (cfg *Test) tableIndexHostDir() string {
-	return filepath.Join(cfg.TestConfig.TestWorkingDir, "olake-table-index")
+func (th *TestHandler) tableIndexHostDir() string {
+	return filepath.Join(th.TestConfig.TestWorkingDir, "olake-table-index")
 }
 
-// runIcebergSync runs one sync with state against the selected iceberg destination config.
-func (cfg *Test) runIcebergSync(ctx context.Context, step string) error {
-	cmd := testutils.SyncArgs(true, cfg.destinationFile("iceberg"), "--destination-database-prefix", cfg.UniqueID())
-	if code, out, err := testutils.RunOlake(ctx, cfg.TestConfig, cmd...); err != nil || code != 0 {
-		return fmt.Errorf("%s failed: %w", step, testutils.RenderOlakeFailure(code, err, out))
+// runIcebergSync runs one sync against the selected iceberg destination config.
+func (th *TestHandler) runIcebergSync(ctx context.Context, t *testing.T, step string, useState bool) error {
+	if err := testutils.RunSync(ctx, t, th.TestConfig, th.destinationFile("iceberg"), useState); err != nil {
+		return fmt.Errorf("%s failed: %w", step, err)
 	}
 	return nil
 }
 
-// prepareTableIndexSync resets source data and configures catalog/state for CDC with the given table.
-func (cfg *Test) prepareTableIndexSync(ctx context.Context, t *testing.T, testTable string) error {
+// prepareTableIndexSync resets source data and configures the catalog for CDC with the given table.
+func (th *TestHandler) prepareTableIndexSync(ctx context.Context, t *testing.T, testTable string) error {
 	t.Helper()
-	if err := cfg.resetTable(ctx, t); err != nil {
-		return fmt.Errorf("failed resetting table: %w", err)
-	}
+	th.resetTable(ctx, t)
 
-	if err := testutils.UpdateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{testTable}, cfg.ColumnToExclude); err != nil {
+	if err := testutils.UpdateSelectedStreams(th.TestConfig, th.Namespace, th.PartitionRegex, th.FilterConfig, []string{testTable}, []string{th.ColumnToExclude}); err != nil {
 		return fmt.Errorf("failed updating selected streams: %w", err)
 	}
 
-	if err := updateStreamConfig(cfg.TestConfig, cfg.Namespace, testTable, "cdc", ""); err != nil {
+	if err := updateStreamConfig(th.TestConfig, th.Namespace, testTable, "cdc", ""); err != nil {
 		return fmt.Errorf("failed setting stream mode: %w", err)
 	}
 
-	if err := testutils.ResetStateFile(cfg.TestConfig); err != nil {
-		return fmt.Errorf("failed resetting state file: %w", err)
-	}
-
-	_ = os.RemoveAll(cfg.tableIndexHostDir())
+	_ = os.RemoveAll(th.tableIndexHostDir())
 	return nil
 }
 
 // applyCDCUpdate runs evolve-schema (adds includedColumn) then update, matching the main CDC suite.
-func (cfg *Test) applyCDCUpdate(ctx context.Context, t *testing.T) {
+func (th *TestHandler) applyCDCUpdate(ctx context.Context, t *testing.T) {
 	t.Helper()
-	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "evolve-schema")
-	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "update")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "evolve-schema")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "update")
 }
 
 // testIcebergEqToPosConversion tests conversion of equality delete files to positional delete files
 // when the Iceberg table already contains equality deletes from a previous sync.
-func (cfg *Test) testIcebergEqToPosConversion(ctx context.Context, t *testing.T, testTable string) error {
-	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, cfg.TestConfig.DestinationDB, testTable)
+func (th *TestHandler) testIcebergEqToPosConversion(ctx context.Context, t *testing.T, testTable string) error {
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
 
-	defer testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
 
-	if err := cfg.prepareTableIndexSync(ctx, t, testTable); err != nil {
+	if err := th.prepareTableIndexSync(ctx, t, testTable); err != nil {
 		return err
 	}
 
 	// Step 1: full load + CDC update with equality deletes
-	if err := setUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "eq"); err != nil {
+	if err := setUpdateType(th.TestConfig, th.Namespace, testTable, "eq"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
-	if err := cfg.runIcebergSync(ctx, "initial full load sync"); err != nil {
+	if err := th.runIcebergSync(ctx, t, "initial full load sync", false); err != nil {
 		return err
 	}
 
-	cfg.applyCDCUpdate(ctx, t)
+	th.applyCDCUpdate(ctx, t)
 
-	if err := cfg.runIcebergSync(ctx, "cdc eq sync"); err != nil {
+	if err := th.runIcebergSync(ctx, t, "cdc eq sync", true); err != nil {
 		return err
 	}
 
@@ -182,12 +175,12 @@ func (cfg *Test) testIcebergEqToPosConversion(ctx context.Context, t *testing.T,
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row before conversion")
 
 	// Step 2: CDC insert with positional deletes (triggers eq -> pos conversion)
-	cfg.TestConfig.ExecuteQuery(ctx, t, cfg.TestConfig, "insert")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "insert")
 
-	if err := setUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+	if err := setUpdateType(th.TestConfig, th.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
-	if err := cfg.runIcebergSync(ctx, "cdc pos sync"); err != nil {
+	if err := th.runIcebergSync(ctx, t, "cdc pos sync", true); err != nil {
 		return err
 	}
 
@@ -203,25 +196,25 @@ func (cfg *Test) testIcebergEqToPosConversion(ctx context.Context, t *testing.T,
 }
 
 // testIcebergCleanTablePositionalWithPebbleIndex tests full load then positional CDC updates on a clean table.
-func (cfg *Test) testIcebergCleanTablePositionalWithPebbleIndex(ctx context.Context, t *testing.T, testTable string) error {
-	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, cfg.TestConfig.DestinationDB, testTable)
+func (th *TestHandler) testIcebergCleanTablePositionalWithPebbleIndex(ctx context.Context, t *testing.T, testTable string) error {
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
 
-	defer testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
 
-	if err := cfg.prepareTableIndexSync(ctx, t, testTable); err != nil {
+	if err := th.prepareTableIndexSync(ctx, t, testTable); err != nil {
 		return err
 	}
 
-	if err := setUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+	if err := setUpdateType(th.TestConfig, th.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
-	if err := cfg.runIcebergSync(ctx, "initial full load"); err != nil {
+	if err := th.runIcebergSync(ctx, t, "initial full load", false); err != nil {
 		return err
 	}
 
-	cfg.applyCDCUpdate(ctx, t)
+	th.applyCDCUpdate(ctx, t)
 
-	if err := cfg.runIcebergSync(ctx, "cdc pos sync"); err != nil {
+	if err := th.runIcebergSync(ctx, t, "cdc pos sync", true); err != nil {
 		return err
 	}
 
@@ -232,35 +225,35 @@ func (cfg *Test) testIcebergCleanTablePositionalWithPebbleIndex(ctx context.Cont
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row")
 	require.Equal(t, seedRowCount-1, countByOpType(ctx, t, spark, fullTableName, "r"), "expected remaining backfill rows")
 
-	if _, err := os.Stat(cfg.tableIndexHostDir()); os.IsNotExist(err) {
-		return fmt.Errorf("expected pebble index directory to exist at %s", cfg.tableIndexHostDir())
+	if _, err := os.Stat(th.tableIndexHostDir()); os.IsNotExist(err) {
+		return fmt.Errorf("expected pebble index directory to exist at %s", th.tableIndexHostDir())
 	}
 
 	return nil
 }
 
 // testIcebergRebuildIndexFromScratch tests that a missing/corrupted stream index is rebuilt on the next pos sync.
-func (cfg *Test) testIcebergRebuildIndexFromScratch(ctx context.Context, t *testing.T, testTable string) error {
-	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, cfg.TestConfig.DestinationDB, testTable)
+func (th *TestHandler) testIcebergRebuildIndexFromScratch(ctx context.Context, t *testing.T, testTable string) error {
+	fullTableName := fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, testTable)
 
-	defer testutils.DropIcebergTable(t, testTable, cfg.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testTable, th.TestConfig.DestinationDB)
 
-	if err := cfg.prepareTableIndexSync(ctx, t, testTable); err != nil {
+	if err := th.prepareTableIndexSync(ctx, t, testTable); err != nil {
 		return err
 	}
 
-	if err := setUpdateType(cfg.TestConfig, cfg.Namespace, testTable, "pos"); err != nil {
+	if err := setUpdateType(th.TestConfig, th.Namespace, testTable, "pos"); err != nil {
 		return fmt.Errorf("failed setting delete type: %w", err)
 	}
-	if err := cfg.runIcebergSync(ctx, "initial full load"); err != nil {
+	if err := th.runIcebergSync(ctx, t, "initial full load", false); err != nil {
 		return err
 	}
 
-	_ = os.RemoveAll(cfg.tableIndexHostDir())
+	_ = os.RemoveAll(th.tableIndexHostDir())
 
-	cfg.applyCDCUpdate(ctx, t)
+	th.applyCDCUpdate(ctx, t)
 
-	if err := cfg.runIcebergSync(ctx, "cdc sync after index delete"); err != nil {
+	if err := th.runIcebergSync(ctx, t, "cdc sync after index delete", true); err != nil {
 		return err
 	}
 
@@ -270,8 +263,8 @@ func (cfg *Test) testIcebergRebuildIndexFromScratch(ctx context.Context, t *test
 	require.Equal(t, seedRowCount, countLiveRecords(ctx, t, spark, fullTableName), "live record count should match seed")
 	require.Equal(t, int64(1), countByOpType(ctx, t, spark, fullTableName, "u"), "expected 1 updated row after rebuild")
 
-	if _, err := os.Stat(cfg.tableIndexHostDir()); os.IsNotExist(err) {
-		return fmt.Errorf("pebble index should be rebuilt and present at %s", cfg.tableIndexHostDir())
+	if _, err := os.Stat(th.tableIndexHostDir()); os.IsNotExist(err) {
+		return fmt.Errorf("pebble index should be rebuilt and present at %s", th.tableIndexHostDir())
 	}
 
 	return nil

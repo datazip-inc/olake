@@ -10,10 +10,9 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-// oracleBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// by the oracle suites.
-func oracleBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.Oracle, "MYUSER", "oracle_myuser", ExecuteQuery, opts...)
+// oracleTestConfig builds the config every oracle suite shares: the source, the namespace and the stream settings.
+func oracleTestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.Oracle, "MYUSER", ExecuteQuery, opts...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.CursorField = "COL_CURSOR:COL_SMALLINT"
 	cfg.PartitionRegex = "/{id, identity}"
@@ -34,8 +33,13 @@ func oracleBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integra
                     ]
                 }`
 
-	return &integration.Test{
-		TestConfig:                cfg,
+	return cfg
+}
+
+// oracleBaseConfig is oracleTestConfig with the integration suites' expected data.
+func oracleBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                oracleTestConfig(t, opts...),
 		ExpectedData:              ExpectedOracleData,
 		DestinationDataTypeSchema: OracleToDestinationSchema,
 	}
@@ -63,11 +67,11 @@ func TestOracle2PC(t *testing.T) {
 // See tests/testutils/compatibility.go.
 func TestOracleCompatibility(t *testing.T) {
 	t.Parallel()
-	fixture := &compatibility.Test{
+	testHandler := &compatibility.TestHandler{
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
-			return oracleBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+			return oracleTestConfig(t, testutils.WithDriverVersion(version))
 		},
 		DeclaredSchema: OracleToDestinationSchema,
 	}
-	fixture.RunBackwardCompatibility(t)
+	testHandler.RunBackwardCompatibility(t)
 }

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
@@ -26,16 +27,26 @@ type compatibilityGate struct {
 	Note          string   `json:"note"`
 }
 
-// compatibilityTypeRule selects columns by data-type tag (resolved against the declared schema plus
-// the json column_types maps) or by an
-// olake-owned column name, and carries the same policy fields as ColumnRule.
+// compatibilityRuleScope names the columns a rule applies to: exactly one of data_types (resolved
+// against the declared schema plus the fixture's ColumnTypes) or an olake-owned column name.
+type compatibilityRuleScope struct {
+	DataTypes []string `json:"data_types"`
+	Column    string   `json:"column"`
+}
+
+// compatibilityPolicy is what a rule asserts about the columns it selects, at least one of the
+// three, and the note saying why.
+type compatibilityPolicy struct {
+	ExcludeBelow    string `json:"exclude_below"`
+	AssertValueFrom string `json:"assert_value_from"`
+	TypeOnly        bool   `json:"type_only"`
+	Note            string `json:"note"`
+}
+
+// compatibilityTypeRule is one selector with its policy; validateRules enforces both counts.
 type compatibilityTypeRule struct {
-	DataTypes       []string `json:"data_types"`
-	Column          string   `json:"column"`
-	ExcludeBelow    string   `json:"exclude_below"`
-	AssertValueFrom string   `json:"assert_value_from"`
-	TypeOnly        bool     `json:"type_only"`
-	Note            string   `json:"note"`
+	compatibilityRuleScope
+	compatibilityPolicy
 }
 
 // compatibilityDestination is one destination's gates. A destination may gate itself (parquet) and/or
@@ -88,9 +99,6 @@ func strictUnmarshal(data []byte, target any) error {
 type compatibilityVariantRules struct {
 	compatibilityGate
 	Rules []compatibilityTypeRule `json:"rules"`
-	// ColumnTypes tags fixture columns with type identifiers the declared destination schema
-	// cannot express (a charset, a parquet physical type); data_types rules select on both.
-	ColumnTypes map[string][]string `json:"column_types"`
 }
 
 type compatibilityDriverRules struct {
@@ -101,17 +109,12 @@ type compatibilityDriverRules struct {
 	// materialized key, olake's metadata) as opposed to the source columns its fixture seeds.
 	DestinationRules []compatibilityTypeRule              `json:"destination_rules"`
 	Variants         map[string]compatibilityVariantRules `json:"variants"`
-	ColumnTypes      map[string][]string                  `json:"column_types"`
 }
 
 // compatibilityDestinationsRules is the destinations block: the rules for the columns every
 // destination writer emits (olake's own metadata), and each destination's gates.
 type compatibilityDestinationsRules struct {
-	Rules         []compatibilityTypeRule `json:"rules"`
-	ValueCompared struct {
-		Columns []string `json:"columns"`
-		Note    string   `json:"note"`
-	} `json:"value_compared"`
+	Rules   []compatibilityTypeRule  `json:"rules"`
 	Iceberg compatibilityDestination `json:"iceberg"`
 	Parquet compatibilityDestination `json:"parquet"`
 }
@@ -182,11 +185,6 @@ func (c compatibilityRulesConfig) validate() error {
 	if err := validateRules("destinations", c.Destinations.Rules); err != nil {
 		return err
 	}
-	for _, column := range c.Destinations.ValueCompared.Columns {
-		if strings.TrimSpace(column) == "" {
-			return fmt.Errorf("destinations.value_compared carries an empty column name")
-		}
-	}
 	for name, driver := range c.Drivers {
 		if !slices.Contains(knownCompatibilityDrivers, constants.DriverType(name)) {
 			return fmt.Errorf("unknown driver %q (known: %v)", name, knownCompatibilityDrivers)
@@ -251,10 +249,43 @@ func validateRules(scope string, rules []compatibilityTypeRule) error {
 	return nil
 }
 
+// validateThresholds rejects a rule threshold at or below the sweep's oldest baseline, which could
+// never fire. The floor comes from state-versions.json under the config's repo root.
+func (c compatibilityRulesConfig) validateThresholds(cfg *testutils.TestConfig) error {
+	floorTag, err := compatibilityGlobalFloor(cfg.OlakeRootPath)
+	if err != nil {
+		return err
+	}
+	globalFloor, _ := parseReleaseTag(floorTag)
+	lists := [][]compatibilityTypeRule{c.Destinations.Rules}
+	for _, driver := range c.Drivers {
+		lists = append(lists, driver.Rules, driver.DestinationRules)
+		for _, variant := range driver.Variants {
+			lists = append(lists, variant.Rules)
+		}
+	}
+	for _, rules := range lists {
+		for _, rule := range rules {
+			for _, threshold := range []string{rule.ExcludeBelow, rule.AssertValueFrom} {
+				if threshold == "" {
+					continue
+				}
+				// Tags were validated at load, so the parse cannot fail here.
+				bound, _ := parseReleaseTag(threshold)
+				if compareRelease(bound, globalFloor) <= 0 {
+					return fmt.Errorf("compatibility_rules.json: rule threshold %s is at or below the oldest reachable baseline %s, so it can never fire (%s); drop the rule or record it as a note",
+						threshold, floorTag, rule.Note)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // skipReason says why a baseline is out of this gate's range ("" = it runs). Tags are validated at
 // load, so anything unparseable here is a bug rather than bad config.
-func (g compatibilityGate) skipReason(version [3]int, dated bool) string {
-	if !dated {
+func (g compatibilityGate) skipReason(version [3]int, isRelease bool) string {
+	if !isRelease {
 		return ""
 	}
 	if g.MinBaseline != "" {
@@ -293,32 +324,30 @@ func releaseTagLess(a, b string) bool {
 func resolveTypeRules(rules []compatibilityTypeRule, columnTypes map[string][]string) ([]ColumnRule, []string, error) {
 	alwaysTypeOnly := map[string]bool{}
 	merged := map[string]*ColumnRule{}
-	var order []string
-	apply := func(column string, r compatibilityTypeRule) error {
-		if r.TypeOnly {
+	apply := func(column string, policy compatibilityPolicy) error {
+		if policy.TypeOnly {
 			alwaysTypeOnly[column] = true
 		}
 		// Only a dated policy becomes a ColumnRule; type_only alone is carried by alwaysTypeOnly.
-		if r.ExcludeBelow == "" && r.AssertValueFrom == "" {
+		if policy.ExcludeBelow == "" && policy.AssertValueFrom == "" {
 			return nil
 		}
 		rule, ok := merged[column]
 		if !ok {
 			rule = &ColumnRule{Column: column}
 			merged[column] = rule
-			order = append(order, column)
 		}
-		if r.ExcludeBelow != "" {
-			if rule.ExcludeBelow != "" && rule.ExcludeBelow != r.ExcludeBelow {
-				return fmt.Errorf("column %s: conflicting exclude_below %s and %s", column, rule.ExcludeBelow, r.ExcludeBelow)
+		if policy.ExcludeBelow != "" {
+			if rule.ExcludeBelow != "" && rule.ExcludeBelow != policy.ExcludeBelow {
+				return fmt.Errorf("column %s: conflicting exclude_below %s and %s", column, rule.ExcludeBelow, policy.ExcludeBelow)
 			}
-			rule.ExcludeBelow = r.ExcludeBelow
+			rule.ExcludeBelow = policy.ExcludeBelow
 		}
-		if r.AssertValueFrom != "" {
-			if rule.AssertValueFrom != "" && rule.AssertValueFrom != r.AssertValueFrom {
-				return fmt.Errorf("column %s: conflicting assert_value_from %s and %s", column, rule.AssertValueFrom, r.AssertValueFrom)
+		if policy.AssertValueFrom != "" {
+			if rule.AssertValueFrom != "" && rule.AssertValueFrom != policy.AssertValueFrom {
+				return fmt.Errorf("column %s: conflicting assert_value_from %s and %s", column, rule.AssertValueFrom, policy.AssertValueFrom)
 			}
-			rule.AssertValueFrom = r.AssertValueFrom
+			rule.AssertValueFrom = policy.AssertValueFrom
 		}
 		return nil
 	}
@@ -332,19 +361,19 @@ func resolveTypeRules(rules []compatibilityTypeRule, columnTypes map[string][]st
 	for _, r := range rules {
 		switch {
 		case r.Column != "":
-			if err := apply(r.Column, r); err != nil {
+			if err := apply(r.Column, r.compatibilityPolicy); err != nil {
 				return nil, nil, err
 			}
 		case len(r.DataTypes) > 0:
 			found := false
 			for _, column := range columns {
-				matches := slices.ContainsFunc(r.DataTypes, func(dt string) bool {
-					return slices.Contains(columnTypes[column], dt)
+				matches := slices.ContainsFunc(r.DataTypes, func(dataType string) bool {
+					return slices.Contains(columnTypes[column], dataType)
 				})
 				if !matches {
 					continue
 				}
-				if err := apply(column, r); err != nil {
+				if err := apply(column, r.compatibilityPolicy); err != nil {
 					return nil, nil, err
 				}
 				found = true
@@ -355,11 +384,11 @@ func resolveTypeRules(rules []compatibilityTypeRule, columnTypes map[string][]st
 		}
 	}
 
-	out := make([]ColumnRule, 0, len(order))
-	for _, column := range order {
+	out := make([]ColumnRule, 0, len(merged))
+	for _, column := range slices.Sorted(maps.Keys(merged)) {
 		out = append(out, *merged[column])
 	}
-	return out, slices.Sorted(maps.Keys(alwaysTypeOnly)), nil
+	return out, slices.Collect(maps.Keys(alwaysTypeOnly)), nil
 }
 
 // equivalentRelease is the release a commit baseline reads the gates and rules as: the newest release

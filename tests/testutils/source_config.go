@@ -2,7 +2,6 @@ package testutils
 
 import (
 	"fmt"
-	"net"
 	"strings"
 )
 
@@ -35,12 +34,6 @@ const containerHost = "host.docker.internal"
 // HostAddress rewrites an address the driver container uses into one the harness can dial. Host
 // and "host:port" forms are both accepted; anything already reachable is returned unchanged.
 func HostAddress(address string) string {
-	if !strings.Contains(address, containerHost) {
-		return address
-	}
-	if host, port, err := net.SplitHostPort(address); err == nil && host == containerHost {
-		return net.JoinHostPort("127.0.0.1", port)
-	}
 	return strings.ReplaceAll(address, containerHost, "127.0.0.1")
 }
 

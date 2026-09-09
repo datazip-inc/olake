@@ -241,7 +241,7 @@ func startRebalanceTrigger(ctx context.Context, t *testing.T, consumerGroupID, t
 			close(done)
 		}()
 
-		waitForSyncProgress(rebalanceCtx, t, statsPath)
+		testutils.WaitForSyncProgress(rebalanceCtx, t, statsPath)
 		if rebalanceCtx.Err() != nil {
 			return
 		}

@@ -13,10 +13,9 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// postgresBaseConfig returns an IntegrationTest pre-populated with all fields shared
-// by the postgres suites.
-func postgresBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.Postgres, "public", "postgres_postgres_public", ExecuteQuery, opts...)
+// postgresTestConfig builds the config every postgres suite shares: the source, the namespace and the stream settings.
+func postgresTestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.Postgres, "public", ExecuteQuery, opts...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.CursorField = "col_cursor:col_int"
 	cfg.PartitionRegex = "/{col_bigserial,identity}"
@@ -37,8 +36,13 @@ func postgresBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integ
                     ]
                 }`
 
-	return &integration.Test{
-		TestConfig:                cfg,
+	return cfg
+}
+
+// postgresBaseConfig is postgresTestConfig with the integration suites' expected data.
+func postgresBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                postgresTestConfig(t, opts...),
 		ExpectedData:              ExpectedPostgresData,
 		DestinationDataTypeSchema: PostgresToDestinationSchema,
 		DefaultCDCColumnsSchema:   ExpectedPostgresDefaultCDCColumnsSchema,
@@ -77,10 +81,10 @@ func TestPostgres2PC(t *testing.T) {
 }
 
 func TestPostgresPerformance(t *testing.T) {
-	cfg, err := testutils.NewTestConfig(t, constants.Postgres, "public", "", ExecuteQuery)
+	cfg, err := testutils.NewTestConfig(t, constants.Postgres, "public", ExecuteQuery)
 	require.NoError(t, err, "failed to build the test config")
 
-	perf := &performance.Test{
+	perf := &performance.TestHandler{
 		TestConfig:      cfg,
 		BackfillStreams: performance.GetBackfillStreamsFromCDC(performanceCDCStreams),
 		CDCStreams:      performanceCDCStreams,
@@ -96,14 +100,14 @@ func TestPostgresPerformance(t *testing.T) {
 func TestPostgresCompatibility(t *testing.T) {
 	t.Parallel()
 	// No column rules: postgres compares clean on every reachable baseline (COMPAT_RESULTS_v2.md).
-	fixture := &compatibility.Test{
+	testHandler := &compatibility.TestHandler{
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
-			cfg := postgresBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+			cfg := postgresTestConfig(t, testutils.WithDriverVersion(version))
 			createReplicationSlot(t, cfg)
 			return cfg
 		},
 		DeclaredSchema:   PostgresToDestinationSchema,
 		CDCColumnsSchema: ExpectedPostgresDefaultCDCColumnsSchema,
 	}
-	fixture.RunBackwardCompatibility(t)
+	testHandler.RunBackwardCompatibility(t)
 }

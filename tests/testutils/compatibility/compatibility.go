@@ -39,12 +39,9 @@ const (
 	// manifest sweep with a single run. Three forms are accepted, see resolveBaselineImage;
 	// per-driver overrides use the suffixed form, OLAKE_COMPATIBILITY_BASELINE_POSTGRES.
 	compatibilityBaselineEnvVar = "OLAKE_COMPATIBILITY_TEST_BASELINE"
-
-	// compatibilityExcludeColumnsEnvVar appends catalog-level column exclusions to every compatibility run
-	compatibilityExcludeColumnsEnvVar = "OLAKE_COMPATIBILITY_EXCLUDE_COLUMNS"
 )
 
-type Test struct {
+type TestHandler struct {
 	NewConfig        func(t *testing.T, DriverVersion string) *testutils.TestConfig
 	DeclaredSchema   map[string]string
 	ColumnTypes      map[string][]string
@@ -52,18 +49,19 @@ type Test struct {
 }
 
 // Validate checks the fixture wired everything a compatibility run reads.
-func (f *Test) Validate(t *testing.T) {
+func (th *TestHandler) Validate(t *testing.T) {
 	t.Helper()
-	require.NotNil(t, f.NewConfig, "compatibility.Test.NewConfig is not set")
-	require.NotEmpty(t, f.DeclaredSchema, "compatibility.Test.DeclaredSchema is not set; type-keyed rules would resolve against nothing")
+	require.NotNil(t, th.NewConfig, "compatibility.TestHandler.NewConfig is not set")
+	require.NotEmpty(t, th.DeclaredSchema, "compatibility.TestHandler.DeclaredSchema is not set; type-keyed rules would resolve against nothing")
 }
 
 // RunBackwardCompatibility runs one driver's scenarios twice -- a reference run entirely on the baseline
 // image and an upgrade run that hands off to the candidate after the initial load -- then asserts
 // the two destinations match. Both sides of all three writer groups (iceberg legacy, iceberg
 // arrow, parquet) run in parallel, six isolated pipelines at once.
-func (f *Test) RunBackwardCompatibility(t *testing.T) {
-	currentConf := f.NewConfig(t, testutils.CurrentDriverVersion)
+func (th *TestHandler) RunBackwardCompatibility(t *testing.T) {
+	currentConf := th.NewConfig(t, testutils.CurrentDriverVersion)
+	require.NoError(t, compatibilityRules.validateThresholds(currentConf))
 	baselineVersions, err := getCompatibilityBaselines(t, currentConf.OlakeRootPath, currentConf.Driver)
 	require.NoError(t, err)
 
@@ -86,11 +84,11 @@ func (f *Test) RunBackwardCompatibility(t *testing.T) {
 			continue
 		}
 
-		baselineConf := f.NewConfig(t, version)
-		if !t.Run(baselineConf.DriverVersion, func(t *testing.T) {
+		baselineConf := th.NewConfig(t, version)
+		if passed := t.Run(baselineConf.DriverVersion, func(t *testing.T) {
 			t.Parallel()
-			f.runCompatibilityBaseline(t, baselineConf, currentConf, ruleSpec)
-		}) {
+			th.runCompatibilityBaseline(t, baselineConf, currentConf, ruleSpec)
+		}); !passed {
 			t.Logf("compatibility: stopping the sweep at %s; the later baselines carry newer code and would repeat it", version)
 			return
 		}
@@ -102,17 +100,17 @@ func (f *Test) RunBackwardCompatibility(t *testing.T) {
 // compatibility_rules.json. Both are answerable from the driver name alone, which is what lets the
 // caller skip a baseline before paying for its image.
 func baselineSkipReason(rootPath, driver, spec string) (string, error) {
-	version, dated := parseReleaseTag(spec)
+	version, isRelease := parseReleaseTag(spec)
 	floorTag, err := compatibilityGlobalFloor(rootPath)
 	if err != nil {
 		return "", err
 	}
-	if globalFloor, _ := parseReleaseTag(floorTag); dated && compareRelease(version, globalFloor) < 0 {
+	if globalFloor, _ := parseReleaseTag(floorTag); isRelease && compareRelease(version, globalFloor) < 0 {
 		return fmt.Sprintf("baseline %s predates %s, the oldest state-version baseline; the compatibility suite does not run below it",
 			spec, floorTag), nil
 	}
 	gate := compatibilityRules.Drivers[driver].compatibilityGate
-	if reason := gate.skipReason(version, dated); reason != "" {
+	if reason := gate.skipReason(version, isRelease); reason != "" {
 		return fmt.Sprintf("%s cannot run baseline %s: %s (compatibility_rules.json: %s)", driver, spec, reason, gate.Note), nil
 	}
 
@@ -122,17 +120,13 @@ func baselineSkipReason(rootPath, driver, spec string) (string, error) {
 // runCompatibilityBaseline runs every writer group's variants against one baseline: the reference
 // side on baseline's image throughout, the upgrade side handing its stateful syncs to upgrade's.
 // ruleSpec is the release the gates and rules read this baseline as (see RunBackwardCompatibility).
-func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testutils.TestConfig, ruleSpec string) {
-	spec := baseline.DriverVersion
-	driver, dataFormat := baseline.Driver, baseline.DataFormat
+func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testutils.TestConfig, ruleSpec string) {
+	spec, driver, dataFormat := baseline.DriverVersion, baseline.Driver, baseline.DataFormat
 
-	baselineVersion, baselineDated := parseReleaseTag(ruleSpec)
-	floorTag, err := compatibilityGlobalFloor(baseline.OlakeRootPath)
-	require.NoError(t, err)
-	globalFloor, _ := parseReleaseTag(floorTag)
+	baselineVersion, baselineIsRelease := parseReleaseTag(ruleSpec)
 	driverRules := compatibilityRules.Drivers[driver]
 	variantRules := driverRules.Variants[dataFormat]
-	if reason := variantRules.compatibilityGate.skipReason(baselineVersion, baselineDated); reason != "" {
+	if reason := variantRules.compatibilityGate.skipReason(baselineVersion, baselineIsRelease); reason != "" {
 		t.Skipf("%s/%s cannot run baseline %s: %s (compatibility_rules.json: %s)",
 			driver, dataFormat, spec, reason, variantRules.compatibilityGate.Note)
 	}
@@ -158,7 +152,7 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 
 	// Every rule -- type-keyed, column-keyed, dated, unconditional -- resolves here into the one
 	// policy set the run applies: seeding, catalog and comparison all read it, nothing re-derives.
-	policies, err := resolveAssertionPolicies(f, ruleSpec, floorTag, globalFloor, driverRules, variantRules)
+	policies, err := resolveAssertionPolicies(th, ruleSpec, driverRules, dataFormat)
 	require.NoError(t, err)
 	for _, note := range policies.notes {
 		t.Logf("compatibility: %s", note)
@@ -168,12 +162,12 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 	// baseline is left out, and says so -- the other writers keep their coverage instead of the
 	// whole baseline being dropped.
 	var groups []compatibilityGroup
-	for _, g := range compatibilityVariantGroups(driver) {
-		if reason := g.gate.skipReason(baselineVersion, baselineDated); reason != "" {
-			t.Logf("compatibility: writer group %s not run against this baseline: %s", g.name, reason)
+	for _, group := range compatibilityVariantGroups(driver) {
+		if reason := group.gate.skipReason(baselineVersion, baselineIsRelease); reason != "" {
+			t.Logf("compatibility: writer group %s not run against this baseline: %s", group.name, reason)
 			continue
 		}
-		groups = append(groups, g)
+		groups = append(groups, group)
 	}
 	require.NotEmpty(t, groups, "no compatibility scenarios for driver %s against this baseline", driver)
 
@@ -194,11 +188,12 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 	report := &failureReport{driver: driver, spec: spec, baseline: baselineImage, candidate: candidateImage}
 
 	completed := t.Run("g", func(t *testing.T) {
-		for _, g := range groups {
-			runGroup := func(t *testing.T) {
-				for _, v := range g.variants {
+		for _, group := range groups {
+			t.Run(group.name, func(t *testing.T) {
+				t.Parallel()
+				for _, v := range group.variants {
 					if aborted.Load() {
-						t.Logf("compatibility group %s: skipping variant %q onwards; another run already failed", g.name, v.name)
+						t.Logf("compatibility group %s: skipping variant %q onwards; another run already failed", group.name, v.name)
 						break
 					}
 					diag := &diagnostics{}
@@ -206,31 +201,30 @@ func (f *Test) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testuti
 						// Both sides start on the baseline version; pick moves the upgrade side's
 						// stateful syncs to the candidate.
 						var ref, upg *testutils.TestConfig
-						if !t.Run("run", func(t *testing.T) {
+						if passed := t.Run("run", func(t *testing.T) {
 							t.Run("ref", func(t *testing.T) {
 								t.Parallel()
-								ref = f.NewConfig(t, baseline.DriverVersion)
-								runSide(t, ref, g, v, referencePick, policies)
+								ref = th.NewConfig(t, baseline.DriverVersion)
+								runVariantSide(t, ref, group, v, referencePick, policies)
 							})
 							t.Run("upg", func(t *testing.T) {
 								t.Parallel()
-								upg = f.NewConfig(t, baseline.DriverVersion)
-								runSide(t, upg, g, v, upgradePick, policies)
+								upg = th.NewConfig(t, baseline.DriverVersion)
+								runVariantSide(t, upg, group, v, upgradePick, policies)
 							})
-						}) {
+						}); !passed {
 							diag.fatalf(t, "a %s side never finished, so the two destinations were never compared; the side's own subtest output has why", v.name)
 						}
-						compareVariant(t, diag, policies, ref, upg, g, v)
+						compareVariant(t, diag, policies, ref, upg, group, v)
 					})
 					if !ok {
-						report.add(g.name, v.name, diag)
+						report.add(group.name, v.name, diag)
 						aborted.Store(true)
-						t.Logf("compatibility group %s: stopping after variant %q", g.name, v.name)
+						t.Logf("compatibility group %s: stopping after variant %q", group.name, v.name)
 						break
 					}
 				}
-			}
-			t.Run(g.name, func(t *testing.T) { t.Parallel(); runGroup(t) })
+			})
 		}
 	})
 	require.Truef(t, completed, "%s", report.render(baseline.OlakeRootPath))
@@ -245,21 +239,21 @@ func getCompatibilityBaselines(t *testing.T, rootPath, driver string) ([]string,
 	if spec := os.Getenv(compatibilityBaselineEnvVar); spec != "" {
 		return []string{spec}, nil
 	}
-	baselines, err := testutils.StateVersionBaselines(rootPath)
+	versionBumps, err := testutils.StateVersionBaselines(rootPath)
 	if err != nil {
 		return nil, err
 	}
-	slices.SortFunc(baselines, func(a, b testutils.StateVersionBaseline) int { return a.StateVersion - b.StateVersion })
-	specs := make([]string, 0, len(baselines))
-	for _, baseline := range baselines {
-		if !baseline.Gates(driver) {
-			t.Logf("compatibility: baseline %s not run for %s; state version %d gates only %s", baseline.ReleaseTag, driver, baseline.StateVersion, baseline.Drivers)
+	slices.SortFunc(versionBumps, func(a, b testutils.StateVersionBaseline) int { return a.StateVersion - b.StateVersion })
+	specs := make([]string, 0, len(versionBumps))
+	for _, bump := range versionBumps {
+		if !bump.Gates(driver) {
+			t.Logf("compatibility: baseline %s not run for %s; state version %d gates only %s", bump.ReleaseTag, driver, bump.StateVersion, bump.Drivers)
 			continue
 		}
 		// One release can cover several state versions (a release that jumps the manifest by
 		// more than one carries every version it skipped), and running it twice proves nothing.
-		if !slices.Contains(specs, baseline.ReleaseTag) {
-			specs = append(specs, baseline.ReleaseTag)
+		if !slices.Contains(specs, bump.ReleaseTag) {
+			specs = append(specs, bump.ReleaseTag)
 		}
 	}
 	return specs, nil
@@ -314,7 +308,7 @@ func compatibilityVariantGroups(driver string) []compatibilityGroup {
 
 // compareVariant asserts the upgrade run's destination for one scenario is indistinguishable from
 // the reference run's.
-func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies, ref, upg *testutils.TestConfig, g compatibilityGroup, v compatibilityVariant) {
+func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies, ref, upg *testutils.TestConfig, group compatibilityGroup, v compatibilityVariant) {
 	ctx := t.Context()
 	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "failed to connect to Spark Connect server")
@@ -322,7 +316,7 @@ func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies
 	refDB, upgDB := ref.DestinationDB, upg.DestinationDB
 	refTable, upgTable := ref.GetTableName(), upg.GetTableName()
 	var refRel, upgRel string
-	switch g.destination {
+	switch group.destination {
 	case "iceberg":
 		refRel = icebergRelation(ctx, t, spark, refDB, refTable)
 		upgRel = icebergRelation(ctx, t, spark, upgDB, upgTable)
@@ -340,7 +334,7 @@ func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies
 			return
 		}
 	default:
-		t.Fatalf("unknown destination %q", g.destination)
+		t.Fatalf("unknown destination %q", group.destination)
 	}
 
 	compareRelations(ctx, t, diag, spark, refRel, upgRel, policies.typeOnly)
@@ -361,7 +355,7 @@ func icebergRelation(ctx context.Context, t *testing.T, spark sql.SparkSession, 
 // (UNSUPPORTED_DATASOURCE_FOR_DIRECT_QUERY), VerifyParquetSync's included.
 func parquetRelation(ctx context.Context, t *testing.T, spark sql.SparkSession, db, table, side string) string {
 	view := fmt.Sprintf("`compatibility_%s_%s`", side, table)
-	path := fmt.Sprintf("s3a://%s/%s/%s", testutils.ParquetBucket, db, table)
+	path := fmt.Sprintf("s3a://%s/%s/%s", testutils.ParquetTestBucket, db, table)
 	_, err := spark.Sql(ctx, fmt.Sprintf("CREATE OR REPLACE TEMP VIEW %s AS SELECT * FROM parquet.`%s/*.parquet`", view, path))
 	if err != nil {
 		require.Containsf(t, err.Error(), "PATH_NOT_FOUND", "failed to read parquet at %s", path)
@@ -515,8 +509,10 @@ func describeRelation(ctx context.Context, t *testing.T, spark sql.SparkSession,
 
 	schema := make(map[string]string, len(rows))
 	for _, row := range rows {
-		col, _ := row.Value("col_name").(string)
-		dataType, _ := row.Value("data_type").(string)
+		col, ok := row.Value("col_name").(string)
+		require.Truef(t, ok, "DESCRIBE %s: col_name is not a string: %T", relation, row.Value("col_name"))
+		dataType, ok := row.Value("data_type").(string)
+		require.Truef(t, ok, "DESCRIBE %s: data_type is not a string: %T", relation, row.Value("data_type"))
 		// DESCRIBE appends partition/metadata sections, all introduced by a "#" heading.
 		if col != "" && !strings.HasPrefix(col, "#") {
 			schema[col] = dataType
@@ -526,7 +522,7 @@ func describeRelation(ctx context.Context, t *testing.T, spark sql.SparkSession,
 }
 
 func opTypeCounts(ctx context.Context, t *testing.T, spark sql.SparkSession, relation string) map[string]int64 {
-	query := fmt.Sprintf("SELECT `_op_type` AS op, COUNT(*) AS n FROM %s GROUP BY 1", relation)
+	query := fmt.Sprintf("SELECT `_op_type` AS op, COUNT(*) AS n FROM %s GROUP BY `_op_type`", relation)
 	df, err := spark.Sql(ctx, query)
 	require.NoErrorf(t, err, "failed to count op types in %s", relation)
 	rows, err := df.Collect(ctx)
@@ -534,8 +530,10 @@ func opTypeCounts(ctx context.Context, t *testing.T, spark sql.SparkSession, rel
 
 	counts := make(map[string]int64, len(rows))
 	for _, row := range rows {
-		op, _ := row.Value("op").(string)
-		n, _ := row.Value("n").(int64)
+		op, ok := row.Value("op").(string)
+		require.Truef(t, ok, "op type in %s is not a string: %T", relation, row.Value("op"))
+		n, ok := row.Value("n").(int64)
+		require.Truef(t, ok, "op type count in %s is not int64: %T", relation, row.Value("n"))
 		counts[op] = n
 	}
 	return counts
@@ -545,14 +543,14 @@ func opTypeCounts(ctx context.Context, t *testing.T, spark sql.SparkSession, rel
 // product's state-versions.json. Derived rather than restated, so adding or retiring a baseline
 // moves the floor with it.
 func compatibilityGlobalFloor(rootPath string) (string, error) {
-	baselines, err := testutils.StateVersionBaselines(rootPath)
+	versionBumps, err := testutils.StateVersionBaselines(rootPath)
 	if err != nil {
 		return "", err
 	}
-	oldest := baselines[0]
-	for _, baseline := range baselines[1:] {
-		if baseline.StateVersion < oldest.StateVersion {
-			oldest = baseline
+	oldest := versionBumps[0]
+	for _, bump := range versionBumps[1:] {
+		if bump.StateVersion < oldest.StateVersion {
+			oldest = bump
 		}
 	}
 	return oldest.ReleaseTag, nil

@@ -179,7 +179,7 @@ func MapDiff(noun, leftLabel, rightLabel string, left, right any) string {
 		verb = "differs"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s:\n", plural(len(rows), noun), verb)
+	fmt.Fprintf(&b, "%s %s:\n", testutils.Plural(len(rows), noun), verb)
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 	fmt.Fprintf(w, "  %s\t%s\t%s\n", noun, leftLabel, rightLabel)
 	for _, r := range rows {
@@ -239,11 +239,4 @@ func sortedMapKeys(m reflect.Value) []reflect.Value {
 	keys := m.MapKeys()
 	slices.SortFunc(keys, func(a, b reflect.Value) int { return strings.Compare(fmt.Sprint(a), fmt.Sprint(b)) })
 	return keys
-}
-
-func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
 }

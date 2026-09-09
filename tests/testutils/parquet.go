@@ -10,7 +10,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-const ParquetBucket = "warehouse"
+const ParquetTestBucket = "warehouse"
 
 // NewMinIOClient returns a client for the MinIO instance backing the parquet destination in tests.
 func NewMinIOClient() (*minio.Client, error) {
@@ -27,7 +27,7 @@ func NewMinIOClient() (*minio.Client, error) {
 // ListParquetObjects lists the .parquet objects lying directly in a table's folder in MinIO.
 func ListParquetObjects(ctx context.Context, client *minio.Client, parquetDB, tableName string) ([]minio.ObjectInfo, error) {
 	objects := []minio.ObjectInfo{}
-	for object := range client.ListObjects(ctx, ParquetBucket, minio.ListObjectsOptions{
+	for object := range client.ListObjects(ctx, ParquetTestBucket, minio.ListObjectsOptions{
 		Prefix:    parquetTablePath(parquetDB, tableName),
 		Recursive: false,
 	}) {
@@ -51,7 +51,7 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 	t.Helper()
 	parquetPath := parquetTablePath(parquetDB, tableName)
 
-	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", ParquetBucket, parquetPath)
+	t.Logf("Cleaning up .parquet files in: s3a://%s/%s", ParquetTestBucket, parquetPath)
 
 	minioClient, err := NewMinIOClient()
 	if err != nil {
@@ -68,7 +68,7 @@ func DeleteParquetFiles(t *testing.T, parquetDB, tableName string) error {
 	for _, object := range objects {
 		t.Logf("Deleting: %s", strings.TrimPrefix(object.Key, parquetPath))
 
-		if err := minioClient.RemoveObject(ctx, ParquetBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+		if err := minioClient.RemoveObject(ctx, ParquetTestBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
 			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
 		}
 	}
@@ -90,14 +90,14 @@ func DeleteParquetTable(t *testing.T, parquetDB, tableName string) error {
 
 	ctx := context.Background()
 	deletedCount := 0
-	for object := range minioClient.ListObjects(ctx, ParquetBucket, minio.ListObjectsOptions{
+	for object := range minioClient.ListObjects(ctx, ParquetTestBucket, minio.ListObjectsOptions{
 		Prefix:    parquetPath,
 		Recursive: true,
 	}) {
 		if object.Err != nil {
 			return fmt.Errorf("error listing objects: %s", object.Err)
 		}
-		if err := minioClient.RemoveObject(ctx, ParquetBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
+		if err := minioClient.RemoveObject(ctx, ParquetTestBucket, object.Key, minio.RemoveObjectOptions{}); err != nil {
 			return fmt.Errorf("failed to delete %s: %s", object.Key, err)
 		}
 		deletedCount++

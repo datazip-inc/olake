@@ -18,7 +18,7 @@ import (
 )
 
 // performanceCDCStreams is the CDC stream set the performance suite drives, shared between the
-// PerformanceTest config and the perf operations below.
+// performance.TestHandler config and the perf operations below.
 var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
 
 type seedColumn struct {

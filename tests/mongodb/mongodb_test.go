@@ -11,13 +11,14 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-// mongodbBaseConfig returns an IntegrationTest pre-populated with all fields shared
-func mongodbBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.MongoDB, "olake_mongodb_test", "mongodb_olake_mongodb_test", ExecuteQuery, opts...)
+// mongodbTestConfig builds the config every mongodb suite shares: the source, the namespace and the stream settings.
+func mongodbTestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.MongoDB, "olake_mongodb_test", ExecuteQuery, opts...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.CursorField = "id_cursor:id_int"
 	cfg.PartitionRegex = "/{_id,identity}"
 	cfg.ColumnToExclude = "excludedColumn"
+	cfg.SkipSchemaEvolution = true
 	cfg.FilterConfig = `{
 			"logical_operator": "And",
 			"conditions": [
@@ -34,8 +35,13 @@ func mongodbBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integr
 			]
 		}`
 
-	return &integration.Test{
-		TestConfig:                cfg,
+	return cfg
+}
+
+// mongodbBaseConfig is mongodbTestConfig with the integration suites' expected data.
+func mongodbBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                mongodbTestConfig(t, opts...),
 		ExpectedData:              ExpectedMongoData,
 		DestinationDataTypeSchema: MongoToDestinationSchema,
 		DefaultCDCColumnsSchema:   ExpectedMongoDBDefaultCDCColumnsSchema,
@@ -60,10 +66,10 @@ func TestMongodb2PC(t *testing.T) {
 }
 
 func TestMongodbPerformance(t *testing.T) {
-	cfg, err := testutils.NewTestConfig(t, constants.MongoDB, "twitter_data", "", ExecuteQuery)
+	cfg, err := testutils.NewTestConfig(t, constants.MongoDB, "twitter_data", ExecuteQuery)
 	require.NoError(t, err, "failed to build the test config")
 
-	perf := &performance.Test{
+	perf := &performance.TestHandler{
 		TestConfig:      cfg,
 		BackfillStreams: performance.GetBackfillStreamsFromCDC(performanceCDCStreams),
 		CDCStreams:      performanceCDCStreams,
@@ -77,13 +83,13 @@ func TestMongodbPerformance(t *testing.T) {
 // the newest release still on state version 4, so it is the one that exercises it.
 func TestMongodbCompatibility(t *testing.T) {
 	t.Parallel()
-	fixture := &compatibility.Test{
+	testHandler := &compatibility.TestHandler{
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
-			return mongodbBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+			return mongodbTestConfig(t, testutils.WithDriverVersion(version))
 		},
 		DeclaredSchema:   MongoToDestinationSchema,
 		ColumnTypes:      seedColumnTypes(),
 		CDCColumnsSchema: ExpectedMongoDBDefaultCDCColumnsSchema,
 	}
-	fixture.RunBackwardCompatibility(t)
+	testHandler.RunBackwardCompatibility(t)
 }

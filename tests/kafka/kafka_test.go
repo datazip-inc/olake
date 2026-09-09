@@ -14,7 +14,7 @@ type kafkaFormat struct {
 	name string
 	// build runs inside the subtest, not beside it: every name a suite owns is derived from
 	// t.Name(), so both formats built against the parent would answer to the same one.
-	build func(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test
+	build func(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler
 }
 
 var kafkaFormats = []kafkaFormat{
@@ -22,12 +22,14 @@ var kafkaFormats = []kafkaFormat{
 	{name: "AVRO-Format", build: kafkaAvroBaseConfig},
 }
 
-func kafkaJSONBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.Kafka, "topics", "kafka_topics", ExecuteQueryJSON,
+// kafkaJSONTestConfig builds the config every kafka JSON suite shares: the source, the namespace and the stream settings.
+func kafkaJSONTestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.Kafka, "topics", ExecuteQueryJSON,
 		append([]testutils.TestConfigOption{testutils.WithDataFormat("json")}, opts...)...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.PartitionRegex = "/{int_value,identity}"
 	cfg.ColumnToExclude = "col_excluded"
+	cfg.SkipSchemaEvolution = true
 	cfg.FilterConfig = `{
 			"logical_operator": "And",
 			"conditions": [
@@ -44,8 +46,13 @@ func kafkaJSONBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *inte
 			]
 		}`
 
-	return &integration.Test{
-		TestConfig:                       cfg,
+	return cfg
+}
+
+// kafkaJSONBaseConfig is kafkaJSONTestConfig with the integration suites' expected data.
+func kafkaJSONBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                       kafkaJSONTestConfig(t, opts...),
 		ExpectedData:                     ExpectedKafkaJSONData,
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
 		DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
@@ -54,12 +61,14 @@ func kafkaJSONBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *inte
 	}
 }
 
-func kafkaAvroBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.Test {
-	cfg, err := testutils.NewTestConfig(t, constants.Kafka, "topics", "kafka_topics", ExecuteQueryAvro,
+// kafkaAvroTestConfig builds the config every kafka Avro suite shares: the source, the namespace and the stream settings.
+func kafkaAvroTestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.Kafka, "topics", ExecuteQueryAvro,
 		append([]testutils.TestConfigOption{testutils.WithDataFormat("avro")}, opts...)...)
 	require.NoError(t, err, "failed to build the test config")
 	cfg.PartitionRegex = "/{int64_value,identity}"
 	cfg.ColumnToExclude = "col_excluded"
+	cfg.SkipSchemaEvolution = true
 	cfg.FilterConfig = `{
 			"logical_operator": "And",
 			"conditions": [
@@ -76,8 +85,13 @@ func kafkaAvroBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *inte
 			]
 		}`
 
-	return &integration.Test{
-		TestConfig:                       cfg,
+	return cfg
+}
+
+// kafkaAvroBaseConfig is kafkaAvroTestConfig with the integration suites' expected data.
+func kafkaAvroBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                       kafkaAvroTestConfig(t, opts...),
 		ExpectedData:                     ExpectedKafkaAvroData,
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
 		DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
@@ -111,7 +125,7 @@ func TestKafka2PC(t *testing.T) {
 
 func TestKafkaRebalance(t *testing.T) {
 	t.Parallel()
-	runRebalanceSuite(t, kafkaJSONBaseConfig(t))
+	testRebalance(t, kafkaJSONBaseConfig(t))
 }
 
 // TestKafkaCompatibility pins the backward-compatibility contract on the JSON format, the same single
@@ -119,12 +133,12 @@ func TestKafkaRebalance(t *testing.T) {
 // schema-registry axis to the comparison. See tests/testutils/compatibility.go.
 func TestKafkaCompatibility(t *testing.T) {
 	t.Parallel()
-	fixture := &compatibility.Test{
+	testHandler := &compatibility.TestHandler{
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
-			return kafkaJSONBaseConfig(t, testutils.WithDriverVersion(version)).TestConfig
+			return kafkaJSONTestConfig(t, testutils.WithDriverVersion(version))
 		},
 		DeclaredSchema:   KafkaToDestinationJSONSchema,
 		CDCColumnsSchema: ExpectedKafkaDefaultCDCColumnsSchema,
 	}
-	fixture.RunBackwardCompatibility(t)
+	testHandler.RunBackwardCompatibility(t)
 }

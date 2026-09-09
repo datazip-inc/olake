@@ -17,12 +17,11 @@ import (
 )
 
 const (
-	replicationSlot    = "performance_slot"
 	cdcPublicationName = "performance_publication"
 )
 
 // performanceCDCStreams is the CDC stream set the performance suite drives, shared between the
-// PerformanceTest config and the perf operations below.
+// performance.TestHandler config and the perf operations below.
 var performanceCDCStreams = []string{"trips_cdc", "fhv_trips_cdc"}
 
 func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {

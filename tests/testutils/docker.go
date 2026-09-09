@@ -11,6 +11,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -145,7 +148,6 @@ func DockerRunArgs(cfg *TestConfig, extraFlags []string, olakeArgs []string) []s
 	args := []string{
 		"run", "--rm",
 		"-v", fmt.Sprintf("%s:%s", cfg.TestWorkingDir, containerTestDataDir),
-		"--tmpfs", fmt.Sprintf("%s/logs", containerTestDataDir),
 		"-e", "TELEMETRY_DISABLED=true",
 		"-e", "OLAKE_TIMING=1",
 		"-e", fmt.Sprintf("OLAKE_INDEX_DB_DIR=%s", containerTableIndexDir),
@@ -167,7 +169,7 @@ func generateUniqueContainerName(cfg *TestConfig) string {
 	return fmt.Sprintf("olake-it-%s-%s-%d-%d", cfg.Driver, cfg.Suite, os.Getpid(), containerSeq.Add(1))
 }
 
-func RunOlake(ctx context.Context, cfg *TestConfig, olakeArgs ...string) (int, []byte, error) {
+func RunOlake(ctx context.Context, t *testing.T, cfg *TestConfig, olakeArgs ...string) (int, []byte, error) {
 	name := generateUniqueContainerName(cfg)
 	args := DockerRunArgs(cfg, []string{"--add-host", "host.docker.internal:host-gateway", "--name", name}, olakeArgs)
 
@@ -175,6 +177,7 @@ func RunOlake(ctx context.Context, cfg *TestConfig, olakeArgs ...string) (int, [
 	defer cancel()
 
 	out, err := exec.CommandContext(runCtx, "docker", args...).CombinedOutput()
+	logContainerTimings(t, out)
 	if runCtx.Err() == context.DeadlineExceeded {
 		if rmErr := exec.Command("docker", "rm", "-f", name).Run(); rmErr != nil {
 			return -1, out, fmt.Errorf("olake %s of driver %s timed out after %s, and its container %s could not be removed: %s",
@@ -186,15 +189,15 @@ func RunOlake(ctx context.Context, cfg *TestConfig, olakeArgs ...string) (int, [
 	return DockerExitResult(out, err, olakeArgs[0])
 }
 
-// logContainerTimings re-emits the `[timing]` lines the driver wrote inside the container.
-func ContainerTimings(out []byte) []string {
-	var timings []string
+// logContainerTimings re-emits the `[timing]` lines the driver wrote inside the container, which a
+// successful `docker run` would otherwise drop, leaving every sync as one opaque span.
+func logContainerTimings(t *testing.T, out []byte) {
+	t.Helper()
 	for _, line := range strings.Split(string(out), "\n") {
 		if idx := strings.Index(line, "[timing]"); idx >= 0 {
-			timings = append(timings, strings.TrimSpace(line[idx:]))
+			t.Logf("  container %s", strings.TrimSpace(line[idx:]))
 		}
 	}
-	return timings
 }
 
 // DockerExitResult normalizes `docker run`'s outcome into (exitCode, output, err): a non-zero
@@ -216,13 +219,15 @@ func ContainerPath(fileName string) string {
 
 // SyncArgs builds the `olake sync ...` argument vector run against the driver image.
 func SyncArgs(useState bool, destinationFile string, flags ...string) []string {
-	p := ContainerPath
-	args := []string{"sync", "--config", p("source.json"), "--catalog", p("streams.json")}
-
-	args = append(args, "--destination", p(destinationFile))
+	args := []string{
+		"sync",
+		"--config", ContainerPath("source.json"),
+		"--catalog", ContainerPath("streams.json"),
+		"--destination", ContainerPath(destinationFile),
+	}
 
 	if useState {
-		args = append(args, "--state", p("state.json"))
+		args = append(args, "--state", ContainerPath("state.json"))
 	}
 
 	return append(args, flags...)
@@ -230,6 +235,41 @@ func SyncArgs(useState bool, destinationFile string, flags ...string) []string {
 
 // DiscoverArgs builds the `olake discover ...` argument vector run against the driver image.
 func DiscoverArgs(flags ...string) []string {
-	p := ContainerPath
-	return append([]string{"discover", "--config", p("source.json")}, flags...)
+	return append([]string{"discover", "--config", ContainerPath("source.json")}, flags...)
+}
+
+// RunSync runs one sync of cfg against destinationFile under the suite's own destination prefix
+// and renders a failed run as one error.
+func RunSync(ctx context.Context, t *testing.T, cfg *TestConfig, destinationFile string, useState bool) error {
+	args := SyncArgs(useState, destinationFile, "--destination-database-prefix", cfg.UniqueID())
+	code, out, err := RunOlake(ctx, t, cfg, args...)
+	if err != nil || code != 0 {
+		return RenderOlakeFailure(code, err, out)
+	}
+	return nil
+}
+
+// WaitForSyncProgress blocks until the running sync has reported its first records in stats.json.
+// A driver uses it to time an event at a point where the sync is demonstrably mid-flight, rather
+// than guessing with a sleep.
+func WaitForSyncProgress(ctx context.Context, t *testing.T, statsPath string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		if ctx.Err() != nil {
+			return true
+		}
+
+		var stats struct {
+			SyncedRecords int64 `json:"Synced Records"`
+		}
+		if err := UnmarshalFile(statsPath, &stats, false); err != nil {
+			return false
+		}
+		if stats.SyncedRecords > 0 {
+			t.Logf("sync started: %d records synced", stats.SyncedRecords)
+			return true
+		}
+		return false
+	}, SyncTimeout, time.Second)
 }
