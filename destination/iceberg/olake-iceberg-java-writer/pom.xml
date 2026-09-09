@@ -503,12 +503,6 @@
       <version>42.7.13</version>
     </dependency>
     <dependency>
-      <groupId>io.minio</groupId>
-      <artifactId>minio</artifactId>
-      <version>8.5.17</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
       <groupId>org.easytesting</groupId>
       <artifactId>fest-assert</artifactId>
       <version>1.4</version>
