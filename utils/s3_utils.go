@@ -97,6 +97,10 @@ func ResolveS3Paths(ctx context.Context, flagPaths []*string) error {
 		return err
 	}
 
+	if err := os.RemoveAll(localPathForS3URI("", "")); err != nil {
+		return fmt.Errorf("failed to clean local s3 cache: %s", err)
+	}
+
 	for _, flagPath := range flagPaths {
 		if err := resolveS3PathFlag(ctx, flagPath); err != nil {
 			return err
@@ -118,12 +122,12 @@ func resolveS3PathFlag(ctx context.Context, flagPath *string) error {
 	return nil
 }
 
-// FinalizeS3Upload uploads local artifacts after a successful run. Deferred with
-// a named return so a failed upload is not dropped. Failures skip the upload so
-// a partial local write cannot overwrite remote streams/state.
-func FinalizeS3Upload(ctx context.Context, err *error, noSave bool) {
-	if *err != nil || noSave || s3util.JobBucket == "" {
-		return
+// FinalizeS3Upload uploads local artifacts after a successful run. Callers invoke it
+// from PersistentPostRunE, which Cobra skips when RunE failed, so a partial local
+// write cannot overwrite remote streams/state.
+func FinalizeS3Upload(ctx context.Context, noSave bool) error {
+	if noSave || s3util.JobBucket == "" {
+		return nil
 	}
 
 	statsPath := ""
@@ -151,9 +155,9 @@ func FinalizeS3Upload(ctx context.Context, err *error, noSave bool) {
 
 		s3Key := path.Join(s3util.JobPrefix, file.name)
 		if uploadErr := s3util.UploadFileToS3(ctx, file.local, s3util.JobBucket, s3Key); uploadErr != nil {
-			*err = fmt.Errorf("failed to upload config folder artifacts to S3: %s", uploadErr)
-			return
+			return fmt.Errorf("failed to upload config folder artifacts to S3: %s", uploadErr)
 		}
 		logger.Infof("uploaded %s to s3://%s/%s", file.name, s3util.JobBucket, s3Key)
 	}
+	return nil
 }

@@ -77,6 +77,11 @@ var RootCmd = &cobra.Command{
 		// now-initialized logger instead of being silently discarded.
 		return s3Err
 	},
+	// After a successful subcommand (sync/discover/clear). Cobra skips this hook when
+	// RunE failed, which matches FinalizeS3Upload's "do not upload a failed run" rule.
+	PersistentPostRunE: func(cmd *cobra.Command, _ []string) error {
+		return utils.FinalizeS3Upload(cmd.Context(), noSave)
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return cmd.Help()
@@ -124,6 +129,11 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 // Drivers may have source-specific checkpointing constraints, so this helper
 // should not be used as a substitute for driver-level cancellation safety.
 func signalAwareRootContext(parent context.Context) context.Context {
+	// CreateRootCommand runs before Execute, so Cobra has not yet defaulted
+	// nil to Background().
+	if parent == nil {
+		parent = context.Background()
+	}
 	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
 	// signal.NotifyContext keeps the signal handler installed until stop() is
 	// called. Releasing it after the first cancellation lets a subsequent
@@ -157,13 +167,13 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
 	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
+	// Without this, Cobra rejects unknown positional args at Find time (legacyArgs)
+	// before PersistentPreRunE initializes the logger, so invalid commands fail
+	// silently under SilenceErrors. ArbitraryArgs defers that check to RunE.
+	RootCmd.Args = cobra.ArbitraryArgs
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
-	err := RootCmd.Execute()
-	if err != nil {
-		logger.Fatal(err)
-	}
 }
 
 const (
