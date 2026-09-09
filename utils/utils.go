@@ -478,6 +478,15 @@ func RetryWithSkip(ctx context.Context, maxRetries int, sleep time.Duration, sho
 	return err
 }
 
+// IsNonRetryable reports whether err carries constants.ErrNonRetryable, meaning a caller (a
+// retry loop, a process supervisor) should stop instead of retrying. It matches on the error
+// message rather than errors.Is because not every call site wraps with %w: for example
+// drivers/postgres/internal/cdc.go uses fmt.Errorf("%s: ...", constants.ErrNonRetryable, ...),
+// which breaks the chain errors.Is would need to walk.
+func IsNonRetryable(err error) bool {
+	return err != nil && strings.Contains(err.Error(), constants.ErrNonRetryable.Error())
+}
+
 // RetryOnBackoff retries the function f up to attempts times with a backoff sleep between attempts.
 func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f func(ctx context.Context) error) (err error) {
 	for cur := range attempts {
@@ -491,7 +500,7 @@ func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f fu
 		}
 
 		// check if error is non retryable
-		if strings.Contains(err.Error(), constants.ErrNonRetryable.Error()) {
+		if IsNonRetryable(err) {
 			return err
 		}
 

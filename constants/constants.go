@@ -89,6 +89,12 @@ var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
 var ErrGlobalContextGroup = fmt.Errorf("global context group error")
 
+// ExitCodeNonRetryable is the process exit code used when a sync fails with ErrNonRetryable,
+// so a process supervisor (shell retry loop, systemd Restart=always, Kubernetes restart policy)
+// can tell a failure that needs a human apart from one worth retrying, instead of looping on it
+// forever the way a generic exit code 1 would.
+const ExitCodeNonRetryable = 2
+
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
 
