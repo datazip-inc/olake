@@ -60,6 +60,7 @@ jobs:
       attempt: ${{ github.run_attempt }}
       drivers: ${{ needs.preflight.outputs.drivers }}
       driver-labels: ${{ needs.preflight.outputs.driver-labels }}
+      sources: ${{ needs.preflight.outputs.sources }}
       base-image-misses: ${{ needs.preflight.outputs.base-image-misses }}
     env:
       GATE_ENVIRONMENT: integration_tests
@@ -81,7 +82,7 @@ jobs:
       - run: echo "Approved -- running the end to end tests"
 
   integration-tests:
-    name: Integration Test ${{ matrix.driver }}
+    name: Integration Test ${{ matrix.name }}
     needs: approve
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
@@ -89,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        driver: ${{ fromJSON(needs.approve.outputs.drivers) }}
+        include: ${{ fromJSON(needs.approve.outputs.sources) }}
     steps:
       - &checkout
         name: Checkout code
@@ -115,7 +116,7 @@ jobs:
         id: containers
         background: true
         timeout-minutes: 15
-        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
+        run: make ${{ matrix.make_vars }} -j2 --output-sync=target olake.${{ matrix.driver }}.up olake.destination.all.up
 
       - &docker-login
         name: Log in to Docker Hub
@@ -176,7 +177,7 @@ jobs:
       - &wait-ready
         name: Wait for source + destination readiness
         timeout-minutes: 3
-        run: make -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
+        run: make ${{ matrix.make_vars }} -j2 --output-sync=target olake.${{ matrix.driver }}.wait olake.destination.all.wait
 
       # Serial, once: olake processes reaching a fresh catalog race each other's CREATE TABLE on
       # iceberg_tables, and the harness has no runtime fallback for that.
@@ -192,10 +193,13 @@ jobs:
             "olakego/source-${{ matrix.driver }}:local" \
             check --destination /testdata/iceberg_destination.json
 
+      - name: Verify source stack
+        run: make ${{ matrix.make_vars }} olake.${{ matrix.driver }}.verify
+
       - name: Run integration tests
         env:
           OLAKE_PRE_BUILT_IMAGE: olakego/source-${{ matrix.driver }}:local
-        run: make test.integration.${{ matrix.driver }}
+        run: make ${{ matrix.make_vars }} test.integration.${{ matrix.driver }}
 
       - name: Wait for the image upload
         wait: [publish]
