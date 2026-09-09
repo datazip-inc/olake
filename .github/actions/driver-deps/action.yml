@@ -19,14 +19,14 @@ runs:
         echo "value=${{ runner.os }}-${{ runner.arch }}-driver-deps-$digest" >> "$GITHUB_OUTPUT"
 
     - if: inputs.save == 'true'
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/clidriver
         key: ${{ steps.key.outputs.value }}
         restore-keys: ${{ runner.os }}-${{ runner.arch }}-driver-deps-
 
     - if: inputs.save != 'true'
-      uses: actions/cache/restore@v4
+      uses: actions/cache/restore@v6
       with:
         path: ~/clidriver
         key: ${{ steps.key.outputs.value }}
