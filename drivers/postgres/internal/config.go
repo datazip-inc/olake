@@ -74,14 +74,13 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if err := c.SSLConfiguration.Validate(); err != nil {
+		return fmt.Errorf("failed to validate ssl config: %w", err)
+	}
+
 	sslmode := string(c.SSLConfiguration.Mode)
 	if sslmode != "" {
 		query.Add("sslmode", sslmode)
-	}
-
-	err := c.SSLConfiguration.Validate()
-	if err != nil {
-		return fmt.Errorf("failed to validate ssl config: %w", err)
 	}
 
 	parsed.RawQuery = query.Encode()
