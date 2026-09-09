@@ -21,14 +21,26 @@ var uiSchemaMap = map[string]string{
 const MongoDBUISchema = `{
     "ui:grid": [
         { "hosts": 12, "database": 12 },
-        { "authdb": 12, "username": 12 },
-        { "password": 12, "replica_set": 12 },
-        { "read_preference": 12, "srv": 12 },
-        { "max_threads": 12, "backoff_retry_count": 12 },
-        { "chunking_strategy": 12, "use_iam": 12 },
-        { "ssl": 12, "additional_params": 12 },
+        { "authdb": 12, "auth_mechanism": 12 },
+        { "username": 12, "password": 12 },
+        { "replica_set": 12, "read_preference": 12 },
+        { "srv": 12, "max_threads": 12 },
+        { "backoff_retry_count": 12, "chunking_strategy": 12 },
+        { "use_iam": 12, "ssl": 12 },
+        { "additional_params": 12 },
         { "ssh_config": 12 }
     ],
+    "auth_mechanism": {
+        "ui:widget": "select",
+        "ui:enumNames": [
+            "Default (SCRAM)",
+            "SCRAM-SHA-1",
+            "SCRAM-SHA-256",
+            "PLAIN",
+            "MONGODB-X509",
+            "MONGODB-OIDC"
+        ]
+    },
     "srv": {
         "ui:widget": "boolean"
     },
