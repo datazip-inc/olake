@@ -40,7 +40,7 @@ gomod:
 	find . -name go.mod -execdir go mod tidy \;
 
 golangci.install:
-	@test -x $(GOPATH)/bin/golangci-lint || GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	GOTOOLCHAIN=$(GO_VERSION) go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 
 # One golangci-lint run over every product module in go.work. Relative patterns on purpose: an
 # absolute <dir>/... for the root module sweeps into tests/, while ./... stays module-scoped.
@@ -142,6 +142,8 @@ wait_ready = echo "Waiting for $(1) (up to $(or $(WAIT_RETRIES.$(1)),$(WAIT_RETR
 #   WAIT_RETRIES.<d> / WAIT_SLEEP.<d>  probe retry overrides
 #   RECOVER.<d>                        nudge hook run after each failed probe
 #   POST_SETUP.<d>                     one-time init after the stack is ready (idempotent)
+#   VERIFY_STACK.<d>                   assertions that the running stack is the one asked for,
+#                                      run by olake.<d>.verify (SOURCE_COMPOSE_<d> can change it)
 #   prepare.<d>                        override of the no-op default below: provision
 #                                      host build deps (every build/test target that
 #                                      compiles <d> already depends on it). The driver
@@ -197,14 +199,23 @@ prepare.all: $(addprefix prepare.,$(DRIVERS))
 # at once, and `make -j olake.all.wait` collapses all the probes into one parallel
 # step, so slow boots (db2, spark) overlap with each other and with whatever
 # runs between the two -- what CI does.
+# The compose files for one source stack: the driver's own, and the override in SOURCE_COMPOSE_<d>
+# when CI sets it so the same olake.<d>.* targets bring up an alternate server. The destination
+# half is $(DEST_COMPOSE), which would grow a DEST_COMPOSE_FILE counterpart if it needs the same.
+SOURCE_COMPOSE_FILE = -f drivers/$(1)/docker-compose.yml $(if $(SOURCE_COMPOSE_$(1)),-f $(SOURCE_COMPOSE_$(1)))
+
 define SOURCE_DB_template
-.PHONY: olake.$(1).up olake.$(1).wait olake.$(1).start olake.$(1).stop olake.$(1).teardown olake.$(1).restart olake.$(1).refresh
+.PHONY: olake.$(1).up olake.$(1).wait olake.$(1).verify olake.$(1).start olake.$(1).stop olake.$(1).teardown olake.$(1).restart olake.$(1).refresh
 olake.$(1).up:
-	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml up -d
+	$$(COMPOSE) $$(call SOURCE_COMPOSE_FILE,$(1)) up -d
 
 olake.$(1).wait:
 	@$$(call wait_ready,$(1))
 	@$$(POST_SETUP.$(1))
+
+# No-op unless the fragment defines VERIFY_STACK.<d>, so CI can call it for every driver.
+olake.$(1).verify:
+	@$$(or $$(VERIFY_STACK.$(1)),echo "no stack verification defined for $(1)")
 
 # Sequenced via sub-make so `make -j` cannot probe a stack that is not up yet.
 olake.$(1).start:
@@ -212,10 +223,10 @@ olake.$(1).start:
 	@$$(MAKE) --no-print-directory olake.$(1).wait
 
 olake.$(1).stop:
-	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml down --remove-orphans
+	$$(COMPOSE) $$(call SOURCE_COMPOSE_FILE,$(1)) down --remove-orphans
 
 olake.$(1).teardown:
-	$$(COMPOSE) -f drivers/$(1)/docker-compose.yml down --volumes --remove-orphans
+	$$(COMPOSE) $$(call SOURCE_COMPOSE_FILE,$(1)) down --volumes --remove-orphans
 
 # restart = stop then start (keeps volumes + data); refresh = teardown then start
 # (wipes them). Both sequenced via sub-make so `make -j` can't start the stack
@@ -402,6 +413,7 @@ help:
 	@$(foreach d,$(SOURCE_DRIVERS),printf "  %-44s %s\n" "olake.$(d).refresh" "teardown then start $(d) (wipe data)";)
 	@printf "  %-44s %s\n" "olake.source.all.<verb>" "verb = start|stop|teardown|restart|refresh, all source stacks (make -j8)"
 	@printf "  %-44s %s\n" "olake.<driver>.up | olake.<driver>.wait" "the two halves of start, for running each in parallel"
+	@printf "  %-44s %s\n" "olake.<driver>.verify" "assert the running stack is the one asked for (VERIFY_STACK.<driver>)"
 	@echo ""
 	@echo "Destination stack (minio + mc + iceberg catalog + spark-connect):"
 	@printf "  %-44s %s\n" "olake.destination.all.start|stop" "the iceberg/parquet test stack"
