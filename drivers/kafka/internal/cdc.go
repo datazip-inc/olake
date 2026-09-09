@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -28,6 +29,19 @@ func (k *Kafka) ChangeStreamConfig() (bool, bool, bool) {
 func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
 	if len(streams) == 0 {
 		return fmt.Errorf("no valid streams found for CDC")
+	}
+
+	// Upsert: set SourceDefinedPrimaryKey from dedup_keys
+	for _, stream := range streams {
+		cfg, err := UpsertConfigFrom(stream.Self().StreamMetadata)
+		if err != nil {
+			return fmt.Errorf("stream[%s]: %s", stream.ID(), err)
+		}
+		if !cfg.Enabled {
+			continue
+		}
+		stream.GetStream().SourceDefinedPrimaryKey = types.NewSet(cfg.DedupKeys...)
+		logger.Infof("stream[%s]: upsert dedup keys %v", stream.ID(), cfg.DedupKeys)
 	}
 
 	var groupID string
@@ -116,14 +130,105 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 				fmt.Errorf("missing partition Metadata for topic %s partition %d", record.Message.Topic, record.Message.Partition))
 		}
 
-		// process the change if data is present
-		if record.Data != nil {
-			// Raw wire bytes: len(Key) + len(Value). Headers are excluded — they
-			// carry protocol metadata (schema IDs, trace context), not user data.
-			err := processFn(ctx, abstract.NewCDCChange(currentPartitionMeta.Stream, record.Message.Timestamp, "create",
-				record.Data, nil, int64(len(record.Message.Key)+len(record.Message.Value))))
-			if err != nil {
-				return false, err
+		stream := currentPartitionMeta.Stream
+		cfg, err := UpsertConfigFrom(stream.Self().StreamMetadata)
+		if err != nil {
+			return false, err
+		}
+		bytesRead := int64(len(record.Message.Key) + len(record.Message.Value))
+		if !cfg.Enabled {
+			//append only
+			if record.Data != nil {
+				if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", record.Data, nil, bytesRead)); err != nil {
+					return false, err
+				}
+			}
+		} else {
+			// upsert
+			kafkaKey := ""
+			if record.Data != nil {
+				if kKey, ok := record.Data[Key].(string); ok {
+					kafkaKey = kKey
+				}
+			}
+			if kafkaKey == "" && len(record.Message.Key) > 0 {
+				kafkaKey = k.canonicalizeKafkaKey(string(record.Message.Key))
+			}
+
+			appendByOffsetPartition := func(data map[string]any) error {
+				if data == nil {
+					data = map[string]any{}
+				}
+				data[Partition] = record.Message.Partition
+				data[Offset] = record.Message.Offset
+				if kafkaKey != "" {
+					data[Key] = kafkaKey
+				}
+				olakeID := utils.GetKeysHash(data, Offset, Partition)
+				extraColumns := map[string]any{
+					constants.OlakeID: olakeID,
+				}
+				logger.Warnf("appending with offset/partition - olake_id for topic=%s partition=%d offset=%d", record.Message.Topic, record.Message.Partition, record.Message.Offset)
+				return processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", data, extraColumns, bytesRead))
+			}
+
+			if record.Message.Value == nil {
+				if cfg.AllowTombstoneDeletes {
+					//dedup is only _kafka_key (present and not null) - tombstone deletes are valid
+					data, err := cfg.checkDedupKeysExist(record.Data, kafkaKey, record.KeyFields)
+					if err != nil {
+						//key - null
+						if errors.Is(err, errNullDedupKeys) {
+							return false, fmt.Errorf("stream[%s] offset=%d: %w", stream.ID(), record.Message.Offset, err)
+						}
+						// key - absent
+					} else {
+						extraColumns := map[string]any{
+							constants.OlakeID: cfg.generateOlakeIDFromExistingKeys(data),
+						}
+						if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "delete", data, extraColumns, bytesRead)); err != nil {
+							return false, err
+						}
+					}
+				} else {
+					//upsert only -- null value is appended by _kafka_key (no deletes)
+					if kafkaKey != "" {
+						data := map[string]any{
+							Partition: record.Message.Partition,
+							Offset:    record.Message.Offset,
+							Key:       kafkaKey,
+						}
+						// olake_id - with kafka_key string
+						extraColumns := map[string]any{
+							constants.OlakeID: kafkaKey,
+						}
+						if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", data, extraColumns, bytesRead)); err != nil {
+							return false, err
+						}
+					}
+					// null, null - avoid
+				}
+			} else if record.Data != nil {
+				// Non null value: Upsert when atleast one selected dedup key exist, all absent - append, all null - fail sync
+				data, err := cfg.checkDedupKeysExist(record.Data, kafkaKey, record.KeyFields)
+				if err != nil {
+					// all present dedup fields null - fail sync
+					if errors.Is(err, errNullDedupKeys) {
+						return false, fmt.Errorf("stream[%s] offset=%d: %w", stream.ID(), record.Message.Offset, err)
+					}
+					// no selected dedup fields is present - append
+					if err := appendByOffsetPartition(record.Data); err != nil {
+						return false, err
+					}
+				} else {
+					// atleast one non-null - upsert (partial null/empty/whitespace included in hash)
+					extraColumns := map[string]any{
+						constants.OlakeID: cfg.generateOlakeIDFromExistingKeys(data),
+					}
+					if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "update", data, extraColumns, bytesRead)); err != nil {
+						return false, err
+					}
+				}
 			}
 		}
 
@@ -279,7 +384,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 			}
 
 			message := iter.Next()
-			data, key, err := k.parseKafkaData(message)
+			data, key, keyFields, err := k.parseKafkaData(message)
 			if err != nil {
 				logger.Warnf("failed to parse message of topic: %s, partition: %d, offset %d, error: %s", message.Topic, message.Partition, message.Offset, err)
 			} else if data != nil {
@@ -293,7 +398,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 				}
 			}
 
-			stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, Message: message})
+			stopProcessing, err := stopProcessFn(types.KafkaRecord{Data: data, KeyFields: keyFields, Message: message})
 			if err != nil {
 				return err
 			}
@@ -304,7 +409,29 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 	}
 }
 
-func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, string, error) {
+// canonicalizeKafkaKey - normalize _kafka_key string
+func (k *Kafka) canonicalizeKafkaKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return raw
+	}
+	if raw[0] != '{' {
+		return raw
+	}
+	var m map[string]interface{}
+	dec := json.NewDecoder(strings.NewReader(raw))
+	dec.UseNumber()
+	if err := dec.Decode(&m); err != nil {
+		return raw
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return string(b)
+}
+
+func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, string, map[string]interface{}, error) {
 	// helper to parse data bytes (value or key)
 	parseData := func(data []byte) (interface{}, error) {
 		// if data is not in confluent wire format, it is assumed to be standard json currently
@@ -341,41 +468,51 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 	if message.Value != nil {
 		valDecoded, err := parseData(message.Value)
 		if err != nil {
-			return nil, "", err
+			return nil, "", nil, err
 		}
 		if vm, ok := valDecoded.(map[string]interface{}); ok {
 			messageValue = vm
 		} else {
-			return nil, "", fmt.Errorf("expected format for message value is not supported, got %s of type %T", valDecoded, valDecoded)
+			return nil, "", nil, fmt.Errorf("expected format for message value is not supported, got %s of type %T", valDecoded, valDecoded)
 		}
 	}
 
 	// 2. Parse Message Key
 	var keyValue string
+	var keyFields map[string]interface{}
 	if len(message.Key) > 0 {
 		parsedKey, err := parseData(message.Key)
 		if err != nil {
 			// standard fallback: raw key as string
-			keyValue = string(message.Key)
+			keyValue = k.canonicalizeKafkaKey(string(message.Key))
 		} else {
 			switch v := parsedKey.(type) {
 			case string:
-				keyValue = v
+				keyValue = k.canonicalizeKafkaKey(v)
 			case []byte:
-				keyValue = string(v)
+				keyValue = k.canonicalizeKafkaKey(string(v))
+			case map[string]interface{}:
+				keyFields = v
+				keyJSON, msgErr := json.Marshal(v)
+				if msgErr != nil {
+					logger.Warnf("failed to marshal decoded key at offset %d: %s, using raw string", message.Offset, msgErr)
+					keyValue = k.canonicalizeKafkaKey(string(message.Key))
+				} else {
+					keyValue = string(keyJSON)
+				}
 			default:
-				bytes, err := json.Marshal(v)
+				keyJSON, err := json.Marshal(v)
 				if err != nil {
 					logger.Warnf("failed to marshal decoded key at offset %d: %s, using raw string", message.Offset, err)
-					keyValue = string(message.Key)
+					keyValue = k.canonicalizeKafkaKey(string(message.Key))
 				} else {
-					keyValue = string(bytes)
+					keyValue = k.canonicalizeKafkaKey(string(keyJSON))
 				}
 			}
 		}
 	}
 
-	return messageValue, keyValue, nil
+	return messageValue, keyValue, keyFields, nil
 }
 
 // decode kafka json message
