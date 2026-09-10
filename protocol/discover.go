@@ -39,6 +39,10 @@ var discoverCmd = &cobra.Command{
 			}
 		}
 
+		if err := resolveTargetQueryEngines(); err != nil {
+			return err
+		}
+
 		//version
 		logger.Infof("Ruuning OLake sync with version %s", version.GetOlakeCLIVersion())
 
@@ -67,7 +71,7 @@ var discoverCmd = &cobra.Command{
 		if len(streams) == 0 {
 			return errors.New("no streams found in connector")
 		}
-		types.LogCatalog(streams, catalog, connector.Type())
+		types.LogCatalog(streams, catalog, connector.Type(), queryEngines)
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled
@@ -80,6 +84,26 @@ var discoverCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// resolveTargetQueryEngines reads the engines this discover run must satisfy. They are a
+// pure input: the run turns them into each stream's available_update_types and keeps
+// nothing else, so a caller that wants the constraint applied passes the flag every time.
+func resolveTargetQueryEngines() error {
+	engines, err := types.ParseQueryEngines(targetQueryEngines)
+	if err != nil {
+		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid, err)
+	}
+
+	// An empty intersection cannot be written at all, so fail here rather than emitting a
+	// catalog whose streams offer no delete format.
+	if len(engines) > 0 && len(types.AvailableUpdateTypes(engines)) == 0 {
+		return errs.Precondition(errs.ConfigInvalid, codeQueryEngineInvalid,
+			fmt.Errorf("no delete format is readable by all of the selected query engines %v", engines))
+	}
+
+	queryEngines = engines
+	return nil
 }
 
 // compareStreams reads two streams.json files, computes the difference, and writes the result to difference_streams.json
