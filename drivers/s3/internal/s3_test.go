@@ -304,6 +304,7 @@ func TestFilterFilesByCursor(t *testing.T) {
 	tests := []struct {
 		name            string
 		cursorTimestamp string
+		syncedKeys      map[string]bool
 		expectedCount   int
 		expectedFiles   []string
 	}{
@@ -314,8 +315,9 @@ func TestFilterFilesByCursor(t *testing.T) {
 			expectedFiles:   []string{"file1.csv", "file2.csv", "file3.csv", "file4.csv"},
 		},
 		{
-			name:            "cursor in middle - incremental mode",
+			name:            "cursor in middle - incremental mode (boundary file already synced)",
 			cursorTimestamp: "2024-01-02T10:00:00Z",
+			syncedKeys:      map[string]bool{"file2.csv": true},
 			expectedCount:   2,
 			expectedFiles:   []string{"file3.csv", "file4.csv"},
 		},
@@ -335,7 +337,7 @@ func TestFilterFilesByCursor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			filtered := s.filterFilesByCursor(files, tt.cursorTimestamp)
+			filtered := s.filterFilesByCursor(files, tt.cursorTimestamp, tt.syncedKeys)
 
 			assert.Equal(t, tt.expectedCount, len(filtered), "filtered file count mismatch")
 
