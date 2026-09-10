@@ -13,7 +13,6 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jmoiron/sqlx"
 	"golang.org/x/crypto/ssh"
@@ -79,7 +78,6 @@ func (d *DB2) Setup(ctx context.Context) error {
 	}
 
 	d.client = client
-	d.config.RetryCount = utils.Ternary(d.config.RetryCount <= 0, 1, d.config.RetryCount+1).(int)
 	return nil
 }
 
