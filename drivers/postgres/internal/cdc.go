@@ -81,6 +81,13 @@ func checkStreamsInPublication(publication string, pubTables []pubTable, streams
 	return nil
 }
 
+// checkPublicationExists verifies if a publication exists in the database.
+func checkPublicationExists(ctx context.Context, conn *sqlx.DB, publication string) (bool, error) {
+	var exists bool
+	err := conn.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM pg_publication WHERE pubname = $1)", publication)
+	return exists, err
+}
+
 // validatePublicationContainsStreams is called from PreCDC.
 // It fetches the publication's table list and delegates to
 // checkStreamsInPublication for the comparison.
@@ -88,6 +95,19 @@ func validatePublicationContainsStreams(ctx context.Context, conn *sqlx.DB, publ
 	if publication == "" || len(streams) == 0 {
 		return nil
 	}
+
+	exists, err := checkPublicationExists(ctx, conn, publication)
+	if err != nil {
+		return fmt.Errorf("failed to verify publication existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf(
+			"%w: publication %q does not exist; "+
+				"please create it with: CREATE PUBLICATION %s FOR TABLE <schema>.<table>",
+			constants.ErrNonRetryable, publication, publication,
+		)
+	}
+
 	pubTables, err := fetchPublicationTables(ctx, conn, publication)
 	if err != nil {
 		return err

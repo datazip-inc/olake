@@ -45,6 +45,7 @@ func (m *mockStream) IsSelectedColumn() func(string) bool {
 }
 
 func (m *mockStream) ResolveColumnName(key string) string { return key }
+func (m *mockStream) GetPartitionRegex() string             { return "" }
 
 func ms(schema, table string) types.StreamInterface {
 	return &mockStream{name: table, namespace: schema}
