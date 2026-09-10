@@ -6,6 +6,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	go_ora "github.com/sijms/go-ora/v2"
 )
 
@@ -54,21 +55,24 @@ func (c *Config) connectionString() string {
 // Validate checks the configuration for any missing or invalid fields
 func (c *Config) Validate() error {
 	if c.Host == "" {
-		return fmt.Errorf("empty host name")
+		return errs.Precondition(errs.ConfigInvalid, codeHostMissing, fmt.Errorf("empty host name"))
 	} else if strings.Contains(c.Host, "https") || strings.Contains(c.Host, "http") {
-		return fmt.Errorf("host should not contain http or https: %s", c.Host)
+		return errs.Precondition(errs.ConfigInvalid, codeHostSchemeIncluded,
+			fmt.Errorf("host should not contain http or https: %s", c.Host))
 	}
 
 	// Validate port
 	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("invalid port number: must be between 1 and 65535")
+		return errs.Precondition(errs.ConfigInvalid, codePortInvalid,
+			fmt.Errorf("invalid port number: must be between 1 and 65535"))
 	}
 	// Validate required fields
 	if c.Username == "" {
-		return fmt.Errorf("username is required")
+		return errs.Precondition(errs.ConfigInvalid, codeUsernameMissing, fmt.Errorf("username is required"))
 	}
 	if c.ServiceName == "" && c.SID == "" {
-		return fmt.Errorf("service_name or sid is required")
+		return errs.Precondition(errs.ConfigInvalid, codeServiceNameOrSIDMissing,
+			fmt.Errorf("service_name or sid is required"))
 	}
 
 	// Set default number of threads if not provided
@@ -97,5 +101,5 @@ func (c *Config) Validate() error {
 	if err != nil {
 		return fmt.Errorf("failed to validate ssl config: %w", err)
 	}
-	return utils.Validate(c)
+	return errs.Precondition(errs.ConfigInvalid, codeConfigValidationFailed, utils.Validate(c))
 }

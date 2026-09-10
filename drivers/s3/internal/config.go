@@ -6,6 +6,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/s3/internal/pkg/parser"
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 // FileFormat represents the format of files in S3
@@ -71,23 +72,27 @@ type Config struct {
 func (c *Config) Validate() error {
 	// Validate bucket name
 	if c.BucketName == "" {
-		return fmt.Errorf("bucket_name is required")
+		return errs.Precondition(errs.ConfigInvalid, codeBucketNameMissing,
+			fmt.Errorf("bucket_name is required"))
 	}
 
 	// Validate region (only if not using custom endpoint)
 	if c.Endpoint == "" && c.Region == "" {
-		return fmt.Errorf("region is required when not using custom endpoint")
+		return errs.Precondition(errs.ConfigInvalid, codeRegionMissing,
+			fmt.Errorf("region is required when not using custom endpoint"))
 	}
 
 	// Validate credentials - both must be provided together or omitted together
 	// If omitted, the driver will fall back to default credential chain (IAM roles, env vars, etc.)
 	if (c.AccessKeyID != "" && c.SecretAccessKey == "") || (c.AccessKeyID == "" && c.SecretAccessKey != "") {
-		return fmt.Errorf("access_key_id and secret_access_key must be provided together or both omitted (for IAM role authentication)")
+		return errs.Precondition(errs.ConfigInvalid, codeCredentialsIncomplete,
+			fmt.Errorf("access_key_id and secret_access_key must be provided together or both omitted (for IAM role authentication)"))
 	}
 
 	// Validate file format
 	if c.FileFormat == "" {
-		return fmt.Errorf("file_format is required (%v)", supportedFileFormats)
+		return errs.Precondition(errs.ConfigInvalid, codeFileFormatMissing,
+			fmt.Errorf("file_format is required (%v)", supportedFileFormats))
 	}
 
 	validFormat := false
@@ -98,7 +103,8 @@ func (c *Config) Validate() error {
 		}
 	}
 	if !validFormat {
-		return fmt.Errorf("invalid file_format: must be %v", supportedFileFormats)
+		return errs.Precondition(errs.ConfigInvalid, codeUnsupportedFileFormat,
+			fmt.Errorf("invalid file_format: must be %v", supportedFileFormats))
 	}
 
 	// Set default values
@@ -115,7 +121,8 @@ func (c *Config) Validate() error {
 		}
 	}
 	if !validCompression {
-		return fmt.Errorf("invalid compression: must be none, gzip, or zip")
+		return errs.Precondition(errs.ConfigInvalid, codeCompressionInvalid,
+			fmt.Errorf("invalid compression: must be none, gzip, or zip"))
 	}
 
 	// Format-specific validation and defaults

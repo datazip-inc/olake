@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 type Config struct {
@@ -94,19 +95,19 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 
 func (c *Config) Validate() error {
 	if len(c.Hosts) == 0 {
-		return fmt.Errorf("hosts is required")
+		return errs.Precondition(errs.ConfigInvalid, codeHostsMissing, fmt.Errorf("hosts is required"))
 	}
 
 	if c.Database == "" {
-		return fmt.Errorf("database is required")
+		return errs.Precondition(errs.ConfigInvalid, codeDatabaseMissing, fmt.Errorf("database is required"))
 	}
 
 	if !c.UseIAM {
 		if c.Username == "" {
-			return fmt.Errorf("username is required")
+			return errs.Precondition(errs.ConfigInvalid, codeUsernameMissing, fmt.Errorf("username is required"))
 		}
 		if c.AuthDB == "" {
-			return fmt.Errorf("authdb is required")
+			return errs.Precondition(errs.ConfigInvalid, codeAuthDBMissing, fmt.Errorf("authdb is required"))
 		}
 		// Password is optional — staging allowed password-less URIs (X509, OIDC, username-only).
 		// MongoDB rejects at connect time if the mechanism actually needs a password.
@@ -138,5 +139,5 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %w", err)
 	}
 
-	return utils.Validate(c)
+	return errs.Precondition(errs.ConfigInvalid, codeConfigValidationFailed, utils.Validate(c))
 }
