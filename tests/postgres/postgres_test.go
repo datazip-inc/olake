@@ -106,8 +106,8 @@ func TestPostgresCompatibility(t *testing.T) {
 			createReplicationSlot(t, cfg)
 			return cfg
 		},
-		DeclaredSchema:   PostgresToDestinationSchema,
-		CDCColumnsSchema: ExpectedPostgresDefaultCDCColumnsSchema,
+		DestinationSchema: PostgresToDestinationSchema,
+		CDCColumnsSchema:  ExpectedPostgresDefaultCDCColumnsSchema,
 	}
 	testHandler.RunBackwardCompatibility(t)
 }

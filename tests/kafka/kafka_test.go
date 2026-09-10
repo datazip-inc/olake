@@ -15,11 +15,14 @@ type kafkaFormat struct {
 	// build runs inside the subtest, not beside it: every name a suite owns is derived from
 	// t.Name(), so both formats built against the parent would answer to the same one.
 	build func(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler
+	// destinationSchema is the format's destination column types, which the compatibility suite
+	// resolves its type-keyed rules against.
+	destinationSchema map[string]string
 }
 
 var kafkaFormats = []kafkaFormat{
-	{name: "JSON-Format", build: kafkaJSONBaseConfig},
-	{name: "AVRO-Format", build: kafkaAvroBaseConfig},
+	{name: "JSON-Format", build: kafkaJSONBaseConfig, destinationSchema: KafkaToDestinationJSONSchema},
+	{name: "AVRO-Format", build: kafkaAvroBaseConfig, destinationSchema: KafkaToDestinationAvroSchema},
 }
 
 // kafkaJSONTestConfig builds the config every kafka JSON suite shares: the source, the namespace and the stream settings.
@@ -128,17 +131,21 @@ func TestKafkaRebalance(t *testing.T) {
 	testRebalance(t, kafkaJSONBaseConfig(t))
 }
 
-// TestKafkaCompatibility pins the backward-compatibility contract on the JSON format, the same single
-// format Test2PCIntegration uses: the suite varies only the binary, and avro would add a
-// schema-registry axis to the comparison. See tests/testutils/compatibility.go.
+// TestKafkaCompatibility runs every source format. Each format owns its broker, its testdata
+// directory and its topic name, so the two sweeps share one destination namespace without colliding.
 func TestKafkaCompatibility(t *testing.T) {
 	t.Parallel()
-	testHandler := &compatibility.TestHandler{
-		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
-			return kafkaJSONTestConfig(t, testutils.WithDriverVersion(version))
-		},
-		DeclaredSchema:   KafkaToDestinationJSONSchema,
-		CDCColumnsSchema: ExpectedKafkaDefaultCDCColumnsSchema,
+	for _, format := range kafkaFormats {
+		t.Run(format.name, func(t *testing.T) {
+			t.Parallel()
+			testHandler := &compatibility.TestHandler{
+				NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
+					return format.build(t, testutils.WithDriverVersion(version)).TestConfig
+				},
+				DestinationSchema: format.destinationSchema,
+				CDCColumnsSchema:  ExpectedKafkaDefaultCDCColumnsSchema,
+			}
+			testHandler.RunBackwardCompatibility(t)
+		})
 	}
-	testHandler.RunBackwardCompatibility(t)
 }

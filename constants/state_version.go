@@ -44,15 +44,17 @@ import (
 //     * Unsigned 32-bit: earlier read as a signed int32 and mapped to Int32, so values above 2^31-1 wrapped negative. Now widened to Int64, matching pg/mysql.
 //     * Older state keeps both previous behaviors so existing destination columns do not change type on upgrade.
 
-// LatestStateVersion is the current version of the state file format.
-// This version is used when creating new state files.
-var LatestStateVersion int
+var (
+	// LatestStateVersion is the current version of the state file format.
+	// This version is used when creating new state files.
+	LatestStateVersion int
 
-// Used as the current version of the state when the program is running
-var LoadedStateVersion int
+	// Used as the current version of the state when the program is running
+	LoadedStateVersion int
 
-//go:embed state-versions.json
-var rawStateVersions []byte
+	//go:embed state-versions.json
+	rawStateVersions []byte
+)
 
 // init initializes static information only: the version this build writes. The version a running
 // sync is pinned at comes from its state file, via SetLoadedStateVersion.

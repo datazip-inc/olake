@@ -71,7 +71,7 @@ func TestOracleCompatibility(t *testing.T) {
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
 			return oracleTestConfig(t, testutils.WithDriverVersion(version))
 		},
-		DeclaredSchema: OracleToDestinationSchema,
+		DestinationSchema: OracleToDestinationSchema,
 	}
 	testHandler.RunBackwardCompatibility(t)
 }

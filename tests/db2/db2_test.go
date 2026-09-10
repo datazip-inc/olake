@@ -72,8 +72,8 @@ func TestDB2Compatibility(t *testing.T) {
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
 			return db2TestConfig(t, testutils.WithDriverVersion(version))
 		},
-		DeclaredSchema: DB2ToDestinationSchema,
-		ColumnTypes:    seedColumnTypes(),
+		DestinationSchema: DB2ToDestinationSchema,
+		ColumnTypes:       seedColumnTypes(),
 	}
 	testHandler.RunBackwardCompatibility(t)
 }

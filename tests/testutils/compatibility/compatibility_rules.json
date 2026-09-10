@@ -91,7 +91,7 @@
       }
     }
   },
-    "destinations": {
+  "destinations": {
       "rules": [
         {"column": "_olake_timestamp", "type_only": true, "note": "olake's write stamp: wall-clock, never value-comparable across two runs"}
       ],

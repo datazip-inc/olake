@@ -99,7 +99,7 @@ func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules com
 	// The columns a data_types rule can select: the driver's declared schema and the fixture's own
 	// tags.
 	columnTypes := map[string][]string{}
-	for column, declared := range fixture.DeclaredSchema {
+	for column, declared := range fixture.DestinationSchema {
 		if declared = strings.ToLower(strings.TrimSpace(declared)); declared != "" {
 			columnTypes[column] = append(columnTypes[column], declared)
 		}

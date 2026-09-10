@@ -63,7 +63,7 @@ func TestS3Compatibility(t *testing.T) {
 		t.Run(variant.Name, func(t *testing.T) {
 			t.Parallel()
 			testHandler := &compatibility.TestHandler{
-				DeclaredSchema: variant.DestinationSchema,
+				DestinationSchema: variant.DestinationSchema,
 			}
 			testHandler.NewConfig = func(t *testing.T, version string) *testutils.TestConfig {
 				return s3BaseConfig(t, variant, testutils.WithDriverVersion(version)).TestConfig

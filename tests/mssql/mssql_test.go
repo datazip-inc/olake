@@ -74,8 +74,8 @@ func TestMSSQLCompatibility(t *testing.T) {
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
 			return mssqlTestConfig(t, testutils.WithDriverVersion(version))
 		},
-		DeclaredSchema:   MSSQLToDestinationSchema,
-		CDCColumnsSchema: ExpectedMSSQLDefaultCDCColumnsSchema,
+		DestinationSchema: MSSQLToDestinationSchema,
+		CDCColumnsSchema:  ExpectedMSSQLDefaultCDCColumnsSchema,
 	}
 
 	testHandler.RunBackwardCompatibility(t)

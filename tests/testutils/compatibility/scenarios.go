@@ -208,7 +208,7 @@ func clearDestination(t *testing.T, group compatibilityGroup, db, table string) 
 	case "iceberg":
 		testutils.DropIcebergTable(t, table, db)
 	case "parquet":
-		if err := testutils.DeleteParquetFiles(t, db, table); err != nil {
+		if err := testutils.DeleteParquetTable(t, db, table); err != nil {
 			t.Logf("could not clear parquet files at %s/%s (likely absent): %s", db, table, err)
 		}
 	}

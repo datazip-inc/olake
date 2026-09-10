@@ -42,17 +42,17 @@ const (
 )
 
 type TestHandler struct {
-	NewConfig        func(t *testing.T, DriverVersion string) *testutils.TestConfig
-	DeclaredSchema   map[string]string
-	ColumnTypes      map[string][]string
-	CDCColumnsSchema map[string]string
+	NewConfig         func(t *testing.T, DriverVersion string) *testutils.TestConfig
+	DestinationSchema map[string]string
+	ColumnTypes       map[string][]string
+	CDCColumnsSchema  map[string]string
 }
 
 // Validate checks the fixture wired everything a compatibility run reads.
 func (th *TestHandler) Validate(t *testing.T) {
 	t.Helper()
 	require.NotNil(t, th.NewConfig, "compatibility.TestHandler.NewConfig is not set")
-	require.NotEmpty(t, th.DeclaredSchema, "compatibility.TestHandler.DeclaredSchema is not set; type-keyed rules would resolve against nothing")
+	require.NotEmpty(t, th.DestinationSchema, "compatibility.TestHandler.DestinationSchema is not set; type-keyed rules would resolve against nothing")
 }
 
 // RunBackwardCompatibility runs one driver's scenarios twice -- a reference run entirely on the baseline
@@ -192,6 +192,7 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baseline, upgrade 
 			t.Run(group.name, func(t *testing.T) {
 				t.Parallel()
 				for _, v := range group.variants {
+					// running variants in series as all the compatibility runs are already in parallel so too much parallelism can degrade performance
 					if aborted.Load() {
 						t.Logf("compatibility group %s: skipping variant %q onwards; another run already failed", group.name, v.name)
 						break

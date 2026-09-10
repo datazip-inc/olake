@@ -83,9 +83,9 @@ func TestMySQLPerformance(t *testing.T) {
 func TestMySQLCompatibility(t *testing.T) {
 	t.Parallel()
 	testHandler := &compatibility.TestHandler{
-		DeclaredSchema:   MySQLToDestinationSchema,
-		CDCColumnsSchema: ExpectedMySQLDefaultCDCColumnsSchema,
-		ColumnTypes:      seedColumnTypes(),
+		DestinationSchema: MySQLToDestinationSchema,
+		CDCColumnsSchema:  ExpectedMySQLDefaultCDCColumnsSchema,
+		ColumnTypes:       seedColumnTypes(),
 	}
 	testHandler.NewConfig = func(t *testing.T, version string) *testutils.TestConfig {
 		return mysqlTestConfig(t, testutils.WithDriverVersion(version))

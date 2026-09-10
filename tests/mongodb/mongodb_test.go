@@ -87,9 +87,9 @@ func TestMongodbCompatibility(t *testing.T) {
 		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
 			return mongodbTestConfig(t, testutils.WithDriverVersion(version))
 		},
-		DeclaredSchema:   MongoToDestinationSchema,
-		ColumnTypes:      seedColumnTypes(),
-		CDCColumnsSchema: ExpectedMongoDBDefaultCDCColumnsSchema,
+		DestinationSchema: MongoToDestinationSchema,
+		ColumnTypes:       seedColumnTypes(),
+		CDCColumnsSchema:  ExpectedMongoDBDefaultCDCColumnsSchema,
 	}
 	testHandler.RunBackwardCompatibility(t)
 }
