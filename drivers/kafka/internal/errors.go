@@ -11,11 +11,19 @@ import (
 // Codes for conditions this driver detects itself. All but the first are state that no longer
 // lines up with the broker — visible only by comparing our destination metadata against Kafka.
 const (
-	codeBackfillUnsupported     = "kafka.backfill_unsupported"
-	codeMetadataStateInvalid    = "kafka.metadata_state_invalid"
-	codeConsumerGroupMismatch   = "kafka.consumer_group_mismatch"
-	codeOffsetMismatch          = "kafka.offset_mismatch"
-	codePartitionMetadataAbsent = "kafka.partition_metadata_absent"
+	codeBackfillUnsupported           = "kafka.backfill_unsupported"
+	codeMetadataStateInvalid          = "kafka.metadata_state_invalid"
+	codeConsumerGroupMismatch         = "kafka.consumer_group_mismatch"
+	codeOffsetMismatch                = "kafka.offset_mismatch"
+	codePartitionMetadataAbsent       = "kafka.partition_metadata_absent"
+	codeBootstrapServersMissing       = "kafka.bootstrap_servers_missing"
+	codeSecurityProtocolMissing       = "kafka.security_protocol_missing"
+	codeSASLMechanismMissing          = "kafka.sasl_mechanism_missing"
+	codeSASLJAASConfigMissing         = "kafka.sasl_jaas_config_missing"
+	codeServerCAMissing               = "kafka.server_ca_missing"
+	codeClientKeypairIncomplete       = "kafka.client_keypair_incomplete"
+	codeSchemaRegistryEndpointMissing = "kafka.schema_registry_endpoint_missing"
+	codeConfigValidationFailed        = "kafka.config_validation_failed"
 )
 
 // kerrCategories maps a Kafka protocol error code to a failure category; trailing names are as

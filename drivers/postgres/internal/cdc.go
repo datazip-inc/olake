@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jmoiron/sqlx"
@@ -18,7 +19,8 @@ import (
 
 func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
-		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
+		return nil, errs.Precondition(errs.CDCPreconditionFailed, codeCDCNotConfigured,
+			fmt.Errorf("invalid call; %s not running in CDC mode", p.Type()))
 	}
 
 	tlsConfig, err := p.config.buildTLSConfig()
@@ -63,7 +65,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	var postgresGlobalState waljs.WALState
 	rawGlobalState := p.state.GetGlobal()
 	if err := utils.Unmarshal(rawGlobalState.State, &postgresGlobalState); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal global state: %w", err)
+		return nil, errs.Precondition(errs.StateInvalid, codeGlobalStateUnreadable,
+			fmt.Errorf("failed to unmarshal global state: %w", err))
 	}
 
 	var metadataCommittedLSN string
@@ -77,17 +80,20 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		if stMtState, ok := rawMtState.(string); ok {
 			var mtState waljs.WALState
 			if err := json.Unmarshal([]byte(stMtState), &mtState); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal metadata state: %w", err)
+				return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateUnreadable,
+					fmt.Errorf("failed to unmarshal metadata state: %w", err))
 			}
 
 			// Recovery is only needed when metadata is strictly AHEAD of state .
 			parsedMetaLSN, err := pglogrepl.ParseLSN(mtState.LSN)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse metadata LSN %q: %w", mtState.LSN, err)
+				return nil, errs.Precondition(errs.StateInvalid, codeMetadataLSNUnparseable,
+					fmt.Errorf("failed to parse metadata LSN %q: %w", mtState.LSN, err))
 			}
 			parsedStateLSN, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse global state LSN %q: %w", postgresGlobalState.LSN, err)
+				return nil, errs.Precondition(errs.StateInvalid, codeGlobalLSNUnparseable,
+					fmt.Errorf("failed to parse global state LSN %q: %w", postgresGlobalState.LSN, err))
 			}
 			if parsedMetaLSN > parsedStateLSN {
 				// metadata ahead of state: genuine crash-recovery path
@@ -96,7 +102,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 			}
 			// state >= metadata: blank sync scenario — stream forward normally
 		} else {
-			return nil, fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState)
+			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateNotString,
+				fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState))
 		}
 	}
 
@@ -109,7 +116,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		// recovery sync required: read up to the LSN stored in the Iceberg metadata
 		parsed, err := pglogrepl.ParseLSN(metadataCommittedLSN)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse recovery LSN %q: %w", metadataCommittedLSN, err)
+			return nil, errs.Precondition(errs.StateInvalid, codeMetadataLSNUnparseable,
+				fmt.Errorf("failed to parse recovery LSN %q: %w", metadataCommittedLSN, err))
 		}
 		recoveryLSN = &parsed
 
@@ -150,7 +158,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	slotAtMetadataLSN := recoveryLSN != nil && slot.LSN == *recoveryLSN
 	if len(remainingStreams) > 0 && !slotAtMetadataLSN {
 		if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
-			return nil, fmt.Errorf("%s: invalid global state: %w", constants.ErrNonRetryable, err)
+			return nil, fmt.Errorf("%w: invalid global state: %w", constants.ErrNonRetryable, err)
 		}
 	} else {
 		logger.Infof("all streams already committed in destination, skipping state LSN validation")
@@ -219,12 +227,14 @@ func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string
 	}
 
 	if slot.SlotType != "logical" {
-		return fmt.Errorf("only logical slots are supported: %s", slot.SlotType)
+		return errs.Precondition(errs.CDCPreconditionFailed, codeSlotTypeUnsupported,
+			fmt.Errorf("only logical slots are supported: %s", slot.SlotType))
 	}
 
 	logger.Debugf("replication slot[%s] with pluginType[%s] found", slotName, slot.Plugin)
 	if slot.Plugin == "pgoutput" && publication == "" {
-		return fmt.Errorf("publication is required for pgoutput")
+		return errs.Precondition(errs.CDCPreconditionFailed, codePublicationMissing,
+			fmt.Errorf("publication is required for pgoutput"))
 	}
 	return nil
 }
@@ -232,16 +242,19 @@ func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string
 func validateGlobalState(postgresGlobalState waljs.WALState, confirmedFlushLSN pglogrepl.LSN) error {
 	// global state exist check for cursor and cursor mismatch
 	if postgresGlobalState.LSN == "" {
-		return fmt.Errorf("%w: lsn is empty, please proceed with clear destination", constants.ErrNonRetryable)
+		return errs.Precondition(errs.StateInvalid, codeGlobalLSNMissing,
+			fmt.Errorf("lsn is empty, please proceed with clear destination"))
 	}
 	parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 	if err != nil {
-		return fmt.Errorf("failed to parse stored lsn[%s]: %w", postgresGlobalState.LSN, err)
+		return errs.Precondition(errs.StateInvalid, codeGlobalLSNUnparseable,
+			fmt.Errorf("failed to parse stored lsn[%s]: %w", postgresGlobalState.LSN, err))
 	}
 	// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
 	// suggesting to proceed with clear destination
 	if parsed != confirmedFlushLSN {
-		return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, confirmedFlushLSN)
+		return errs.Precondition(errs.StateInvalid, codeLSNMismatch,
+			fmt.Errorf("lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", parsed, confirmedFlushLSN))
 	}
 	return nil
 }

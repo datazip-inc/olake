@@ -8,6 +8,16 @@ import (
 	"github.com/sijms/go-ora/v2/network"
 )
 
+// Codes for conditions this driver detects itself, where the server never named the failure.
+const (
+	codeHostMissing             = "oracle.host_missing"
+	codeHostSchemeIncluded      = "oracle.host_scheme_included"
+	codePortInvalid             = "oracle.port_invalid"
+	codeUsernameMissing         = "oracle.username_missing"
+	codeServiceNameOrSIDMissing = "oracle.service_name_or_sid_missing"
+	codeConfigValidationFailed  = "oracle.config_validation_failed"
+)
+
 // oraCodeCategories maps an Oracle error number to a failure category. Entries marked "go-ora"
 // are taken from the driver's own translate() and Bad() tables, so telemetry agrees with what
 // the library treats as an unusable connection.

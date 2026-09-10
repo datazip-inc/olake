@@ -20,6 +20,11 @@ const (
 	codeCDCUnsupported        = "s3.cdc_unsupported"
 	codeUnsupportedFileFormat = "s3.unsupported_file_format"
 	codeNoFilesForStream      = "s3.no_files_for_stream"
+	codeBucketNameMissing     = "s3.bucket_name_missing"
+	codeRegionMissing         = "s3.region_missing"
+	codeCredentialsIncomplete = "s3.credentials_incomplete"
+	codeFileFormatMissing     = "s3.file_format_missing"
+	codeCompressionInvalid    = "s3.compression_invalid"
 )
 
 // Registered so ReportFailure can classify without knowing which connector ran. Only S3 evidence

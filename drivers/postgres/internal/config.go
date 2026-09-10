@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 )
 
 type Config struct {
@@ -36,14 +37,16 @@ type CDC struct {
 
 func (c *Config) Validate() error {
 	if c.Host == "" {
-		return fmt.Errorf("empty host name")
+		return errs.Precondition(errs.ConfigInvalid, codeHostMissing, fmt.Errorf("empty host name"))
 	} else if strings.Contains(c.Host, "https") || strings.Contains(c.Host, "http") {
-		return fmt.Errorf("host should not contain http or https")
+		return errs.Precondition(errs.ConfigInvalid, codeHostSchemeIncluded,
+			fmt.Errorf("host should not contain http or https"))
 	}
 
 	// Validate port
 	if c.Port <= 0 || c.Port > 65535 {
-		return fmt.Errorf("invalid port number: must be between 1 and 65535")
+		return errs.Precondition(errs.ConfigInvalid, codePortInvalid,
+			fmt.Errorf("invalid port number: must be between 1 and 65535"))
 	}
 
 	// default number of threads
@@ -89,7 +92,8 @@ func (c *Config) Validate() error {
 
 	for i, s := range c.Schemas {
 		if strings.TrimSpace(s) == "" {
-			return fmt.Errorf("schemas[%d] must not be blank", i)
+			return errs.Precondition(errs.ConfigInvalid, codeSchemaBlank,
+				fmt.Errorf("schemas[%d] must not be blank", i))
 		}
 	}
 

@@ -160,6 +160,7 @@ const (
 	// Codes for conditions the CLI detects itself, before any connector is reached.
 	codeFlagMissing    = "config.flag_missing"
 	codeNoValidStreams = "catalog.no_valid_streams"
+	codeNoStreams      = "catalog.no_streams_discovered"
 	// recovered panic as an internal error
 	codePanicRecovered = "sync.panic_recovered"
 )
