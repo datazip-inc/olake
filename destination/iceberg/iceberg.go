@@ -95,20 +95,24 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	}
 
 	upsertMode := isUpsertMode(stream, options.Backfill)
+	deleteMode := stream.GetUpdateType()
 
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	// Row-identity column, sent even where the catalog forbids declaring it.
+	identifierField := constants.OlakeID
 	iceSchema := stream.Schema().ToIceberg(!stream.NormalizationEnabled(), i.stream, partitionFields...)
 	requestPayload := proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
-			Schema:               iceSchema,
-			DestTableName:        stream.GetDestinationTable(),
-			ThreadId:             options.ThreadID,
-			IdentifierField:      &identifierField,
-			Namespace:            stream.GetDestinationDatabase(&i.config.IcebergDatabase),
-			Upsert:               upsertMode,
-			UsePositionalDeletes: options.TableIndex != nil,
-			PartitionFields:      icebergPartFields,
+			Schema:          iceSchema,
+			DestTableName:   stream.GetDestinationTable(),
+			ThreadId:        options.ThreadID,
+			IdentifierField: &identifierField,
+			// Unity Catalog rejects identifier columns; only equality deletes need them declared.
+			DeclareIdentifierFields: !i.config.NoIdentifierFields,
+			Namespace:               stream.GetDestinationDatabase(&i.config.IcebergDatabase),
+			Upsert:                  upsertMode,
+			DeleteMode:              protoDeleteMode(deleteMode),
+			PartitionFields:         icebergPartFields,
 		},
 	}
 
@@ -196,7 +200,8 @@ func (i *Iceberg) Check(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 300*time.Second)
 	defer cancel()
 
-	identifierField := utils.Ternary(i.config.NoIdentifierFields, "", constants.OlakeID).(string)
+	// Row-identity column, sent even where the catalog forbids declaring it.
+	identifierField := constants.OlakeID
 	request := &proto.IcebergPayload{
 		Type: proto.IcebergPayload_GET_OR_CREATE_TABLE,
 		Metadata: &proto.IcebergPayload_Metadata{
@@ -206,6 +211,12 @@ func (i *Iceberg) Check(ctx context.Context) error {
 			Namespace:       destinationDB,
 			Upsert:          false,
 			IdentifierField: &identifierField,
+			// Unity Catalog rejects identifier columns; only equality deletes need them declared.
+			DeclareIdentifierFields: !i.config.NoIdentifierFields,
+			// The check table is written once, appended, and never updated, so no
+			// delete mode is meaningful here. Equality is the one that constrains the
+			// table least: it creates at format version 2 and needs no table index.
+			DeleteMode: proto.IcebergPayload_DELETE_MODE_EQUALITY,
 		},
 	}
 
@@ -616,6 +627,22 @@ func getCommonAncestorType(d1, d2 string) string {
 
 func isUpsertMode(stream types.StreamInterface, backfill bool) bool {
 	return utils.Ternary(stream.Self().StreamMetadata.AppendMode, false, !backfill).(bool)
+}
+
+// protoDeleteMode maps the config-facing delete mode onto the wire enum. An
+// unknown mode reaches the server as UNSPECIFIED, which it rejects; config is
+// validated by types.UpdateType.Validate() long before this point.
+func protoDeleteMode(mode types.UpdateType) proto.IcebergPayload_DeleteMode {
+	switch mode {
+	case types.UpdateTypeEquality:
+		return proto.IcebergPayload_DELETE_MODE_EQUALITY
+	case types.UpdateTypePosition:
+		return proto.IcebergPayload_DELETE_MODE_POSITION
+	case types.UpdateTypeDeletionVector:
+		return proto.IcebergPayload_DELETE_MODE_DELETION_VECTOR
+	default:
+		return proto.IcebergPayload_DELETE_MODE_UNSPECIFIED
+	}
 }
 
 func init() {

@@ -81,9 +81,21 @@ public class IcebergUtil {
 
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
                                          Schema schema, String writeFormat, List<Map<String, String>> partitionTransforms) {
+    return createIcebergTable(icebergCatalog, tableIdentifier, schema, writeFormat, partitionTransforms, 2);
+  }
 
-    LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}", tableIdentifier, schema,
-        schema.identifierFieldNames());
+  /**
+   * @param formatVersion table format version to create at. Deletion vectors need 3;
+   *                      every other delete mode works on 2. Callers derive this from
+   *                      {@code DeleteMode.minimumFormatVersion()} - see
+   *                      {@code OlakeRowsIngester.loadOrCreateTable}.
+   */
+  public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
+                                         Schema schema, String writeFormat, List<Map<String, String>> partitionTransforms,
+                                         int formatVersion) {
+
+    LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}\nformatVersion:{}", tableIdentifier, schema,
+        schema.identifierFieldNames(), formatVersion);
 
     ensureNamespace(icebergCatalog, tableIdentifier);
 
@@ -91,7 +103,7 @@ public class IcebergUtil {
     if (partitionTransforms.isEmpty()) {
       // No partitioning - create a table as before
       return icebergCatalog.buildTable(tableIdentifier, schema)
-              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(FORMAT_VERSION, String.valueOf(formatVersion))
               .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
               .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
               .create();
@@ -151,7 +163,7 @@ public class IcebergUtil {
       
       // Create the table with the partition spec
       return icebergCatalog.buildTable(tableIdentifier, schema)
-              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(FORMAT_VERSION, String.valueOf(formatVersion))
               .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
               .withPartitionSpec(specBuilder.build())
               .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
@@ -204,6 +216,28 @@ public class IcebergUtil {
           .setAll(icebergTable.properties())
           .set("write.metadata.metrics.column.file_path", "full");
     }
+  }
+
+  /**
+   * Raises an existing table to {@code formatVersion} when it sits below it, so a
+   * stream reconfigured to a delete mode needing a higher version (e.g. {@code eq} or
+   * {@code pos} -> {@code dv}) can keep writing to the table it already has instead of
+   * failing outright.
+   *
+   * <p>Iceberg only moves format versions forward, so this is one-way: a table raised
+   * to 3 for deletion vectors cannot be lowered back to 2 later, and every engine
+   * reading it afterward needs to understand v3. Never called implicitly for a
+   * mismatch in the other direction (table above what the mode needs) - that is
+   * rejected instead, see {@code OlakeRowsIngester.loadOrCreateTable}.
+   */
+  public static void ensureFormatVersion(Table table, int formatVersion) {
+    int current = ((org.apache.iceberg.HasTableOperations) table).operations().current().formatVersion();
+    if (current >= formatVersion) {
+      return;
+    }
+    LOGGER.warn("Upgrading {} from format version {} to {}; this cannot be undone",
+        table.name(), current, formatVersion);
+    table.updateProperties().set(FORMAT_VERSION, String.valueOf(formatVersion)).commit();
   }
 
   public static OutputFileFactory getTableOutputFileFactory(Table icebergTable, FileFormat format) {

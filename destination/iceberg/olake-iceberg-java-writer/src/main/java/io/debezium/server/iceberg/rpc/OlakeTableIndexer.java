@@ -5,12 +5,14 @@ import java.util.concurrent.ConcurrentMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.debezium.server.iceberg.rpc.RecordIngest.IcebergPayload;
 import io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesRequest;
 import io.debezium.server.iceberg.rpc.RecordIngest.MigrateEqualityDeletesResponse;
 import io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanBatch;
 import io.debezium.server.iceberg.rpc.RecordIngest.TableIndexScanRequest;
 import io.debezium.server.iceberg.tableIndex.EqualityDeleteMigrator;
 import io.debezium.server.iceberg.tableIndex.TableIndexScanner;
+import io.debezium.server.iceberg.tableoperator.DeleteMode;
 import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
 
@@ -68,8 +70,15 @@ public class OlakeTableIndexer extends TableIndexServiceGrpc.TableIndexServiceIm
       StreamObserver<MigrateEqualityDeletesResponse> responseObserver) {
     try {
       IcebergSession session = requireSession(request.getThreadId());
+      // target_mode wins when the caller set it; UNSPECIFIED falls back to the
+      // session's own mode, since deleteMode.addressesPositions() is what gated this RPC.
+      IcebergPayload.DeleteMode requestedMode = request.getTargetMode();
+      DeleteMode targetMode =
+          requestedMode == IcebergPayload.DeleteMode.DELETE_MODE_UNSPECIFIED
+              ? session.deleteMode
+              : DeleteMode.resolve(requestedMode);
       EqualityDeleteMigrator.Result result = EqualityDeleteMigrator.migrate(
-          session.icebergTable, session.identifierField, session.fileFactory);
+          session.icebergTable, session.identifierField, session.fileFactory, targetMode);
 
       responseObserver.onNext(MigrateEqualityDeletesResponse.newBuilder()
           .setRewrittenDeleteFiles(result.rewrittenDeleteFiles)
