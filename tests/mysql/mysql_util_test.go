@@ -84,6 +84,8 @@ var seedColumns = []seedColumn{
 	{name: "data_fixed_binary", datatype: "BINARY(16)", value: "X'123E4567E89B12D3A456426614174000'", filtered: "X'00'", updated: "X'FFFE'"},
 	{name: "data_varbinary", datatype: "VARBINARY(64)", value: "X'00FF10FE'", filtered: "X'01'", updated: "X'0102FF'"},
 	{name: "data_blob", datatype: "BLOB", value: "X'89504E470D0A1A0A'", filtered: "X'00'", updated: "X'E28228'"},
+	// valid UTF-8: so older mysql versions can assert the string behavior for compatibility
+	{name: "data_fixed_binary_utf8", datatype: "BINARY(8)", value: "X'6F6C616B65313233'", filtered: "X'66696C7431323334'", updated: "X'7570646174653132'"},
 	{name: "excludedColumn", datatype: "INT", value: "", filtered: "", updated: "102"},
 }
 
@@ -352,6 +354,7 @@ var ExpectedMySQLData = map[string]interface{}{
 	"tags":                          "sports,reading",
 	"permissions":                   "read,write",
 	"data_fixed_binary":             []byte{0x12, 0x3e, 0x45, 0x67, 0xe8, 0x9b, 0x12, 0xd3, 0xa4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00},
+	"data_fixed_binary_utf8":        []byte("olake123"),
 	"data_varbinary":                []byte{0x00, 0xff, 0x10, 0xfe},
 	"data_blob":                     []byte{0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a},
 }
@@ -405,6 +408,7 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"tags":                          "gaming,reading",
 	"permissions":                   "read,write,execute",
 	"data_fixed_binary":             []byte{0xff, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // MySQL pads BINARY(16)
+	"data_fixed_binary_utf8":        []byte("update12"),
 	"data_varbinary":                []byte{0x01, 0x02, 0xff},
 	"data_blob":                     []byte{0xe2, 0x82, 0x28},
 	"includedcolumn":                int32(202),
@@ -458,6 +462,7 @@ var MySQLToDestinationSchema = map[string]string{
 	"tags":                          "set",
 	"permissions":                   "set",
 	"data_fixed_binary":             "binary(16)",
+	"data_fixed_binary_utf8":        "binary(8)",
 	"data_varbinary":                "varbinary",
 	"data_blob":                     "blob",
 }
@@ -511,6 +516,7 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"tags":                          "set",
 	"permissions":                   "set",
 	"data_fixed_binary":             "binary(16)",
+	"data_fixed_binary_utf8":        "binary(8)",
 	"data_varbinary":                "varbinary",
 	"data_blob":                     "blob",
 	"includedcolumn":                "int",
@@ -526,6 +532,7 @@ var ExpectedMySQLDefaultCDCColumnsSchema = map[string]string{
 var MySQLTypeMapping = map[string]string{
 	"bigint":             "bigint",
 	"binary(16)":         "fixed[16]",
+	"binary(8)":          "fixed[8]",
 	"blob":               "binary",
 	"char":               "string",
 	"datetime":           "timestamp",
