@@ -87,11 +87,11 @@ func (r *failureReport) add(group, variant string, d *diagnostics) {
 // the state version IS the contract under test -- it is what a state file written by that release
 // tells this build to honor. The manifest's note for the bump says what that meant, then every
 // failed variant with the detail it gathered, then what the two runs actually were.
-func (r *failureReport) render(rootPath string) string {
+func (r *failureReport) render() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	headline, note := r.headline(rootPath)
+	headline, note := r.headline()
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n%s\n", headline)
 	if note != "" {
@@ -121,8 +121,8 @@ func (r *failureReport) render(rootPath string) string {
 // manifest's note for it. A baseline that is not a release in the manifest -- a commit, an image
 // ref, the base branch a pull request merges into -- has no state version to name, so it says what
 // it does have.
-func (r *failureReport) headline(rootPath string) (string, string) {
-	if versionBumps, err := testutils.StateVersionBaselines(rootPath); err == nil {
+func (r *failureReport) headline() (string, string) {
+	if versionBumps, err := testutils.StateVersionBaselines(); err == nil {
 		for _, bump := range versionBumps {
 			if bump.ReleaseTag == r.spec {
 				return fmt.Sprintf("STATE VERSION %d FAILED for %s -- baseline %s is the release that introduced it",
@@ -132,7 +132,7 @@ func (r *failureReport) headline(rootPath string) (string, string) {
 	}
 	// No state version to name, so name the one this build reads it with: that is still the half
 	// of the contract the reader can act on.
-	if current, err := testutils.ProductStateVersion(rootPath); err == nil {
+	if current, err := testutils.LatestStateVersion(); err == nil {
 		return fmt.Sprintf("BASELINE %s FAILED for %s -- state written by that build is not read the same way by this one, which is at state version %d",
 			r.spec, r.driver, current), ""
 	}

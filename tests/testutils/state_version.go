@@ -38,14 +38,22 @@ func (b StateVersionBaseline) Gates(driver string) bool {
 	return false
 }
 
-// StateVersionManifestPath names the manifest file, for messages that point readers at it.
-func StateVersionManifestPath(rootPath string) string {
-	return filepath.Join(rootPath, "constants", "state-versions.json")
+// stateVersionManifestPath names the manifest file, for messages that point readers at it
+func stateVersionManifestPath() (string, error) {
+	root, err := RepoRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to locate the repo holding the product state versions: %w", err)
+	}
+	return filepath.Join(root, "constants", "state-versions.json"), nil
 }
 
-func readStateVersionManifest(rootPath string) (stateVersionManifest, error) {
+func readStateVersionManifest() (stateVersionManifest, error) {
 	stateVersionOnce.Do(func() {
-		path := StateVersionManifestPath(rootPath)
+		path, err := stateVersionManifestPath()
+		if err != nil {
+			stateVersionErr = err
+			return
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			stateVersionErr = fmt.Errorf("failed to read the product state versions at %s: %w", path, err)
@@ -67,14 +75,14 @@ func readStateVersionManifest(rootPath string) (stateVersionManifest, error) {
 	return stateVersionValue, stateVersionErr
 }
 
-// ProductStateVersion is the state-file version the product writes today.
-func ProductStateVersion(rootPath string) (int, error) {
-	manifest, err := readStateVersionManifest(rootPath)
+// LatestStateVersion is the state-file version the product writes today.
+func LatestStateVersion() (int, error) {
+	manifest, err := readStateVersionManifest()
 	return manifest.LatestStateVersion, err
 }
 
 // StateVersionBaselines is the manifest's release history, in file order.
-func StateVersionBaselines(rootPath string) ([]StateVersionBaseline, error) {
-	manifest, err := readStateVersionManifest(rootPath)
+func StateVersionBaselines() ([]StateVersionBaseline, error) {
+	manifest, err := readStateVersionManifest()
 	return manifest.Baselines, err
 }

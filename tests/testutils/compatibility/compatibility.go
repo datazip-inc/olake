@@ -61,8 +61,8 @@ func (th *TestHandler) Validate(t *testing.T) {
 // arrow, parquet) run in parallel, six isolated pipelines at once.
 func (th *TestHandler) RunBackwardCompatibility(t *testing.T) {
 	currentConf := th.NewConfig(t, testutils.CurrentDriverVersion)
-	require.NoError(t, compatibilityRules.validateThresholds(currentConf))
-	baselineVersions, err := getCompatibilityBaselines(t, currentConf.OlakeRootPath, currentConf.Driver)
+	require.NoError(t, compatibilityRules.validateThresholds())
+	baselineVersions, err := getCompatibilityBaselines(t, currentConf.Driver)
 	require.NoError(t, err)
 
 	for _, version := range baselineVersions {
@@ -77,7 +77,7 @@ func (th *TestHandler) RunBackwardCompatibility(t *testing.T) {
 				t.Logf("compatibility: baseline %s has no release reachable from it; only unconditional rules apply", version)
 			}
 		}
-		reason, err := baselineSkipReason(currentConf.OlakeRootPath, currentConf.Driver, ruleSpec)
+		reason, err := baselineSkipReason(currentConf.Driver, ruleSpec)
 		require.NoError(t, err)
 		if reason != "" {
 			t.Run(version, func(t *testing.T) { t.Skip(reason) })
@@ -99,9 +99,9 @@ func (th *TestHandler) RunBackwardCompatibility(t *testing.T) {
 // does: the global floor from state-versions.json, then the driver's own gate in
 // compatibility_rules.json. Both are answerable from the driver name alone, which is what lets the
 // caller skip a baseline before paying for its image.
-func baselineSkipReason(rootPath, driver, spec string) (string, error) {
+func baselineSkipReason(driver, spec string) (string, error) {
 	version, isRelease := parseReleaseTag(spec)
-	floorTag, err := compatibilityGlobalFloor(rootPath)
+	floorTag, err := compatibilityGlobalFloor()
 	if err != nil {
 		return "", err
 	}
@@ -228,25 +228,33 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baseline, upgrade 
 			})
 		}
 	})
-	require.Truef(t, completed, "%s", report.render(baseline.OlakeRootPath))
+	require.Truef(t, completed, "%s", report.render())
 }
 
 // getCompatibilityBaselines returns the baselines to run driver against: the
 // OLAKE_COMPATIBILITY_TEST_BASELINE override alone, else every release in `state-versions.json`
 // whose bump gated this driver, oldest first -- a bump that touched only other drivers changed
 // nothing this driver's state file pins, so it is logged and left out.
-func getCompatibilityBaselines(t *testing.T, rootPath, driver string) ([]string, error) {
+func getCompatibilityBaselines(t *testing.T, driver string) ([]string, error) {
 	t.Helper()
 	if spec := os.Getenv(compatibilityBaselineEnvVar); spec != "" {
 		return []string{spec}, nil
 	}
-	versionBumps, err := testutils.StateVersionBaselines(rootPath)
+	versionBumps, err := testutils.StateVersionBaselines()
+	if err != nil {
+		return nil, err
+	}
+	latest, err := testutils.LatestStateVersion()
 	if err != nil {
 		return nil, err
 	}
 	slices.SortFunc(versionBumps, func(a, b testutils.StateVersionBaseline) int { return a.StateVersion - b.StateVersion })
 	specs := make([]string, 0, len(versionBumps))
 	for _, bump := range versionBumps {
+		if bump.StateVersion == latest {
+			t.Logf("no need to run compatibility test with same state version")
+			continue
+		}
 		if !bump.Gates(driver) {
 			t.Logf("compatibility: baseline %s not run for %s; state version %d gates only %s", bump.ReleaseTag, driver, bump.StateVersion, bump.Drivers)
 			continue
@@ -543,8 +551,8 @@ func opTypeCounts(ctx context.Context, t *testing.T, spark sql.SparkSession, rel
 // compatibilityGlobalFloor is the oldest baseline the suite runs for any driver: the oldest entry in the
 // product's state-versions.json. Derived rather than restated, so adding or retiring a baseline
 // moves the floor with it.
-func compatibilityGlobalFloor(rootPath string) (string, error) {
-	versionBumps, err := testutils.StateVersionBaselines(rootPath)
+func compatibilityGlobalFloor() (string, error) {
+	versionBumps, err := testutils.StateVersionBaselines()
 	if err != nil {
 		return "", err
 	}

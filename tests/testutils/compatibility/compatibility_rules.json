@@ -71,7 +71,6 @@
       "destinations": {
         "parquet": {"min_baseline": "v0.3.17", "note": "P2 for a no-CDC driver: below v0.3.17 the parquet output lacks _cdc_timestamp"}
       }
-
     },
     "s3": {
       "min_baseline": "v0.9.2",

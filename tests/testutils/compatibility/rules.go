@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
 )
 
@@ -250,9 +249,9 @@ func validateRules(scope string, rules []compatibilityTypeRule) error {
 }
 
 // validateThresholds rejects a rule threshold at or below the sweep's oldest baseline, which could
-// never fire. The floor comes from state-versions.json under the config's repo root.
-func (c compatibilityRulesConfig) validateThresholds(cfg *testutils.TestConfig) error {
-	floorTag, err := compatibilityGlobalFloor(cfg.OlakeRootPath)
+// never fire. The floor comes from state-versions.json.
+func (c compatibilityRulesConfig) validateThresholds() error {
+	floorTag, err := compatibilityGlobalFloor()
 	if err != nil {
 		return err
 	}
