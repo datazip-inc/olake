@@ -1,6 +1,9 @@
 package types
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // UpdateMode iceberg update mode
 type UpdateType string
@@ -26,9 +29,25 @@ func (m UpdateType) NeedsTableIndex(destinationType DestinationType) bool {
 }
 
 func (m UpdateType) Validate() error {
-	if m == UpdateTypeEquality || m == UpdateTypePosition {
+	if slices.Contains(writableUpdateTypes, m) {
 		return nil
 	}
 
 	return fmt.Errorf("invalid update mode: %s", m)
+}
+
+// ValidateAgainst reports whether m is a delete format OLake can write and one the stream
+// still offers. Target query engines are a discover-time input that is never persisted, so
+// the list computed from them is the only record a later sync can check against. An empty
+// list means the catalog predates target query engines, so only writability is checked.
+func (m UpdateType) ValidateAgainst(available []UpdateType) error {
+	if err := m.Validate(); err != nil {
+		return err
+	}
+
+	if len(available) > 0 && !slices.Contains(available, m) {
+		return fmt.Errorf("update mode %q is not readable by the target query engines; available are %v", m, available)
+	}
+
+	return nil
 }
