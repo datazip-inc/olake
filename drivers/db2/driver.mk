@@ -3,7 +3,7 @@
 # The db2 container initializes a full instance on first boot; probe slowly.
 WAIT_RETRIES.db2 := 30
 WAIT_SLEEP.db2 := 25
-PROBE.db2 = docker exec db2-test bash -c "su - db2inst1 -c 'db2 connect to TESTDB'"
+PROBE.db2 = docker logs db2-test 2>&1 | grep -q "Setup has completed" && docker exec db2-test bash -c "su - db2inst1 -c 'db2 connect to TESTDB'"
 
 # Compiling drivers/db2 needs cgo against IBM's clidriver. prepare.db2 finds
 # an existing install or downloads the build for this OS/arch (mirrors

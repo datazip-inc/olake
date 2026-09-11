@@ -8,9 +8,9 @@ import (
 
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 	"github.com/jmoiron/sqlx"
 	go_ora "github.com/sijms/go-ora/v2"
-	"github.com/stretchr/testify/require"
 )
 
 // connectionString builds the go-ora URL from source.json. It mirrors the oracle driver's own
@@ -29,7 +29,7 @@ func connectionString(config testutils.SourceConfig) string {
 	}
 	quotedUsername := fmt.Sprintf("%q", config.String("username"))
 	return go_ora.BuildUrl(
-		config.String("host"),
+		config.Host("host"),
 		config.Int("port"),
 		config.String("service_name"),
 		quotedUsername,
@@ -41,12 +41,7 @@ func connectionString(config testutils.SourceConfig) string {
 func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig, operation string) {
 	t.Helper()
 
-	var connStr string
-	if conf.SourceBaseConfig != nil {
-		connStr = connectionString(conf.SourceBaseConfig)
-	} else {
-		connStr = "oracle://myuser:secret1234@localhost:1521/orcl"
-	}
+	connStr := connectionString(conf.SourceBaseConfig)
 
 	db, err := sqlx.ConnectContext(ctx, "oracle", connStr)
 	require.NoError(t, err, "failed to connect to oracle")
@@ -54,7 +49,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		require.NoError(t, db.Close())
 	}()
 
-	integrationTestTable := testutils.TestTableName(conf)
+	integrationTestTable := conf.GetTableName()
 	var query string
 
 	switch operation {
@@ -107,13 +102,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				col_cursor, col_bigint, col_char, col_character,
 				col_varchar2, col_date, col_decimal,
 				col_double_precision, col_float, col_int, col_smallint,
-				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+				col_integer, col_clob, col_nclob, col_blob, col_timestamp, col_timestamptz, col_timestampltz,
 				excludedColumn
 			) VALUES (
 				6, 123456789012345, 'c', 'char_val',
 				'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
 				123.456789, 123.5, 123, 123, 12345,
-				'sample text', 'sample nclob',
+				'sample text', 'sample nclob', TO_BLOB(HEXTORAW('4F5241434C4520424C4F42')),
 				TIMESTAMP '2023-01-01 12:00:00',
 				TIMESTAMP '2023-01-01 12:00:00+00:00',
 				TIMESTAMP '2023-01-01 12:00:00+05:30',
@@ -127,13 +122,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				col_cursor, col_bigint, col_char, col_character,
 				col_varchar2, col_date, col_decimal,
 				col_double_precision, col_float, col_int, col_smallint,
-				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+				col_integer, col_clob, col_nclob, col_blob, col_timestamp, col_timestamptz, col_timestampltz,
 				excludedColumn
 			) VALUES (
 				-1, 111111111111111, 'x', 'filtered',
 				'filtered_val', TO_DATE('2022-06-15', 'YYYY-MM-DD'), 50.123,
 				50.123, 50.0, 0, 0, 0,
-				'filtered text', 'filtered nclob',
+				'filtered text', 'filtered nclob', TO_BLOB(HEXTORAW('46494C544552454420424C4F42')),
 				TIMESTAMP '2022-06-15 10:00:00',
 				TIMESTAMP '2022-06-15 10:00:00+00:00',
 				TIMESTAMP '2022-06-15 10:00:00+05:30',
@@ -149,12 +144,12 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				col_cursor, col_bigint, col_char, col_character,
 				col_varchar2, col_date, col_decimal,
 				col_double_precision, col_float, col_int, col_smallint,
-				col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz
+				col_integer, col_clob, col_nclob, col_blob, col_timestamp, col_timestamptz, col_timestampltz
 			) VALUES (
 				7, 123456789012345, 'c', 'char_val',
 				'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
 				123.456789, 123.5, 123, 123, 12345,
-				'sample text', 'sample nclob',
+				'sample text', 'sample nclob', TO_BLOB(HEXTORAW('4F5241434C4520424C4F42')),
 				TIMESTAMP '2023-01-01 12:00:00',
 				TIMESTAMP '2023-01-01 12:00:00+00:00',
 				TIMESTAMP '2023-01-01 12:00:00+05:30'
@@ -201,13 +196,13 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			col_cursor, col_bigint, col_char, col_character,
 			col_varchar2, col_date, col_decimal,
 			col_double_precision, col_float, col_int, col_smallint,
-			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+			col_integer, col_clob, col_nclob, col_blob, col_timestamp, col_timestamptz, col_timestampltz,
 			excludedColumn
 		) VALUES (
 			%d,123456789012345, 'c', 'char_val',
 			'varchar_val', TO_DATE('2023-01-01', 'YYYY-MM-DD'), 123.45,
 			123.456789, 123.5, 123, 123, 12345,
-			'sample text', 'sample nclob',
+			'sample text', 'sample nclob', TO_BLOB(HEXTORAW('4F5241434C4520424C4F42')),
 			TIMESTAMP '2023-01-01 12:00:00',
 			TIMESTAMP '2023-01-01 12:00:00+00:00',
 			TIMESTAMP '2023-01-01 12:00:00+05:30',
@@ -223,13 +218,13 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			col_cursor, col_bigint, col_char, col_character,
 			col_varchar2, col_date, col_decimal,
 			col_double_precision, col_float, col_int, col_smallint,
-			col_integer, col_clob, col_nclob, col_timestamp, col_timestamptz, col_timestampltz,
+			col_integer, col_clob, col_nclob, col_blob, col_timestamp, col_timestamptz, col_timestampltz,
 			excludedColumn
 		) VALUES (
 			-1, 111111111111111, 'x', 'filtered',
 			'filtered_val', TO_DATE('2021-06-15', 'YYYY-MM-DD'), 500234.123,
 			500234.123, 500234.0, 0, 0, 0,
-			'filtered text', 'filtered nclob',
+			'filtered text', 'filtered nclob', TO_BLOB(HEXTORAW('46494C544552454420424C4F42')),
 			TIMESTAMP '2021-06-15 10:00:00',
 			TIMESTAMP '2021-06-15 10:00:00+00:00',
 			TIMESTAMP '2021-06-15 10:00:00+05:30',
@@ -253,6 +248,7 @@ var ExpectedOracleData = map[string]interface{}{
 	"col_smallint":         int32(123),
 	"col_clob":             "sample text",
 	"col_nclob":            "sample nclob",
+	"col_blob":             "ORACLE BLOB",
 	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -272,6 +268,7 @@ var ExpectedUpdatedOracleData = map[string]interface{}{
 	"col_smallint":         int32(321),
 	"col_clob":             "sample text",
 	"col_nclob":            "sample nclob",
+	"col_blob":             "ORACLE BLOB",
 	"col_timestamp":        arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestamptz":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_timestampltz":     arrow.Timestamp(time.Date(2023, 1, 1, 6, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
@@ -319,4 +316,15 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_timestamptz":      "timestamp",
 	"col_timestampltz":     "timestamp",
 	"includedcolumn":       "int",
+}
+
+// OracleTypeMapping maps the source types OracleToDestinationSchema declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var OracleTypeMapping = map[string]string{
+	"bigint":    "bigint",
+	"double":    "double",
+	"float":     "float",
+	"int":       "int",
+	"string":    "string",
+	"timestamp": "timestamp",
 }

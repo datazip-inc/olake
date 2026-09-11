@@ -35,6 +35,14 @@ func TestFlatten(t *testing.T) {
 			expected:    types.Record{},
 			expectError: false,
 		},
+		// bytes stay bytes rather than being cast to a string, which used to send
+		// non-utf8 values into a proto string field
+		{
+			name:        "byte values",
+			input:       types.Record{"payload": []byte{0xff, 0x00}},
+			expected:    types.Record{"payload": []byte{0xff, 0x00}},
+			expectError: false,
+		},
 		// basic values like string, int, bool, float, time, etc.
 		{
 			name: "simple values",
