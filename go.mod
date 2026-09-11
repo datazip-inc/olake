@@ -4,6 +4,7 @@ go 1.26.8
 
 require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.17
+	github.com/aws/aws-sdk-go-v2/credentials v1.17.70
 	github.com/aws/aws-sdk-go-v2/service/kms v1.41.1
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.3
 	github.com/cockroachdb/pebble/v2 v2.1.6
