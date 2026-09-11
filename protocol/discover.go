@@ -69,7 +69,8 @@ var discoverCmd = &cobra.Command{
 		}
 
 		if len(streams) == 0 {
-			return errors.New("no streams found in connector")
+			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
+				errors.New("no streams found in connector"))
 		}
 		types.LogCatalog(streams, catalog, connector.Type(), queryEngines)
 

@@ -167,6 +167,7 @@ const (
 	codeNoValidStreams = "catalog.no_valid_streams"
 	// codeQueryEngineInvalid marks a target query engine selection the CLI cannot serve.
 	codeQueryEngineInvalid = "catalog.query_engine_invalid"
+	codeNoStreams          = "catalog.no_streams_discovered"
 	// recovered panic as an internal error
 	codePanicRecovered = "sync.panic_recovered"
 )
