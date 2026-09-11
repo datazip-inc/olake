@@ -1,0 +1,210 @@
+{
+    "selected_streams": {
+        "s3": [
+            {
+                "update_type": "eq",
+                "partition_regex": "",
+                "stream_name": "test_table_olake_${suite}",
+                "normalization": false,
+                "use_source_column_names": false,
+                "selected_columns": {
+                    "columns": [
+                        "excluded_col",
+                        "_olake_id",
+                        "ts_milli_col",
+                        "ts_micro_col",
+                        "int_col",
+                        "ts_col",
+                        "_last_modified_time",
+                        "float_col",
+                        "optional_col",
+                        "id",
+                        "_op_type",
+                        "_olake_timestamp",
+                        "bool_col",
+                        "ts_nano_col",
+                        "mixed_col",
+                        "str_col",
+                        "date_col",
+                        "order",
+                        "null_col",
+                        "empty_col",
+                        "whitespace_col",
+                        "_empty"
+                    ],
+                    "sync_new_columns": true
+                }
+            }
+        ]
+    },
+    "streams": [
+        {
+            "stream": {
+                "name": "test_table_olake_${suite}",
+                "namespace": "s3",
+                "type_schema": {
+                    "properties": {
+                        "_last_modified_time": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "_last_modified_time"
+                        },
+                        "_olake_id": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_id",
+                            "olake_column": true
+                        },
+                        "_olake_timestamp": {
+                            "type": [
+                                "timestamp_micro",
+                                "null"
+                            ],
+                            "destination_column_name": "_olake_timestamp",
+                            "olake_column": true
+                        },
+                        "_op_type": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "_op_type",
+                            "olake_column": true
+                        },
+                        "order": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "order"
+                        },
+                        "bool_col": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "bool_col"
+                        },
+                        "date_col": {
+                            "type": [
+                                "timestamp"
+                            ],
+                            "destination_column_name": "date_col"
+                        },
+                        "excluded_col": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "excluded_col"
+                        },
+                        "float_col": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "float_col"
+                        },
+                        "id": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "id"
+                        },
+                        "int_col": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "int_col"
+                        },
+                        "mixed_col": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "mixed_col"
+                        },
+                        "optional_col": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "optional_col"
+                        },
+                        "str_col": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "str_col"
+                        },
+                        "ts_col": {
+                            "type": [
+                                "timestamp"
+                            ],
+                            "destination_column_name": "ts_col"
+                        },
+                        "ts_micro_col": {
+                            "type": [
+                                "timestamp_micro"
+                            ],
+                            "destination_column_name": "ts_micro_col"
+                        },
+                        "ts_milli_col": {
+                            "type": [
+                                "timestamp_milli"
+                            ],
+                            "destination_column_name": "ts_milli_col"
+                        },
+                        "ts_nano_col": {
+                            "type": [
+                                "timestamp_nano"
+                            ],
+                            "destination_column_name": "ts_nano_col"
+                        },
+                        "null_col": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "null_col"
+                        },
+                        "empty_col": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "empty_col"
+                        },
+                        "whitespace_col": {
+                            "type": [
+                                "string",
+                                "null"
+                            ],
+                            "destination_column_name": "whitespace_col"
+                        },
+                        "_empty": {
+                            "type": [
+                                "string"
+                            ],
+                            "destination_column_name": "_empty"
+                        }
+                    }
+                },
+                "supported_sync_modes": [
+                    "full_refresh",
+                    "incremental"
+                ],
+                "source_defined_primary_key": [],
+                "available_cursor_fields": [
+                    "_last_modified_time"
+                ],
+                "cursor_field": "_last_modified_time",
+                "sync_mode": "incremental",
+                "destination_database": "s3_olake_s3_test:s3",
+                "destination_table": "test_table_olake_${suite}",
+                "default_stream_properties": {
+                    "normalization": false,
+                    "append_mode": false,
+                    "update_type": "eq"
+                }
+            }
+        }
+    ]
+}

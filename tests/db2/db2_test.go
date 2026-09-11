@@ -4,22 +4,21 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/compatibility"
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/integration"
+	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
-// db2BaseConfig returns an IntegrationTest pre-populated with all fields shared
-func db2BaseConfig(t *testing.T) *testutils.IntegrationTest {
-	return &testutils.IntegrationTest{
-		TestConfig:                testutils.GetTestConfig(t, string(constants.DB2)).WithImagePlatform("linux/amd64"),
-		Namespace:                 "DB2INST1",
-		ExpectedData:              ExpectedDB2Data,
-		DestinationDataTypeSchema: DB2ToDestinationSchema,
-		ExecuteQuery:              ExecuteQuery,
-		DestinationDB:             "db2_testdb_db2inst1",
-		CursorField:               "COL_CURSOR:COL_TIMESTAMP",
-		PartitionRegex:            "/{id, identity}",
-		ColumnToExclude:           "EXCLUDEDCOLUMN",
-		FilterConfig: `{
+// db2TestConfig builds the config every db2 suite shares: the source, the namespace and the stream settings.
+func db2TestConfig(t *testing.T, opts ...testutils.TestConfigOption) *testutils.TestConfig {
+	cfg, err := testutils.NewTestConfig(t, constants.DB2, "DB2INST1", ExecuteQuery,
+		append([]testutils.TestConfigOption{testutils.WithImagePlatform("linux/amd64")}, opts...)...)
+	require.NoError(t, err, "failed to build the test config")
+	cfg.CursorField = "COL_CURSOR:COL_TIMESTAMP"
+	cfg.PartitionRegex = "/{id, identity}"
+	cfg.ColumnToExclude = "EXCLUDEDCOLUMN"
+	cfg.FilterConfig = `{
                     "logical_operator": "And",
                     "conditions": [
                         {
@@ -33,7 +32,17 @@ func db2BaseConfig(t *testing.T) *testutils.IntegrationTest {
                             "value": "2022-07-01T15:30:00.000+00:00"
                         }
                     ]
-                }`,
+                }`
+
+	return cfg
+}
+
+// db2BaseConfig is db2TestConfig with the integration suites' expected data.
+func db2BaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler {
+	return &integration.TestHandler{
+		TestConfig:                db2TestConfig(t, opts...),
+		ExpectedData:              ExpectedDB2Data,
+		DestinationDataTypeSchema: DB2ToDestinationSchema,
 	}
 }
 
@@ -52,4 +61,19 @@ func TestDB2Sync(t *testing.T) {
 func TestDB22PC(t *testing.T) {
 	t.Parallel()
 	db2BaseConfig(t).Test2PCIntegration(t)
+}
+
+// TestDB2Compatibility pins the backward-compatibility contract: the same scenarios run on a released
+// baseline image and on this build after the initial load, and the destinations must match.
+// See tests/testutils/compatibility.go.
+func TestDB2Compatibility(t *testing.T) {
+	t.Parallel()
+	testHandler := &compatibility.TestHandler{
+		NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
+			return db2TestConfig(t, testutils.WithDriverVersion(version))
+		},
+		DestinationSchema: DB2ToDestinationSchema,
+		ColumnTypes:       seedColumnTypes(),
+	}
+	testHandler.RunBackwardCompatibility(t)
 }

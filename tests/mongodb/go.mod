@@ -5,7 +5,6 @@ go 1.26.8
 require (
 	github.com/apache/arrow-go/v18 v18.2.0
 	github.com/datazip-inc/olake/tests/testutils v0.0.0-00010101000000-000000000000
-	github.com/stretchr/testify v1.11.1
 	go.mongodb.org/mongo-driver v1.17.3
 )
 
@@ -40,6 +39,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
 	github.com/xdg-go/stringprep v1.0.4 // indirect
