@@ -16,6 +16,7 @@
         {"data_types": ["ucs2", "utf16le", "latin1"], "exclude_below": "v0.7.2", "note": "non-UTF-8 charset bytes reach the writer as invalid UTF-8; gRPC marshal fails, retry backoff looks like a hang"},
         {"data_types": ["set"], "assert_value_from": "v0.7.2", "note": "M1: SET columns emitted the numeric bitmask on the binlog path before the fix"},
         {"data_types": ["unsigned mediumint"], "assert_value_from": "v0.9.3", "note": "unsigned MEDIUMINT was sign-extended on the binlog path before v0.9.3 (-1 where the value is 16777215)"},
+        {"data_types": ["binary(16)", "varbinary", "blob"], "exclude_below": "v0.10.2", "note": "binary columns were carried as text before v0.10.2 which failed for non-utf8"},
         {"data_types": ["unsigned bigint"], "exclude_below": "v0.9.0", "note": "BIGINT UNSIGNED at or above 2^63 reaches the incremental scan as a byte slice; before v0.9.0 (state v6, ReformatInt64) it cannot be converted: v0.3.11's Iceberg writer fatals on the mixed long/string batch and a candidate on an older state file retries into a hang"}
       ],
       "destination_rules": [
