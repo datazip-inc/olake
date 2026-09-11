@@ -713,3 +713,17 @@ var MSSQLToDestinationSchema = map[string]string{
 	"col_datetime2_nullable": "timestamp",
 	"created_at":             "timestamp",
 }
+
+// MSSQLTypeMapping maps the source types MSSQLToDestinationSchema declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var MSSQLTypeMapping = map[string]string{
+	"bigint":    "bigint",
+	"boolean":   "boolean",
+	"double":    "double",
+	"int":       "int",
+	"real":      "float",
+	"smallint":  "int",
+	"string":    "string",
+	"timestamp": "timestamp",
+	"tinyint":   "int",
+}
