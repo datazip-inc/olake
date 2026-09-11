@@ -67,6 +67,18 @@ func Fatalf(format string, v ...interface{}) {
 	os.Exit(1)
 }
 
+// FatalNonRetryable logs a consistently-formatted, greppable FATAL line for a failure that
+// requires manual intervention (constants.ErrNonRetryable) and exits with
+// constants.ExitCodeNonRetryable instead of the generic exit code 1 used for ordinary failures.
+// This lets a process supervisor (shell retry loop, systemd, Kubernetes restart policy) match on
+// the exit code or the log line and stop retrying instead of looping on an error retrying can
+// never fix. zerolog's Fatal level always exits with code 1 itself, so this logs at Error level
+// and exits explicitly.
+func FatalNonRetryable(err error) {
+	logger.Error().Msgf("FATAL: manual intervention required: %s", err)
+	os.Exit(constants.ExitCodeNonRetryable)
+}
+
 // Error writes record into os.stdout with log level ERROR
 func Errorf(format string, v ...interface{}) {
 	logger.Error().Msgf(format, v...)
