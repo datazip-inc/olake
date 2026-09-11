@@ -72,24 +72,17 @@ func (f Fields) Header() (header []string) {
 	return
 }
 
-// typeFitsColumn checks if the value fits the column type. It returns true if the value is nil or if the value's type is compatible with the column type.
+// valueFitsColumn checks if the value fits the column type, so the column need not change.
 func valueFitsColumn(value any, column types.DataType) bool {
-	switch types.BaseOf(column) {
-	case types.FixedBinary:
-		width := types.FixedBinaryWidth(column)
-		switch v := value.(type) {
-		case []byte:
-			return len(v) <= width
-		default:
-			return false
-		}
+	detectedType := TypeFromValue(value)
+	switch {
+	case detectedType == types.Null || detectedType == column:
+		return true
+	case types.BaseOf(column) == types.FixedBinary:
+		bytesValue, isBytes := value.([]byte)
+		return isBytes && len(bytesValue) <= types.FixedBinaryWidth(column)
 	default:
-		switch TypeFromValue(value) {
-		case types.Null, column:
-			return true
-		default:
-			return false
-		}
+		return false
 	}
 }
 
