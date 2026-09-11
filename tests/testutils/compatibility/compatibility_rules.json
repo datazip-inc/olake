@@ -7,6 +7,10 @@
       ]
     },
     "oracle": {
+      "destination_rules": [
+        {"column": "id", "type_only": true, "note": "the seed's identity column: its implicit sequence caches 20 values, so a cache discard between two inserts resumes at the high water mark and the two sides disagree"},
+        {"column": "_olake_id", "type_only": true, "note": "a single primary key is used verbatim, so it is as non-deterministic as id"}
+      ],
       "destinations": {
         "parquet": {"min_baseline": "v0.3.17", "note": "P2 for a no-CDC driver: below v0.3.17 the parquet output lacks _cdc_timestamp, and v0.3.11's writer panics feeding an int64 into an INT32 column on the incremental path"}
       }
