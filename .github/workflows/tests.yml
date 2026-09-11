@@ -352,7 +352,9 @@ jobs:
   performance-tests:
     name: Performance ${{ matrix.driver }}
     needs: approve
-    # temp: no approval gate on the scratch branch
+    # temp: kept on the scratch branch — the AWS/VPN/SSH secrets are scoped to this environment,
+    # so dropping it to skip the approval gate leaves every secret empty.
+    environment: Performance Testing
     permissions:
       actions: read
       id-token: write
