@@ -315,3 +315,14 @@ var UpdatedOracleToDestinationSchema = map[string]string{
 	"col_timestampltz":     "timestamp",
 	"includedcolumn":       "int",
 }
+
+// OracleTypeMapping maps the source types OracleToDestinationSchema declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var OracleTypeMapping = map[string]string{
+	"bigint":    "bigint",
+	"double":    "double",
+	"float":     "float",
+	"int":       "int",
+	"string":    "string",
+	"timestamp": "timestamp",
+}
