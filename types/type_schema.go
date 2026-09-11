@@ -232,7 +232,9 @@ func (p *Property) DataType() DataType {
 	for idx := 1; idx < len(types); idx++ {
 		commonType = GetCommonAncestorType(commonType, types[idx])
 	}
-	return commonType
+	// a catalog written by a newer build can declare a type this state predates, so the state
+	// decides what the column carries, not the catalog
+	return ForLoadedState(commonType)
 }
 
 func (p *Property) Nullable() bool {

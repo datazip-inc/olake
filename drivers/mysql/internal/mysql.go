@@ -236,7 +236,7 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 			stream.WithCursorField(columnName)
 			var olakeDataType types.DataType
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
-				olakeDataType = resolveColumnType(dataType, columnType, val)
+				olakeDataType = types.ForLoadedState(resolveColumnType(dataType, columnType, val))
 			} else {
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				olakeDataType = types.String
@@ -293,7 +293,7 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		}
 	}
 
-	olakeType := typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes)
+	olakeType := types.ForLoadedState(typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes))
 	return typeutils.ReformatValue(olakeType, value)
 }
 

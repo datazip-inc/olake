@@ -114,6 +114,18 @@ func (d DataType) ToIceberg() string {
 	return "string" // fallback for unregistered types
 }
 
+// ForLoadedState returns the type a column carries for the state version this sync is pinned at.
+// Binary columns were carried as text before state version 8, so state written by such a build
+// keeps them as String and an existing destination column does not change type on upgrade.
+func ForLoadedState(d DataType) DataType {
+	switch {
+	case constants.LoadedStateVersion < 8 && (d == Binary || BaseOf(d) == FixedBinary):
+		return String
+	default:
+		return d
+	}
+}
+
 func IcebergTypeToDatatype(d string) DataType {
 	if instance, ok := icebergInstance(d); ok {
 		return instance

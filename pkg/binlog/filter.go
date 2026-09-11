@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
+
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
@@ -289,12 +291,19 @@ func convertRowToMap(row []interface{}, view *columnView, converter func(value i
 				raw = v
 			}
 			if raw != nil {
-				if isBinaryCollation(view.collations[i]) {
+				switch {
+				case constants.LoadedStateVersion < 8:
+					if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
+						val = decoded
+					}
+				case isBinaryCollation(view.collations[i]):
 					val = raw
 					columnType = binaryTypeName(columnType)
-				} else if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
-					val = decoded
-					columnType = textTypeName(columnType)
+				default:
+					if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
+						val = decoded
+						columnType = textTypeName(columnType)
+					}
 				}
 			}
 		}
