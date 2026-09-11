@@ -72,6 +72,27 @@ func (f Fields) Header() (header []string) {
 	return
 }
 
+// typeFitsColumn checks if the value fits the column type. It returns true if the value is nil or if the value's type is compatible with the column type.
+func valueFitsColumn(value any, column types.DataType) bool {
+	switch types.BaseOf(column) {
+	case types.FixedBinary:
+		width := types.FixedBinaryWidth(column)
+		switch v := value.(type) {
+		case []byte:
+			return len(v) <= width
+		default:
+			return false
+		}
+	default:
+		switch TypeFromValue(value) {
+		case types.Null, column:
+			return true
+		default:
+			return false
+		}
+	}
+}
+
 // Returns change, typeChange, mutations
 func (f Fields) Process(record types.Record) (bool, bool, Fields) {
 	changeDetected := false
@@ -82,7 +103,7 @@ func (f Fields) Process(record types.Record) (bool, bool, Fields) {
 		detectedType := TypeFromValue(value)
 		if val, found := f[key]; found {
 			currentType := val.getType()
-			if detectedType != types.Null && currentType != detectedType { // compare current type
+			if !valueFitsColumn(value, currentType) { // compare current type
 				f[key].Merge(NewField(detectedType)) // merged data types for this field
 				updatedType := f[key].getType()
 				if updatedType != currentType {
