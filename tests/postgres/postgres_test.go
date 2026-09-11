@@ -45,6 +45,7 @@ func postgresBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integ
 		TestConfig:                postgresTestConfig(t, opts...),
 		ExpectedData:              ExpectedPostgresData,
 		DestinationDataTypeSchema: PostgresToDestinationSchema,
+		TypeMapping:               PostgresTypeMapping,
 		DefaultCDCColumnsSchema:   ExpectedPostgresDefaultCDCColumnsSchema,
 	}
 }

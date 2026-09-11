@@ -3,6 +3,7 @@ package integration
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ import (
 
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
-func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string) {
+func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string) {
 	t.Helper()
 	ctx := t.Context()
 	spark, err := testutils.SparkSession(ctx, t)
@@ -157,18 +158,18 @@ func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema
 		require.Falsef(t, ok, "Excluded column %q should not exist in Iceberg schema", excludedColumn)
 	}
 
+	require.NotEmpty(t, typeMapping, "the %s suite declares no type mapping; set Test.TypeMapping", driver)
 	for col, dbType := range datatypeSchema {
 		iceType, found := icebergSchema[col]
 		require.True(t, found, "Column %s not found in Iceberg schema", col)
 
-		expectedIceType, mapped := testutils.GlobalTypeMapping[dbType]
-		if !mapped {
-			t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
-		}
-		require.Equal(t, expectedIceType, iceType,
+		expectedIceType, mapped := typeMapping[dbType]
+		require.Truef(t, mapped, "column %s is declared as %q, which the %s suite's TypeMapping does not define; the declared types and the mapping must agree", col, dbType, driver)
+		require.Equal(t, sparkTypeOf(expectedIceType), iceType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedIceType, iceType)
 	}
 	t.Logf("Verified datatypes in Iceberg after sync")
+	verifyIcebergBinaryTypes(ctx, t, spark, fullTableName, datatypeSchema, typeMapping)
 	// Verify datatypes for CDC/default columns as well
 	if isCDC {
 		for col, expectedIceType := range defaultCDCColumnsSchema {
@@ -256,7 +257,7 @@ func VerifyIcebergNoDuplicates(ctx context.Context, t *testing.T, tableName, ice
 }
 
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
-func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string) {
+func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -388,18 +389,18 @@ func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema
 		require.Falsef(t, ok, "Excluded column %q should not exist in Parquet schema", excludedColumn)
 	}
 
+	require.NotEmpty(t, typeMapping, "the %s suite declares no type mapping; set Test.TypeMapping", driver)
 	for col, dbType := range datatypeSchema {
 		pqType, found := parquetSchema[col]
 		require.True(t, found, "Column %s not found in Parquet schema", col)
 
-		expectedType, mapped := testutils.GlobalTypeMapping[dbType]
-		if !mapped {
-			t.Errorf("No mapping defined for driver type %s (column %s)", dbType, col)
-		}
-		require.Equal(t, expectedType, pqType,
+		expectedType, mapped := typeMapping[dbType]
+		require.Truef(t, mapped, "column %s is declared as %q, which the %s suite's TypeMapping does not define; the declared types and the mapping must agree", col, dbType, driver)
+		require.Equal(t, sparkTypeOf(expectedType), pqType,
 			"Data type mismatch for column %s: expected %s, got %s", col, expectedType, pqType)
 	}
 	t.Logf("Verified datatypes in Parquet after sync")
+	verifyParquetBinaryTypes(ctx, t, parquetDB, tableName, datatypeSchema, typeMapping)
 	// Verify datatypes for CDC/default columns as well
 	if isCDC {
 		for col, expectedPqType := range defaultCDCColumnsSchema {
@@ -465,4 +466,91 @@ func normalizeToTime(v interface{}) (time.Time, bool) {
 	default:
 		return time.Time{}, false
 	}
+}
+
+// sparkTypeOf is the type Spark reports for an expected destination type. Iceberg's fixed[n] and
+// parquet's FIXED_LEN_BYTE_ARRAY(n) both surface in Spark as plain binary, so a fixed width is
+// asserted separately, from the destination's own metadata.
+func sparkTypeOf(expected string) string {
+	if _, fixed := fixedBinaryWidth(expected); fixed {
+		return "binary"
+	}
+	return expected
+}
+
+// fixedBinaryWidth parses the n of an expected fixed[n].
+func fixedBinaryWidth(expected string) (int, bool) {
+	inner, ok := strings.CutPrefix(expected, "fixed[")
+	if !ok || !strings.HasSuffix(inner, "]") {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSuffix(inner, "]"))
+	return n, err == nil && n > 0
+}
+
+// binaryExpectations picks the columns expected to land as bytes, with the precise type each
+// should have: fixed[n] or binary.
+func binaryExpectations(datatypeSchema, typeMapping map[string]string) map[string]string {
+	precise := map[string]string{}
+	for col, dbType := range datatypeSchema {
+		expected := typeMapping[dbType]
+		if _, fixed := fixedBinaryWidth(expected); fixed || expected == "binary" {
+			precise[col] = expected
+		}
+	}
+	return precise
+}
+
+// parquetKindOf is the parquet physical type an expected byte type must be written as.
+func parquetKindOf(expected string) string {
+	if n, fixed := fixedBinaryWidth(expected); fixed {
+		return fmt.Sprintf("FIXED_LEN_BYTE_ARRAY(%d)", n)
+	}
+	return "BYTE_ARRAY"
+}
+
+// verifyIcebergBinaryTypes asserts the byte columns' types from the table's own metadata, where
+// fixed[16] and binary are distinct; in Spark's view of the table they are not.
+func verifyIcebergBinaryTypes(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string, datatypeSchema, typeMapping map[string]string) {
+	t.Helper()
+	expected := binaryExpectations(datatypeSchema, typeMapping)
+	if len(expected) == 0 {
+		return
+	}
+	schema, err := testutils.IcebergSchemaTypes(ctx, spark, fullTableName)
+	require.NoError(t, err, "failed to read the Iceberg schema of %s", fullTableName)
+	actual := make(map[string]string, len(expected))
+	for col := range expected {
+		actual[col] = schema[col]
+	}
+	require.Equal(t, expected, actual, "binary columns of %s land with a different Iceberg type than expected (Spark shows fixed[n] as binary, so this reads the table metadata)", fullTableName)
+	t.Logf("Verified fixed and variable-length binary types in the Iceberg schema of %s", fullTableName)
+}
+
+// verifyParquetBinaryTypes asserts the byte columns' physical types from every parquet file's
+// footer, where FIXED_LEN_BYTE_ARRAY(16) and BYTE_ARRAY are distinct; in Spark's view of the
+// files they are not.
+func verifyParquetBinaryTypes(ctx context.Context, t *testing.T, parquetDB, tableName string, datatypeSchema, typeMapping map[string]string) {
+	t.Helper()
+	precise := binaryExpectations(datatypeSchema, typeMapping)
+	if len(precise) == 0 {
+		return
+	}
+	expected := make(map[string]string, len(precise))
+	for col, typ := range precise {
+		expected[col] = parquetKindOf(typ)
+	}
+	client, err := testutils.NewMinIOClient()
+	require.NoError(t, err)
+	files, err := testutils.ParquetColumnKinds(ctx, client, parquetDB, tableName)
+	require.NoError(t, err, "failed to read the parquet footers of %s/%s", parquetDB, tableName)
+	require.NotEmpty(t, files, "no parquet files found for %s/%s", parquetDB, tableName)
+	for file, columns := range files {
+		actual := make(map[string]string, len(expected))
+		for col := range expected {
+			actual[col] = columns[col]
+		}
+		require.Equal(t, expected, actual, "binary columns in %s carry a different parquet physical type than expected (Spark shows both as binary, so this reads the footer)", file)
+	}
+	t.Logf("Verified fixed and variable-length binary types in %d parquet footer(s) of %s/%s", len(files), parquetDB, tableName)
 }

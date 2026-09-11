@@ -330,3 +330,14 @@ var ExpectedMongoDBDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_resume_token": "string",
 	"_cdc_timestamp":    "timestamp",
 }
+
+// MongoTypeMapping maps the source types MongoToDestinationSchema declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var MongoTypeMapping = map[string]string{
+	"bigint":    "bigint",
+	"boolean":   "boolean",
+	"double":    "double",
+	"int":       "int",
+	"string":    "string",
+	"timestamp": "timestamp",
+}
