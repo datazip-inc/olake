@@ -875,23 +875,6 @@
                   "title": "Snowflake Database",
                   "description": "Snowflake database name used as Iceberg Warehouse"
                 },
-                "s3_endpoint": {
-                  "type": "string",
-                  "title": "S3 Endpoint",
-                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
-                },
-                "aws_secret_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Secret Key",
-                  "description": "The AWS secret key for S3 authentication-typically 40+ characters long"
-                },
-                "aws_access_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Access Key",
-                  "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
-                },
                 "aws_region": {
                   "type": "string",
                   "title": "Cloud Storage Region",
