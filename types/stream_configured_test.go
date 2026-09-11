@@ -447,3 +447,285 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestConfiguredStream_GetSyncMode(t *testing.T) {
+	// Priority: selected_streams (metadata) > streams[]
+	// No DSP fallback for SyncMode.
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     SyncMode
+	}{
+		{
+			name:   "legacy format: reads from stream when no metadata",
+			stream: &Stream{SyncMode: SyncMode("cdc")},
+			want:   SyncMode("cdc"),
+		},
+		{
+			name:     "metadata-only: reads from selected_streams",
+			stream:   &Stream{},
+			metadata: StreamMetadata{SyncMode: SyncMode("cdc")},
+			want:     SyncMode("cdc"),
+		},
+		{
+			// selected_streams wins when both are set
+			name:     "selected_streams wins over streams[]",
+			stream:   &Stream{SyncMode: SyncMode("full_refresh")},
+			metadata: StreamMetadata{SyncMode: SyncMode("cdc")},
+			want:     SyncMode("cdc"),
+		},
+		{
+			// Both empty → empty SyncMode
+			name:   "both empty returns empty",
+			stream: &Stream{},
+			want:   SyncMode(""),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.GetSyncMode())
+		})
+	}
+}
+
+func TestConfiguredStream_Cursor(t *testing.T) {
+	// Priority: selected_streams (metadata) > streams[]
+	// No DSP fallback for CursorField.
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		wantPri  string
+		wantSec  string
+	}{
+		{
+			name:    "legacy format: reads from stream when no metadata",
+			stream:  &Stream{CursorField: "updated_at"},
+			wantPri: "updated_at",
+			wantSec: "",
+		},
+		{
+			name:     "metadata-only: reads from selected_streams",
+			stream:   &Stream{},
+			metadata: StreamMetadata{CursorField: "updated_at"},
+			wantPri:  "updated_at",
+			wantSec:  "",
+		},
+		{
+			// selected_streams wins when both are set
+			name:     "selected_streams wins over streams[]",
+			stream:   &Stream{CursorField: "created_at"},
+			metadata: StreamMetadata{CursorField: "updated_at"},
+			wantPri:  "updated_at",
+		},
+		{
+			name:     "secondary cursor parsed from colon-separated metadata cursor",
+			stream:   &Stream{},
+			metadata: StreamMetadata{CursorField: "updated_at:id"},
+			wantPri:  "updated_at",
+			wantSec:  "id",
+		},
+		{
+			name:    "both empty returns empty",
+			stream:  &Stream{},
+			wantPri: "",
+			wantSec: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			primary, secondary := s.Cursor()
+			assert.Equal(t, tt.wantPri, primary)
+			assert.Equal(t, tt.wantSec, secondary)
+		})
+	}
+}
+
+func TestConfiguredStream_GetDestinationDatabase(t *testing.T) {
+	// Priority: selected_streams (metadata) > streams[]
+	// Falls back to stream.Namespace when both are empty.
+	// No DSP fallback for DestinationDatabase.
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     string
+	}{
+		{
+			name:   "legacy format: reads from stream when no metadata",
+			stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"},
+			want:   "legacy_db",
+		},
+		{
+			name:     "metadata-only: reads from selected_streams",
+			stream:   &Stream{Name: "users", Namespace: "public"},
+			metadata: StreamMetadata{DestinationDatabase: "new_db"},
+			want:     "new_db",
+		},
+		{
+			// selected_streams wins when both are set
+			name:     "selected_streams wins over streams[]",
+			stream:   &Stream{Name: "users", Namespace: "public", DestinationDatabase: "legacy_db"},
+			metadata: StreamMetadata{DestinationDatabase: "new_db"},
+			want:     "new_db",
+		},
+		{
+			name:   "falls back to namespace when all empty",
+			stream: &Stream{Name: "users", Namespace: "public"},
+			want:   "public",
+		},
+		{
+			name:   "icebergDB used when stream and metadata are empty",
+			stream: &Stream{Name: "users", Namespace: "public"},
+			want:   "iceberg_db",
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			var icebergDB *string
+			if i == len(tests)-1 { // last test uses icebergDB
+				db := "iceberg_db"
+				icebergDB = &db
+			}
+			assert.Equal(t, tt.want, s.GetDestinationDatabase(icebergDB))
+		})
+	}
+}
+
+func TestConfiguredStream_GetDestinationTable(t *testing.T) {
+	// Priority: selected_streams (metadata) > streams[]
+	// Falls back to stream.Name when both are empty.
+	// No DSP fallback for DestinationTable.
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     string
+	}{
+		{
+			name:   "legacy format: reads from stream when no metadata",
+			stream: &Stream{Name: "users", DestinationTable: "legacy_table"},
+			want:   "legacy_table",
+		},
+		{
+			name:     "metadata-only: reads from selected_streams",
+			stream:   &Stream{Name: "users"},
+			metadata: StreamMetadata{DestinationTable: "new_table"},
+			want:     "new_table",
+		},
+		{
+			// selected_streams wins when both are set
+			name:     "selected_streams wins over streams[]",
+			stream:   &Stream{Name: "users", DestinationTable: "legacy_table"},
+			metadata: StreamMetadata{DestinationTable: "new_table"},
+			want:     "new_table",
+		},
+		{
+			name:   "falls back to stream name when all empty",
+			stream: &Stream{Name: "users"},
+			want:   "users",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.GetDestinationTable())
+		})
+	}
+}
+
+func TestConfiguredStream_NormalizationEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     bool
+	}{
+		{
+			name:     "explicit true in metadata",
+			stream:   &Stream{},
+			metadata: StreamMetadata{Normalization: boolPtr(true)},
+			want:     true,
+		},
+		{
+			name:     "explicit false in metadata",
+			stream:   &Stream{},
+			metadata: StreamMetadata{Normalization: boolPtr(false)},
+			want:     false,
+		},
+		{
+			name:     "nil metadata falls back to DSP (true)",
+			stream:   &Stream{DefaultStreamProperties: &DefaultStreamProperties{Normalization: true}},
+			metadata: StreamMetadata{},
+			want:     true,
+		},
+		{
+			name:   "nil metadata returns false",
+			stream: &Stream{},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.NormalizationEnabled())
+		})
+	}
+}
+
+func TestConfiguredStream_AppendModeEnabled(t *testing.T) {
+	// Priority: metadata (*bool) > DSP.AppendMode
+	tests := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+		want     bool
+	}{
+		{
+			name:     "explicit true in metadata",
+			metadata: StreamMetadata{AppendMode: boolPtr(true)},
+			stream:   &Stream{},
+			want:     true,
+		},
+		{
+			name:     "explicit false in metadata",
+			metadata: StreamMetadata{AppendMode: boolPtr(false)},
+			stream:   &Stream{},
+			want:     false,
+		},
+		{
+			name:     "nil metadata falls back to DSP (true)",
+			stream:   &Stream{DefaultStreamProperties: &DefaultStreamProperties{AppendMode: true}},
+			metadata: StreamMetadata{},
+			want:     true,
+		},
+		{
+			// explicit false in metadata wins over DSP=true
+			name:     "explicit false in metadata wins over DSP true",
+			stream:   &Stream{DefaultStreamProperties: &DefaultStreamProperties{AppendMode: true}},
+			metadata: StreamMetadata{AppendMode: boolPtr(false)},
+			want:     false,
+		},
+		{
+			name:   "nil metadata and nil DSP returns false (zero value)",
+			stream: &Stream{},
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &ConfiguredStream{Stream: tt.stream, StreamMetadata: tt.metadata}
+			assert.Equal(t, tt.want, s.AppendModeEnabled())
+		})
+	}
+}
