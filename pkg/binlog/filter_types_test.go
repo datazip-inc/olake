@@ -98,13 +98,14 @@ func allTypeColumns() []fixtureColumn {
 			value: string([]byte{0x63, 0x61, 0x66, 0xE9}), want: "café"},
 		{name: "c_text", columnType: mysql.MYSQL_TYPE_BLOB, columnMeta: 2, sqlType: "text",
 			collation: "utf8mb4_general_ci", value: []byte("text data"), want: "text data"},
-		// A binary column carries collation 63; decodeBytesToString passes its bytes through.
+		// A binary column carries collation 63, which keeps the raw bytes rather than decoding
+		// them to a string, so the converter maps the column to Binary.
 		{name: "c_blob", columnType: mysql.MYSQL_TYPE_BLOB, columnMeta: 2, sqlType: "blob",
 			collation: "binary", value: []byte{0x00, 0x01, 0xFF},
-			want: string([]byte{0x00, 0x01, 0xFF})},
+			want: []byte{0x00, 0x01, 0xFF}},
 		{name: "c_varbinary", columnType: mysql.MYSQL_TYPE_VARCHAR, columnMeta: 64,
 			sqlType: "varbinary(64)", collation: "binary",
-			value: string([]byte{0x10, 0x20}), want: string([]byte{0x10, 0x20})},
+			value: string([]byte{0x10, 0x20}), want: []byte{0x10, 0x20}},
 		{name: "c_json", columnType: mysql.MYSQL_TYPE_JSON, columnMeta: 4, sqlType: "json",
 			value: `{"a":1}`, want: `{"a":1}`},
 		{name: "c_geometry", columnType: mysql.MYSQL_TYPE_GEOMETRY, columnMeta: 4, sqlType: "geometry",

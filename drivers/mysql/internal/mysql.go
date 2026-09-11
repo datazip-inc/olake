@@ -234,14 +234,14 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			stream.WithCursorField(columnName)
-			var datatype types.DataType
+			var olakeDataType types.DataType
 			if val, found := mysqlTypeToDataTypes[dataType]; found {
-				datatype = val
+				olakeDataType = resolveColumnType(dataType, columnType, val)
 			} else {
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
-				datatype = types.String
+				olakeDataType = types.String
 			}
-			stream.UpsertField(columnName, datatype, strings.EqualFold("yes", isNullable), false)
+			stream.UpsertField(columnName, olakeDataType, strings.EqualFold("yes", isNullable), false)
 
 			// Mark primary keys
 			if columnKey == "PRI" {
