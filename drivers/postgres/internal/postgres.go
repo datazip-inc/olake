@@ -86,6 +86,12 @@ func (p *Postgres) CDCSupported() bool {
 	return p.CDCSupport
 }
 
+func (p *Postgres) CDCColumns() map[string]types.DataType {
+	return map[string]types.DataType{
+		waljs.CDCLSN: types.String,
+	}
+}
+
 func (p *Postgres) Setup(ctx context.Context) error {
 	err := p.config.Validate()
 	if err != nil {
@@ -272,7 +278,6 @@ func (p *Postgres) ProduceSchema(ctx context.Context, streamID types.StreamID) (
 
 		stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 		if p.CDCSupported() {
-			stream.UpsertField(waljs.CDCLSN, types.String, true, true)
 			stream.WithSyncMode(types.CDC, types.STRICTCDC)
 		}
 

@@ -31,6 +31,10 @@ func (d *DB2) CDCSupported() bool {
 	return false // CDC is not supported for db2 yet
 }
 
+func (d *DB2) CDCColumns() map[string]types.DataType {
+	return nil
+}
+
 func (d *DB2) Setup(ctx context.Context) error {
 	if err := d.config.Validate(); err != nil {
 		return err

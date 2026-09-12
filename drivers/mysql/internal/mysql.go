@@ -61,6 +61,13 @@ func (m *MySQL) CDCSupported() bool {
 	return m.CDCSupport
 }
 
+func (m *MySQL) CDCColumns() map[string]types.DataType {
+	return map[string]types.DataType{
+		binlog.CDCBinlogFileName: types.String,
+		binlog.CDCBinlogFilePos:  types.Int64,
+	}
+}
+
 // GetConfigRef returns a reference to the configuration
 func (m *MySQL) GetConfigRef() abstract.Config {
 	m.config = &Config{}
@@ -260,8 +267,6 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	if m.CDCSupported() {
-		stream.UpsertField(binlog.CDCBinlogFileName, types.String, true, true)
-		stream.UpsertField(binlog.CDCBinlogFilePos, types.Int64, true, true)
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 

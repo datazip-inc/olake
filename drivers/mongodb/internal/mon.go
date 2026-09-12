@@ -123,6 +123,12 @@ func (m *Mongo) CDCSupported() bool {
 	return m.CDCSupport
 }
 
+func (m *Mongo) CDCColumns() map[string]types.DataType {
+	return map[string]types.DataType{
+		CDCResumeToken: types.String,
+	}
+}
+
 func (m *Mongo) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
 		return fmt.Errorf("failed to validate config: %w", err)
@@ -301,7 +307,6 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	if m.CDCSupported() {
-		stream.UpsertField(CDCResumeToken, types.String, true, true)
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 

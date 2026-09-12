@@ -35,6 +35,9 @@ type DriverInterface interface {
 	StreamIncrementalChanges(ctx context.Context, stream types.StreamInterface, cb BackfillMsgFn) error
 	// specific to cdc
 	CDCSupported() bool
+	// CDCColumns returns driver-specific CDC metadata columns (name -> type).
+	// Return nil when the driver has none (Kafka, S3, DB2, Oracle).
+	CDCColumns() map[string]types.DataType
 	ChangeStreamConfig() (sequential bool, parallel bool, concurrent bool)
 	PreCDC(ctx context.Context, streams []types.StreamInterface) error // to init state
 	StreamChanges(ctx context.Context, identifier int, metadataState map[string]any, processFn CDCMsgFn) (any, error)

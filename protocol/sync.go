@@ -194,6 +194,10 @@ var syncCmd = &cobra.Command{
 }
 
 func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
+	return classifyStreamsInternal(catalog, streams, state)
+}
+
+func classifyStreamsInternal(catalog *types.Catalog, streams []*types.Stream, state *types.State) (*StreamClassification, error) {
 	// stream-specific classifications
 	classifications := &StreamClassification{
 		SelectedStreams:    []types.StreamInterface{},
