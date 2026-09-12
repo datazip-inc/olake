@@ -7,11 +7,35 @@ on:
     paths:
     - '**/*.go'
     - '**/*.java'
+    - '**/go.mod'
+    - '**/go.work'
+    - '**/pom.xml'
+    - 'Makefile'
+    - 'drivers/**'
+    - 'destination/iceberg/**'
+    - 'tests/**'
+    - '.github/workflows/performance-test.yml'
+  pull_request:
+    branches:
+      - "master"
+    paths:
+      - '**/*.go'
+      - '**/*.java'
+      - '**/go.mod'
+      - '**/go.work'
+      - '**/pom.xml'
+      - 'Makefile'
+      - 'drivers/**'
+      - 'destination/iceberg/**'
+      - 'tests/**'
+      - '.github/workflows/performance-test.yml'
+  workflow_dispatch:
 
 permissions:
   actions: read
   id-token: write
   contents: read
+  pull-requests: read
 
 jobs:
   performance-tests:
