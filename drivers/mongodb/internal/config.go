@@ -4,11 +4,13 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 type Config struct {
@@ -31,81 +33,14 @@ type Config struct {
 	AdditionalParams map[string]string `json:"additional_params"`
 }
 
-type mongoTLSCaps struct {
-	inlineSSL      bool
-	tlsEnabled     bool
-	hasClientCert  bool
-	explicitTLS    bool
-	explicitTLSSet bool
-	explicitTLSKey string
-}
-
-func isTLSFileParam(key string) bool {
-	for _, candidate := range tlsFileParams {
-		if strings.EqualFold(candidate, key) {
-			return true
-		}
-	}
-	return false
-}
-
-func inlineSSLEnabled(c *Config) bool {
-	return c.SSLConfiguration != nil && c.SSLConfiguration.Mode != utils.SSLModeDisable
-}
-
-// computeTLSCaps resolves the effective TLS state from SSLConfiguration, SRV, and additional_params.
-func computeTLSCaps(c *Config, reserved reservedParams) (mongoTLSCaps, error) {
-	explicitTLS, explicitTLSSet, explicitTLSKey, err := reserved.explicitTLSSetting()
-	if err != nil {
-		return mongoTLSCaps{}, err
-	}
-
-	inlineSSL := inlineSSLEnabled(c)
-	caps := mongoTLSCaps{
-		inlineSSL:      inlineSSL,
-		tlsEnabled:     inlineSSL || c.Srv,
-		explicitTLS:    explicitTLS,
-		explicitTLSSet: explicitTLSSet,
-		explicitTLSKey: explicitTLSKey,
-	}
-	if explicitTLSSet {
-		caps.tlsEnabled = explicitTLS
-	}
-	if inlineSSL &&
-		c.SSLConfiguration.ClientCert != "" &&
-		c.SSLConfiguration.ClientKey != "" {
-		caps.hasClientCert = true
-	}
-	if reserved.hasCombinedCertFile || (reserved.hasCertFile && reserved.hasKeyFile) {
-		caps.hasClientCert = true
-	}
-	return caps, nil
-}
-
-func skipAdditionalParamKey(key string, inlineSSL bool, authDB, authMechanism string) bool {
-	if inlineSSL && isTLSFileParam(key) {
-		return true
-	}
-	if authDB != "" && strings.EqualFold(key, "authSource") {
-		return true
-	}
-	if authMechanism != "" && strings.EqualFold(key, "authMechanism") {
-		return true
-	}
-	return false
-}
-
 // URI builds the MongoDB connection string from an already-validated config.
-// It does not mutate Config: call Validate() first so AuthMechanism, AuthDB, and defaults are set.
+// It does not mutate Config: call Validate() first so AuthMechanism, AuthDB, AdditionalParams
+// and defaults are already normalized — URI() only reads that state.
 func (c *Config) URI() string {
-	inlineSSL := inlineSSLEnabled(c)
-	policy, _ := authPolicyFor(c.AuthMechanism)
+	policy := mechanismPolicies[c.AuthMechanism]
 
 	query := url.Values{}
 	for key, value := range c.AdditionalParams {
-		if skipAdditionalParamKey(key, inlineSSL, c.AuthDB, c.AuthMechanism) {
-			continue
-		}
 		query.Set(key, value)
 	}
 	if c.AuthDB != "" {
@@ -118,17 +53,12 @@ func (c *Config) URI() string {
 		query.Set("replicaSet", c.ReplicaSet)
 		query.Set("readPreference", utils.Ternary(c.ReadPreference != "", c.ReadPreference, constants.DefaultReadPreference).(string))
 	}
-	if inlineSSL {
+	if c.SSLConfiguration != nil && c.SSLConfiguration.Mode != utils.SSLModeDisable {
 		query.Set("tls", "true")
 	}
 
-	scheme := "mongodb"
-	if c.Srv {
-		scheme = "mongodb+srv"
-	}
-
 	u := &url.URL{
-		Scheme:   scheme,
+		Scheme:   utils.Ternary(c.Srv, "mongodb+srv", "mongodb").(string),
 		Host:     strings.Join(c.Hosts, ","),
 		Path:     "/",
 		RawQuery: query.Encode(),
@@ -137,7 +67,7 @@ func (c *Config) URI() string {
 	switch {
 	case c.Username == "" || policy.SkipUserinfo:
 		// No userinfo. AWS credentials come from the environment; X509/OIDC may omit username.
-	case c.Password == "" || policy.ForbidPassword:
+	case c.Password == "" || policy.Password == passwordForbidden:
 		u.User = url.User(c.Username)
 	default:
 		u.User = url.UserPassword(c.Username, c.Password)
@@ -153,7 +83,8 @@ func (c *Config) buildTLSConfig() (*tls.Config, error) {
 }
 
 // Validate normalizes auth fields, applies defaults, and checks mechanism-specific rules.
-// It is the single write path for AuthMechanism and AuthDB; Setup() calls Validate() then URI().
+// It is the single write path for AuthMechanism, AuthDB and AdditionalParams; Setup() calls
+// Validate() then URI().
 func (c *Config) Validate() error {
 	if len(c.Hosts) == 0 {
 		return errs.Precondition(errs.ConfigInvalid, codeHostsMissing, fmt.Errorf("hosts is required"))
@@ -162,35 +93,30 @@ func (c *Config) Validate() error {
 		return errs.Precondition(errs.ConfigInvalid, codeDatabaseMissing, fmt.Errorf("database is required"))
 	}
 
-	reserved, err := parseReservedParams(c.AdditionalParams)
+	reserved, err := c.normalizeAdditionalParams()
 	if err != nil {
 		return err
 	}
 
-	mechanism, err := resolveAuthMechanism(c.UseIAM, c.AuthMechanism, reserved.AuthMechanism)
+	mechanism, policy, err := c.resolveAuthMechanism(reserved)
 	if err != nil {
 		return err
 	}
-
-	policy, known := authPolicyFor(mechanism)
-	if !known {
-		return fmt.Errorf("unsupported auth_mechanism %q", mechanism)
-	}
-
 	c.AuthMechanism = mechanism
-	if c.AdditionalParams != nil {
-		for key := range c.AdditionalParams {
-			if strings.EqualFold(key, "authMechanism") {
-				delete(c.AdditionalParams, key)
-			}
-		}
-	}
+	delete(c.AdditionalParams, "authMechanism")
 
-	if policy.ExternalAuthDB {
+	switch {
+	case policy.ExternalAuthDB:
 		c.AuthDB = externalAuthDB
-	} else if c.AuthDB == "" {
+	case reserved["authSource"] != "":
+		// additional_params.authSource is the legacy way to name the auth database; honor it
+		// over the typed field so configs written before auth_mechanism existed keep working.
+		logger.Warnf("mongodb: using additional_params.authSource %q as authdb", reserved["authSource"])
+		c.AuthDB = reserved["authSource"]
+	case c.AuthDB == "":
 		return errs.Precondition(errs.ConfigInvalid, codeAuthDBMissing, fmt.Errorf("authdb is required"))
 	}
+	delete(c.AdditionalParams, "authSource")
 
 	if c.SSLConfiguration == nil {
 		c.SSLConfiguration = &utils.SSLConfig{
@@ -201,19 +127,42 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("failed to validate ssl config: %w", err)
 	}
 
-	caps, err := computeTLSCaps(c, reserved)
-	if err != nil {
-		return err
-	}
-	if caps.inlineSSL && caps.explicitTLSSet && !caps.explicitTLS {
-		return fmt.Errorf("additional_params.%s=false conflicts with enabled ssl configuration", caps.explicitTLSKey)
+	// Effective TLS state. Inline SSL and SRV both imply it; an explicit additional_params
+	// tls/ssl option decides it outright, and may not contradict inline SSL.
+	inlineSSL := c.SSLConfiguration.Mode != utils.SSLModeDisable
+	tlsEnabled := inlineSSL || c.Srv
+	if raw, ok := reserved["tls"]; ok {
+		explicit, parseErr := strconv.ParseBool(raw)
+		if parseErr != nil {
+			return errs.Precondition(errs.ConfigInvalid, codeAdditionalParamInvalid,
+				fmt.Errorf("additional_params tls/ssl must be true or false, got %q", raw))
+		}
+		if inlineSSL && !explicit {
+			return errs.Precondition(errs.ConfigInvalid, codeTLSConflict,
+				fmt.Errorf("additional_params tls/ssl=false conflicts with ssl.mode=%s", c.SSLConfiguration.Mode))
+		}
+		tlsEnabled = explicit
 	}
 
-	if err := enforceAuthPolicy(c, mechanism, policy, caps); err != nil {
+	// A client certificate can come from inline ssl.* PEM content or from a passthrough file
+	// path. Inline SSL ships PEM content, not a file the driver container has on disk, so a
+	// passthrough file-path option would point nowhere once inline SSL is active — only the
+	// inline pair counts then, and the file options are dropped below rather than left to
+	// reference files that were never provided.
+	hasClientCert := reserved["tlsCertificateKeyFile"] != "" ||
+		(reserved["tlsCertificateFile"] != "" && reserved["tlsPrivateKeyFile"] != "")
+	if inlineSSL {
+		hasClientCert = c.SSLConfiguration.ClientCert != "" && c.SSLConfiguration.ClientKey != ""
+		for option := range tlsFileOptions {
+			delete(c.AdditionalParams, option)
+		}
+	}
+
+	if err := c.enforceAuthPolicy(policy, tlsEnabled, hasClientCert); err != nil {
 		return err
 	}
 	if mechanism == AuthMechanismOIDC {
-		if err := validateOIDCProperties(reserved.AuthMechanismProperties); err != nil {
+		if err := validateOIDCProperties(reserved["authMechanismProperties"]); err != nil {
 			return err
 		}
 	}

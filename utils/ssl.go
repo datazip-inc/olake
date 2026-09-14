@@ -38,9 +38,13 @@ type SSLConfig struct {
 }
 
 const (
-	// The ssl block itself is missing a field.
-	codeSSLMissing         = "config.ssl_missing"
-	codeSSLServerCAMissing = "config.ssl_server_ca_missing"
+	// The ssl block itself is missing a field, names a mode we don't implement, or pairs a
+	// mode with material it would silently ignore.
+	codeSSLMissing              = "config.ssl_missing"
+	codeSSLServerCAMissing      = "config.ssl_server_ca_missing"
+	codeSSLModeUnsupported      = "config.ssl_mode_unsupported"
+	codeSSLClientPairIncomplete = "config.ssl_client_pair_incomplete"
+	codeSSLDisabledWithMaterial = "config.ssl_disabled_with_material"
 
 	// The PEM material the user supplied is unusable; nothing was sent to a server yet.
 	codeSSLMaterialMissing        = "config.ssl_material_missing"
@@ -72,7 +76,7 @@ func (sc *SSLConfig) normalizeMode() {
 	case !hasCA && !hasCert && !hasKey:
 		sc.Mode = SSLModeDisable
 	case hasCert != hasKey:
-		return // partial client pair — leave mode empty; Validate() reports cert/key mismatch
+		return // partial client pair — no mode fits; leave it empty rather than guess
 	case hasCA:
 		sc.Mode = SSLModeVerifyCA
 	case hasCert && hasKey:
@@ -91,23 +95,34 @@ func (sc *SSLConfig) Validate() error {
 
 	switch sc.Mode {
 	case Unknown:
-		return errors.New("'ssl.client_cert' and 'ssl.client_key' must be configured together")
+		// normalizeMode only declines to pick a mode for a half-configured client pair.
+		return errs.Precondition(errs.ConfigInvalid, codeSSLClientPairIncomplete,
+			errors.New("'ssl.client_cert' and 'ssl.client_key' must be configured together"))
 	case SSLModeDisable:
+		// Nothing is encrypted, so any certificate here would be silently ignored.
 		if sc.ServerCA != "" || sc.ClientCert != "" || sc.ClientKey != "" {
-			return errors.New("SSL certificate fields must be empty when 'ssl.mode' is disable")
+			return errs.Precondition(errs.ConfigInvalid, codeSSLDisabledWithMaterial,
+				errors.New("SSL certificate fields must be empty when 'ssl.mode' is disable"))
 		}
 	case SSLModeRequire:
+		// Encrypt without verifying the server, so no CA is needed.
 	case SSLModeVerifyCA, SSLModeVerifyFull:
 		if sc.ServerCA == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeSSLServerCAMissing,
 				errors.New("'ssl.server_ca' is required parameter"))
 		}
 	default:
-		return fmt.Errorf("unsupported 'ssl.mode' %q", sc.Mode)
+		// Never fall through: callers map an unrecognized mode onto their own default, which
+		// for several drivers means silently connecting without TLS.
+		return errs.Precondition(errs.ConfigInvalid, codeSSLModeUnsupported,
+			fmt.Errorf("unsupported 'ssl.mode' %q", sc.Mode))
 	}
 
+	// Reached with an explicit mode, which normalizeMode leaves alone — so the pair is still
+	// unchecked here even though the Unknown case above covers the inferred-mode path.
 	if (sc.ClientCert == "") != (sc.ClientKey == "") {
-		return errors.New("'ssl.client_cert' and 'ssl.client_key' must be configured together")
+		return errs.Precondition(errs.ConfigInvalid, codeSSLClientPairIncomplete,
+			errors.New("'ssl.client_cert' and 'ssl.client_key' must be configured together"))
 	}
 
 	return nil

@@ -10,14 +10,15 @@
         "auth_mechanism": {
             "type": "string",
             "title": "Authentication Mechanism",
-            "description": "MongoDB authentication mechanism. Leave empty to use the driver's default SCRAM negotiation (modern servers prefer SCRAM-SHA-256). Set SCRAM-SHA-1 or SCRAM-SHA-256 only when an explicit mechanism is required. Use PLAIN for LDAP (TLS required), MONGODB-X509 for certificate auth (TLS and client certificate required; username optional), or MONGODB-OIDC for OpenID Connect (password-less; pass ENVIRONMENT and TOKEN_RESOURCE via Additional Connection Parameters for Azure/GCP URI flows). For MONGODB-AWS authentication, use the 'IAM Authentication' toggle instead. GSSAPI (Kerberos) is not currently supported due to low market adoption.",
+            "description": "MongoDB authentication mechanism. Leave empty to use the driver's default SCRAM negotiation (modern servers prefer SCRAM-SHA-256). Set SCRAM-SHA-1 or SCRAM-SHA-256 only when an explicit mechanism is required. Use PLAIN for LDAP (TLS required), MONGODB-X509 for certificate auth (TLS and client certificate required; username optional), MONGODB-OIDC for OpenID Connect (password-less; pass ENVIRONMENT and TOKEN_RESOURCE via Additional Connection Parameters for Azure/GCP URI flows), or MONGODB-AWS for IAM-based authentication (equivalent to the 'IAM Authentication' toggle below; credentials come from the environment). GSSAPI (Kerberos) is not currently supported due to low market adoption.",
             "enum": [
                 "",
                 "SCRAM-SHA-1",
                 "SCRAM-SHA-256",
                 "PLAIN",
                 "MONGODB-X509",
-                "MONGODB-OIDC"
+                "MONGODB-OIDC",
+                "MONGODB-AWS"
             ],
             "default": ""
         },
@@ -87,7 +88,7 @@
         "use_iam": {
             "type": "boolean",
             "title": "IAM Authentication",
-            "description": "Enable this option to use IAM-based authentication instead of username and password",
+            "description": "Enable this option to use IAM-based authentication instead of username and password. Equivalent to selecting MONGODB-AWS in Authentication Mechanism above.",
             "default": false
         },
         "ssl": {
@@ -282,60 +283,48 @@
     "allOf": [
         {
             "if": {
-                "properties": {
-                    "use_iam": {
-                        "const": true
-                    }
-                },
-                "required": [
-                    "use_iam"
-                ]
-            },
-            "then": {},
-            "else": {
-                "allOf": [
+                "anyOf": [
                     {
-                        "if": {
-                            "properties": {
-                                "auth_mechanism": {
-                                    "enum": [
-                                        "PLAIN",
-                                        "MONGODB-X509",
-                                        "MONGODB-OIDC"
-                                    ]
-                                }
-                            },
-                            "required": [
-                                "auth_mechanism"
-                            ]
+                        "properties": {
+                            "use_iam": {
+                                "const": true
+                            }
                         },
-                        "then": {},
-                        "else": {
-                            "required": [
-                                "authdb",
-                                "username",
-                                "password"
-                            ]
-                        }
+                        "required": [
+                            "use_iam"
+                        ]
                     },
                     {
-                        "if": {
-                            "properties": {
-                                "auth_mechanism": {
-                                    "const": "PLAIN"
-                                }
-                            },
-                            "required": [
-                                "auth_mechanism"
-                            ]
+                        "properties": {
+                            "auth_mechanism": {
+                                "enum": [
+                                    "PLAIN",
+                                    "MONGODB-X509",
+                                    "MONGODB-OIDC",
+                                    "MONGODB-AWS"
+                                ]
+                            }
                         },
-                        "then": {
-                            "required": [
-                                "username",
-                                "password"
-                            ]
-                        }
+                        "required": [
+                            "auth_mechanism"
+                        ]
                     }
+                ]
+            },
+            "then": {
+                "properties": {
+                    "authdb": {
+                        "const": "$external",
+                        "readOnly": true,
+                        "description": "Not used by this authentication mechanism - OLake always authenticates with authSource=$external."
+                    }
+                }
+            },
+            "else": {
+                "required": [
+                    "authdb",
+                    "username",
+                    "password"
                 ]
             }
         },
@@ -368,6 +357,8 @@
                     }
                 },
                 "required": [
+                    "username",
+                    "password",
                     "ssl"
                 ]
             }

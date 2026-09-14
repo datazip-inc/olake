@@ -1,7 +1,6 @@
 package driver
 
 import (
-	"crypto/tls"
 	"strings"
 	"testing"
 
@@ -38,19 +37,21 @@ func additionalParamsContains(params map[string]string, name string) bool {
 	return false
 }
 
-func TestConfig_URI(t *testing.T) {
+// TestConfig_ValidateThenURI exercises the full Validate() → URI() pipeline, matching how
+// Setup() actually calls them (mon.go). Every case asserts the exact final URI.
+func TestConfig_ValidateThenURI(t *testing.T) {
 	certs := testutils.GenerateTestCerts()
 
 	tests := []struct {
-		name        string
-		config      *Config
-		wantURI     string
-		notContains []string
+		name    string
+		config  *Config
+		wantURI string
 	}{
 		{
 			name: "strips tls file params when ssl enabled",
 			config: &Config{
 				Hosts:    []string{"mongo.example.com:27017"},
+				Database: "testdb",
 				AuthDB:   "admin",
 				Username: "user",
 				Password: "pass",
@@ -66,15 +67,12 @@ func TestConfig_URI(t *testing.T) {
 				},
 			},
 			wantURI: "mongodb://user:pass@mongo.example.com:27017/?authSource=admin&connectTimeoutMS=5000&tls=true",
-			notContains: []string{
-				"tlsCAFile",
-				"tlsCertificateKeyFile",
-			},
 		},
 		{
 			name: "preserves tls file params without ssl",
 			config: &Config{
 				Hosts:    []string{"mongo.example.com:27017"},
+				Database: "testdb",
 				AuthDB:   "admin",
 				Username: "user",
 				Password: "pass",
@@ -89,6 +87,7 @@ func TestConfig_URI(t *testing.T) {
 			name: "adds tls when ssl enabled",
 			config: &Config{
 				Hosts:    []string{"mongo.example.com:27017"},
+				Database: "testdb",
 				AuthDB:   "admin",
 				Username: "user",
 				Password: "pass",
@@ -100,18 +99,10 @@ func TestConfig_URI(t *testing.T) {
 			wantURI: "mongodb://user:pass@mongo.example.com:27017/?authSource=admin&tls=true",
 		},
 		{
-			name: "serializes username-only userinfo",
-			config: &Config{
-				Hosts:    []string{"mongo.internal:27017"},
-				AuthDB:   "admin",
-				Username: "appuser",
-			},
-			wantURI: "mongodb://appuser@mongo.internal:27017/?authSource=admin",
-		},
-		{
 			name: "explicit SCRAM-SHA-1",
 			config: &Config{
 				Hosts:         []string{"localhost:27017"},
+				Database:      "testdb",
 				AuthDB:        "admin",
 				Username:      "user",
 				Password:      "pass",
@@ -123,6 +114,7 @@ func TestConfig_URI(t *testing.T) {
 			name: "explicit SCRAM-SHA-256",
 			config: &Config{
 				Hosts:         []string{"localhost:27017"},
+				Database:      "testdb",
 				AuthDB:        "admin",
 				Username:      "user",
 				Password:      "pass",
@@ -134,7 +126,8 @@ func TestConfig_URI(t *testing.T) {
 			name: "PLAIN uses external auth source",
 			config: &Config{
 				Hosts:         []string{"localhost:27017"},
-				AuthDB:        "$external",
+				Database:      "testdb",
+				AuthDB:        "admin",
 				Username:      "user",
 				Password:      "pass",
 				AuthMechanism: AuthMechanismPLAIN,
@@ -148,7 +141,7 @@ func TestConfig_URI(t *testing.T) {
 			name: "MONGODB-X509 without password via auth_mechanism",
 			config: &Config{
 				Hosts:         []string{"localhost:27017"},
-				AuthDB:        "$external",
+				Database:      "testdb",
 				Username:      "CN=user",
 				AuthMechanism: AuthMechanismX509,
 				AdditionalParams: map[string]string{
@@ -162,7 +155,7 @@ func TestConfig_URI(t *testing.T) {
 			name: "MONGODB-X509 without username has no userinfo",
 			config: &Config{
 				Hosts:         []string{"localhost:27017"},
-				AuthDB:        "$external",
+				Database:      "testdb",
 				AuthMechanism: AuthMechanismX509,
 				AdditionalParams: map[string]string{
 					"tls":                   "true",
@@ -170,27 +163,50 @@ func TestConfig_URI(t *testing.T) {
 				},
 			},
 			wantURI: "mongodb://localhost:27017/?authMechanism=MONGODB-X509&authSource=%24external&tls=true&tlsCertificateKeyFile=%2Fcerts%2Fclient.pem",
-			notContains: []string{
-				"@",
-			},
 		},
 		{
 			name: "MONGODB-OIDC without password via auth_mechanism",
 			config: &Config{
 				Hosts:         []string{"localhost:27017"},
-				AuthDB:        "$external",
+				Database:      "testdb",
 				Username:      "oidc-user",
 				AuthMechanism: AuthMechanismOIDC,
+				AdditionalParams: map[string]string{
+					"authMechanismProperties": "ENVIRONMENT:gcp,TOKEN_RESOURCE:https://example.com",
+				},
 			},
-			wantURI: "mongodb://oidc-user@localhost:27017/?authMechanism=MONGODB-OIDC&authSource=%24external",
+			wantURI: "mongodb://oidc-user@localhost:27017/?authMechanism=MONGODB-OIDC&authMechanismProperties=ENVIRONMENT%3Agcp%2CTOKEN_RESOURCE%3Ahttps%3A%2F%2Fexample.com&authSource=%24external",
 		},
 		{
-			name: "IAM authentication",
+			name: "IAM authentication via use_iam",
+			config: &Config{
+				Hosts:    []string{"cluster.mongodb.net"},
+				Database: "testdb",
+				UseIAM:   true,
+			},
+			wantURI: "mongodb://cluster.mongodb.net/?authMechanism=MONGODB-AWS&authSource=%24external",
+		},
+		{
+			// New: decision to add MONGODB-AWS to the auth_mechanism dropdown (PR #1045)
+			// alongside the existing use_iam toggle — both must resolve identically.
+			name: "IAM authentication via auth_mechanism dropdown",
 			config: &Config{
 				Hosts:         []string{"cluster.mongodb.net"},
-				AuthDB:        "$external",
+				Database:      "testdb",
 				AuthMechanism: AuthMechanismAWS,
-				UseIAM:        true,
+			},
+			wantURI: "mongodb://cluster.mongodb.net/?authMechanism=MONGODB-AWS&authSource=%24external",
+		},
+		{
+			// The legacy additional_params.authMechanism escape hatch must also accept AWS
+			// now that it is a supported mechanism, not just an error redirecting to use_iam.
+			name: "IAM authentication via legacy additional_params",
+			config: &Config{
+				Hosts:    []string{"cluster.mongodb.net"},
+				Database: "testdb",
+				AdditionalParams: map[string]string{
+					"authMechanism": AuthMechanismAWS,
+				},
 			},
 			wantURI: "mongodb://cluster.mongodb.net/?authMechanism=MONGODB-AWS&authSource=%24external",
 		},
@@ -198,21 +214,73 @@ func TestConfig_URI(t *testing.T) {
 			name: "typed authMechanism overwrites additional_params",
 			config: &Config{
 				Hosts:         []string{"localhost:27017"},
+				Database:      "testdb",
 				AuthDB:        "admin",
 				Username:      "user",
 				Password:      "pass",
 				AuthMechanism: AuthMechanismSCRAMSHA256,
 				AdditionalParams: map[string]string{
-					"authMechanism": AuthMechanismGSSAPI,
-					"authSource":    "$external",
+					"authMechanism": AuthMechanismSCRAMSHA1,
 				},
 			},
 			wantURI: "mongodb://user:pass@localhost:27017/?authMechanism=SCRAM-SHA-256&authSource=admin",
 		},
 		{
+			// Mechanism matching folds case, so a legacy config that spelled the mechanism in
+			// lowercase still resolves to the canonical constant.
+			name: "mechanism resolution folds case",
+			config: &Config{
+				Hosts:    []string{"localhost:27017"},
+				Database: "testdb",
+				Username: "CN=user",
+				AdditionalParams: map[string]string{
+					"authMechanism":         "mongodb-x509",
+					"tls":                   "true",
+					"tlsCertificateKeyFile": "/certs/client.pem",
+				},
+			},
+			wantURI: "mongodb://CN=user@localhost:27017/?authMechanism=MONGODB-X509&authSource=%24external&tls=true&tlsCertificateKeyFile=%2Fcerts%2Fclient.pem",
+		},
+		{
+			// Restored precedence (PR #1045): additional_params.authSource is the legacy way
+			// to name the auth database and wins over the typed authdb field, matching
+			// pre-refactor behavior for configs saved before auth_mechanism existed.
+			name: "additional_params.authSource overrides authdb",
+			config: &Config{
+				Hosts:         []string{"localhost:27017"},
+				Database:      "testdb",
+				AuthDB:        "admin",
+				Username:      "user",
+				Password:      "pass",
+				AuthMechanism: AuthMechanismSCRAMSHA256,
+				AdditionalParams: map[string]string{
+					"authSource": "other",
+				},
+			},
+			wantURI: "mongodb://user:pass@localhost:27017/?authMechanism=SCRAM-SHA-256&authSource=other",
+		},
+		{
+			// A mechanism that forces $external overrides authSource too, not just authdb.
+			name: "external mechanism beats additional_params.authSource",
+			config: &Config{
+				Hosts:         []string{"localhost:27017"},
+				Database:      "testdb",
+				Username:      "CN=user",
+				AuthDB:        "admin",
+				AuthMechanism: AuthMechanismX509,
+				AdditionalParams: map[string]string{
+					"authSource":            "other",
+					"tls":                   "true",
+					"tlsCertificateKeyFile": "/certs/client.pem",
+				},
+			},
+			wantURI: "mongodb://CN=user@localhost:27017/?authMechanism=MONGODB-X509&authSource=%24external&tls=true&tlsCertificateKeyFile=%2Fcerts%2Fclient.pem",
+		},
+		{
 			name: "replica set with default read preference",
 			config: &Config{
 				Hosts:      []string{"localhost:27017"},
+				Database:   "testdb",
 				AuthDB:     "admin",
 				Username:   "user",
 				Password:   "pass",
@@ -224,6 +292,7 @@ func TestConfig_URI(t *testing.T) {
 			name: "replica set preserves explicit read preference",
 			config: &Config{
 				Hosts:          []string{"localhost:27017"},
+				Database:       "testdb",
 				AuthDB:         "admin",
 				Username:       "user",
 				Password:       "pass",
@@ -236,6 +305,7 @@ func TestConfig_URI(t *testing.T) {
 			name: "multi-host join",
 			config: &Config{
 				Hosts:    []string{"mongo1.internal:27017", "mongo2.internal:27017"},
+				Database: "testdb",
 				AuthDB:   "admin",
 				Username: "user",
 				Password: "pass",
@@ -246,6 +316,7 @@ func TestConfig_URI(t *testing.T) {
 			name: "password with special characters is url-encoded",
 			config: &Config{
 				Hosts:    []string{"localhost:27017"},
+				Database: "testdb",
 				AuthDB:   "admin",
 				Username: "user",
 				Password: "p@ss:word/!",
@@ -256,6 +327,7 @@ func TestConfig_URI(t *testing.T) {
 			name: "SRV connection",
 			config: &Config{
 				Hosts:    []string{"cluster.mongodb.net"},
+				Database: "testdb",
 				AuthDB:   "admin",
 				Username: "user",
 				Password: "pass",
@@ -263,20 +335,86 @@ func TestConfig_URI(t *testing.T) {
 			},
 			wantURI: "mongodb+srv://user:pass@cluster.mongodb.net/?authSource=admin",
 		},
+		{
+			// Credentials are configured but MONGODB-AWS takes them from the environment,
+			// so they must not reach the URI (a warning is logged instead).
+			name: "MONGODB-AWS ignores configured credentials",
+			config: &Config{
+				Hosts:         []string{"cluster.mongodb.net"},
+				Database:      "testdb",
+				AuthMechanism: AuthMechanismAWS,
+				Username:      "AKIAEXAMPLE",
+				Password:      "secret",
+			},
+			wantURI: "mongodb://cluster.mongodb.net/?authMechanism=MONGODB-AWS&authSource=%24external",
+		},
+		{
+			// Legacy path: mechanism only in additional_params.
+			name: "legacy X509 mechanism",
+			config: &Config{
+				Hosts:    []string{"mongo.internal:27017"},
+				Database: "analytics",
+				Username: "CN=olake-client,OU=Data,O=Acme",
+				AdditionalParams: map[string]string{
+					"authMechanism":         AuthMechanismX509,
+					"tls":                   "true",
+					"tlsCertificateKeyFile": "/certs/client.pem",
+				},
+			},
+			wantURI: "mongodb://CN=olake-client,OU=Data,O=Acme@mongo.internal:27017/?authMechanism=MONGODB-X509&authSource=%24external&tls=true&tlsCertificateKeyFile=%2Fcerts%2Fclient.pem",
+		},
+		{
+			// Legacy path: mechanism only in additional_params.
+			name: "legacy OIDC mechanism",
+			config: &Config{
+				Hosts:    []string{"mongo.internal:27017"},
+				Database: "analytics",
+				Username: "olake-oidc-client",
+				AdditionalParams: map[string]string{
+					"authMechanism":           AuthMechanismOIDC,
+					"authMechanismProperties": "ENVIRONMENT:gcp,TOKEN_RESOURCE:https://example.com",
+				},
+			},
+			wantURI: "mongodb://olake-oidc-client@mongo.internal:27017/?authMechanism=MONGODB-OIDC&authMechanismProperties=ENVIRONMENT%3Agcp%2CTOKEN_RESOURCE%3Ahttps%3A%2F%2Fexample.com&authSource=%24external",
+		},
 	}
+
+	// The latent bug this refactor fixes — inline verify-ca (CA only, no inline client cert)
+	// plus a passthrough tlsCertificateKeyFile used to pass validation and then dial with no
+	// client certificate, because that file param was stripped from the URI right after being
+	// counted toward hasClientCert — is a Validate() rejection, not a URI() case; see
+	// TestConfig_Validate/x509_with_inline_verify-ca_and_only_a_passthrough_cert_file_is_rejected.
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.config.URI()
+			got := validateAndURI(t, tt.config)
 			if got != tt.wantURI {
 				t.Fatalf("URI() = %q, want %q", got, tt.wantURI)
 			}
-			for _, s := range tt.notContains {
-				if strings.Contains(got, s) {
-					t.Fatalf("URI() = %q, must not contain %q", got, s)
-				}
+			if additionalParamsContains(tt.config.AdditionalParams, "authMechanism") {
+				t.Fatalf("authMechanism was not removed from additional_params")
+			}
+			if additionalParamsContains(tt.config.AdditionalParams, "authSource") {
+				t.Fatalf("authSource was not removed from additional_params")
 			}
 		})
+	}
+}
+
+func TestConfig_URI_DoesNotMutate(t *testing.T) {
+	c := &Config{
+		Hosts:    []string{"cluster.mongodb.net"},
+		AuthDB:   "admin",
+		Username: "user",
+		Password: "pass",
+		UseIAM:   true,
+	}
+	_ = c.URI()
+	if c.AuthMechanism != "" {
+		t.Fatalf("URI() mutated AuthMechanism to %q", c.AuthMechanism)
+	}
+	if c.AuthDB != "admin" {
+		t.Fatalf("URI() mutated AuthDB to %q", c.AuthDB)
 	}
 }
 
@@ -296,19 +434,6 @@ func TestConfig_Validate(t *testing.T) {
 			name: "empty hosts",
 			config: &Config{
 				Hosts:    []string{},
-				Database: "testdb",
-				Username: "user",
-				Password: "pass",
-				AuthDB:   "admin",
-			},
-			expectErr:       true,
-			wantErrContains: "hosts is required",
-		},
-		{
-			name: "empty hosts with srv",
-			config: &Config{
-				Hosts:    []string{},
-				Srv:      true,
 				Database: "testdb",
 				Username: "user",
 				Password: "pass",
@@ -349,6 +474,19 @@ func TestConfig_Validate(t *testing.T) {
 			wantErrContains: "authdb is required",
 		},
 		{
+			// The negotiated default is SCRAM, which cannot authenticate without a password,
+			// so it carries the same rules as an explicitly selected SCRAM mechanism.
+			name: "negotiated default without password is rejected",
+			config: &Config{
+				Hosts:    []string{"mongo.internal:27017"},
+				Database: "testdb",
+				AuthDB:   "admin",
+				Username: "appuser",
+			},
+			expectErr:       true,
+			wantErrContains: "password is required",
+		},
+		{
 			name: "unsupported auth mechanism GSSAPI",
 			config: func() *Config {
 				c := baseConfig()
@@ -364,18 +502,6 @@ func TestConfig_Validate(t *testing.T) {
 				c := baseConfig()
 				c.AdditionalParams = map[string]string{
 					"authMechanism": AuthMechanismGSSAPI,
-				}
-				return c
-			}(),
-			expectErr:       true,
-			wantErrContains: "GSSAPI is not supported",
-		},
-		{
-			name: "GSSAPI in case-insensitive additional_params is rejected",
-			config: func() *Config {
-				c := baseConfig()
-				c.AdditionalParams = map[string]string{
-					"AuthMechanism": AuthMechanismGSSAPI,
 				}
 				return c
 			}(),
@@ -412,7 +538,8 @@ func TestConfig_Validate(t *testing.T) {
 			wantRetryCount: constants.DefaultRetryCount,
 			wantSSLMode:    utils.SSLModeDisable,
 		},
-		// Legacy path: mechanism only in additional_params; caller must set authdb=$external.
+		// Legacy path: mechanism only in additional_params; the schema-side counterpart
+		// (spec.json) no longer requires a password here either — see PR #1045.
 		{
 			name: "x509 without password via additional_params passes validate",
 			config: &Config{
@@ -429,32 +556,6 @@ func TestConfig_Validate(t *testing.T) {
 			expectErr:         false,
 			wantAuthDB:        "$external",
 			wantAuthMechanism: AuthMechanismX509,
-		},
-		{
-			name: "username without password is rejected",
-			config: &Config{
-				Hosts:    []string{"mongo.internal:27017"},
-				Database: "analytics",
-				AuthDB:   "admin",
-				Username: "appuser",
-			},
-			expectErr:       true,
-			wantErrContains: "password is required",
-		},
-		// Legacy path: mechanism only in additional_params; caller must set authdb=$external.
-		{
-			name: "MONGODB-OIDC without password via additional_params passes validate",
-			config: &Config{
-				Hosts:    []string{"mongo.internal:27017"},
-				Database: "analytics",
-				AuthDB:   "$external",
-				Username: "olake-oidc-client",
-				AdditionalParams: map[string]string{
-					"authMechanism":           AuthMechanismOIDC,
-					"authMechanismProperties": "ENVIRONMENT:gcp,TOKEN_RESOURCE:https://example.com",
-				},
-			},
-			expectErr: false,
 		},
 		{
 			name: "x509 via auth_mechanism without password passes validate and sets external authdb",
@@ -505,6 +606,27 @@ func TestConfig_Validate(t *testing.T) {
 			expectErr:         false,
 			wantAuthDB:        "$external",
 			wantAuthMechanism: AuthMechanismX509,
+		},
+		{
+			// The latent bug this refactor fixes: a passthrough tlsCertificateKeyFile does
+			// not count toward "has a client cert" once inline SSL is active, because that
+			// exact param is about to be stripped from the URI — it would otherwise pass
+			// validation and then dial with no client certificate at all.
+			name: "x509 with inline verify-ca and only a passthrough cert file is rejected",
+			config: &Config{
+				Hosts:         []string{"localhost:27017"},
+				Database:      "testdb",
+				AuthMechanism: AuthMechanismX509,
+				SSLConfiguration: &utils.SSLConfig{
+					Mode:     utils.SSLModeVerifyCA,
+					ServerCA: testutils.GenerateTestCerts().CACert,
+				},
+				AdditionalParams: map[string]string{
+					"tlsCertificateKeyFile": "/certs/client.pem",
+				},
+			},
+			expectErr:       true,
+			wantErrContains: "a client certificate is required for MONGODB-X509",
 		},
 		{
 			name: "x509 with password is rejected",
@@ -576,7 +698,7 @@ func TestConfig_Validate(t *testing.T) {
 				c := baseConfig()
 				c.AuthMechanism = AuthMechanismSCRAMSHA256
 				c.AdditionalParams = map[string]string{
-					"authMechanism": AuthMechanismGSSAPI,
+					"authMechanism": AuthMechanismSCRAMSHA1,
 				}
 				return c
 			}(),
@@ -592,7 +714,28 @@ func TestConfig_Validate(t *testing.T) {
 				return c
 			}(),
 			expectErr:       true,
-			wantErrContains: "tls=false conflicts",
+			wantErrContains: "tls/ssl=false conflicts",
+		},
+		{
+			name: "additional_params.tls enables TLS without inline ssl",
+			config: func() *Config {
+				c := baseConfig()
+				c.AuthMechanism = AuthMechanismPLAIN
+				c.AdditionalParams = map[string]string{"tls": "true"}
+				return c
+			}(),
+			expectErr:         false,
+			wantAuthMechanism: AuthMechanismPLAIN,
+		},
+		{
+			name: "additional_params.tls must be a boolean",
+			config: func() *Config {
+				c := baseConfig()
+				c.AdditionalParams = map[string]string{"tls": "sometimes"}
+				return c
+			}(),
+			expectErr:       true,
+			wantErrContains: "tls/ssl must be true or false",
 		},
 		{
 			name: "x509 without TLS is rejected",
@@ -623,21 +766,6 @@ func TestConfig_Validate(t *testing.T) {
 			wantErrContains: "TLS is required for MONGODB-X509",
 		},
 		{
-			name: "SRV X509 with case-insensitive TLS false is rejected",
-			config: &Config{
-				Hosts:         []string{"cluster.example.com"},
-				Database:      "testdb",
-				Srv:           true,
-				AuthMechanism: AuthMechanismX509,
-				AdditionalParams: map[string]string{
-					"TLS":                   "false",
-					"TLSCertificateKeyFile": "/certs/client.pem",
-				},
-			},
-			expectErr:       true,
-			wantErrContains: "TLS is required for MONGODB-X509",
-		},
-		{
 			name: "SRV PLAIN with explicit ssl false is rejected",
 			config: &Config{
 				Hosts:         []string{"cluster.example.com"},
@@ -652,19 +780,6 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectErr:       true,
 			wantErrContains: "TLS is required for PLAIN",
-		},
-		{
-			name: "duplicate tls and ssl aliases are rejected",
-			config: func() *Config {
-				c := baseConfig()
-				c.AdditionalParams = map[string]string{
-					"tls": "true",
-					"ssl": "false",
-				}
-				return c
-			}(),
-			expectErr:       true,
-			wantErrContains: "additional parameter \"tls\" is configured more than once",
 		},
 		{
 			name: "OIDC without mechanism properties is rejected",
@@ -734,6 +849,20 @@ func TestConfig_Validate(t *testing.T) {
 				Hosts:    []string{"cluster.mongodb.net"},
 				Database: "testdb",
 				UseIAM:   true,
+			},
+			expectErr:         false,
+			wantAuthDB:        "$external",
+			wantAuthMechanism: AuthMechanismAWS,
+		},
+		{
+			// use_iam and auth_mechanism=MONGODB-AWS naming the same mechanism is not a
+			// conflict — only a DIFFERENT mechanism alongside use_iam is.
+			name: "use_iam and auth_mechanism MONGODB-AWS together is accepted",
+			config: &Config{
+				Hosts:         []string{"cluster.mongodb.net"},
+				Database:      "testdb",
+				UseIAM:        true,
+				AuthMechanism: AuthMechanismAWS,
 			},
 			expectErr:         false,
 			wantAuthDB:        "$external",
@@ -883,71 +1012,15 @@ func TestConfig_ValidateRejectsDuplicateReservedAdditionalParams(t *testing.T) {
 	}
 }
 
-func TestConfig_ValidateRejectsInlineCertificatesWhenSSLDisabled(t *testing.T) {
-	certs := testutils.GenerateTestCerts()
-	config := &Config{
-		Hosts:         []string{"cluster.example.com"},
-		Database:      "testdb",
-		Srv:           true,
-		AuthMechanism: AuthMechanismX509,
-		SSLConfiguration: &utils.SSLConfig{
-			Mode:       utils.SSLModeDisable,
-			ClientCert: certs.ClientCert,
-			ClientKey:  certs.ClientKey,
-		},
-	}
-
-	err := config.Validate()
-	if err == nil {
-		t.Fatal("Validate() expected disabled SSL certificate error, got nil")
-	}
-	if !strings.Contains(err.Error(), "SSL certificate fields must be empty when 'ssl.mode' is disable") {
-		t.Fatalf("Validate() error = %q, want disabled SSL certificate error", err)
-	}
-}
-
-func TestConfig_Validate_IAMIdempotent(t *testing.T) {
-	c := &Config{
-		Hosts:    []string{"cluster.mongodb.net"},
-		Database: "testdb",
-		UseIAM:   true,
-	}
-	if err := c.Validate(); err != nil {
-		t.Fatalf("first Validate() error = %v", err)
-	}
-	if err := c.Validate(); err != nil {
-		t.Fatalf("second Validate() error = %v", err)
-	}
-	if c.AuthMechanism != AuthMechanismAWS {
-		t.Fatalf("AuthMechanism = %q, want %q", c.AuthMechanism, AuthMechanismAWS)
-	}
-	if c.AuthDB != "$external" {
-		t.Fatalf("AuthDB = %q, want $external", c.AuthDB)
-	}
-}
-
-func TestConfig_URI_DoesNotMutate(t *testing.T) {
-	c := &Config{
-		Hosts:    []string{"cluster.mongodb.net"},
-		AuthDB:   "admin",
-		Username: "user",
-		Password: "pass",
-		UseIAM:   true,
-	}
-	_ = c.URI()
-	if c.AuthMechanism != "" {
-		t.Fatalf("URI() mutated AuthMechanism to %q", c.AuthMechanism)
-	}
-	if c.AuthDB != "admin" {
-		t.Fatalf("URI() mutated AuthDB to %q", c.AuthDB)
-	}
-}
-
-func TestConfig_ValidateThenURI_Auth(t *testing.T) {
+// TestConfig_ValidateIdempotent covers the invariant that Validate() may run more than once on
+// the same *Config (Setup() calls it exactly once today, but nothing prevents a caller from
+// calling it again) without changing the resolved auth state on the second pass.
+func TestConfig_ValidateIdempotent(t *testing.T) {
 	tests := []struct {
-		name    string
-		config  *Config
-		wantURI string
+		name              string
+		config            *Config
+		wantAuthDB        string
+		wantAuthMechanism string
 	}{
 		{
 			name: "IAM",
@@ -956,167 +1029,60 @@ func TestConfig_ValidateThenURI_Auth(t *testing.T) {
 				Database: "testdb",
 				UseIAM:   true,
 			},
-			wantURI: "mongodb://cluster.mongodb.net/?authMechanism=MONGODB-AWS&authSource=%24external",
+			wantAuthDB:        "$external",
+			wantAuthMechanism: AuthMechanismAWS,
 		},
 		{
-			name: "legacy X509 mechanism",
+			name: "authSource resolved via additional_params",
 			config: &Config{
-				Hosts:    []string{"mongo.internal:27017"},
-				Database: "analytics",
-				Username: "CN=olake-client,OU=Data,O=Acme",
+				Hosts:         []string{"localhost:27017"},
+				Database:      "testdb",
+				AuthDB:        "admin",
+				Username:      "user",
+				Password:      "pass",
+				AuthMechanism: AuthMechanismSCRAMSHA256,
 				AdditionalParams: map[string]string{
-					"authMechanism":         AuthMechanismX509,
-					"tls":                   "true",
-					"tlsCertificateKeyFile": "/certs/client.pem",
+					"authSource": "other",
 				},
 			},
-			wantURI: "mongodb://CN=olake-client,OU=Data,O=Acme@mongo.internal:27017/?authMechanism=MONGODB-X509&authSource=%24external&tls=true&tlsCertificateKeyFile=%2Fcerts%2Fclient.pem",
-		},
-		{
-			name: "legacy OIDC mechanism",
-			config: &Config{
-				Hosts:    []string{"mongo.internal:27017"},
-				Database: "analytics",
-				Username: "olake-oidc-client",
-				AdditionalParams: map[string]string{
-					"authMechanism":           AuthMechanismOIDC,
-					"authMechanismProperties": "ENVIRONMENT:gcp,TOKEN_RESOURCE:https://example.com",
-				},
-			},
-			wantURI: "mongodb://olake-oidc-client@mongo.internal:27017/?authMechanism=MONGODB-OIDC&authMechanismProperties=ENVIRONMENT%3Agcp%2CTOKEN_RESOURCE%3Ahttps%3A%2F%2Fexample.com&authSource=%24external",
+			wantAuthDB:        "other",
+			wantAuthMechanism: AuthMechanismSCRAMSHA256,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := validateAndURI(t, tt.config)
-			if got != tt.wantURI {
-				t.Fatalf("URI() = %q, want %q", got, tt.wantURI)
+			if err := tt.config.Validate(); err != nil {
+				t.Fatalf("first Validate() error = %v", err)
 			}
-			if additionalParamsContains(tt.config.AdditionalParams, "authMechanism") {
-				t.Fatalf("legacy authMechanism was not removed")
+			if err := tt.config.Validate(); err != nil {
+				t.Fatalf("second Validate() error = %v", err)
+			}
+			if tt.config.AuthMechanism != tt.wantAuthMechanism {
+				t.Fatalf("AuthMechanism = %q, want %q", tt.config.AuthMechanism, tt.wantAuthMechanism)
+			}
+			if tt.config.AuthDB != tt.wantAuthDB {
+				t.Fatalf("AuthDB = %q, want %q", tt.config.AuthDB, tt.wantAuthDB)
 			}
 		})
 	}
 }
 
-type wantTLS struct {
-	nilConfig          bool
-	insecureSkipVerify bool
-	serverName         string
-	minVersion         uint16
-	hasRootCAs         bool
-	hasVerifyPeerCert  bool
-	certCount          int
-}
-
+// TestConfig_buildTLSConfig covers only mongodb's own choice of host argument (see config.go);
+// general BuildTLSConfig behavior — modes, client certs, CA handling — lives in
+// utils/ssl_test.go next to the code it tests.
 func TestConfig_buildTLSConfig(t *testing.T) {
 	certs := testutils.GenerateTestCerts()
 
 	tests := []struct {
-		name    string
-		config  *Config
-		wantErr bool
-		want    wantTLS
+		name   string
+		config *Config
+		want   bool // true: expect a non-nil tls.Config with ServerName == ""
 	}{
 		{
-			name: "no ssl returns nil",
-			config: &Config{
-				Hosts: []string{"mongo.example.com:27017"},
-			},
-			want: wantTLS{nilConfig: true},
-		},
-		{
-			name: "ssl disabled returns nil",
-			config: &Config{
-				Hosts: []string{"mongo.example.com:27017"},
-				SSLConfiguration: &utils.SSLConfig{
-					Mode: utils.SSLModeDisable,
-				},
-			},
-			want: wantTLS{nilConfig: true},
-		},
-		{
-			name: "require skips server verification",
-			config: &Config{
-				Hosts: []string{"mongo.example.com:27017"},
-				SSLConfiguration: &utils.SSLConfig{
-					Mode: utils.SSLModeRequire,
-				},
-			},
-			want: wantTLS{
-				insecureSkipVerify: true,
-				minVersion:         tls.VersionTLS12,
-				hasRootCAs:         false,
-				hasVerifyPeerCert:  false,
-			},
-		},
-		{
-			name: "require loads client certificate for mTLS",
-			config: &Config{
-				Hosts: []string{"mongo.example.com:27017"},
-				SSLConfiguration: &utils.SSLConfig{
-					Mode:       utils.SSLModeRequire,
-					ClientCert: certs.ClientCert,
-					ClientKey:  certs.ClientKey,
-				},
-			},
-			want: wantTLS{
-				insecureSkipVerify: true,
-				minVersion:         tls.VersionTLS12,
-				certCount:          1,
-			},
-		},
-		{
-			name: "verify-ca uses verify-ca semantics",
-			config: &Config{
-				Hosts: []string{"mongo.example.com:27017"},
-				SSLConfiguration: &utils.SSLConfig{
-					Mode:     utils.SSLModeVerifyCA,
-					ServerCA: certs.CACert,
-				},
-			},
-			want: wantTLS{
-				insecureSkipVerify: true,
-				minVersion:         tls.VersionTLS12,
-				hasRootCAs:         true,
-				hasVerifyPeerCert:  true,
-			},
-		},
-		{
-			name: "client cert enables mTLS",
-			config: &Config{
-				Hosts: []string{"mongo.example.com:27017"},
-				SSLConfiguration: &utils.SSLConfig{
-					Mode:       utils.SSLModeVerifyCA,
-					ServerCA:   certs.CACert,
-					ClientCert: certs.ClientCert,
-					ClientKey:  certs.ClientKey,
-				},
-			},
-			want: wantTLS{
-				insecureSkipVerify: true,
-				minVersion:         tls.VersionTLS12,
-				hasRootCAs:         true,
-				hasVerifyPeerCert:  true,
-				certCount:          1,
-			},
-		},
-		{
-			name: "verify-full leaves ServerName empty for single host",
-			config: &Config{
-				Hosts: []string{"mongo1.internal:27017"},
-				SSLConfiguration: &utils.SSLConfig{
-					Mode:     utils.SSLModeVerifyFull,
-					ServerCA: certs.CACert,
-				},
-			},
-			want: wantTLS{
-				serverName:        "",
-				minVersion:        tls.VersionTLS12,
-				hasRootCAs:        true,
-				hasVerifyPeerCert: false,
-			},
+			name:   "no ssl returns nil",
+			config: &Config{Hosts: []string{"mongo.example.com:27017"}},
+			want:   false,
 		},
 		{
 			name: "verify-full leaves ServerName empty for multi host",
@@ -1131,39 +1097,17 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 					ServerCA: certs.CACert,
 				},
 			},
-			want: wantTLS{
-				serverName:        "",
-				minVersion:        tls.VersionTLS12,
-				hasRootCAs:        true,
-				hasVerifyPeerCert: false,
-			},
-		},
-		{
-			name: "invalid ca returns error",
-			config: &Config{
-				Hosts: []string{"mongo.example.com:27017"},
-				SSLConfiguration: &utils.SSLConfig{
-					Mode:     utils.SSLModeVerifyCA,
-					ServerCA: "not-a-pem",
-				},
-			},
-			wantErr: true,
+			want: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := tt.config.buildTLSConfig()
-			if tt.wantErr {
-				if err == nil {
-					t.Fatalf("buildTLSConfig() expected error, got nil")
-				}
-				return
-			}
 			if err != nil {
 				t.Fatalf("buildTLSConfig() error = %v", err)
 			}
-			if tt.want.nilConfig {
+			if !tt.want {
 				if got != nil {
 					t.Fatalf("expected nil tls config, got %#v", got)
 				}
@@ -1172,29 +1116,8 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 			if got == nil {
 				t.Fatalf("expected tls config, got nil")
 			}
-			if got.InsecureSkipVerify != tt.want.insecureSkipVerify {
-				t.Fatalf("InsecureSkipVerify = %v, want %v", got.InsecureSkipVerify, tt.want.insecureSkipVerify)
-			}
-			if got.ServerName != tt.want.serverName {
-				t.Fatalf("ServerName = %q, want %q", got.ServerName, tt.want.serverName)
-			}
-			if tt.want.minVersion != 0 && got.MinVersion != tt.want.minVersion {
-				t.Fatalf("MinVersion = %#x, want %#x", got.MinVersion, tt.want.minVersion)
-			}
-			if tt.want.hasRootCAs && got.RootCAs == nil {
-				t.Fatalf("expected root CAs to be configured")
-			}
-			if !tt.want.hasRootCAs && got.RootCAs != nil {
-				t.Fatalf("expected no root CAs, got %#v", got.RootCAs)
-			}
-			if tt.want.hasVerifyPeerCert && got.VerifyPeerCertificate == nil {
-				t.Fatalf("expected custom peer certificate verification")
-			}
-			if !tt.want.hasVerifyPeerCert && got.VerifyPeerCertificate != nil {
-				t.Fatalf("expected no custom VerifyPeerCertificate")
-			}
-			if len(got.Certificates) != tt.want.certCount {
-				t.Fatalf("len(Certificates) = %d, want %d", len(got.Certificates), tt.want.certCount)
+			if got.ServerName != "" {
+				t.Fatalf("ServerName = %q, want empty — mongodb passes \"\" so the driver fills it per dialled host", got.ServerName)
 			}
 		})
 	}

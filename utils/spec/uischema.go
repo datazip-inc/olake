@@ -38,7 +38,8 @@ const MongoDBUISchema = `{
             "SCRAM-SHA-256",
             "PLAIN",
             "MONGODB-X509",
-            "MONGODB-OIDC"
+            "MONGODB-OIDC",
+            "MONGODB-AWS"
         ]
     },
     "srv": {
