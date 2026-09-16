@@ -248,3 +248,112 @@ func TestConvertRowToMapColumnCountMismatch(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "column count mismatch")
 }
+
+func TestIsBinaryCollation(t *testing.T) {
+	testCases := []struct {
+		name        string
+		collationID uint64
+		binary      bool
+	}{
+		{
+			name:        "the binary charset",
+			collationID: 63,
+			binary:      true,
+		},
+		{
+			name:        "utf8mb4 general",
+			collationID: 45,
+			binary:      false,
+		},
+		{
+			name:        "utf8mb4 0900",
+			collationID: 255,
+			binary:      false,
+		},
+		{
+			name:        "latin1 swedish",
+			collationID: 8,
+			binary:      false,
+		},
+		{
+			name:        "unset",
+			collationID: 0,
+			binary:      false,
+		},
+		{
+			name:        "out of range ids are not binary",
+			collationID: 1 << 40,
+			binary:      false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.binary, isBinaryCollation(tc.collationID))
+		})
+	}
+}
+
+func TestBinaryTypeName(t *testing.T) {
+	testCases := []struct {
+		wireType string
+		want     string
+	}{
+		{
+			wireType: "CHAR",
+			want:     "BINARY",
+		},
+		{
+			wireType: "VARCHAR",
+			want:     "VARBINARY",
+		},
+		{
+			wireType: "BLOB",
+			want:     "BLOB",
+		},
+		{
+			wireType: "LONGBLOB",
+			want:     "LONGBLOB",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.wireType, func(t *testing.T) {
+			assert.Equal(t, tc.want, binaryTypeName(tc.wireType))
+		})
+	}
+}
+
+func TestTextTypeName(t *testing.T) {
+	testCases := []struct {
+		wireType string
+		want     string
+	}{
+		{
+			wireType: "TINYBLOB",
+			want:     "TINYTEXT",
+		},
+		{
+			wireType: "BLOB",
+			want:     "TEXT",
+		},
+		{
+			wireType: "MEDIUMBLOB",
+			want:     "MEDIUMTEXT",
+		},
+		{
+			wireType: "LONGBLOB",
+			want:     "LONGTEXT",
+		},
+		{
+			wireType: "VARCHAR",
+			want:     "VARCHAR",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.wireType, func(t *testing.T) {
+			assert.Equal(t, tc.want, textTypeName(tc.wireType))
+		})
+	}
+}

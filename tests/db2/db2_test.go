@@ -43,6 +43,7 @@ func db2BaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integratio
 		TestConfig:                db2TestConfig(t, opts...),
 		ExpectedData:              ExpectedDB2Data,
 		DestinationDataTypeSchema: DB2ToDestinationSchema,
+		TypeMapping:               DB2TypeMapping,
 	}
 }
 

@@ -43,6 +43,7 @@ func mysqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integrat
 		TestConfig:                mysqlTestConfig(t, opts...),
 		ExpectedData:              ExpectedMySQLData,
 		DestinationDataTypeSchema: MySQLToDestinationSchema,
+		TypeMapping:               MySQLTypeMapping,
 		DefaultCDCColumnsSchema:   ExpectedMySQLDefaultCDCColumnsSchema,
 	}
 }

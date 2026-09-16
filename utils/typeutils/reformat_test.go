@@ -119,6 +119,108 @@ func TestReformatRecord(t *testing.T) {
 }
 
 // TestReformatValue tests the ReformatValue function
+func TestValueFitsColumn(t *testing.T) {
+	testCases := []struct {
+		name   string
+		value  any
+		column types.DataType
+		fits   bool
+	}{
+		{
+			name:   "bytes of the exact width",
+			value:  []byte{1, 2, 3, 4},
+			column: types.FixedBinaryOf(4),
+			fits:   true,
+		},
+		{
+			name:   "a short value fits, the writer pads it",
+			value:  []byte{1, 2},
+			column: types.FixedBinaryOf(4),
+			fits:   true,
+		},
+		{
+			name:   "an empty value fits",
+			value:  []byte{},
+			column: types.FixedBinaryOf(4),
+			fits:   true,
+		},
+		{
+			name:   "a value wider than the column does not fit",
+			value:  []byte{1, 2, 3, 4, 5},
+			column: types.FixedBinaryOf(4),
+			fits:   false,
+		},
+		{
+			name:   "null fits a fixed width column",
+			value:  nil,
+			column: types.FixedBinaryOf(4),
+			fits:   true,
+		},
+		{
+			name:   "text does not fit a fixed width column",
+			value:  "abc",
+			column: types.FixedBinaryOf(4),
+			fits:   false,
+		},
+		{
+			name:   "bytes fit a binary column",
+			value:  []byte{1, 2},
+			column: types.Binary,
+			fits:   true,
+		},
+		{
+			name:   "text does not fit a binary column",
+			value:  "abc",
+			column: types.Binary,
+			fits:   false,
+		},
+		{
+			name:   "text fits a string column",
+			value:  "abc",
+			column: types.String,
+			fits:   true,
+		},
+		{
+			name:   "null fits a string column",
+			value:  nil,
+			column: types.String,
+			fits:   true,
+		},
+		{
+			name:   "an int fits a long column",
+			value:  int64(5),
+			column: types.Int64,
+			fits:   true,
+		},
+		{
+			name:   "text does not fit a long column",
+			value:  "abc",
+			column: types.Int64,
+			fits:   false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.fits, valueFitsColumn(tc.value, tc.column))
+		})
+	}
+}
+
+func TestFieldsProcessBinary(t *testing.T) {
+	fields := Fields{"digest": NewField(types.FixedBinaryOf(4)), "blob": NewField(types.Binary)}
+
+	changed, typeChanged, mutations := fields.Process(types.Record{"digest": []byte{1, 2, 3, 4}, "blob": []byte{0xff}})
+	assert.False(t, changed)
+	assert.False(t, typeChanged, "a value cannot reveal a width, so it does not widen the column")
+	assert.Empty(t, mutations)
+	assert.Equal(t, types.FixedBinaryOf(4), fields["digest"].getType())
+
+	changed, _, mutations = fields.Process(types.Record{"digest": []byte{1, 2, 3, 4}, "extra": []byte{0x00}})
+	assert.True(t, changed)
+	assert.Equal(t, types.Binary, mutations["extra"].getType(), "a column seen only through values is plain binary")
+}
+
 func TestReformatValue(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -411,6 +513,50 @@ func TestReformatValue(t *testing.T) {
 			expectedErr: nil,
 		},
 
+		// ===== Binary =====
+		{
+			name:        "nil value on a binary column",
+			dataType:    types.Binary,
+			value:       nil,
+			expected:    nil,
+			expectedErr: nil,
+		},
+		{
+			name:        "binary keeps its bytes",
+			dataType:    types.Binary,
+			value:       []byte{0xff, 0x00},
+			expected:    []byte{0xff, 0x00},
+			expectedErr: nil,
+		},
+		{
+			name:        "fixed binary of the exact width",
+			dataType:    types.FixedBinaryOf(2),
+			value:       []byte{0xff, 0x00},
+			expected:    []byte{0xff, 0x00},
+			expectedErr: nil,
+		},
+		{
+			name:        "short fixed binary is padded like the source stores it",
+			dataType:    types.FixedBinaryOf(3),
+			value:       []byte{0xff, 0x00},
+			expected:    []byte{0xff, 0x00, 0x00},
+			expectedErr: nil,
+		},
+		{
+			name:        "fixed binary rejects an over-long value",
+			dataType:    types.FixedBinaryOf(1),
+			value:       []byte{0xff, 0x00},
+			expected:    []byte(nil),
+			expectedErr: fmt.Errorf("fixed_binary(1) holds at most 1 bytes, got 2"),
+		},
+		{
+			name:        "a string column still turns bytes into text",
+			dataType:    types.String,
+			value:       []byte("abc"),
+			expected:    "abc",
+			expectedErr: nil,
+		},
+
 		// ===== Default =====
 		{
 			name:        "default passthrough",
@@ -546,6 +692,99 @@ func TestParseFilterValue(t *testing.T) {
 }
 
 // TestReformatBool tests the ReformatBool function
+func TestReformatBytes(t *testing.T) {
+	raw := []byte{0xff, 0x00, 0x80, 0x41}
+	ptr := &raw
+	var nilPtr *[]byte
+
+	testCases := []struct {
+		name     string
+		dataType types.DataType
+		input    any
+		expected []byte
+		wantErr  error
+	}{
+		{
+			name:     "byte slice passes through",
+			dataType: types.Binary,
+			input:    raw,
+			expected: raw,
+		},
+		{
+			name:     "pointer to byte slice",
+			dataType: types.Binary,
+			input:    ptr,
+			expected: raw,
+		},
+		{
+			name:     "nil pointer is a null value",
+			dataType: types.Binary,
+			input:    nilPtr,
+			wantErr:  ErrNullValue,
+		},
+		{
+			name:     "string contributes its utf8 bytes",
+			dataType: types.Binary,
+			input:    "héllo",
+			expected: []byte("héllo"),
+		},
+		{
+			name:     "empty slice stays empty",
+			dataType: types.Binary,
+			input:    []byte{},
+			expected: []byte{},
+		},
+		{
+			name:     "fixed length matches",
+			dataType: types.FixedBinaryOf(4),
+			input:    raw,
+			expected: raw,
+		},
+		{
+			name:     "short fixed value is zero padded",
+			dataType: types.FixedBinaryOf(6),
+			input:    raw,
+			expected: []byte{0xff, 0x00, 0x80, 0x41, 0x00, 0x00},
+		},
+		{
+			name:     "empty fixed value is all zero",
+			dataType: types.FixedBinaryOf(2),
+			input:    []byte{},
+			expected: []byte{0x00, 0x00},
+		},
+		{
+			name:     "fixed length too long",
+			dataType: types.FixedBinaryOf(2),
+			input:    raw,
+			wantErr:  fmt.Errorf("fixed_binary(2) holds at most 2 bytes, got 4"),
+		},
+		{
+			name:     "numbers are not bytes",
+			dataType: types.Binary,
+			input:    int64(42),
+			wantErr:  fmt.Errorf("failed to change int64 to bytes: unsupported type"),
+		},
+		{
+			name:     "maps are not bytes",
+			dataType: types.Binary,
+			input:    map[string]any{"a": 1},
+			wantErr:  fmt.Errorf("failed to change map[string]interface {} to bytes: unsupported type"),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ReformatBytes(tc.dataType, tc.input)
+			if tc.wantErr != nil {
+				assert.Equal(t, tc.wantErr, err)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tc.expected, got)
+		})
+	}
+}
+
 func TestReformatBool(t *testing.T) {
 	tests := []struct {
 		name        string

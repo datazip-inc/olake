@@ -1,6 +1,9 @@
 package io.debezium.server.iceberg;
 
+import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.data.GenericRecord;
@@ -122,6 +125,12 @@ public class SchemaConvertor {
               case STRING,UUID:
                   if (value.hasStringValue()) return value.getStringValue();
                   return null;
+              case BINARY:
+                  if (value.hasBytesValue()) return ByteBuffer.wrap(value.getBytesValue().toByteArray());
+                  return null;
+              case FIXED:
+                  if (value.hasBytesValue()) return value.getBytesValue().toByteArray();
+                  return null;
               case TIMESTAMP:
                   if (value.hasLongValue()) return OffsetDateTime.ofInstant(Instant.ofEpochMilli(value.getLongValue()), ZoneOffset.UTC);
                   return null;
@@ -147,7 +156,13 @@ public class SchemaConvertor {
     };
   }
 
+  private static final Pattern FIXED_TYPE = Pattern.compile("^fixed\\[(\\d+)\\]$");
+
   private static Type.PrimitiveType icebergPrimitiveField(String fieldName, String fieldType) {
+    Matcher fixed = FIXED_TYPE.matcher(fieldType);
+    if (fixed.matches()) {
+      return Types.FixedType.ofLength(Integer.parseInt(fixed.group(1)));
+    }
     switch (fieldType) {
       case "int": // int 4 bytes
         return Types.IntegerType.get();

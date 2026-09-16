@@ -38,17 +38,6 @@ type Iceberg struct {
 	// It defines when to complete the Java writer and when schema evolution is required.
 }
 
-// Pre-computed lookup tables for type validation
-var validTypeTransitions = map[string]map[string]bool{
-	"int":         {"int": true, "long": true},
-	"long":        {"long": true, "int": true},
-	"float":       {"float": true, "double": true},
-	"double":      {"double": true, "float": true},
-	"boolean":     {"boolean": true},
-	"string":      {"string": true},
-	"timestamptz": {"timestamptz": true},
-}
-
 // promotionTransitions tracks when type promotion is required
 var promotionTransitions = map[string]map[string]bool{
 	"int":   {"long": true},
@@ -269,7 +258,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 				detectedIcebergType := detectedType.ToIceberg()
 				if _, existInIceberg := threadSchema[key]; existInIceberg {
 					// Column exists in iceberg table: restrict to valid promotions only
-					valid := isValidTransition(finalSchema[key], detectedIcebergType)
+					valid := isValidTypeForColumn(finalSchema[key], detectedType)
 					if !valid {
 						return false, fmt.Errorf(
 							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
@@ -509,18 +498,26 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 	return partitionInfo, nil
 }
 
-// isValidTransition checks if type transition is valid using lookup table
-func isValidTransition(oldType, newType string) bool {
-	if oldType == newType {
-		return true
-	}
-	if transitions, ok := validTypeTransitions[oldType]; ok {
-		if transitions[newType] {
-			return true
-		}
+// isValidTypeForColumn reports whether a column of columnType can take a value of incomingType
+func isValidTypeForColumn(columnType string, incomingType types.DataType) bool {
+	olakeTypeForColumn := types.IcebergTypeToDatatype(columnType)
+	if olakeTypeForColumn.ToIceberg() != columnType {
+		return false
 	}
 
-	return getCommonAncestorType(oldType, newType) == oldType
+	// several olake types share one iceberg type, the four timestamp precisions above all, so a
+	// value whose type renders to the column's own type needs no change whatever the olake types
+	if incomingType.ToIceberg() == columnType {
+		return true
+	}
+
+	// value detection cannot reveal a width, so a parameterised column takes the parameterless form
+	// on trust; ReformatBytes enforces the parameters per value when the record is written
+	if form, parameterised := types.ParameterlessForm(olakeTypeForColumn); parameterised && incomingType == form {
+		return true
+	}
+
+	return olakeTypeForColumn.Accepts(incomingType) || isPromotionRequired(columnType, incomingType.ToIceberg())
 }
 
 // isPromotionRequired checks if promotion is needed using lookup table
