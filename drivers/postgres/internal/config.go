@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 )
@@ -53,22 +52,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("database name is required")
 	}
 
-	// default number of threads
-	if c.MaxThreads < 0 {
-		return fmt.Errorf("max threads is required")
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
 	}
 
-	if c.MaxThreads == 0 {
-		c.MaxThreads = constants.DefaultThreadCount
-	}
-
-	// default backoff retry count
-	if c.RetryCount < 0 {
-		return fmt.Errorf("retry count is required")
-	}
-
-	if c.RetryCount == 0 {
-		c.RetryCount = constants.DefaultRetryCount
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	// Add the connection parameters to the url
