@@ -95,6 +95,9 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 		addMapKeyIfNotEmpty("gcp.auth.scopes", config.GCPAuthScopes)
 		// BigLake requires this header for request routing/billing.
 		addMapKeyIfNotEmpty("header.x-goog-user-project", config.GCPProjectID)
+		//Horizon
+		addMapKeyIfNotEmpty("header.X-Iceberg-Access-Delegation", config.RESTAccessDelegation)
+		addMapKeyIfNotEmpty("header.X-Snowflake-Workload-Identity-Provider", config.SnowflakeWorkloadIdentityProvider)
 	default:
 		return nil, errs.Precondition(errs.ConfigInvalid, codeUnsupportedCatalogType,
 			fmt.Errorf("unsupported catalog type: %s", config.CatalogType))
@@ -109,6 +112,10 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 	// Configure region for AWS S3
 	if config.Region != "" {
 		serverConfig["s3.region"] = config.Region
+		// Horizon - same value as Snowflake client.region
+		if config.RESTAccessDelegation != "" {
+			serverConfig["client.region"] = config.Region
+		}
 	} else if config.S3Endpoint == "" && config.CatalogType == GlueCatalog {
 		logger.Warnf("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
 	}
