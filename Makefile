@@ -168,14 +168,8 @@ CDC_DRIVERS := $(filter-out $(NON_CDC_DRIVERS),$(DRIVERS))
 DRIVER_PKGS := $(addsuffix /...,$(addprefix ./,$(DRIVERS)))
 CDC_PKGS := $(addsuffix /...,$(addprefix ./,$(CDC_DRIVERS)))
 
-# The drivers the integration suites cover, queried by CI (integration-tests.yml) so the list
-# lives in this file only: it is what the driver matrix fans out to on a push to master.
-.PHONY: print.source-drivers
-print.source-drivers:
-	@echo $(DRIVERS)
-
-# Every driver module, suite or not. CI subtracts the two lists to tell a driver with no suite
-# apart from shared code, so a PR touching only that driver runs nothing instead of everything.
+# Every driver, queried by CI (integration-tests.yml) so the list lives in this file only:
+# it is what the driver matrix fans out to on a push to master.
 .PHONY: print.drivers
 print.drivers:
 	@echo $(DRIVERS)
