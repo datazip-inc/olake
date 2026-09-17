@@ -274,7 +274,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetWrappedCatalog(tc.streams, tc.driver)
+			result := GetWrappedCatalog(tc.streams, tc.driver, nil)
 			compareCatalogs(t, tc.expected, result, tc.name)
 
 			if len(tc.streams) > 0 {
@@ -775,7 +775,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog)
+			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog, nil)
 			compareCatalogs(t, tc.expected, result, tc.name)
 		})
 	}

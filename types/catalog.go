@@ -3,10 +3,12 @@ package types
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // Message is a dto for olake output row representation
@@ -80,14 +82,22 @@ type StreamMix struct {
 	StreamWithPosUpdateType int `json:"stream_with_pos_update_type_count"`
 }
 
-func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
+func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
+	// The default delete format is the cheapest one every target engine can read.
+	available := AvailableUpdateTypes(engines)
+	updateType := PreferredUpdateType(available)
 
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
+		stream.AvailableUpdateTypes = available
+		if stream.DefaultStreamProperties != nil {
+			stream.DefaultStreamProperties.UpdateType = updateType
+		}
+
 		// Create ConfiguredStream and append to Streams
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
@@ -103,7 +113,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 			StreamName:      stream.Name,
 			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
 			Normalization:   IsDriverRelational(driver),
-			UpdateType:      string(UpdateTypeEquality),
+			UpdateType:      string(updateType),
 			SelectedColumns: selectedCols,
 		})
 	}
@@ -116,7 +126,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 // 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
 // 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
 // 4. Everything else: Keep as new catalog
-func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
+func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
@@ -145,6 +155,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					oldStream := oldStreams[streamID].Stream
 					newStream := newStreams[streamID].Stream
 					MergeSelectedColumns(&metadata, oldStream, newStream)
+					mergeUpdateType(&metadata, streamID, engines)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -185,6 +196,36 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	})
 
 	return newCatalog
+}
+
+// mergeUpdateType keeps a previously configured delete format only while every current
+// target query engine can still read it. Changing the engine selection must not leave a
+// stream pinned to a format its readers cannot resolve, so an unreadable choice falls back
+// to the cheapest available one.
+func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine) {
+	// Without target engines nothing constrains the choice, so leave the recorded value
+	// exactly as it was, blank included: ConfiguredStream.GetUpdateType still defaults it.
+	if len(engines) == 0 {
+		return
+	}
+
+	available := AvailableUpdateTypes(engines)
+	if metadata.UpdateType != "" && slices.Contains(available, UpdateType(metadata.UpdateType)) {
+		return
+	}
+
+	preferred := PreferredUpdateType(available)
+	if preferred == "" {
+		// No format satisfies every engine; discover fails before reaching here, so leave
+		// the value untouched rather than blanking a working configuration.
+		return
+	}
+
+	if metadata.UpdateType != "" {
+		logger.Warnf("Stream %s update mode changed from %s to %s; %s is not readable by the selected query engines",
+			streamID, metadata.UpdateType, preferred, metadata.UpdateType)
+	}
+	metadata.UpdateType = string(preferred)
 }
 
 // MergeSelectedColumns merges the selected columns based on the following rules:
