@@ -39,6 +39,13 @@ const (
 	maxEventPropsFileSize = 1 << 20 // 1 MiB
 )
 
+// TelemetryFiles returns optional job-dir files S3 mode should fetch so Init can read them.
+func TelemetryFiles() []*string {
+	eventProps := eventPropsFile
+	userID := userIDFile + ".txt"
+	return []*string{&eventProps, &userID}
+}
+
 // Event names, qualified with the event source at send time, e.g. "Sync Started - CLI".
 const (
 	eventDiscover      = "Discover"
