@@ -204,17 +204,13 @@ prepare.all: $(addprefix prepare.,$(DRIVERS))
 SOURCE_COMPOSE_FILE = -f drivers/$(1)/docker-compose.yml $(if $(SOURCE_COMPOSE_$(1)),-f $(SOURCE_COMPOSE_$(1)))
 
 define SOURCE_DB_template
-.PHONY: olake.$(1).up olake.$(1).wait olake.$(1).verify olake.$(1).start olake.$(1).stop olake.$(1).teardown olake.$(1).restart olake.$(1).refresh
+.PHONY: olake.$(1).up olake.$(1).wait olake.$(1).start olake.$(1).stop olake.$(1).teardown olake.$(1).restart olake.$(1).refresh
 olake.$(1).up:
 	$$(COMPOSE) $$(call SOURCE_COMPOSE_FILE,$(1)) up -d
 
 olake.$(1).wait:
 	@$$(call wait_ready,$(1))
 	@$$(POST_SETUP.$(1))
-
-# No-op unless the fragment defines VERIFY_STACK.<d>, so CI can call it for every driver.
-olake.$(1).verify:
-	@$$(or $$(VERIFY_STACK.$(1)),echo "no stack verification defined for $(1)")
 
 # Sequenced via sub-make so `make -j` cannot probe a stack that is not up yet.
 olake.$(1).start:
@@ -238,6 +234,10 @@ olake.$(1).refresh:
 	@$$(MAKE) --no-print-directory olake.$(1).start
 endef
 $(foreach d,$(STACK_DRIVERS),$(eval $(call SOURCE_DB_template,$(d))))
+
+# A no-op unless the fragment defines VERIFY_STACK.<d>.
+olake.%.verify:
+	@$(or $(VERIFY_STACK.$*),echo "no stack verification defined for $*")
 
 olake.source.all.up: $(addprefix olake.,$(addsuffix .up,$(DRIVERS)))
 olake.source.all.wait: $(addprefix olake.,$(addsuffix .wait,$(DRIVERS)))
