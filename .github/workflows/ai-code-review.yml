@@ -1,0 +1,83 @@
+name: AI Code Review
+
+# OpenCodeReview (github.com/alibaba/open-code-review) reviews the PR diff and posts inline review
+# comments plus one sticky summary comment.
+#
+# pull_request_target, not pull_request: on pull_request a fork PR gets no secrets and a read-only
+# token, and most PRs here come from forks. That is safe only because nothing from the PR runs: the
+# action checks out the default branch, reads the PR head through git objects, and the review
+# agent's tools only read files and emit comments. Never add a step that checks out or executes PR
+# code to this workflow.
+#
+# GitHub runs pull_request_target from the default branch's copy of this file, so a change here
+# takes effect only once it reaches master.
+#
+# Setup -- Settings -> Environments -> ai_code_review:
+#   Required reviewers              maintainers; every run waits for one of them to approve
+#   secret   OCR_LLM_AUTH_TOKEN     LLM API key
+#   variable OCR_LLM_URL            endpoint base URL
+#   variable OCR_LLM_MODEL          model id
+#   variable OCR_LLM_USE_ANTHROPIC  'true' for the Anthropic Messages API, 'false' for OpenAI-compatible
+#   variable OCR_LLM_AUTH_HEADER    optional; 'x-api-key' for api.anthropic.com keys
+#   variable OCR_LLM_EXTRA_BODY     optional; provider-specific JSON merged into every LLM request
+#   variable OCR_EFFORT             optional; OCR review depth: low | medium | high
+#   variable OCR_MAX_TOKENS_BUDGET  optional; per-run token cap, empty = unlimited
+# Then, last: repository variable AI_CODE_REVIEW_ENABLED = true (Settings -> Secrets and
+# variables -> Actions -> Variables). Set it to anything else to switch reviews off.
+
+on:
+  pull_request_target:
+    # closed only joins the concurrency group, to cancel a run still waiting for approval.
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+
+# A push cancels the run still waiting for approval, so a maintainer only ever approves the latest
+# head. No commit goes unreviewed: the checkpoint advances only on a completed review, so the next
+# approved run covers everything since.
+concurrency:
+  group: ai-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: OpenCodeReview
+    # Off until the repo variable AI_CODE_REVIEW_ENABLED is 'true': a missing environment is
+    # auto-created with no required reviewers, so without this switch the job would run unapproved
+    # (and fail on the empty config) on every PR. It must be a repository variable -- environment
+    # variables are not visible to a job-level if. Drafts wait for ready_for_review; Dependabot bumps
+    # would only queue approvals nobody wants.
+    if: ${{ vars.AI_CODE_REVIEW_ENABLED == 'true' && github.event.action != 'closed' && !github.event.pull_request.draft && github.event.pull_request.user.login != 'dependabot[bot]' }}
+    runs-on: ubuntu-latest
+    # The approval gate: the job, and the environment's secret, wait for a required reviewer.
+    environment: ai_code_review
+    timeout-minutes: 45
+    steps:
+      # The action installs the CLI from npm and defaults to latest, so pin both. Dependabot bumps
+      # the SHA; bump ocr_version with it.
+      - name: Review pull request
+        uses: alibaba/open-code-review@f1101fd7f51304c82e4a4f292bbee88aea0823cf # v1.12.4
+        with:
+          ocr_version: '1.12.4'
+          llm_url: ${{ vars.OCR_LLM_URL }}
+          llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          llm_model: ${{ vars.OCR_LLM_MODEL }}
+          llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          llm_auth_header: ${{ vars.OCR_LLM_AUTH_HEADER }}
+          # The action's own default disables thinking, which some providers reject and which loses
+          # tool calls on newer Claude models; '{}' sends nothing extra.
+          llm_extra_body: ${{ vars.OCR_LLM_EXTRA_BODY || '{}' }}
+          effort: ${{ vars.OCR_EFFORT }}
+          max_tokens_budget: ${{ vars.OCR_MAX_TOKENS_BUDGET }}
+          # PR titles follow conventional commits, which tells the reviewer the change's intent.
+          background: ${{ github.event.pull_request.title }}
+          # Per push: review only commits since the last completed review, skip inline comments that
+          # overlap earlier ones, and rewrite the one summary comment instead of adding another.
+          sticky_summary: 'true'
+          checkpoint_range: 'true'
+          incremental: 'true'
+          # The step log already prints both files with secrets masked; artifacts are not masked and
+          # anyone can download them from a public repo.
+          upload_artifacts: 'false'
