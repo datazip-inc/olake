@@ -85,6 +85,11 @@ const (
 var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
+// AppendOnlyDrivers are drivers whose discovered streams default to append-only
+// sync (no primary-key based upserts), since their source data has no natural
+// update/delete semantics to reconcile.
+var AppendOnlyDrivers = []DriverType{S3, Kafka}
+
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
 var ErrGlobalContextGroup = fmt.Errorf("global context group error")

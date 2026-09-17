@@ -189,6 +189,42 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 				},
 			},
 		},
+		// S3 streams should default to append mode, same as Kafka, since neither has
+		// natural update/delete semantics for the Iceberg destination to reconcile.
+		{
+			name: "single stream - append-only driver (s3)",
+			streams: []*Stream{
+				{
+					Name:      "prefix1",
+					Namespace: "bucket1",
+					Schema:    &TypeSchema{Properties: sync.Map{}},
+				},
+			},
+			driver: "s3",
+			expected: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:      "prefix1",
+							Namespace: "bucket1",
+							Schema:    &TypeSchema{Properties: sync.Map{}},
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"bucket1": {
+						{
+							StreamName:      "prefix1",
+							PartitionRegex:  "",
+							AppendMode:      true,
+							Normalization:   false,
+							UpdateType:      "eq",
+							SelectedColumns: createSelectedColumns(nil, true),
+						},
+					},
+				},
+			},
+		},
 		// multiple streams tests
 		{
 			name: "multiple streams with complete properties",

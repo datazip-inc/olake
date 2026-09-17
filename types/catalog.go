@@ -101,7 +101,7 @@ func GetWrappedCatalog(streams []*Stream, driver string) *Catalog {
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
 			StreamName:      stream.Name,
-			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+			AppendMode:      IsDriverAppendOnly(driver),
 			Normalization:   IsDriverRelational(driver),
 			UpdateType:      string(UpdateTypeEquality),
 			SelectedColumns: selectedCols,
@@ -372,4 +372,13 @@ func IsDriverRelational(driver string) bool {
 		return src == constants.DriverType(driver)
 	})
 	return isRelational
+}
+
+// IsDriverAppendOnly reports whether streams discovered from driver should
+// default to append-only sync (see constants.AppendOnlyDrivers).
+func IsDriverAppendOnly(driver string) bool {
+	_, isAppendOnly := utils.ArrayContains(constants.AppendOnlyDrivers, func(src constants.DriverType) bool {
+		return src == constants.DriverType(driver)
+	})
+	return isAppendOnly
 }

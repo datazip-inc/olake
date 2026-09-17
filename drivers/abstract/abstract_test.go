@@ -427,11 +427,44 @@ func TestDiscover(t *testing.T) {
 	}
 }
 
+// TestDiscoverDefaultStreamPropertiesAppendMode covers the default AppendMode a
+// discovered stream is given per driver type: S3 has no update/delete semantics to
+// reconcile, same as Kafka, so both should default to append-only like Kafka, unlike
+// a relational driver such as postgres.
+func TestDiscoverDefaultStreamPropertiesAppendMode(t *testing.T) {
+	ctx := context.Background()
+	streamID := types.StreamID{Namespace: "namespace1", Name: "stream1"}
+
+	testCases := []struct {
+		name               string
+		driverType         string
+		expectedAppendMode bool
+	}{
+		{name: "s3 defaults to append mode", driverType: "s3", expectedAppendMode: true},
+		{name: "kafka defaults to append mode", driverType: "kafka", expectedAppendMode: true},
+		{name: "postgres does not default to append mode", driverType: "postgres", expectedAppendMode: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			driver := NewAbstractDriver(ctx, stubDriver{typ: tc.driverType, streamNames: []types.StreamID{streamID}, maxRetries: 1})
+			streams, err := driver.Discover(ctx, 0, false)
+
+			require.NoError(t, err)
+			require.Len(t, streams, 1)
+			require.NotNil(t, streams[0].DefaultStreamProperties)
+			assert.Equal(t, tc.expectedAppendMode, streams[0].DefaultStreamProperties.AppendMode)
+		})
+	}
+}
+
 // stubDriver is a DriverInterface that returns zero values except where a test sets a field.
 type stubDriver struct {
 	typ            string
 	cdcSupported   bool
 	streamNamesErr error
+	streamNames    []types.StreamID
+	maxRetries     int
 }
 
 func (s stubDriver) GetConfigRef() Config { return nil }
@@ -442,12 +475,12 @@ func (s stubDriver) Setup(context.Context) error {
 }
 func (s stubDriver) SetupState(*types.State) {}
 func (s stubDriver) MaxConnections() int     { return 0 }
-func (s stubDriver) MaxRetries() int         { return 0 }
+func (s stubDriver) MaxRetries() int         { return s.maxRetries }
 func (s stubDriver) GetStreamNames(context.Context) ([]types.StreamID, error) {
-	return nil, s.streamNamesErr
+	return s.streamNames, s.streamNamesErr
 }
-func (s stubDriver) ProduceSchema(context.Context, types.StreamID) (*types.Stream, error) {
-	return &types.Stream{}, nil
+func (s stubDriver) ProduceSchema(_ context.Context, stream types.StreamID) (*types.Stream, error) {
+	return types.NewStream(stream.Name, stream.Namespace, nil), nil
 }
 func (s stubDriver) GetOrSplitChunks(context.Context, *destination.WriterPool, types.StreamInterface) (*types.Set[types.Chunk], error) {
 	return types.NewSet[types.Chunk](), nil
