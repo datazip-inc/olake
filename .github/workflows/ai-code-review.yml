@@ -1,0 +1,46 @@
+# OpenCodeReview - AI PR review (https://github.com/alibaba/open-code-review)
+#
+# Required (Settings -> Environments -> ai_code_review, with maintainers as required reviewers):
+#   secret    OCR_LLM_AUTH_TOKEN     LLM API key
+#   variable  OCR_LLM_URL            LLM API endpoint
+#   variable  OCR_LLM_MODEL          model name
+#   variable  OCR_LLM_USE_ANTHROPIC  'true' for Anthropic, 'false' for OpenAI-compatible
+# Enable (repository variable): AI_CODE_REVIEW_ENABLED = true
+
+name: AI Code Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+
+concurrency:
+  group: ai-code-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: OpenCodeReview
+    if: ${{ vars.AI_CODE_REVIEW_ENABLED == 'true' && github.event.action != 'closed' && !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    environment: ai_code_review
+    timeout-minutes: 45
+    steps:
+      - name: Review pull request
+        uses: alibaba/open-code-review@f1101fd7f51304c82e4a4f292bbee88aea0823cf # v1.12.4
+        with:
+          ocr_version: '1.12.4'
+          llm_url: ${{ vars.OCR_LLM_URL }}
+          llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
+          llm_model: ${{ vars.OCR_LLM_MODEL }}
+          llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          llm_auth_header: x-api-key
+          llm_extra_body: '{}'
+          background: ${{ github.event.pull_request.title }}
+          sticky_summary: 'true'
+          checkpoint_range: 'true'
+          incremental: 'true'
+          upload_artifacts: 'false'
