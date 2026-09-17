@@ -3,6 +3,7 @@ package protocol
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/types"
@@ -38,6 +39,7 @@ var checkCmd = &cobra.Command{
 	},
 	// TODO: switch back to returning err once the worker handling is added for non-zero exit.
 	Run: func(cmd *cobra.Command, _ []string) {
+		var prerequisites types.Prerequisites
 		err := func() error {
 			// If connector is not set, we are checking the destination
 			if destinationConfigPath != "not-set" {
@@ -52,7 +54,11 @@ var checkCmd = &cobra.Command{
 			}
 
 			if configPath != "not-set" {
-				return connector.Setup(cmd.Context())
+				// Prerequisite failures are reported alongside the status, never as the status:
+				// a required one only blocks a CDC sync (see AbstractDriver.Read).
+				err := connector.Setup(cmd.Context())
+				prerequisites = connector.Prerequisites()
+				return err
 			}
 
 			return nil
@@ -63,8 +69,12 @@ var checkCmd = &cobra.Command{
 		message := types.Message{
 			Type: types.ConnectionStatusMessage,
 			ConnectionStatus: &types.StatusRow{
-				Status: types.ConnectionSucceed,
+				Status:        types.ConnectionSucceed,
+				Prerequisites: prerequisites,
 			},
+		}
+		if failed := prerequisites.FailedRequired(); len(failed) > 0 {
+			message.ConnectionStatus.Message = "required prerequisite checks failed: " + strings.Join(failed, ", ")
 		}
 		if err != nil {
 			message.ConnectionStatus.Message = err.Error()

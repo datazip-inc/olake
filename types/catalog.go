@@ -34,8 +34,32 @@ type Log struct {
 }
 
 type StatusRow struct {
-	Status  ConnectionStatus `json:"status,omitempty"`
-	Message string           `json:"message,omitempty"`
+	Status        ConnectionStatus `json:"status,omitempty"`
+	Message       string           `json:"message,omitempty"`
+	Prerequisites Prerequisites    `json:"prerequisites,omitempty"`
+}
+
+// PrerequisiteCheck is one CDC-critical server setting evaluated during setup.
+type PrerequisiteCheck struct {
+	Name             string `json:"name"`
+	Required         bool   `json:"required"`
+	Passed           bool   `json:"passed"`
+	CurrentValue     string `json:"current_value"`
+	RecommendedValue string `json:"recommended_value"`
+	Description      string `json:"description"`
+}
+
+type Prerequisites []PrerequisiteCheck
+
+// FailedRequired returns the names of required checks that did not pass.
+func (p Prerequisites) FailedRequired() []string {
+	var names []string
+	for _, c := range p {
+		if c.Required && !c.Passed {
+			names = append(names, c.Name)
+		}
+	}
+	return names
 }
 
 // SelectedColumns represents column selection configuration for a stream.
