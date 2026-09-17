@@ -26,43 +26,39 @@ type S3PathMapping struct {
 	Key          string
 }
 
-// ResolveS3Path downloads an s3:// path to a local temp file. Local paths are returned unchanged.
-func ResolveS3Path(ctx context.Context, path string) (S3PathMapping, error) {
-	if !IsS3Path(path) {
-		return S3PathMapping{OriginalPath: path, LocalPath: path}, nil
+// ResolveS3Path downloads an s3:// path into S3LocalPath() as the object basename. Local paths are returned unchanged.
+func ResolveS3Path(ctx context.Context, s3Path string) (S3PathMapping, error) {
+	if !IsS3Path(s3Path) {
+		return S3PathMapping{OriginalPath: s3Path, LocalPath: s3Path}, nil
 	}
 
-	bucket, key, err := ParseS3URI(path)
+	bucket, key, err := ParseS3URI(s3Path)
 	if err != nil {
 		return S3PathMapping{}, err
 	}
 
 	resp, err := s3util.GetObject(ctx, bucket, key)
 	if err != nil {
-		return S3PathMapping{}, fmt.Errorf("failed to download %s: %s", path, err)
+		return S3PathMapping{}, fmt.Errorf("failed to download %s: %s", s3Path, err)
 	}
 	defer resp.Body.Close()
 
-	localPath := localPathForS3URI(bucket, key)
-	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
-		return S3PathMapping{}, fmt.Errorf("failed to create temp dir for %s: %s", path, err)
-	}
-
+	localPath := filepath.Join(S3LocalPath(), path.Base(key))
 	file, err := os.Create(localPath)
 	if err != nil {
-		return S3PathMapping{}, fmt.Errorf("failed to create local file for %s: %s", path, err)
+		return S3PathMapping{}, fmt.Errorf("failed to create local file for %s: %s", s3Path, err)
 	}
 
 	if _, err = io.Copy(file, resp.Body); err != nil {
 		file.Close()
-		return S3PathMapping{}, fmt.Errorf("failed to write local file for %s: %s", path, err)
+		return S3PathMapping{}, fmt.Errorf("failed to write local file for %s: %s", s3Path, err)
 	}
 	if err := file.Close(); err != nil {
-		return S3PathMapping{}, fmt.Errorf("failed to close local file for %s: %s", path, err)
+		return S3PathMapping{}, fmt.Errorf("failed to close local file for %s: %s", s3Path, err)
 	}
 
 	return S3PathMapping{
-		OriginalPath: path,
+		OriginalPath: s3Path,
 		LocalPath:    localPath,
 		IsS3:         true,
 		Bucket:       bucket,
@@ -82,8 +78,9 @@ func ParseS3URI(uri string) (bucket, key string, err error) {
 	return parts[0], parts[1], nil
 }
 
-func localPathForS3URI(bucket, key string) string {
-	return filepath.Join(os.TempDir(), "olake", "s3", bucket, key)
+// S3LocalPath is the temp dir that holds downloaded s3:// flag files for this process.
+func S3LocalPath() string {
+	return os.TempDir()
 }
 
 // IsS3Path returns true if the path is an S3 URI.
@@ -91,20 +88,41 @@ func IsS3Path(path string) bool {
 	return strings.HasPrefix(path, s3URIPrefix)
 }
 
-// ResolveS3Paths initializes storage and downloads s3:// flag paths to local temp files.
-func ResolveS3Paths(ctx context.Context, flagPaths []*string) error {
+// ApplyConfigFolder rewrites flag paths to live under configFolder, keeping only the filename.
+// The worker sets CONFIG_FOLDER to the execution dir (/mnt/config or s3://bucket/[prefix/]hash)
+// so schedule-time hashes baked into CLI args are ignored.
+func ApplyConfigFolder(configFolder string, pathSets ...[]*string) {
+	if configFolder == "" {
+		return
+	}
+	configFolder = strings.TrimSpace(strings.TrimRight(configFolder, "/"))
+	for _, flagPaths := range pathSets {
+		for _, flagPath := range flagPaths {
+			if flagPath == nil || *flagPath == "" || *flagPath == "not-set" {
+				continue
+			}
+			*flagPath = configFolder + "/" + path.Base(*flagPath)
+		}
+	}
+}
+
+// ResolveS3Paths initializes storage and downloads s3:// flag paths into S3LocalPath().
+func ResolveS3Paths(ctx context.Context, flagPaths []*string, telemetryFiles []*string) error {
+	configFolder := os.Getenv(constants.ConfigFolder)
+	ApplyConfigFolder(configFolder, flagPaths, telemetryFiles)
+
 	if err := s3util.Init(ctx); err != nil {
 		return err
-	}
-
-	if err := os.RemoveAll(localPathForS3URI("", "")); err != nil {
-		return fmt.Errorf("failed to clean local s3 cache: %s", err)
 	}
 
 	for _, flagPath := range flagPaths {
 		if err := resolveS3PathFlag(ctx, flagPath); err != nil {
 			return err
 		}
+	}
+
+	for _, telemetryPath := range telemetryFiles {
+		_ = resolveS3PathFlag(ctx, telemetryPath)
 	}
 	return nil
 }

@@ -48,7 +48,7 @@ var RootCmd = &cobra.Command{
 	Short: "root command",
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 		// Resolve now as configPaths are needed by logger.Init(), but the error is handled later because the logger is not initialized yet.
-		s3Err := utils.ResolveS3Paths(cmd.Context(), []*string{&configPath, &destinationConfigPath, &streamsPath, &statePath, &differencePath})
+		s3Err := utils.ResolveS3Paths(cmd.Context(), []*string{&configPath, &destinationConfigPath, &streamsPath, &statePath, &differencePath}, telemetry.TelemetryFiles())
 		// set global variables
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
