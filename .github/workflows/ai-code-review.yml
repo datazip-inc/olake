@@ -1,20 +1,32 @@
 # OpenCodeReview - AI PR review (https://github.com/alibaba/open-code-review)
 #
+# Two tiers: every PR is reviewed with the cheap model; a PR labelled 'ai-review-deep' is reviewed
+# with the strong one. Each tier has its own provider, so each has its own endpoint, key and flag.
+#
 # Required (Settings -> Environments -> ai_code_review, with maintainers as required reviewers):
-#   secret    OCR_LLM_AUTH_TOKEN     LLM API key
-#   variable  OCR_LLM_URL            LLM API endpoint
-#   variable  OCR_LLM_MODEL          model name
-#   variable  OCR_LLM_USE_ANTHROPIC  'true' for Anthropic, 'false' for OpenAI-compatible
+#   secret    OCR_LLM_AUTH_TOKEN          key for the default model      (Z.ai)
+#   variable  OCR_LLM_URL                 https://api.z.ai/api/paas/v4
+#   variable  OCR_LLM_MODEL               glm-5.3-flash
+#   variable  OCR_LLM_USE_ANTHROPIC       false
+#   secret    OCR_LLM_AUTH_TOKEN_DEEP     key for 'ai-review-deep' PRs   (Anthropic)
+#   variable  OCR_LLM_URL_DEEP            https://api.anthropic.com
+#   variable  OCR_LLM_MODEL_DEEP          claude-opus-5
+#   variable  OCR_LLM_USE_ANTHROPIC_DEEP  true
 # Enable (repository variable): AI_CODE_REVIEW_ENABLED = true
 
 name: AI Code Review
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
+# Only a review-worthy event shares the per-PR group; any other label lands in its own group so it
+# cannot cancel a review that is running or waiting for approval.
 concurrency:
-  group: ai-code-review-${{ github.event.pull_request.number }}
+  group: >-
+    ${{ (github.event.action != 'labeled' || github.event.label.name == 'ai-review-deep')
+        && format('ai-code-review-{0}', github.event.pull_request.number)
+        || format('ai-code-review-noop-{0}', github.run_id) }}
   cancel-in-progress: true
 
 permissions:
@@ -24,19 +36,28 @@ permissions:
 jobs:
   review:
     name: OpenCodeReview
-    if: ${{ vars.AI_CODE_REVIEW_ENABLED == 'true' && github.event.action != 'closed' && !github.event.pull_request.draft }}
+    if: >-
+      ${{ vars.AI_CODE_REVIEW_ENABLED == 'true'
+          && github.event.action != 'closed'
+          && !github.event.pull_request.draft
+          && (github.event.action != 'labeled' || github.event.label.name == 'ai-review-deep') }}
     runs-on: ubuntu-latest
     environment: ai_code_review
     timeout-minutes: 45
+    env:
+      # Each _DEEP setting falls back to its default, so a half-configured deep tier reviews with
+      # the default model instead of failing.
+      DEEP: ${{ contains(github.event.pull_request.labels.*.name, 'ai-review-deep') }}
     steps:
       - name: Review pull request
         uses: alibaba/open-code-review@f1101fd7f51304c82e4a4f292bbee88aea0823cf # v1.12.4
         with:
           ocr_version: '1.12.4'
-          llm_url: ${{ vars.OCR_LLM_URL }}
-          llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
-          llm_model: ${{ vars.OCR_LLM_MODEL }}
-          llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          llm_url: ${{ env.DEEP == 'true' && vars.OCR_LLM_URL_DEEP || vars.OCR_LLM_URL }}
+          llm_auth_token: ${{ env.DEEP == 'true' && (secrets.OCR_LLM_AUTH_TOKEN_DEEP || secrets.OCR_LLM_AUTH_TOKEN) || secrets.OCR_LLM_AUTH_TOKEN }}
+          llm_model: ${{ env.DEEP == 'true' && vars.OCR_LLM_MODEL_DEEP || vars.OCR_LLM_MODEL }}
+          llm_use_anthropic: ${{ env.DEEP == 'true' && vars.OCR_LLM_USE_ANTHROPIC_DEEP || vars.OCR_LLM_USE_ANTHROPIC }}
+          # Anthropic keys go in x-api-key; OCR ignores this for OpenAI-compatible providers.
           llm_auth_header: x-api-key
           llm_extra_body: '{}'
           background: ${{ github.event.pull_request.title }}
