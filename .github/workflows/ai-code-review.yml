@@ -43,8 +43,7 @@ jobs:
     environment: ai_code_review
     timeout-minutes: 45
     env:
-      # Each _DEEP setting falls back to its default, so a half-configured deep tier reviews with
-      # the default model instead of failing.
+      # Set all four _DEEP settings together: each one on its own falls back to the default tier.
       DEEP: ${{ contains(github.event.pull_request.labels.*.name, 'ai-review-deep') }}
     steps:
       - name: Review pull request
@@ -52,7 +51,7 @@ jobs:
         with:
           ocr_version: '1.12.4'
           llm_url: ${{ env.DEEP == 'true' && vars.OCR_LLM_URL_DEEP || vars.OCR_LLM_URL }}
-          llm_auth_token: ${{ env.DEEP == 'true' && (secrets.OCR_LLM_AUTH_TOKEN_DEEP || secrets.OCR_LLM_AUTH_TOKEN) || secrets.OCR_LLM_AUTH_TOKEN }}
+          llm_auth_token: ${{ env.DEEP == 'true' && secrets.OCR_LLM_AUTH_TOKEN_DEEP || secrets.OCR_LLM_AUTH_TOKEN }}
           llm_model: ${{ env.DEEP == 'true' && vars.OCR_LLM_MODEL_DEEP || vars.OCR_LLM_MODEL }}
           llm_use_anthropic: ${{ env.DEEP == 'true' && vars.OCR_LLM_USE_ANTHROPIC_DEEP || vars.OCR_LLM_USE_ANTHROPIC }}
           # Anthropic keys go in x-api-key; OCR ignores this for OpenAI-compatible providers.
