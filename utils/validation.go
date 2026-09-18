@@ -2,9 +2,11 @@ package utils
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/go-playground/locales/en"
 	ut "github.com/go-playground/universal-translator"
 	"github.com/go-playground/validator/v10"
@@ -38,6 +40,30 @@ func Validate[T any](structure T) error {
 		return errors.New(strings.Join(translateError(err), "; "))
 	}
 
+	return nil
+}
+
+// ApplyMaxThreadsDefault rejects a negative max-threads value and applies
+// constants.DefaultThreadCount when the field is unset (0).
+func ApplyMaxThreadsDefault(maxThreads *int) error {
+	if *maxThreads < 0 {
+		return fmt.Errorf("max threads is invalid")
+	}
+	if *maxThreads == 0 {
+		*maxThreads = constants.DefaultThreadCount
+	}
+	return nil
+}
+
+// ApplyRetryCountDefault rejects a negative retry-count value and applies
+// constants.DefaultRetryCount when the field is unset (0).
+func ApplyRetryCountDefault(retryCount *int) error {
+	if *retryCount < 0 {
+		return fmt.Errorf("retry count is invalid")
+	}
+	if *retryCount == 0 {
+		*retryCount = constants.DefaultRetryCount
+	}
 	return nil
 }
 

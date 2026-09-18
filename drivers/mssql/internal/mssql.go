@@ -74,7 +74,6 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to MSSQL: %w", err)
 	}
 
-	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
 	// Enable CDC support if database-level CDC is enabled
 	cdcSupported, err := m.isDatabaseCDCEnabled(ctx)
 	if err != nil {
