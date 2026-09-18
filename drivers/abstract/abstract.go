@@ -197,6 +197,9 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 
 	// run cdc sync
 	if len(cdcStreams) > 0 {
+		if err := a.ValidateCDCPrerequisites(cdcStreams); err != nil {
+			return err
+		}
 		if a.driver.CDCSupported() {
 			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
 				return fmt.Errorf("failed to run change stream: %w", err)

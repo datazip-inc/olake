@@ -2,8 +2,6 @@ package driver
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -18,7 +16,6 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
-	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
@@ -49,6 +46,8 @@ type MySQL struct {
 	// effectiveTZ is the resolved timezone (e.g. for CDC binlog TimestampStringLocation).
 	// Derived from config (jdbc_url_params.time_zone) or detected from the DB session.
 	effectiveTZ *time.Location
+	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
+	prerequisites types.Prerequisites
 }
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
@@ -161,16 +160,9 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			cdc.InitialWaitTime = minCDCInitialWaitTime
 		}
 
-		// Enable CDC support if binlog is configured
-		cdcSupported, err := m.IsCDCSupported(ctx)
-		if err != nil {
-			return err
-		}
-		if !cdcSupported {
-			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCUnsupported, fmt.Errorf("failed to setup CDC: binlog is not configured correctly"))
-		}
+		m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks())
 
-		m.CDCSupport = cdcSupported
+		m.CDCSupport = true
 		m.cdcConfig = *cdc
 	}
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
@@ -313,71 +305,6 @@ func (m *MySQL) Close() error {
 		}
 	}
 	return nil
-}
-
-// binlogRowMetadataFull reports whether the server emits full optional TableMapEvent
-// metadata. The variable is absent before MySQL 8.0.1 and on MariaDB, where false is the
-// right answer anyway: the decoder falls back to information_schema.
-func (m *MySQL) binlogRowMetadataFull(ctx context.Context) bool {
-	var name, value string
-	if err := m.client.QueryRowxContext(ctx, jdbc.MySQLBinlogRowMetadataQuery()).Scan(&name, &value); err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			logger.Warnf("failed to read binlog_row_metadata, assuming MINIMAL: %s", err)
-		}
-		return false
-	}
-	return strings.EqualFold(value, "FULL")
-}
-
-func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
-	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
-	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
-		return false, fmt.Errorf("failed to get binlog position: %w", err)
-	}
-
-	// checkMySQLConfig checks a MySQL configuration value against an expected value
-	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
-		var name, value string
-		if err := m.client.QueryRowxContext(ctx, query).Scan(&name, &value); err != nil {
-			return false, fmt.Errorf("failed to check %s: %w", name, err)
-		}
-
-		if strings.ToUpper(value) != expectedValue {
-			logger.Warn(warnMessage)
-			return false, nil
-		}
-
-		return true, nil
-	}
-
-	// Check binlog configurations
-	configChecks := []struct {
-		query         string
-		expectedValue string
-		errMessage    string
-	}{
-		{jdbc.MySQLLogBinQuery(), "ON", "log_bin is not enabled"},
-		{jdbc.MySQLBinlogFormatQuery(), "ROW", "binlog_format is not set to ROW"},
-		// At MINIMAL or NOBLOB the binlog carries only some columns per row, which cannot
-		// be mapped back to a complete record.
-		{jdbc.MySQLBinlogRowImageQuery(), "FULL", "binlog_row_image is not set to FULL"},
-	}
-
-	for _, check := range configChecks {
-		if ok, err := checkMySQLConfig(ctx, check.query, check.expectedValue, check.errMessage); err != nil || !ok {
-			return ok, err
-		}
-	}
-
-	// FULL puts column names, ENUM/SET members, charsets and signedness in the binlog
-	// itself. Without it, that metadata is rebuilt from information_schema: one query per
-	// table, and blind to a rename the reader has not reached yet.
-	if !m.binlogRowMetadataFull(ctx) {
-		logger.Warn("binlog_row_metadata is not FULL; falling back to information_schema for " +
-			"column metadata. Set binlog_row_metadata=FULL (MySQL 8.0.1+) for best fidelity.")
-	}
-
-	return true, nil
 }
 
 // TODO: Add consistent timezone detection for CDC of other drivers as well.

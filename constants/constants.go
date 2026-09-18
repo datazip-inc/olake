@@ -26,6 +26,9 @@ const (
 	StatePath              = "STATE_PATH"
 	StreamsPath            = "STREAMS_PATH"
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
+	// RecommendedCDCLogRetention is the change-log retention (binlog, oplog) recommended so a
+	// paused sync can resume without a full resync.
+	RecommendedCDCLogRetention = 7 * 24 * time.Hour
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
