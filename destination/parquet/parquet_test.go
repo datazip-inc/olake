@@ -17,13 +17,15 @@ import (
 
 // ---- scaffolding -----------------------------------------------------------
 
+func boolPtr(b bool) *bool { return &b }
+
 func newStream(normalized bool, partitionRegex string, cols map[string]types.DataType) *types.ConfiguredStream {
 	st := types.NewStream("users", "public", nil)
 	for name, dt := range cols {
 		st.UpsertField(name, dt, true, false)
 	}
 	return &types.ConfiguredStream{
-		StreamMetadata: types.StreamMetadata{Normalization: normalized, PartitionRegex: partitionRegex},
+		StreamMetadata: types.StreamMetadata{Normalization: boolPtr(normalized), PartitionRegex: partitionRegex},
 		Stream:         st,
 	}
 }

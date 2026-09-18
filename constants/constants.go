@@ -25,6 +25,7 @@ const (
 	ConfigFolder           = "CONFIG_FOLDER"
 	StatePath              = "STATE_PATH"
 	StreamsPath            = "STREAMS_PATH"
+	SelectedStreamsPath    = "SELECTED_STREAMS_PATH"
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
