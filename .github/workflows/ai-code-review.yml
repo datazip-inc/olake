@@ -12,7 +12,6 @@
 #   variable  OCR_LLM_URL_DEEP            https://api.anthropic.com
 #   variable  OCR_LLM_MODEL_DEEP          claude-opus-5
 #   variable  OCR_LLM_USE_ANTHROPIC_DEEP  true
-# Enable (repository variable): AI_CODE_REVIEW_ENABLED = true
 
 name: AI Code Review
 
@@ -37,8 +36,7 @@ jobs:
   review:
     name: OpenCodeReview
     if: >-
-      ${{ vars.AI_CODE_REVIEW_ENABLED == 'true'
-          && github.event.action != 'closed'
+      ${{ github.event.action != 'closed'
           && !github.event.pull_request.draft
           && (github.event.action != 'labeled' || github.event.label.name == 'ai-review-deep') }}
     runs-on: ubuntu-latest
