@@ -65,39 +65,29 @@ func (m *Mongo) checkChangeStreams(ctx context.Context) (string, bool, error) {
 	return "available", true, nil
 }
 
-// checkOplogRetention measures the oplog window as newest minus oldest entry. A capped oplog that
-// is not full yet has not dropped anything, so its window will keep growing and the check passes.
+// checkOplogRetention measures the oplog window as newest minus oldest entry, the same
+// arithmetic as the shell's rs.printReplicationInfo(). Needs read on local; on mongos the
+// read errors and the check reports unavailable.
 func (m *Mongo) checkOplogRetention(ctx context.Context) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, prerequisiteTimeout)
 	defer cancel()
-
-	var hello struct {
-		Msg string `bson:"msg"`
-	}
-	if err := m.client.Database("admin").RunCommand(ctx, bson.D{{Key: "hello", Value: 1}}).Decode(&hello); err != nil {
-		return "", false, err
-	}
-	if hello.Msg == "isdbgrid" {
-		return "not checked on sharded clusters", true, nil // mongos exposes no oplog
-	}
 
 	oplog := m.client.Database("local").Collection("oplog.rs")
 	edge := func(direction int) (primitive.Timestamp, error) {
 		var entry struct {
 			TS primitive.Timestamp `bson:"ts"`
 		}
-		opts := options.FindOne().
-			SetSort(bson.D{{Key: "$natural", Value: direction}}).
-			SetProjection(bson.D{{Key: "ts", Value: 1}})
+		opts := options.FindOne().SetSort(bson.D{{Key: "$natural", Value: direction}})
 		err := oplog.FindOne(ctx, bson.D{}, opts).Decode(&entry)
 		return entry.TS, err
 	}
+
 	first, err := edge(1)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return "no oplog (standalone)", false, nil
 	}
 	if err != nil {
-		return "", false, err // e.g. no read on local
+		return "", false, err
 	}
 	last, err := edge(-1)
 	if err != nil {
@@ -105,25 +95,7 @@ func (m *Mongo) checkOplogRetention(ctx context.Context) (string, bool, error) {
 	}
 
 	window := time.Duration(int64(last.T)-int64(first.T)) * time.Second
-	if window >= constants.RecommendedCDCLogRetention {
-		return utils.HumanDuration(window), true, nil
-	}
-
-	var stats struct {
-		StorageStats struct {
-			Size    int64 `bson:"size"`
-			MaxSize int64 `bson:"maxSize"`
-		} `bson:"storageStats"`
-	}
-	collStats := mongo.Pipeline{{{Key: "$collStats", Value: bson.D{{Key: "storageStats", Value: bson.D{}}}}}}
-	if cursor, err := oplog.Aggregate(ctx, collStats); err == nil {
-		defer cursor.Close(ctx)
-		if cursor.Next(ctx) && cursor.Decode(&stats) == nil &&
-			stats.StorageStats.MaxSize > 0 && stats.StorageStats.Size < stats.StorageStats.MaxSize {
-			return utils.HumanDuration(window) + " (oplog not full yet)", true, nil
-		}
-	}
-	return utils.HumanDuration(window), false, nil
+	return utils.HumanDuration(window), window >= constants.RecommendedCDCLogRetention, nil
 }
 
 // Prerequisites returns the CDC setup checks evaluated in Setup.
