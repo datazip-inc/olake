@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -81,7 +82,7 @@ func (m *MySQL) checkBinlogRowMetadata(ctx context.Context) (string, bool, error
 // REPLICATION CLIENT, so success proves the permission.
 func (m *MySQL) checkBinlogAccess(ctx context.Context) (string, bool, error) {
 	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
-		return "cannot read binlog position", false, nil
+		return fmt.Sprintf("cannot read binlog position: %s", err), false, nil
 	}
 	return "granted", true, nil
 }
