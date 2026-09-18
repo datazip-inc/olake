@@ -246,7 +246,7 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 
 		messageCount := 0
 
-		_ = k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
+		return k.processKafkaMessages(ctx, reader, func(record types.KafkaRecord) (bool, error) {
 			messageCount++
 			if record.Data != nil {
 				mu.Lock()
@@ -262,7 +262,6 @@ func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 			shouldExit := messageCount >= 10000 || record.Message.Offset >= endOffset.Offset-1
 			return shouldExit, nil
 		})
-		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch schema for topic %s: %w", streamName, err)
