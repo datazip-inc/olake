@@ -10,6 +10,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.encryption.EncryptedOutputFile;
 import org.apache.iceberg.io.DeleteSchemaUtil;
+import org.apache.iceberg.io.DeleteWriteResult;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types.NestedField;
@@ -17,6 +18,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.debezium.server.iceberg.rpc.RecordIngest.ArrowPayload;
+import io.debezium.server.iceberg.tableoperator.ArrowDeletionVectorWriter;
+import io.debezium.server.iceberg.tableoperator.DeleteMode;
 import io.grpc.stub.StreamObserver;
 
 /**
@@ -122,19 +125,48 @@ public class OlakeArrowIngester extends ArrowIngestServiceGrpc.ArrowIngestServic
                         }
                     }
 
+                    // Vectors are published in the same commit as the data files they
+                    // delete from, and the vectors they supersede leave in it too.
+                    int vectorCount = 0;
+                    if (session.dvWriter != null) {
+                        DeleteWriteResult vectors = session.dvWriter.complete();
+                        session.dvWriter = null;
+                        vectorCount = vectors.deleteFiles().size();
+                        session.op.registerBuiltDeleteFiles(threadId, vectors.deleteFiles(),
+                                vectors.rewrittenDeleteFiles());
+                    }
+
                     Long baseSnapshotId = metadata.hasBaseSnapshotId() ? metadata.getBaseSnapshotId() : null;
                     long snapshotId = session.op.commitThread(threadId, metadata.getPayload(), session.icebergTable,
                             baseSnapshotId);
 
                     RecordIngest.ArrowIngestResponse.Builder response = RecordIngest.ArrowIngestResponse.newBuilder()
                             .setResult(String.format(
-                                    "Successfully committed %d data files, %d equality delete files, and %d positional delete files for thread %s",
-                                    dataFileCount, eqDeleteFileCount, posDeleteFileCount, threadId));
+                                    "Successfully committed %d data files, %d equality delete files, %d positional delete files, "
+                                            + "and %d deletion vectors for thread %s",
+                                    dataFileCount, eqDeleteFileCount, posDeleteFileCount, vectorCount, threadId));
                     if (snapshotId != 0) {
                         response.setSnapshotId(snapshotId);
                     }
                     responseObserver.onNext(response.build());
                     responseObserver.onCompleted();
+                }
+
+                case DELETION_VECTORS -> {
+                    if (session.deleteMode != DeleteMode.DELETION_VECTOR) {
+                        // Any other mode expresses these as a delete FILE the caller
+                        // writes itself; receiving them here means the two sides disagree
+                        // about the mode, which would silently drop the deletes.
+                        throw new IllegalStateException("received deletion vector rows for thread " + threadId
+                                + " whose delete mode is " + session.deleteMode.wireName()
+                                + "; only dv encodes deletes server-side");
+                    }
+
+                    if (session.dvWriter == null) {
+                        session.dvWriter = new ArrowDeletionVectorWriter(session.icebergTable);
+                    }
+                    session.dvWriter.add(metadata.getDeletionVectors(), session.op);
+                    sendResponse(responseObserver, "accepted deletion vector rows for thread " + threadId);
                 }
 
                 case UPLOAD_FILE -> {
