@@ -17,12 +17,18 @@ import (
 // One CDC-capable driver is enough; these exercise destination behavior, not source specifics.
 var icebergTableIndexTestDrivers = []constants.DriverType{constants.Postgres}
 
+var icebergArrowSameBatchCreateUpdateTestDrivers = []constants.DriverType{constants.MySQL}
+
 // seedRowCount is the number of filter-passing rows inserted by ExecuteQuery("add").
 const seedRowCount int64 = 5
 
 // hasIcebergTableIndexTest reports whether the driver participates in Iceberg row-index tests.
 func hasIcebergTableIndexTest(driver string) bool {
 	return slices.Contains(icebergTableIndexTestDrivers, constants.DriverType(driver))
+}
+
+func hasIcebergArrowSameBatchCreateUpdateTest(driver string) bool {
+	return slices.Contains(icebergArrowSameBatchCreateUpdateTestDrivers, constants.DriverType(driver))
 }
 
 func getSparkSession(ctx context.Context, t *testing.T) sql.SparkSession {
@@ -253,6 +259,42 @@ func (cfg *IntegrationTest) testIcebergRebuildIndexFromScratch(ctx context.Conte
 	if _, err := os.Stat(indexPath); os.IsNotExist(err) {
 		return fmt.Errorf("pebble index should be rebuilt and present at %s", indexPath)
 	}
+
+	return nil
+}
+
+func (cfg *IntegrationTest) testIcebergArrowSameBatchCreateUpdate(ctx context.Context, t *testing.T, testTable string) error {
+	destDBPrefix := Ternary(cfg.TestConfig.DataFormat != "", fmt.Sprintf("integration_%s_%s", cfg.TestConfig.Driver, cfg.TestConfig.DataFormat), fmt.Sprintf("integration_%s", cfg.TestConfig.Driver)).(string)
+	fullTableName := fmt.Sprintf("%s.%s.%s", icebergCatalog, cfg.DestinationDB, testTable)
+
+	defer dropIcebergTable(t, testTable, cfg.DestinationDB)
+
+	if err := cfg.prepareTableIndexSync(ctx, t, testTable); err != nil {
+		return err
+	}
+	syncFullCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
+	if code, out, err := runOlake(ctx, t, cfg.TestConfig, syncFullCmd...); err != nil || code != 0 {
+		return fmt.Errorf("initial full load failed (%d): %s\n%s", code, err, out)
+	}
+
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "evolve-schema")
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "insert")
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "update-cdc-insert")
+
+	cdcCmd := syncArgs(*cfg.TestConfig, true, "iceberg", "--destination-database-prefix", destDBPrefix)
+	if code, out, err := runOlake(ctx, t, cfg.TestConfig, cdcCmd...); err != nil || code != 0 {
+		return fmt.Errorf("cdc sync failed (%d): %s\n%s", code, err, out)
+	}
+
+	spark := getSparkSession(ctx, t)
+	refreshTable(ctx, t, spark, fullTableName)
+
+	dupCnt := countSpark(ctx, t, spark, fmt.Sprintf(`
+		SELECT count(*) as cnt FROM (
+			SELECT _olake_id FROM %s GROUP BY _olake_id HAVING count(*) > 1
+		)`, fullTableName))
+	require.Equal(t, int64(0), dupCnt, "same-sync INSERT+UPDATE must not leave duplicate _olake_id (Arrow same-commit c+u)")
+	require.Equal(t, seedRowCount+1, countLiveRecords(ctx, t, spark, fullTableName), "seed + one upserted CDC row (not two versions of the CDC id)")
 
 	return nil
 }

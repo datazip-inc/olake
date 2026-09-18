@@ -308,6 +308,14 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	case "evolve-schema":
 		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
 
+	case "update-cdc-insert":
+		query = fmt.Sprintf(`
+			UPDATE %s SET 
+				name_text = 'updated text',
+				is_active = 0,
+				id_int = 321,
+				excludedColumn = 202
+			WHERE id = 6`, integrationTestTable)
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
