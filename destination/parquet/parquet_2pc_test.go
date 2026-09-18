@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -56,7 +58,7 @@ func TestLoad2PCState(t *testing.T) {
 		require.NoError(t, err)
 		require.Contains(t, state.FullRefreshCommittedIDs, threadID)
 		require.True(t, *state.DedupInserts)
-		require.Equal(t, []byte("full-refresh"), store.get(p.s3ObjectKey(p.basePath+"/bucket_1/data.parquet")))
+		require.Equal(t, []byte("full-refresh"), store.get(p.objectKey(p.basePath+"/bucket_1/data.parquet")))
 		require.Empty(t, store.keys(prefix))
 	})
 
@@ -72,7 +74,7 @@ func TestLoad2PCState(t *testing.T) {
 		state, err := p.load2PCState(ctx)
 		require.NoError(t, err)
 		require.Equal(t, expected, state)
-		require.Equal(t, []byte("cdc"), store.get(p.s3ObjectKey(p.basePath+"/bucket_1/data.parquet")))
+		require.Equal(t, []byte("cdc"), store.get(p.objectKey(p.basePath+"/bucket_1/data.parquet")))
 		require.Empty(t, store.keys(p.stagingRootPrefix()))
 	})
 
@@ -105,15 +107,15 @@ func TestLoad2PCState(t *testing.T) {
 		expected := &types.MetadataState{ID: "incremental-thread", State: `{"cursor":30}`}
 		finishData, _, err := streamFinishState(expected)
 		require.NoError(t, err)
-		store.put(p.s3ObjectKey(p.basePath+"/bucket_1/already-promoted.parquet"), []byte("first"))
+		store.put(p.objectKey(p.basePath+"/bucket_1/already-promoted.parquet"), []byte("first"))
 		store.put(p.stagingObjectKey("bucket_2/remaining.parquet"), []byte("second"))
 		store.put(p.sharedFinishObjectKey(), finishData)
 
 		state, err := p.load2PCState(ctx)
 		require.NoError(t, err)
 		require.Equal(t, expected, state)
-		require.Equal(t, []byte("first"), store.get(p.s3ObjectKey(p.basePath+"/bucket_1/already-promoted.parquet")))
-		require.Equal(t, []byte("second"), store.get(p.s3ObjectKey(p.basePath+"/bucket_2/remaining.parquet")))
+		require.Equal(t, []byte("first"), store.get(p.objectKey(p.basePath+"/bucket_1/already-promoted.parquet")))
+		require.Equal(t, []byte("second"), store.get(p.objectKey(p.basePath+"/bucket_2/remaining.parquet")))
 		require.Empty(t, store.keys(p.stagingRootPrefix()))
 	})
 
@@ -147,7 +149,7 @@ func TestStagingPaths(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p, _ := testS3Parquet(t, "thread", tt.backfill)
-			p.config.Prefix = "root"
+			setStorePrefix(p, "root")
 
 			require.Equal(t, tt.expectedPrefix, p.currentStagingPrefix())
 			require.Equal(t, tt.expectedPrefix+"partition/data.parquet", p.stagingObjectKey("partition/data.parquet"))
@@ -309,7 +311,7 @@ func TestCloseResolvesSharedStagingBeforeUpload(t *testing.T) {
 
 		state := &types.MetadataState{State: `{"lsn":"1/30"}`}
 		require.NoError(t, p.Close(ctx, state))
-		require.Nil(t, store.get(p.s3ObjectKey(p.basePath+"/orphan.parquet")))
+		require.Nil(t, store.get(p.objectKey(p.basePath+"/orphan.parquet")))
 		require.Equal(t, 1, testFinalParquetObjects(p, store))
 		require.Empty(t, store.keys(p.stagingRootPrefix()))
 	})
@@ -433,21 +435,21 @@ func TestDeleteStagingPreservesFinishOnFailure(t *testing.T) {
 func TestS3OperationsUseConfiguredPrefix(t *testing.T) {
 	ctx := context.Background()
 	p, store := testS3Parquet(t, "incremental-thread", false)
-	p.config.Prefix = "allowed/path"
+	setStorePrefix(p, "allowed/path")
 	require.NoError(t, p.Write(ctx, []types.RawRecord{testRawRecord()}))
 
 	expected := &types.MetadataState{ID: "incremental-thread", State: `{"cursor":30}`}
 	store.failNext(memoryS3Copy, p.stagingObjectKey(p.pendingDataFiles()[0].relativePath))
 	require.Error(t, p.Close(ctx, expected))
-	testRequireS3Prefix(t, store, "allowed/path/")
+	testRequirePrefix(t, store, "allowed/path/")
 
 	recovery := testS3ParquetWithStore(t, store, "next-thread", false)
-	recovery.config.Prefix = "allowed/path"
+	setStorePrefix(recovery, "allowed/path")
 	state, err := recovery.load2PCState(ctx)
 	require.NoError(t, err)
 	require.Equal(t, expected, state)
 	require.Equal(t, 1, testFinalParquetObjects(recovery, store))
-	testRequireS3Prefix(t, store, "allowed/path/")
+	testRequirePrefix(t, store, "allowed/path/")
 }
 
 // TestCloseCancellationDoesNotStageFiles verifies canceled writers remain private to local temp storage.
@@ -493,22 +495,79 @@ func TestCommitMetadataMergesParallelKafkaCheckpoints(t *testing.T) {
 
 func TestDropStreamsRemoves2PCState(t *testing.T) {
 	p, store := testS3Parquet(t, "incremental-thread", false)
-	p.config.Prefix = "root"
+	setStorePrefix(p, "root")
 	p.config.S3Endpoint = "storage.googleapis.com"
 	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
 
-	tablePrefix := p.s3ObjectKey(p.basePath) + "/"
+	tablePrefix := p.objectKey(p.basePath) + "/"
 	store.put(tablePrefix+"data.parquet", []byte("table-data"))
 	store.put(p.metadataObjectKey(), []byte(`{"state":"checkpoint"}`))
 	store.put(p.stagingObjectKey("staged.parquet"), []byte("staged-data"))
 	store.put(p.sharedFinishObjectKey(), []byte(`{"state":"checkpoint"}`))
 
-	siblingKey := p.s3ObjectKey(p.basePath + "_backup/data.parquet")
+	siblingKey := p.objectKey(p.basePath + "_backup/data.parquet")
 	store.put(siblingKey, []byte("sibling-data"))
 
 	require.NoError(t, p.DropStreams(context.Background(), []types.StreamInterface{p.stream}))
 	require.Empty(t, store.keys(tablePrefix))
 	require.Equal(t, []byte("sibling-data"), store.get(siblingKey))
+}
+
+func TestAzureStagingPaths(t *testing.T) {
+	p, _ := testAzureParquet(t, "thread", false)
+	setStorePrefix(p, "root")
+
+	require.Equal(t, "azure", p.store.Kind())
+	require.Equal(t, "root/namespace/table/_olake_2pc/", p.currentStagingPrefix())
+	require.Equal(t, "root/namespace/table/_olake_2pc/partition/data.parquet", p.stagingObjectKey("partition/data.parquet"))
+	require.Equal(t, "root/namespace/table/_olake_2pc/finish.json", p.sharedFinishObjectKey())
+	require.Equal(t, "root/namespace/table/metadata.json", p.metadataObjectKey())
+}
+
+func TestAzureOperationsUseConfiguredPrefix(t *testing.T) {
+	ctx := context.Background()
+	p, store := testAzureParquet(t, "incremental-thread", false)
+	setStorePrefix(p, "allowed/path")
+	require.NoError(t, p.Write(ctx, []types.RawRecord{testRawRecord()}))
+
+	expected := &types.MetadataState{ID: "incremental-thread", State: `{"cursor":30}`}
+	store.failNext(memoryS3Copy, p.stagingObjectKey(p.pendingDataFiles()[0].relativePath))
+	require.Error(t, p.Close(ctx, expected))
+	testRequirePrefix(t, store, "allowed/path/")
+
+	recovery := testAzureParquetWithStore(t, store, "next-thread", false)
+	setStorePrefix(recovery, "allowed/path")
+	state, err := recovery.load2PCState(ctx)
+	require.NoError(t, err)
+	require.Equal(t, expected, state)
+	require.Equal(t, 1, testFinalParquetObjects(recovery, store))
+	testRequirePrefix(t, store, "allowed/path/")
+}
+
+func TestAzureDropStreamsRemoves2PCState(t *testing.T) {
+	p, store := testAzureParquet(t, "incremental-thread", false)
+	setStorePrefix(p, "root")
+	p.basePath = filepath.Join(p.stream.GetDestinationDatabase(nil), p.stream.GetDestinationTable())
+
+	tablePrefix := p.objectKey(p.basePath) + "/"
+	store.put(tablePrefix+"data.parquet", []byte("table-data"))
+	store.put(p.metadataObjectKey(), []byte(`{"state":"checkpoint"}`))
+	store.put(p.stagingObjectKey("staged.parquet"), []byte("staged-data"))
+	store.put(p.sharedFinishObjectKey(), []byte(`{"state":"checkpoint"}`))
+
+	siblingKey := p.objectKey(p.basePath + "_backup/data.parquet")
+	store.put(siblingKey, []byte("sibling-data"))
+
+	require.NoError(t, p.DropStreams(context.Background(), []types.StreamInterface{p.stream}))
+	require.Empty(t, store.keys(tablePrefix))
+	require.Equal(t, []byte("sibling-data"), store.get(siblingKey))
+}
+
+func TestAzureLoad2PCStateMissingMetadata(t *testing.T) {
+	p, _ := testAzureParquet(t, "incremental-thread", false)
+	state, err := p.load2PCState(context.Background())
+	require.NoError(t, err)
+	require.Nil(t, state)
 }
 
 func TestLocalCloseKeepsExistingBehavior(t *testing.T) {
@@ -678,14 +737,147 @@ func testS3Parquet(t *testing.T, threadID string, backfill bool) (*Parquet, *mem
 
 func testS3ParquetWithStore(t *testing.T, store *memoryS3, threadID string, backfill bool) *Parquet {
 	t.Helper()
+	cfg := &Config{Path: filepath.Join(t.TempDir(), "cache"), Bucket: "bucket"}
 	return &Parquet{
-		config:           &Config{Path: filepath.Join(t.TempDir(), "cache"), Bucket: "bucket"},
+		config:           cfg,
 		options:          &destination.Options{ThreadID: threadID, Backfill: backfill},
 		stream:           testConfiguredStream(),
 		basePath:         filepath.Join("namespace", "table"),
 		partitionedFiles: make(map[string][]*FileMetadata),
-		s3Client:         store,
-		s3Uploader:       &memoryUploader{store: store},
+		store: &s3Store{
+			client:   store,
+			uploader: &memoryUploader{store: store},
+			bucket:   "bucket",
+			prefix:   cfg.Prefix,
+		},
+	}
+}
+
+func setStorePrefix(p *Parquet, prefix string) {
+	trimmed := strings.TrimSuffix(prefix, "/")
+	switch s := p.store.(type) {
+	case *s3Store:
+		p.config.Prefix = prefix
+		s.prefix = trimmed
+	case *memoryStore:
+		if s.kind == "azure" {
+			p.config.AzurePath = prefix
+		} else {
+			p.config.Prefix = prefix
+		}
+		s.prefix = trimmed
+	}
+}
+
+var errMemoryNotFound = errors.New("object not found")
+
+type memoryStore struct {
+	kind   string
+	prefix string
+	inner  *memoryS3
+}
+
+func (m *memoryStore) Kind() string { return m.kind }
+
+func (m *memoryStore) ObjectKey(relativePath string) string {
+	if m.prefix == "" {
+		return relativePath
+	}
+	return path.Join(m.prefix, relativePath)
+}
+
+func (m *memoryStore) Put(_ context.Context, key string, data []byte) error {
+	if err := m.inner.failure(memoryS3Put, key); err != nil {
+		return err
+	}
+	m.inner.put(key, data)
+	return nil
+}
+
+func (m *memoryStore) UploadFile(_ context.Context, key string, file *os.File) error {
+	if err := m.inner.failure(memoryS3Put, key); err != nil {
+		return err
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return err
+	}
+	m.inner.put(key, data)
+	return nil
+}
+
+func (m *memoryStore) Get(_ context.Context, key string) ([]byte, error) {
+	data := m.inner.get(key)
+	if data == nil {
+		return nil, errMemoryNotFound
+	}
+	return data, nil
+}
+
+func (m *memoryStore) List(_ context.Context, prefix string) ([]string, error) {
+	return m.inner.keys(prefix), nil
+}
+
+func (m *memoryStore) Copy(_ context.Context, srcKey, dstKey string) error {
+	if err := m.inner.failure(memoryS3Copy, srcKey); err != nil {
+		return err
+	}
+	data := m.inner.get(srcKey)
+	if data == nil {
+		return errMemoryNotFound
+	}
+	m.inner.put(dstKey, data)
+	return nil
+}
+
+func (m *memoryStore) Delete(_ context.Context, key string) error {
+	if err := m.inner.failure(memoryS3Delete, key); err != nil {
+		return err
+	}
+	m.inner.mu.Lock()
+	defer m.inner.mu.Unlock()
+	delete(m.inner.objects, key)
+	return nil
+}
+
+func (m *memoryStore) DeletePrefix(ctx context.Context, prefix string) error {
+	for _, key := range m.inner.keys(prefix) {
+		if err := m.Delete(ctx, key); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *memoryStore) IsNotFound(err error) bool {
+	return errors.Is(err, errMemoryNotFound)
+}
+
+func testAzureParquet(t *testing.T, threadID string, backfill bool) (*Parquet, *memoryS3) {
+	t.Helper()
+	store := newMemoryS3()
+	return testAzureParquetWithStore(t, store, threadID, backfill), store
+}
+
+func testAzureParquetWithStore(t *testing.T, store *memoryS3, threadID string, backfill bool) *Parquet {
+	t.Helper()
+	cfg := &Config{
+		Path:                    filepath.Join(t.TempDir(), "cache"),
+		AzureStorageAccountName: "account",
+		AzureStorageAccountKey:  "key",
+		AzureContainerName:      "container",
+	}
+	return &Parquet{
+		config:           cfg,
+		options:          &destination.Options{ThreadID: threadID, Backfill: backfill},
+		stream:           testConfiguredStream(),
+		basePath:         filepath.Join("namespace", "table"),
+		partitionedFiles: make(map[string][]*FileMetadata),
+		store: &memoryStore{
+			kind:   "azure",
+			prefix: cfg.AzurePath,
+			inner:  store,
+		},
 	}
 }
 
@@ -708,7 +900,7 @@ func testMetadataStateMap(t *testing.T, state *types.MetadataState) map[string]a
 	return checkpoint
 }
 
-func testRequireS3Prefix(t *testing.T, store *memoryS3, prefix string) {
+func testRequirePrefix(t *testing.T, store *memoryS3, prefix string) {
 	t.Helper()
 	keys := store.keys("")
 	require.NotEmpty(t, keys)
@@ -718,7 +910,7 @@ func testRequireS3Prefix(t *testing.T, store *memoryS3, prefix string) {
 }
 
 func testFinalParquetObjects(p *Parquet, store *memoryS3) int {
-	prefix := p.s3ObjectKey(p.basePath) + "/"
+	prefix := p.objectKey(p.basePath) + "/"
 	var count int
 	for _, key := range store.keys(prefix) {
 		if strings.Contains(key, "/"+parquet2PCDir+"/") {

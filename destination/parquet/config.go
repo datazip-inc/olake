@@ -1,6 +1,8 @@
 package parquet
 
 import (
+	"fmt"
+
 	"github.com/datazip-inc/olake/utils"
 )
 
@@ -22,9 +24,39 @@ type Config struct {
 	// MaxFileSizeMB rolls a partition into a new parquet file once its on-disk size reaches
 	// this many MB. Fractional values are allowed (e.g. 0.125 for a 128KB roll size), which
 	// keeps integration tests light. When unset (<= 0) the writer falls back to defaultMaxFileSizeMB.
+
+	AzureStorageAccountName string `json:"azure_storage_account_name,omitempty"`
+	AzureStorageAccountKey  string `json:"azure_storage_account_key,omitempty"`
+	AzureContainerName      string `json:"azure_container_name,omitempty"`
+	AzurePath               string `json:"azure_path,omitempty"`
+
 	MaxFileSizeMB float64 `json:"max_file_size_mb,omitempty" validate:"gte=0"`
 }
 
 func (c *Config) Validate() error {
-	return utils.Validate(c)
+	if err := utils.Validate(c); err != nil {
+		return err
+	}
+
+	// Azure name and key must both be set
+	if (c.AzureStorageAccountName == "") != (c.AzureStorageAccountKey == "") {
+		return fmt.Errorf("azure_storage_account_name and azure_storage_account_key must both be set together")
+	}
+
+	azureConfigured := c.AzureStorageAccountName != ""
+	s3Configured := c.Bucket != "" && c.Region != ""
+
+	if azureConfigured && s3Configured {
+		return fmt.Errorf("only one of azure or s3 can be configured")
+	}
+
+	if azureConfigured && c.AzureContainerName == "" {
+		return fmt.Errorf("azure_container_name is required when using azure blob")
+	}
+
+	return nil
+}
+
+func (c *Config) usingAzure() bool {
+	return c.AzureStorageAccountName != "" && c.AzureStorageAccountKey != "" && c.AzureContainerName != ""
 }
