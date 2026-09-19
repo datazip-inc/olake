@@ -135,13 +135,12 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
+// keeping default columns parquet schema for backward compatibility for olake columns
 func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *parquet.Schema {
-	// keeping default columns parquet schema for backward compatibility for olake columns
 	groupNode := parquet.Group{
 		constants.OlakeID:        parquet.String(),
 		constants.OlakeTimestamp: parquet.Timestamp(parquet.Microsecond),
 		constants.OpType:         parquet.String(),
-		constants.CdcTimestamp:   parquet.Optional(parquet.Timestamp(parquet.Microsecond)),
 	}
 	isSelected := stream.IsSelectedColumn()
 

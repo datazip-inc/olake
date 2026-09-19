@@ -283,28 +283,70 @@ func TestGenerateThreadID(t *testing.T) {
 	assert.NotEqual(t, first, second)
 }
 
-func TestSupportsCdcColumn(t *testing.T) {
+func TestInjectCDCColumns(t *testing.T) {
 	testCases := []struct {
-		name         string
-		driverType   string
-		cdcSupported bool
-		expected     bool
+		name              string
+		driverColumns     map[string]types.DataType
+		selectedColumns   []string
+		expectInSelected  []string
+		expectNotSelected bool
 	}{
-		// a cdc-capable relational driver adds the olake cdc timestamp column
-		{name: "postgres with cdc", driverType: "postgres", cdcSupported: true, expected: true},
-		// kafka has no cdc timestamp column even when cdc is on
-		{name: "kafka with cdc", driverType: string(constants.Kafka), cdcSupported: true, expected: false},
-		// cdc off means the column is not added
-		{name: "postgres without cdc", driverType: "postgres", cdcSupported: false, expected: false},
+		{
+			name: "injects common and driver columns into schema",
+			driverColumns: map[string]types.DataType{
+				"_cdc_lsn": types.String,
+			},
+			expectNotSelected: true,
+		},
+		{
+			name: "appends to non-empty selected columns list",
+			driverColumns: map[string]types.DataType{
+				"_cdc_lsn": types.String,
+			},
+			selectedColumns:  []string{"id", "name"},
+			expectInSelected: []string{constants.CdcTimestamp, "_cdc_lsn"},
+		},
+		{
+			name:              "kafka driver has no extra columns",
+			driverColumns:     nil,
+			expectNotSelected: true,
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			driver := NewAbstractDriver(context.Background(), stubDriver{
-				typ:          tc.driverType,
-				cdcSupported: tc.cdcSupported,
-			})
-			assert.Equal(t, tc.expected, driver.supportsCdcColumn())
+			stream := types.NewStream("users", "public", nil)
+			stream.UpsertField("id", types.Int64, false, false)
+			configured := stream.Wrap(0)
+			if tc.selectedColumns != nil {
+				configured.StreamMetadata.SelectedColumns = &types.SelectedColumns{
+					Columns:        tc.selectedColumns,
+					SyncNewColumns: false,
+				}
+			}
+
+			injectCDCColumns(stubDriver{cdcColumns: tc.driverColumns}, []types.StreamInterface{configured})
+
+			hasCdcTimestamp, _ := stream.Schema.GetProperty(constants.CdcTimestamp)
+			assert.True(t, hasCdcTimestamp)
+
+			for col := range tc.driverColumns {
+				found, _ := stream.Schema.GetProperty(col)
+				assert.True(t, found, "expected driver CDC column %s in schema", col)
+			}
+
+			if tc.expectNotSelected {
+				if configured.StreamMetadata.SelectedColumns != nil {
+					for _, col := range []string{constants.CdcTimestamp, "_cdc_lsn"} {
+						assert.NotContains(t, configured.StreamMetadata.SelectedColumns.Columns, col)
+					}
+				}
+				return
+			}
+
+			for _, col := range tc.expectInSelected {
+				assert.Contains(t, configured.StreamMetadata.SelectedColumns.Columns, col)
+			}
 		})
 	}
 }
@@ -432,6 +474,7 @@ type stubDriver struct {
 	typ            string
 	cdcSupported   bool
 	streamNamesErr error
+	cdcColumns     map[string]types.DataType
 }
 
 func (s stubDriver) GetConfigRef() Config { return nil }
@@ -461,7 +504,8 @@ func (s stubDriver) FetchMaxCursorValues(context.Context, types.StreamInterface)
 func (s stubDriver) StreamIncrementalChanges(context.Context, types.StreamInterface, BackfillMsgFn) error {
 	return nil
 }
-func (s stubDriver) CDCSupported() bool { return s.cdcSupported }
+func (s stubDriver) CDCSupported() bool                    { return s.cdcSupported }
+func (s stubDriver) CDCColumns() map[string]types.DataType { return s.cdcColumns }
 func (s stubDriver) ChangeStreamConfig() (bool, bool, bool) {
 	return false, false, false
 }

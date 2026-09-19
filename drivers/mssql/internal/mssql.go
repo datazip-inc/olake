@@ -54,6 +54,13 @@ func (m *MSSQL) CDCSupported() bool {
 	return m.cdcSupported
 }
 
+func (m *MSSQL) CDCColumns() map[string]types.DataType {
+	return map[string]types.DataType{
+		CDCStartLSN: types.String,
+		CDCSeqVal:   types.String,
+	}
+}
+
 // Setup establishes the database connection and initializes CDC settings.
 func (m *MSSQL) Setup(ctx context.Context) error {
 	if err := m.config.Validate(); err != nil {
@@ -289,8 +296,6 @@ func (m *MSSQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
 	if m.CDCSupported() {
-		stream.UpsertField(CDCStartLSN, types.String, true, true)
-		stream.UpsertField(CDCSeqVal, types.String, true, true)
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 

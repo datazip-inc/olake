@@ -122,7 +122,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 
 		// add default columns
 		for column, typ := range DefaultColumns {
-			if column == constants.CdcTimestamp && !a.supportsCdcColumn() {
+			if column == constants.CdcTimestamp {
 				continue
 			}
 			convStream.UpsertField(column, typ, true, true)
@@ -195,6 +195,10 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
+	if len(cdcStreams) > 0 && a.driver.CDCSupported() {
+		injectCDCColumns(a.driver, cdcStreams)
+	}
+
 	// run cdc sync
 	if len(cdcStreams) > 0 {
 		if a.driver.CDCSupported() {
@@ -232,6 +236,30 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		return fmt.Errorf("error occurred while waiting for connections: %w", err)
 	}
 	return nil
+}
+
+// injectCDCColumns adds _cdc_timestamp and driver-specific CDC metadata to stream schemas at sync time.
+// CDC columns are omitted during discover so they do not appear in streams.json for non-CDC modes.
+func injectCDCColumns(driver DriverInterface, streams []types.StreamInterface) {
+	driverColumns := driver.CDCColumns()
+	for _, stream := range streams {
+		if stream == nil {
+			continue
+		}
+		s := stream.GetStream()
+		s.UpsertField(constants.CdcTimestamp, types.TimestampMicro, true, true)
+		for name, typ := range driverColumns {
+			s.UpsertField(name, typ, true, true)
+		}
+
+		selectedCols := stream.Self().StreamMetadata.SelectedColumns
+		if selectedCols != nil && len(selectedCols.Columns) > 0 {
+			selectedCols.Columns = append(selectedCols.Columns, constants.CdcTimestamp)
+			for name := range driverColumns {
+				selectedCols.Columns = append(selectedCols.Columns, name)
+			}
+		}
+	}
 }
 
 // waitForBackfillCompletion waits for all backfill processes to complete and processes each completed stream
@@ -345,12 +373,4 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	if *err != nil && threadID != "" {
 		*err = fmt.Errorf("thread[%s]: %w", threadID, *err)
 	}
-}
-
-func (a *AbstractDriver) supportsCdcColumn() bool {
-	if a.driver.CDCSupported() && a.driver.Type() != string(constants.Kafka) {
-		// kafka driver does not support cdc column
-		return true
-	}
-	return false
 }
