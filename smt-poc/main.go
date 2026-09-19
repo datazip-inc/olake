@@ -315,15 +315,27 @@ func parseTerms(q string, defaultDepth int, docCol string) []term {
 	return out
 }
 
-// leaves lists every leaf of the CUT structure under path, in order.
-func leaves(n *node, path []string, out *[][]string) {
+type leafCol struct {
+	path   []string
+	asJSON bool // object left open by another term but past THIS term's depth: emit as JSON text
+}
+
+// leaves lists the columns a term produces: every leaf of the CUT structure under
+// path, descending at most depth levels below it. Objects that are still open at
+// the limit (an ancestor of a deeper flatten() term) are emitted as JSON text, so
+// overlapping terms never leak each other's columns.
+func leaves(n *node, path []string, depth, maxDepth int, out *[]leafCol) {
 	if n.kind == kObject {
+		if depth >= maxDepth {
+			*out = append(*out, leafCol{path: path, asJSON: true})
+			return
+		}
 		for _, k := range n.order {
-			leaves(n.fields[k], append(append([]string{}, path...), k), out)
+			leaves(n.fields[k], append(append([]string{}, path...), k), depth+1, maxDepth, out)
 		}
 		return
 	}
-	*out = append(*out, path)
+	*out = append(*out, leafCol{path: path})
 }
 
 // rewrite replaces every flatten() term with its leaf projections. Returns the
@@ -339,21 +351,27 @@ func rewrite(q string, shaped *node, terms []term, docCol string) (string, []str
 		if root == nil {
 			return fmt.Sprintf("/* %s: path not seen yet */ NULL AS %s", t.raw, mangle(t.path))
 		}
-		var ls [][]string
+		var ls []leafCol
 		if root.kind == kObject {
-			leaves(root, t.path, &ls)
+			leaves(root, t.path, 0, t.depth, &ls)
 		} else {
-			ls = [][]string{t.path}
+			ls = []leafCol{{path: t.path}}
 		}
 		parts := make([]string, 0, len(ls))
-		for _, p := range ls {
+		for _, lc := range ls {
+			p := lc.path
 			a, e := mangle(p), ref(p)
+			if lc.asJSON {
+				e = "to_json(" + e + ")"
+			}
 			if len(p) == 0 { // non-object root: the raw document itself
 				a, e = "_olake_raw", "_olake_raw"
 			}
-			if prev, dup := owner[a]; dup && prev != e {
-				collisions = append(collisions, fmt.Sprintf("%s <- %s AND %s", a, prev, e))
-				continue
+			if prev, dup := owner[a]; dup {
+				if prev != e {
+					collisions = append(collisions, fmt.Sprintf("%s <- %s AND %s", a, prev, e))
+				}
+				continue // same column requested twice: emit once
 			}
 			owner[a] = e
 			parts = append(parts, e+" AS "+a)

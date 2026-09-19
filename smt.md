@@ -42,7 +42,7 @@ Rules the UI/docs teach:
 | arrays                                            | stay `list<…>`; `list_transform`/`list_sum`; **never `unnest`** (row count must not change)                                  |
 | default                                           | `select * from batch`                                                                                                        |
 
-Depth counts key levels below the path. `flatten(user, 2)` → `user.id`, `user.addr.city` columns; `user.addr.geo` (level 3) → JSON text column `user_addr_geo`. Per-path terms override the default; ancestors of a deeper term stay open, their other children obey the default.
+Depth counts key levels below the path. `flatten(user, 2)` → `user.id`, `user.addr.city` columns; `user.addr.geo` (level 3) → JSON text column `user_addr_geo`. Per-path terms override the default; ancestors of a deeper term stay open, their other children obey the default. Overlapping terms are independent: `flatten(customer, 1), flatten(customer.addr.geo, 1)` gives `customer_addr` (JSON text), `customer_email`, `customer_id` from the first and `customer_addr_geo_lat`, `customer_addr_geo_lng` from the second — a term never emits columns beyond its own depth, and a column requested twice is emitted once.
 
 ## 3. Pipeline (per batch)
 
