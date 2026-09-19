@@ -7,6 +7,21 @@
             "description": "Authentication database (mostly admin)",
             "default": "admin"
         },
+        "auth_mechanism": {
+            "type": "string",
+            "title": "Authentication Mechanism",
+            "description": "MongoDB authentication mechanism. Leave empty to use the driver's default SCRAM negotiation (modern servers prefer SCRAM-SHA-256). Set SCRAM-SHA-1 or SCRAM-SHA-256 only when an explicit mechanism is required. Use PLAIN for LDAP (TLS required), MONGODB-X509 for certificate auth (TLS and client certificate required; username optional), MONGODB-OIDC for OpenID Connect (password-less; pass ENVIRONMENT and TOKEN_RESOURCE via Additional Connection Parameters for Azure/GCP URI flows), or MONGODB-AWS for IAM-based authentication (equivalent to the 'IAM Authentication' toggle below; credentials come from the environment). GSSAPI (Kerberos) is not currently supported due to low market adoption.",
+            "enum": [
+                "",
+                "SCRAM-SHA-1",
+                "SCRAM-SHA-256",
+                "PLAIN",
+                "MONGODB-X509",
+                "MONGODB-OIDC",
+                "MONGODB-AWS"
+            ],
+            "default": ""
+        },
         "backoff_retry_count": {
             "type": "integer",
             "title": "Retry Count",
@@ -73,7 +88,7 @@
         "use_iam": {
             "type": "boolean",
             "title": "IAM Authentication",
-            "description": "Enable this option to use IAM-based authentication instead of username and password",
+            "description": "Enable this option to use IAM-based authentication instead of username and password. Equivalent to selecting MONGODB-AWS in Authentication Mechanism above.",
             "default": false
         },
         "ssl": {
@@ -161,7 +176,7 @@
         "additional_params": {
             "type": "object",
             "title": "Additional Connection Parameters",
-            "description": "Additional MongoDB connection string parameters (e.g., authMechanism). Each parameter will be added to the connection URI.",
+            "description": "Additional MongoDB connection string parameters (e.g., tls, connectTimeout). Each parameter will be added to the connection URI.",
             "additionalProperties": true
         },
         "ssh_config": {
@@ -265,30 +280,173 @@
         "hosts",
         "database"
     ],
-    "dependencies": {
-        "use_iam": {
-            "oneOf": [
-                {
-                    "properties": {
-                        "use_iam": {
-                            "const": false
+    "allOf": [
+        {
+            "if": {
+                "anyOf": [
+                    {
+                        "properties": {
+                            "use_iam": {
+                                "const": true
+                            }
                         },
-                        "password": { "type": "string", "minLength": 1 }
+                        "required": [
+                            "use_iam"
+                        ]
                     },
-                    "required": [
-                        "authdb",
-                        "username",
-                        "password"
-                    ]
-                },
-                {
-                    "properties": {
-                        "use_iam": {
-                            "const": true
-                        }
+                    {
+                        "properties": {
+                            "auth_mechanism": {
+                                "enum": [
+                                    "PLAIN",
+                                    "MONGODB-X509",
+                                    "MONGODB-OIDC",
+                                    "MONGODB-AWS"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "auth_mechanism"
+                        ]
+                    }
+                ]
+            },
+            "then": {
+                "properties": {
+                    "authdb": {
+                        "const": "$external",
+                        "readOnly": true,
+                        "description": "Not used by this authentication mechanism - OLake always authenticates with authSource=$external."
                     }
                 }
-            ]
+            },
+            "else": {
+                "required": [
+                    "authdb",
+                    "username",
+                    "password"
+                ]
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "auth_mechanism": {
+                        "const": "PLAIN"
+                    }
+                },
+                "required": [
+                    "auth_mechanism"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "ssl": {
+                        "properties": {
+                            "mode": {
+                                "enum": [
+                                    "require",
+                                    "verify-ca",
+                                    "verify-full"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "mode"
+                        ]
+                    }
+                },
+                "required": [
+                    "username",
+                    "password",
+                    "ssl"
+                ]
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "auth_mechanism": {
+                        "const": "MONGODB-X509"
+                    }
+                },
+                "required": [
+                    "auth_mechanism"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "password": {
+                        "maxLength": 0
+                    },
+                    "ssl": {
+                        "properties": {
+                            "mode": {
+                                "enum": [
+                                    "require",
+                                    "verify-ca",
+                                    "verify-full"
+                                ]
+                            },
+                            "client_cert": {
+                                "type": "string",
+                                "title": "Client Certificate",
+                                "description": "Client certificate content (PEM format) for mutual TLS authentication",
+                                "minLength": 1
+                            },
+                            "client_key": {
+                                "type": "string",
+                                "title": "Client Key",
+                                "description": "Client private key content (PEM format) for mutual TLS authentication",
+                                "minLength": 1
+                            }
+                        },
+                        "required": [
+                            "mode",
+                            "client_cert",
+                            "client_key"
+                        ]
+                    }
+                },
+                "required": [
+                    "ssl"
+                ]
+            }
+        },
+        {
+            "if": {
+                "properties": {
+                    "auth_mechanism": {
+                        "const": "MONGODB-OIDC"
+                    }
+                },
+                "required": [
+                    "auth_mechanism"
+                ]
+            },
+            "then": {
+                "properties": {
+                    "password": {
+                        "maxLength": 0
+                    },
+                    "additional_params": {
+                        "properties": {
+                            "authMechanismProperties": {
+                                "type": "string",
+                                "title": "OIDC Mechanism Properties",
+                                "description": "Use ENVIRONMENT:azure or ENVIRONMENT:gcp with TOKEN_RESOURCE",
+                                "minLength": 1
+                            }
+                        },
+                        "required": [
+                            "authMechanismProperties"
+                        ]
+                    }
+                },
+                "required": [
+                    "additional_params"
+                ]
+            }
         }
-    }
+    ]
 }
