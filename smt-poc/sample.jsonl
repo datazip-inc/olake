@@ -1,0 +1,6 @@
+{"id":1,"payload":{"user":{"id":7,"name":"ada","addr":{"city":"pune","geo":{"lat":18.5,"lng":73.8}}},"amount":"12.50","tags":[1,2]}}
+{"id":2,"payload":{"user":{"id":8,"name":"bob","addr":{"city":"goa"}},"amount":"3.25","tags":[]}}
+{"id":3,"payload":{"user":{"id":9,"name":"cy"},"amount":"0.10"}}
+{"id":4,"payload":{"user":{"id":10,"name":"dee","addr":{"city":"blr","zip":"560001"}},"amount":"7.00","newkey":true}}
+{"id":5,"payload":{"user":{"id":"eleven","name":"eve"},"amount":"1.00","items":[{"sku":"a","qty":2}]}}
+{"id":6,"payload":{"user":{"id":12,"name":"fay","addr":{"city":"del","geo":{"lat":28.6}}},"amount":"2.00","meta":{"deep":{"x":{"y":{"z":1}}}}}}

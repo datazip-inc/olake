@@ -1,0 +1,3 @@
+{"event": "click", "ts": 1712345678901, "user": {"id": "u1", "ua": "Mozilla/5.0"}, "props": {"page": "/x", "ref": "google", "ab": {"exp1": "B"}}}
+{"event": "heartbeat", "ts": 1712345678902, "user": {"id": "u1", "ua": "Mozilla/5.0"}, "props": {}}
+{"event": "purchase", "ts": 1712345678903, "user": {"id": "u2", "ua": "curl/8"}, "props": {"page": "/checkout", "amount": 19.99}}

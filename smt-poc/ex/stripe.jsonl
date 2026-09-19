@@ -1,0 +1,3 @@
+{"id": "evt_1", "type": "payment_intent.succeeded", "data": {"object": {"id": "pi_1", "amount": 1999, "currency": "usd", "customer": "cus_9", "metadata": {"order": "o-77", "tier": "gold"}, "charges": {"data": [{"id": "ch_1", "outcome": {"risk": "normal"}}]}}}}
+{"id": "evt_2", "type": "charge.refunded", "data": {"object": {"id": "ch_2", "amount": 500, "currency": "eur", "metadata": {}}}}
+{"id": "evt_2", "type": "charge.refunded", "data": {"object": {"id": "ch_2", "amount": {}, "currency": "eur", "metadata": {}}}}

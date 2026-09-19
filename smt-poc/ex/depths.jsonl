@@ -1,0 +1,2 @@
+{"user": {"id": 7, "addr": {"city": "pune", "geo": {"lat": 1.5, "lng": 73.8}}}, "meta": {"deep": {"x": {"y": {"z": 1}}}, "other": {"k": 1}}, "tags": ["a", "b"]}
+{"user": {"id": 8, "addr": {"city": "goa"}}, "meta": {"deep": {"x": {"y": {"z": 2, "w": true}}}}, "tags": []}

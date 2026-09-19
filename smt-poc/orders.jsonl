@@ -1,0 +1,2 @@
+{"_id": {"$oid": "66a1b2"}, "customer": {"id": 7, "email": "Ada@X.COM", "addr": {"city": "pune", "geo": {"lat": 18.5, "lng": 73.8}}}, "items": [{"sku": "a", "qty": 2, "price": "12.50"}, {"sku": "b", "qty": 1, "price": "3.25"}], "status": "paid", "createdAt": {"$date": "2024-05-01T10:00:00Z"}}
+{"_id": {"$oid": "66a1b3"}, "customer": {"id": 8, "email": "bob@y.org", "addr": {"city": "goa"}}, "items": [], "status": "open", "createdAt": {"$date": "2024-05-02T11:00:00Z"}}

@@ -1,0 +1,2 @@
+{"id": 42, "name": "widget", "attributes": {"color": "red", "dims": {"w": 10, "h": 4}, "tags": ["a", "b"]}}
+{"id": 43, "name": "gadget", "attributes": {"color": "blue", "dims": {"w": 3, "h": 3, "d": 1}, "tags": []}}

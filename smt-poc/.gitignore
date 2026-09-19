@@ -1,0 +1,4 @@
+flatten-poc
+ex/out/
+*.class
+*.log
