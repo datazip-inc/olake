@@ -19,61 +19,30 @@ type ColumnRule struct {
 	AssertValueFrom string
 }
 
-// resolveColumnPolicies evaluates a driver's rules against the baseline spec (a commit arrives here
-// as its equivalentRelease), filling the rule-derived half of an assertionPolicies -- seedExcluded,
-// the dated type-only columns and a note per decision -- which resolveAssertionPolicies completes.
-// A baseline that cannot be dated ("latest", an image ref) is treated as newest: ExcludeBelow and
-// AssertValueFrom never fire, only TypeOnly. Malformed rules are an error, never a skip: a typo'd
-// version must not silently change what a green run proves.
-func resolveColumnPolicies(rules []ColumnRule, spec string) (*assertionPolicies, error) {
+// resolveColumnPolicies resolves the dated rules against the baseline into seedExcluded, typeOnly and
+// a note per decision. An undatable baseline ("latest", an image ref) reads as newest, so none fire.
+func resolveColumnPolicies(rules []ColumnRule, spec string) *assertionPolicies {
 	version, isRelease := parseReleaseTag(spec)
 	policies := &assertionPolicies{}
-	seen := make(map[string]bool, len(rules))
 	for _, rule := range rules {
-		if rule.Column == "" {
-			return nil, fmt.Errorf("compatibility column rule with an empty column name: %+v", rule)
+		if boundary, ok := parseReleaseTag(rule.ExcludeBelow); ok && isRelease && compareRelease(version, boundary) < 0 {
+			policies.seedExcluded = append(policies.seedExcluded, rule.Column)
+			policies.notes = append(policies.notes, fmt.Sprintf(
+				"column %s: excluded from the seed data, baseline %s is older than %s", rule.Column, spec, rule.ExcludeBelow))
+			// Absent from both runs, so its assertion policy is moot.
+			continue
 		}
-		if seen[rule.Column] {
-			return nil, fmt.Errorf("duplicate compatibility column rule for %q; one rule carries every policy for a column", rule.Column)
-		}
-		seen[rule.Column] = true
-		if rule.ExcludeBelow == "" && rule.AssertValueFrom == "" {
-			return nil, fmt.Errorf("compatibility column rule for %q declares no policy", rule.Column)
-		}
-
-		switch {
-		case rule.ExcludeBelow != "":
-			boundary, ok := parseReleaseTag(rule.ExcludeBelow)
-			if !ok {
-				return nil, fmt.Errorf("compatibility column rule for %q: ExcludeBelow %q is not a release tag", rule.Column, rule.ExcludeBelow)
-			}
-			if isRelease && compareRelease(version, boundary) < 0 {
-				policies.seedExcluded = append(policies.seedExcluded, rule.Column)
-				policies.notes = append(policies.notes, fmt.Sprintf(
-					"column %s: excluded from the seed data, baseline %s is older than %s", rule.Column, spec, rule.ExcludeBelow))
-				// Absent from both runs, so its assertion policy is moot.
-				continue
-			}
-		}
-
-		switch {
-		case rule.AssertValueFrom != "":
-			boundary, ok := parseReleaseTag(rule.AssertValueFrom)
-			if !ok {
-				return nil, fmt.Errorf("compatibility column rule for %q: AssertValueFrom %q is not a release tag", rule.Column, rule.AssertValueFrom)
-			}
-			if isRelease && compareRelease(version, boundary) < 0 {
-				policies.typeOnly = append(policies.typeOnly, rule.Column)
-				policies.notes = append(policies.notes, fmt.Sprintf(
-					"column %s: type-only, baseline %s is older than %s", rule.Column, spec, rule.AssertValueFrom))
-			}
+		if boundary, ok := parseReleaseTag(rule.AssertValueFrom); ok && isRelease && compareRelease(version, boundary) < 0 {
+			policies.typeOnly = append(policies.typeOnly, rule.Column)
+			policies.notes = append(policies.notes, fmt.Sprintf(
+				"column %s: type-only, baseline %s is older than %s", rule.Column, spec, rule.AssertValueFrom))
 		}
 	}
 	if len(policies.notes) == 0 && len(rules) > 0 {
 		policies.notes = append(policies.notes, fmt.Sprintf(
 			"all %d column rules inactive against baseline %s; every column is fully asserted", len(rules), spec))
 	}
-	return policies, nil
+	return policies
 }
 
 // assertionPolicies is every rule resolved against one baseline: the one set the run applies. The
@@ -116,10 +85,7 @@ func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules com
 	if err != nil {
 		return nil, err
 	}
-	policies, err := resolveColumnPolicies(columnRules, spec)
-	if err != nil {
-		return nil, err
-	}
+	policies := resolveColumnPolicies(columnRules, spec)
 	// Seed-excluded columns leave the catalog too, so streams.json never selects a column the
 	// fixture left out of the table.
 	policies.catalogExcluded = slices.Clone(policies.seedExcluded)
@@ -136,4 +102,77 @@ func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules com
 	}
 	policies.typeOnly = slices.Sorted(maps.Keys(volatile))
 	return policies, nil
+}
+
+// resolveTypeRules maps type-keyed rules onto the fixture's declared column types, merging
+// multiple matches per column into one ColumnRule. A data_types rule matching no declared
+// column is an error: the fixture does not carry the type, so the rule would assert nothing.
+func resolveTypeRules(rules []compatibilityTypeRule, columnTypes map[string][]string) ([]ColumnRule, []string, error) {
+	alwaysTypeOnly := map[string]bool{}
+	merged := map[string]*ColumnRule{}
+	apply := func(column string, policy compatibilityPolicy) error {
+		if policy.TypeOnly {
+			alwaysTypeOnly[column] = true
+		}
+		// Only a dated policy becomes a ColumnRule; type_only alone is carried by alwaysTypeOnly.
+		if policy.ExcludeBelow == "" && policy.AssertValueFrom == "" {
+			return nil
+		}
+		rule, ok := merged[column]
+		if !ok {
+			rule = &ColumnRule{Column: column}
+			merged[column] = rule
+		}
+		if policy.ExcludeBelow != "" {
+			if rule.ExcludeBelow != "" && rule.ExcludeBelow != policy.ExcludeBelow {
+				return fmt.Errorf("column %s: conflicting exclude_below %s and %s", column, rule.ExcludeBelow, policy.ExcludeBelow)
+			}
+			rule.ExcludeBelow = policy.ExcludeBelow
+		}
+		if policy.AssertValueFrom != "" {
+			if rule.AssertValueFrom != "" && rule.AssertValueFrom != policy.AssertValueFrom {
+				return fmt.Errorf("column %s: conflicting assert_value_from %s and %s", column, rule.AssertValueFrom, policy.AssertValueFrom)
+			}
+			rule.AssertValueFrom = policy.AssertValueFrom
+		}
+		return nil
+	}
+
+	columns := make([]string, 0, len(columnTypes))
+	for column := range columnTypes {
+		columns = append(columns, column)
+	}
+	slices.Sort(columns)
+
+	for _, r := range rules {
+		switch {
+		case r.Column != "":
+			if err := apply(r.Column, r.compatibilityPolicy); err != nil {
+				return nil, nil, err
+			}
+		case len(r.DataTypes) > 0:
+			found := false
+			for _, column := range columns {
+				matches := slices.ContainsFunc(r.DataTypes, func(dataType string) bool {
+					return slices.Contains(columnTypes[column], dataType)
+				})
+				if !matches {
+					continue
+				}
+				if err := apply(column, r.compatibilityPolicy); err != nil {
+					return nil, nil, err
+				}
+				found = true
+			}
+			if !found {
+				return nil, nil, fmt.Errorf("no declared column matches data_types %v (%s); tag the column in the fixture's ColumnTypes or drop the rule", r.DataTypes, r.Note)
+			}
+		}
+	}
+
+	out := make([]ColumnRule, 0, len(merged))
+	for _, column := range slices.Sorted(maps.Keys(merged)) {
+		out = append(out, *merged[column])
+	}
+	return out, slices.Collect(maps.Keys(alwaysTypeOnly)), nil
 }

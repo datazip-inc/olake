@@ -3,6 +3,7 @@ package compatibility
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
@@ -40,6 +41,53 @@ type compatibilityGroupSpec struct {
 	destination     string
 	mode            string
 	destinationFile string
+}
+
+// compatibilityGroupSpecs is the writer-group fan-out: one group per destination writer, each
+// naming the destination config its syncs run against and where its gates live in
+// compatibility_rules.json (mode is empty for a destination that has none).
+func compatibilityGroupSpecs() []compatibilityGroupSpec {
+	return []compatibilityGroupSpec{
+		{name: "legacy", destination: "iceberg", mode: "legacy", destinationFile: "iceberg_destination.json"},
+		{name: "arrow", destination: "iceberg", mode: "arrow", destinationFile: "iceberg_destination_arrow.json"},
+		{name: "pq", destination: "parquet", destinationFile: "parquet_destination.json"},
+	}
+}
+
+// gateFrom picks this group's gate out of a destinations block: the destination's own gate, and
+// its mode's gate when the group names one.
+func (s compatibilityGroupSpec) gateFrom(destinations map[string]compatibilityDestination) compatibilityGate {
+	dest := destinations[s.destination]
+	if s.mode == "" {
+		return dest.compatibilityGate
+	}
+	return mergedGate(dest.compatibilityGate, dest.Modes[s.mode])
+}
+
+func compatibilityVariantGroups(driver string) []compatibilityGroup {
+	// Same fan-out as TestSync, and the same two skips.
+	cdc := !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(driver))
+	inc := driver != string(constants.Kafka)
+
+	driverDestinations := compatibilityRules.Drivers[driver].Destinations
+	var groups []compatibilityGroup
+	for _, spec := range compatibilityGroupSpecs() {
+		var variants []compatibilityVariant
+		if cdc {
+			// The parquet CDC scenario ends on a delete-only batch, and parquet holds only its
+			// last case's files -- so both sides ending with none is its verified outcome.
+			variants = append(variants, compatibilityVariant{name: "cdc", kind: scenarioCDC, emptyFinalState: spec.destination == "parquet"})
+		}
+		if inc {
+			variants = append(variants, compatibilityVariant{name: "inc", kind: scenarioIncremental})
+		}
+		if len(variants) == 0 {
+			continue
+		}
+		gate := mergedGate(spec.gateFrom(compatibilityRules.Destinations.gates()), spec.gateFrom(driverDestinations))
+		groups = append(groups, compatibilityGroup{compatibilityGroupSpec: spec, gate: gate, variants: variants})
+	}
+	return groups
 }
 
 // syncCase is one sync of a scenario: the DML that precedes it and whether it reads state.
