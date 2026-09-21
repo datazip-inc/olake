@@ -9,7 +9,21 @@ import (
 
 // Codes for conditions this driver detects itself, where the server never named the failure.
 const (
-	codeReplicationSlotMissing = "postgres.replication_slot_missing"
+	codeReplicationSlotMissing  = "postgres.replication_slot_missing"
+	codeSlotTypeUnsupported     = "postgres.slot_type_unsupported"
+	codePublicationMissing      = "postgres.publication_missing"
+	codeGlobalStateUnreadable   = "postgres.global_state_unreadable"
+	codeGlobalLSNMissing        = "postgres.global_state_lsn_missing"
+	codeGlobalLSNUnparseable    = "postgres.global_state_lsn_unparseable"
+	codeMetadataStateUnreadable = "postgres.metadata_state_unreadable"
+	codeMetadataStateNotString  = "postgres.metadata_state_not_string"
+	codeMetadataLSNUnparseable  = "postgres.metadata_lsn_unparseable"
+	codeLSNMismatch             = "postgres.lsn_mismatch"
+	codeCDCNotConfigured        = "postgres.cdc_not_configured"
+	codeHostMissing             = "postgres.host_missing"
+	codeHostSchemeIncluded      = "postgres.host_scheme_included"
+	codePortInvalid             = "postgres.port_invalid"
+	codeSchemaBlank             = "postgres.schema_blank"
 )
 
 // sqlStateCategories maps a PostgreSQL SQLSTATE to a failure category. SQLSTATE rather than the
