@@ -296,3 +296,10 @@ func (s *ConfiguredStream) Validate(source *Stream) error {
 func (s *ConfiguredStream) NormalizationEnabled() bool {
 	return s.StreamMetadata.Normalization
 }
+
+func (s *ConfiguredStream) GetUpdateType() UpdateType {
+	if s.StreamMetadata.UpdateType == "" {
+		return UpdateTypeEquality
+	}
+	return UpdateType(s.StreamMetadata.UpdateType)
+}

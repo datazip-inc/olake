@@ -37,7 +37,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 	err := pglogrepl.StartReplication(ctx, p.socket.pgConn, fmt.Sprintf("%q", p.socket.ReplicationSlot), p.socket.ConfirmedFlushLSN, pglogrepl.StartReplicationOptions{
 		PluginArgs: []string{"proto_version '1'", fmt.Sprintf("publication_names '%s'", p.publication)}})
 	if err != nil {
-		return fmt.Errorf("failed to start replication: %v", err)
+		return fmt.Errorf("failed to start replication: %w", err)
 	}
 
 	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
@@ -85,7 +85,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			case pglogrepl.XLogDataByteID:
 				xld, err := pglogrepl.ParseXLogData(copyData.Data[1:])
 				if err != nil {
-					return fmt.Errorf("failed to parse XLogData: %v", err)
+					return fmt.Errorf("failed to parse XLogData: %w", err)
 				}
 				p.socket.ClientXLogPos = xld.WALStart
 				if err := p.processPgoutputWAL(ctx, xld.WALData, insertFn); err != nil {
@@ -95,12 +95,12 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(copyData.Data[1:])
 				if err != nil {
-					return fmt.Errorf("failed to parse primary keepalive message: %v", err)
+					return fmt.Errorf("failed to parse primary keepalive message: %w", err)
 				}
 				p.socket.ClientXLogPos = pkm.ServerWALEnd
 				if pkm.ReplyRequested {
 					if err := AcknowledgeLSN(ctx, db, p.socket, true); err != nil {
-						return fmt.Errorf("failed to send standby status update: %v", err)
+						return fmt.Errorf("failed to send standby status update: %w", err)
 					}
 				}
 			default:
@@ -114,7 +114,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 func (p *pgoutputReplicator) processPgoutputWAL(ctx context.Context, walData []byte, insertFn abstract.CDCMsgFn) error {
 	logicalMsg, err := pglogrepl.Parse(walData)
 	if err != nil {
-		return fmt.Errorf("failed to parse WAL data: %v", err)
+		return fmt.Errorf("failed to parse WAL data: %w", err)
 	}
 
 	switch msg := logicalMsg.(type) {

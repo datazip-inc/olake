@@ -2,6 +2,8 @@ package driver
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -16,6 +18,7 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/jmoiron/sqlx"
@@ -25,8 +28,13 @@ import (
 	"github.com/go-sql-driver/mysql"
 )
 
-// MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
-const maxUint24 = 1<<24 - 1
+const (
+	// MEDIUMINT's 3 bytes are the one MySQL integer width Go has no constant for.
+	maxUint24 = 1<<24 - 1
+
+	// minCDCInitialWaitTime is the minimum wait time in seconds for CDC sync.
+	minCDCInitialWaitTime = 120
+)
 
 // MySQL represents the MySQL database driver
 type MySQL struct {
@@ -68,14 +76,14 @@ func (m *MySQL) Spec() any {
 func (m *MySQL) Setup(ctx context.Context) error {
 	err := m.config.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate config: %s", err)
+		return fmt.Errorf("failed to validate config: %w", err)
 	}
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		m.sshClient, err = m.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 	}
 
@@ -85,12 +93,12 @@ func (m *MySQL) Setup(ctx context.Context) error {
 
 		uri, err := m.config.URI()
 		if err != nil {
-			return fmt.Errorf("failed to setup config uri: %s", err)
+			return fmt.Errorf("failed to setup config uri: %w", err)
 		}
 
 		cfg, err := mysql.ParseDSN(uri)
 		if err != nil {
-			return fmt.Errorf("failed to parse mysql DSN: %s", err)
+			return fmt.Errorf("failed to parse mysql DSN: %w", err)
 		}
 
 		// Allows mysql driver to use the SSH client to connect to the database
@@ -101,17 +109,17 @@ func (m *MySQL) Setup(ctx context.Context) error {
 
 		client, err = sqlx.Open("mysql", cfg.FormatDSN())
 		if err != nil {
-			return fmt.Errorf("failed to open tunneled database connection: %s", err)
+			return fmt.Errorf("failed to open tunneled database connection: %w", err)
 		}
 	} else {
 		uri, err := m.config.URI()
 		if err != nil {
-			return fmt.Errorf("failed to setup config uri: %s", err)
+			return fmt.Errorf("failed to setup config uri: %w", err)
 		}
 
 		client, err = sqlx.Open("mysql", uri)
 		if err != nil {
-			return fmt.Errorf("failed to open database connection: %s", err)
+			return fmt.Errorf("failed to open database connection: %w", err)
 		}
 	}
 	// Test connection
@@ -120,7 +128,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	// Set connection pool size
 	client.SetMaxOpenConns(m.config.MaxThreads)
 	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %s", err)
+		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	var resolved *time.Location
@@ -139,7 +147,8 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	}
 	m.effectiveTZ = resolved
 
-	// TODO: If CDC config exists and permission check fails, fail the setup
+	m.client = client
+
 	found, _ := utils.IsOfType(m.config.UpdateMethod, "initial_wait_time")
 	if found {
 		logger.Info("Found CDC Configuration")
@@ -147,23 +156,24 @@ func (m *MySQL) Setup(ctx context.Context) error {
 		if err := utils.Unmarshal(m.config.UpdateMethod, cdc); err != nil {
 			return err
 		}
-		if cdc.InitialWaitTime == 0 {
-			// default set 10 sec
-			cdc.InitialWaitTime = 10
+		if cdc.InitialWaitTime < minCDCInitialWaitTime {
+			logger.Warnf("initial_wait_time %d is below the minimum of %d seconds; using %d", cdc.InitialWaitTime, minCDCInitialWaitTime, minCDCInitialWaitTime)
+			cdc.InitialWaitTime = minCDCInitialWaitTime
 		}
+
+		// Enable CDC support if binlog is configured
+		cdcSupported, err := m.IsCDCSupported(ctx)
+		if err != nil {
+			return err
+		}
+		if !cdcSupported {
+			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCUnsupported, fmt.Errorf("failed to setup CDC: binlog is not configured correctly"))
+		}
+
+		m.CDCSupport = cdcSupported
 		m.cdcConfig = *cdc
 	}
-	m.client = client
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
-	// Enable CDC support if binlog is configured
-	cdcSupported, err := m.IsCDCSupported(ctx)
-	if err != nil {
-		logger.Warnf("failed to check CDC support: %s", err)
-	}
-	if !cdcSupported {
-		logger.Warnf("CDC is not supported")
-	}
-	m.CDCSupport = cdcSupported
 	return nil
 }
 
@@ -190,7 +200,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	query := jdbc.MySQLDiscoverTablesQuery()
 	rows, err := m.client.QueryContext(ctx, query, m.config.Database)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %s", err)
+		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
 	defer rows.Close()
 
@@ -198,7 +208,7 @@ func (m MySQL) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	for rows.Next() {
 		var tableName, schemaName string
 		if err := rows.Scan(&tableName, &schemaName); err != nil {
-			return nil, fmt.Errorf("failed to scan table: %s", err)
+			return nil, fmt.Errorf("failed to scan table: %w", err)
 		}
 		tableNames = append(tableNames, types.StreamID{Namespace: schemaName, Name: tableName})
 	}
@@ -214,14 +224,14 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 
 		rows, err := m.client.QueryContext(ctx, query, schemaName, tableName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to query column information: %s", err)
+			return nil, fmt.Errorf("failed to query column information: %w", err)
 		}
 		defer rows.Close()
 
 		for rows.Next() {
 			var columnName, columnType, dataType, isNullable, columnKey string
 			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
-				return nil, fmt.Errorf("failed to scan column: %s", err)
+				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			stream.WithCursorField(columnName)
 			var datatype types.DataType
@@ -243,9 +253,9 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 	stream, err := produceTableSchema(ctx, streamName)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %s", ctx.Err())
+			return nil, fmt.Errorf("failed to produce schema context deadline exceeded: %w", ctx.Err())
 		}
-		return nil, fmt.Errorf("failed to process table[%s]: %s", streamName, err)
+		return nil, fmt.Errorf("failed to process table[%s]: %w", streamName, err)
 	}
 
 	stream.WithSyncMode(types.FULLREFRESH, types.INCREMENTAL)
@@ -305,17 +315,31 @@ func (m *MySQL) Close() error {
 	return nil
 }
 
+// binlogRowMetadataFull reports whether the server emits full optional TableMapEvent
+// metadata. The variable is absent before MySQL 8.0.1 and on MariaDB, where false is the
+// right answer anyway: the decoder falls back to information_schema.
+func (m *MySQL) binlogRowMetadataFull(ctx context.Context) bool {
+	var name, value string
+	if err := m.client.QueryRowxContext(ctx, jdbc.MySQLBinlogRowMetadataQuery()).Scan(&name, &value); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			logger.Warnf("failed to read binlog_row_metadata, assuming MINIMAL: %s", err)
+		}
+		return false
+	}
+	return strings.EqualFold(value, "FULL")
+}
+
 func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
 	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
-		return false, fmt.Errorf("failed to get binlog position: %s", err)
+		return false, fmt.Errorf("failed to get binlog position: %w", err)
 	}
 
 	// checkMySQLConfig checks a MySQL configuration value against an expected value
 	checkMySQLConfig := func(ctx context.Context, query, expectedValue, warnMessage string) (bool, error) {
 		var name, value string
 		if err := m.client.QueryRowxContext(ctx, query).Scan(&name, &value); err != nil {
-			return false, fmt.Errorf("failed to check %s: %s", name, err)
+			return false, fmt.Errorf("failed to check %s: %w", name, err)
 		}
 
 		if strings.ToUpper(value) != expectedValue {
@@ -334,13 +358,23 @@ func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	}{
 		{jdbc.MySQLLogBinQuery(), "ON", "log_bin is not enabled"},
 		{jdbc.MySQLBinlogFormatQuery(), "ROW", "binlog_format is not set to ROW"},
-		{jdbc.MySQLBinlogRowMetadataQuery(), "FULL", "binlog_row_metadata is not set to FULL"},
+		// At MINIMAL or NOBLOB the binlog carries only some columns per row, which cannot
+		// be mapped back to a complete record.
+		{jdbc.MySQLBinlogRowImageQuery(), "FULL", "binlog_row_image is not set to FULL"},
 	}
 
 	for _, check := range configChecks {
 		if ok, err := checkMySQLConfig(ctx, check.query, check.expectedValue, check.errMessage); err != nil || !ok {
 			return ok, err
 		}
+	}
+
+	// FULL puts column names, ENUM/SET members, charsets and signedness in the binlog
+	// itself. Without it, that metadata is rebuilt from information_schema: one query per
+	// table, and blind to a rename the reader has not reached yet.
+	if !m.binlogRowMetadataFull(ctx) {
+		logger.Warn("binlog_row_metadata is not FULL; falling back to information_schema for " +
+			"column metadata. Set binlog_row_metadata=FULL (MySQL 8.0.1+) for best fidelity.")
 	}
 
 	return true, nil

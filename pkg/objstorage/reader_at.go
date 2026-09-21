@@ -52,7 +52,7 @@ func (r *ReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
 
 	body, err := r.store.OpenRange(r.ctx, r.key, off, endByte-off+1)
 	if err != nil {
-		return 0, fmt.Errorf("failed to read range bytes=%d-%d: %s", off, endByte, err)
+		return 0, fmt.Errorf("failed to read range bytes=%d-%d: %w", off, endByte, err)
 	}
 	defer body.Close()
 
@@ -73,7 +73,7 @@ func (r *ReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
 		}
 
 		if err != nil {
-			return totalRead, fmt.Errorf("failed to read response body: %s", err)
+			return totalRead, fmt.Errorf("failed to read response body: %w", err)
 		}
 	}
 

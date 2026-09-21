@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -65,7 +66,8 @@ func (m *MSSQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	// check if CDC is enabled for each stream
 	for _, stream := range streams {
 		if _, found := captureInstancesMap[stream.ID()]; !found {
-			return fmt.Errorf("CDC is not enabled for stream %s.%s", stream.Namespace(), stream.Name())
+			return errs.Precondition(errs.CDCPreconditionFailed, codeCDCNotEnabledOnTable,
+				fmt.Errorf("CDC is not enabled for stream %s.%s", stream.Namespace(), stream.Name()))
 		}
 
 		if m.state.GetCursor(stream.Self(), cdcCursorKey) == nil {
@@ -99,7 +101,8 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	if exists && rawMtState != nil {
 		mtState, ok := rawMtState.(string)
 		if !ok {
-			return nil, fmt.Errorf("failed to typecast mtstate to string of type[%T]", rawMtState)
+			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
+				fmt.Errorf("failed to typecast mtstate to string of type[%T]", rawMtState))
 		}
 		// Recovery is only needed when metadata is strictly AHEAD of state.
 		if mtState > lsnInState {
@@ -114,7 +117,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	// Get target LSN (current max LSN in DB)
 	targetLSN, err := m.currentMaxLSN(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get MSSQL max LSN: %s", err)
+		return nil, fmt.Errorf("failed to get MSSQL max LSN: %w", err)
 	}
 
 	// No changes yet
@@ -125,7 +128,7 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	// prepare capture instance
 	captureInstances, err := m.prepareCaptureInstances(ctx, stream)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare capture instance for stream %s.%s: %s", stream.Namespace(), stream.Name(), err)
+		return nil, fmt.Errorf("failed to prepare capture instance for stream %s.%s: %w", stream.Namespace(), stream.Name(), err)
 	}
 
 	// When multiple capture instances exist for the same table (due to schema
@@ -141,11 +144,11 @@ func (m *MSSQL) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	// in the LSN range between the DDL and when the new capture instance becomes active.
 	captureIdx, selectedCapture := newestValidInstance(captureInstances, lsnInState)
 	if selectedCapture == nil {
-		return nil, fmt.Errorf(
+		return nil, errs.Precondition(errs.CDCPositionLost, codeLSNBeforeCaptureStart, fmt.Errorf(
 			"LSN %s is earlier than the start LSN of available capture instances for stream %s. Please perform full-refresh",
 			lsnInState,
 			stream.ID(),
-		)
+		))
 	}
 	// If a newer capture instance exists, restrict the targetLSN to the newer instance's startLSN
 	nextCaptureIdx := captureIdx + 1
@@ -194,7 +197,7 @@ func (m *MSSQL) PostCDC(ctx context.Context, streamIndex int) error {
 func (m *MSSQL) prepareCaptureInstancesBulk(ctx context.Context, streamIDs []string) (map[string][]captureInstance, error) {
 	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLCDCDiscoverQuery(streamIDs))
 	if err != nil {
-		return nil, fmt.Errorf("failed to query MSSQL CDC tables: %s", err)
+		return nil, fmt.Errorf("failed to query MSSQL CDC tables: %w", err)
 	}
 	defer rows.Close()
 
@@ -206,7 +209,7 @@ func (m *MSSQL) prepareCaptureInstancesBulk(ctx context.Context, streamIDs []str
 		)
 
 		if err := rows.Scan(&capture.schema, &capture.table, &capture.instanceName, &startLSN); err != nil {
-			return nil, fmt.Errorf("failed to scan MSSQL CDC table: %s", err)
+			return nil, fmt.Errorf("failed to scan MSSQL CDC table: %w", err)
 		}
 		capture.startLSN = hex.EncodeToString(startLSN)
 		streamID := fmt.Sprintf("%s.%s", capture.schema, capture.table)
@@ -282,7 +285,8 @@ func (m *MSSQL) manageCaptureInstances(ctx context.Context, streamIDs []string, 
 		// Find the newest valid instance
 		activeIdx, selected := newestValidInstance(instances, currentCursorLSN)
 		if selected == nil {
-			return fmt.Errorf("LSN %s for stream %s is older than any available scan instances; please perform a full refresh", currentCursorLSN, streamID)
+			return errs.Precondition(errs.CDCPositionLost, codeLSNBeforeCaptureStart,
+				fmt.Errorf("LSN %s for stream %s is older than any available scan instances; please perform a full refresh", currentCursorLSN, streamID))
 		}
 
 		// Delete fully consumed older instances and track survivors
@@ -348,18 +352,18 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 	// SQL Server expects LSN parameters as binary; state stores them as hex strings.
 	fromLSNBytes, err := hex.DecodeString(effectiveFromLSN)
 	if err != nil {
-		return fmt.Errorf("failed to parse fromLSN: %s", err)
+		return fmt.Errorf("failed to parse fromLSN: %w", err)
 	}
 	toLSNBytes, err := hex.DecodeString(toLSN)
 	if err != nil {
-		return fmt.Errorf("failed to parse toLSN: %s", err)
+		return fmt.Errorf("failed to parse toLSN: %w", err)
 	}
 
 	// Query CDC rows for this capture instance between the two LSNs.
 	query := jdbc.MSSQLCDCGetChangesQuery(capture.instanceName)
 	rows, err := m.client.QueryContext(ctx, query, fromLSNBytes, toLSNBytes)
 	if err != nil {
-		return fmt.Errorf("failed to query MSSQL CDC changes: %s", err)
+		return fmt.Errorf("failed to query MSSQL CDC changes: %w", err)
 	}
 	defer rows.Close()
 
@@ -370,7 +374,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		record := make(map[string]interface{})
 		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mssqlCDCColumnSizer)
 		if err != nil {
-			return fmt.Errorf("failed to scan MSSQL CDC row: %s", err)
+			return fmt.Errorf("failed to scan MSSQL CDC row: %w", err)
 		}
 
 		// Determine operation type from SQL Server CDC operation codes.
@@ -395,7 +399,7 @@ func (m *MSSQL) fetchTableChangesInLSNRange(ctx context.Context, stream types.St
 		// Emit one normalized CDC change event.
 		if err := processFn(ctx, abstract.NewCDCChange(stream, time.Now().UTC(), operationType, record,
 			extraColumns, rowBytes)); err != nil {
-			return fmt.Errorf("failed to process MSSQL CDC change: %s", err)
+			return fmt.Errorf("failed to process MSSQL CDC change: %w", err)
 		}
 	}
 
@@ -412,7 +416,8 @@ func (m *MSSQL) currentMaxLSN(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if len(lsn) == 0 {
-		return "", fmt.Errorf("no LSN available (CDC may not be initialized or no transactions exist)")
+		return "", errs.Precondition(errs.CDCPreconditionFailed, codeLSNUnavailable,
+			fmt.Errorf("no LSN available (CDC may not be initialized or no transactions exist)"))
 	}
 	return hex.EncodeToString(lsn), nil
 }
@@ -422,13 +427,13 @@ func (m *MSSQL) advanceLSN(ctx context.Context, lsnHex string) (string, error) {
 	// Decode the hex string into raw bytes because SQL Server LSN functions use binary values.
 	lsnBytes, err := hex.DecodeString(lsnHex)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse LSN for advance: %s", err)
+		return "", fmt.Errorf("failed to parse LSN for advance: %w", err)
 	}
 
 	// Compute the next LSN.
 	var nextLSNBytes []byte
 	if err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCAdvanceLSNQuery(), lsnBytes).Scan(&nextLSNBytes); err != nil {
-		return "", fmt.Errorf("failed to advance LSN: %s", err)
+		return "", fmt.Errorf("failed to advance LSN: %w", err)
 	}
 
 	if len(nextLSNBytes) == 0 {
@@ -485,7 +490,7 @@ func (m *MSSQL) resolveInitialLSN(ctx context.Context) (string, error) {
 	var hasPermission bool
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLViewDatabaseStatePermissionQuery()).Scan(&hasPermission)
 	if err != nil {
-		return "", fmt.Errorf("failed to check VIEW DATABASE STATE permission: %s", err)
+		return "", fmt.Errorf("failed to check VIEW DATABASE STATE permission: %w", err)
 	}
 
 	if !hasPermission {
@@ -508,7 +513,7 @@ func (m *MSSQL) waitForCDCAgentCatchUp(ctx context.Context) (string, error) {
 	)
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLCDCCaptureJobConfigQuery()).Scan(&maxTrans, &pollingIntervalS)
 	if err != nil {
-		return "", fmt.Errorf("unable to query CDC capture job config: %s", err)
+		return "", fmt.Errorf("unable to query CDC capture job config: %w", err)
 	}
 
 	catchUpTimeout := max(defaultCDCAgentCatchUpTimeout, time.Duration(catchUpTimeoutPollMultiplier*pollingIntervalS)*time.Second)

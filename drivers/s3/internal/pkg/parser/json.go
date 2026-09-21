@@ -28,7 +28,9 @@ func NewJSONParser(config JSONConfig, stream *types.Stream) *JSONParser {
 
 // InferSchema reads the first few records of a JSON file to infer the schema
 // Supports JSONL (line-delimited), JSON Array, and single JSON object formats
-func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.Stream, error) {
+func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (_ *types.Stream, err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	logger.Debug("Inferring JSON schema from sample data")
 	//TODO : implement sampling of records from first and last files to get a more accurate schema
 	// Collect sample records using smart JSON format detection
@@ -41,7 +43,7 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 
 	data, err := io.ReadAll(limitedReader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read JSON file: %s", err)
+		return nil, fmt.Errorf("failed to read JSON file: %w", err)
 	}
 
 	trimmed := bytes.TrimSpace(data)
@@ -52,7 +54,7 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 	// Parse JSON based on detected format
 	sampleRecords, err := p.parseJSONContent(trimmed, maxSamples)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %s", err)
+		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 
 	if len(sampleRecords) == 0 {
@@ -62,7 +64,7 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 	// Resolve schema one record at a time similar to MongoDB driver
 	for i, record := range sampleRecords {
 		if err := typeutils.Resolve(p.stream, record); err != nil {
-			return nil, fmt.Errorf("failed to resolve schema for record %d: %s", i, err)
+			return nil, fmt.Errorf("failed to resolve schema for record %d: %w", i, err)
 		}
 	}
 
@@ -71,7 +73,9 @@ func (p *JSONParser) InferSchema(_ context.Context, reader io.Reader) (*types.St
 }
 
 // StreamRecords reads and streams JSON records with context support
-func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) error {
+func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callback RecordCallback) (err error) {
+	defer func() { err = DecodeFailure(err) }()
+
 	recordCount := 0
 
 	if p.config.LineDelimited {
@@ -95,7 +99,7 @@ func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callba
 			}
 
 			if err := callback(ctx, record); err != nil {
-				return fmt.Errorf("failed to process record: %s", err)
+				return fmt.Errorf("failed to process record: %w", err)
 			}
 			recordCount++
 		}
@@ -106,7 +110,7 @@ func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callba
 		// Read opening bracket
 		token, err := decoder.Token()
 		if err != nil {
-			return fmt.Errorf("failed to read JSON array start: %s", err)
+			return fmt.Errorf("failed to read JSON array start: %w", err)
 		}
 
 		// Verify it's an array
@@ -130,7 +134,7 @@ func (p *JSONParser) StreamRecords(ctx context.Context, reader io.Reader, callba
 			}
 
 			if err := callback(ctx, record); err != nil {
-				return fmt.Errorf("failed to process record: %s", err)
+				return fmt.Errorf("failed to process record: %w", err)
 			}
 			recordCount++
 		}
@@ -171,7 +175,7 @@ func (p *JSONParser) parseJSONArray(data []byte, maxSamples int) ([]map[string]i
 	// Read opening bracket
 	token, err := decoder.Token()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read JSON array start: %s", err)
+		return nil, fmt.Errorf("failed to read JSON array start: %w", err)
 	}
 
 	// Verify it's an array
@@ -189,7 +193,7 @@ func (p *JSONParser) parseJSONArray(data []byte, maxSamples int) ([]map[string]i
 				logger.Warnf("Stopped reading JSON array after %d records due to error: %v", len(records), err)
 				break
 			}
-			return nil, fmt.Errorf("failed to decode JSON array element: %s", err)
+			return nil, fmt.Errorf("failed to decode JSON array element: %w", err)
 		}
 		records = append(records, record)
 	}
@@ -215,9 +219,9 @@ func (p *JSONParser) parseJSONLOrObject(data []byte, maxSamples int) ([]map[stri
 	if err := json.Unmarshal(data, &singleRecord); err != nil {
 		// If both failed, return a more helpful error
 		if isJSONL {
-			return nil, fmt.Errorf("failed to parse as JSONL: %s", err)
+			return nil, fmt.Errorf("failed to parse as JSONL: %w", err)
 		}
-		return nil, fmt.Errorf("failed to parse as single JSON object or JSONL: %s", err)
+		return nil, fmt.Errorf("failed to parse as single JSON object or JSONL: %w", err)
 	}
 
 	logger.Debug("Parsed single JSON object")

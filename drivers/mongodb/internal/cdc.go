@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"go.mongodb.org/mongo-driver/bson"
@@ -71,7 +72,8 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 	mtState := metadataStates[stream.ID()]
 	prevResumeToken := m.state.GetCursor(stream.Self(), cdcCursorField)
 	if prevResumeToken == nil {
-		return nil, fmt.Errorf("resume token not found for stream: %s", stream.ID())
+		return nil, errs.Precondition(errs.StateInvalid, codeResumeTokenMissing,
+			fmt.Errorf("resume token not found for stream: %s", stream.ID()))
 	}
 	//   metadata > state  →  metadata is further ahead (crash-recovery path: metadata
 	//                         was committed to the destination but state write failed).
@@ -107,14 +109,14 @@ func (m *Mongo) StreamChanges(ctx context.Context, streamIndex int, metadataStat
 
 	cursor, err := collection.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open change stream: %s", err)
+		return nil, fmt.Errorf("failed to open change stream: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	for {
 		hasNext := cursor.TryNext(ctx)
 		if err := cursor.Err(); err != nil {
-			return nil, fmt.Errorf("change stream error: %s", err)
+			return nil, fmt.Errorf("change stream error: %w", err)
 		}
 
 		if hasNext {
@@ -152,7 +154,7 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 
 	streamOpTime, err := decodeResumeTokenOpTime(token)
 	if err != nil {
-		return token, fmt.Errorf("failed to decode resume token for stream %s: %s", stream.ID(), err)
+		return token, fmt.Errorf("failed to decode resume token for stream %s: %w", stream.ID(), err)
 	}
 
 	// If stream is caught up -> request graceful termination
@@ -166,7 +168,7 @@ func (m *Mongo) handleStreamCatchup(_ context.Context, cursor *mongo.ChangeStrea
 func (m *Mongo) handleChangeDoc(ctx context.Context, cursor *mongo.ChangeStream, stream types.StreamInterface, OnMessage abstract.CDCMsgFn) error {
 	var record CDCDocument
 	if err := cursor.Decode(&record); err != nil {
-		return fmt.Errorf("error while decoding: %s", err)
+		return fmt.Errorf("error while decoding: %w", err)
 	}
 
 	// Count the BSON bytes of the actual document payload, not the full
@@ -230,7 +232,7 @@ func (m *Mongo) PostCDC(ctx context.Context, streamIndex int) error {
 func (m *Mongo) getCurrentResumeToken(cdcCtx context.Context, collection *mongo.Collection, pipeline []bson.D) (*bson.Raw, error) {
 	cursor, err := collection.Watch(cdcCtx, pipeline, options.ChangeStream().SetMaxAwaitTime(maxAwait))
 	if err != nil {
-		return nil, fmt.Errorf("failed to open change stream: %s", err)
+		return nil, fmt.Errorf("failed to open change stream: %w", err)
 	}
 	defer cursor.Close(cdcCtx)
 
@@ -254,17 +256,17 @@ func (m *Mongo) getClusterOpTime(ctx context.Context, dbName string) (primitive.
 		logger.Debug("failed to run 'hello' command, falling back to 'isMaster' command")
 		raw, err = runCmd(bson.M{"isMaster": 1})
 		if err != nil {
-			return opTime, fmt.Errorf("failed to fetch 'operationTime' from 'isMaster' command: both 'hello' and 'isMaster' failed: %s", err)
+			return opTime, fmt.Errorf("failed to fetch 'operationTime' from 'isMaster' command: both 'hello' and 'isMaster' failed: %w", err)
 		}
 	}
 
 	// Extract 'operationTime' field
 	opRaw, err := raw.LookupErr("operationTime")
 	if err != nil {
-		return opTime, fmt.Errorf("operationTime field missing in server response: %s", err)
+		return opTime, fmt.Errorf("operationTime field missing in server response: %w", err)
 	}
 	if err := opRaw.Unmarshal(&opTime); err != nil {
-		return opTime, fmt.Errorf("failed to unmarshal operationTime: %s", err)
+		return opTime, fmt.Errorf("failed to unmarshal operationTime: %w", err)
 	}
 
 	// Sanity check: zero timestamp
@@ -279,7 +281,8 @@ func (m *Mongo) getClusterOpTime(ctx context.Context, dbName string) (primitive.
 func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 	dataBytes, err := hex.DecodeString(dataStr)
 	if err != nil || len(dataBytes) < 9 {
-		return primitive.Timestamp{}, fmt.Errorf("invalid resume token")
+		return primitive.Timestamp{}, errs.Precondition(errs.StateInvalid, codeResumeTokenInvalid,
+			fmt.Errorf("invalid resume token"))
 	}
 	return primitive.Timestamp{
 		T: binary.BigEndian.Uint32(dataBytes[1:5]),
@@ -291,18 +294,20 @@ func decodeResumeTokenOpTime(dataStr string) (primitive.Timestamp, error) {
 func GetResumeToken(cursor *mongo.ChangeStream, streamID string) (string, error) {
 	finalToken := cursor.ResumeToken()
 	if finalToken == nil {
-		return "", fmt.Errorf("no resume token available for stream %s", streamID)
+		return "", errs.Precondition(errs.StateInvalid, codeResumeTokenMissing,
+			fmt.Errorf("no resume token available for stream %s", streamID))
 	}
 
 	rawToken, err := finalToken.LookupErr(cdcCursorField)
 	if err != nil {
-		return "", fmt.Errorf("%s field not found in resume token for stream %s: %s",
+		return "", fmt.Errorf("%s field not found in resume token for stream %s: %w",
 			cdcCursorField, streamID, err)
 	}
 
 	token := rawToken.StringValue()
 	if token == "" {
-		return "", fmt.Errorf("empty resume token value for stream %s", streamID)
+		return "", errs.Precondition(errs.StateInvalid, codeResumeTokenInvalid,
+			fmt.Errorf("empty resume token value for stream %s", streamID))
 	}
 
 	return token, nil
