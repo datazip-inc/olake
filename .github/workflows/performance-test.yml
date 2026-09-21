@@ -3,32 +3,21 @@ name: Performance Tests
 on:
   push:
     branches:
-    - "staging"
-    paths:
+    - "master"
+    paths: &performance-paths
     - '**/*.go'
     - '**/*.java'
     - '**/go.mod'
     - '**/go.work'
     - '**/pom.xml'
     - 'Makefile'
-    - 'drivers/**'
-    - 'destination/iceberg/**'
+    - 'Dockerfile'
     - 'tests/**'
     - '.github/workflows/performance-test.yml'
   pull_request:
     branches:
-      - "master"
-    paths:
-      - '**/*.go'
-      - '**/*.java'
-      - '**/go.mod'
-      - '**/go.work'
-      - '**/pom.xml'
-      - 'Makefile'
-      - 'drivers/**'
-      - 'destination/iceberg/**'
-      - 'tests/**'
-      - '.github/workflows/performance-test.yml'
+    - "master"
+    paths: *performance-paths
   workflow_dispatch:
 
 permissions:
