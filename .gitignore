@@ -1,4 +1,7 @@
 olake
+# `olake` matches any depth (driver binaries); keep the Iceberg writer's io.olake Java packages.
+!destination/iceberg/olake-iceberg-java-writer/src/main/java/io/olake/
+!destination/iceberg/olake-iceberg-java-writer/src/test/java/io/olake/
 .vscode
 test
 # `test` matches any depth; keep the Iceberg writer's Maven test sources.
