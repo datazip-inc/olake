@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio
+    image: quay.io/minio/minio
     hostname: minio
     container_name: minio
     ports:
@@ -44,7 +44,7 @@ services:
     restart: unless-stopped
 
   mc:
-    image: minio/mc
+    image: quay.io/minio/mc
     container_name: mc
     environment:
       AWS_ACCESS_KEY_ID: minio

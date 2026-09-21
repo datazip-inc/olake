@@ -232,7 +232,7 @@ jobs:
   test-backward-compatibility:
     name: Backwards Compatibility with ${{ github.event.pull_request.base.ref }}
     needs: [approve, integration-tests, base-images]
-    if: ${{ !cancelled() && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.integration-tests.result == 'success' && (needs.base-images.result == 'success' || needs.base-images.result == 'skipped') }}
     permissions:
       contents: read
       packages: write
