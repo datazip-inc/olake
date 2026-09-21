@@ -93,18 +93,20 @@ var parameterisedTypes = map[string]consturctType{
 var columnTypeParamsPattern = regexp.MustCompile(`^\s*\w+\s*\(([^)]*)\)`)
 
 // resolveColumnType returns the type a column carries once the parameters in COLUMN_TYPE are known
-func resolveColumnType(dataType string, columnType string, mapped types.DataType) types.DataType {
-	typeConstructor, parameterised := parameterisedTypes[dataType]
-	if !parameterised {
+func resolveColumnType(dataType, columnType string, mapped types.DataType) types.DataType {
+	if dataType != "binary" {
 		return mapped
 	}
-	params := getColumnTypeParams(columnType)
-
-	parameterisedType, ok := typeConstructor(params)
+	_, rest, ok := strings.Cut(columnType, "(")
 	if !ok {
 		return mapped
 	}
-	return parameterisedType
+	nStr, _, _ := strings.Cut(rest, ")")
+	n, err := strconv.Atoi(strings.TrimSpace(nStr))
+	if err != nil || n <= 0 {
+		return mapped
+	}
+	return types.FixedBinaryOf(n)
 }
 
 // getColumnTypeParams returns the numbers COLUMN_TYPE carries in parentheses, so "binary(16)" yields
