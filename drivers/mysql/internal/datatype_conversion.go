@@ -1,7 +1,6 @@
 package driver
 
 import (
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -77,21 +76,6 @@ var mysqlTypeToDataTypes = map[string]types.DataType{
 	"geometrycollection": types.String,
 }
 
-type consturctType func(params []int) (types.DataType, bool)
-
-// parameterisedTypes lists the mysql types whose parameters olake models. DATA_TYPE names the type
-// without them, so discover resolves the mapped type against what COLUMN_TYPE carries.
-var parameterisedTypes = map[string]consturctType{
-	"binary": func(params []int) (types.DataType, bool) {
-		if len(params) != 1 || params[0] <= 0 {
-			return "", false
-		}
-		return types.FixedBinaryOf(params[0]), true
-	},
-}
-
-var columnTypeParamsPattern = regexp.MustCompile(`^\s*\w+\s*\(([^)]*)\)`)
-
 // resolveColumnType returns the type a column carries once the parameters in COLUMN_TYPE are known
 func resolveColumnType(dataType, columnType string, mapped types.DataType) types.DataType {
 	if dataType != "binary" {
@@ -107,24 +91,4 @@ func resolveColumnType(dataType, columnType string, mapped types.DataType) types
 		return mapped
 	}
 	return types.FixedBinaryOf(n)
-}
-
-// getColumnTypeParams returns the numbers COLUMN_TYPE carries in parentheses, so "binary(16)" yields
-// [16] and "decimal(9,2)" yields [9 2]. A column with no parentheses, or one whose parameters are
-// not all numbers, carries none.
-func getColumnTypeParams(columnType string) []int {
-	match := columnTypeParamsPattern.FindStringSubmatch(columnType)
-	if match == nil {
-		return nil
-	}
-	parts := strings.Split(match[1], ",")
-	params := make([]int, 0, len(parts))
-	for _, part := range parts {
-		number, err := strconv.Atoi(strings.TrimSpace(part))
-		if err != nil {
-			return nil
-		}
-		params = append(params, number)
-	}
-	return params
 }
