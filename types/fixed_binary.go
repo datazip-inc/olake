@@ -1,6 +1,11 @@
 package types
 
-import "github.com/parquet-go/parquet-go"
+import (
+	"strconv"
+	"strings"
+
+	"github.com/parquet-go/parquet-go"
+)
 
 // fixedBinaryFamily registers fixed_binary(%d): one width, and it must be positive. A fixed width
 // is a promise about every value, so two different widths cannot meet in a third; instances that
@@ -15,6 +20,20 @@ func fixedBinaryNode(params ...any) parquet.Node {
 // FixedBinaryOf returns the DataType of a binary column that always holds exactly length bytes.
 func FixedBinaryOf(length int) DataType {
 	return FixedBinary.Of(length)
+}
+
+// IcebergBytesWidth reports whether an iceberg type carries bytes, along with the width of a fixed one;
+func IcebergBytesWidth(icebergType string) (int, bool) {
+	digits, isFixed := strings.CutPrefix(icebergType, "fixed[")
+	if !isFixed {
+		return 0, icebergType == "binary"
+	}
+	digits, closed := strings.CutSuffix(digits, "]")
+	if !closed {
+		return 0, false
+	}
+	width, err := strconv.Atoi(digits)
+	return width, err == nil && width > 0
 }
 
 // FixedBinaryWidth returns the width of a fixed_binary column, or 0 if the type is not a fixed_binary instance.

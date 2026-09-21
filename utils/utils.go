@@ -266,7 +266,6 @@ func IsJSON(str string) bool {
 	return json.Unmarshal([]byte(str), &js) == nil
 }
 
-// GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
 // keyString renders one primary key value for the olake id. Byte values (binary keys) are hex encoded
 func keyString(v any) string {
 	switch {
@@ -280,6 +279,7 @@ func keyString(v any) string {
 	}
 }
 
+// GetKeysHash returns md5 hashsum of concatenated map values (sort keys before)
 func GetKeysHash(m map[string]interface{}, keys ...string) string {
 	// if single primary key is present use as it is
 	if len(keys) == 1 {

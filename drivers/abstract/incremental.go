@@ -2,6 +2,7 @@ package abstract
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -164,7 +165,32 @@ func ReformatCursorValue(cursorField string, cursorValue any, stream types.Strea
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cursor column type: %w", err)
 	}
+	cursorValue, err = DecodeCursorValue(cursorField, cursorValue, stream)
+	if err != nil {
+		return nil, err
+	}
 	return typeutils.ReformatValue(cursorColType, cursorValue)
+}
+
+// IsBinaryCursor reports whether cursorField is a column of bytes, which only exists from state version 8
+func IsBinaryCursor(cursorField string, stream types.StreamInterface) bool {
+	cursorColType, err := stream.Schema().GetType(cursorField)
+	return err == nil && (types.SameType(cursorColType, types.Binary) || types.SameType(cursorColType, types.FixedBinary))
+}
+
+// DecodeCursorValue returns the value a cursor's state entry stands for. JSON cannot carry bytes, so
+// FormatCursorValue keeps a binary cursor as hex and it decodes back to its bytes here; every other
+// cursor is kept in state as its value.
+func DecodeCursorValue(cursorField string, stateValue any, stream types.StreamInterface) (any, error) {
+	encoded, isString := stateValue.(string)
+	if !isString || !IsBinaryCursor(cursorField, stream) {
+		return stateValue, nil
+	}
+	decoded, err := hex.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode the state value of binary cursor[%s]: %w", cursorField, err)
+	}
+	return decoded, nil
 }
 
 // returns typecasted increment cursor
@@ -207,6 +233,13 @@ func (a *AbstractDriver) FormatCursorValue(cursorValue any) any {
 		return v.UTC().Format(constants.DefaultStateTimestampFormat)
 	case primitive.ObjectID:
 		return v.Hex()
+	case []byte:
+		switch {
+		case constants.LoadedStateVersion < 8:
+			return cursorValue
+		default:
+			return hex.EncodeToString(v)
+		}
 	default:
 		return cursorValue
 	}

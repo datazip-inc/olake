@@ -2,9 +2,11 @@ package binlog
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/stretchr/testify/assert"
@@ -355,6 +357,60 @@ func TestColumnMetaFromBinaryCollation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.sqlType+"/"+tt.collation, func(t *testing.T) {
 			assert.Equal(t, tt.want, columnMetaFrom("c", tt.sqlType, tt.collation).CollationID)
+		})
+	}
+}
+
+// TestConvertRowToMap pins both sides of the state version 8 gate for a
+// binary-collation column: older state decodes its bytes to a string and keeps the column's text
+// type, while newer state hands the raw bytes over under the column's binary type.
+func TestConvertRowToMap(t *testing.T) {
+	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
+
+	cols := []fixtureColumn{
+		{name: "c_blob", columnType: mysql.MYSQL_TYPE_BLOB, columnMeta: 2, sqlType: "blob",
+			collation: "binary", value: []byte{0x00, 0x01, 0xFF}},
+		{name: "c_varbinary", columnType: mysql.MYSQL_TYPE_VARCHAR, columnMeta: 64,
+			sqlType: "varbinary(64)", collation: "binary", value: string([]byte{0x10, 0x20})},
+	}
+
+	testCases := []struct {
+		stateVersion int
+		blob         interface{}
+		varbinary    interface{}
+		columnTypes  []string
+	}{
+		{
+			stateVersion: 7,
+			blob:         string([]byte{0x00, 0x01, 0xFF}),
+			varbinary:    string([]byte{0x10, 0x20}),
+			columnTypes:  []string{"BLOB", "VARCHAR"},
+		},
+		{
+			stateVersion: 8,
+			blob:         []byte{0x00, 0x01, 0xFF},
+			varbinary:    []byte{0x10, 0x20},
+			columnTypes:  []string{"BLOB", "VARBINARY"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(fmt.Sprintf("v%d", tc.stateVersion), func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
+			view, err := filterWithCache(nil).resolveColumns(context.Background(),
+				&replication.RowsEvent{Table: fullTableMapFrom(t, cols)})
+			require.NoError(t, err)
+
+			var columnTypes []string
+			record, err := convertRowToMap(rowFrom(cols), view, func(value interface{}, columnType string) (interface{}, error) {
+				columnTypes = append(columnTypes, columnType)
+				return value, nil
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.blob, record["c_blob"])
+			assert.Equal(t, tc.varbinary, record["c_varbinary"])
+			assert.Equal(t, tc.columnTypes, columnTypes)
 		})
 	}
 }

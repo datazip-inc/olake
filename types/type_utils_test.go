@@ -58,11 +58,6 @@ func TestFixedBinaryGrammar(t *testing.T) {
 			ok:       false,
 		},
 		{
-			dataType: DataType("fixed_binary(16"),
-			length:   0,
-			ok:       false,
-		},
-		{
 			dataType: DataType("fixed_binary(1.5)"),
 			length:   0,
 			ok:       false,

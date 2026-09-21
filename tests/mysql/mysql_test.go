@@ -55,9 +55,19 @@ func TestMySQLDiscover(t *testing.T) {
 func TestMySQLSync(t *testing.T) {
 	t.Parallel()
 	cfg := mysqlBaseConfig(t)
+	cfg.CursorField = "id_cursor_binary:id_smallint"
 	cfg.ExpectedUpdatedData = ExpectedUpdatedData
 	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
 	cfg.TestSync(t)
+}
+
+func TestMySQLPartitionSync(t *testing.T) {
+	t.Parallel()
+	cfg := mysqlBaseConfig(t)
+	cfg.PartitionRegex = "/{data_fixed_binary,identity}"
+	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
+	cfg.TestCommonSync(t)
 }
 
 func TestMySQL2PC(t *testing.T) {

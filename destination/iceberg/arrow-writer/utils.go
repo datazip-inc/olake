@@ -343,14 +343,14 @@ func appendValueToBuilder(builder array.Builder, val interface{}) error {
 			return err
 		}
 	case *array.BinaryBuilder:
-		b, err := typeutils.ReformatBytes(types.Binary, val)
+		b, err := typeutils.ReformatBytes(val, 0)
 		if err != nil {
 			return err
 		}
 		builder.Append(b)
 	case *array.FixedSizeBinaryBuilder:
 		width := builder.Type().(*arrow.FixedSizeBinaryType).ByteWidth
-		b, err := typeutils.ReformatBytes(types.FixedBinaryOf(width), val)
+		b, err := typeutils.ReformatBytes(val, width)
 		if err != nil {
 			return err
 		}

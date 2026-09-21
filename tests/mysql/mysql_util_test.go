@@ -36,6 +36,7 @@ var seedColumns = []seedColumn{
 	{name: "id_bigint", datatype: "BIGINT", value: "123456789012345", filtered: "111111111111111", updated: "987654321098765"},
 	{name: "id_int", datatype: "INT", value: "100", filtered: "0", updated: "200"},
 	{name: "id_cursor", datatype: "INT", value: "", filtered: "-1", updated: "NULL"},
+	{name: "id_cursor_binary", datatype: "BINARY(16)", value: "", filtered: "X'00'", updated: "NULL"},
 	{name: "id_int_unsigned", datatype: "INT UNSIGNED", value: "4294967295", filtered: "0", updated: "4294967293"},
 	{name: "id_integer", datatype: "INT", value: "102", filtered: "0", updated: "202"},
 	{name: "id_integer_unsigned", datatype: "INT UNSIGNED", value: "4294967294", filtered: "0", updated: "4294967292"},
@@ -115,6 +116,11 @@ func filterSeedColumns(t *testing.T, excluded []string) []seedColumn {
 		}
 	}
 	return kept
+}
+
+// binaryCursor is the id_cursor_binary value of row n
+func binaryCursor(n int) string {
+	return fmt.Sprintf("X'FF%02X'", n+4)
 }
 
 func createTableQuery(table string, cols []seedColumn) string {
@@ -207,7 +213,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	case "insert":
 		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, false,
-			map[string]string{"id": "6", "id_cursor": "6", "excludedColumn": "101"}))
+			map[string]string{"id": "6", "id_cursor": "6", "id_cursor_binary": binaryCursor(6), "excludedColumn": "101"}))
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, true,
@@ -277,7 +283,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 	seedCols := filterSeedColumns(t, excludedColumns)
 	for i := 1; i <= 5; i++ {
 		_, err := db.ExecContext(ctx, insertRowQuery(tableName, seedCols, false,
-			map[string]string{"id": strconv.Itoa(i), "id_cursor": strconv.Itoa(i), "excludedColumn": "100"}))
+			map[string]string{"id": strconv.Itoa(i), "id_cursor": strconv.Itoa(i), "id_cursor_binary": binaryCursor(i), "excludedColumn": "100"}))
 		require.NoError(t, err, "Failed to insert test data row %d", i)
 	}
 	// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination

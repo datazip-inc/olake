@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -119,8 +120,14 @@ func TestTypeFromValue(t *testing.T) {
 }
 
 func TestTypeFromValueBytes(t *testing.T) {
+	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
+
 	assert.Equal(t, types.Binary, TypeFromValue([]byte{0xff, 0x00}))
 	assert.Equal(t, types.Binary, TypeFromValue([]byte{}))
+
+	constants.LoadedStateVersion = 7
+	assert.Equal(t, types.String, TypeFromValue([]byte{0xff, 0x00}), "older state detects bytes as text")
+	assert.Equal(t, types.String, TypeFromValue([]byte{}), "older state detects bytes as text")
 }
 
 func TestMaximumOnDataTypeTimestamp(t *testing.T) {

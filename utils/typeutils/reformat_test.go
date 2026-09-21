@@ -202,7 +202,7 @@ func TestValueFitsColumn(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.fits, valueFitsColumn(tc.value, tc.column))
+			assert.Equal(t, tc.fits, ValueFitsColumn(tc.value, TypeFromValue(tc.value), tc.column))
 		})
 	}
 }
@@ -699,82 +699,75 @@ func TestReformatBytes(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		dataType types.DataType
+		width    int
 		input    any
 		expected []byte
 		wantErr  error
 	}{
 		{
 			name:     "byte slice passes through",
-			dataType: types.Binary,
 			input:    raw,
 			expected: raw,
 		},
 		{
 			name:     "pointer to byte slice",
-			dataType: types.Binary,
 			input:    ptr,
 			expected: raw,
 		},
 		{
-			name:     "nil pointer is a null value",
-			dataType: types.Binary,
-			input:    nilPtr,
-			wantErr:  ErrNullValue,
+			name:    "nil pointer is a null value",
+			input:   nilPtr,
+			wantErr: ErrNullValue,
 		},
 		{
 			name:     "string contributes its utf8 bytes",
-			dataType: types.Binary,
 			input:    "héllo",
 			expected: []byte("héllo"),
 		},
 		{
 			name:     "empty slice stays empty",
-			dataType: types.Binary,
 			input:    []byte{},
 			expected: []byte{},
 		},
 		{
 			name:     "fixed length matches",
-			dataType: types.FixedBinaryOf(4),
+			width:    4,
 			input:    raw,
 			expected: raw,
 		},
 		{
 			name:     "short fixed value is zero padded",
-			dataType: types.FixedBinaryOf(6),
+			width:    6,
 			input:    raw,
 			expected: []byte{0xff, 0x00, 0x80, 0x41, 0x00, 0x00},
 		},
 		{
 			name:     "empty fixed value is all zero",
-			dataType: types.FixedBinaryOf(2),
+			width:    2,
 			input:    []byte{},
 			expected: []byte{0x00, 0x00},
 		},
 		{
-			name:     "fixed length too long",
-			dataType: types.FixedBinaryOf(2),
-			input:    raw,
-			wantErr:  fmt.Errorf("fixed_binary(2) holds at most 2 bytes, got 4"),
+			name:    "fixed length too long",
+			width:   2,
+			input:   raw,
+			wantErr: fmt.Errorf("fixed_binary(2) holds at most 2 bytes, got 4"),
 		},
 		{
-			name:     "numbers are not bytes",
-			dataType: types.Binary,
-			input:    int64(42),
-			wantErr:  fmt.Errorf("failed to change int64 to bytes: unsupported type"),
+			name:    "numbers are not bytes",
+			input:   int64(42),
+			wantErr: fmt.Errorf("failed to change int64 to bytes: unsupported type"),
 		},
 		{
-			name:     "maps are not bytes",
-			dataType: types.Binary,
-			input:    map[string]any{"a": 1},
-			wantErr:  fmt.Errorf("failed to change map[string]interface {} to bytes: unsupported type"),
+			name:    "maps are not bytes",
+			input:   map[string]any{"a": 1},
+			wantErr: fmt.Errorf("failed to change map[string]interface {} to bytes: unsupported type"),
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := ReformatBytes(tc.dataType, tc.input)
+			got, err := ReformatBytes(tc.input, tc.width)
 			if tc.wantErr != nil {
 				assert.Equal(t, tc.wantErr, err)
 				return

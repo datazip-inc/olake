@@ -17,6 +17,53 @@ func (th *TestHandler) TestSync(t *testing.T) {
 	ctx := t.Context()
 	testTable := th.GetTableName()
 
+	th.TestCommonSync(t)
+
+	// Iceberg row-index / delete-mode tests run on the base (legacy) writer config, the one
+	// the java writer's table indexer serves; IcebergWriter pins it back after the arrow runs.
+	if !slices.Contains(constants.SkipCDCDrivers, constants.DriverType(th.Driver)) && hasIcebergTableIndexTest(th.Driver) {
+		t.Run("Iceberg Table Index Eq to Pos Conversion", func(t *testing.T) {
+			if err := th.IcebergWriter(ctx, t, testTable, false, th.testIcebergEqToPosConversion); err != nil {
+				t.Fatalf("Iceberg Table Index Eq to Pos Conversion test failed: %v", err)
+			}
+		})
+		t.Run("Iceberg Table Index Clean Table Positional", func(t *testing.T) {
+			if err := th.IcebergWriter(ctx, t, testTable, false, th.testIcebergCleanTablePositionalWithPebbleIndex); err != nil {
+				t.Fatalf("Iceberg Table Index Clean Table Positional test failed: %v", err)
+			}
+		})
+		t.Run("Iceberg Table Index Rebuild Index From Scratch", func(t *testing.T) {
+			if err := th.IcebergWriter(ctx, t, testTable, false, th.testIcebergRebuildIndexFromScratch); err != nil {
+				t.Fatalf("Iceberg Table Index Rebuild Index From Scratch test failed: %v", err)
+			}
+		})
+	}
+
+	// Asserts the writer splits bulk output into size-bounded files without losing rows. Runs
+	// last: it replaces the table contents and clears streams.json's regex/filter config.
+	if hasParquetRollingTest(th.Driver) {
+		t.Run("Parquet Rolling", func(t *testing.T) {
+			if err := th.testParquetRolling(ctx, t, testTable); err != nil {
+				t.Fatalf("Parquet Rolling test failed: %v", err)
+			}
+		})
+	}
+
+	// 3. Clean up
+	if testutils.KeepTestData() {
+		t.Logf("keeping %s source data for Sync as (%s) is set", th.Driver, testutils.KeepTestDataEnvVar)
+		return
+	}
+	th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
+	t.Logf("%s sync test cleanup", th.Driver)
+}
+
+// TestCommonSync is the boilerplate every sync suite runs: seed the source, point streams.json at
+// the handler's settings, then full load, CDC and incremental over both Iceberg writers and Parquet
+func (th *TestHandler) TestCommonSync(t *testing.T) {
+	ctx := t.Context()
+	testTable := th.GetTableName()
+
 	// 1. Query on test table; drop first so an aborted run's leftovers cannot survive
 	// the CREATE IF NOT EXISTS
 	th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
@@ -57,26 +104,6 @@ func (th *TestHandler) TestSync(t *testing.T) {
 				t.Fatalf("Parquet Full load + CDC tests failed: %v", err)
 			}
 		})
-
-		// Iceberg row-index / delete-mode tests run on the base (legacy) writer config, the one
-		// the java writer's table indexer serves; IcebergWriter pins it back after the arrow runs.
-		if hasIcebergTableIndexTest(th.Driver) {
-			t.Run("Iceberg Table Index Eq to Pos Conversion", func(t *testing.T) {
-				if err := th.IcebergWriter(ctx, t, testTable, false, th.testIcebergEqToPosConversion); err != nil {
-					t.Fatalf("Iceberg Table Index Eq to Pos Conversion test failed: %v", err)
-				}
-			})
-			t.Run("Iceberg Table Index Clean Table Positional", func(t *testing.T) {
-				if err := th.IcebergWriter(ctx, t, testTable, false, th.testIcebergCleanTablePositionalWithPebbleIndex); err != nil {
-					t.Fatalf("Iceberg Table Index Clean Table Positional test failed: %v", err)
-				}
-			})
-			t.Run("Iceberg Table Index Rebuild Index From Scratch", func(t *testing.T) {
-				if err := th.IcebergWriter(ctx, t, testTable, false, th.testIcebergRebuildIndexFromScratch); err != nil {
-					t.Fatalf("Iceberg Table Index Rebuild Index From Scratch test failed: %v", err)
-				}
-			})
-		}
 	}
 
 	// Skip incremental tests for drivers not supporting incremental mode
@@ -95,24 +122,6 @@ func (th *TestHandler) TestSync(t *testing.T) {
 			}
 		})
 	}
-
-	// Asserts the writer splits bulk output into size-bounded files without losing rows. Runs
-	// last: it replaces the table contents and clears streams.json's regex/filter config.
-	if hasParquetRollingTest(th.Driver) {
-		t.Run("Parquet Rolling", func(t *testing.T) {
-			if err := th.testParquetRolling(ctx, t, testTable); err != nil {
-				t.Fatalf("Parquet Rolling test failed: %v", err)
-			}
-		})
-	}
-
-	// 3. Clean up
-	if testutils.KeepTestData() {
-		t.Logf("keeping %s source data for Sync as (%s) is set", th.Driver, testutils.KeepTestDataEnvVar)
-		return
-	}
-	th.ExecuteQuery(ctx, t, th.TestConfig, "drop")
-	t.Logf("%s sync test cleanup", th.Driver)
 }
 
 // IcebergFullLoadAndCDC tests Full load and CDC operations

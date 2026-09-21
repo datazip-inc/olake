@@ -272,7 +272,6 @@ type typeNode struct {
 //	    ├── Array
 //	    ├── (Null)     - via typeParent only
 //	    └── (Unknown)  - via typeParent only
-//
 
 // Tree Representation
 //
@@ -287,7 +286,7 @@ type typeNode struct {
 //	            (Float64)             (TimestampNano)
 //		        /	    \            		/
 //			   / 	     \				   /
-//	    (Int64)       (Float32)       (TimestampMicro)
+//	    (Float32)       (Int64)       (TimestampMicro)
 //			             /                  /
 //			            /                  /
 //			         (Int32)         (TimestampMilli)

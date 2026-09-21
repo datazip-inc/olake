@@ -1,7 +1,6 @@
 package types
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -123,14 +122,6 @@ func TestDeclaredTypesHaveExplicitParquetMapping(t *testing.T) {
 
 func TestDeclaredIcebergTypesHaveExplicitOlakeMapping(t *testing.T) {
 	for _, iceType := range declaredIcebergDataTypes(t) {
-		if strings.Contains(iceType, "%d") {
-			// a family's pattern maps back through its parameters, not through the table
-			family := familyProducing(t, iceType)
-			params := sampleParams(family)
-			rendered := fmt.Sprintf(iceType, params...)
-			require.Equal(t, family.Of(params...), IcebergTypeToDatatype(rendered), "iceberg %s must parse back into its family", rendered)
-			continue
-		}
 		if _, ok := icebergToDataType[iceType]; !ok {
 			t.Errorf("iceberg type %s has no explicit olake mapping; add it to icebergToDataType", iceType)
 		}
@@ -255,16 +246,4 @@ func sampleParams(dataType DataType) []any {
 		params[i] = 1
 	}
 	return params
-}
-
-// familyProducing returns the family whose destination mapping is the given iceberg pattern.
-func familyProducing(t *testing.T, icebergPattern string) DataType {
-	t.Helper()
-	for dataType, mapping := range destinationTypes {
-		if mapping.icebergType == icebergPattern {
-			return dataType
-		}
-	}
-	t.Fatalf("no DataType maps to iceberg %s", icebergPattern)
-	return ""
 }

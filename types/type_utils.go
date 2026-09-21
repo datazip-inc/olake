@@ -2,7 +2,6 @@ package types
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -34,7 +33,6 @@ func timestampNode(...any) parquet.Node { return parquet.Timestamp(parquet.Micro
 // typeFamily is used for parameterised DataType
 type typeFamily struct {
 	pattern DataType
-	matcher *regexp.Regexp
 	parity  int
 	valid   func(params []int) bool
 }
@@ -47,39 +45,45 @@ var families = []*typeFamily{
 func newTypeFamily(pattern DataType, valid func([]int) bool) *typeFamily {
 	return &typeFamily{
 		pattern: pattern,
-		matcher: patternMatcher(string(pattern)),
 		parity:  strings.Count(string(pattern), "%d"),
 		valid:   valid,
 	}
 }
 
-// patternMatcher turns a pattern with %d verbs into a regexp capturing each parameter. A comma
-// may be followed by whitespace, which is how Iceberg prints a multi-parameter type.
-func patternMatcher(pattern string) *regexp.Regexp {
-	quoted := regexp.QuoteMeta(pattern)
-	quoted = strings.ReplaceAll(quoted, "%d", `(\d+)`)
-	quoted = strings.ReplaceAll(quoted, ",", `,\s*`)
-	return regexp.MustCompile("^" + quoted + "$")
-}
-
 // parse returns the parameters s carries if it is an instance of the family: every parameter
 // present, numeric and legal for the family.
 func (f *typeFamily) parse(s string) ([]int, bool) {
-	return f.capture(f.matcher.FindStringSubmatch(s))
+	return f.scan(string(f.pattern), s)
 }
 
-func (f *typeFamily) capture(match []string) ([]int, bool) {
-	if match == nil {
+// scan reads the family's parameters out of s against pattern
+func (f *typeFamily) scan(pattern, s string) ([]int, bool) {
+	prefix, _, parameterised := strings.Cut(pattern, "%d")
+	if !parameterised {
 		return nil, false
 	}
-	params := make([]int, 0, f.parity)
-	for _, group := range match[1:] {
-		n, err := strconv.Atoi(group)
+
+	// remove suffix and spaces
+	s = strings.ReplaceAll(s[:len(s)-1], " ", "")
+
+	commaSeperatedParams, found := strings.CutPrefix(s, prefix)
+	if !found {
+		return nil, false
+	}
+
+	paramsStrs := strings.Split(commaSeperatedParams, ",")
+	if len(paramsStrs) != f.parity {
+		return nil, false
+	}
+	params := make([]int, f.parity)
+	for i, field := range paramsStrs {
+		value, err := strconv.Atoi(field)
 		if err != nil {
 			return nil, false
 		}
-		params = append(params, n)
+		params[i] = value
 	}
+
 	if f.valid != nil && !f.valid(params) {
 		return nil, false
 	}
@@ -102,16 +106,20 @@ func asAny(params []int) []any {
 // instanceOf resolves d to its family and parameters: an instance yields both, a family's bare
 // pattern yields the family and no parameters, and a plain type yields neither.
 func instanceOf(d DataType) (*typeFamily, []int) {
-	if !strings.ContainsRune(string(d), '(') {
-		return nil, nil
-	}
+	base := BaseOf(d)
 	for _, f := range families {
-		if d == f.pattern {
+		if f.pattern != base {
+			continue
+		}
+		if d == base {
 			return f, nil
 		}
-		if params, ok := f.parse(string(d)); ok {
-			return f, params
+
+		params, ok := f.parse(string(d))
+		if !ok {
+			return nil, nil
 		}
+		return f, params
 	}
 	return nil, nil
 }
@@ -125,10 +133,16 @@ func (d DataType) Of(params ...any) DataType {
 // BaseOf returns the family pattern a parameterised instance belongs to, and every other DataType
 // unchanged. The typecast tree and the destination mappings are keyed by the base.
 func BaseOf(d DataType) DataType {
-	if f, params := instanceOf(d); f != nil && params != nil {
-		return f.pattern
+	open := strings.IndexByte(string(d), '(')
+	if open < 0 {
+		return d
 	}
-	return d
+	switch d[:open] {
+	case "fixed_binary":
+		return FixedBinary
+	default:
+		return d
+	}
 }
 
 // Params returns the parameters a parameterised instance carries; ok is false for every other
@@ -166,39 +180,20 @@ func (d DataType) Accepts(detected DataType) bool {
 	return GetCommonAncestorType(d, detected) == d
 }
 
-// resolve returns the DataType whose destination mappings apply to d and the parameters to
-// render them with: an instance resolves to its family pattern, every other type is itself. A
-// family's bare pattern is a placeholder rather than a type, so no column ever carries one.
-func (d DataType) resolve() (DataType, []any) {
-	if f, params := instanceOf(d); f != nil && params != nil {
-		return f.pattern, asAny(params)
-	}
-	return d, nil
+// icebergPattern returns the iceberg type a family's destination mapping renders its instances
+// into, which is the key its reverse mapping is registered under.
+func (f *typeFamily) icebergPattern() string {
+	return destinationTypes[f.pattern].icebergType
 }
 
-// icebergFamilyMatcher pairs a family with the matcher built from its iceberg pattern, so an
-// iceberg type parses back into an instance carrying its parameters.
-type icebergFamilyMatcher struct {
-	family  *typeFamily
-	matcher *regexp.Regexp
-}
-
-var icebergFamilyMatchers = func() []icebergFamilyMatcher {
-	matchers := make([]icebergFamilyMatcher, 0, len(families))
+// icebergInstanceOf resolves an iceberg type to the family it instantiates and its parameters,
+// the mirror of instanceOf on the DataType side. A family with no mapping scans against an empty
+// pattern, which reads no parameters and so matches nothing.
+func icebergInstanceOf(icebergType string) (*typeFamily, []int) {
 	for _, f := range families {
-		if mapping, ok := destinationTypes[f.pattern]; ok && strings.Contains(mapping.icebergType, "%d") {
-			matchers = append(matchers, icebergFamilyMatcher{f, patternMatcher(mapping.icebergType)})
+		if params, ok := f.scan(f.icebergPattern(), icebergType); ok {
+			return f, params
 		}
 	}
-	return matchers
-}()
-
-// icebergInstance parses an iceberg type of a parameterised family into the instance it denotes.
-func icebergInstance(icebergType string) (DataType, bool) {
-	for _, m := range icebergFamilyMatchers {
-		if params, ok := m.family.capture(m.matcher.FindStringSubmatch(icebergType)); ok {
-			return m.family.instance(params), true
-		}
-	}
-	return "", false
+	return nil, nil
 }

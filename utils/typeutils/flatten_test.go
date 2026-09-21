@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/stretchr/testify/assert"
@@ -23,10 +24,11 @@ var testTimestamp = time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC)
 // TestFlatten tests the public Flatten method of FlattenerImpl
 func TestFlatten(t *testing.T) {
 	tests := []struct {
-		name        string
-		input       types.Record
-		expected    types.Record
-		expectError bool
+		name         string
+		input        types.Record
+		stateVersion *int
+		expected     types.Record
+		expectError  bool
 	}{
 		// empty record, nothing to flatten
 		{
@@ -42,6 +44,13 @@ func TestFlatten(t *testing.T) {
 			input:       types.Record{"payload": []byte{0xff, 0x00}},
 			expected:    types.Record{"payload": []byte{0xff, 0x00}},
 			expectError: false,
+		},
+		{
+			name:         "byte values before state version 8",
+			input:        types.Record{"payload": []byte{0xff, 0x00}},
+			stateVersion: new(7),
+			expected:     types.Record{"payload": string([]byte{0xff, 0x00})},
+			expectError:  false,
 		},
 		// basic values like string, int, bool, float, time, etc.
 		{
@@ -237,8 +246,15 @@ func TestFlatten(t *testing.T) {
 		},
 	}
 
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = constants.LatestStateVersion
+			if tc.stateVersion != nil {
+				constants.LoadedStateVersion = *tc.stateVersion
+			}
 			flattener := NewFlattener(utils.Reformat)
 
 			result, err := flattener.Flatten(tc.input)

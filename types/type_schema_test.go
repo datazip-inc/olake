@@ -247,9 +247,10 @@ func TestTypecastTreeHasAllDeclaredTypes(t *testing.T) {
 
 func TestPropertyDataType(t *testing.T) {
 	testCases := []struct {
-		name     string
-		types    []DataType
-		expected DataType
+		name         string
+		stateVersion *int
+		types        []DataType
+		expected     DataType
 	}{
 		{
 			name:     "single type resolves to itself",
@@ -301,10 +302,36 @@ func TestPropertyDataType(t *testing.T) {
 			types:    []DataType{Null, Int64, Timestamp},
 			expected: String,
 		},
+		{
+			name:         "binary resolves to string before state version 8",
+			stateVersion: new(7),
+			types:        []DataType{Binary},
+			expected:     String,
+		},
+		{
+			name:         "fixed binary resolves to string before state version 8",
+			stateVersion: new(7),
+			types:        []DataType{Null, FixedBinaryOf(16)},
+			expected:     String,
+		},
+		{
+			name:         "mixed fixed binary lengths resolve to string before state version 8",
+			stateVersion: new(7),
+			types:        []DataType{FixedBinaryOf(16), FixedBinaryOf(32)},
+			expected:     String,
+		},
 	}
+
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = constants.LatestStateVersion
+			if tc.stateVersion != nil {
+				constants.LoadedStateVersion = *tc.stateVersion
+			}
+
 			property := &Property{Type: NewSet(tc.types...)}
 			require.Equal(t, tc.expected, property.DataType())
 		})

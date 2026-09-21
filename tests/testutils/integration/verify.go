@@ -16,10 +16,23 @@ import (
 	"github.com/datazip-inc/olake/tests/testutils/require"
 )
 
+// requireExpectations fails a verification that has nothing to assert.
+func requireExpectations(t *testing.T, datatypeSchema, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool) {
+	t.Helper()
+	require.NotEmpty(t, datatypeSchema, "the %s suite passed no destination datatype schema; set DestinationDataTypeSchema, or UpdatedDestinationDataTypeSchema for a sync whose schema evolved", driver)
+	if opSymbol != "d" {
+		require.NotEmpty(t, schema, "the %s suite passed no expected row data for op %q; set ExpectedData, or ExpectedUpdatedData for a sync whose schema evolved", driver, opSymbol)
+	}
+	if isCDC {
+		require.NotEmpty(t, defaultCDCColumnsSchema, "the %s suite passed no CDC columns schema; set DefaultCDCColumnsSchema", driver)
+	}
+}
+
 // TODO: Refactor parsing logic into a reusable utility functions
 // verifyIcebergSync verifies that data was correctly synchronized to Iceberg
 func VerifyIcebergSync(t *testing.T, tableName, icebergDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, partitionRegex, driver string, isCDC bool, excludedColumn string) {
 	t.Helper()
+	requireExpectations(t, datatypeSchema, defaultCDCColumnsSchema, schema, opSymbol, driver, isCDC)
 	ctx := t.Context()
 	spark, err := testutils.SparkSession(ctx, t)
 	require.NoError(t, err, "Failed to connect to Spark Connect server")
@@ -259,6 +272,7 @@ func VerifyIcebergNoDuplicates(ctx context.Context, t *testing.T, tableName, ice
 // VerifyParquetSync verifies that data was correctly synchronized to Parquet files in MinIO
 func VerifyParquetSync(t *testing.T, tableName, parquetDB string, datatypeSchema, typeMapping map[string]string, defaultCDCColumnsSchema map[string]string, schema map[string]interface{}, opSymbol, driver string, isCDC bool, excludedColumn string) {
 	t.Helper()
+	requireExpectations(t, datatypeSchema, defaultCDCColumnsSchema, schema, opSymbol, driver, isCDC)
 	ctx := t.Context()
 
 	spark, err := testutils.SparkSession(ctx, t)

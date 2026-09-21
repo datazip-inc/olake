@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -1438,8 +1439,12 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
+		cursorValue, err := abstract.DecodeCursorValue(cursorField, lastCursorValue, opts.Stream)
+		if err != nil {
+			return "", nil, err
+		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
-		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
+		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), cursorValue, nil
 	}
 
 	// Build primary cursor condition
@@ -1479,9 +1484,12 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 
 	var maxPrimaryCursorValue, maxSecondaryCursorValue any
 
-	bytesConverter := func(value any) any {
+	bytesConverter := func(cursorField string, value any) any {
 		switch v := value.(type) {
 		case []byte:
+			if abstract.IsBinaryCursor(cursorField, stream) {
+				return v
+			}
 			return string(v)
 		default:
 			return v
@@ -1497,14 +1505,14 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %w", err)
 		}
-		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
+		maxSecondaryCursorValue = bytesConverter(secondaryCursor, maxSecondaryCursorValue)
 	} else {
 		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %w", err)
 		}
 	}
-	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
+	return bytesConverter(primaryCursor, maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }
 
 // ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.
@@ -1520,6 +1528,10 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+		}
+		cursorValue, err := abstract.DecodeCursorValue(cursorField, cursorValue, opts.Stream)
+		if err != nil {
+			return "", nil, err
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil
