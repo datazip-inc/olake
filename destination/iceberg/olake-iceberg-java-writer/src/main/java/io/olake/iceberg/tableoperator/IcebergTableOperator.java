@@ -248,6 +248,7 @@ public class IcebergTableOperator {
             ArrayList<DeleteFile> deleteFiles = unit.first();
             if (deleteFiles != null) {
               for (DeleteFile deleteFile : deleteFiles) {
+                // POSITION_DELETES covers deletion vectors too
                 if (deleteFile.content() != FileContent.POSITION_DELETES) {
                   continue;
                 }

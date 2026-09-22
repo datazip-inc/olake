@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentMap;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.slf4j.Logger;
@@ -277,17 +278,19 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
      * time after a whole sync's worth of work.
      */
     private void validateOrUpgradeFormatVersion(Table table, DeleteMode deleteMode) {
-        int current = ((org.apache.iceberg.HasTableOperations) table).operations().current().formatVersion();
-        int required = deleteMode.minimumFormatVersion();
+        int currSpecVersion = ((org.apache.iceberg.HasTableOperations) table).operations().current().formatVersion();
+        int reqSpecVersion = deleteMode.minimumFormatVersion();
 
-        if (current < required) {
+        if (currSpecVersion < reqSpecVersion) {
             // e.g. a stream reconfigured from eq/pos to dv against a table that
-            // already exists at v2. One-way; see IcebergUtil.ensureFormatVersion.
-            IcebergUtil.ensureFormatVersion(table, required);
+            // already exists at v2. One-way: Iceberg never lowers a format version.
+            LOGGER.warn("Upgrading {} from format version {} to {}; this cannot be undone",
+                table.name(), currSpecVersion, reqSpecVersion);
+            table.updateProperties().set(TableProperties.FORMAT_VERSION, String.valueOf(reqSpecVersion)).commit();
             return;
         }
 
-        if (deleteMode != DeleteMode.DELETION_VECTOR && current >= 3) {
+        if (deleteMode != DeleteMode.DELETION_VECTOR && currSpecVersion >= 3) {
             // v3 forbids Parquet positional delete files, and both remaining modes can
             // produce one: pos writes them directly, and eq's in-session dedup for a key
             // repeated within a batch (Iceberg's own BaseEqualityDeltaWriter.insertedRowMap)
@@ -306,7 +309,7 @@ public class OlakeRowsIngester extends RecordIngestServiceGrpc.RecordIngestServi
             throw new IllegalStateException(String.format(
                 "%s is format-version %d, which forbids positional delete files. "
                     + "update_type=%s is not supported on this table; use update_type=dv.",
-                table.name(), current, deleteMode.wireName()));
+                table.name(), currSpecVersion, deleteMode.wireName()));
         }
     }
 

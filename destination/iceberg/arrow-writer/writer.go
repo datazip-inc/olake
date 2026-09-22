@@ -154,7 +154,8 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 		}
 	}
 
-	if w.upsertMode {
+	// Deletion vectors are encoded server-side from streamed positions, so dv mode writes no delete file of its own - see sendPendingVectors.
+	if w.upsertMode && w.deleteMode != types.UpdateTypeDeletionVector {
 		// In positional delete mode the index resolves every row to a location, so
 		// no equality deletes are produced at all.
 		if writer.equalityDeleteWriter == nil && w.indexThread == nil {
@@ -162,9 +163,7 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 				return nil, err
 			}
 		}
-		// Deletion vectors are encoded server-side from streamed positions, so this
-		// mode writes no delete file of its own - see sendPendingVectors.
-		if writer.positionalDeleteWriter == nil && w.deleteMode != types.UpdateTypeDeletionVector {
+		if writer.positionalDeleteWriter == nil {
 			if writer.positionalDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypePositionalDelete], fileTypePositionalDelete); err != nil {
 				return nil, err
 			}

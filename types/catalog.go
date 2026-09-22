@@ -257,7 +257,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 
 // GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 // Only selected streams are compared.
-// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, use_source_column_names
+// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, use_source_column_names, update_type (only dv -> other)
 // 2. Compares properties from streams: destination_database, destination_table, cursor_field, sync_mode
 // 3. For now, any new stream present in new catalog is added to the difference. Later collision detection will happen.
 //
@@ -325,11 +325,13 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// sync mode change
 			// destination table change
 
-			// NOTE: we are not droping table if there is delete mode change
+			// NOTE: delete mode changes keep the table, except leaving dv (see dvDelta)
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
 				// check cursor field if SyncMode is incremental
 				cursorDelta := utils.Ternary(newStream.Stream.SyncMode == INCREMENTAL, oldStream.Stream.CursorField != newStream.Stream.CursorField, false).(bool)
+				// dv upgrades the table to format v3, which forbids the Parquet positional deletes eq/pos write, so leaving dv needs a fresh table
+				dvDelta := UpdateType(oldMetadata.UpdateType) == UpdateTypeDeletionVector && UpdateType(newMetadata.UpdateType) != UpdateTypeDeletionVector
 
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
@@ -340,7 +342,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
 					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
 					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable) ||
-					cursorDelta
+					cursorDelta ||
+					dvDelta
 			}()
 
 			// if any difference, add stream to diff streams

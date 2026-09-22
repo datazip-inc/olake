@@ -218,28 +218,6 @@ public class IcebergUtil {
     }
   }
 
-  /**
-   * Raises an existing table to {@code formatVersion} when it sits below it, so a
-   * stream reconfigured to a delete mode needing a higher version (e.g. {@code eq} or
-   * {@code pos} -> {@code dv}) can keep writing to the table it already has instead of
-   * failing outright.
-   *
-   * <p>Iceberg only moves format versions forward, so this is one-way: a table raised
-   * to 3 for deletion vectors cannot be lowered back to 2 later, and every engine
-   * reading it afterward needs to understand v3. Never called implicitly for a
-   * mismatch in the other direction (table above what the mode needs) - that is
-   * rejected instead, see {@code OlakeRowsIngester.loadOrCreateTable}.
-   */
-  public static void ensureFormatVersion(Table table, int formatVersion) {
-    int current = ((org.apache.iceberg.HasTableOperations) table).operations().current().formatVersion();
-    if (current >= formatVersion) {
-      return;
-    }
-    LOGGER.warn("Upgrading {} from format version {} to {}; this cannot be undone",
-        table.name(), current, formatVersion);
-    table.updateProperties().set(FORMAT_VERSION, String.valueOf(formatVersion)).commit();
-  }
-
   public static OutputFileFactory getTableOutputFileFactory(Table icebergTable, FileFormat format) {
     return OutputFileFactory.builderFor(icebergTable,
             IcebergUtil.partitionId(), 1L)
