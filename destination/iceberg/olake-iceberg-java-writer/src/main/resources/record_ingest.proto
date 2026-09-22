@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package io.debezium.server.iceberg.rpc;
+package io.olake.iceberg.rpc;
 
 option go_package = "iceberg/proto";
 option java_outer_classname = "RecordIngest";
