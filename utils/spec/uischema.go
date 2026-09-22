@@ -502,6 +502,7 @@ const IcebergUISchema = `{
       { "iceberg_s3_path": 12, "s3_endpoint": 12},
       { "credential": 12, "oauth2_uri": 12 },
       { "scope": 12, "token": 12 },
+      { "snowflake_workload_identity_provider": 24 },
       { "no_identifier_fields": 24 },
       { "aws_access_key": 12, "aws_secret_key": 12 },
       { "aws_region": 12, "s3_path_style": 12 },
@@ -554,7 +555,8 @@ const IcebergUISchema = `{
         "S3 Tables",
         "Unity",
         "Polaris",
-        "Big Lake"
+        "Big Lake",
+        "Horizon"
       ]
     },
     "ui:options": {

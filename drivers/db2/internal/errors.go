@@ -7,9 +7,13 @@ import (
 	go_ibm_db "github.com/ibmdb/go_ibm_db"
 )
 
-// The one condition this driver detects itself: Db2 has no change feed, so there is no
-// replication state to validate.
-const codeCDCUnsupported = "db2.cdc_unsupported"
+const (
+	codeCDCUnsupported  = "db2.cdc_unsupported"
+	codeHostMissing     = "db2.host_missing"
+	codePortInvalid     = "db2.port_invalid"
+	codeUsernameMissing = "db2.username_missing"
+	codeDatabaseMissing = "db2.database_missing"
+)
 
 // sqlStateCategories maps a Db2 SQLSTATE to a failure category. Two spaces arrive here: Db2's
 // own, and the ODBC/CLI layer's (08S01, HYT00, IM002, 42S02), raised before Db2 is reached.
