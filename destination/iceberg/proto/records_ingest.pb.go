@@ -197,7 +197,7 @@ func (ArrowPayload_PayloadType) EnumDescriptor() ([]byte, []int) {
 
 type IcebergPayload struct {
 	state         protoimpl.MessageState      `protogen:"open.v1"`
-	Type          IcebergPayload_PayloadType  `protobuf:"varint,1,opt,name=type,proto3,enum=io.debezium.server.iceberg.rpc.IcebergPayload_PayloadType" json:"type,omitempty"`
+	Type          IcebergPayload_PayloadType  `protobuf:"varint,1,opt,name=type,proto3,enum=io.olake.iceberg.rpc.IcebergPayload_PayloadType" json:"type,omitempty"`
 	Metadata      *IcebergPayload_Metadata    `protobuf:"bytes,2,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	Records       []*IcebergPayload_IceRecord `protobuf:"bytes,3,rep,name=records,proto3" json:"records,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -421,7 +421,7 @@ func (x *FilePositionMap) GetRanges() []*FilePositionMap_Range {
 
 type ArrowPayload struct {
 	state         protoimpl.MessageState   `protogen:"open.v1"`
-	Type          ArrowPayload_PayloadType `protobuf:"varint,1,opt,name=type,proto3,enum=io.debezium.server.iceberg.rpc.ArrowPayload_PayloadType" json:"type,omitempty"`
+	Type          ArrowPayload_PayloadType `protobuf:"varint,1,opt,name=type,proto3,enum=io.olake.iceberg.rpc.ArrowPayload_PayloadType" json:"type,omitempty"`
 	Metadata      *ArrowPayload_Metadata   `protobuf:"bytes,2,opt,name=metadata,proto3" json:"metadata,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -646,7 +646,7 @@ type MigrateEqualityDeletesRequest struct {
 	// The representation equality deletes get rewritten into: POSITION or
 	// DELETION_VECTOR. UNSPECIFIED falls back to the session's own delete mode,
 	// which is what gated this RPC being called at all.
-	TargetMode    IcebergPayload_DeleteMode `protobuf:"varint,2,opt,name=target_mode,json=targetMode,proto3,enum=io.debezium.server.iceberg.rpc.IcebergPayload_DeleteMode" json:"target_mode,omitempty"`
+	TargetMode    IcebergPayload_DeleteMode `protobuf:"varint,2,opt,name=target_mode,json=targetMode,proto3,enum=io.olake.iceberg.rpc.IcebergPayload_DeleteMode" json:"target_mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -775,7 +775,7 @@ type IcebergPayload_Metadata struct {
 	// GET_OR_CREATE_TABLE: how this stream expresses deletes. Also decides the
 	// format version a newly created table is built at, and is validated against
 	// an existing table's version before any writer is built.
-	DeleteMode IcebergPayload_DeleteMode `protobuf:"varint,11,opt,name=delete_mode,json=deleteMode,proto3,enum=io.debezium.server.iceberg.rpc.IcebergPayload_DeleteMode" json:"delete_mode,omitempty"`
+	DeleteMode IcebergPayload_DeleteMode `protobuf:"varint,11,opt,name=delete_mode,json=deleteMode,proto3,enum=io.olake.iceberg.rpc.IcebergPayload_DeleteMode" json:"delete_mode,omitempty"`
 	// Whether the catalog allows declaring identifier_field on the table; only equality deletes need it declared.
 	DeclareIdentifierFields bool `protobuf:"varint,12,opt,name=declare_identifier_fields,json=declareIdentifierFields,proto3" json:"declare_identifier_fields,omitempty"`
 	unknownFields           protoimpl.UnknownFields
@@ -1835,23 +1835,23 @@ var File_records_ingest_proto protoreflect.FileDescriptor
 
 const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
-	"\x14records_ingest.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xb9\x0e\n" +
-	"\x0eIcebergPayload\x12N\n" +
-	"\x04type\x18\x01 \x01(\x0e2:.io.debezium.server.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12S\n" +
-	"\bmetadata\x18\x02 \x01(\v27.io.debezium.server.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12R\n" +
-	"\arecords\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xfe\x04\n" +
+	"\x14records_ingest.proto\x12\x14io.olake.iceberg.rpc\"\xf3\r\n" +
+	"\x0eIcebergPayload\x12D\n" +
+	"\x04type\x18\x01 \x01(\x0e20.io.olake.iceberg.rpc.IcebergPayload.PayloadTypeR\x04type\x12I\n" +
+	"\bmetadata\x18\x02 \x01(\v2-.io.olake.iceberg.rpc.IcebergPayload.MetadataR\bmetadata\x12H\n" +
+	"\arecords\x18\x03 \x03(\v2..io.olake.iceberg.rpc.IcebergPayload.IceRecordR\arecords\x1a\xe0\x04\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
 	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12.\n" +
-	"\x10identifier_field\x18\x03 \x01(\tH\x00R\x0fidentifierField\x88\x01\x01\x12R\n" +
-	"\x06schema\x18\x04 \x03(\v2:.io.debezium.server.iceberg.rpc.IcebergPayload.SchemaFieldR\x06schema\x12\x18\n" +
+	"\x10identifier_field\x18\x03 \x01(\tH\x00R\x0fidentifierField\x88\x01\x01\x12H\n" +
+	"\x06schema\x18\x04 \x03(\v20.io.olake.iceberg.rpc.IcebergPayload.SchemaFieldR\x06schema\x12\x18\n" +
 	"\apayload\x18\x06 \x01(\tR\apayload\x12\x1c\n" +
 	"\tnamespace\x18\a \x01(\tR\tnamespace\x12\x16\n" +
-	"\x06upsert\x18\b \x01(\bR\x06upsert\x12h\n" +
-	"\x10partition_fields\x18\t \x03(\v2=.io.debezium.server.iceberg.rpc.IcebergPayload.PartitionFieldR\x0fpartitionFields\x12-\n" +
+	"\x06upsert\x18\b \x01(\bR\x06upsert\x12^\n" +
+	"\x10partition_fields\x18\t \x03(\v23.io.olake.iceberg.rpc.IcebergPayload.PartitionFieldR\x0fpartitionFields\x12-\n" +
 	"\x10base_snapshot_id\x18\n" +
-	" \x01(\x03H\x01R\x0ebaseSnapshotId\x88\x01\x01\x12Z\n" +
-	"\vdelete_mode\x18\v \x01(\x0e29.io.debezium.server.iceberg.rpc.IcebergPayload.DeleteModeR\n" +
+	" \x01(\x03H\x01R\x0ebaseSnapshotId\x88\x01\x01\x12P\n" +
+	"\vdelete_mode\x18\v \x01(\x0e2/.io.olake.iceberg.rpc.IcebergPayload.DeleteModeR\n" +
 	"deleteMode\x12:\n" +
 	"\x19declare_identifier_fields\x18\f \x01(\bR\x17declareIdentifierFieldsB\x13\n" +
 	"\x11_identifier_fieldB\x13\n" +
@@ -1861,9 +1861,9 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x1aD\n" +
 	"\x0ePartitionField\x12\x14\n" +
 	"\x05field\x18\x01 \x01(\tR\x05field\x12\x1c\n" +
-	"\ttransform\x18\x02 \x01(\tR\ttransform\x1a\x98\x04\n" +
-	"\tIceRecord\x12[\n" +
-	"\x06fields\x18\x01 \x03(\v2C.io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValueR\x06fields\x12\x1f\n" +
+	"\ttransform\x18\x02 \x01(\tR\ttransform\x1a\x8e\x04\n" +
+	"\tIceRecord\x12Q\n" +
+	"\x06fields\x18\x01 \x03(\v29.io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValueR\x06fields\x12\x1f\n" +
 	"\vrecord_type\x18\x02 \x01(\tR\n" +
 	"recordType\x12-\n" +
 	"\x10delete_file_path\x18\x03 \x01(\tH\x00R\x0edeleteFilePath\x88\x01\x01\x12,\n" +
@@ -1899,30 +1899,30 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x17DELETE_MODE_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14DELETE_MODE_EQUALITY\x10\x01\x12\x18\n" +
 	"\x14DELETE_MODE_POSITION\x10\x02\x12\x1f\n" +
-	"\x1bDELETE_MODE_DELETION_VECTOR\x10\x03\"\xa2\x02\n" +
+	"\x1bDELETE_MODE_DELETION_VECTOR\x10\x03\"\x98\x02\n" +
 	"\x14RecordIngestResponse\x12\x16\n" +
 	"\x06result\x18\x01 \x01(\tR\x06result\x12\x18\n" +
 	"\asuccess\x18\x02 \x01(\bR\asuccess\x12&\n" +
 	"\x0folake_2pc_state\x18\x03 \x01(\tR\rolake2pcState\x12\x1f\n" +
 	"\vsnapshot_id\x18\x04 \x01(\x03R\n" +
 	"snapshotId\x120\n" +
-	"\x14has_equality_deletes\x18\x05 \x01(\bR\x12hasEqualityDeletes\x12]\n" +
-	"\x12file_position_maps\x18\x06 \x03(\v2/.io.debezium.server.iceberg.rpc.FilePositionMapR\x10filePositionMaps\"\xeb\x01\n" +
+	"\x14has_equality_deletes\x18\x05 \x01(\bR\x12hasEqualityDeletes\x12S\n" +
+	"\x12file_position_maps\x18\x06 \x03(\v2%.io.olake.iceberg.rpc.FilePositionMapR\x10filePositionMaps\"\xe1\x01\n" +
 	"\x0fFilePositionMap\x12\x1b\n" +
-	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12M\n" +
-	"\x06ranges\x18\x02 \x03(\v25.io.debezium.server.iceberg.rpc.FilePositionMap.RangeR\x06ranges\x1al\n" +
+	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12C\n" +
+	"\x06ranges\x18\x02 \x03(\v2+.io.olake.iceberg.rpc.FilePositionMap.RangeR\x06ranges\x1al\n" +
 	"\x05Range\x12&\n" +
 	"\x0fbatch_start_idx\x18\x01 \x01(\x05R\rbatchStartIdx\x12%\n" +
 	"\x0estart_position\x18\x02 \x01(\x03R\rstartPosition\x12\x14\n" +
-	"\x05count\x18\x03 \x01(\x05R\x05count\"\x82\r\n" +
-	"\fArrowPayload\x12L\n" +
-	"\x04type\x18\x01 \x01(\x0e28.io.debezium.server.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12Q\n" +
-	"\bmetadata\x18\x02 \x01(\v25.io.debezium.server.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\xca\x03\n" +
+	"\x05count\x18\x03 \x01(\x05R\x05count\"\xb2\f\n" +
+	"\fArrowPayload\x12B\n" +
+	"\x04type\x18\x01 \x01(\x0e2..io.olake.iceberg.rpc.ArrowPayload.PayloadTypeR\x04type\x12G\n" +
+	"\bmetadata\x18\x02 \x01(\v2+.io.olake.iceberg.rpc.ArrowPayload.MetadataR\bmetadata\x1a\xc0\x03\n" +
 	"\fFileMetadata\x12\x1b\n" +
 	"\tfile_type\x18\x01 \x01(\tR\bfileType\x12\x1b\n" +
 	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x12!\n" +
-	"\frecord_count\x18\x03 \x01(\x03R\vrecordCount\x12s\n" +
-	"\x10partition_values\x18\x05 \x03(\v2H.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x1a\xe7\x01\n" +
+	"\frecord_count\x18\x03 \x01(\x03R\vrecordCount\x12i\n" +
+	"\x10partition_values\x18\x05 \x03(\v2>.io.olake.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x1a\xe7\x01\n" +
 	"\x0ePartitionValue\x12\x1d\n" +
 	"\tint_value\x18\x01 \x01(\x05H\x00R\bintValue\x12\x1f\n" +
 	"\n" +
@@ -1936,22 +1936,22 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x05value\x1aM\n" +
 	"\x11FileUploadRequest\x12\x1b\n" +
 	"\tfile_data\x18\x01 \x01(\fR\bfileData\x12\x1b\n" +
-	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x1a\xba\x02\n" +
-	"\x13DeletionVectorBatch\x12`\n" +
-	"\aentries\x18\x01 \x03(\v2F.io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch.EntryR\aentries\x1a\xc0\x01\n" +
+	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x1a\xa6\x02\n" +
+	"\x13DeletionVectorBatch\x12V\n" +
+	"\aentries\x18\x01 \x03(\v2<.io.olake.iceberg.rpc.ArrowPayload.DeletionVectorBatch.EntryR\aentries\x1a\xb6\x01\n" +
 	"\x05Entry\x12$\n" +
 	"\x0edata_file_path\x18\x01 \x01(\tR\fdataFilePath\x12\x1c\n" +
-	"\tpositions\x18\x02 \x03(\x03R\tpositions\x12s\n" +
-	"\x10partition_values\x18\x03 \x03(\v2H.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x1a\x8a\x04\n" +
+	"\tpositions\x18\x02 \x03(\x03R\tpositions\x12i\n" +
+	"\x10partition_values\x18\x03 \x03(\v2>.io.olake.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValueR\x0fpartitionValues\x1a\xec\x03\n" +
 	"\bMetadata\x12&\n" +
 	"\x0fdest_table_name\x18\x01 \x01(\tR\rdestTableName\x12\x1b\n" +
-	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12^\n" +
-	"\rfile_metadata\x18\x03 \x03(\v29.io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadataR\ffileMetadata\x12d\n" +
-	"\vfile_upload\x18\x04 \x01(\v2>.io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequestH\x00R\n" +
+	"\tthread_id\x18\x02 \x01(\tR\bthreadId\x12T\n" +
+	"\rfile_metadata\x18\x03 \x03(\v2/.io.olake.iceberg.rpc.ArrowPayload.FileMetadataR\ffileMetadata\x12Z\n" +
+	"\vfile_upload\x18\x04 \x01(\v24.io.olake.iceberg.rpc.ArrowPayload.FileUploadRequestH\x00R\n" +
 	"fileUpload\x88\x01\x01\x12\x18\n" +
 	"\apayload\x18\x06 \x01(\tR\apayload\x12-\n" +
-	"\x10base_snapshot_id\x18\a \x01(\x03H\x01R\x0ebaseSnapshotId\x88\x01\x01\x12p\n" +
-	"\x10deletion_vectors\x18\b \x01(\v2@.io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatchH\x02R\x0fdeletionVectors\x88\x01\x01B\x0e\n" +
+	"\x10base_snapshot_id\x18\a \x01(\x03H\x01R\x0ebaseSnapshotId\x88\x01\x01\x12f\n" +
+	"\x10deletion_vectors\x18\b \x01(\v26.io.olake.iceberg.rpc.ArrowPayload.DeletionVectorBatchH\x02R\x0fdeletionVectors\x88\x01\x01B\x0e\n" +
 	"\f_file_uploadB\x13\n" +
 	"\x11_base_snapshot_idB\x13\n" +
 	"\x11_deletion_vectors\"k\n" +
@@ -1961,10 +1961,10 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\n" +
 	"JSONSCHEMA\x10\x02\x12\f\n" +
 	"\bFILEPATH\x10\x03\x12\x14\n" +
-	"\x10DELETION_VECTORS\x10\x04\"\x97\x02\n" +
+	"\x10DELETION_VECTORS\x10\x04\"\x8d\x02\n" +
 	"\x13ArrowIngestResponse\x12\x16\n" +
-	"\x06result\x18\x01 \x01(\tR\x06result\x12o\n" +
-	"\x0eicebergSchemas\x18\x02 \x03(\v2G.io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntryR\x0eicebergSchemas\x12$\n" +
+	"\x06result\x18\x01 \x01(\tR\x06result\x12e\n" +
+	"\x0eicebergSchemas\x18\x02 \x03(\v2=.io.olake.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntryR\x0eicebergSchemas\x12$\n" +
 	"\vsnapshot_id\x18\x03 \x01(\x03H\x00R\n" +
 	"snapshotId\x88\x01\x01\x1aA\n" +
 	"\x13IcebergSchemasEntry\x12\x10\n" +
@@ -1974,32 +1974,32 @@ const file_records_ingest_proto_rawDesc = "" +
 	"\x15TableIndexScanRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12-\n" +
 	"\x10from_snapshot_id\x18\x02 \x01(\x03H\x00R\x0efromSnapshotId\x88\x01\x01B\x13\n" +
-	"\x11_from_snapshot_id\"\xe8\x01\n" +
-	"\x13TableIndexScanBatch\x12S\n" +
-	"\aentries\x18\x01 \x03(\v29.io.debezium.server.iceberg.rpc.TableIndexScanBatch.EntryR\aentries\x12\x1f\n" +
+	"\x11_from_snapshot_id\"\xde\x01\n" +
+	"\x13TableIndexScanBatch\x12I\n" +
+	"\aentries\x18\x01 \x03(\v2/.io.olake.iceberg.rpc.TableIndexScanBatch.EntryR\aentries\x12\x1f\n" +
 	"\vsnapshot_id\x18\x02 \x01(\x03R\n" +
 	"snapshotId\x1a[\n" +
 	"\x05Entry\x12\x19\n" +
 	"\bolake_id\x18\x01 \x01(\tR\aolakeId\x12\x1b\n" +
 	"\tfile_path\x18\x02 \x01(\tR\bfilePath\x12\x1a\n" +
-	"\bposition\x18\x03 \x01(\x03R\bposition\"\x98\x01\n" +
+	"\bposition\x18\x03 \x01(\x03R\bposition\"\x8e\x01\n" +
 	"\x1dMigrateEqualityDeletesRequest\x12\x1b\n" +
-	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12Z\n" +
-	"\vtarget_mode\x18\x02 \x01(\x0e29.io.debezium.server.iceberg.rpc.IcebergPayload.DeleteModeR\n" +
+	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12P\n" +
+	"\vtarget_mode\x18\x02 \x01(\x0e2/.io.olake.iceberg.rpc.IcebergPayload.DeleteModeR\n" +
 	"targetMode\"\xb5\x01\n" +
 	"\x1eMigrateEqualityDeletesResponse\x12\x1f\n" +
 	"\vsnapshot_id\x18\x01 \x01(\x03R\n" +
 	"snapshotId\x124\n" +
 	"\x16rewritten_delete_files\x18\x02 \x01(\x03R\x14rewrittenDeleteFiles\x12<\n" +
-	"\x1apositional_deletes_written\x18\x03 \x01(\x03R\x18positionalDeletesWritten2\x8a\x01\n" +
-	"\x13RecordIngestService\x12s\n" +
-	"\vSendRecords\x12..io.debezium.server.iceberg.rpc.IcebergPayload\x1a4.io.debezium.server.iceberg.rpc.RecordIngestResponse2\x85\x01\n" +
-	"\x12ArrowIngestService\x12o\n" +
+	"\x1apositional_deletes_written\x18\x03 \x01(\x03R\x18positionalDeletesWritten2v\n" +
+	"\x13RecordIngestService\x12_\n" +
+	"\vSendRecords\x12$.io.olake.iceberg.rpc.IcebergPayload\x1a*.io.olake.iceberg.rpc.RecordIngestResponse2q\n" +
+	"\x12ArrowIngestService\x12[\n" +
 	"\n" +
-	"IcebergAPI\x12,.io.debezium.server.iceberg.rpc.ArrowPayload\x1a3.io.debezium.server.iceberg.rpc.ArrowIngestResponse2\xb4\x02\n" +
-	"\x11TableIndexService\x12\x84\x01\n" +
-	"\x14ScanTableForIndexing\x125.io.debezium.server.iceberg.rpc.TableIndexScanRequest\x1a3.io.debezium.server.iceberg.rpc.TableIndexScanBatch0\x01\x12\x97\x01\n" +
-	"\x16MigrateEqualityDeletes\x12=.io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest\x1a>.io.debezium.server.iceberg.rpc.MigrateEqualityDeletesResponseB\x1dB\fRecordIngestZ\riceberg/protob\x06proto3"
+	"IcebergAPI\x12\".io.olake.iceberg.rpc.ArrowPayload\x1a).io.olake.iceberg.rpc.ArrowIngestResponse2\x8b\x02\n" +
+	"\x11TableIndexService\x12p\n" +
+	"\x14ScanTableForIndexing\x12+.io.olake.iceberg.rpc.TableIndexScanRequest\x1a).io.olake.iceberg.rpc.TableIndexScanBatch0\x01\x12\x83\x01\n" +
+	"\x16MigrateEqualityDeletes\x123.io.olake.iceberg.rpc.MigrateEqualityDeletesRequest\x1a4.io.olake.iceberg.rpc.MigrateEqualityDeletesResponseB\x1dB\fRecordIngestZ\riceberg/protob\x06proto3"
 
 var (
 	file_records_ingest_proto_rawDescOnce sync.Once
@@ -2016,62 +2016,62 @@ func file_records_ingest_proto_rawDescGZIP() []byte {
 var file_records_ingest_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
 var file_records_ingest_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_records_ingest_proto_goTypes = []any{
-	(IcebergPayload_PayloadType)(0),                  // 0: io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
-	(IcebergPayload_DeleteMode)(0),                   // 1: io.debezium.server.iceberg.rpc.IcebergPayload.DeleteMode
-	(ArrowPayload_PayloadType)(0),                    // 2: io.debezium.server.iceberg.rpc.ArrowPayload.PayloadType
-	(*IcebergPayload)(nil),                           // 3: io.debezium.server.iceberg.rpc.IcebergPayload
-	(*RecordIngestResponse)(nil),                     // 4: io.debezium.server.iceberg.rpc.RecordIngestResponse
-	(*FilePositionMap)(nil),                          // 5: io.debezium.server.iceberg.rpc.FilePositionMap
-	(*ArrowPayload)(nil),                             // 6: io.debezium.server.iceberg.rpc.ArrowPayload
-	(*ArrowIngestResponse)(nil),                      // 7: io.debezium.server.iceberg.rpc.ArrowIngestResponse
-	(*TableIndexScanRequest)(nil),                    // 8: io.debezium.server.iceberg.rpc.TableIndexScanRequest
-	(*TableIndexScanBatch)(nil),                      // 9: io.debezium.server.iceberg.rpc.TableIndexScanBatch
-	(*MigrateEqualityDeletesRequest)(nil),            // 10: io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest
-	(*MigrateEqualityDeletesResponse)(nil),           // 11: io.debezium.server.iceberg.rpc.MigrateEqualityDeletesResponse
-	(*IcebergPayload_Metadata)(nil),                  // 12: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
-	(*IcebergPayload_SchemaField)(nil),               // 13: io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
-	(*IcebergPayload_PartitionField)(nil),            // 14: io.debezium.server.iceberg.rpc.IcebergPayload.PartitionField
-	(*IcebergPayload_IceRecord)(nil),                 // 15: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
-	(*IcebergPayload_IceRecord_FieldValue)(nil),      // 16: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
-	(*FilePositionMap_Range)(nil),                    // 17: io.debezium.server.iceberg.rpc.FilePositionMap.Range
-	(*ArrowPayload_FileMetadata)(nil),                // 18: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
-	(*ArrowPayload_FileUploadRequest)(nil),           // 19: io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
-	(*ArrowPayload_DeletionVectorBatch)(nil),         // 20: io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch
-	(*ArrowPayload_Metadata)(nil),                    // 21: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
-	(*ArrowPayload_FileMetadata_PartitionValue)(nil), // 22: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
-	(*ArrowPayload_DeletionVectorBatch_Entry)(nil),   // 23: io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch.Entry
-	nil,                               // 24: io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
-	(*TableIndexScanBatch_Entry)(nil), // 25: io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry
+	(IcebergPayload_PayloadType)(0),                  // 0: io.olake.iceberg.rpc.IcebergPayload.PayloadType
+	(IcebergPayload_DeleteMode)(0),                   // 1: io.olake.iceberg.rpc.IcebergPayload.DeleteMode
+	(ArrowPayload_PayloadType)(0),                    // 2: io.olake.iceberg.rpc.ArrowPayload.PayloadType
+	(*IcebergPayload)(nil),                           // 3: io.olake.iceberg.rpc.IcebergPayload
+	(*RecordIngestResponse)(nil),                     // 4: io.olake.iceberg.rpc.RecordIngestResponse
+	(*FilePositionMap)(nil),                          // 5: io.olake.iceberg.rpc.FilePositionMap
+	(*ArrowPayload)(nil),                             // 6: io.olake.iceberg.rpc.ArrowPayload
+	(*ArrowIngestResponse)(nil),                      // 7: io.olake.iceberg.rpc.ArrowIngestResponse
+	(*TableIndexScanRequest)(nil),                    // 8: io.olake.iceberg.rpc.TableIndexScanRequest
+	(*TableIndexScanBatch)(nil),                      // 9: io.olake.iceberg.rpc.TableIndexScanBatch
+	(*MigrateEqualityDeletesRequest)(nil),            // 10: io.olake.iceberg.rpc.MigrateEqualityDeletesRequest
+	(*MigrateEqualityDeletesResponse)(nil),           // 11: io.olake.iceberg.rpc.MigrateEqualityDeletesResponse
+	(*IcebergPayload_Metadata)(nil),                  // 12: io.olake.iceberg.rpc.IcebergPayload.Metadata
+	(*IcebergPayload_SchemaField)(nil),               // 13: io.olake.iceberg.rpc.IcebergPayload.SchemaField
+	(*IcebergPayload_PartitionField)(nil),            // 14: io.olake.iceberg.rpc.IcebergPayload.PartitionField
+	(*IcebergPayload_IceRecord)(nil),                 // 15: io.olake.iceberg.rpc.IcebergPayload.IceRecord
+	(*IcebergPayload_IceRecord_FieldValue)(nil),      // 16: io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
+	(*FilePositionMap_Range)(nil),                    // 17: io.olake.iceberg.rpc.FilePositionMap.Range
+	(*ArrowPayload_FileMetadata)(nil),                // 18: io.olake.iceberg.rpc.ArrowPayload.FileMetadata
+	(*ArrowPayload_FileUploadRequest)(nil),           // 19: io.olake.iceberg.rpc.ArrowPayload.FileUploadRequest
+	(*ArrowPayload_DeletionVectorBatch)(nil),         // 20: io.olake.iceberg.rpc.ArrowPayload.DeletionVectorBatch
+	(*ArrowPayload_Metadata)(nil),                    // 21: io.olake.iceberg.rpc.ArrowPayload.Metadata
+	(*ArrowPayload_FileMetadata_PartitionValue)(nil), // 22: io.olake.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
+	(*ArrowPayload_DeletionVectorBatch_Entry)(nil),   // 23: io.olake.iceberg.rpc.ArrowPayload.DeletionVectorBatch.Entry
+	nil,                               // 24: io.olake.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
+	(*TableIndexScanBatch_Entry)(nil), // 25: io.olake.iceberg.rpc.TableIndexScanBatch.Entry
 }
 var file_records_ingest_proto_depIdxs = []int32{
-	0,  // 0: io.debezium.server.iceberg.rpc.IcebergPayload.type:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PayloadType
-	12, // 1: io.debezium.server.iceberg.rpc.IcebergPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.Metadata
-	15, // 2: io.debezium.server.iceberg.rpc.IcebergPayload.records:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord
-	5,  // 3: io.debezium.server.iceberg.rpc.RecordIngestResponse.file_position_maps:type_name -> io.debezium.server.iceberg.rpc.FilePositionMap
-	17, // 4: io.debezium.server.iceberg.rpc.FilePositionMap.ranges:type_name -> io.debezium.server.iceberg.rpc.FilePositionMap.Range
-	2,  // 5: io.debezium.server.iceberg.rpc.ArrowPayload.type:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.PayloadType
-	21, // 6: io.debezium.server.iceberg.rpc.ArrowPayload.metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.Metadata
-	24, // 7: io.debezium.server.iceberg.rpc.ArrowIngestResponse.icebergSchemas:type_name -> io.debezium.server.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
-	25, // 8: io.debezium.server.iceberg.rpc.TableIndexScanBatch.entries:type_name -> io.debezium.server.iceberg.rpc.TableIndexScanBatch.Entry
-	1,  // 9: io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest.target_mode:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.DeleteMode
-	13, // 10: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.SchemaField
-	14, // 11: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.partition_fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.PartitionField
-	1,  // 12: io.debezium.server.iceberg.rpc.IcebergPayload.Metadata.delete_mode:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.DeleteMode
-	16, // 13: io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.debezium.server.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
-	22, // 14: io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.partition_values:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
-	23, // 15: io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch.entries:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch.Entry
-	18, // 16: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_metadata:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata
-	19, // 17: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.file_upload:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileUploadRequest
-	20, // 18: io.debezium.server.iceberg.rpc.ArrowPayload.Metadata.deletion_vectors:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch
-	22, // 19: io.debezium.server.iceberg.rpc.ArrowPayload.DeletionVectorBatch.Entry.partition_values:type_name -> io.debezium.server.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
-	3,  // 20: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.debezium.server.iceberg.rpc.IcebergPayload
-	6,  // 21: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:input_type -> io.debezium.server.iceberg.rpc.ArrowPayload
-	8,  // 22: io.debezium.server.iceberg.rpc.TableIndexService.ScanTableForIndexing:input_type -> io.debezium.server.iceberg.rpc.TableIndexScanRequest
-	10, // 23: io.debezium.server.iceberg.rpc.TableIndexService.MigrateEqualityDeletes:input_type -> io.debezium.server.iceberg.rpc.MigrateEqualityDeletesRequest
-	4,  // 24: io.debezium.server.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.debezium.server.iceberg.rpc.RecordIngestResponse
-	7,  // 25: io.debezium.server.iceberg.rpc.ArrowIngestService.IcebergAPI:output_type -> io.debezium.server.iceberg.rpc.ArrowIngestResponse
-	9,  // 26: io.debezium.server.iceberg.rpc.TableIndexService.ScanTableForIndexing:output_type -> io.debezium.server.iceberg.rpc.TableIndexScanBatch
-	11, // 27: io.debezium.server.iceberg.rpc.TableIndexService.MigrateEqualityDeletes:output_type -> io.debezium.server.iceberg.rpc.MigrateEqualityDeletesResponse
+	0,  // 0: io.olake.iceberg.rpc.IcebergPayload.type:type_name -> io.olake.iceberg.rpc.IcebergPayload.PayloadType
+	12, // 1: io.olake.iceberg.rpc.IcebergPayload.metadata:type_name -> io.olake.iceberg.rpc.IcebergPayload.Metadata
+	15, // 2: io.olake.iceberg.rpc.IcebergPayload.records:type_name -> io.olake.iceberg.rpc.IcebergPayload.IceRecord
+	5,  // 3: io.olake.iceberg.rpc.RecordIngestResponse.file_position_maps:type_name -> io.olake.iceberg.rpc.FilePositionMap
+	17, // 4: io.olake.iceberg.rpc.FilePositionMap.ranges:type_name -> io.olake.iceberg.rpc.FilePositionMap.Range
+	2,  // 5: io.olake.iceberg.rpc.ArrowPayload.type:type_name -> io.olake.iceberg.rpc.ArrowPayload.PayloadType
+	21, // 6: io.olake.iceberg.rpc.ArrowPayload.metadata:type_name -> io.olake.iceberg.rpc.ArrowPayload.Metadata
+	24, // 7: io.olake.iceberg.rpc.ArrowIngestResponse.icebergSchemas:type_name -> io.olake.iceberg.rpc.ArrowIngestResponse.IcebergSchemasEntry
+	25, // 8: io.olake.iceberg.rpc.TableIndexScanBatch.entries:type_name -> io.olake.iceberg.rpc.TableIndexScanBatch.Entry
+	1,  // 9: io.olake.iceberg.rpc.MigrateEqualityDeletesRequest.target_mode:type_name -> io.olake.iceberg.rpc.IcebergPayload.DeleteMode
+	13, // 10: io.olake.iceberg.rpc.IcebergPayload.Metadata.schema:type_name -> io.olake.iceberg.rpc.IcebergPayload.SchemaField
+	14, // 11: io.olake.iceberg.rpc.IcebergPayload.Metadata.partition_fields:type_name -> io.olake.iceberg.rpc.IcebergPayload.PartitionField
+	1,  // 12: io.olake.iceberg.rpc.IcebergPayload.Metadata.delete_mode:type_name -> io.olake.iceberg.rpc.IcebergPayload.DeleteMode
+	16, // 13: io.olake.iceberg.rpc.IcebergPayload.IceRecord.fields:type_name -> io.olake.iceberg.rpc.IcebergPayload.IceRecord.FieldValue
+	22, // 14: io.olake.iceberg.rpc.ArrowPayload.FileMetadata.partition_values:type_name -> io.olake.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
+	23, // 15: io.olake.iceberg.rpc.ArrowPayload.DeletionVectorBatch.entries:type_name -> io.olake.iceberg.rpc.ArrowPayload.DeletionVectorBatch.Entry
+	18, // 16: io.olake.iceberg.rpc.ArrowPayload.Metadata.file_metadata:type_name -> io.olake.iceberg.rpc.ArrowPayload.FileMetadata
+	19, // 17: io.olake.iceberg.rpc.ArrowPayload.Metadata.file_upload:type_name -> io.olake.iceberg.rpc.ArrowPayload.FileUploadRequest
+	20, // 18: io.olake.iceberg.rpc.ArrowPayload.Metadata.deletion_vectors:type_name -> io.olake.iceberg.rpc.ArrowPayload.DeletionVectorBatch
+	22, // 19: io.olake.iceberg.rpc.ArrowPayload.DeletionVectorBatch.Entry.partition_values:type_name -> io.olake.iceberg.rpc.ArrowPayload.FileMetadata.PartitionValue
+	3,  // 20: io.olake.iceberg.rpc.RecordIngestService.SendRecords:input_type -> io.olake.iceberg.rpc.IcebergPayload
+	6,  // 21: io.olake.iceberg.rpc.ArrowIngestService.IcebergAPI:input_type -> io.olake.iceberg.rpc.ArrowPayload
+	8,  // 22: io.olake.iceberg.rpc.TableIndexService.ScanTableForIndexing:input_type -> io.olake.iceberg.rpc.TableIndexScanRequest
+	10, // 23: io.olake.iceberg.rpc.TableIndexService.MigrateEqualityDeletes:input_type -> io.olake.iceberg.rpc.MigrateEqualityDeletesRequest
+	4,  // 24: io.olake.iceberg.rpc.RecordIngestService.SendRecords:output_type -> io.olake.iceberg.rpc.RecordIngestResponse
+	7,  // 25: io.olake.iceberg.rpc.ArrowIngestService.IcebergAPI:output_type -> io.olake.iceberg.rpc.ArrowIngestResponse
+	9,  // 26: io.olake.iceberg.rpc.TableIndexService.ScanTableForIndexing:output_type -> io.olake.iceberg.rpc.TableIndexScanBatch
+	11, // 27: io.olake.iceberg.rpc.TableIndexService.MigrateEqualityDeletes:output_type -> io.olake.iceberg.rpc.MigrateEqualityDeletesResponse
 	24, // [24:28] is the sub-list for method output_type
 	20, // [20:24] is the sub-list for method input_type
 	20, // [20:20] is the sub-list for extension type_name
