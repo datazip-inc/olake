@@ -40,8 +40,6 @@ var (
 	}
 )
 
-func boolPtr(b bool) *bool { return &b }
-
 func oldSchema() *TypeSchema {
 	return createSchemaFromTemplate(oldSchemaTemplate)
 }
@@ -315,7 +313,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: boolPtr(true), Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id"}, false)},
+						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: new(true), Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id"}, false)},
 					},
 				},
 			},
@@ -332,7 +330,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: boolPtr(true), Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id"}, false)},
+						{StreamName: "stream1", PartitionRegex: "test_regex", Filter: "test_filter > 10", AppendMode: new(true), Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id"}, false)},
 					},
 				},
 			},
@@ -359,7 +357,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: boolPtr(true), Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: new(true), Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 				},
 			},
@@ -382,7 +380,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: boolPtr(false), Normalization: boolPtr(false), SelectedColumns: createSelectedColumns([]string{"id", "email", "created_at"}, false)},
+						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: new(false), Normalization: new(false), SelectedColumns: createSelectedColumns([]string{"id", "email", "created_at"}, false)},
 					},
 				},
 			},
@@ -411,8 +409,8 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							StreamName:      "stream1",
 							PartitionRegex:  "user_partition",
 							Filter:          "test_filter > 10",
-							AppendMode:      boolPtr(true),
-							Normalization:   boolPtr(true),
+							AppendMode:      new(true),
+							Normalization:   new(true),
 							SelectedColumns: createSelectedColumns([]string{"id"}, false), // "name" dropped (not in new schema)
 						},
 					},
@@ -439,7 +437,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "old_partition", Filter: "test_filter > 10", AppendMode: boolPtr(true), Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
+						{StreamName: "stream1", PartitionRegex: "old_partition", Filter: "test_filter > 10", AppendMode: new(true), Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 				},
 			},
@@ -471,10 +469,10 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: boolPtr(false), Normalization: boolPtr(false), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
+						{StreamName: "stream1", PartitionRegex: "new_partition", Filter: "new_filter <= 8", AppendMode: new(false), Normalization: new(false), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 					"namespace2": {
-						{StreamName: "stream2", PartitionRegex: "", Filter: "new_filter <= 8", AppendMode: boolPtr(false), Normalization: boolPtr(false), SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
+						{StreamName: "stream2", PartitionRegex: "", Filter: "new_filter <= 8", AppendMode: new(false), Normalization: new(false), SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
 					},
 				},
 			},
@@ -509,8 +507,8 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							StreamName:      "stream1",
 							PartitionRegex:  "old_partition",
 							Filter:          "test_filter > 10",
-							AppendMode:      boolPtr(true),
-							Normalization:   boolPtr(true),
+							AppendMode:      new(true),
+							Normalization:   new(true),
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
@@ -549,10 +547,10 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: boolPtr(true), Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: new(true), Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 					"namespace2": {
-						{StreamName: "stream2", PartitionRegex: "", Filter: "test_filter > 10", AppendMode: boolPtr(true), Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
+						{StreamName: "stream2", PartitionRegex: "", Filter: "test_filter > 10", AppendMode: new(true), Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
 					},
 				},
 			},
@@ -574,7 +572,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "new_filter <= 8", AppendMode: boolPtr(false), Normalization: boolPtr(false), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "new_filter <= 8", AppendMode: new(false), Normalization: new(false), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 				},
 			},
@@ -601,8 +599,8 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							StreamName:      "stream1",
 							PartitionRegex:  "user_partition",
 							Filter:          "test_filter > 10",
-							AppendMode:      boolPtr(true),
-							Normalization:   boolPtr(true),
+							AppendMode:      new(true),
+							Normalization:   new(true),
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
@@ -630,7 +628,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 				},
 			},
@@ -664,10 +662,10 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"namespace1": {
-						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: boolPtr(true), Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
+						{StreamName: "stream1", PartitionRegex: "user_partition", Filter: "test_filter > 10", AppendMode: new(true), Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 					"namespace2": {
-						{StreamName: "stream2", PartitionRegex: "another_partition", Filter: "new_filter <= 8", AppendMode: boolPtr(false), Normalization: boolPtr(false), SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
+						{StreamName: "stream2", PartitionRegex: "another_partition", Filter: "new_filter <= 8", AppendMode: new(false), Normalization: new(false), SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
 					},
 				},
 			},
@@ -705,7 +703,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							StreamName:      "stream1",
 							PartitionRegex:  "user_partition",
 							Filter:          "test_filter > 10",
-							Normalization:   boolPtr(true),
+							Normalization:   new(true),
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
@@ -731,7 +729,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"public": {
-						{StreamName: "users", Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
+						{StreamName: "users", Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id", "name"}, false)},
 					},
 				},
 			},
@@ -751,7 +749,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				},
 				SelectedStreams: map[string][]StreamMetadata{
 					"public": {
-						{StreamName: "users", Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
+						{StreamName: "users", Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id", "email"}, false)},
 					},
 				},
 			},
@@ -773,7 +771,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 					"public": {
 						{
 							StreamName:      "users",
-							Normalization:   boolPtr(true),
+							Normalization:   new(true),
 							SelectedColumns: createSelectedColumns([]string{"id"}, false), // "name" dropped, "email" new+not-sync
 						},
 					},
@@ -806,7 +804,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							CursorField:         "updated_at",
 							DestinationDatabase: "custom:public",
 							DestinationTable:    "custom_users",
-							Normalization:       boolPtr(true),
+							Normalization:       new(true),
 						},
 					},
 				},
@@ -853,7 +851,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							CursorField:         "updated_at",
 							DestinationDatabase: "custom:public",
 							DestinationTable:    "custom_users",
-							Normalization:       boolPtr(true),
+							Normalization:       new(true),
 						},
 					},
 				},
@@ -879,8 +877,8 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 					{Stream: &Stream{Name: "c", Namespace: "ns3", Schema: newSchema(), DestinationDatabase: "pg:ns3"}},
 				},
 				SelectedStreams: map[string][]StreamMetadata{
-					"ns1": {{StreamName: "a", Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id"}, true)}},
-					"ns2": {{StreamName: "b", Normalization: boolPtr(true), SelectedColumns: createSelectedColumns([]string{"id"}, true)}},
+					"ns1": {{StreamName: "a", Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id"}, true)}},
+					"ns2": {{StreamName: "b", Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id"}, true)}},
 				},
 			},
 			expected: &Catalog{
@@ -1235,7 +1233,7 @@ func TestGetStreamsDelta(t *testing.T) {
 				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, DestinationDatabase: "db:public"}},
 			},
 			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: boolPtr(true), SyncMode: INCREMENTAL}},
+				"public": {{StreamName: "users", Normalization: new(true), SyncMode: INCREMENTAL}},
 			},
 		}
 		delta := GetStreamsDelta(cat, cat)
@@ -1253,7 +1251,7 @@ func TestGetStreamsDelta(t *testing.T) {
 				{Stream: &Stream{Name: "users", Namespace: "public"}},
 			},
 			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: boolPtr(true)}},
+				"public": {{StreamName: "users", Normalization: new(true)}},
 			},
 		}
 		delta := GetStreamsDelta(old, newCat)
@@ -1368,7 +1366,7 @@ func TestGetStreamsDelta(t *testing.T) {
 				{Stream: &Stream{Name: "users", Namespace: "public"}},
 			},
 			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: boolPtr(true)}},
+				"public": {{StreamName: "users", Normalization: new(true)}},
 			},
 		}
 		newCat := &Catalog{
@@ -1376,7 +1374,7 @@ func TestGetStreamsDelta(t *testing.T) {
 				{Stream: &Stream{Name: "users", Namespace: "public"}},
 			},
 			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: boolPtr(false)}},
+				"public": {{StreamName: "users", Normalization: new(false)}},
 			},
 		}
 		delta := GetStreamsDelta(old, newCat)
@@ -1397,7 +1395,7 @@ func TestGetStreamsDelta(t *testing.T) {
 				{Stream: &Stream{Name: "users", Namespace: "public"}},
 			},
 			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: boolPtr(false)}},
+				"public": {{StreamName: "users", Normalization: new(false)}},
 			},
 		}
 		delta := GetStreamsDelta(old, newCat)
@@ -1419,7 +1417,7 @@ func TestGetStreamsDelta(t *testing.T) {
 				{Stream: &Stream{Name: "users", Namespace: "public", DefaultStreamProperties: dsp}},
 			},
 			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: boolPtr(false)}},
+				"public": {{StreamName: "users", Normalization: new(false)}},
 			},
 		}
 		delta := GetStreamsDelta(old, newCat)
@@ -1432,7 +1430,7 @@ func TestGetStreamsDelta(t *testing.T) {
 				{Stream: &Stream{Name: "users", Namespace: "public"}},
 			},
 			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", AppendMode: boolPtr(false)}},
+				"public": {{StreamName: "users", AppendMode: new(false)}},
 			},
 		}
 		newCat := &Catalog{
@@ -1440,7 +1438,7 @@ func TestGetStreamsDelta(t *testing.T) {
 				{Stream: &Stream{Name: "users", Namespace: "public"}},
 			},
 			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", AppendMode: boolPtr(true)}},
+				"public": {{StreamName: "users", AppendMode: new(true)}},
 			},
 		}
 		delta := GetStreamsDelta(old, newCat)
@@ -1507,7 +1505,7 @@ func TestGetStreamsDelta(t *testing.T) {
 				},
 				new: &Catalog{
 					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: boolPtr(false)}}},
+					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false)}}},
 				},
 			},
 		}
@@ -1574,8 +1572,8 @@ func TestResolveCatalog(t *testing.T) {
 		require.Len(t, resolved.Streams, 1)
 		assert.Equal(t, "users", resolved.Streams[0].Stream.Name)
 		require.Len(t, resolved.SelectedStreams["public"], 1)
-		assert.Equal(t, boolPtr(true), resolved.SelectedStreams["public"][0].Normalization)
-		assert.Equal(t, boolPtr(false), resolved.SelectedStreams["public"][0].AppendMode)
+		assert.Equal(t, new(true), resolved.SelectedStreams["public"][0].Normalization)
+		assert.Equal(t, new(false), resolved.SelectedStreams["public"][0].AppendMode)
 	})
 
 	t.Run("new format: available_streams + selected_streams resolve together", func(t *testing.T) {
@@ -1781,7 +1779,7 @@ func TestLogCatalog(t *testing.T) {
 					StreamName:      "users",
 					SyncMode:        INCREMENTAL,
 					CursorField:     "updated_at",
-					Normalization:   boolPtr(true),
+					Normalization:   new(true),
 					SelectedColumns: createSelectedColumns([]string{"id"}, true),
 				}},
 			},
@@ -1823,7 +1821,7 @@ func TestLogCatalog(t *testing.T) {
 		assert.Equal(t, "users", sm.StreamName)
 		assert.Equal(t, INCREMENTAL, sm.SyncMode)
 		assert.Equal(t, "updated_at", sm.CursorField)
-		assert.Equal(t, boolPtr(true), sm.Normalization)
+		assert.Equal(t, new(true), sm.Normalization)
 
 		// streams.json: derived from the same single merge as available/selected_streams.json —
 		// users carries its old selection forward, orders (new) is not auto-selected.
@@ -1895,8 +1893,8 @@ func TestLogCatalog(t *testing.T) {
 		sm := selected.SelectedStreams["public"][0]
 		assert.Equal(t, "users", sm.StreamName)
 		assert.Equal(t, "user_partition", sm.PartitionRegex)
-		assert.Equal(t, boolPtr(false), sm.Normalization)
-		assert.Equal(t, boolPtr(true), sm.AppendMode)
+		assert.Equal(t, new(false), sm.Normalization)
+		assert.Equal(t, new(true), sm.AppendMode)
 		require.NotNil(t, sm.SelectedColumns)
 
 		// streams.json: legacy format regenerates independently in its own always-populated shape

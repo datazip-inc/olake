@@ -652,13 +652,13 @@ func TestConfiguredStream_NormalizationEnabled(t *testing.T) {
 		{
 			name:     "explicit true in metadata",
 			stream:   &Stream{},
-			metadata: StreamMetadata{Normalization: boolPtr(true)},
+			metadata: StreamMetadata{Normalization: new(true)},
 			want:     true,
 		},
 		{
 			name:     "explicit false in metadata",
 			stream:   &Stream{},
-			metadata: StreamMetadata{Normalization: boolPtr(false)},
+			metadata: StreamMetadata{Normalization: new(false)},
 			want:     false,
 		},
 		{
@@ -692,13 +692,13 @@ func TestConfiguredStream_AppendModeEnabled(t *testing.T) {
 	}{
 		{
 			name:     "explicit true in metadata",
-			metadata: StreamMetadata{AppendMode: boolPtr(true)},
+			metadata: StreamMetadata{AppendMode: new(true)},
 			stream:   &Stream{},
 			want:     true,
 		},
 		{
 			name:     "explicit false in metadata",
-			metadata: StreamMetadata{AppendMode: boolPtr(false)},
+			metadata: StreamMetadata{AppendMode: new(false)},
 			stream:   &Stream{},
 			want:     false,
 		},
@@ -712,7 +712,7 @@ func TestConfiguredStream_AppendModeEnabled(t *testing.T) {
 			// explicit false in metadata wins over DSP=true
 			name:     "explicit false in metadata wins over DSP true",
 			stream:   &Stream{DefaultStreamProperties: &DefaultStreamProperties{AppendMode: true}},
-			metadata: StreamMetadata{AppendMode: boolPtr(false)},
+			metadata: StreamMetadata{AppendMode: new(false)},
 			want:     false,
 		},
 		{
