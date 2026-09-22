@@ -1,4 +1,4 @@
-olake
+drivers/*/olake
 .vscode
 test
 # `test` matches any depth; keep the Iceberg writer's Maven test sources.
