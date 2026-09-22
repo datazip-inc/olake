@@ -257,7 +257,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 
 // GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 // Only selected streams are compared.
-// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, use_source_column_names, update_type (only dv -> other)
+// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, use_source_column_names, update_type (dv -> other, pos -> dv)
 // 2. Compares properties from streams: destination_database, destination_table, cursor_field, sync_mode
 // 3. For now, any new stream present in new catalog is added to the difference. Later collision detection will happen.
 //
@@ -325,13 +325,16 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// sync mode change
 			// destination table change
 
-			// NOTE: delete mode changes keep the table, except leaving dv (see dvDelta)
+			// NOTE: delete mode changes keep the table, except dv -> other and pos -> dv (see dvDelta)
 			// TODO: log the differences for user reference
 			isDifferent := func() bool {
 				// check cursor field if SyncMode is incremental
 				cursorDelta := utils.Ternary(newStream.Stream.SyncMode == INCREMENTAL, oldStream.Stream.CursorField != newStream.Stream.CursorField, false).(bool)
-				// dv upgrades the table to format v3, which forbids the Parquet positional deletes eq/pos write, so leaving dv needs a fresh table
-				dvDelta := UpdateType(oldMetadata.UpdateType) == UpdateTypeDeletionVector && UpdateType(newMetadata.UpdateType) != UpdateTypeDeletionVector
+				// leaving dv: v3 forbids the Parquet positional deletes eq/pos write; pos -> dv: not supported yet (only eq -> dv is migrated)
+				oldUpdateType := utils.Ternary(oldMetadata.UpdateType == "", UpdateTypeEquality, UpdateType(oldMetadata.UpdateType)).(UpdateType)
+				newUpdateType := utils.Ternary(newMetadata.UpdateType == "", UpdateTypeEquality, UpdateType(newMetadata.UpdateType)).(UpdateType)
+				dvDelta := (oldUpdateType == UpdateTypeDeletionVector && newUpdateType != UpdateTypeDeletionVector) ||
+					(oldUpdateType == UpdateTypePosition && newUpdateType == UpdateTypeDeletionVector)
 
 				return (oldMetadata.Normalization != newMetadata.Normalization) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
