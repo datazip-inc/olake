@@ -1,11 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-tested=$(make -s print.source-drivers)
 known=$(make -s print.drivers)
 
 if [ "$GITHUB_EVENT_NAME" != "pull_request" ] || [ "$GITHUB_BASE_REF" = master ]; then
-  selected="$tested"
+  selected="$known"
 else
   changed=$(gh api --paginate \
     "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" \
@@ -16,9 +15,8 @@ else
       drivers/*/*|tests/*/*) d=${file#*/}; d=${d%%/*} ;;
       *) d="" ;;
     esac
-    case " $tested " in *" $d "*) selected="$selected $d"; continue ;; esac
-    case " $known " in *" $d "*) continue ;; esac
-    selected="$tested"
+    case " $known " in *" $d "*) selected="$selected $d"; continue ;; esac
+    selected="$known"
     break
   done
 fi

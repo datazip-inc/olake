@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RecordIngestService_SendRecords_FullMethodName = "/io.debezium.server.iceberg.rpc.RecordIngestService/SendRecords"
+	RecordIngestService_SendRecords_FullMethodName = "/io.olake.iceberg.rpc.RecordIngestService/SendRecords"
 )
 
 // RecordIngestServiceClient is the client API for RecordIngestService service.
@@ -108,7 +108,7 @@ func _RecordIngestService_SendRecords_Handler(srv interface{}, ctx context.Conte
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RecordIngestService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "io.debezium.server.iceberg.rpc.RecordIngestService",
+	ServiceName: "io.olake.iceberg.rpc.RecordIngestService",
 	HandlerType: (*RecordIngestServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -121,7 +121,7 @@ var RecordIngestService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ArrowIngestService_IcebergAPI_FullMethodName = "/io.debezium.server.iceberg.rpc.ArrowIngestService/IcebergAPI"
+	ArrowIngestService_IcebergAPI_FullMethodName = "/io.olake.iceberg.rpc.ArrowIngestService/IcebergAPI"
 )
 
 // ArrowIngestServiceClient is the client API for ArrowIngestService service.
@@ -210,7 +210,7 @@ func _ArrowIngestService_IcebergAPI_Handler(srv interface{}, ctx context.Context
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ArrowIngestService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "io.debezium.server.iceberg.rpc.ArrowIngestService",
+	ServiceName: "io.olake.iceberg.rpc.ArrowIngestService",
 	HandlerType: (*ArrowIngestServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -223,8 +223,8 @@ var ArrowIngestService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	TableIndexService_ScanTableForIndexing_FullMethodName   = "/io.debezium.server.iceberg.rpc.TableIndexService/ScanTableForIndexing"
-	TableIndexService_MigrateEqualityDeletes_FullMethodName = "/io.debezium.server.iceberg.rpc.TableIndexService/MigrateEqualityDeletes"
+	TableIndexService_ScanTableForIndexing_FullMethodName   = "/io.olake.iceberg.rpc.TableIndexService/ScanTableForIndexing"
+	TableIndexService_MigrateEqualityDeletes_FullMethodName = "/io.olake.iceberg.rpc.TableIndexService/MigrateEqualityDeletes"
 )
 
 // TableIndexServiceClient is the client API for TableIndexService service.
@@ -362,7 +362,7 @@ func _TableIndexService_MigrateEqualityDeletes_Handler(srv interface{}, ctx cont
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var TableIndexService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "io.debezium.server.iceberg.rpc.TableIndexService",
+	ServiceName: "io.olake.iceberg.rpc.TableIndexService",
 	HandlerType: (*TableIndexServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
