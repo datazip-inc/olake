@@ -144,8 +144,17 @@ public final class EqualityDeleteMigrator {
       posConvCount += collectPositions(table, entry.dataFile, projection, identifierField, deletedKeys, group);
     }
 
-    WrittenDeletes deletes = writeDeletes(table, fileFactory, groups, targetMode);
+    // Reuse the pairing already planned above instead of letting PreviousDeleteLoader re-plan.
+    Map<String, List<DeleteFile>> previousDeletes = new HashMap<>();
+    for (DataFileDeletes entry : affected.values()) {
+      if (!entry.positionDeletes.isEmpty()) {
+        previousDeletes.put(entry.dataFile.location(), new ArrayList<>(entry.positionDeletes));
+      }
+    }
 
+    WrittenDeletes deletes = writeDeletes(table, fileFactory, groups, targetMode, previousDeletes);
+
+    // NOTE: RewriteFiles skips the concurrent-DV check (RowDelta has it); a DV added externally to the same data file mid-migration would leave two DVs.
     RewriteFiles rewrite = table.newRewrite();
     for (DeleteFile deleteFile : replaced) {
       rewrite.deleteFile(deleteFile);
@@ -187,9 +196,10 @@ public final class EqualityDeleteMigrator {
   }
 
   private static WrittenDeletes writeDeletes(Table table, OutputFileFactory fileFactory,
-      Map<String, PartitionGroup> groups, DeleteMode targetMode) throws IOException {
+      Map<String, PartitionGroup> groups, DeleteMode targetMode,
+      Map<String, List<DeleteFile>> previousDeletes) throws IOException {
     if (targetMode == DeleteMode.DELETION_VECTOR) {
-      return writeDeletionVectors(table, fileFactory, groups);
+      return writeDeletionVectors(table, fileFactory, groups, previousDeletes);
     }
     return new WrittenDeletes(writePositionDeletes(table, fileFactory, groups), List.of());
   }
@@ -211,7 +221,7 @@ public final class EqualityDeleteMigrator {
    * vectors for one data file.
    */
   private static WrittenDeletes writeDeletionVectors(Table table, OutputFileFactory fileFactory,
-      Map<String, PartitionGroup> groups) throws IOException {
+      Map<String, PartitionGroup> groups, Map<String, List<DeleteFile>> previousDeletes) throws IOException {
 
     PartitionSpec spec = table.spec();
 
@@ -219,7 +229,7 @@ public final class EqualityDeleteMigrator {
     // writePositionDeletes below): the spec allows many vectors inside one Puffin
     // file with no restriction on which data files they reference, and one writer
     // per partition would recreate the small-files problem vectors exist to remove.
-    DVFileWriter writer = new BaseDVFileWriter(fileFactory, new PreviousDeleteLoader(table));
+    DVFileWriter writer = new BaseDVFileWriter(fileFactory, new PreviousDeleteLoader(table, previousDeletes));
     try {
       for (PartitionGroup group : groups.values()) {
         if (group.positions.isEmpty()) {
@@ -246,9 +256,12 @@ public final class EqualityDeleteMigrator {
     try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
       for (FileScanTask task : tasks) {
         List<DeleteFile> equalityDeletes = new ArrayList<>();
+        List<DeleteFile> positionDeletes = new ArrayList<>();
         for (DeleteFile delete : task.deletes()) {
           if (delete.content() == FileContent.EQUALITY_DELETES) {
             equalityDeletes.add(delete);
+          } else if (delete.content() == FileContent.POSITION_DELETES) {
+            positionDeletes.add(delete);
           }
         }
         if (equalityDeletes.isEmpty()) {
@@ -256,8 +269,9 @@ public final class EqualityDeleteMigrator {
         }
 
         // planFiles can split a file into several tasks; merge their delete lists.
-        affected.computeIfAbsent(task.file().location(), path -> new DataFileDeletes(task.file()))
-            .equalityDeletes.addAll(equalityDeletes);
+        DataFileDeletes entry = affected.computeIfAbsent(task.file().location(), path -> new DataFileDeletes(task.file()));
+        entry.equalityDeletes.addAll(equalityDeletes);
+        entry.positionDeletes.addAll(positionDeletes);
       }
     }
     return affected;
@@ -350,6 +364,7 @@ public final class EqualityDeleteMigrator {
   private static final class DataFileDeletes {
     private final DataFile dataFile;
     private final Set<DeleteFile> equalityDeletes = new LinkedHashSet<>();
+    private final Set<DeleteFile> positionDeletes = new LinkedHashSet<>();
 
     private DataFileDeletes(DataFile dataFile) {
       this.dataFile = dataFile;

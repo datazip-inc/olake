@@ -46,10 +46,18 @@ public final class PreviousDeleteLoader implements Function<String, PositionDele
     this.table = table;
   }
 
+  /** Uses deletes the caller already planned from the same snapshot, skipping the re-plan. */
+  public PreviousDeleteLoader(Table table, Map<String, List<DeleteFile>> deletesByDataFile) {
+    this.table = table;
+    this.deletesByDataFile = deletesByDataFile;
+  }
+
   @Override
   public PositionDeleteIndex apply(String dataFilePath) {
     if (deletesByDataFile == null) {
       deletesByDataFile = planDeletes(table);
+    }
+    if (loader == null) {
       loader = new BaseDeleteLoader(file -> table.io().newInputFile(file.location()));
     }
 
