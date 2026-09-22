@@ -29,6 +29,7 @@ type Config struct {
 	AzureStorageAccountKey  string `json:"azure_storage_account_key,omitempty"`
 	AzureContainerName      string `json:"azure_container_name,omitempty"`
 	AzurePath               string `json:"azure_path,omitempty"`
+	AzureEndpoint           string `json:"azure_endpoint,omitempty"`
 
 	MaxFileSizeMB float64 `json:"max_file_size_mb,omitempty" validate:"gte=0"`
 }

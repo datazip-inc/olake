@@ -19,10 +19,11 @@ import (
 
 // azureStore is the implementation of the ObjectStore interface for Azure Blob Storage.
 type azureStore struct {
-	client    *azblob.Client
-	cred      *azblob.SharedKeyCredential
-	container string
-	prefix    string
+	client     *azblob.Client
+	cred       *azblob.SharedKeyCredential
+	container  string
+	prefix     string
+	serviceURL string
 }
 
 // newAzureStore creates a new Azure Blob Storage client with shared key credential and returns a new AzureStore.
@@ -31,17 +32,21 @@ func newAzureStore(cfg *Config) (*azureStore, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure SharedKeyCredential: %w", err)
 	}
-	serviceURL := fmt.Sprintf("https://%s.blob.core.windows.net/", cfg.AzureStorageAccountName)
+	serviceURL := cfg.AzureEndpoint
+	if serviceURL == "" {
+		serviceURL = fmt.Sprintf("https://%s.blob.core.windows.net/", cfg.AzureStorageAccountName)
+	}
 	client, err := azblob.NewClientWithSharedKeyCredential(serviceURL, cred, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Azure Blob Storage client: %w", err)
 	}
 	cfg.AzurePath = strings.Trim(cfg.AzurePath, "/")
 	return &azureStore{
-		client:    client,
-		cred:      cred,
-		container: cfg.AzureContainerName,
-		prefix:    cfg.AzurePath,
+		client:     client,
+		cred:       cred,
+		container:  cfg.AzureContainerName,
+		prefix:     cfg.AzurePath,
+		serviceURL: serviceURL,
 	}, nil
 }
 
@@ -150,8 +155,12 @@ func (a *azureStore) waitForCopy(ctx context.Context, dst *blob.Client, srcKey, 
 // blobReadURL creates a read SAS token for the given key.
 func (a *azureStore) blobReadURL(key string) (string, error) {
 	permissions := sas.BlobPermissions{Read: true}
+	protocol := sas.ProtocolHTTPS
+	if strings.HasPrefix(a.serviceURL, "http://") {
+		protocol = sas.ProtocolHTTPSandHTTP
+	}
 	sasValues := sas.BlobSignatureValues{
-		Protocol:      sas.ProtocolHTTPS,
+		Protocol:      protocol,
 		ExpiryTime:    time.Now().UTC().Add(time.Hour),
 		Permissions:   permissions.String(),
 		ContainerName: a.container,

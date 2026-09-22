@@ -1,0 +1,10 @@
+{
+    "type": "PARQUET",
+    "writer": {
+      "azure_storage_account_name": "devstoreaccount1",
+      "azure_storage_account_key": "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==",
+      "azure_container_name": "warehouse",
+      "azure_path": "olake",
+      "azure_endpoint": "http://host.docker.internal:11000/devstoreaccount1"
+    }
+}

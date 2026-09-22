@@ -90,11 +90,12 @@ type TestConfig struct {
 	BenchmarksPath           string
 
 	// Container-side paths, passed as arguments to the olake binary.
-	SourcePath             string
-	CatalogPath            string
-	IcebergDestinationPath string
-	ParquetDestinationPath string
-	StatePath              string
+	SourcePath                  string
+	CatalogPath                 string
+	IcebergDestinationPath      string
+	ParquetDestinationPath      string
+	AzureParquetDestinationPath string
+	StatePath                   string
 }
 
 // applySuite names the suite and rewires source.json where concurrent suites contend on a CDC
@@ -478,6 +479,12 @@ func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConf
 	for _, file := range []string{"source.json", "iceberg_destination.json", "parquet_destination.json"} {
 		require.NoError(t, copyFile(driverOrCommonConfig(fixturesPath, pwd, file), hostPath(file)), "failed to seed the test working directory")
 	}
+	// Seed the azure parquet destination.
+	require.NoError(t, copyFile(
+		filepath.Join(pwd, "..", "testdata", "parquet", "parquet_azure_destination.json"),
+		hostPath("parquet_azure_destination.json"),
+	), "failed to seed azure parquet destination")
+
 	// The arrow writer variant is derived, never committed: the base config stays the single
 	// source of truth, and writer variants become a pure file choice (see testIcebergWriter).
 	require.NoError(t, copyJSONWithEdit(hostPath("iceberg_destination.json"), hostPath("iceberg_destination_arrow.json"),
@@ -490,23 +497,24 @@ func GetTestConfig(t *testing.T, driver string, extraParams ...string) *TestConf
 			return nil
 		}), "failed to derive the arrow destination config")
 	return &TestConfig{
-		Driver:                   driver,
-		DataFormat:               dataFormat,
-		HostRootPath:             rootPath,
-		HostTestDataPath:         workDir,
-		HostTestCatalogPath:      fixturePath("test_streams.json"),
-		HostCatalogPath:          hostPath("streams.json"),
-		HostStatePath:            hostPath("state.json"),
-		HostStateCheckpointPath:  hostPath("state_checkpoint.json"),
-		HostPerformanceStatePath: fixturePath("performance_state.json"),
-		HostSourcePath:           hostPath("source.json"),
-		HostStatsPath:            hostPath("stats.json"),
-		BenchmarksPath:           fixturePath("benchmarks.json"),
-		SourcePath:               containerPath("source.json"),
-		CatalogPath:              containerPath("streams.json"),
-		IcebergDestinationPath:   containerPath("iceberg_destination.json"),
-		ParquetDestinationPath:   containerPath("parquet_destination.json"),
-		StatePath:                containerPath("state.json"),
+		Driver:                      driver,
+		DataFormat:                  dataFormat,
+		HostRootPath:                rootPath,
+		HostTestDataPath:            workDir,
+		HostTestCatalogPath:         fixturePath("test_streams.json"),
+		HostCatalogPath:             hostPath("streams.json"),
+		HostStatePath:               hostPath("state.json"),
+		HostStateCheckpointPath:     hostPath("state_checkpoint.json"),
+		HostPerformanceStatePath:    fixturePath("performance_state.json"),
+		HostSourcePath:              hostPath("source.json"),
+		HostStatsPath:               hostPath("stats.json"),
+		BenchmarksPath:              fixturePath("benchmarks.json"),
+		SourcePath:                  containerPath("source.json"),
+		CatalogPath:                 containerPath("streams.json"),
+		IcebergDestinationPath:      containerPath("iceberg_destination.json"),
+		ParquetDestinationPath:      containerPath("parquet_destination.json"),
+		AzureParquetDestinationPath: containerPath("parquet_azure_destination.json"),
+		StatePath:                   containerPath("state.json"),
 	}
 }
 
@@ -1804,6 +1812,13 @@ func (cfg *IntegrationTest) TestSync(t *testing.T) {
 		})
 	}
 
+	if hasAzuriteTest(cfg.TestConfig.Driver) {
+		t.Run("Azurite", func(t *testing.T) {
+			if err := cfg.testAzureBlob(ctx, t, currentTestTable); err != nil {
+				t.Fatalf("Azurite test failed: %v", err)
+			}
+		})
+	}
 	// 3. Clean up
 	if keepTestData() {
 		t.Logf("keeping %s source data (OLAKE_TEST_KEEP_DATA=true)", cfg.TestConfig.Driver)

@@ -142,6 +142,8 @@ func syncArgs(config TestConfig, useState bool, destinationType string, flags ..
 		args = append(args, "--destination", config.IcebergDestinationPath)
 	case "parquet":
 		args = append(args, "--destination", config.ParquetDestinationPath)
+	case "parquet-azure":
+		args = append(args, "--destination", config.AzureParquetDestinationPath)
 	}
 	if useState {
 		args = append(args, "--state", config.StatePath)
