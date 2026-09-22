@@ -1529,49 +1529,57 @@ func writeCatalogFile(t *testing.T, dir, name string, catalog *Catalog) string {
 	return path
 }
 
+func writeLegacyCatalogFile(t *testing.T, dir, name string, catalog *LegacyCatalog) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	data, err := json.Marshal(catalog)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, data, 0600))
+	return path
+}
+
 func TestResolveCatalog(t *testing.T) {
 	dir := t.TempDir()
 
-	// combined file: both streams[] and selected_streams
-	combinedCatalog := &Catalog{
+	// legacy: self-contained streams.json, both streams[] and selected_streams, legacy shape
+	legacyCatalog := &LegacyCatalog{
 		Streams: []*ConfiguredStream{
 			{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}},
 		},
-		SelectedStreams: map[string][]StreamMetadata{
-			"public": {{StreamName: "users", SyncMode: INCREMENTAL, Normalization: boolPtr(true)}},
+		SelectedStreams: map[string][]LegacyStreamMetadata{
+			"public": {{StreamName: "users", Normalization: true, AppendMode: false}},
 		},
 	}
-	combinedPath := writeCatalogFile(t, dir, "combined.json", combinedCatalog)
+	legacyPath := writeLegacyCatalogFile(t, dir, "streams.json", legacyCatalog)
 
-	// streams-only file: has streams[] but no selected_streams
-	streamsOnlyPath := writeCatalogFile(t, dir, "streams_only.json", &Catalog{
+	// new format: available_streams.json (streams[] only) + selected_streams.json (selected_streams only)
+	availablePath := writeCatalogFile(t, dir, "available_streams.json", &Catalog{
 		Streams: []*ConfiguredStream{
 			{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}},
 		},
 	})
-
-	// selected-streams file: only selected_streams (no streams[])
-	selectedOnlyPath := writeCatalogFile(t, dir, "selected_only.json", &Catalog{
+	selectedPath := writeCatalogFile(t, dir, "selected_streams.json", &Catalog{
 		SelectedStreams: map[string][]StreamMetadata{
 			"public": {{
 				StreamName:      "users",
 				SyncMode:        INCREMENTAL,
-				Normalization:   boolPtr(true),
 				SelectedColumns: createSelectedColumns([]string{"id", "name"}, true),
 			}},
 		},
 	})
 
-	t.Run("combined file without selectedStreamsPath works", func(t *testing.T) {
-		resolved, err := ResolveCatalog(combinedPath, "")
+	t.Run("legacy: self-contained streams.json resolves and converts to runtime StreamMetadata", func(t *testing.T) {
+		resolved, err := ResolveCatalog(legacyPath, "", "")
 		require.NoError(t, err)
 		require.Len(t, resolved.Streams, 1)
 		assert.Equal(t, "users", resolved.Streams[0].Stream.Name)
-		assert.Equal(t, INCREMENTAL, resolved.SelectedStreams["public"][0].SyncMode)
+		require.Len(t, resolved.SelectedStreams["public"], 1)
+		assert.Equal(t, boolPtr(true), resolved.SelectedStreams["public"][0].Normalization)
+		assert.Equal(t, boolPtr(false), resolved.SelectedStreams["public"][0].AppendMode)
 	})
 
-	t.Run("split layout: streams from streamsFile, selected_streams from selectedStreamsFile", func(t *testing.T) {
-		resolved, err := ResolveCatalog(streamsOnlyPath, selectedOnlyPath)
+	t.Run("new format: available_streams + selected_streams resolve together", func(t *testing.T) {
+		resolved, err := ResolveCatalog("", availablePath, selectedPath)
 		require.NoError(t, err)
 		require.Len(t, resolved.Streams, 1)
 		assert.Equal(t, "users", resolved.Streams[0].Stream.Name)
@@ -1580,220 +1588,189 @@ func TestResolveCatalog(t *testing.T) {
 		assert.Equal(t, []string{"id", "name"}, resolved.SelectedStreams["public"][0].SelectedColumns.Columns)
 	})
 
-	t.Run("split layout: selectedStreamsFile overlays combined streamsFile selected_streams", func(t *testing.T) {
-		// even if combinedPath already has selected_streams, the selectedStreamsFile replaces it
-		resolved, err := ResolveCatalog(combinedPath, selectedOnlyPath)
-		require.NoError(t, err)
-		// streams[] from combined
-		require.Len(t, resolved.Streams, 1)
-		// selected_streams from selectedOnlyPath (not from combinedPath)
-		require.Len(t, resolved.SelectedStreams["public"], 1)
-		assert.NotNil(t, resolved.SelectedStreams["public"][0].SelectedColumns)
-		assert.Equal(t, []string{"id", "name"}, resolved.SelectedStreams["public"][0].SelectedColumns.Columns)
-	})
-
-	t.Run("empty file loads as empty catalog", func(t *testing.T) {
-		emptyPath := writeCatalogFile(t, dir, "empty.json", &Catalog{})
-		resolved, err := ResolveCatalog(emptyPath, "")
+	t.Run("empty legacy file loads as empty catalog", func(t *testing.T) {
+		emptyPath := writeLegacyCatalogFile(t, dir, "empty.json", &LegacyCatalog{})
+		resolved, err := ResolveCatalog(emptyPath, "", "")
 		require.NoError(t, err)
 		assert.Empty(t, resolved.Streams)
 		assert.Empty(t, resolved.SelectedStreams)
 	})
 
-	t.Run("streams file with only selected_streams returns error", func(t *testing.T) {
-		_, err := ResolveCatalog(selectedOnlyPath, "")
+	t.Run("legacy streams[] without selected_streams returns error", func(t *testing.T) {
+		streamsOnlyPath := writeLegacyCatalogFile(t, dir, "legacy_streams_only.json", &LegacyCatalog{
+			Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}},
+		})
+		_, err := ResolveCatalog(streamsOnlyPath, "", "")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no selected_streams")
+		got := errs.From(errs.Classify(err))
+		assert.Equal(t, errs.CatalogError, got.Category)
+		assert.Equal(t, codeLegacySelectedStreamsEmpty, got.Code)
+	})
+
+	t.Run("legacy selected_streams without streams[] returns error", func(t *testing.T) {
+		selectedOnlyLegacyPath := writeLegacyCatalogFile(t, dir, "legacy_selected_only.json", &LegacyCatalog{
+			SelectedStreams: map[string][]LegacyStreamMetadata{"public": {{StreamName: "users"}}},
+		})
+		_, err := ResolveCatalog(selectedOnlyLegacyPath, "", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no streams[]")
 		got := errs.From(errs.Classify(err))
 		assert.Equal(t, errs.CatalogError, got.Category)
-		assert.Equal(t, codeStreamsMissing, got.Code)
+		assert.Equal(t, codeLegacyStreamsMissing, got.Code)
 	})
 
-	t.Run("selectedStreamsFile missing returns error", func(t *testing.T) {
-		_, err := ResolveCatalog(streamsOnlyPath, filepath.Join(dir, "no-such-file.json"))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to read selected_streams")
-	})
-
-	t.Run("selectedStreamsFile with empty selected_streams returns error", func(t *testing.T) {
-		emptySelectedPath := writeCatalogFile(t, dir, "empty_selected.json", &Catalog{})
-		_, err := ResolveCatalog(streamsOnlyPath, emptySelectedPath)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no selected_streams")
-		got := errs.From(errs.Classify(err))
-		assert.Equal(t, errs.CatalogError, got.Category)
-		assert.Equal(t, codeSelectedStreamsEmpty, got.Code)
-	})
-
-	t.Run("missing streamsFile returns error", func(t *testing.T) {
-		_, err := ResolveCatalog(filepath.Join(dir, "no-such-streams.json"), "")
+	t.Run("missing legacy streamsFile returns error", func(t *testing.T) {
+		_, err := ResolveCatalog(filepath.Join(dir, "no-such-streams.json"), "", "")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to read streams")
 	})
 
-	t.Run("streams-only file without --selected-streams returns error", func(t *testing.T) {
-		_, err := ResolveCatalog(streamsOnlyPath, "")
+	t.Run("--available-streams without --selected-streams returns error", func(t *testing.T) {
+		_, err := ResolveCatalog("", availablePath, "")
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no selected_streams")
 		got := errs.From(errs.Classify(err))
 		assert.Equal(t, errs.CatalogError, got.Category)
 		assert.Equal(t, codeSelectedStreamsFlagMissing, got.Code)
 	})
 
-	t.Run("streams-only file with --selected-streams loads", func(t *testing.T) {
-		resolved, err := ResolveCatalog(streamsOnlyPath, selectedOnlyPath)
-		require.NoError(t, err)
-		require.Len(t, resolved.Streams, 1)
-		require.Len(t, resolved.SelectedStreams["public"], 1)
+	t.Run("--selected-streams without --available-streams returns error", func(t *testing.T) {
+		_, err := ResolveCatalog("", "", selectedPath)
+		require.Error(t, err)
+		got := errs.From(errs.Classify(err))
+		assert.Equal(t, errs.CatalogError, got.Category)
+		assert.Equal(t, codeAvailableStreamsFlagMissing, got.Code)
 	})
 
-	t.Run("combined file loads without --selected-streams", func(t *testing.T) {
-		resolved, err := ResolveCatalog(combinedPath, "")
-		require.NoError(t, err)
-		require.Len(t, resolved.SelectedStreams["public"], 1)
+	t.Run("available_streams file with no streams[] returns error", func(t *testing.T) {
+		emptyAvailablePath := writeCatalogFile(t, dir, "empty_available.json", &Catalog{})
+		_, err := ResolveCatalog("", emptyAvailablePath, selectedPath)
+		require.Error(t, err)
+		got := errs.From(errs.Classify(err))
+		assert.Equal(t, errs.CatalogError, got.Category)
+		assert.Equal(t, codeAvailableStreamsEmpty, got.Code)
+	})
+
+	t.Run("selected_streams file with no selected_streams returns error", func(t *testing.T) {
+		emptySelectedPath := writeCatalogFile(t, dir, "empty_selected.json", &Catalog{})
+		_, err := ResolveCatalog("", availablePath, emptySelectedPath)
+		require.Error(t, err)
+		got := errs.From(errs.Classify(err))
+		assert.Equal(t, errs.CatalogError, got.Category)
+		assert.Equal(t, codeSelectedStreamsEmpty, got.Code)
 	})
 }
 
-func TestLogCatalog(t *testing.T) {
-	t.Run("combined write when SelectedStreamsPath not set", func(t *testing.T) {
-		dir := t.TempDir()
-		streamsPath := filepath.Join(dir, "streams.json")
-
-		viper.Set(constants.StreamsPath, streamsPath)
+// setLogCatalogPaths points viper at fresh streams.json / available_streams.json /
+// selected_streams.json paths in dir and registers cleanup.
+func setLogCatalogPaths(t *testing.T, dir string) (streamsPath, availablePath, selectedPath string) {
+	t.Helper()
+	streamsPath = filepath.Join(dir, "streams.json")
+	availablePath = filepath.Join(dir, "available_streams.json")
+	selectedPath = filepath.Join(dir, "selected_streams.json")
+	viper.Set(constants.StreamsPath, streamsPath)
+	viper.Set(constants.AvailableStreamsPath, availablePath)
+	viper.Set(constants.SelectedStreamsPath, selectedPath)
+	t.Cleanup(func() {
+		viper.Set(constants.StreamsPath, "")
+		viper.Set(constants.AvailableStreamsPath, "")
 		viper.Set(constants.SelectedStreamsPath, "")
-		t.Cleanup(func() {
-			viper.Set(constants.StreamsPath, "")
-			viper.Set(constants.SelectedStreamsPath, "")
-		})
+	})
+	return
+}
+
+func TestLogCatalog(t *testing.T) {
+	t.Run("always writes all three files, new user (no prior catalog)", func(t *testing.T) {
+		dir := t.TempDir()
+		streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, dir)
 
 		discovered := []*Stream{
-			{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at"},
+			{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DefaultStreamProperties: &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}},
 		}
 
-		LogCatalog(discovered, nil, "postgres")
+		LogCatalog(discovered, nil, nil, "postgres")
+
+		// streams.json: legacy shape, always-populated fields
+		data, err := os.ReadFile(streamsPath)
+		require.NoError(t, err)
+		var legacy LegacyCatalog
+		require.NoError(t, json.Unmarshal(data, &legacy))
+		require.Len(t, legacy.Streams, 1)
+		assert.Equal(t, "users", legacy.Streams[0].Stream.Name)
+		require.Len(t, legacy.SelectedStreams["public"], 1)
+		legacySM := legacy.SelectedStreams["public"][0]
+		assert.Equal(t, "users", legacySM.StreamName)
+		assert.True(t, legacySM.Normalization) // relational driver
+		assert.False(t, legacySM.AppendMode)
+		require.NotNil(t, legacySM.SelectedColumns)
+		assert.ElementsMatch(t, []string{"id", "name"}, legacySM.SelectedColumns.Columns)
+		assert.True(t, legacySM.SelectedColumns.SyncNewColumns)
+
+		// available_streams.json: streams[] only, no selected_streams
+		availableData, err := os.ReadFile(availablePath)
+		require.NoError(t, err)
+		var available Catalog
+		require.NoError(t, json.Unmarshal(availableData, &available))
+		require.Len(t, available.Streams, 1)
+		assert.Equal(t, "users", available.Streams[0].Stream.Name)
+		assert.Empty(t, available.SelectedStreams)
+
+		// selected_streams.json: sparse (stream_name/partition_regex/sync_mode/cursor_field), no streams[]
+		selectedData, err := os.ReadFile(selectedPath)
+		require.NoError(t, err)
+		var selected Catalog
+		require.NoError(t, json.Unmarshal(selectedData, &selected))
+		assert.Empty(t, selected.Streams)
+		require.Len(t, selected.SelectedStreams["public"], 1)
+		sm := selected.SelectedStreams["public"][0]
+		assert.Equal(t, "users", sm.StreamName)
+		assert.Equal(t, "updated_at", sm.CursorField)
+		assert.Nil(t, sm.Normalization) // not auto-populated by discover
+		assert.Nil(t, sm.AppendMode)
+	})
+
+	t.Run("writes all three files sorted by namespace then name", func(t *testing.T) {
+		dir := t.TempDir()
+		streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, dir)
+
+		defaults := &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}
+		discovered := []*Stream{
+			{Name: "users", Namespace: "sales", Schema: oldSchema(), DefaultStreamProperties: defaults},
+			{Name: "orders", Namespace: "public", Schema: oldSchema(), DefaultStreamProperties: defaults},
+			{Name: "accounts", Namespace: "sales", Schema: oldSchema(), DefaultStreamProperties: defaults},
+			{Name: "zebra", Namespace: "public", Schema: oldSchema(), DefaultStreamProperties: defaults},
+		}
+
+		LogCatalog(discovered, nil, nil, "postgres")
 
 		data, err := os.ReadFile(streamsPath)
 		require.NoError(t, err)
-		var combined Catalog
-		require.NoError(t, json.Unmarshal(data, &combined))
+		var legacy LegacyCatalog
+		require.NoError(t, json.Unmarshal(data, &legacy))
+		require.Len(t, legacy.Streams, 4)
+		assert.Equal(t, []string{"public.orders", "public.zebra", "sales.accounts", "sales.users"}, streamIDs(legacy.Streams))
 
-		// streams[] present
-		require.Len(t, combined.Streams, 1)
-		assert.Equal(t, "users", combined.Streams[0].Stream.Name)
-		assert.Equal(t, []string{"id", "name"}, combined.Streams[0].Stream.SelectableColumns)
-
-		// selected_streams present (lean: only StreamName + CursorField)
-		require.Len(t, combined.SelectedStreams["public"], 1)
-		sm := combined.SelectedStreams["public"][0]
-		assert.Equal(t, "users", sm.StreamName)
-		assert.Equal(t, "updated_at", sm.CursorField)
-		assert.Nil(t, sm.Normalization) // NOT written in lean discover
-		assert.Nil(t, sm.AppendMode)    // NOT written in lean discover
-
-		// preview file written alongside streams.json
-		previewPath := filepath.Join(dir, "selected_streams.json")
-		previewData, err := os.ReadFile(previewPath)
+		availableData, err := os.ReadFile(availablePath)
 		require.NoError(t, err)
-		var preview Catalog
-		require.NoError(t, json.Unmarshal(previewData, &preview))
-		assert.Empty(t, preview.Streams)
-		require.Len(t, preview.SelectedStreams["public"], 1)
-		assert.Equal(t, "users", preview.SelectedStreams["public"][0].StreamName)
+		var available Catalog
+		require.NoError(t, json.Unmarshal(availableData, &available))
+		assert.Equal(t, []string{"public.orders", "public.zebra", "sales.accounts", "sales.users"}, streamIDs(available.Streams))
+
+		selectedData, err := os.ReadFile(selectedPath)
+		require.NoError(t, err)
+		var selected Catalog
+		require.NoError(t, json.Unmarshal(selectedData, &selected))
+		require.Len(t, selected.SelectedStreams["public"], 2)
+		assert.Equal(t, "orders", selected.SelectedStreams["public"][0].StreamName)
+		assert.Equal(t, "zebra", selected.SelectedStreams["public"][1].StreamName)
+		require.Len(t, selected.SelectedStreams["sales"], 2)
+		assert.Equal(t, "accounts", selected.SelectedStreams["sales"][0].StreamName)
+		assert.Equal(t, "users", selected.SelectedStreams["sales"][1].StreamName)
 	})
 
-	t.Run("split write when SelectedStreamsPath is set", func(t *testing.T) {
+	t.Run("existing new-format user: merge carries forward oldCatalog into available/selected_streams", func(t *testing.T) {
 		dir := t.TempDir()
-		streamsPath := filepath.Join(dir, "streams.json")
-		selectedStreamsPath := filepath.Join(dir, "selected_streams.json")
-
-		viper.Set(constants.StreamsPath, streamsPath)
-		viper.Set(constants.SelectedStreamsPath, selectedStreamsPath)
-		t.Cleanup(func() {
-			viper.Set(constants.StreamsPath, "")
-			viper.Set(constants.SelectedStreamsPath, "")
-		})
-
-		discovered := []*Stream{
-			{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at"},
-			{Name: "orders", Namespace: "public", Schema: oldSchema(), SyncMode: CDC},
-		}
-
-		LogCatalog(discovered, nil, "postgres")
-
-		// streams file must have streams[] and NO selected_streams
-		streamsData, err := os.ReadFile(streamsPath)
-		require.NoError(t, err)
-		var streamsFile Catalog
-		require.NoError(t, json.Unmarshal(streamsData, &streamsFile))
-		require.Len(t, streamsFile.Streams, 2)
-		assert.Empty(t, streamsFile.SelectedStreams)
-
-		// selected_streams file must have selected_streams and NO streams[]
-		selectedData, err := os.ReadFile(selectedStreamsPath)
-		require.NoError(t, err)
-		var selectedFile Catalog
-		require.NoError(t, json.Unmarshal(selectedData, &selectedFile))
-		assert.Empty(t, selectedFile.Streams)
-		require.Len(t, selectedFile.SelectedStreams["public"], 2)
-		// incremental stream has cursor; cdc does not
-		names := map[string]string{}
-		for _, sm := range selectedFile.SelectedStreams["public"] {
-			names[sm.StreamName] = sm.CursorField
-		}
-		assert.Equal(t, "updated_at", names["users"])
-		assert.Equal(t, "", names["orders"])
-	})
-
-	t.Run("writes streams and selected_streams sorted by namespace then name", func(t *testing.T) {
-		dir := t.TempDir()
-		streamsPath := filepath.Join(dir, "streams.json")
-		selectedStreamsPath := filepath.Join(dir, "selected_streams.json")
-
-		viper.Set(constants.StreamsPath, streamsPath)
-		viper.Set(constants.SelectedStreamsPath, selectedStreamsPath)
-		t.Cleanup(func() {
-			viper.Set(constants.StreamsPath, "")
-			viper.Set(constants.SelectedStreamsPath, "")
-		})
-
-		discovered := []*Stream{
-			{Name: "users", Namespace: "sales", Schema: oldSchema()},
-			{Name: "orders", Namespace: "public", Schema: oldSchema()},
-			{Name: "accounts", Namespace: "sales", Schema: oldSchema()},
-			{Name: "zebra", Namespace: "public", Schema: oldSchema()},
-		}
-
-		LogCatalog(discovered, nil, "postgres")
-
-		streamsData, err := os.ReadFile(streamsPath)
-		require.NoError(t, err)
-		var streamsFile Catalog
-		require.NoError(t, json.Unmarshal(streamsData, &streamsFile))
-		require.Len(t, streamsFile.Streams, 4)
-		assert.Equal(t, []string{"public.orders", "public.zebra", "sales.accounts", "sales.users"}, streamIDs(streamsFile.Streams))
-
-		selectedData, err := os.ReadFile(selectedStreamsPath)
-		require.NoError(t, err)
-		var selectedFile Catalog
-		require.NoError(t, json.Unmarshal(selectedData, &selectedFile))
-		require.Len(t, selectedFile.SelectedStreams["public"], 2)
-		assert.Equal(t, "orders", selectedFile.SelectedStreams["public"][0].StreamName)
-		assert.Equal(t, "zebra", selectedFile.SelectedStreams["public"][1].StreamName)
-		require.Len(t, selectedFile.SelectedStreams["sales"], 2)
-		assert.Equal(t, "accounts", selectedFile.SelectedStreams["sales"][0].StreamName)
-		assert.Equal(t, "users", selectedFile.SelectedStreams["sales"][1].StreamName)
-	})
-
-	t.Run("merge preserves old selected_streams config on combined write", func(t *testing.T) {
-		dir := t.TempDir()
-		streamsPath := filepath.Join(dir, "streams.json")
-
-		viper.Set(constants.StreamsPath, streamsPath)
-		viper.Set(constants.SelectedStreamsPath, "")
-		t.Cleanup(func() {
-			viper.Set(constants.StreamsPath, "")
-			viper.Set(constants.SelectedStreamsPath, "")
-		})
+		streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, dir)
 
 		oldCatalog := &Catalog{
 			Streams: []*ConfiguredStream{
@@ -1810,22 +1787,22 @@ func TestLogCatalog(t *testing.T) {
 			},
 		}
 
+		defaults := &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}
 		newDiscovered := []*Stream{
-			{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: CDC},
-			{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH},
+			{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: CDC, DefaultStreamProperties: defaults},
+			{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DefaultStreamProperties: defaults},
 		}
 
-		LogCatalog(newDiscovered, oldCatalog, "postgres")
+		LogCatalog(newDiscovered, oldCatalog, nil, "postgres")
 
-		data, err := os.ReadFile(streamsPath)
+		// available_streams.json: users keeps its old Stream-level fields; orders is new
+		availableData, err := os.ReadFile(availablePath)
 		require.NoError(t, err)
-		var merged Catalog
-		require.NoError(t, json.Unmarshal(data, &merged))
-
-		require.Len(t, merged.Streams, 2)
-
+		var available Catalog
+		require.NoError(t, json.Unmarshal(availableData, &available))
+		require.Len(t, available.Streams, 2)
 		var usersStream *Stream
-		for _, cs := range merged.Streams {
+		for _, cs := range available.Streams {
 			if cs.Stream.Name == "users" {
 				usersStream = cs.Stream
 				break
@@ -1833,14 +1810,101 @@ func TestLogCatalog(t *testing.T) {
 		}
 		require.NotNil(t, usersStream)
 		assert.Equal(t, []string{"email", "id"}, usersStream.SelectableColumns)
+		assert.Equal(t, INCREMENTAL, usersStream.SyncMode)
+		assert.Equal(t, "updated_at", usersStream.CursorField)
 
-		// old selected_streams preserved (users) -- orders is new and not auto-selected
-		require.Len(t, merged.SelectedStreams["public"], 1)
-		sm := merged.SelectedStreams["public"][0]
+		// selected_streams.json: old selection preserved for users, orders not auto-selected
+		selectedData, err := os.ReadFile(selectedPath)
+		require.NoError(t, err)
+		var selected Catalog
+		require.NoError(t, json.Unmarshal(selectedData, &selected))
+		require.Len(t, selected.SelectedStreams["public"], 1)
+		sm := selected.SelectedStreams["public"][0]
 		assert.Equal(t, "users", sm.StreamName)
-		// metadata from old selected_streams carried forward
 		assert.Equal(t, INCREMENTAL, sm.SyncMode)
 		assert.Equal(t, "updated_at", sm.CursorField)
 		assert.Equal(t, boolPtr(true), sm.Normalization)
+
+		// streams.json: derived from the same single merge as available/selected_streams.json —
+		// users carries its old selection forward, orders (new) is not auto-selected.
+		streamsData, err := os.ReadFile(streamsPath)
+		require.NoError(t, err)
+		var legacy LegacyCatalog
+		require.NoError(t, json.Unmarshal(streamsData, &legacy))
+		require.Len(t, legacy.Streams, 2)
+		require.Len(t, legacy.SelectedStreams["public"], 1)
+		legacySM := legacy.SelectedStreams["public"][0]
+		assert.Equal(t, "users", legacySM.StreamName)
+		assert.True(t, legacySM.Normalization) // carried forward from oldCatalog's *bool(true)
+		require.NotNil(t, legacySM.SelectedColumns)
+		assert.ElementsMatch(t, []string{"id", "email"}, legacySM.SelectedColumns.Columns)
+	})
+
+	t.Run("existing legacy user, first run on this version: bootstraps selected_streams.json from real legacy selections", func(t *testing.T) {
+		dir := t.TempDir()
+		streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, dir)
+
+		oldLegacyCatalog := &LegacyCatalog{
+			Streams: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
+			},
+			SelectedStreams: map[string][]LegacyStreamMetadata{
+				"public": {{
+					StreamName:      "users",
+					Normalization:   false,
+					AppendMode:      true,
+					PartitionRegex:  "user_partition",
+					SelectedColumns: createSelectedColumns([]string{"id"}, false),
+				}},
+			},
+		}
+
+		defaults := &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}
+		newDiscovered := []*Stream{
+			{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: CDC, DefaultStreamProperties: defaults},
+			{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DefaultStreamProperties: defaults},
+		}
+
+		// oldCatalog is nil (no prior available_streams.json/selected_streams.json) but
+		// oldLegacyCatalog is real — this is the existing-user upgrade path.
+		LogCatalog(newDiscovered, nil, oldLegacyCatalog, "postgres")
+
+		// available_streams.json: users' Stream-level fields carried forward from the legacy state
+		availableData, err := os.ReadFile(availablePath)
+		require.NoError(t, err)
+		var available Catalog
+		require.NoError(t, json.Unmarshal(availableData, &available))
+		var usersStream *Stream
+		for _, cs := range available.Streams {
+			if cs.Stream.Name == "users" {
+				usersStream = cs.Stream
+				break
+			}
+		}
+		require.NotNil(t, usersStream)
+		assert.Equal(t, INCREMENTAL, usersStream.SyncMode)
+		assert.Equal(t, "updated_at", usersStream.CursorField)
+		assert.Equal(t, "analytics", usersStream.DestinationDatabase)
+
+		// selected_streams.json: seeded from the real legacy selections, not sparse defaults
+		selectedData, err := os.ReadFile(selectedPath)
+		require.NoError(t, err)
+		var selected Catalog
+		require.NoError(t, json.Unmarshal(selectedData, &selected))
+		require.Len(t, selected.SelectedStreams["public"], 1)
+		sm := selected.SelectedStreams["public"][0]
+		assert.Equal(t, "users", sm.StreamName)
+		assert.Equal(t, "user_partition", sm.PartitionRegex)
+		assert.Equal(t, boolPtr(false), sm.Normalization)
+		assert.Equal(t, boolPtr(true), sm.AppendMode)
+		require.NotNil(t, sm.SelectedColumns)
+
+		// streams.json: legacy format regenerates independently in its own always-populated shape
+		streamsData, err := os.ReadFile(streamsPath)
+		require.NoError(t, err)
+		var legacy LegacyCatalog
+		require.NoError(t, json.Unmarshal(streamsData, &legacy))
+		require.Len(t, legacy.SelectedStreams["public"], 1)
+		assert.Equal(t, "user_partition", legacy.SelectedStreams["public"][0].PartitionRegex)
 	})
 }

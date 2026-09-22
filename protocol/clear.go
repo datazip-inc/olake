@@ -17,8 +17,8 @@ var clearCmd = &cobra.Command{
 	PersistentPreRunE: func(_ *cobra.Command, _ []string) (err error) {
 		if destinationConfigPath == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
-		} else if streamsPath == "" {
-			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--streams not passed"))
+		} else if err := validateCatalogFlags(true); err != nil {
+			return err
 		}
 
 		destinationConfig = &types.WriterConfig{}
@@ -26,7 +26,7 @@ var clearCmd = &cobra.Command{
 			return err
 		}
 
-		catalog, err = types.ResolveCatalog(streamsPath, selectedStreamsPath)
+		catalog, err = types.ResolveCatalog(streamsPath, availableStreamsPath, selectedStreamsPath)
 		if err != nil {
 			return err
 		}

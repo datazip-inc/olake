@@ -40,8 +40,8 @@ var syncCmd = &cobra.Command{
 			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--config not passed"))
 		} else if destinationConfigPath == "" {
 			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--destination not passed"))
-		} else if streamsPath == "" {
-			return errs.Precondition(errs.ConfigInvalid, codeFlagMissing, fmt.Errorf("--catalog not passed"))
+		} else if err := validateCatalogFlags(true); err != nil {
+			return err
 		}
 
 		// unmarshal source config
@@ -60,7 +60,7 @@ var syncCmd = &cobra.Command{
 			viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		}
 
-		catalog, err = types.ResolveCatalog(streamsPath, selectedStreamsPath)
+		catalog, err = types.ResolveCatalog(streamsPath, availableStreamsPath, selectedStreamsPath)
 		if err != nil {
 			return err
 		}

@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	codeSelectedStreamsEmpty       = "catalog.selected_streams_empty"
-	codeStreamsMissing             = "catalog.streams_missing"
-	codeSelectedStreamsFlagMissing = "catalog.selected_streams_flag_missing"
+	codeSelectedStreamsEmpty        = "catalog.selected_streams_empty"
+	codeSelectedStreamsFlagMissing  = "catalog.selected_streams_flag_missing"
+	codeAvailableStreamsFlagMissing = "catalog.available_streams_flag_missing"
+	codeAvailableStreamsEmpty       = "catalog.available_streams_empty"
 )
 
 // Message is a dto for olake output row representation
@@ -105,21 +106,30 @@ type StreamMix struct {
 	StreamWithPosUpdateType int `json:"stream_with_pos_update_type_count"`
 }
 
-// ResolveCatalog loads a catalog from disk.
-// Combined layout: streams.json has both streams[] and selected_streams.
-// Split layout: pass --selected-streams so selected_streams is overlaid from that file.
-func ResolveCatalog(streamsFilePath, selectedStreamsFilePath string) (*Catalog, error) {
-	catalog := &Catalog{}
-	if err := utils.UnmarshalFile(streamsFilePath, catalog, false); err != nil {
-		return nil, fmt.Errorf("failed to read streams from %s: %w", streamsFilePath, err)
-	}
+// ResolveCatalog loads the runtime catalog from disk in new or legacy format
+// at:
+//   - New format: pass availableStreamsFilePath + selectedStreamsFilePath (both required)
+//   - Legacy format: pass only streamsFilePath
+func ResolveCatalog(streamsFilePath, availableStreamsFilePath, selectedStreamsFilePath string) (*Catalog, error) {
+	if availableStreamsFilePath != "" || selectedStreamsFilePath != "" {
+		if availableStreamsFilePath == "" {
+			return nil, errs.Precondition(errs.CatalogError, codeAvailableStreamsFlagMissing,
+				fmt.Errorf("--selected-streams passed without --available-streams"))
+		}
+		if selectedStreamsFilePath == "" {
+			return nil, errs.Precondition(errs.CatalogError, codeSelectedStreamsFlagMissing,
+				fmt.Errorf("--available-streams passed without --selected-streams"))
+		}
 
-	if selectedStreamsFilePath == "" && len(catalog.Streams) > 0 && len(catalog.SelectedStreams) == 0 {
-		return nil, errs.Precondition(errs.CatalogError, codeSelectedStreamsFlagMissing,
-			fmt.Errorf("streams file %s has streams[] but no selected_streams", streamsFilePath))
-	}
+		catalog := &Catalog{}
+		if err := utils.UnmarshalFile(availableStreamsFilePath, catalog, false); err != nil {
+			return nil, fmt.Errorf("failed to read streams from %s: %w", availableStreamsFilePath, err)
+		}
+		if len(catalog.Streams) == 0 {
+			return nil, errs.Precondition(errs.CatalogError, codeAvailableStreamsEmpty,
+				fmt.Errorf("available_streams file %s has no streams[]", availableStreamsFilePath))
+		}
 
-	if selectedStreamsFilePath != "" {
 		selectedCatalog := &Catalog{}
 		if err := utils.UnmarshalFile(selectedStreamsFilePath, selectedCatalog, false); err != nil {
 			return nil, fmt.Errorf("failed to read selected_streams from %s: %w", selectedStreamsFilePath, err)
@@ -129,23 +139,20 @@ func ResolveCatalog(streamsFilePath, selectedStreamsFilePath string) (*Catalog, 
 				fmt.Errorf("selected_streams file %s has no selected_streams", selectedStreamsFilePath))
 		}
 		catalog.SelectedStreams = selectedCatalog.SelectedStreams
+
+		return catalog, nil
 	}
 
-	if len(catalog.Streams) == 0 && len(catalog.SelectedStreams) > 0 {
-		return nil, errs.Precondition(errs.CatalogError, codeStreamsMissing,
-			fmt.Errorf("streams file %s has selected_streams but no streams[]", streamsFilePath))
+	legacy, err := ResolveLegacyCatalog(streamsFilePath)
+	if err != nil {
+		return nil, err
 	}
-
-	return catalog, nil
+	return legacyToCanonical(legacy), nil
 }
 
 // sortByNamespaceStreamName orders streams[] by namespace then name, and each selected_streams
 // namespace slice by stream_name. encoding/json already sorts selected_streams map keys.
 func (c *Catalog) sortByNamespaceStreamName() {
-	if c == nil {
-		return
-	}
-
 	// sort []streams
 	slices.SortFunc(c.Streams, func(left, right *ConfiguredStream) int {
 		if cmp := strings.Compare(left.Stream.Namespace, right.Stream.Namespace); cmp != 0 {
@@ -165,12 +172,6 @@ func (c *Catalog) sortByNamespaceStreamName() {
 func (c *Catalog) WriteToFile(path string) error {
 	c.sortByNamespaceStreamName()
 	return logger.FileLoggerWithPath(c, path)
-}
-
-// splitCatalogForWrite returns two Catalog values for the opt-in split file layout:
-// streams[] only, and selected_streams only.
-func splitCatalogForWrite(catalog *Catalog) (*Catalog, *Catalog) {
-	return &Catalog{Streams: catalog.Streams}, &Catalog{SelectedStreams: catalog.SelectedStreams}
 }
 
 func GetWrappedCatalog(streams []*Stream, _ string) *Catalog {
@@ -199,6 +200,14 @@ func GetWrappedCatalog(streams []*Stream, _ string) *Catalog {
 	return catalog
 }
 
+func streamMapByID(streams []*ConfiguredStream) map[string]*ConfiguredStream {
+	streamMap := make(map[string]*ConfiguredStream, len(streams))
+	for _, stream := range streams {
+		streamMap[stream.Stream.ID()] = stream
+	}
+	return streamMap
+}
+
 // MergeCatalogs merges old catalog with new catalog based on the following rules:
 // 1. SelectedStreams: Retain only streams present in both oldCatalog.SelectedStreams and newStreamMap
 // 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
@@ -209,19 +218,11 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 		return newCatalog
 	}
 
-	createStreamMap := func(catalog *Catalog) map[string]*ConfiguredStream {
-		streamMap := make(map[string]*ConfiguredStream)
-		for _, stream := range catalog.Streams {
-			streamMap[stream.Stream.ID()] = stream
-		}
-		return streamMap
-	}
-
-	oldStreams := createStreamMap(oldCatalog)
+	oldStreams := streamMapByID(oldCatalog.Streams)
 
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
-		newStreams := createStreamMap(newCatalog)
+		newStreams := streamMapByID(newCatalog.Streams)
 		selectedStreams := make(map[string][]StreamMetadata)
 
 		for namespace, metadataList := range oldCatalog.SelectedStreams {

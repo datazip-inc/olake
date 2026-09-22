@@ -1,7 +1,6 @@
 package types
 
 import (
-	"path/filepath"
 	"sort"
 
 	"github.com/goccy/go-json"
@@ -164,35 +163,35 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 	return output
 }
 
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
+// LogCatalog merges the fresh discover result with the prior catalog, then writes
+// available_streams.json, selected_streams.json, and streams.json from that one merge.
+// oldCatalog is the prior new-format catalog; oldLegacyCatalog is the prior streams.json,
+// Both nil means first-ever discover.
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, oldLegacyCatalog *LegacyCatalog, driver string) {
 	message := Message{
 		Type:    CatalogMessage,
 		Catalog: GetWrappedCatalog(streams, driver),
 	}
 	logger.Info(message)
-	// write catalog to the specified file
-	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
+
+	priorCatalog := oldCatalog
+	if priorCatalog == nil && oldLegacyCatalog != nil {
+		priorCatalog = legacyToCanonical(oldLegacyCatalog)
+	}
+	merged := mergeCatalogs(priorCatalog, message.Catalog)
+
+	availableStreamsFilePath := viper.GetString(constants.AvailableStreamsPath)
+	if err := (&Catalog{Streams: merged.Streams}).WriteToFile(availableStreamsFilePath); err != nil {
+		logger.Fatalf("failed to create available_streams file: %s", err)
+	}
+
+	selectedStreamsFilePath := viper.GetString(constants.SelectedStreamsPath)
+	if err := (&Catalog{SelectedStreams: merged.SelectedStreams}).WriteToFile(selectedStreamsFilePath); err != nil {
+		logger.Fatalf("failed to create selected_streams file: %s", err)
+	}
 
 	streamsFilePath := viper.GetString(constants.StreamsPath)
-	selectedStreamsFilePath := viper.GetString(constants.SelectedStreamsPath)
-	if selectedStreamsFilePath != "" {
-		streamsContent, selectedContent := splitCatalogForWrite(message.Catalog)
-		if err := streamsContent.WriteToFile(streamsFilePath); err != nil {
-			logger.Fatalf("failed to create streams file: %s", err)
-		}
-		if err := selectedContent.WriteToFile(selectedStreamsFilePath); err != nil {
-			logger.Fatalf("failed to create selected_streams file: %s", err)
-		}
-		return
-	}
-
-	if err := message.Catalog.WriteToFile(streamsFilePath); err != nil {
+	if err := toLegacyCatalog(merged).WriteToFile(streamsFilePath); err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
-	}
-
-	// selected_streams.json that can be opted-in later if user prefers split-write (streams.json + selected_streams.json)
-	newSelectedStreamsCatalog := filepath.Join(filepath.Dir(streamsFilePath), "selected_streams.json")
-	if err := (&Catalog{SelectedStreams: message.Catalog.SelectedStreams}).WriteToFile(newSelectedStreamsCatalog); err != nil {
-		logger.Fatalf("failed to create selected_streams preview file: %s", err)
 	}
 }

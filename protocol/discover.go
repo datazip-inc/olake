@@ -17,11 +17,21 @@ import (
 	"github.com/spf13/viper"
 )
 
+// isStreamDifferenceCommand reports whether both old and new streams flags were passed
+func isStreamDifferenceCommand() bool {
+	hasOldStreams := streamsPath != "" || availableStreamsPath != "" || selectedStreamsPath != ""
+	hasNewStreams := differencePath != "" || differenceAvailableStreamsPath != "" || differenceSelectedStreamsPath != ""
+	return hasOldStreams && hasNewStreams
+}
+
 var discoverCmd = &cobra.Command{
 	Use:   "discover",
 	Short: "discover command",
 	PreRunE: func(_ *cobra.Command, _ []string) (err error) {
-		if streamsPath != "" && differencePath != "" {
+		if err := validateCatalogFlags(false); err != nil {
+			return err
+		}
+		if isStreamDifferenceCommand() {
 			return nil
 		}
 		if configPath == "" {
@@ -34,7 +44,13 @@ var discoverCmd = &cobra.Command{
 		destinationDatabasePrefix = utils.Ternary(destinationDatabasePrefix == "", connector.Type(), destinationDatabasePrefix).(string)
 		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		if streamsPath != "" {
-			catalog, err = types.ResolveCatalog(streamsPath, selectedStreamsPath)
+			legacyCatalog, err = types.ResolveLegacyCatalog(streamsPath)
+			if err != nil {
+				return err
+			}
+		}
+		if availableStreamsPath != "" || selectedStreamsPath != "" {
+			catalog, err = types.ResolveCatalog("", availableStreamsPath, selectedStreamsPath)
 			if err != nil {
 				return err
 			}
@@ -46,7 +62,7 @@ var discoverCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		if streamsPath != "" && differencePath != "" {
+		if isStreamDifferenceCommand() {
 			return compareStreams()
 		}
 
@@ -69,7 +85,7 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, connector.Type())
+		types.LogCatalog(streams, catalog, legacyCatalog, connector.Type())
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled
@@ -84,16 +100,14 @@ var discoverCmd = &cobra.Command{
 	},
 }
 
-// compareStreams reads two streams.json files, computes the difference, and writes the result to difference_streams.json
+// compareStreams reads two catalogs, computes the difference, and writes the result to difference_streams.json
 func compareStreams() error {
-	oldStreams, err := types.ResolveCatalog(streamsPath, selectedStreamsPath)
+	oldStreams, err := types.ResolveCatalog(streamsPath, availableStreamsPath, selectedStreamsPath)
 	if err != nil {
 		return fmt.Errorf("failed to read old catalog: %w", err)
 	}
 
-	// NOTE: always pass the legacy format for the new streams when using stream-difference
-	// new streams is of the legacy format ([]selected_streams + []streams)
-	newStreams, err := types.ResolveCatalog(differencePath, "")
+	newStreams, err := types.ResolveCatalog(differencePath, differenceAvailableStreamsPath, differenceSelectedStreamsPath)
 	if err != nil {
 		return fmt.Errorf("failed to read new catalog: %w", err)
 	}
