@@ -34,9 +34,10 @@ type QueryEngineSpec struct {
 }
 
 // writableUpdateTypes are the delete formats OLake can produce, cheapest first: equality
-// needs no index, positional needs a full identifier -> RowLocation index. Deletion
-// vectors are absent until the dv writer lands.
-var writableUpdateTypes = []UpdateType{UpdateTypeEquality, UpdateTypePosition}
+// needs no index, positional needs a full identifier -> RowLocation index, and deletion
+// vectors need the same index plus a format version 3 table, so they are never the default
+// while positional is still readable.
+var writableUpdateTypes = []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector}
 
 // queryEngines is the read-capability matrix. Support is version dependent and moves fast;
 // each row reflects the engine's current stable release. Positional deletes are the

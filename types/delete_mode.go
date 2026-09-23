@@ -34,9 +34,9 @@ func (m UpdateType) NeedsTableIndex(destinationType DestinationType) bool {
 func (m UpdateType) Validate() error {
 	if slices.Contains(writableUpdateTypes, m) {
 		return nil
-	default:
-		return fmt.Errorf("invalid update mode: %s", m)
 	}
+
+	return fmt.Errorf("invalid update mode: %s", m)
 }
 
 // ValidateAgainst reports whether m is a delete format OLake can write and one the stream

@@ -63,12 +63,12 @@ func TestAvailableUpdateTypes(t *testing.T) {
 			// No engines means unconstrained: everything OLake can write stays on the table.
 			name:     "no engines leaves every writable format",
 			engines:  nil,
-			expected: []UpdateType{UpdateTypeEquality, UpdateTypePosition},
+			expected: []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector},
 		},
 		{
-			name:     "single engine reading both formats",
+			name:     "single engine reading every format",
 			engines:  []QueryEngine{QueryEngineSpark},
-			expected: []UpdateType{UpdateTypeEquality, UpdateTypePosition},
+			expected: []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector},
 		},
 		{
 			// DuckDB cannot resolve equality deletes, so the intersection drops to positional.
@@ -82,10 +82,16 @@ func TestAvailableUpdateTypes(t *testing.T) {
 			expected: []UpdateType{UpdateTypePosition},
 		},
 		{
-			// Spark and Trino both read deletion vectors, but OLake cannot write them yet.
-			name:     "unwritable formats never surface",
-			engines:  []QueryEngine{QueryEngineSpark, QueryEngineTrino},
+			// Flink reads equality and positional deletes but not deletion vectors.
+			name:     "engine without deletion vector support drops dv",
+			engines:  []QueryEngine{QueryEngineSpark, QueryEngineFlink},
 			expected: []UpdateType{UpdateTypeEquality, UpdateTypePosition},
+		},
+		{
+			// Databricks cannot read equality deletes, so dv survives alongside positional.
+			name:     "deletion vector kept when every engine reads it",
+			engines:  []QueryEngine{QueryEngineSpark, QueryEngineDatabricks},
+			expected: []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector},
 		},
 	}
 
@@ -100,6 +106,8 @@ func TestPreferredUpdateType(t *testing.T) {
 	// Equality outranks positional: it needs no identifier -> RowLocation index.
 	assert.Equal(t, UpdateTypeEquality, PreferredUpdateType([]UpdateType{UpdateTypeEquality, UpdateTypePosition}))
 	assert.Equal(t, UpdateTypePosition, PreferredUpdateType([]UpdateType{UpdateTypePosition}))
+	// Deletion vectors need a v3 table, so positional stays the default while it is readable.
+	assert.Equal(t, UpdateTypePosition, PreferredUpdateType([]UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}))
 	assert.Equal(t, UpdateType(""), PreferredUpdateType(nil))
 }
 
@@ -116,7 +124,8 @@ func TestUpdateTypeValidateAgainst(t *testing.T) {
 		// Hand-edited streams file, or engines that changed without a re-discover.
 		{name: "equality is not offered", updateType: UpdateTypeEquality, available: []UpdateType{UpdateTypePosition}, wantErr: true},
 		{name: "positional is offered", updateType: UpdateTypePosition, available: []UpdateType{UpdateTypePosition}},
-		{name: "deletion vector is not writable", updateType: UpdateTypeDeletionVector, wantErr: true},
+		{name: "deletion vector is offered", updateType: UpdateTypeDeletionVector, available: []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}},
+		{name: "deletion vector is not offered", updateType: UpdateTypeDeletionVector, available: []UpdateType{UpdateTypeEquality, UpdateTypePosition}, wantErr: true},
 		{name: "garbage value", updateType: UpdateType("nope"), wantErr: true},
 	}
 
@@ -177,6 +186,15 @@ func TestMergeUpdateType(t *testing.T) {
 		{
 			name: "blank value is filled", existing: "",
 			engines: []QueryEngine{QueryEngineSpark}, expected: "eq",
+		},
+		{
+			name: "readable deletion vector is kept", existing: "dv",
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineTrino}, expected: "dv",
+		},
+		{
+			// Flink cannot read deletion vectors, so the stream falls back to the cheapest format.
+			name: "unreadable deletion vector is re-picked", existing: "dv",
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineFlink}, expected: "eq",
 		},
 	}
 
