@@ -1,6 +1,7 @@
 package constants
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -88,6 +89,15 @@ var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}
 var ErrNonRetryable = fmt.Errorf("failed with non retryable error")
 var ErrGlobalContextGroup = fmt.Errorf("global context group error")
+
+const (
+	ExitCodeFailure            = 1
+	ExitCodeManualIntervention = 2
+)
+
+func IsNonRetryable(err error) bool {
+	return err != nil && errors.Is(err, ErrNonRetryable)
+}
 
 // DriversRequiringIncrementalFormatter are drivers that require special formatting for incremental value
 var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}

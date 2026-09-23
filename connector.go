@@ -3,6 +3,7 @@ package olake
 import (
 	"os"
 
+	"github.com/datazip-inc/olake/constants"
 	_ "github.com/datazip-inc/olake/destination/iceberg" // registering iceberg destination
 	_ "github.com/datazip-inc/olake/destination/parquet" // registering parquet destination
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -18,6 +19,10 @@ func RegisterDriver(driver abstract.DriverInterface) {
 	err := protocol.CreateRootCommand(true, driver).Execute()
 	if err != nil {
 		protocol.ReportFailure(err)
+		if constants.IsNonRetryable(err) {
+			logger.Errorf("FATAL: manual intervention required: %s", err)
+			os.Exit(constants.ExitCodeManualIntervention)
+		}
 		logger.Fatal(err)
 	}
 

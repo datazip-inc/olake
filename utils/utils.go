@@ -491,7 +491,7 @@ func RetryOnBackoff(ctx context.Context, attempts int, sleep time.Duration, f fu
 		}
 
 		// check if error is non retryable
-		if strings.Contains(err.Error(), constants.ErrNonRetryable.Error()) {
+		if constants.IsNonRetryable(err) {
 			return err
 		}
 
