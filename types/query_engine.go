@@ -39,23 +39,28 @@ type QueryEngineSpec struct {
 // while positional is still readable.
 var writableUpdateTypes = []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector}
 
-// queryEngines is the read-capability matrix. Support is version dependent and moves fast;
-// each row reflects the engine's current stable release. Positional deletes are the
-// universal denominator, equality deletes are read by far fewer engines.
+// queryEngines is the read-capability matrix: a format is listed only when the engine's
+// current stable release resolves it on read, so an OLake-written table never returns rows
+// the engine silently failed to delete. Support is version dependent and moves fast;
+// verified September 2026. Partial or preview support is left out:
+//   - BigQuery reads deletion vectors only in Preview.
+//   - Dremio skips global (unpartitioned-spec) equality deletes, which OLake writes for
+//     unpartitioned tables, and reads deletion vectors only in Dremio Cloud.
+//   - Databricks applies neither equality nor positional deletes; only deletion vectors.
 var queryEngines = []QueryEngineSpec{
 	{Engine: QueryEngineSpark, Label: "Apache Spark", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector}},
-	{Engine: QueryEngineFlink, Label: "Apache Flink", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition}},
+	{Engine: QueryEngineFlink, Label: "Apache Flink", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector}},
 	{Engine: QueryEngineTrino, Label: "Trino", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector}},
 	{Engine: QueryEnginePresto, Label: "Presto", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition}},
 	{Engine: QueryEngineStarRocks, Label: "StarRocks", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition}},
-	{Engine: QueryEngineHive, Label: "Apache Hive", Supports: []UpdateType{UpdateTypePosition}},
-	{Engine: QueryEngineDuckDB, Label: "DuckDB", Supports: []UpdateType{UpdateTypePosition}},
-	{Engine: QueryEngineAthena, Label: "AWS Athena", Supports: []UpdateType{UpdateTypePosition}},
-	{Engine: QueryEngineSnowflake, Label: "Snowflake", Supports: []UpdateType{UpdateTypePosition}},
-	{Engine: QueryEngineBigQuery, Label: "Google BigQuery", Supports: []UpdateType{UpdateTypePosition}},
-	{Engine: QueryEngineDatabricks, Label: "Databricks", Supports: []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}},
+	{Engine: QueryEngineHive, Label: "Apache Hive", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition}},
+	{Engine: QueryEngineDuckDB, Label: "DuckDB", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector}},
+	{Engine: QueryEngineAthena, Label: "AWS Athena", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition}},
+	{Engine: QueryEngineSnowflake, Label: "Snowflake", Supports: []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector}},
+	{Engine: QueryEngineBigQuery, Label: "Google BigQuery", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition}},
+	{Engine: QueryEngineDatabricks, Label: "Databricks", Supports: []UpdateType{UpdateTypeDeletionVector}},
 	{Engine: QueryEngineDremio, Label: "Dremio", Supports: []UpdateType{UpdateTypePosition}},
-	{Engine: QueryEngineClickHouse, Label: "ClickHouse", Supports: []UpdateType{UpdateTypePosition}},
+	{Engine: QueryEngineClickHouse, Label: "ClickHouse", Supports: []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector}},
 }
 
 // QueryEngineCatalog is served by `spec --available-query-engines`. The engine names it

@@ -71,27 +71,34 @@ func TestAvailableUpdateTypes(t *testing.T) {
 			expected: []UpdateType{UpdateTypeEquality, UpdateTypePosition, UpdateTypeDeletionVector},
 		},
 		{
-			// DuckDB cannot resolve equality deletes, so the intersection drops to positional.
+			// Dremio reads only positional deletes, so the intersection drops to positional.
 			name:     "one restrictive engine narrows the set",
-			engines:  []QueryEngine{QueryEngineSpark, QueryEngineDuckDB, QueryEngineHive},
+			engines:  []QueryEngine{QueryEngineSpark, QueryEngineDuckDB, QueryEngineDremio},
 			expected: []UpdateType{UpdateTypePosition},
 		},
 		{
+			// Snowflake cannot read equality deletes.
 			name:     "restrictive engine alone",
 			engines:  []QueryEngine{QueryEngineSnowflake},
-			expected: []UpdateType{UpdateTypePosition},
+			expected: []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector},
 		},
 		{
-			// Flink reads equality and positional deletes but not deletion vectors.
+			// Athena only reads v2 tables, so deletion vectors drop out.
 			name:     "engine without deletion vector support drops dv",
-			engines:  []QueryEngine{QueryEngineSpark, QueryEngineFlink},
+			engines:  []QueryEngine{QueryEngineSpark, QueryEngineAthena},
 			expected: []UpdateType{UpdateTypeEquality, UpdateTypePosition},
 		},
 		{
-			// Databricks cannot read equality deletes, so dv survives alongside positional.
-			name:     "deletion vector kept when every engine reads it",
+			// Databricks applies no v2 delete files, so deletion vectors are all that remain.
+			name:     "deletion vector only engine",
 			engines:  []QueryEngine{QueryEngineSpark, QueryEngineDatabricks},
-			expected: []UpdateType{UpdateTypePosition, UpdateTypeDeletionVector},
+			expected: []UpdateType{UpdateTypeDeletionVector},
+		},
+		{
+			// Databricks reads only deletion vectors, Athena none of them.
+			name:     "disjoint engines leave nothing",
+			engines:  []QueryEngine{QueryEngineDatabricks, QueryEngineAthena},
+			expected: []UpdateType{},
 		},
 	}
 
@@ -144,8 +151,8 @@ func TestUpdateTypeValidateAgainst(t *testing.T) {
 func TestGetWrappedCatalogUsesEngineDerivedUpdateType(t *testing.T) {
 	streams := []*Stream{{Name: "users", Namespace: "public", Schema: NewTypeSchema()}}
 
-	// DuckDB cannot read equality deletes, so the seeded default drops to positional.
-	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineDuckDB})
+	// Snowflake cannot read equality deletes, so the seeded default drops to positional.
+	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineSnowflake})
 
 	assert.Equal(t, string(UpdateTypePosition), catalog.SelectedStreams["public"][0].UpdateType)
 }
@@ -176,12 +183,12 @@ func TestMergeUpdateType(t *testing.T) {
 		},
 		{
 			name: "readable value is kept", existing: "pos",
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, expected: "pos",
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: "pos",
 		},
 		{
-			// The stream was configured before DuckDB joined the target engines.
+			// The stream was configured before Snowflake joined the target engines.
 			name: "unreadable value is re-picked", existing: "eq",
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineDuckDB}, expected: "pos",
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: "pos",
 		},
 		{
 			name: "blank value is filled", existing: "",
@@ -192,9 +199,9 @@ func TestMergeUpdateType(t *testing.T) {
 			engines: []QueryEngine{QueryEngineSpark, QueryEngineTrino}, expected: "dv",
 		},
 		{
-			// Flink cannot read deletion vectors, so the stream falls back to the cheapest format.
+			// Athena cannot read deletion vectors, so the stream falls back to the cheapest format.
 			name: "unreadable deletion vector is re-picked", existing: "dv",
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineFlink}, expected: "eq",
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineAthena}, expected: "eq",
 		},
 	}
 

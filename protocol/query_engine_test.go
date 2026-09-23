@@ -30,6 +30,12 @@ func TestResolveTargetQueryEngines(t *testing.T) {
 			flag:    []string{"spark", "sparkk"},
 			wantErr: true,
 		},
+		{
+			// Databricks reads only deletion vectors and Athena none, so no format fits both.
+			name:    "engines without a common delete format fail the run",
+			flag:    []string{"databricks", "athena"},
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range testCases {
