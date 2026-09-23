@@ -199,33 +199,29 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 }
 
 // mergeUpdateType keeps a previously configured delete format only while every current
-// target query engine can still read it. Changing the engine selection must not leave a
-// stream pinned to a format its readers cannot resolve, so an unreadable choice falls back
-// to the cheapest available one.
+// target query engine can still read it. An unreadable choice is cleared rather than
+// replaced: switching delete formats can force a table recreate, so the user must pick the
+// new one explicitly, and a blank update_type fails validation until they do.
 func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine) {
-	// Without target engines nothing constrains the choice, so leave the recorded value
-	// exactly as it was, blank included: ConfiguredStream.GetUpdateType still defaults it.
+	// A blank value predates update_type and always meant equality (see
+	// ConfiguredStream.GetUpdateType). Record it, so blank is left to mean "needs a choice".
+	if metadata.UpdateType == "" {
+		metadata.UpdateType = string(UpdateTypeEquality)
+	}
+
+	// Without target engines nothing constrains the choice.
 	if len(engines) == 0 {
 		return
 	}
 
 	available := AvailableUpdateTypes(engines)
-	if metadata.UpdateType != "" && slices.Contains(available, UpdateType(metadata.UpdateType)) {
+	if slices.Contains(available, UpdateType(metadata.UpdateType)) {
 		return
 	}
 
-	preferred := PreferredUpdateType(available)
-	if preferred == "" {
-		// No format satisfies every engine; discover fails before reaching here, so leave
-		// the value untouched rather than blanking a working configuration.
-		return
-	}
-
-	if metadata.UpdateType != "" {
-		logger.Warnf("Stream %s update mode changed from %s to %s; %s is not readable by the selected query engines",
-			streamID, metadata.UpdateType, preferred, metadata.UpdateType)
-	}
-	metadata.UpdateType = string(preferred)
+	logger.Warnf("Stream %s update mode %s is not readable by the selected query engines; cleared, choose one of %v",
+		streamID, metadata.UpdateType, available)
+	metadata.UpdateType = ""
 }
 
 // MergeSelectedColumns merges the selected columns based on the following rules:

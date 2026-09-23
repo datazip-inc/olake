@@ -239,7 +239,7 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 			}
 		}
 
-		if err := elem.GetUpdateType().ValidateAgainst(elem.Stream.AvailableUpdateTypes); err != nil {
+		if err := elem.ValidateUpdateType(); err != nil {
 			logger.Warnf("Skipping; Configured Stream %s found invalid delete mode: %s", elem.ID(), err)
 			return false
 		}

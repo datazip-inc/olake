@@ -178,8 +178,11 @@ func TestMergeUpdateType(t *testing.T) {
 		expected string
 	}{
 		{
-			// Legacy catalogs carry no engines; their recorded value must survive untouched.
-			name: "no engines leaves the value alone", existing: "", engines: nil, expected: "",
+			// Legacy blank always meant equality; recording it keeps blank for "needs a choice".
+			name: "no engines records a legacy blank as equality", existing: "", engines: nil, expected: "eq",
+		},
+		{
+			name: "no engines leaves a set value alone", existing: "dv", engines: nil, expected: "dv",
 		},
 		{
 			name: "readable value is kept", existing: "pos",
@@ -187,21 +190,26 @@ func TestMergeUpdateType(t *testing.T) {
 		},
 		{
 			// The stream was configured before Snowflake joined the target engines.
-			name: "unreadable value is re-picked", existing: "eq",
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: "pos",
+			name: "unreadable value is cleared", existing: "eq",
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineSnowflake}, expected: "",
 		},
 		{
-			name: "blank value is filled", existing: "",
+			name: "legacy blank readable as equality", existing: "",
 			engines: []QueryEngine{QueryEngineSpark}, expected: "eq",
+		},
+		{
+			// Blank meant equality, which Snowflake cannot read.
+			name: "legacy blank unreadable as equality is cleared", existing: "",
+			engines: []QueryEngine{QueryEngineSnowflake}, expected: "",
 		},
 		{
 			name: "readable deletion vector is kept", existing: "dv",
 			engines: []QueryEngine{QueryEngineSpark, QueryEngineTrino}, expected: "dv",
 		},
 		{
-			// Athena cannot read deletion vectors, so the stream falls back to the cheapest format.
-			name: "unreadable deletion vector is re-picked", existing: "dv",
-			engines: []QueryEngine{QueryEngineSpark, QueryEngineAthena}, expected: "eq",
+			// Athena reads equality, but the switch must be the user's choice, not a silent fallback.
+			name: "unreadable deletion vector is cleared", existing: "dv",
+			engines: []QueryEngine{QueryEngineSpark, QueryEngineAthena}, expected: "",
 		},
 	}
 
