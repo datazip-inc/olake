@@ -1775,6 +1775,14 @@ func (cfg *IntegrationTest) TestSync(t *testing.T) {
 				}
 			})
 		}
+
+		if hasIcebergArrowSameBatchCreateUpdateTest(cfg.TestConfig.Driver) {
+			t.Run("Iceberg Arrow Same Batch Create Update", func(t *testing.T) {
+				if err := cfg.testIcebergWriter(ctx, t, currentTestTable, true, cfg.testIcebergArrowSameBatchCreateUpdate); err != nil {
+					t.Fatalf("Iceberg Arrow Same Batch Create Update test failed: %v", err)
+				}
+			})
+		}
 	}
 
 	// Skip incremental tests for drivers not supporting incremental mode
