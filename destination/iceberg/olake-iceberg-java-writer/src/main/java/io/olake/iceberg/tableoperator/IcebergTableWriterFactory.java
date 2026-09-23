@@ -84,7 +84,8 @@ public class IcebergTableWriterFactory {
     if (deleteMode.addressesPositions()) {
       // One writer for both layouts: an unpartitioned table is a single entry keyed
       // on the empty partition struct, so there is no partitioned/unpartitioned split.
-      // pos vs dv is entirely the sink's concern from here - the writer never branches.
+      // The writer decides WHICH position is superseded; the sink decides how it is
+      // encoded (Parquet delete file or Puffin vector), so pos and dv share this path.
       return new PositionalDeltaWriter(icebergTable.spec(), format, appenderFactory, fileFactory,
           icebergTable.io(),
           targetFileSize, icebergTable.schema(), keepDeletes,
