@@ -107,7 +107,6 @@ func (c *LegacyCatalog) WriteToFile(path string) error {
 //     own DefaultStreamProperties (set once at discover time by the driver layer).
 //   - selected_columns: nil/empty means "all columns"; streams.json writes the current column
 //     list instead of omitting the field, matching pre-split behavior.
-//
 func toLegacyCatalog(canonical *Catalog) *LegacyCatalog {
 	canonical.sortByNamespaceStreamName()
 	legacy := &LegacyCatalog{
