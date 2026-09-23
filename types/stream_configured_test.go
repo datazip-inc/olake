@@ -449,8 +449,6 @@ func TestConfiguredStream_GetFilter(t *testing.T) {
 }
 
 func TestConfiguredStream_GetSyncMode(t *testing.T) {
-	// Priority: selected_streams (metadata) > streams[]
-	// No DSP fallback for SyncMode.
 	tests := []struct {
 		name     string
 		stream   *Stream
@@ -492,8 +490,6 @@ func TestConfiguredStream_GetSyncMode(t *testing.T) {
 }
 
 func TestConfiguredStream_Cursor(t *testing.T) {
-	// Priority: selected_streams (metadata) > streams[]
-	// No DSP fallback for CursorField.
 	tests := []struct {
 		name     string
 		stream   *Stream
@@ -547,9 +543,6 @@ func TestConfiguredStream_Cursor(t *testing.T) {
 }
 
 func TestConfiguredStream_GetDestinationDatabase(t *testing.T) {
-	// Priority: selected_streams (metadata) > streams[]
-	// Falls back to stream.Namespace when both are empty.
-	// No DSP fallback for DestinationDatabase.
 	tests := []struct {
 		name     string
 		stream   *Stream
@@ -600,9 +593,6 @@ func TestConfiguredStream_GetDestinationDatabase(t *testing.T) {
 }
 
 func TestConfiguredStream_GetDestinationTable(t *testing.T) {
-	// Priority: selected_streams (metadata) > streams[]
-	// Falls back to stream.Name when both are empty.
-	// No DSP fallback for DestinationTable.
 	tests := []struct {
 		name     string
 		stream   *Stream
@@ -683,7 +673,6 @@ func TestConfiguredStream_NormalizationEnabled(t *testing.T) {
 }
 
 func TestConfiguredStream_AppendModeEnabled(t *testing.T) {
-	// Priority: metadata (*bool) > DSP.AppendMode
 	tests := []struct {
 		name     string
 		stream   *Stream

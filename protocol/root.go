@@ -186,10 +186,8 @@ const (
 	codePanicRecovered = "sync.panic_recovered"
 )
 
-// validateCatalogFlags enforces that --streams and --available-streams/--selected-streams are
-// never combined in the same invocation, and (when required) that at least one catalog source
-// was passed. sync and clear-destination require a catalog source; discover's normal (non
-// stream-difference) mode does not — a first-ever discover has none.
+// validateCatalogFlags rejects --streams combined with --available-streams/--selected-streams,
+// and, when required, requires at least one catalog source.
 func validateCatalogFlags(streamsFlagRequired bool) error {
 	hasLegacy := streamsPath != ""
 	hasNew := availableStreamsPath != "" || selectedStreamsPath != ""
