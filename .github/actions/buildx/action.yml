@@ -5,4 +5,4 @@ runs:
   using: composite
   steps:
     - uses: docker/setup-buildx-action@v3
-    - uses: crazy-max/ghaction-github-runtime@v3
+    - uses: crazy-max/ghaction-github-runtime@v4
