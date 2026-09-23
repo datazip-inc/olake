@@ -158,9 +158,9 @@ func TestLogCatalogPersistsOnlyTheDerivedList(t *testing.T) {
 	}}
 
 	catalog := GetWrappedCatalog(streams, "postgres", []QueryEngine{QueryEngineSpark, QueryEngineDuckDB})
-	serialised, err := json.Marshal(catalog)
+	serialized, err := json.Marshal(catalog)
 	require.NoError(t, err)
-	assert.NotContains(t, string(serialised), "target_query_engines")
+	assert.NotContains(t, string(serialized), "target_query_engines")
 }
 
 func TestMergeUpdateType(t *testing.T) {
