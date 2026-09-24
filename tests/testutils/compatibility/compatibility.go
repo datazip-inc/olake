@@ -63,6 +63,7 @@ func (th *TestHandler) RunBackwardCompatibility(t *testing.T) {
 		// reads them as itself.
 		ruleSpec := version
 		if commitID, ok := testutils.ResolveToCommit(currentConf.OlakeRootPath, version); ok {
+			version = commitID
 			if release := equivalentRelease(currentConf.OlakeRootPath, commitID); release != "" {
 				ruleSpec = release
 				t.Logf("compatibility: baseline %s reads the gates and rules as %s, the newest release reachable from it", version, release)
