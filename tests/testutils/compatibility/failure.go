@@ -65,12 +65,11 @@ type variantFailure struct {
 // failureReport accumulates the variants that failed one baseline and renders the message the
 // run's final assertion reports. Written from the group goroutines, which run in parallel.
 type failureReport struct {
-	mu        sync.Mutex
-	driver    string
-	spec      string
-	baseline  string // the image both sides start on
-	candidate string // the image the upgrade side hands off to
-	failures  []variantFailure
+	mu              sync.Mutex
+	driver          string
+	baselineVersion string // version both sides start on
+	upgradedVersion string // version the upgrade side hands off to
+	failures        []variantFailure
 }
 
 func (r *failureReport) add(group, variant string, d *diagnostics) {
@@ -112,8 +111,8 @@ func (r *failureReport) render() string {
 		}
 	}
 
-	fmt.Fprintf(&b, "\nreference run: every sync on %s\n", r.baseline)
-	fmt.Fprintf(&b, "upgrade run:   the stateless load on %s, every sync after it on %s\n", r.baseline, r.candidate)
+	fmt.Fprintf(&b, "\nreference run: every sync on %s\n", r.baselineVersion)
+	fmt.Fprintf(&b, "upgrade run:   the stateless load on %s, every sync after it on %s\n", r.baselineVersion, r.upgradedVersion)
 	return b.String()
 }
 
@@ -124,7 +123,7 @@ func (r *failureReport) render() string {
 func (r *failureReport) headline() (string, string) {
 	if versionBumps, err := testutils.StateVersionBaselines(); err == nil {
 		for _, bump := range versionBumps {
-			if bump.ReleaseTag == r.spec {
+			if bump.ReleaseTag == r.baselineVersion {
 				return fmt.Sprintf("STATE VERSION %d FAILED for %s -- baseline %s is the release that introduced it",
 					bump.StateVersion, r.driver, bump.ReleaseTag), bump.Note
 			}
@@ -134,9 +133,9 @@ func (r *failureReport) headline() (string, string) {
 	// of the contract the reader can act on.
 	if current, err := testutils.LatestStateVersion(); err == nil {
 		return fmt.Sprintf("BASELINE %s FAILED for %s -- state written by that build is not read the same way by this one, which is at state version %d",
-			r.spec, r.driver, current), ""
+			r.baselineVersion, r.driver, current), ""
 	}
-	return fmt.Sprintf("BASELINE %s FAILED for %s", r.spec, r.driver), ""
+	return fmt.Sprintf("BASELINE %s FAILED for %s", r.baselineVersion, r.driver), ""
 }
 
 // indent prefixes every line, not just the first: a message that carries its own detail (a schema

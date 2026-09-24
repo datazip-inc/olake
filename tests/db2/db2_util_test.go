@@ -54,8 +54,8 @@ var seedColumns = []seedColumn{
 // rule in compatibility_rules.json follows a seed edit with nothing to declare.
 func seedColumnTypes() map[string][]string {
 	types := make(map[string][]string, len(seedColumns))
-	for _, col := range seedColumns {
-		types[col.name] = testutils.DataTypeTags(col.datatype)
+	for _, seedCol := range seedColumns {
+		types[seedCol.name] = testutils.DataTypeTags(seedCol.datatype)
 	}
 	return types
 }
@@ -63,56 +63,56 @@ func seedColumnTypes() map[string][]string {
 func filterSeedColumns(t *testing.T, excluded []string) []seedColumn {
 	t.Helper()
 	names := make([]string, 0, len(seedColumns))
-	for _, col := range seedColumns {
-		names = append(names, col.name)
+	for _, seedCol := range seedColumns {
+		names = append(names, seedCol.name)
 	}
 	drop, err := testutils.SeedColumnsExcluded(excluded, names)
 	require.NoError(t, err, "db2 seed exclusion")
 
 	kept := make([]seedColumn, 0, len(seedColumns))
-	for _, col := range seedColumns {
-		if !drop[col.name] {
-			kept = append(kept, col)
+	for _, seedCol := range seedColumns {
+		if !drop[seedCol.name] {
+			kept = append(kept, seedCol)
 		}
 	}
 	return kept
 }
 
-func createTableQuery(table string, cols []seedColumn) string {
-	defs := make([]string, 0, len(cols))
-	for _, col := range cols {
-		defs = append(defs, col.definition())
+func createTableQuery(table string, seedCols []seedColumn) string {
+	defs := make([]string, 0, len(seedCols))
+	for _, seedCol := range seedCols {
+		defs = append(defs, seedCol.definition())
 	}
 	return fmt.Sprintf("CREATE TABLE %s (\n\t%s\n)", table, strings.Join(defs, ",\n\t"))
 }
 
-func insertRowQuery(table string, cols []seedColumn, filtered bool, overrides map[string]string) string {
-	names := make([]string, 0, len(cols))
-	values := make([]string, 0, len(cols))
-	for _, col := range cols {
-		value := col.value
+func insertRowQuery(table string, seedCols []seedColumn, filtered bool, overrides map[string]string) string {
+	names := make([]string, 0, len(seedCols))
+	values := make([]string, 0, len(seedCols))
+	for _, seedCol := range seedCols {
+		value := seedCol.value
 		if filtered {
-			value = col.filtered
+			value = seedCol.filtered
 		}
-		if override, ok := overrides[col.name]; ok {
+		if override, ok := overrides[seedCol.name]; ok {
 			value = override
 		}
 		if value == "" {
 			continue
 		}
-		names = append(names, col.name)
+		names = append(names, seedCol.name)
 		values = append(values, value)
 	}
 	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, strings.Join(names, ", "), strings.Join(values, ", "))
 }
 
-func updateRowQuery(table string, cols []seedColumn) string {
-	sets := make([]string, 0, len(cols)+1)
-	for _, col := range cols {
-		if col.updated == "" {
+func updateRowQuery(table string, seedCols []seedColumn) string {
+	sets := make([]string, 0, len(seedCols)+1)
+	for _, seedCol := range seedCols {
+		if seedCol.updated == "" {
 			continue
 		}
-		sets = append(sets, col.name+" = "+col.updated)
+		sets = append(sets, seedCol.name+" = "+seedCol.updated)
 	}
 	sets = append(sets, "includedColumn = 202")
 	return fmt.Sprintf("UPDATE %s SET %s WHERE id = 1", table, strings.Join(sets, ", "))
