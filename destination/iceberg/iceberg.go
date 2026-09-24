@@ -269,7 +269,7 @@ func (i *Iceberg) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 				detectedIcebergType := detectedType.ToIceberg()
 				if _, existInIceberg := threadSchema[key]; existInIceberg {
 					// Column exists in iceberg table: restrict to valid promotions only
-					valid := isValidTransition(finalSchema[key], detectedIcebergType)
+					valid := isValidTypeForColumn(finalSchema[key], detectedIcebergType)
 					if !valid {
 						return false, fmt.Errorf(
 							"failed to validate schema for field[%s] (detected two different types in batch), expected type: %s, detected type: %s",
@@ -509,18 +509,17 @@ func parsePartitionRegex(pattern string, resolveColumnName func(string) string) 
 	return partitionInfo, nil
 }
 
-// isValidTransition checks if type transition is valid using lookup table
-func isValidTransition(oldType, newType string) bool {
-	if oldType == newType {
+// isValidTypeForColumn reports whether a column of iceberg type columnType can take a value of
+// iceberg type valueType, as it is or through an iceberg promotion. A value cannot reveal a fixed
+// width, so a fixed[n] column takes any binary value and the writer pads or rejects it against n.
+func isValidTypeForColumn(columnType, valueType string) bool {
+	if columnType == valueType || validTypeTransitions[columnType][valueType] {
 		return true
 	}
-	if transitions, ok := validTypeTransitions[oldType]; ok {
-		if transitions[newType] {
-			return true
-		}
+	if width, _ := types.IcebergBytesWidth(columnType); width > 0 {
+		return valueType == "binary"
 	}
-
-	return getCommonAncestorType(oldType, newType) == oldType
+	return getCommonAncestorType(columnType, valueType) == columnType
 }
 
 // isPromotionRequired checks if promotion is needed using lookup table

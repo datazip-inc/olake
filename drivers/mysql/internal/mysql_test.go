@@ -21,8 +21,6 @@ func mysqlPointWKB(x, y float64) []byte {
 	return binary.LittleEndian.AppendUint64(b, math.Float64bits(y))
 }
 
-func intPtr(v int) *int { return &v }
-
 func TestDataTypeConverter(t *testing.T) {
 	tests := []struct {
 		name string
@@ -221,7 +219,7 @@ func TestDataTypeConverter(t *testing.T) {
 			name:         "unsigned tinyint at version 4",
 			columnType:   "unsigned tinyint",
 			value:        int8(-1),
-			stateVersion: intPtr(4),
+			stateVersion: new(4),
 			expected:     int32(math.MaxUint8),
 		},
 		// v3 and below drop the unsigned prefix and keep the signed value
@@ -229,14 +227,14 @@ func TestDataTypeConverter(t *testing.T) {
 			name:         "unsigned tinyint at version 3",
 			columnType:   "unsigned tinyint",
 			value:        int8(-1),
-			stateVersion: intPtr(3),
+			stateVersion: new(3),
 			expected:     int32(-1),
 		},
 		{
 			name:         "unsigned mediumint at version 3",
 			columnType:   "unsigned mediumint",
 			value:        int32(-1),
-			stateVersion: intPtr(3),
+			stateVersion: new(3),
 			expected:     int32(-1),
 		},
 		// legacy maps unsigned int to Int32 (the overflow v4 fixed), not Int64
@@ -244,14 +242,14 @@ func TestDataTypeConverter(t *testing.T) {
 			name:         "unsigned int at version 3",
 			columnType:   "unsigned int",
 			value:        int32(-1),
-			stateVersion: intPtr(3),
+			stateVersion: new(3),
 			expected:     int32(-1),
 		},
 		{
 			name:         "unsigned bigint at version 0",
 			columnType:   "UNSIGNED BIGINT",
 			value:        int64(-1),
-			stateVersion: intPtr(0),
+			stateVersion: new(0),
 			expected:     int64(-1),
 		},
 
@@ -275,12 +273,39 @@ func TestDataTypeConverter(t *testing.T) {
 			value:      "POINT(1 2)",
 			expected:   "POINT(1 2)",
 		},
-		// non-geospatial binary keeps the plain string conversion
+		// non-geospatial binary keeps its bytes
 		{
 			name:       "varbinary is not geospatial",
 			columnType: "varbinary(16)",
 			value:      []byte("abc"),
-			expected:   "abc",
+			expected:   []byte("abc"),
+		},
+		{
+			name:       "blob keeps non-utf8 bytes",
+			columnType: "blob",
+			value:      []byte{0xff, 0x00, 0x80},
+			expected:   []byte{0xff, 0x00, 0x80},
+		},
+		{
+			name:         "binary at version 7",
+			columnType:   "binary(16)",
+			value:        []byte{0xff, 0x00, 0x80},
+			stateVersion: new(7),
+			expected:     string([]byte{0xff, 0x00, 0x80}),
+		},
+		{
+			name:         "varbinary at version 7",
+			columnType:   "varbinary(16)",
+			value:        []byte("abc"),
+			stateVersion: new(7),
+			expected:     "abc",
+		},
+		{
+			name:         "blob at version 7",
+			columnType:   "blob",
+			value:        []byte{0xff, 0x00, 0x80},
+			stateVersion: new(7),
+			expected:     string([]byte{0xff, 0x00, 0x80}),
 		},
 
 		// ===== signed and non-integer columns =====
@@ -343,7 +368,6 @@ func TestDataTypeConverter(t *testing.T) {
 	old := constants.LoadedStateVersion
 	t.Cleanup(func() { constants.LoadedStateVersion = old })
 
-	m := &MySQL{}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			constants.LoadedStateVersion = constants.LatestStateVersion
@@ -351,6 +375,7 @@ func TestDataTypeConverter(t *testing.T) {
 				constants.LoadedStateVersion = *tc.stateVersion
 			}
 
+			m := &MySQL{typeMapping: mysqlTypeToDataTypes()}
 			got, err := m.dataTypeConverter(tc.value, tc.columnType)
 			switch {
 			case tc.expectedErr != nil:

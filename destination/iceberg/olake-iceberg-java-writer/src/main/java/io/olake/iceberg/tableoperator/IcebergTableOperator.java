@@ -560,6 +560,7 @@ public class IcebergTableOperator {
                     case DOUBLE_VALUE -> protoValue.getDoubleValue();
                     case STRING_VALUE -> protoValue.getStringValue();
                     case BOOL_VALUE -> protoValue.getBoolValue();
+                    case BYTES_VALUE -> protoValue.getBytesValue().asReadOnlyByteBuffer();
                     case VALUE_NOT_SET -> null;
                };
                partitionData.set(i, value);

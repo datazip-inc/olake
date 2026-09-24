@@ -248,3 +248,154 @@ func TestConvertRowToMapColumnCountMismatch(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "column count mismatch")
 }
+
+func TestIsBinaryCollation(t *testing.T) {
+	testCases := []struct {
+		name        string
+		collationID uint64
+		binary      bool
+	}{
+		{
+			name:        "the binary charset",
+			collationID: 63,
+			binary:      true,
+		},
+		{
+			name:        "utf8mb4 general",
+			collationID: 45,
+			binary:      false,
+		},
+		{
+			name:        "utf8mb4 0900",
+			collationID: 255,
+			binary:      false,
+		},
+		{
+			name:        "latin1 swedish",
+			collationID: 8,
+			binary:      false,
+		},
+		{
+			name:        "unset",
+			collationID: 0,
+			binary:      false,
+		},
+		{
+			name:        "out of range ids are not binary",
+			collationID: 1 << 40,
+			binary:      false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.binary, isBinaryCollation(tc.collationID))
+		})
+	}
+}
+
+func TestBinaryTypeName(t *testing.T) {
+	testCases := []struct {
+		wireType string
+		want     string
+	}{
+		{
+			wireType: "CHAR",
+			want:     "BINARY",
+		},
+		{
+			wireType: "VARCHAR",
+			want:     "VARBINARY",
+		},
+		{
+			wireType: "BLOB",
+			want:     "BLOB",
+		},
+		{
+			wireType: "LONGBLOB",
+			want:     "LONGBLOB",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.wireType, func(t *testing.T) {
+			assert.Equal(t, tc.want, binaryTypeName(tc.wireType))
+		})
+	}
+}
+
+// TestFixedStringWidth pins the declared width unpacked from a CHAR or BINARY column's TableMapEvent
+// meta the three ways it is packed: a bare width, the real type in the high byte with the width
+// below it, and the width's high bits folded into the type byte once the width passes 255.
+func TestFixedStringWidth(t *testing.T) {
+	testCases := []struct {
+		name string
+		meta uint16
+		want int
+	}{
+		{
+			name: "binary(16)",
+			meta: uint16(mysql.MYSQL_TYPE_STRING)<<8 | 16,
+			want: 16,
+		},
+		{
+			name: "binary(255)",
+			meta: uint16(mysql.MYSQL_TYPE_STRING)<<8 | 255,
+			want: 255,
+		},
+		{
+			name: "char(255) utf8mb4 width folded into the type byte",
+			meta: uint16(mysql.MYSQL_TYPE_STRING^((1020&0x300)>>4))<<8 | (1020 & 0xFF),
+			want: 1020,
+		},
+		{
+			name: "bare width",
+			meta: 16,
+			want: 16,
+		},
+		{
+			name: "no width",
+			want: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, fixedWidth(tc.meta))
+		})
+	}
+}
+
+func TestTextTypeName(t *testing.T) {
+	testCases := []struct {
+		wireType string
+		want     string
+	}{
+		{
+			wireType: "TINYBLOB",
+			want:     "TINYTEXT",
+		},
+		{
+			wireType: "BLOB",
+			want:     "TEXT",
+		},
+		{
+			wireType: "MEDIUMBLOB",
+			want:     "MEDIUMTEXT",
+		},
+		{
+			wireType: "LONGBLOB",
+			want:     "LONGTEXT",
+		},
+		{
+			wireType: "VARCHAR",
+			want:     "VARCHAR",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.wireType, func(t *testing.T) {
+			assert.Equal(t, tc.want, textTypeName(tc.wireType))
+		})
+	}
+}

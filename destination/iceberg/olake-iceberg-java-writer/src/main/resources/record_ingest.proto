@@ -133,6 +133,7 @@ message ArrowPayload {
         float float_value = 4;
         double double_value = 5;
         bool bool_value = 6;
+        bytes bytes_value = 7;
       }
     }
 
