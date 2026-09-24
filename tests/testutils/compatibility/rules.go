@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"golang.org/x/mod/semver"
 )
 
 // compatibility_rules.json is the compatibility suite's whole configuration: per-driver and per-group
@@ -53,7 +54,61 @@ type compatibilityDestination struct {
 	Modes map[string]compatibilityGate
 }
 
-var compatibilityGateFields = map[string]bool{"min_baseline": true, "skip_baselines": true, "note": true}
+// compatibilityVariantRules gates and rules for one source data format (s3's csv/json/parquet).
+type compatibilityVariantRules struct {
+	compatibilityGate
+	Rules []compatibilityTypeRule `json:"rules"`
+}
+
+type compatibilityDriverRules struct {
+	compatibilityGate
+	Destinations map[string]compatibilityDestination `json:"destinations"`
+	Rules        []compatibilityTypeRule             `json:"rules"`
+	// DestinationRules covers the columns this driver makes APPEAR in the destination (its
+	// materialized key, olake's metadata) as opposed to the source columns its fixture seeds.
+	DestinationRules []compatibilityTypeRule              `json:"destination_rules"`
+	Variants         map[string]compatibilityVariantRules `json:"variants"`
+}
+
+// compatibilityDestinationsRules is the destinations block: the rules for the columns every
+// destination writer emits (olake's own metadata), and each destination's gates.
+type compatibilityDestinationsRules struct {
+	Rules   []compatibilityTypeRule  `json:"rules"`
+	Iceberg compatibilityDestination `json:"iceberg"`
+	Parquet compatibilityDestination `json:"parquet"`
+}
+
+type compatibilityRulesConfig struct {
+	Drivers      map[string]compatibilityDriverRules `json:"drivers"`
+	Destinations compatibilityDestinationsRules      `json:"destinations"`
+}
+
+var (
+	compatibilityGateFields = map[string]bool{"min_baseline": true, "skip_baselines": true, "note": true}
+
+	//go:embed compatibility_rules.json
+	rawCompatibilityRules []byte
+
+	// compatibilityRules is parsed and validated at package init, so a malformed or misspelled rules file
+	// fails every suite loudly instead of silently under-enforcing.
+	compatibilityRules = func() compatibilityRulesConfig {
+		var cfg compatibilityRulesConfig
+		dec := json.NewDecoder(bytes.NewReader(rawCompatibilityRules))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&cfg); err != nil {
+			panic("tests/testutils/compatibility_rules.json: " + err.Error())
+		}
+		if err := cfg.validate(); err != nil {
+			panic("tests/testutils/compatibility_rules.json: " + err.Error())
+		}
+		return cfg
+	}()
+
+	knownCompatibilityDrivers = []constants.DriverType{
+		constants.MongoDB, constants.Postgres, constants.MySQL, constants.Oracle,
+		constants.DB2, constants.S3, constants.Kafka, constants.MSSQL,
+	}
+)
 
 func (d *compatibilityDestination) UnmarshalJSON(data []byte) error {
 	var raw map[string]json.RawMessage
@@ -91,61 +146,9 @@ func strictUnmarshal(data []byte, target any) error {
 	return dec.Decode(target)
 }
 
-// compatibilityVariantRules gates and rules for one source data format (s3's csv/json/parquet).
-type compatibilityVariantRules struct {
-	compatibilityGate
-	Rules []compatibilityTypeRule `json:"rules"`
-}
-
-type compatibilityDriverRules struct {
-	compatibilityGate
-	Destinations map[string]compatibilityDestination `json:"destinations"`
-	Rules        []compatibilityTypeRule             `json:"rules"`
-	// DestinationRules covers the columns this driver makes APPEAR in the destination (its
-	// materialized key, olake's metadata) as opposed to the source columns its fixture seeds.
-	DestinationRules []compatibilityTypeRule              `json:"destination_rules"`
-	Variants         map[string]compatibilityVariantRules `json:"variants"`
-}
-
-// compatibilityDestinationsRules is the destinations block: the rules for the columns every
-// destination writer emits (olake's own metadata), and each destination's gates.
-type compatibilityDestinationsRules struct {
-	Rules   []compatibilityTypeRule  `json:"rules"`
-	Iceberg compatibilityDestination `json:"iceberg"`
-	Parquet compatibilityDestination `json:"parquet"`
-}
-
 // gates keys the destinations the way the writer groups look them up.
 func (r compatibilityDestinationsRules) gates() map[string]compatibilityDestination {
 	return map[string]compatibilityDestination{"iceberg": r.Iceberg, "parquet": r.Parquet}
-}
-
-type compatibilityRulesConfig struct {
-	Drivers      map[string]compatibilityDriverRules `json:"drivers"`
-	Destinations compatibilityDestinationsRules      `json:"destinations"`
-}
-
-//go:embed compatibility_rules.json
-var rawCompatibilityRules []byte
-
-// compatibilityRules is parsed and validated at package init, so a malformed or misspelled rules file
-// fails every suite loudly instead of silently under-enforcing.
-var compatibilityRules = func() compatibilityRulesConfig {
-	var cfg compatibilityRulesConfig
-	dec := json.NewDecoder(bytes.NewReader(rawCompatibilityRules))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&cfg); err != nil {
-		panic("tests/testutils/compatibility_rules.json: " + err.Error())
-	}
-	if err := cfg.validate(); err != nil {
-		panic("tests/testutils/compatibility_rules.json: " + err.Error())
-	}
-	return cfg
-}()
-
-var knownCompatibilityDrivers = []constants.DriverType{
-	constants.MongoDB, constants.Postgres, constants.MySQL, constants.Oracle,
-	constants.DB2, constants.S3, constants.Kafka, constants.MSSQL,
 }
 
 // validate rejects what would otherwise fail open: a driver or group name nothing matches, and a
@@ -215,7 +218,7 @@ func (g compatibilityGate) validate(scope string) error {
 		if tag == "" {
 			continue
 		}
-		if _, ok := parseReleaseTag(tag); !ok {
+		if !semver.IsValid(tag) {
 			return fmt.Errorf("%s: %q is not a release tag", scope, tag)
 		}
 	}
@@ -237,7 +240,7 @@ func validateRules(scope string, rules []compatibilityTypeRule) error {
 			if tag == "" {
 				continue
 			}
-			if _, ok := parseReleaseTag(tag); !ok {
+			if !semver.IsValid(tag) {
 				return fmt.Errorf("%s rule %d: %q is not a release tag", scope, i, tag)
 			}
 		}
@@ -252,7 +255,6 @@ func (c compatibilityRulesConfig) validateThresholds() error {
 	if err != nil {
 		return err
 	}
-	globalFloor, _ := parseReleaseTag(floorTag)
 	lists := [][]compatibilityTypeRule{c.Destinations.Rules}
 	for _, driver := range c.Drivers {
 		lists = append(lists, driver.Rules, driver.DestinationRules)
@@ -266,9 +268,7 @@ func (c compatibilityRulesConfig) validateThresholds() error {
 				if threshold == "" {
 					continue
 				}
-				// Tags were validated at load, so the parse cannot fail here.
-				bound, _ := parseReleaseTag(threshold)
-				if compareRelease(bound, globalFloor) <= 0 {
+				if semver.Compare(threshold, floorTag) <= 0 {
 					return fmt.Errorf("compatibility_rules.json: rule threshold %s is at or below the oldest reachable baseline %s, so it can never fire (%s); drop the rule or record it as a note",
 						threshold, floorTag, rule.Note)
 				}
@@ -278,19 +278,17 @@ func (c compatibilityRulesConfig) validateThresholds() error {
 	return nil
 }
 
-// skipReason says why a baseline is out of this gate's range ("" = it runs). Tags are validated at
-// load, so anything unparseable here is a bug rather than bad config.
-func (g compatibilityGate) skipReason(version [3]int, isRelease bool) string {
-	if !isRelease {
+// skipReason says why a baseline is out of this gate's range ("" = it runs). An undatable baseline
+// (a commit with no release reachable, an image ref) is never gated.
+func (g compatibilityGate) skipReason(spec string) string {
+	if !semver.IsValid(spec) {
 		return ""
 	}
-	if g.MinBaseline != "" {
-		if boundary, ok := parseReleaseTag(g.MinBaseline); ok && compareRelease(version, boundary) < 0 {
-			return fmt.Sprintf("baseline is older than %s", g.MinBaseline)
-		}
+	if g.MinBaseline != "" && semver.Compare(spec, g.MinBaseline) < 0 {
+		return fmt.Sprintf("baseline is older than %s", g.MinBaseline)
 	}
 	for _, skip := range g.SkipBaselines {
-		if boundary, ok := parseReleaseTag(skip); ok && compareRelease(version, boundary) == 0 {
+		if semver.Compare(spec, skip) == 0 {
 			return fmt.Sprintf("baseline %s is a known bounded regression here", skip)
 		}
 	}
@@ -301,7 +299,7 @@ func (g compatibilityGate) skipReason(version [3]int, isRelease bool) string {
 // skip windows union, so a driver can only ever narrow what it runs.
 func mergedGate(global, driver compatibilityGate) compatibilityGate {
 	merged := compatibilityGate{MinBaseline: global.MinBaseline, Note: global.Note}
-	if driver.MinBaseline != "" && (merged.MinBaseline == "" || releaseTagLess(merged.MinBaseline, driver.MinBaseline)) {
+	if driver.MinBaseline != "" && (merged.MinBaseline == "" || semver.Compare(merged.MinBaseline, driver.MinBaseline) < 0) {
 		merged.MinBaseline, merged.Note = driver.MinBaseline, driver.Note
 	}
 	merged.SkipBaselines = append(append([]string{}, global.SkipBaselines...), driver.SkipBaselines...)

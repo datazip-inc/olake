@@ -704,7 +704,7 @@ func (v S3TestVariant) currentDestinationWriter(t *testing.T, config *testutils.
 // between the switch and the verification -- reads the live flag and updates the maps in place.
 func (v S3TestVariant) applyWriterExpectations(t *testing.T, cfg *integration.TestHandler, config *testutils.TestConfig) {
 	t.Helper()
-	if v.WriterExpectedData == nil {
+	if v.WriterExpectedData == nil || cfg == nil {
 		return
 	}
 

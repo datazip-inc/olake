@@ -12,17 +12,17 @@ import (
 
 type kafkaFormat struct {
 	name string
-	// build runs inside the subtest, not beside it: every name a suite owns is derived from
+	// newTestHandler runs inside the subtest, not beside it: every name a suite owns is derived from
 	// t.Name(), so both formats built against the parent would answer to the same one.
-	build func(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler
+	newTestHandler func(t *testing.T, opts ...testutils.TestConfigOption) *integration.TestHandler
 	// destinationSchema is the format's destination column types, which the compatibility suite
 	// resolves its type-keyed rules against.
 	destinationSchema map[string]string
 }
 
 var kafkaFormats = []kafkaFormat{
-	{name: "JSON-Format", build: kafkaJSONBaseConfig, destinationSchema: KafkaToDestinationJSONSchema},
-	{name: "AVRO-Format", build: kafkaAvroBaseConfig, destinationSchema: KafkaToDestinationAvroSchema},
+	{name: "JSON-Format", newTestHandler: kafkaJSONBaseConfig, destinationSchema: KafkaToDestinationJSONSchema},
+	{name: "AVRO-Format", newTestHandler: kafkaAvroBaseConfig, destinationSchema: KafkaToDestinationAvroSchema},
 }
 
 // kafkaJSONTestConfig builds the config every kafka JSON suite shares: the source, the namespace and the stream settings.
@@ -106,7 +106,7 @@ func kafkaAvroBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *inte
 func TestKafkaDiscover(t *testing.T) {
 	for _, format := range kafkaFormats {
 		t.Run(format.name, func(t *testing.T) {
-			format.build(t).TestDiscover(t)
+			format.newTestHandler(t).TestDiscover(t)
 		})
 	}
 }
@@ -116,7 +116,7 @@ func TestKafkaSync(t *testing.T) {
 	for _, format := range kafkaFormats {
 		t.Run(format.name, func(t *testing.T) {
 			t.Parallel()
-			format.build(t).TestSync(t)
+			format.newTestHandler(t).TestSync(t)
 		})
 	}
 }
@@ -140,7 +140,7 @@ func TestKafkaCompatibility(t *testing.T) {
 			t.Parallel()
 			testHandler := &compatibility.TestHandler{
 				NewConfig: func(t *testing.T, version string) *testutils.TestConfig {
-					return format.build(t, testutils.WithDriverVersion(version)).TestConfig
+					return format.newTestHandler(t, testutils.WithDriverVersion(version)).TestConfig
 				},
 				DestinationSchema: format.destinationSchema,
 				CDCColumnsSchema:  ExpectedKafkaDefaultCDCColumnsSchema,

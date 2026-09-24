@@ -13,9 +13,13 @@ package compatibility
 //	upgrade   : the stateless initial load on the BASELINE image, every --state sync after it on
 //	            the CANDIDATE image
 //
-// and then asserts the two destinations are indistinguishable. The reference run IS the
-// expectation. A gate that stopped firing, a type map that shifted, a state key that got renamed:
-// each shows up as a diff between two tables, with no expectation file to maintain.
+// Each side runs every sync case on its own long-lived config. After every case both sides wait at
+// an output comparison checkpoint, where the two destinations are asserted indistinguishable before
+// either moves on; a parquet side holds only that case's files, so each batch is compared once.
+//
+// The reference run IS the expectation. A gate that stopped firing, a type map that shifted, a
+// state key that got renamed: each shows up as a diff at the case that caused it, with no
+// expectation file to maintain.
 
 import (
 	"fmt"
@@ -27,6 +31,7 @@ import (
 
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/require"
+	"golang.org/x/mod/semver"
 )
 
 const (
@@ -48,7 +53,7 @@ type TestHandler struct {
 // the two destinations match. Both sides of all three writer groups (iceberg legacy, iceberg
 // arrow, parquet) run in parallel, six isolated pipelines at once.
 func (th *TestHandler) RunBackwardCompatibility(t *testing.T) {
-	currentConf := th.NewConfig(t, testutils.CurrentDriverVersion)
+	currentConf := th.NewConfig(t, testutils.GetCurrentDriverVersion())
 	require.NoError(t, compatibilityRules.validateThresholds())
 	baselineVersions, err := getCompatibilityBaselines(t, currentConf.Driver)
 	require.NoError(t, err)
@@ -72,10 +77,9 @@ func (th *TestHandler) RunBackwardCompatibility(t *testing.T) {
 			continue
 		}
 
-		baselineConf := th.NewConfig(t, version)
-		if passed := t.Run(baselineConf.DriverVersion, func(t *testing.T) {
+		if passed := t.Run(version, func(t *testing.T) {
 			t.Parallel()
-			th.runCompatibilityBaseline(t, baselineConf, currentConf, ruleSpec)
+			th.runCompatibilityBaseline(t, version, currentConf, ruleSpec)
 		}); !passed {
 			t.Logf("compatibility: stopping the sweep at %s; the later baselines carry newer code and would repeat it", version)
 			return
@@ -88,17 +92,16 @@ func (th *TestHandler) RunBackwardCompatibility(t *testing.T) {
 // compatibility_rules.json. Both are answerable from the driver name alone, which is what lets the
 // caller skip a baseline before paying for its image.
 func baselineSkipReason(driver, spec string) (string, error) {
-	version, isRelease := parseReleaseTag(spec)
 	floorTag, err := compatibilityGlobalFloor()
 	if err != nil {
 		return "", err
 	}
-	if globalFloor, _ := parseReleaseTag(floorTag); isRelease && compareRelease(version, globalFloor) < 0 {
+	if semver.IsValid(spec) && semver.Compare(spec, floorTag) < 0 {
 		return fmt.Sprintf("baseline %s predates %s, the oldest state-version baseline; the compatibility suite does not run below it",
 			spec, floorTag), nil
 	}
 	gate := compatibilityRules.Drivers[driver].compatibilityGate
-	if reason := gate.skipReason(version, isRelease); reason != "" {
+	if reason := gate.skipReason(spec); reason != "" {
 		return fmt.Sprintf("%s cannot run baseline %s: %s (compatibility_rules.json: %s)", driver, spec, reason, gate.Note), nil
 	}
 
@@ -108,23 +111,21 @@ func baselineSkipReason(driver, spec string) (string, error) {
 // runCompatibilityBaseline runs every writer group's variants against one baseline: the reference
 // side on baseline's image throughout, the upgrade side handing its stateful syncs to upgrade's.
 // ruleSpec is the release the gates and rules read this baseline as (see RunBackwardCompatibility).
-func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baseline, upgrade *testutils.TestConfig, ruleSpec string) {
-	spec, driver, dataFormat := baseline.DriverVersion, baseline.Driver, baseline.DataFormat
+func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baselineVersion string, conf *testutils.TestConfig, ruleSpec string) {
+	upgradedVersion, driver, dataFormat := conf.DriverVersion, conf.Driver, conf.DataFormat
 
-	baselineVersion, baselineIsRelease := parseReleaseTag(ruleSpec)
 	driverRules := compatibilityRules.Drivers[driver]
 	variantRules := driverRules.Variants[dataFormat]
-	if reason := variantRules.compatibilityGate.skipReason(baselineVersion, baselineIsRelease); reason != "" {
+	if reason := variantRules.compatibilityGate.skipReason(ruleSpec); reason != "" {
 		t.Skipf("%s/%s cannot run baseline %s: %s (compatibility_rules.json: %s)",
-			driver, dataFormat, spec, reason, variantRules.compatibilityGate.Note)
+			driver, dataFormat, upgradedVersion, reason, variantRules.compatibilityGate.Note)
 	}
 
 	// Both images were pulled or built when the caller constructed the two configs, serially,
 	// before any parallel child starts; the sides below only re-derive the same refs.
-	baselineImage, candidateImage := baseline.GetDriverImage(), upgrade.GetDriverImage()
-	require.NotEqualf(t, baselineImage, candidateImage,
-		"the compatibility baseline and the candidate resolve to the same image (%s); the run would compare it with itself and pass", baselineImage)
-	t.Logf("compatibility: baseline %s -> candidate %s", baselineImage, candidateImage)
+	if baselineVersion == upgradedVersion {
+		t.Skipf("skipping compatibility: baseline %s -> candidate %s are same so they are compatible", baselineVersion, upgradedVersion)
+	}
 
 	// Column policies: the baseline's era decides what each column can be asserted on. Applied to
 	// both sides, so a diff is always the binary and never the fixture.
@@ -151,21 +152,13 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baseline, upgrade 
 	// whole baseline being dropped.
 	var groups []compatibilityGroup
 	for _, group := range compatibilityVariantGroups(driver) {
-		if reason := group.gate.skipReason(baselineVersion, baselineIsRelease); reason != "" {
+		if reason := group.gate.skipReason(ruleSpec); reason != "" {
 			t.Logf("compatibility: writer group %s not run against this baseline: %s", group.name, reason)
 			continue
 		}
 		groups = append(groups, group)
 	}
 	require.NotEmpty(t, groups, "no compatibility scenarios for driver %s against this baseline", driver)
-
-	// Each variant runs as its own pair of parallel subtests -- reference entirely on the
-	// baseline, upgrade handing off to the candidate after the stateless load -- and is compared
-	// as soon as both sides finish
-	referencePick := func(bool) string { return baseline.DriverVersion }
-	upgradePick := func(useState bool) string {
-		return testutils.Ternary(useState, upgrade.DriverVersion, baseline.DriverVersion).(string)
-	}
 	// Whichever side fails first stops every group at its next variant boundary: the comparison
 	// is skipped either way, so the remaining syncs would be minutes of output nothing reads.
 
@@ -173,9 +166,9 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baseline, upgrade 
 
 	// What every failed variant found, so the assertion at the end of this function -- the one CI
 	// shows in red -- can report the findings themselves rather than the fact that there were some.
-	report := &failureReport{driver: driver, spec: spec, baseline: baselineImage, candidate: candidateImage}
+	report := &failureReport{driver: driver, baselineVersion: baselineVersion, upgradedVersion: upgradedVersion}
 
-	completed := t.Run("g", func(t *testing.T) {
+	completed := t.Run("_", func(t *testing.T) {
 		for _, group := range groups {
 			t.Run(group.name, func(t *testing.T) {
 				t.Parallel()
@@ -187,24 +180,52 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baseline, upgrade 
 					}
 					diag := &diagnostics{}
 					ok := t.Run(v.name, func(t *testing.T) {
-						// Both sides start on the baseline version; pick moves the upgrade side's
-						// stateful syncs to the candidate.
-						var ref, upg *testutils.TestConfig
-						if passed := t.Run("run", func(t *testing.T) {
-							t.Run("ref", func(t *testing.T) {
-								t.Parallel()
-								ref = th.NewConfig(t, baseline.DriverVersion)
-								runVariantSide(t, ref, group, v, referencePick, policies)
-							})
-							t.Run("upg", func(t *testing.T) {
-								t.Parallel()
-								upg = th.NewConfig(t, baseline.DriverVersion)
-								runVariantSide(t, upg, group, v, upgradePick, policies)
-							})
-						}); !passed {
-							diag.fatalf(t, "a %s side never finished, so the two destinations were never compared; the side's own subtest output has why", v.name)
+						cases := syncCasesForDriver(driver, v.kind)
+						checkpoint := newOutputComparisonCheckpoint()
+						var configs [2]*testutils.TestConfig // reference, upgraded
+
+						// Each side runs every case on its own long-lived config, both starting on the
+						// baseline; the upgrade side hands its stateful syncs to the candidate.
+						sides := []struct {
+							name           string
+							defaultVersion string
+							pickVersion    func(useState bool) string
+						}{
+							{"ref", baselineVersion, func(bool) string { return baselineVersion }},
+							{"upg", upgradedVersion, func(useState bool) string {
+								return getDriverVersionForSync(useState, baselineVersion, upgradedVersion)
+							}},
 						}
-						compareVariant(t, diag, policies, ref, upg, group, v)
+						for i, side := range sides {
+							t.Run(side.name, func(t *testing.T) {
+								t.Parallel()
+								t.Cleanup(func() { checkpoint.stopIfFailed(t) })
+								cfg := th.NewConfig(t, side.defaultVersion)
+								configs[i] = cfg
+								perpareSourceTable(t, cfg, group, v, policies)
+								for _, c := range cases {
+									cfg.DriverVersion = side.pickVersion(c.useState)
+									runSync(t, cfg, group, c)
+									if !checkpoint.sideDone() {
+										t.Logf("stopping after case %q: the other side or the comparison failed", c.operation)
+										return
+									}
+								}
+							})
+						}
+
+						// Output comparison checkpoint after every case, once both sides have finished it.
+						t.Run("compare", func(t *testing.T) {
+							t.Parallel()
+							t.Cleanup(func() { checkpoint.stopIfFailed(t) })
+							for _, c := range cases {
+								if !checkpoint.bothDone() {
+									diag.fatalf(t, "a %s side never finished case %q, so the two destinations were never compared; the side's own subtest output has why", v.name, c.operation)
+								}
+								compareVariant(t, diag, policies, configs[0], configs[1], group, v)
+								checkpoint.release()
+							}
+						})
 					})
 					if !ok {
 						report.add(group.name, v.name, diag)
