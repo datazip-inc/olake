@@ -187,10 +187,15 @@ const (
 )
 
 // validateCatalogFlags rejects --streams combined with --available-streams/--selected-streams,
-// and, when required, requires at least one catalog source.
+// requires --available-streams and --selected-streams
 func validateCatalogFlags(streamsFlagRequired bool) error {
 	hasLegacy := streamsPath != ""
-	hasNew := availableStreamsPath != "" || selectedStreamsPath != ""
+	hasAvailable, hasSelected := availableStreamsPath != "", selectedStreamsPath != ""
+	hasNew := hasAvailable && hasSelected
+	if hasAvailable != hasSelected {
+		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
+			fmt.Errorf("--available-streams and --selected-streams must be passed"))
+	}
 	if hasLegacy && hasNew {
 		return errs.Precondition(errs.ConfigInvalid, codeConflictingStreamFlags,
 			fmt.Errorf("--streams cannot be combined with --available-streams/--selected-streams"))
@@ -201,6 +206,22 @@ func validateCatalogFlags(streamsFlagRequired bool) error {
 	if streamsFlagRequired && !hasLegacy && !hasNew {
 		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
 			fmt.Errorf("--streams or --available-streams + --selected-streams not passed"))
+	}
+	return nil
+}
+
+// validateDifferenceFlags rejects --difference combined with --difference-available-streams/--difference-selected-streams,
+// requires --difference-available-streams and --difference-selected-streams together
+func validateDifferenceFlags() error {
+	hasLegacy := differencePath != ""
+	hasAvailable, hasSelected := differenceAvailableStreamsPath != "", differenceSelectedStreamsPath != ""
+	if hasAvailable != hasSelected {
+		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
+			fmt.Errorf("--difference-available-streams and --difference-selected-streams must be passed"))
+	}
+	if hasLegacy && hasAvailable {
+		return errs.Precondition(errs.ConfigInvalid, codeConflictingStreamFlags,
+			fmt.Errorf("--difference cannot be combined with --difference-available-streams/--difference-selected-streams"))
 	}
 	return nil
 }

@@ -19,8 +19,8 @@ import (
 
 // isStreamDifferenceCommand reports whether both old and new streams flags were passed
 func isStreamDifferenceCommand() bool {
-	hasOldStreams := streamsPath != "" || availableStreamsPath != "" || selectedStreamsPath != ""
-	hasNewStreams := differencePath != "" || differenceAvailableStreamsPath != "" || differenceSelectedStreamsPath != ""
+	hasOldStreams := streamsPath != "" || (availableStreamsPath != "" && selectedStreamsPath != "")
+	hasNewStreams := differencePath != "" || (differenceAvailableStreamsPath != "" && differenceSelectedStreamsPath != "")
 	return hasOldStreams && hasNewStreams
 }
 
@@ -29,6 +29,9 @@ var discoverCmd = &cobra.Command{
 	Short: "discover command",
 	PreRunE: func(_ *cobra.Command, _ []string) (err error) {
 		if err := validateCatalogFlags(false); err != nil {
+			return err
+		}
+		if err := validateDifferenceFlags(); err != nil {
 			return err
 		}
 		if isStreamDifferenceCommand() {
@@ -49,7 +52,7 @@ var discoverCmd = &cobra.Command{
 				return err
 			}
 		}
-		if availableStreamsPath != "" || selectedStreamsPath != "" {
+		if availableStreamsPath != "" && selectedStreamsPath != "" {
 			catalog, err = types.ResolveCatalog("", availableStreamsPath, selectedStreamsPath)
 			if err != nil {
 				return err

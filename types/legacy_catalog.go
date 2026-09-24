@@ -74,10 +74,7 @@ func legacyToStreamMetadata(streamMetadata LegacyStreamMetadata) StreamMetadata 
 	}
 }
 
-// legacyToCanonical converts a whole LegacyCatalog (streams.json shape) into the canonical
-// Catalog shape, so a legacy old-catalog can feed the single mergeCatalogs algorithm like any
-// new-format old catalog. Streams need no conversion (*Stream/*ConfiguredStream is shared);
-// only SelectedStreams' metadata shape differs.
+// legacyToCanonical converts a LegacyCatalog (streams.json) into a Catalog (available_streams.json and selected_streams.json).
 func legacyToCanonical(legacy *LegacyCatalog) *Catalog {
 	selectedStreams := make(map[string][]StreamMetadata, len(legacy.SelectedStreams))
 	for namespace, metadataList := range legacy.SelectedStreams {
@@ -107,14 +104,28 @@ func (c *LegacyCatalog) WriteToFile(path string) error {
 //     own DefaultStreamProperties (set once at discover time by the driver layer).
 //   - selected_columns: nil/empty means "all columns"; streams.json writes the current column
 //     list instead of omitting the field, matching pre-split behavior.
+//
+// sync_mode, cursor_field, destination_database and destination_table set on selected_streams
+// have no place in the legacy selected_streams entry, so they are written onto that stream's
+// streams[] entry, where the legacy format reads them.
 func toLegacyCatalog(canonical *Catalog) *LegacyCatalog {
 	canonical.sortByNamespaceStreamName()
+
+	// streams[] entries are copied before overrides are applied: canonical.Streams is shared
+	// with available_streams.json, which must keep the discovered values.
+	legacyStreams := make([]*ConfiguredStream, len(canonical.Streams))
+	configuredByID := make(map[string]*ConfiguredStream, len(canonical.Streams))
+	for i, configured := range canonical.Streams {
+		streamCopy := *configured.Stream
+		legacyStreams[i] = &ConfiguredStream{Stream: &streamCopy}
+		configuredByID[streamCopy.ID()] = legacyStreams[i]
+	}
+
 	legacy := &LegacyCatalog{
-		Streams:         canonical.Streams,
+		Streams:         legacyStreams,
 		SelectedStreams: make(map[string][]LegacyStreamMetadata, len(canonical.SelectedStreams)),
 	}
 
-	configuredByID := streamMapByID(canonical.Streams)
 	for namespace, metadataList := range canonical.SelectedStreams {
 		converted := make([]LegacyStreamMetadata, 0, len(metadataList))
 		for _, metadata := range metadataList {
@@ -122,7 +133,12 @@ func toLegacyCatalog(canonical *Catalog) *LegacyCatalog {
 			if !ok {
 				continue
 			}
-			converted = append(converted, toLegacyStreamMetadata(metadata, configured.Stream))
+			stream := configured.Stream
+			stream.SyncMode = resolveConfigurableField(metadata.SyncMode, stream.SyncMode)
+			stream.CursorField = resolveConfigurableField(metadata.CursorField, stream.CursorField)
+			stream.DestinationDatabase = resolveConfigurableField(metadata.DestinationDatabase, stream.DestinationDatabase)
+			stream.DestinationTable = resolveConfigurableField(metadata.DestinationTable, stream.DestinationTable)
+			converted = append(converted, toLegacyStreamMetadata(metadata, stream))
 		}
 		legacy.SelectedStreams[namespace] = converted
 	}

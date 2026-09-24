@@ -1,6 +1,7 @@
 package types
 
 import (
+	"cmp"
 	"fmt"
 	"reflect"
 	"slices"
@@ -13,10 +14,8 @@ import (
 )
 
 const (
-	codeSelectedStreamsEmpty        = "catalog.selected_streams_empty"
-	codeSelectedStreamsFlagMissing  = "catalog.selected_streams_flag_missing"
-	codeAvailableStreamsFlagMissing = "catalog.available_streams_flag_missing"
-	codeAvailableStreamsEmpty       = "catalog.available_streams_empty"
+	codeSelectedStreamsEmpty  = "catalog.selected_streams_empty"
+	codeAvailableStreamsEmpty = "catalog.available_streams_empty"
 )
 
 // Message is a dto for olake output row representation
@@ -106,21 +105,13 @@ type StreamMix struct {
 	StreamWithPosUpdateType int `json:"stream_with_pos_update_type_count"`
 }
 
-// ResolveCatalog loads the runtime catalog from disk in new or legacy format
-// at:
-//   - New format: pass availableStreamsFilePath + selectedStreamsFilePath (both required)
-//   - Legacy format: pass only streamsFilePath
+// ResolveCatalog loads the runtime catalog from disk in new or legacy format:
+//   - New format: availableStreamsFilePath + selectedStreamsFilePath
+//   - Legacy format: streamsFilePath
+//
+// Callers validate the flags first, so the new-format paths are either both set or both empty.
 func ResolveCatalog(streamsFilePath, availableStreamsFilePath, selectedStreamsFilePath string) (*Catalog, error) {
-	if availableStreamsFilePath != "" || selectedStreamsFilePath != "" {
-		if availableStreamsFilePath == "" {
-			return nil, errs.Precondition(errs.CatalogError, codeAvailableStreamsFlagMissing,
-				fmt.Errorf("--selected-streams passed without --available-streams"))
-		}
-		if selectedStreamsFilePath == "" {
-			return nil, errs.Precondition(errs.CatalogError, codeSelectedStreamsFlagMissing,
-				fmt.Errorf("--available-streams passed without --selected-streams"))
-		}
-
+	if availableStreamsFilePath != "" && selectedStreamsFilePath != "" {
 		catalog := &Catalog{}
 		if err := utils.UnmarshalFile(availableStreamsFilePath, catalog, false); err != nil {
 			return nil, fmt.Errorf("failed to read streams from %s: %w", availableStreamsFilePath, err)
@@ -150,18 +141,19 @@ func ResolveCatalog(streamsFilePath, availableStreamsFilePath, selectedStreamsFi
 	return legacyToCanonical(legacy), nil
 }
 
-// sortByNamespaceStreamName orders streams[] by namespace then name, and each selected_streams
-// namespace slice by stream_name. encoding/json already sorts selected_streams map keys.
+// sortByNamespaceStreamName sorts the catalog so it is written in the same order on every run.
+// It sorts streams[] by namespace, then stream name, and the streams under each
+// selected_streams namespace by stream_name. The namespace keys need no sorting:
+// encoding/json writes map keys in sorted order.
 func (c *Catalog) sortByNamespaceStreamName() {
-	// sort []streams
+	// sort streams[] by namespace, then stream name
 	slices.SortFunc(c.Streams, func(left, right *ConfiguredStream) int {
-		if cmp := strings.Compare(left.Stream.Namespace, right.Stream.Namespace); cmp != 0 {
-			return cmp
-		}
-		return strings.Compare(left.Stream.Name, right.Stream.Name)
+		return cmp.Or(
+			strings.Compare(left.Stream.Namespace, right.Stream.Namespace),
+			strings.Compare(left.Stream.Name, right.Stream.Name))
 	})
 
-	// sort []selected_streams
+	// sort the streams under each selected_streams namespace by stream_name
 	for namespace := range c.SelectedStreams {
 		slices.SortFunc(c.SelectedStreams[namespace], func(a, b StreamMetadata) int {
 			return strings.Compare(a.StreamName, b.StreamName)
@@ -422,10 +414,10 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				newDestinationTable := resolveConfigurableField(newMetadata.DestinationTable, newStream.Stream.DestinationTable)
 
 				// check cursor field if SyncMode is incremental
-				cursorDelta := utils.Ternary(newSyncMode == INCREMENTAL, oldCursorField != newCursorField, false).(bool)
+				cursorDelta := newSyncMode == INCREMENTAL && oldCursorField != newCursorField
 
-				return oldConfigured.NormalizationEnabled() != newConfigured.NormalizationEnabled() ||
-					oldConfigured.AppendModeEnabled() != newConfigured.AppendModeEnabled() ||
+				return (oldConfigured.NormalizationEnabled() != newConfigured.NormalizationEnabled()) ||
+					(oldConfigured.AppendModeEnabled() != newConfigured.AppendModeEnabled()) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
 					(oldMetadata.UseSourceColumnNames != newMetadata.UseSourceColumnNames) ||

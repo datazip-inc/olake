@@ -1226,296 +1226,454 @@ func validateBasicSchemas(t *testing.T, expected, actual *TypeSchema, testName s
 	}
 }
 
+// selectedStreamNames returns the stream names under each selected_streams namespace, in order.
+func selectedStreamNames(selectedStreams map[string][]StreamMetadata) map[string][]string {
+	names := make(map[string][]string, len(selectedStreams))
+	for namespace, metadataList := range selectedStreams {
+		for _, metadata := range metadataList {
+			names[namespace] = append(names[namespace], metadata.StreamName)
+		}
+	}
+	return names
+}
+
+func TestCatalogWriteToFile(t *testing.T) {
+	testCases := []struct {
+		name    string
+		catalog *Catalog
+		// file contents: stream IDs and selected stream names, in order
+		expectedStreams  []string
+		expectedSelected map[string][]string
+	}{
+		{
+			name: "streams sorted by namespace then name",
+			catalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "users", Namespace: "sales"}},
+					{Stream: &Stream{Name: "orders", Namespace: "public"}},
+					{Stream: &Stream{Name: "accounts", Namespace: "sales"}},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"sales":  {{StreamName: "users"}, {StreamName: "accounts"}},
+					"public": {{StreamName: "orders"}},
+				},
+			},
+			expectedStreams:  []string{"public.orders", "sales.accounts", "sales.users"},
+			expectedSelected: map[string][]string{"public": {"orders"}, "sales": {"accounts", "users"}},
+		},
+		{
+			name: "streams in one namespace sorted by name",
+			catalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "zebra", Namespace: "public"}},
+					{Stream: &Stream{Name: "orders", Namespace: "public"}},
+					{Stream: &Stream{Name: "accounts", Namespace: "public"}},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"public": {{StreamName: "zebra"}, {StreamName: "accounts"}, {StreamName: "orders"}},
+				},
+			},
+			expectedStreams:  []string{"public.accounts", "public.orders", "public.zebra"},
+			expectedSelected: map[string][]string{"public": {"accounts", "orders", "zebra"}},
+		},
+		{
+			name:    "empty catalog",
+			catalog: &Catalog{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "catalog.json")
+			require.NoError(t, tc.catalog.WriteToFile(path))
+
+			var written Catalog
+			readCatalogFile(t, path, &written)
+			if len(tc.expectedStreams) == 0 {
+				assert.Empty(t, written.Streams)
+				assert.Empty(t, written.SelectedStreams)
+				return
+			}
+			assert.Equal(t, tc.expectedStreams, streamIDs(written.Streams))
+			assert.Equal(t, tc.expectedSelected, selectedStreamNames(written.SelectedStreams))
+		})
+	}
+}
+
 func TestGetStreamsDelta(t *testing.T) {
-	t.Run("identical catalogs produce empty delta", func(t *testing.T) {
-		cat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, DestinationDatabase: "db:public"}},
+	testCases := []struct {
+		name       string
+		oldCatalog *Catalog
+		newCatalog *Catalog
+		// nil means no delta. A changed stream is carried with the new values, except the
+		// destination, which keeps the old one so clear-destination drops the table holding the data.
+		expectedDelta *Catalog
+	}{
+		{
+			name: "identical catalogs produce empty delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, DestinationDatabase: "db:public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true), SyncMode: INCREMENTAL}}},
 			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: new(true), SyncMode: INCREMENTAL}},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, DestinationDatabase: "db:public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true), SyncMode: INCREMENTAL}}},
 			},
-		}
-		delta := GetStreamsDelta(cat, cat)
-		assert.Empty(t, delta.Streams)
-		assert.Empty(t, delta.SelectedStreams)
-	})
+		},
+		{
+			name:       "new stream not in old catalog added to delta",
+			oldCatalog: &Catalog{Streams: []*ConfiguredStream{}, SelectedStreams: map[string][]StreamMetadata{}},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "db:public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true)}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "db:public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true)}}},
+			},
+		},
+		{
+			// effective old sync mode = cdc (selected_streams over streams[]), effective new = incremental
+			name: "sync mode change detected -- selected_streams priority over streams[]",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: FULLREFRESH}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: CDC}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: FULLREFRESH}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: INCREMENTAL}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: FULLREFRESH}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: INCREMENTAL}}},
+			},
+		},
+		{
+			name: "old destination database from selected_streams kept in delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: CDC, DestinationDatabase: "old_db"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: INCREMENTAL, DestinationDatabase: "new_db"}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, DestinationDatabase: "old_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: INCREMENTAL, DestinationDatabase: "old_db"}}},
+			},
+		},
+		{
+			name: "old destination database from streams[] kept in delta (legacy catalog)",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC, DestinationDatabase: "old_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, DestinationDatabase: "new_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, DestinationDatabase: "old_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationDatabase: "old_db"}}},
+			},
+		},
+		{
+			name: "normalization change detected",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true)}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(false)}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(false)}}},
+			},
+		},
+		{
+			name: "unset normalization vs false is not a delta when the default is false",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(false)}}},
+			},
+		},
+		{
+			name: "unset normalization vs false is a delta when the default is true",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DefaultStreamProperties: &DefaultStreamProperties{Normalization: true}}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DefaultStreamProperties: &DefaultStreamProperties{Normalization: true}}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(false)}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(false)}}},
+			},
+		},
+		{
+			name: "append mode change detected",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false)}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(true)}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(true)}}},
+			},
+		},
+		{
+			name: "unset append_mode vs false is a delta when the default is true",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DefaultStreamProperties: &DefaultStreamProperties{AppendMode: true}}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DefaultStreamProperties: &DefaultStreamProperties{AppendMode: true}}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false)}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false)}}},
+			},
+		},
+		{
+			name: "cursor_field change on an incremental stream is a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, CursorField: "updated_at"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, CursorField: "updated_at"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", CursorField: "created_at"}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, CursorField: "updated_at"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", CursorField: "created_at"}}},
+			},
+		},
+		{
+			// the cursor is only used by incremental sync
+			name: "cursor_field change on a cdc stream is not a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC, CursorField: "updated_at"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC, CursorField: "updated_at"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", CursorField: "created_at"}}},
+			},
+		},
+		{
+			name: "destination_table change is a delta and keeps the old table",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationTable: "users"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationTable: "custom_users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationTable: "users"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationTable: "users_v2"}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationTable: "custom_users"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationTable: "custom_users"}}},
+			},
+		},
+		{
+			// old value on streams[], new value on selected_streams
+			name: "adding a different sync_mode on selected_streams is a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: INCREMENTAL}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: INCREMENTAL}}},
+			},
+		},
+		{
+			// the override is removed, so the destination falls back to streams[]: old_db -> discovered_db
+			name: "removing the destination_database override from selected_streams is a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "discovered_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationDatabase: "old_db"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "discovered_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "old_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationDatabase: "old_db"}}},
+			},
+		},
+		{
+			// the override equals the streams[] value, so the destination does not change
+			name: "removing a destination_database override equal to streams[] is not a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "discovered_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationDatabase: "discovered_db"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "discovered_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+		},
+		// an unset selected_streams field falls back to streams[] or the default stream properties;
+		// setting that same value on selected_streams is not a delta
+		{
+			name: "sync_mode from streams[] repeated on selected_streams is not a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: CDC}}},
+			},
+		},
+		{
+			name: "cursor_field from streams[] repeated on selected_streams is not a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, CursorField: "updated_at"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, CursorField: "updated_at"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", CursorField: "updated_at"}}},
+			},
+		},
+		{
+			name: "destination_database from streams[] repeated on selected_streams is not a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "old_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "old_db"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationDatabase: "old_db"}}},
+			},
+		},
+		{
+			name: "destination_table from streams[] repeated on selected_streams is not a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationTable: "users_dest"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationTable: "users_dest"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationTable: "users_dest"}}},
+			},
+		},
+		{
+			name: "default append_mode repeated on selected_streams is not a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false)}}},
+			},
+		},
+		// fields that exist only on selected_streams
+		{
+			name: "partition_regex change is a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", PartitionRegex: "/{created_at,day}"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", PartitionRegex: "/{created_at,month}"}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", PartitionRegex: "/{created_at,month}"}}},
+			},
+		},
+		{
+			name: "filter change is a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Filter: "id > 10"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Filter: "id > 20"}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Filter: "id > 20"}}},
+			},
+		},
+		{
+			name: "filter_config change is a delta",
+			oldCatalog: &Catalog{
+				Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", FilterConfig: &FilterConfig{
+					LogicalOperator: "and", Conditions: []FilterCondition{{Column: "id", Operator: ">", Value: 10}},
+				}}}},
+			},
+			newCatalog: &Catalog{
+				Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", FilterConfig: &FilterConfig{
+					LogicalOperator: "and", Conditions: []FilterCondition{{Column: "id", Operator: ">", Value: 20}},
+				}}}},
+			},
+			expectedDelta: &Catalog{
+				Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", FilterConfig: &FilterConfig{
+					LogicalOperator: "and", Conditions: []FilterCondition{{Column: "id", Operator: ">", Value: 20}},
+				}}}},
+			},
+		},
+		{
+			name: "use_source_column_names change is a delta",
+			oldCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			newCatalog: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UseSourceColumnNames: true}}},
+			},
+			expectedDelta: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", UseSourceColumnNames: true}}},
+			},
+		},
+	}
 
-	t.Run("new stream not in old catalog added to delta", func(t *testing.T) {
-		old := &Catalog{
-			Streams:         []*ConfiguredStream{},
-			SelectedStreams: map[string][]StreamMetadata{},
-		}
-		newCat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: new(true)}},
-			},
-		}
-		delta := GetStreamsDelta(old, newCat)
-		require.Len(t, delta.Streams, 1)
-		assert.Equal(t, "users", delta.Streams[0].Stream.Name)
-	})
-
-	t.Run("delta streams sorted by namespace then name", func(t *testing.T) {
-		old := &Catalog{
-			Streams:         []*ConfiguredStream{},
-			SelectedStreams: map[string][]StreamMetadata{},
-		}
-		newCat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "sales"}},
-				{Stream: &Stream{Name: "orders", Namespace: "public"}},
-				{Stream: &Stream{Name: "accounts", Namespace: "sales"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"sales":  {{StreamName: "users"}, {StreamName: "accounts"}},
-				"public": {{StreamName: "orders"}},
-			},
-		}
-		delta := GetStreamsDelta(old, newCat)
-		path := filepath.Join(t.TempDir(), "difference_streams.json")
-		require.NoError(t, delta.WriteToFile(path))
-		data, err := os.ReadFile(path)
-		require.NoError(t, err)
-		var written Catalog
-		require.NoError(t, json.Unmarshal(data, &written))
-		assert.Equal(t, []string{"public.orders", "sales.accounts", "sales.users"}, streamIDs(written.Streams))
-		require.Len(t, written.SelectedStreams["sales"], 2)
-		assert.Equal(t, "accounts", written.SelectedStreams["sales"][0].StreamName)
-		assert.Equal(t, "users", written.SelectedStreams["sales"][1].StreamName)
-	})
-
-	t.Run("sync mode change detected -- metadata priority over stream", func(t *testing.T) {
-		// old: metadata.SyncMode = cdc (overrides stream.SyncMode = full_refresh)
-		// new: metadata.SyncMode = incremental
-		// effective old = cdc, effective new = incremental → different
-		old := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: SyncMode("full_refresh")}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", SyncMode: SyncMode("cdc")}},
-			},
-		}
-		newCat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: SyncMode("full_refresh")}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", SyncMode: SyncMode("incremental")}},
-			},
-		}
-		delta := GetStreamsDelta(old, newCat)
-		require.Len(t, delta.Streams, 1)
-	})
-
-	t.Run("old dest DB preserved in delta output (metadata priority)", func(t *testing.T) {
-		// even when new metadata has a different dest DB, delta output uses OLD value
-		old := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: SyncMode("cdc")}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", SyncMode: SyncMode("cdc"), DestinationDatabase: "old_db"}},
-			},
-		}
-		newCat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: SyncMode("incremental")}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", SyncMode: SyncMode("incremental"), DestinationDatabase: "new_db"}},
-			},
-		}
-		delta := GetStreamsDelta(old, newCat)
-		require.Len(t, delta.Streams, 1)
-		require.Len(t, delta.SelectedStreams["public"], 1)
-		assert.Equal(t, "old_db", delta.Streams[0].Stream.DestinationDatabase)
-		assert.Equal(t, "old_db", delta.SelectedStreams["public"][0].DestinationDatabase)
-	})
-
-	t.Run("old format: dest DB on stream (not metadata) -- fallback used for comparison and delta output", func(t *testing.T) {
-		old := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: SyncMode("cdc"), DestinationDatabase: "old_db"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users"}}, // no SyncMode/DestDB in metadata
-			},
-		}
-		newCat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: SyncMode("incremental"), DestinationDatabase: "new_db"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users"}},
-			},
-		}
-		delta := GetStreamsDelta(old, newCat)
-		require.Len(t, delta.Streams, 1)
-		// delta output uses old Stream.DestDB as the preserved value
-		assert.Equal(t, "old_db", delta.Streams[0].Stream.DestinationDatabase)
-	})
-
-	t.Run("normalization change (*bool) detected", func(t *testing.T) {
-		old := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: new(true)}},
-			},
-		}
-		newCat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: new(false)}},
-			},
-		}
-		delta := GetStreamsDelta(old, newCat)
-		require.Len(t, delta.Streams, 1)
-	})
-
-	t.Run("nil normalization vs explicit false is not a delta when DSP default is false", func(t *testing.T) {
-		old := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: nil}},
-			},
-		}
-		newCat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: new(false)}},
-			},
-		}
-		delta := GetStreamsDelta(old, newCat)
-		assert.Empty(t, delta.Streams)
-	})
-
-	t.Run("nil normalization vs explicit false is a delta when DSP default is true", func(t *testing.T) {
-		dsp := &DefaultStreamProperties{Normalization: true}
-		old := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", DefaultStreamProperties: dsp}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: nil}},
-			},
-		}
-		newCat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", DefaultStreamProperties: dsp}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", Normalization: new(false)}},
-			},
-		}
-		delta := GetStreamsDelta(old, newCat)
-		require.Len(t, delta.Streams, 1)
-	})
-
-	t.Run("append mode change (*bool) detected", func(t *testing.T) {
-		old := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", AppendMode: new(false)}},
-			},
-		}
-		newCat := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public"}},
-			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", AppendMode: new(true)}},
-			},
-		}
-		delta := GetStreamsDelta(old, newCat)
-		require.Len(t, delta.Streams, 1)
-	})
-
-	t.Run("writing the effective value onto selected_streams is not a delta", func(t *testing.T) {
-		// omitted selected_streams field falls back to streams[] / DSP; repeating that
-		// same value on selected_streams must not produce a difference.
-		cases := []struct {
-			name string
-			old  *Catalog
-			new  *Catalog
-		}{
-			{
-				name: "sync_mode from streams[]",
-				old: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
-				},
-				new: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: CDC}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", SyncMode: CDC}}},
-				},
-			},
-			{
-				name: "cursor_field from streams[]",
-				old: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, CursorField: "updated_at"}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
-				},
-				new: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", SyncMode: INCREMENTAL, CursorField: "updated_at"}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", CursorField: "updated_at"}}},
-				},
-			},
-			{
-				name: "destination_database from streams[]",
-				old: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "old_db"}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
-				},
-				new: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationDatabase: "old_db"}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationDatabase: "old_db"}}},
-				},
-			},
-			{
-				name: "destination_table from streams[]",
-				old: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationTable: "users_dest"}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
-				},
-				new: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", DestinationTable: "users_dest"}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", DestinationTable: "users_dest"}}},
-				},
-			},
-			{
-				name: "append_mode DSP false",
-				old: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users"}}},
-				},
-				new: &Catalog{
-					Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public"}}},
-					SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", AppendMode: new(false)}}},
-				},
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				delta := GetStreamsDelta(tc.old, tc.new)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			delta := GetStreamsDelta(tc.oldCatalog, tc.newCatalog)
+			if tc.expectedDelta == nil {
 				assert.Empty(t, delta.Streams)
-			})
-		}
-	})
+				assert.Empty(t, delta.SelectedStreams)
+				return
+			}
+			// GetStreamsDelta walks a map, so its order is not fixed
+			delta.sortByNamespaceStreamName()
+			compareCatalogs(t, tc.expectedDelta, delta, tc.name)
+		})
+	}
 }
 
 func writeCatalogFile(t *testing.T, dir, name string, catalog *Catalog) string {
@@ -1537,126 +1695,116 @@ func writeLegacyCatalogFile(t *testing.T, dir, name string, catalog *LegacyCatal
 }
 
 func TestResolveCatalog(t *testing.T) {
-	dir := t.TempDir()
-
-	// legacy: self-contained streams.json, both streams[] and selected_streams, legacy shape
-	legacyCatalog := &LegacyCatalog{
-		Streams: []*ConfiguredStream{
-			{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}},
+	testCases := []struct {
+		name string
+		// files to write; a nil file is not written. available and selected are passed together.
+		legacy    *LegacyCatalog
+		available *Catalog
+		selected  *Catalog
+		// expected catalog, or the expected error
+		expected     *Catalog
+		expectedCode string
+		expectedErr  string
+	}{
+		{
+			name: "legacy: streams.json resolves with legacy values made explicit",
+			legacy: &LegacyCatalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: CDC}}},
+				SelectedStreams: map[string][]LegacyStreamMetadata{"public": {{StreamName: "users", Normalization: true, AppendMode: false}}},
+			},
+			expected: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: CDC}}},
+				SelectedStreams: map[string][]StreamMetadata{"public": {{StreamName: "users", Normalization: new(true), AppendMode: new(false)}}},
+			},
 		},
-		SelectedStreams: map[string][]LegacyStreamMetadata{
-			"public": {{StreamName: "users", Normalization: true, AppendMode: false}},
+		{
+			name:      "new format: available_streams + selected_streams resolve together",
+			available: &Catalog{Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}}},
+			selected: &Catalog{SelectedStreams: map[string][]StreamMetadata{
+				"public": {{StreamName: "users", SyncMode: INCREMENTAL, SelectedColumns: createSelectedColumns([]string{"id", "name"}, true)}},
+			}},
+			expected: &Catalog{
+				Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}},
+				SelectedStreams: map[string][]StreamMetadata{
+					"public": {{StreamName: "users", SyncMode: INCREMENTAL, SelectedColumns: createSelectedColumns([]string{"id", "name"}, true)}},
+				},
+			},
+		},
+		{
+			name:     "empty legacy file loads as empty catalog",
+			legacy:   &LegacyCatalog{},
+			expected: &Catalog{},
+		},
+		{
+			name: "legacy streams[] without selected_streams returns error",
+			legacy: &LegacyCatalog{
+				Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}},
+			},
+			expectedCode: codeLegacySelectedStreamsEmpty,
+			expectedErr:  "no selected_streams",
+		},
+		{
+			name: "legacy selected_streams without streams[] returns error",
+			legacy: &LegacyCatalog{
+				SelectedStreams: map[string][]LegacyStreamMetadata{"public": {{StreamName: "users"}}},
+			},
+			expectedCode: codeLegacyStreamsMissing,
+			expectedErr:  "no streams[]",
+		},
+		{
+			name:        "missing legacy file returns error",
+			expectedErr: "failed to read streams",
+		},
+		{
+			name:      "available_streams file with no streams[] returns error",
+			available: &Catalog{},
+			selected: &Catalog{SelectedStreams: map[string][]StreamMetadata{
+				"public": {{StreamName: "users"}},
+			}},
+			expectedCode: codeAvailableStreamsEmpty,
+		},
+		{
+			name:         "selected_streams file with no selected_streams returns error",
+			available:    &Catalog{Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}}},
+			selected:     &Catalog{},
+			expectedCode: codeSelectedStreamsEmpty,
 		},
 	}
-	legacyPath := writeLegacyCatalogFile(t, dir, "streams.json", legacyCatalog)
 
-	// new format: available_streams.json (streams[] only) + selected_streams.json (selected_streams only)
-	availablePath := writeCatalogFile(t, dir, "available_streams.json", &Catalog{
-		Streams: []*ConfiguredStream{
-			{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}},
-		},
-	})
-	selectedPath := writeCatalogFile(t, dir, "selected_streams.json", &Catalog{
-		SelectedStreams: map[string][]StreamMetadata{
-			"public": {{
-				StreamName:      "users",
-				SyncMode:        INCREMENTAL,
-				SelectedColumns: createSelectedColumns([]string{"id", "name"}, true),
-			}},
-		},
-	})
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			streamsPath, availablePath, selectedPath := filepath.Join(dir, "streams.json"), "", ""
+			if tc.legacy != nil {
+				streamsPath = writeLegacyCatalogFile(t, dir, "streams.json", tc.legacy)
+			}
+			if tc.available != nil {
+				availablePath = writeCatalogFile(t, dir, "available_streams.json", tc.available)
+				selectedPath = writeCatalogFile(t, dir, "selected_streams.json", tc.selected)
+			}
 
-	t.Run("legacy: self-contained streams.json resolves and converts to runtime StreamMetadata", func(t *testing.T) {
-		resolved, err := ResolveCatalog(legacyPath, "", "")
-		require.NoError(t, err)
-		require.Len(t, resolved.Streams, 1)
-		assert.Equal(t, "users", resolved.Streams[0].Stream.Name)
-		require.Len(t, resolved.SelectedStreams["public"], 1)
-		assert.Equal(t, new(true), resolved.SelectedStreams["public"][0].Normalization)
-		assert.Equal(t, new(false), resolved.SelectedStreams["public"][0].AppendMode)
-	})
-
-	t.Run("new format: available_streams + selected_streams resolve together", func(t *testing.T) {
-		resolved, err := ResolveCatalog("", availablePath, selectedPath)
-		require.NoError(t, err)
-		require.Len(t, resolved.Streams, 1)
-		assert.Equal(t, "users", resolved.Streams[0].Stream.Name)
-		require.Len(t, resolved.SelectedStreams["public"], 1)
-		assert.Equal(t, INCREMENTAL, resolved.SelectedStreams["public"][0].SyncMode)
-		assert.Equal(t, []string{"id", "name"}, resolved.SelectedStreams["public"][0].SelectedColumns.Columns)
-	})
-
-	t.Run("empty legacy file loads as empty catalog", func(t *testing.T) {
-		emptyPath := writeLegacyCatalogFile(t, dir, "empty.json", &LegacyCatalog{})
-		resolved, err := ResolveCatalog(emptyPath, "", "")
-		require.NoError(t, err)
-		assert.Empty(t, resolved.Streams)
-		assert.Empty(t, resolved.SelectedStreams)
-	})
-
-	t.Run("legacy streams[] without selected_streams returns error", func(t *testing.T) {
-		streamsOnlyPath := writeLegacyCatalogFile(t, dir, "legacy_streams_only.json", &LegacyCatalog{
-			Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}},
+			resolved, err := ResolveCatalog(streamsPath, availablePath, selectedPath)
+			if tc.expectedCode != "" || tc.expectedErr != "" {
+				require.Error(t, err)
+				if tc.expectedErr != "" {
+					assert.Contains(t, err.Error(), tc.expectedErr)
+				}
+				if tc.expectedCode != "" {
+					got := errs.From(errs.Classify(err))
+					assert.Equal(t, errs.CatalogError, got.Category)
+					assert.Equal(t, tc.expectedCode, got.Code)
+				}
+				return
+			}
+			require.NoError(t, err)
+			if len(tc.expected.Streams) == 0 && len(tc.expected.SelectedStreams) == 0 {
+				assert.Empty(t, resolved.Streams)
+				assert.Empty(t, resolved.SelectedStreams)
+				return
+			}
+			compareCatalogs(t, tc.expected, resolved, tc.name)
 		})
-		_, err := ResolveCatalog(streamsOnlyPath, "", "")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no selected_streams")
-		got := errs.From(errs.Classify(err))
-		assert.Equal(t, errs.CatalogError, got.Category)
-		assert.Equal(t, codeLegacySelectedStreamsEmpty, got.Code)
-	})
-
-	t.Run("legacy selected_streams without streams[] returns error", func(t *testing.T) {
-		selectedOnlyLegacyPath := writeLegacyCatalogFile(t, dir, "legacy_selected_only.json", &LegacyCatalog{
-			SelectedStreams: map[string][]LegacyStreamMetadata{"public": {{StreamName: "users"}}},
-		})
-		_, err := ResolveCatalog(selectedOnlyLegacyPath, "", "")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "no streams[]")
-		got := errs.From(errs.Classify(err))
-		assert.Equal(t, errs.CatalogError, got.Category)
-		assert.Equal(t, codeLegacyStreamsMissing, got.Code)
-	})
-
-	t.Run("missing legacy streamsFile returns error", func(t *testing.T) {
-		_, err := ResolveCatalog(filepath.Join(dir, "no-such-streams.json"), "", "")
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to read streams")
-	})
-
-	t.Run("--available-streams without --selected-streams returns error", func(t *testing.T) {
-		_, err := ResolveCatalog("", availablePath, "")
-		require.Error(t, err)
-		got := errs.From(errs.Classify(err))
-		assert.Equal(t, errs.CatalogError, got.Category)
-		assert.Equal(t, codeSelectedStreamsFlagMissing, got.Code)
-	})
-
-	t.Run("--selected-streams without --available-streams returns error", func(t *testing.T) {
-		_, err := ResolveCatalog("", "", selectedPath)
-		require.Error(t, err)
-		got := errs.From(errs.Classify(err))
-		assert.Equal(t, errs.CatalogError, got.Category)
-		assert.Equal(t, codeAvailableStreamsFlagMissing, got.Code)
-	})
-
-	t.Run("available_streams file with no streams[] returns error", func(t *testing.T) {
-		emptyAvailablePath := writeCatalogFile(t, dir, "empty_available.json", &Catalog{})
-		_, err := ResolveCatalog("", emptyAvailablePath, selectedPath)
-		require.Error(t, err)
-		got := errs.From(errs.Classify(err))
-		assert.Equal(t, errs.CatalogError, got.Category)
-		assert.Equal(t, codeAvailableStreamsEmpty, got.Code)
-	})
-
-	t.Run("selected_streams file with no selected_streams returns error", func(t *testing.T) {
-		emptySelectedPath := writeCatalogFile(t, dir, "empty_selected.json", &Catalog{})
-		_, err := ResolveCatalog("", availablePath, emptySelectedPath)
-		require.Error(t, err)
-		got := errs.From(errs.Classify(err))
-		assert.Equal(t, errs.CatalogError, got.Category)
-		assert.Equal(t, codeSelectedStreamsEmpty, got.Code)
-	})
+	}
 }
 
 // setLogCatalogPaths points viper at fresh streams.json / available_streams.json /
@@ -1677,232 +1825,260 @@ func setLogCatalogPaths(t *testing.T, dir string) (streamsPath, availablePath, s
 	return
 }
 
+// readCatalogFile unmarshals a catalog file written by LogCatalog into out.
+func readCatalogFile(t *testing.T, path string, out any) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, out))
+}
+
+// sortLegacySelectedColumns sorts each legacy selected_columns list, so the comparison does not
+// depend on schema iteration order.
+func sortLegacySelectedColumns(selectedStreams map[string][]LegacyStreamMetadata) {
+	for _, metadataList := range selectedStreams {
+		for i := range metadataList {
+			if metadataList[i].SelectedColumns != nil {
+				sort.Strings(metadataList[i].SelectedColumns.Columns)
+			}
+		}
+	}
+}
+
 func TestLogCatalog(t *testing.T) {
-	t.Run("always writes all three files, new user (no prior catalog)", func(t *testing.T) {
-		dir := t.TempDir()
-		streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, dir)
+	defaults := &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}
 
-		discovered := []*Stream{
-			{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DefaultStreamProperties: &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}},
-		}
-
-		LogCatalog(discovered, nil, nil, "postgres")
-
-		// streams.json: legacy shape, always-populated fields
-		data, err := os.ReadFile(streamsPath)
-		require.NoError(t, err)
-		var legacy LegacyCatalog
-		require.NoError(t, json.Unmarshal(data, &legacy))
-		require.Len(t, legacy.Streams, 1)
-		assert.Equal(t, "users", legacy.Streams[0].Stream.Name)
-		require.Len(t, legacy.SelectedStreams["public"], 1)
-		legacySM := legacy.SelectedStreams["public"][0]
-		assert.Equal(t, "users", legacySM.StreamName)
-		assert.True(t, legacySM.Normalization) // relational driver
-		assert.False(t, legacySM.AppendMode)
-		require.NotNil(t, legacySM.SelectedColumns)
-		assert.ElementsMatch(t, []string{"id", "name"}, legacySM.SelectedColumns.Columns)
-		assert.True(t, legacySM.SelectedColumns.SyncNewColumns)
-
-		// available_streams.json: streams[] only, no selected_streams
-		availableData, err := os.ReadFile(availablePath)
-		require.NoError(t, err)
-		var available Catalog
-		require.NoError(t, json.Unmarshal(availableData, &available))
-		require.Len(t, available.Streams, 1)
-		assert.Equal(t, "users", available.Streams[0].Stream.Name)
-		assert.Empty(t, available.SelectedStreams)
-
-		// selected_streams.json: sparse (stream_name/partition_regex/sync_mode/cursor_field), no streams[]
-		selectedData, err := os.ReadFile(selectedPath)
-		require.NoError(t, err)
-		var selected Catalog
-		require.NoError(t, json.Unmarshal(selectedData, &selected))
-		assert.Empty(t, selected.Streams)
-		require.Len(t, selected.SelectedStreams["public"], 1)
-		sm := selected.SelectedStreams["public"][0]
-		assert.Equal(t, "users", sm.StreamName)
-		assert.Equal(t, "updated_at", sm.CursorField)
-		assert.Nil(t, sm.Normalization) // not auto-populated by discover
-		assert.Nil(t, sm.AppendMode)
-	})
-
-	t.Run("writes all three files sorted by namespace then name", func(t *testing.T) {
-		dir := t.TempDir()
-		streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, dir)
-
-		defaults := &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}
-		discovered := []*Stream{
-			{Name: "users", Namespace: "sales", Schema: oldSchema(), DefaultStreamProperties: defaults},
-			{Name: "orders", Namespace: "public", Schema: oldSchema(), DefaultStreamProperties: defaults},
-			{Name: "accounts", Namespace: "sales", Schema: oldSchema(), DefaultStreamProperties: defaults},
-			{Name: "zebra", Namespace: "public", Schema: oldSchema(), DefaultStreamProperties: defaults},
-		}
-
-		LogCatalog(discovered, nil, nil, "postgres")
-
-		data, err := os.ReadFile(streamsPath)
-		require.NoError(t, err)
-		var legacy LegacyCatalog
-		require.NoError(t, json.Unmarshal(data, &legacy))
-		require.Len(t, legacy.Streams, 4)
-		assert.Equal(t, []string{"public.orders", "public.zebra", "sales.accounts", "sales.users"}, streamIDs(legacy.Streams))
-
-		availableData, err := os.ReadFile(availablePath)
-		require.NoError(t, err)
-		var available Catalog
-		require.NoError(t, json.Unmarshal(availableData, &available))
-		assert.Equal(t, []string{"public.orders", "public.zebra", "sales.accounts", "sales.users"}, streamIDs(available.Streams))
-
-		selectedData, err := os.ReadFile(selectedPath)
-		require.NoError(t, err)
-		var selected Catalog
-		require.NoError(t, json.Unmarshal(selectedData, &selected))
-		require.Len(t, selected.SelectedStreams["public"], 2)
-		assert.Equal(t, "orders", selected.SelectedStreams["public"][0].StreamName)
-		assert.Equal(t, "zebra", selected.SelectedStreams["public"][1].StreamName)
-		require.Len(t, selected.SelectedStreams["sales"], 2)
-		assert.Equal(t, "accounts", selected.SelectedStreams["sales"][0].StreamName)
-		assert.Equal(t, "users", selected.SelectedStreams["sales"][1].StreamName)
-	})
-
-	t.Run("existing new-format user: merge carries forward oldCatalog into available/selected_streams", func(t *testing.T) {
-		dir := t.TempDir()
-		streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, dir)
-
-		oldCatalog := &Catalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
+	testCases := []struct {
+		name             string
+		discovered       []*Stream
+		oldCatalog       *Catalog
+		oldLegacyCatalog *LegacyCatalog
+		// expected file contents; streams[] are compared in order
+		expectedAvailable []*ConfiguredStream
+		expectedSelected  map[string][]StreamMetadata
+		expectedLegacy    *LegacyCatalog
+		// selectable_columns per stream ID in available_streams.json; nil skips the check
+		expectedSelectableColumns map[string][]string
+	}{
+		{
+			name: "new user (no prior catalog): writes all three files",
+			discovered: []*Stream{
+				{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DefaultStreamProperties: defaults},
 			},
-			SelectedStreams: map[string][]StreamMetadata{
-				"public": {{
-					StreamName:      "users",
-					SyncMode:        INCREMENTAL,
-					CursorField:     "updated_at",
-					Normalization:   new(true),
-					SelectedColumns: createSelectedColumns([]string{"id"}, true),
-				}},
+			expectedAvailable: []*ConfiguredStream{
+				{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at"}},
 			},
-		}
+			// selected_streams.json is sparse: normalization/append_mode are left to the defaults
+			expectedSelected: map[string][]StreamMetadata{
+				"public": {{StreamName: "users", SyncMode: INCREMENTAL, CursorField: "updated_at"}},
+			},
+			// streams.json spells out every field: defaults and all columns
+			expectedLegacy: &LegacyCatalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at"}},
+				},
+				SelectedStreams: map[string][]LegacyStreamMetadata{
+					"public": {{StreamName: "users", Normalization: true, UpdateType: string(UpdateTypeEquality), SelectedColumns: createSelectedColumns([]string{"id", "name"}, true)}},
+				},
+			},
+		},
+		{
+			name: "all three files sorted by namespace then name",
+			discovered: []*Stream{
+				{Name: "users", Namespace: "sales", Schema: oldSchema(), DefaultStreamProperties: defaults},
+				{Name: "orders", Namespace: "public", Schema: oldSchema(), DefaultStreamProperties: defaults},
+				{Name: "accounts", Namespace: "sales", Schema: oldSchema(), DefaultStreamProperties: defaults},
+				{Name: "zebra", Namespace: "public", Schema: oldSchema(), DefaultStreamProperties: defaults},
+			},
+			expectedAvailable: []*ConfiguredStream{
+				{Stream: &Stream{Name: "orders", Namespace: "public", Schema: oldSchema()}},
+				{Stream: &Stream{Name: "zebra", Namespace: "public", Schema: oldSchema()}},
+				{Stream: &Stream{Name: "accounts", Namespace: "sales", Schema: oldSchema()}},
+				{Stream: &Stream{Name: "users", Namespace: "sales", Schema: oldSchema()}},
+			},
+			expectedSelected: map[string][]StreamMetadata{
+				"public": {{StreamName: "orders"}, {StreamName: "zebra"}},
+				"sales":  {{StreamName: "accounts"}, {StreamName: "users"}},
+			},
+			expectedLegacy: &LegacyCatalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "orders", Namespace: "public", Schema: oldSchema()}},
+					{Stream: &Stream{Name: "zebra", Namespace: "public", Schema: oldSchema()}},
+					{Stream: &Stream{Name: "accounts", Namespace: "sales", Schema: oldSchema()}},
+					{Stream: &Stream{Name: "users", Namespace: "sales", Schema: oldSchema()}},
+				},
+				SelectedStreams: map[string][]LegacyStreamMetadata{
+					"public": {
+						{StreamName: "orders", Normalization: true, UpdateType: string(UpdateTypeEquality), SelectedColumns: createSelectedColumns([]string{"id", "name"}, true)},
+						{StreamName: "zebra", Normalization: true, UpdateType: string(UpdateTypeEquality), SelectedColumns: createSelectedColumns([]string{"id", "name"}, true)},
+					},
+					"sales": {
+						{StreamName: "accounts", Normalization: true, UpdateType: string(UpdateTypeEquality), SelectedColumns: createSelectedColumns([]string{"id", "name"}, true)},
+						{StreamName: "users", Normalization: true, UpdateType: string(UpdateTypeEquality), SelectedColumns: createSelectedColumns([]string{"id", "name"}, true)},
+					},
+				},
+			},
+		},
+		{
+			// users keeps its old streams[] fields and selection; orders is new and not auto-selected
+			name: "existing new-format user: merge carries the old catalog forward",
+			discovered: []*Stream{
+				{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: CDC, DefaultStreamProperties: defaults},
+				{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DefaultStreamProperties: defaults},
+			},
+			oldCatalog: &Catalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"public": {{StreamName: "users", SyncMode: INCREMENTAL, CursorField: "updated_at", Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"id"}, true)}},
+				},
+			},
+			expectedAvailable: []*ConfiguredStream{
+				{Stream: &Stream{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DestinationDatabase: "analytics"}},
+				{Stream: &Stream{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
+			},
+			// email is new in the schema and sync_new_columns is true, so it is added
+			expectedSelected: map[string][]StreamMetadata{
+				"public": {{StreamName: "users", SyncMode: INCREMENTAL, CursorField: "updated_at", Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"email", "id"}, true)}},
+			},
+			expectedLegacy: &LegacyCatalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DestinationDatabase: "analytics"}},
+					{Stream: &Stream{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
+				},
+				SelectedStreams: map[string][]LegacyStreamMetadata{
+					"public": {{StreamName: "users", Normalization: true, UpdateType: string(UpdateTypeEquality), SelectedColumns: createSelectedColumns([]string{"email", "id"}, true)}},
+				},
+			},
+			expectedSelectableColumns: map[string][]string{"public.users": {"email", "id"}},
+		},
+		{
+			// no prior available/selected files, only streams.json: the upgrade path for a legacy user
+			name: "existing legacy user: selected_streams.json seeded from the legacy selection",
+			discovered: []*Stream{
+				{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: CDC, DefaultStreamProperties: defaults},
+				{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DefaultStreamProperties: defaults},
+			},
+			oldLegacyCatalog: &LegacyCatalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
+				},
+				SelectedStreams: map[string][]LegacyStreamMetadata{
+					"public": {{StreamName: "users", Normalization: false, AppendMode: true, PartitionRegex: "user_partition", SelectedColumns: createSelectedColumns([]string{"id"}, false)}},
+				},
+			},
+			expectedAvailable: []*ConfiguredStream{
+				{Stream: &Stream{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DestinationDatabase: "analytics"}},
+				{Stream: &Stream{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
+			},
+			// legacy values become explicit, so the defaults cannot change them
+			expectedSelected: map[string][]StreamMetadata{
+				"public": {{StreamName: "users", PartitionRegex: "user_partition", Normalization: new(false), AppendMode: new(true), SelectedColumns: createSelectedColumns([]string{"id"}, false)}},
+			},
+			expectedLegacy: &LegacyCatalog{
+				Streams: []*ConfiguredStream{
+					{Stream: &Stream{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DestinationDatabase: "analytics"}},
+					{Stream: &Stream{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
+				},
+				SelectedStreams: map[string][]LegacyStreamMetadata{
+					"public": {{StreamName: "users", PartitionRegex: "user_partition", Normalization: false, AppendMode: true, UpdateType: string(UpdateTypeEquality), SelectedColumns: createSelectedColumns([]string{"id"}, false)}},
+				},
+			},
+		},
+	}
 
-		defaults := &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}
-		newDiscovered := []*Stream{
-			{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: CDC, DefaultStreamProperties: defaults},
-			{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DefaultStreamProperties: defaults},
-		}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, t.TempDir())
 
-		LogCatalog(newDiscovered, oldCatalog, nil, "postgres")
+			LogCatalog(tc.discovered, tc.oldCatalog, tc.oldLegacyCatalog, "postgres")
 
-		// available_streams.json: users keeps its old Stream-level fields; orders is new
-		availableData, err := os.ReadFile(availablePath)
-		require.NoError(t, err)
-		var available Catalog
-		require.NoError(t, json.Unmarshal(availableData, &available))
-		require.Len(t, available.Streams, 2)
-		var usersStream *Stream
-		for _, cs := range available.Streams {
-			if cs.Stream.Name == "users" {
-				usersStream = cs.Stream
-				break
+			// available_streams.json: streams[] only
+			var available Catalog
+			readCatalogFile(t, availablePath, &available)
+			assert.Empty(t, available.SelectedStreams)
+			compareCatalogs(t, &Catalog{Streams: tc.expectedAvailable}, &Catalog{Streams: available.Streams}, tc.name)
+			for _, configured := range available.Streams {
+				if columns, ok := tc.expectedSelectableColumns[configured.Stream.ID()]; ok {
+					assert.Equal(t, columns, configured.Stream.SelectableColumns)
+				}
 			}
-		}
-		require.NotNil(t, usersStream)
-		assert.Equal(t, []string{"email", "id"}, usersStream.SelectableColumns)
-		assert.Equal(t, INCREMENTAL, usersStream.SyncMode)
-		assert.Equal(t, "updated_at", usersStream.CursorField)
 
-		// selected_streams.json: old selection preserved for users, orders not auto-selected
-		selectedData, err := os.ReadFile(selectedPath)
-		require.NoError(t, err)
-		var selected Catalog
-		require.NoError(t, json.Unmarshal(selectedData, &selected))
-		require.Len(t, selected.SelectedStreams["public"], 1)
-		sm := selected.SelectedStreams["public"][0]
-		assert.Equal(t, "users", sm.StreamName)
-		assert.Equal(t, INCREMENTAL, sm.SyncMode)
-		assert.Equal(t, "updated_at", sm.CursorField)
-		assert.Equal(t, new(true), sm.Normalization)
+			// selected_streams.json: selected_streams only
+			var selected Catalog
+			readCatalogFile(t, selectedPath, &selected)
+			assert.Empty(t, selected.Streams)
+			sortSelectedStreams(selected.SelectedStreams)
+			assert.Equal(t, tc.expectedSelected, selected.SelectedStreams)
 
-		// streams.json: derived from the same single merge as available/selected_streams.json —
-		// users carries its old selection forward, orders (new) is not auto-selected.
-		streamsData, err := os.ReadFile(streamsPath)
-		require.NoError(t, err)
-		var legacy LegacyCatalog
-		require.NoError(t, json.Unmarshal(streamsData, &legacy))
-		require.Len(t, legacy.Streams, 2)
-		require.Len(t, legacy.SelectedStreams["public"], 1)
-		legacySM := legacy.SelectedStreams["public"][0]
-		assert.Equal(t, "users", legacySM.StreamName)
-		assert.True(t, legacySM.Normalization) // carried forward from oldCatalog's *bool(true)
-		require.NotNil(t, legacySM.SelectedColumns)
-		assert.ElementsMatch(t, []string{"id", "email"}, legacySM.SelectedColumns.Columns)
-	})
+			// streams.json: legacy shape of the same merge
+			var legacy LegacyCatalog
+			readCatalogFile(t, streamsPath, &legacy)
+			compareCatalogs(t, &Catalog{Streams: tc.expectedLegacy.Streams}, &Catalog{Streams: legacy.Streams}, tc.name)
+			sortLegacySelectedColumns(legacy.SelectedStreams)
+			assert.Equal(t, tc.expectedLegacy.SelectedStreams, legacy.SelectedStreams)
+		})
+	}
+}
 
-	t.Run("existing legacy user, first run on this version: bootstraps selected_streams.json from real legacy selections", func(t *testing.T) {
-		dir := t.TempDir()
-		streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, dir)
-
-		oldLegacyCatalog := &LegacyCatalog{
-			Streams: []*ConfiguredStream{
-				{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
+func TestToLegacyCatalog(t *testing.T) {
+	testCases := []struct {
+		name     string
+		stream   *Stream
+		metadata StreamMetadata
+	}{
+		{
+			name:   "selected_streams overrides written onto streams[]",
+			stream: &Stream{Name: "orders", Namespace: "sales", Schema: oldSchema(), SyncMode: CDC, DestinationDatabase: "sales_db", DestinationTable: "orders"},
+			metadata: StreamMetadata{
+				StreamName:          "orders",
+				SyncMode:            INCREMENTAL,
+				CursorField:         "updated_at",
+				DestinationDatabase: "custom_db",
+				DestinationTable:    "custom_orders",
 			},
-			SelectedStreams: map[string][]LegacyStreamMetadata{
-				"public": {{
-					StreamName:      "users",
-					Normalization:   false,
-					AppendMode:      true,
-					PartitionRegex:  "user_partition",
-					SelectedColumns: createSelectedColumns([]string{"id"}, false),
-				}},
-			},
-		}
+		},
+		{
+			name:     "no overrides keeps the streams[] values",
+			stream:   &Stream{Name: "orders", Namespace: "sales", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "sales_db", DestinationTable: "orders"},
+			metadata: StreamMetadata{StreamName: "orders"},
+		},
+		{
+			name:     "partial override keeps the other streams[] values",
+			stream:   &Stream{Name: "orders", Namespace: "sales", Schema: oldSchema(), SyncMode: CDC, DestinationDatabase: "sales_db", DestinationTable: "orders"},
+			metadata: StreamMetadata{StreamName: "orders", DestinationTable: "custom_orders"},
+		},
+	}
 
-		defaults := &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}
-		newDiscovered := []*Stream{
-			{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: CDC, DefaultStreamProperties: defaults},
-			{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DefaultStreamProperties: defaults},
-		}
-
-		// oldCatalog is nil (no prior available_streams.json/selected_streams.json) but
-		// oldLegacyCatalog is real — this is the existing-user upgrade path.
-		LogCatalog(newDiscovered, nil, oldLegacyCatalog, "postgres")
-
-		// available_streams.json: users' Stream-level fields carried forward from the legacy state
-		availableData, err := os.ReadFile(availablePath)
-		require.NoError(t, err)
-		var available Catalog
-		require.NoError(t, json.Unmarshal(availableData, &available))
-		var usersStream *Stream
-		for _, cs := range available.Streams {
-			if cs.Stream.Name == "users" {
-				usersStream = cs.Stream
-				break
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			discovered := *tc.stream
+			canonical := &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: tc.stream}},
+				SelectedStreams: map[string][]StreamMetadata{tc.stream.Namespace: {tc.metadata}},
 			}
-		}
-		require.NotNil(t, usersStream)
-		assert.Equal(t, INCREMENTAL, usersStream.SyncMode)
-		assert.Equal(t, "updated_at", usersStream.CursorField)
-		assert.Equal(t, "analytics", usersStream.DestinationDatabase)
+			split := &ConfiguredStream{Stream: tc.stream, StreamMetadata: tc.metadata}
 
-		// selected_streams.json: seeded from the real legacy selections, not sparse defaults
-		selectedData, err := os.ReadFile(selectedPath)
-		require.NoError(t, err)
-		var selected Catalog
-		require.NoError(t, json.Unmarshal(selectedData, &selected))
-		require.Len(t, selected.SelectedStreams["public"], 1)
-		sm := selected.SelectedStreams["public"][0]
-		assert.Equal(t, "users", sm.StreamName)
-		assert.Equal(t, "user_partition", sm.PartitionRegex)
-		assert.Equal(t, new(false), sm.Normalization)
-		assert.Equal(t, new(true), sm.AppendMode)
-		require.NotNil(t, sm.SelectedColumns)
+			// streams.json read back through the legacy path must resolve to the same values as the split catalog
+			legacy := legacyToCanonical(toLegacyCatalog(canonical))
+			require.Len(t, legacy.Streams, 1)
+			require.Len(t, legacy.SelectedStreams[tc.stream.Namespace], 1)
+			rendered := &ConfiguredStream{Stream: legacy.Streams[0].Stream, StreamMetadata: legacy.SelectedStreams[tc.stream.Namespace][0]}
 
-		// streams.json: legacy format regenerates independently in its own always-populated shape
-		streamsData, err := os.ReadFile(streamsPath)
-		require.NoError(t, err)
-		var legacy LegacyCatalog
-		require.NoError(t, json.Unmarshal(streamsData, &legacy))
-		require.Len(t, legacy.SelectedStreams["public"], 1)
-		assert.Equal(t, "user_partition", legacy.SelectedStreams["public"][0].PartitionRegex)
-	})
+			assert.Equal(t, split.GetSyncMode(), rendered.GetSyncMode())
+			splitPrimary, splitSecondary := split.Cursor()
+			renderedPrimary, renderedSecondary := rendered.Cursor()
+			assert.Equal(t, splitPrimary, renderedPrimary)
+			assert.Equal(t, splitSecondary, renderedSecondary)
+			assert.Equal(t, split.GetDestinationDatabase(nil), rendered.GetDestinationDatabase(nil))
+			assert.Equal(t, split.GetDestinationTable(), rendered.GetDestinationTable())
+
+			// available_streams.json shares canonical.Streams, so the discovered values must not change
+			assert.Equal(t, discovered.SyncMode, tc.stream.SyncMode)
+			assert.Equal(t, discovered.CursorField, tc.stream.CursorField)
+			assert.Equal(t, discovered.DestinationDatabase, tc.stream.DestinationDatabase)
+			assert.Equal(t, discovered.DestinationTable, tc.stream.DestinationTable)
+		})
+	}
 }
