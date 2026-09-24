@@ -35,7 +35,7 @@ func (a *AbstractDriver) RunChangeStream(mainCtx context.Context, pool *destinat
 	backfillCompletionChannel := make(chan string, len(streams))
 	defer close(backfillCompletionChannel)
 	err := utils.ForEach(streams, func(stream types.StreamInterface) error {
-		isStrictCDC := stream.GetStream().SyncMode == types.STRICTCDC
+		isStrictCDC := stream.GetSyncMode() == types.STRICTCDC
 		if a.state.HasCompletedBackfill(stream.Self()) || isStrictCDC {
 			logger.Infof("backfill %s for stream[%s], skipping", utils.Ternary(isStrictCDC, "not enabled", "completed").(string), stream.ID())
 			backfillCompletionChannel <- stream.ID()

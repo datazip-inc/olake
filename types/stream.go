@@ -1,6 +1,8 @@
 package types
 
 import (
+	"sort"
+
 	"github.com/goccy/go-json"
 	"github.com/spf13/viper"
 
@@ -44,6 +46,9 @@ type Stream struct {
 	// Normalized Destination Database and Table used as default values for destination database and table
 	DestinationDatabase string `json:"destination_database,omitempty"`
 	DestinationTable    string `json:"destination_table,omitempty"`
+	// Columns that can be selected for this stream, including OLake columns.
+	// Populated on discover from type_schema (source columns + OLake columns).
+	SelectableColumns []string `json:"selectable_columns,omitempty"`
 	// Default stream properties (connector level)
 	DefaultStreamProperties *DefaultStreamProperties `json:"default_stream_properties,omitempty"`
 }
@@ -102,6 +107,17 @@ func (s *Stream) WithSchema(schema *TypeSchema) *Stream {
 	return s
 }
 
+// RefreshSelectableColumns sets selectable_columns from the current schema,
+// including OLake columns.
+func (s *Stream) RefreshSelectableColumns() {
+	if s == nil || s.Schema == nil {
+		return
+	}
+	cols := s.Schema.ColumnNames()
+	sort.Strings(cols)
+	s.SelectableColumns = cols
+}
+
 // Add or Update Column in Stream Type Schema
 func (s *Stream) UpsertField(column string, typ DataType, nullable bool, isOlakeColumn bool) {
 	types := []DataType{typ}
@@ -147,17 +163,35 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 	return output
 }
 
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string) {
+// LogCatalog merges the fresh discover result with the prior catalog, then writes
+// available_streams.json, selected_streams.json, and streams.json from that one merge.
+// oldCatalog is the prior new-format catalog; oldLegacyCatalog is the prior streams.json,
+// Both nil means first-ever discover.
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, oldLegacyCatalog *LegacyCatalog, driver string) {
 	message := Message{
 		Type:    CatalogMessage,
 		Catalog: GetWrappedCatalog(streams, driver),
 	}
 	logger.Info(message)
-	// write catalog to the specified file
-	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog)
 
-	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
-	if err != nil {
+	priorCatalog := oldCatalog
+	if priorCatalog == nil && oldLegacyCatalog != nil {
+		priorCatalog = legacyToCanonical(oldLegacyCatalog)
+	}
+	merged := mergeCatalogs(priorCatalog, message.Catalog)
+
+	availableStreamsFilePath := viper.GetString(constants.AvailableStreamsPath)
+	if err := (&Catalog{Streams: merged.Streams}).WriteToFile(availableStreamsFilePath); err != nil {
+		logger.Fatalf("failed to create available_streams file: %s", err)
+	}
+
+	selectedStreamsFilePath := viper.GetString(constants.SelectedStreamsPath)
+	if err := (&Catalog{SelectedStreams: merged.SelectedStreams}).WriteToFile(selectedStreamsFilePath); err != nil {
+		logger.Fatalf("failed to create selected_streams file: %s", err)
+	}
+
+	streamsFilePath := viper.GetString(constants.StreamsPath)
+	if err := toLegacyCatalog(merged).WriteToFile(streamsFilePath); err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
 	}
 }

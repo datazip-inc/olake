@@ -117,6 +117,96 @@ func TestSignalAwareRootContextPreservesParentCancellation(t *testing.T) {
 	}
 }
 
+// resetCatalogFlags clears the package-level catalog flag vars validateCatalogFlags reads,
+// restoring them after the test.
+func resetCatalogFlags(t *testing.T) {
+	t.Helper()
+	prevStreams, prevAvailable, prevSelected := streamsPath, availableStreamsPath, selectedStreamsPath
+	streamsPath, availableStreamsPath, selectedStreamsPath = "", "", ""
+	t.Cleanup(func() {
+		streamsPath, availableStreamsPath, selectedStreamsPath = prevStreams, prevAvailable, prevSelected
+	})
+}
+
+// TestValidateCatalogFlags covers the shared precondition checks discover, sync, and
+// clear-destination all apply to the --streams / --available-streams / --selected-streams flags.
+func TestValidateCatalogFlags(t *testing.T) {
+	testCases := []struct {
+		name         string
+		streams      string
+		available    string
+		selected     string
+		required     bool
+		expectErr    bool
+		expectedCode string
+	}{
+		{name: "legacy only, required", streams: "streams.json", required: true, expectErr: false},
+		{name: "new format pair, required", available: "available_streams.json", selected: "selected_streams.json", required: true, expectErr: false},
+		{name: "nothing passed, required", required: true, expectErr: true, expectedCode: codeFlagMissing},
+		{name: "nothing passed, not required (discover)", required: false, expectErr: false},
+		{name: "legacy and new format together", streams: "streams.json", available: "available_streams.json", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeConflictingStreamFlags},
+		{name: "legacy and available only", streams: "streams.json", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeFlagMissing},
+		{name: "available without selected", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeFlagMissing},
+		{name: "selected without available", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeFlagMissing},
+		{name: "selected without available, not required (discover)", selected: "selected_streams.json", required: false, expectErr: true, expectedCode: codeFlagMissing},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			resetCatalogFlags(t)
+			streamsPath, availableStreamsPath, selectedStreamsPath = tc.streams, tc.available, tc.selected
+
+			err := validateCatalogFlags(tc.required)
+			if !tc.expectErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			got := errs.From(errs.Classify(err))
+			assert.Equal(t, tc.expectedCode, got.Code)
+		})
+	}
+}
+
+// TestValidateDifferenceFlags covers the --difference / --difference-available-streams /
+// --difference-selected-streams checks discover applies before a stream difference.
+func TestValidateDifferenceFlags(t *testing.T) {
+	testCases := []struct {
+		name         string
+		difference   string
+		available    string
+		selected     string
+		expectErr    bool
+		expectedCode string
+	}{
+		{name: "nothing passed", expectErr: false},
+		{name: "legacy only", difference: "new_streams.json", expectErr: false},
+		{name: "new format pair", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: false},
+		{name: "available without selected", available: "new_available_streams.json", expectErr: true, expectedCode: codeFlagMissing},
+		{name: "selected without available", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeFlagMissing},
+		{name: "legacy and new format together", difference: "new_streams.json", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeConflictingStreamFlags},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			prevDifference, prevAvailable, prevSelected := differencePath, differenceAvailableStreamsPath, differenceSelectedStreamsPath
+			t.Cleanup(func() {
+				differencePath, differenceAvailableStreamsPath, differenceSelectedStreamsPath = prevDifference, prevAvailable, prevSelected
+			})
+			differencePath, differenceAvailableStreamsPath, differenceSelectedStreamsPath = tc.difference, tc.available, tc.selected
+
+			err := validateDifferenceFlags()
+			if !tc.expectErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			got := errs.From(errs.Classify(err))
+			assert.Equal(t, tc.expectedCode, got.Code)
+		})
+	}
+}
+
 // runUnderRecover runs body with recoverToError deferred over an error that starts as prior.
 // It reports the error a caller would be left with and the value that continued unwinding.
 func runUnderRecover(prior error, body func()) (panicked any, err error) {
