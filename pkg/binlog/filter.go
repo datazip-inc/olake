@@ -122,6 +122,7 @@ func (f ChangeFilter) FilterRowsEvent(ctx context.Context, e *replication.RowsEv
 type columnView struct {
 	names      []string
 	types      []string   // mysqlTypeName output, e.g. "UNSIGNED BIGINT"
+	widths     []int      // nil for non-fixed-length types
 	enumValues [][]string // nil for non-ENUM columns
 	setMembers [][]string // nil for non-SET columns
 	collations []uint64   // 0 = no charset decoding
@@ -138,6 +139,7 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 	view := &columnView{
 		names:      tableMap.ColumnNameString(),
 		types:      make([]string, n),
+		widths:     make([]int, n),
 		enumValues: make([][]string, n),
 		setMembers: make([][]string, n),
 		collations: make([]uint64, n),
@@ -183,6 +185,9 @@ func (f ChangeFilter) resolveColumns(ctx context.Context, e *replication.RowsEve
 			isUnsigned = meta.Columns[i].Unsigned
 		}
 		view.types[i] = mysqlTypeName(tableMap.ColumnType[i], isUnsigned)
+		if tableMap.ColumnType[i] == mysql.MYSQL_TYPE_STRING && !tableMap.IsEnumColumn(i) && !tableMap.IsSetColumn(i) {
+			view.widths[i] = fixedWidth(tableMap.ColumnMeta[i])
+		}
 	}
 
 	fillEnumSetAndCollations(view, tableMap, meta)
@@ -240,7 +245,9 @@ func decodeMembers(raw [][]byte, collationID uint64) []string {
 	return out
 }
 
-// convertRowToMap converts a binlog row to a map.
+// convertRowToMap converts a binlog row to a map. A row image drops the trailing 0x00 bytes MySQL
+// pads a BINARY(n) value with, so the value is padded back to its declared width: it then matches
+// what a SELECT returns, and a BINARY(n) key hashes to the same olake id on backfill and CDC.
 func convertRowToMap(row []interface{}, view *columnView, converter func(value interface{}, columnType string) (interface{}, error)) (map[string]interface{}, error) {
 	if len(view.names) != len(row) {
 		return nil, fmt.Errorf("column count mismatch: expected %d, got %d", len(view.names), len(row))
@@ -297,7 +304,11 @@ func convertRowToMap(row []interface{}, view *columnView, converter func(value i
 						val = decoded
 					}
 				case isBinaryCollation(view.collations[i]):
-					val = raw
+					padded, padErr := typeutils.ReformatBytes(raw, view.widths[i])
+					if padErr != nil {
+						return nil, padErr
+					}
+					val = padded
 					columnType = binaryTypeName(columnType)
 				default:
 					if decoded, decErr := decodeBytesToString(raw, view.collations[i]); decErr == nil {
@@ -499,6 +510,20 @@ func binaryTypeName(wireType string) string {
 	default:
 		return wireType
 	}
+}
+
+// fixedWidth returns the declared byte width of a CHAR or BINARY column from its TableMapEvent
+// meta, unpacked the way go-mysql's decodeValue does: the high byte carries the real type and, for a
+// width past 255 bytes, its two spare bits carry the width's high bits.
+func fixedWidth(meta uint16) int {
+	if meta < 256 {
+		return int(meta)
+	}
+	realType, low := byte(meta>>8), meta&0xFF
+	if realType&0x30 != 0x30 {
+		return int(low | uint16((realType&0x30)^0x30)<<4)
+	}
+	return int(low)
 }
 
 // textTypeName maps the BLOB wire type of a text-charset column to its TEXT counterpart; the

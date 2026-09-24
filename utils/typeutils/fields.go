@@ -73,16 +73,13 @@ func (f Fields) Header() (header []string) {
 }
 
 // ValueFitsColumn checks if a value of detectedType fits the column type, so the column need not change.
-func ValueFitsColumn(value any, detectedType, column types.DataType) bool {
-	switch {
-	case detectedType == types.Null || detectedType == column:
+func ValueFitsColumn(value any, detectedType, columnType types.DataType) bool {
+	if detectedType == types.Null || detectedType == columnType {
 		return true
-	case types.BaseOf(column) == types.FixedBinary:
-		bytesValue, isBytes := value.([]byte)
-		return isBytes && len(bytesValue) <= types.FixedBinaryWidth(column)
-	default:
-		return false
 	}
+	width, _ := types.BytesWidth(columnType)
+	bytesValue, isBytes := value.([]byte)
+	return width > 0 && isBytes && len(bytesValue) <= width
 }
 
 // Returns change, typeChange, mutations

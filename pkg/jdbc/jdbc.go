@@ -422,6 +422,7 @@ func MySQLTableSchemaQuery() string {
 			COLUMN_NAME, 
 			COLUMN_TYPE,
 			DATA_TYPE, 
+			CHARACTER_MAXIMUM_LENGTH,
 			IS_NULLABLE,
 			COLUMN_KEY
 		FROM 
@@ -1439,7 +1440,11 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
-		cursorValue, err := abstract.DecodeCursorValue(cursorField, lastCursorValue, opts.Stream)
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err := abstract.DecodeCursorValue(cursorField, cursorType, lastCursorValue)
 		if err != nil {
 			return "", nil, err
 		}
@@ -1529,7 +1534,11 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
 		}
-		cursorValue, err := abstract.DecodeCursorValue(cursorField, cursorValue, opts.Stream)
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err = abstract.DecodeCursorValue(cursorField, cursorType, cursorValue)
 		if err != nil {
 			return "", nil, err
 		}

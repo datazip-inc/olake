@@ -324,6 +324,48 @@ func TestBinaryTypeName(t *testing.T) {
 	}
 }
 
+// TestFixedStringWidth pins the declared width unpacked from a CHAR or BINARY column's TableMapEvent
+// meta the three ways it is packed: a bare width, the real type in the high byte with the width
+// below it, and the width's high bits folded into the type byte once the width passes 255.
+func TestFixedStringWidth(t *testing.T) {
+	testCases := []struct {
+		name string
+		meta uint16
+		want int
+	}{
+		{
+			name: "binary(16)",
+			meta: uint16(mysql.MYSQL_TYPE_STRING)<<8 | 16,
+			want: 16,
+		},
+		{
+			name: "binary(255)",
+			meta: uint16(mysql.MYSQL_TYPE_STRING)<<8 | 255,
+			want: 255,
+		},
+		{
+			name: "char(255) utf8mb4 width folded into the type byte",
+			meta: uint16(mysql.MYSQL_TYPE_STRING^((1020&0x300)>>4))<<8 | (1020 & 0xFF),
+			want: 1020,
+		},
+		{
+			name: "bare width",
+			meta: 16,
+			want: 16,
+		},
+		{
+			name: "no width",
+			want: 0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, fixedWidth(tc.meta))
+		})
+	}
+}
+
 func TestTextTypeName(t *testing.T) {
 	testCases := []struct {
 		wireType string

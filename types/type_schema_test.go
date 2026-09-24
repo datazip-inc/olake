@@ -247,10 +247,9 @@ func TestTypecastTreeHasAllDeclaredTypes(t *testing.T) {
 
 func TestPropertyDataType(t *testing.T) {
 	testCases := []struct {
-		name         string
-		stateVersion *int
-		types        []DataType
-		expected     DataType
+		name     string
+		types    []DataType
+		expected DataType
 	}{
 		{
 			name:     "single type resolves to itself",
@@ -302,36 +301,10 @@ func TestPropertyDataType(t *testing.T) {
 			types:    []DataType{Null, Int64, Timestamp},
 			expected: String,
 		},
-		{
-			name:         "binary resolves to string before state version 8",
-			stateVersion: new(7),
-			types:        []DataType{Binary},
-			expected:     String,
-		},
-		{
-			name:         "fixed binary resolves to string before state version 8",
-			stateVersion: new(7),
-			types:        []DataType{Null, FixedBinaryOf(16)},
-			expected:     String,
-		},
-		{
-			name:         "mixed fixed binary lengths resolve to string before state version 8",
-			stateVersion: new(7),
-			types:        []DataType{FixedBinaryOf(16), FixedBinaryOf(32)},
-			expected:     String,
-		},
 	}
-
-	old := constants.LoadedStateVersion
-	t.Cleanup(func() { constants.LoadedStateVersion = old })
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			constants.LoadedStateVersion = constants.LatestStateVersion
-			if tc.stateVersion != nil {
-				constants.LoadedStateVersion = *tc.stateVersion
-			}
-
 			property := &Property{Type: NewSet(tc.types...)}
 			require.Equal(t, tc.expected, property.DataType())
 		})
@@ -448,10 +421,16 @@ func TestTypeSchemaOverride(t *testing.T) {
 }
 
 func TestTypeSchemaJSONRoundTrip(t *testing.T) {
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
+	constants.LoadedStateVersion = constants.LatestStateVersion
+
 	schema := NewTypeSchema()
 	schema.AddTypes("User ID", false, Int64, Null)
 	schema.AddTypes("_meta_col", true, String)
 	schema.AddTypes("Digest", false, FixedBinaryOf(32))
+	schema.AddTypes("Payload", false, Binary, Null)
+	schema.AddTypes("Hashes", false, FixedBinaryOf(16), FixedBinaryOf(32))
 
 	data, err := json.Marshal(schema)
 	require.NoError(t, err)
@@ -476,6 +455,21 @@ func TestTypeSchemaJSONRoundTrip(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, FixedBinaryOf(32), prop.DataType())
 	require.Equal(t, "fixed[32]", prop.DataType().ToIceberg())
+
+	found, prop = restored.GetProperty("Payload")
+	require.True(t, found)
+	require.Equal(t, Binary, prop.DataType())
+
+	constants.LoadedStateVersion = 7
+	preBinary := NewTypeSchema()
+	require.NoError(t, json.Unmarshal(data, preBinary))
+	for column, expected := range map[string]DataType{"User ID": Int64, "Digest": String, "Payload": String, "Hashes": String} {
+		found, prop := preBinary.GetProperty(column)
+		require.True(t, found, column)
+		require.Equal(t, expected, prop.DataType(), column)
+	}
+	_, prop = preBinary.GetProperty("Payload")
+	require.True(t, prop.Nullable())
 }
 
 func parquetFieldNames(schema *parquet.Schema) []string {

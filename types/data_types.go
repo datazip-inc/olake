@@ -57,9 +57,7 @@ func (m destinationTypesMap) get(d DataType) (destinationType, []any, bool) {
 }
 
 // destinationTypes is the canonical DataType -> destination type mapping. Every declared DataType
-// must have an entry here (enforced by TestDeclaredTypesHaveExplicitIcebergMapping and
-// TestDeclaredTypesHaveExplicitParquetMapping); the ToIceberg/ToNewParquet fallbacks are reserved
-// for types that are not declared constants.
+// must have an entry here (enforced by unit tests)
 var destinationTypes = destinationTypesMap{
 	Bool:           {"boolean", leafNode(parquet.BooleanType)},
 	Int32:          {"int", leafNode(parquet.Int32Type)},
@@ -154,18 +152,6 @@ func (d DataType) ToIceberg() string {
 		return mapping.icebergType
 	default:
 		return fmt.Sprintf(mapping.icebergType, params...)
-	}
-}
-
-// ForLoadedState returns the type a column carries for the state version this sync is pinned at.
-// Binary columns were carried as text before state version 8, so state written by such a build
-// keeps them as String and an existing destination column does not change type on upgrade.
-func ForLoadedState(d DataType) DataType {
-	switch {
-	case constants.LoadedStateVersion < 8 && (d == Binary || BaseOf(d) == FixedBinary):
-		return String
-	default:
-		return d
 	}
 }
 

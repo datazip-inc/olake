@@ -49,6 +49,9 @@ type MySQL struct {
 	// effectiveTZ is the resolved timezone (e.g. for CDC binlog TimestampStringLocation).
 	// Derived from config (jdbc_url_params.time_zone) or detected from the DB session.
 	effectiveTZ *time.Location
+	// typeMapping is mysqlTypeToDataTypes for the loaded state version, built once in Setup so the
+	// per-value conversion never rebuilds it.
+	typeMapping map[string]types.DataType
 }
 
 // MySQLGlobalState tracks the binlog position and backfilled streams.
@@ -78,6 +81,7 @@ func (m *MySQL) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to validate config: %w", err)
 	}
+	m.typeMapping = mysqlTypeToDataTypes()
 
 	if m.config.SSHConfig != nil && m.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
@@ -230,13 +234,14 @@ func (m *MySQL) ProduceSchema(ctx context.Context, streamName types.StreamID) (*
 
 		for rows.Next() {
 			var columnName, columnType, dataType, isNullable, columnKey string
-			if err := rows.Scan(&columnName, &columnType, &dataType, &isNullable, &columnKey); err != nil {
+			var dataMaxLength sql.NullInt64
+			if err := rows.Scan(&columnName, &columnType, &dataType, &dataMaxLength, &isNullable, &columnKey); err != nil {
 				return nil, fmt.Errorf("failed to scan column: %w", err)
 			}
 			stream.WithCursorField(columnName)
 			var olakeDataType types.DataType
-			if val, found := mysqlTypeToDataTypes[dataType]; found {
-				olakeDataType = types.ForLoadedState(resolveColumnType(dataType, columnType, val))
+			if val, found := m.typeMapping[dataType]; found {
+				olakeDataType = resolveColumnType(dataType, dataMaxLength, val)
 			} else {
 				logger.Warnf("Unsupported MySQL type '%s'for column '%s.%s', defaulting to String", dataType, streamName, columnName)
 				olakeDataType = types.String
@@ -293,7 +298,7 @@ func (m *MySQL) dataTypeConverter(value interface{}, columnType string) (interfa
 		}
 	}
 
-	olakeType := types.ForLoadedState(typeutils.ExtractAndMapColumnType(columnType, mysqlTypeToDataTypes))
+	olakeType := typeutils.ExtractAndMapColumnType(columnType, m.typeMapping)
 	return typeutils.ReformatValue(olakeType, value)
 }
 

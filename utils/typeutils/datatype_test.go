@@ -120,14 +120,27 @@ func TestTypeFromValue(t *testing.T) {
 }
 
 func TestTypeFromValueBytes(t *testing.T) {
-	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
+	testCases := []struct {
+		name         string
+		stateVersion int
+		input        []byte
+		expected     types.DataType
+	}{
+		{name: "bytes", stateVersion: constants.LatestStateVersion, input: []byte{0xff, 0x00}, expected: types.Binary},
+		{name: "empty_bytes", stateVersion: constants.LatestStateVersion, input: []byte{}, expected: types.Binary},
+		{name: "bytes_as_text_before_version_8", stateVersion: 7, input: []byte{0xff, 0x00}, expected: types.String},
+		{name: "empty_bytes_as_text_before_version_8", stateVersion: 7, input: []byte{}, expected: types.String},
+	}
 
-	assert.Equal(t, types.Binary, TypeFromValue([]byte{0xff, 0x00}))
-	assert.Equal(t, types.Binary, TypeFromValue([]byte{}))
+	old := constants.LoadedStateVersion
+	t.Cleanup(func() { constants.LoadedStateVersion = old })
 
-	constants.LoadedStateVersion = 7
-	assert.Equal(t, types.String, TypeFromValue([]byte{0xff, 0x00}), "older state detects bytes as text")
-	assert.Equal(t, types.String, TypeFromValue([]byte{}), "older state detects bytes as text")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			constants.LoadedStateVersion = tc.stateVersion
+			assert.Equal(t, tc.expected, TypeFromValue(tc.input))
+		})
+	}
 }
 
 func TestMaximumOnDataTypeTimestamp(t *testing.T) {

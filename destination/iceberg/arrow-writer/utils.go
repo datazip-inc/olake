@@ -157,28 +157,30 @@ func (fw *parquetWriter) RowGroupTotalBytesWritten() int64 {
 	return 0
 }
 
-// toArrowType maps an iceberg column type to its arrow type. The switch runs on the olake type
-// rather than the iceberg name, because fixed[n] carries a width and so cannot be a string case.
+// toArrowType maps an iceberg column type to its arrow type. Bytes columns are read with
+// IcebergBytesWidth, as the legacy writer does, since fixed[n] carries a width.
 func toArrowType(icebergType string) arrow.DataType {
-	switch dataType := types.IcebergTypeToDatatype(icebergType); {
-	case types.SameType(dataType, types.Bool):
+	switch icebergType {
+	case "boolean":
 		return arrow.FixedWidthTypes.Boolean
-	case types.SameType(dataType, types.Int32):
+	case "int":
 		return arrow.PrimitiveTypes.Int32
-	case types.SameType(dataType, types.Int64):
+	case "long":
 		return arrow.PrimitiveTypes.Int64
-	case types.SameType(dataType, types.Float32):
+	case "float":
 		return arrow.PrimitiveTypes.Float32
-	case types.SameType(dataType, types.Float64):
+	case "double":
 		return arrow.PrimitiveTypes.Float64
-	case types.SameType(dataType, types.TimestampMilli):
+	case "timestamptz":
 		return arrow.FixedWidthTypes.Timestamp_us
-	case types.SameType(dataType, types.Binary):
-		return arrow.BinaryTypes.Binary
-	case types.SameType(dataType, types.FixedBinary):
-		params, _ := dataType.Params()
-		return &arrow.FixedSizeBinaryType{ByteWidth: params[0]}
 	default:
+		width, isBytes := types.IcebergBytesWidth(icebergType)
+		switch {
+		case width > 0:
+			return &arrow.FixedSizeBinaryType{ByteWidth: width}
+		case isBytes:
+			return arrow.BinaryTypes.Binary
+		}
 		return arrow.BinaryTypes.String
 	}
 }

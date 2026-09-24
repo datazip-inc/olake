@@ -83,7 +83,7 @@ var seedColumns = []seedColumn{
 	// binary columns carry bytes that are not valid UTF-8 on purpose; the update writes a short
 	// BINARY(16) value so the binlog path has to restore MySQL's 0x00 padding
 	{name: "data_fixed_binary", datatype: "BINARY(16)", value: "X'123E4567E89B12D3A456426614174000'", filtered: "X'00'", updated: "X'FFFE'"},
-	{name: "data_varbinary", datatype: "VARBINARY(64)", value: "X'00FF10FE'", filtered: "X'01'", updated: "X'0102FF'"},
+	{name: "data_varbinary", datatype: "VARBINARY(64)", value: "X'00FF10FE'", filtered: "X'01'", updated: "X'0102FF0000'"},
 	{name: "data_blob", datatype: "BLOB", value: "X'89504E470D0A1A0A'", filtered: "X'00'", updated: "X'E28228'"},
 	// valid UTF-8: so older mysql versions can assert the string behavior for compatibility
 	{name: "data_fixed_binary_utf8", datatype: "BINARY(8)", value: "X'6F6C616B65313233'", filtered: "X'66696C7431323334'", updated: "X'7570646174653132'"},
@@ -123,12 +123,32 @@ func binaryCursor(n int) string {
 	return fmt.Sprintf("X'FF%02X'", n+4)
 }
 
-func createTableQuery(table string, cols []seedColumn) string {
-	defs := make([]string, 0, len(cols)+1)
+// binaryCursorOlakeID is the _olake_id of row n when id_cursor_binary is the primary key: the hex
+// of the BINARY(16) value MySQL stores, padding included. A binlog row image drops that padding, so
+// the id only matches on both backfill and CDC when the driver restores it before hashing.
+func binaryCursorOlakeID(n int) string {
+	return fmt.Sprintf("ff%02x%s", n+4, strings.Repeat("00", 14))
+}
+
+// seedPrimaryKey is the column the suite keys its table on, id unless the config says otherwise.
+func seedPrimaryKey(conf *testutils.TestConfig) string {
+	if conf.PrimaryKey != "" {
+		return conf.PrimaryKey
+	}
+	return "id"
+}
+
+// createTableQuery keys the table on primaryKey; id stays uniquely indexed either way, since its
+// AUTO_INCREMENT needs a key and every DML below addresses rows by it.
+func createTableQuery(table string, cols []seedColumn, primaryKey string) string {
+	defs := make([]string, 0, len(cols)+2)
 	for _, col := range cols {
 		defs = append(defs, col.definition())
 	}
-	defs = append(defs, "PRIMARY KEY (id)")
+	defs = append(defs, fmt.Sprintf("PRIMARY KEY (%s)", primaryKey))
+	if primaryKey != "id" {
+		defs = append(defs, "UNIQUE KEY (id)")
+	}
 	return fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (\n\t%s\n)", table, strings.Join(defs, ",\n\t"))
 }
 
@@ -152,10 +172,12 @@ func insertRowQuery(table string, cols []seedColumn, filtered bool, overrides ma
 	return fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s)", table, strings.Join(names, ", "), strings.Join(values, ", "))
 }
 
-func updateRowQuery(table string, cols []seedColumn) string {
+// updateRowQuery rewrites every column with an updated value except the primary key, which the
+// update must leave in place for the row to keep its identity.
+func updateRowQuery(table string, cols []seedColumn, primaryKey string) string {
 	sets := make([]string, 0, len(cols)+1)
 	for _, col := range cols {
-		if col.updated == "" {
+		if col.updated == "" || col.name == primaryKey {
 			continue
 		}
 		sets = append(sets, col.name+" = "+col.updated)
@@ -171,6 +193,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	excludedColumns := conf.SeedExcludedColumns
 	seedCols := filterSeedColumns(t, excludedColumns)
+	primaryKey := seedPrimaryKey(conf)
 
 	var connStr, database string
 	config := conf.SourceBaseConfig
@@ -194,7 +217,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 
 	switch operation {
 	case "create":
-		query = createTableQuery(integrationTestTable, seedCols)
+		query = createTableQuery(integrationTestTable, seedCols, primaryKey)
 
 	case "drop":
 		query = fmt.Sprintf("DROP TABLE IF EXISTS %s", integrationTestTable)
@@ -217,16 +240,16 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		require.NoError(t, err, "Failed to execute %s operation", operation)
 		// insert a filtered doc, it would be filtered out by the filter, won't be synced into the destination
 		_, err = db.ExecContext(ctx, insertRowQuery(integrationTestTable, seedCols, true,
-			map[string]string{"id": "999", "excludedColumn": "200"}))
+			map[string]string{"id": "999", "id_cursor_binary": "X'01'", "excludedColumn": "200"}))
 		require.NoError(t, err, "Failed to insert filtered test data row")
 		return
 
 	case "insert_2pc":
 		query = insertRowQuery(integrationTestTable, seedCols, false,
-			map[string]string{"id": "7", "id_cursor": "7"})
+			map[string]string{"id": "7", "id_cursor": "7", "id_cursor_binary": binaryCursor(7)})
 
 	case "update":
-		query = updateRowQuery(integrationTestTable, seedCols)
+		query = updateRowQuery(integrationTestTable, seedCols, primaryKey)
 
 	case "delete":
 		query = fmt.Sprintf("DELETE FROM %s WHERE id = 1", integrationTestTable)
@@ -367,57 +390,59 @@ var ExpectedMySQLData = map[string]interface{}{
 
 // TODO: olake has no uint64 data type, so the id_bigint_unsigned_* values past MaxInt64 pin what
 // olake writes today, not what MySQL stored.
-var ExpectedUpdatedData = map[string]interface{}{
-	"id_bigint":                     int64(987654321098765),
-	"id_int":                        int64(200),
-	"id_int_unsigned":               int64(4294967293),
-	"id_integer":                    int32(202),
-	"id_integer_unsigned":           int64(4294967292),
-	"id_mediumint":                  int32(6001),
-	"id_mediumint_unsigned":         int32(6002),
-	"id_smallint":                   int32(201),
-	"id_smallint_unsigned":          int32(202),
-	"id_tinyint":                    int32(60),
-	"id_tinyint_unsigned":           int32(61),
-	"id_tinyint_unsigned_max":       int32(254),
-	"id_smallint_unsigned_max":      int32(65534),
-	"id_mediumint_unsigned_max":     int32(16777214),
-	"id_mediumint_unsigned_signbit": int32(8388609),
-	"id_int_unsigned_max":           int64(4294967294),
-	"id_bigint_unsigned":            int64(6003),
-	"id_bigint_unsigned_signbit":    int64(math.MinInt64 + 1), // should be 9223372036854775809 (2^63+1)
-	"id_bigint_unsigned_max":        int64(-2),                // should be 18446744073709551614 (2^64-2)
-	"price_decimal":                 float64(543.21),
-	"amount_decimal_9_2":            float64(1234567.89),
-	"price_double":                  float64(654.321),
-	"price_double_precision":        float64(654.321),
-	"price_float":                   float64(543.21),
-	"price_numeric":                 float64(543.21),
-	"price_real":                    float64(654.321),
-	"name_char":                     "X",
-	"name_varchar":                  "updated varchar",
-	"name_text":                     "updated text",
-	"name_tinytext":                 "upd tiny",
-	"name_mediumtext":               "upd medium",
-	"name_longtext":                 "upd long",
-	"created_date":                  arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"created_timestamp":             arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"is_active":                     int32(0),
-	"long_varchar":                  "updated long...",
-	"name_bool":                     int32(0),
-	"status":                        "pending",
-	"priority":                      "low",
-	"name_latin1":                   "updated latin1",
-	"name_ucs2":                     "updated ucs2",
-	"name_utf16le":                  "updated utf16le",
-	"grade":                         "café",
-	"tags":                          "gaming,reading",
-	"permissions":                   "read,write,execute",
-	"data_fixed_binary":             []byte{0xff, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // MySQL pads BINARY(16)
-	"data_fixed_binary_utf8":        []byte("update12"),
-	"data_varbinary":                []byte{0x01, 0x02, 0xff},
-	"data_blob":                     []byte{0xe2, 0x82, 0x28},
-	"includedcolumn":                int32(202),
+func ExpectedUpdatedData() map[string]interface{} {
+	return map[string]interface{}{
+		"id_bigint":                     int64(987654321098765),
+		"id_int":                        int64(200),
+		"id_int_unsigned":               int64(4294967293),
+		"id_integer":                    int32(202),
+		"id_integer_unsigned":           int64(4294967292),
+		"id_mediumint":                  int32(6001),
+		"id_mediumint_unsigned":         int32(6002),
+		"id_smallint":                   int32(201),
+		"id_smallint_unsigned":          int32(202),
+		"id_tinyint":                    int32(60),
+		"id_tinyint_unsigned":           int32(61),
+		"id_tinyint_unsigned_max":       int32(254),
+		"id_smallint_unsigned_max":      int32(65534),
+		"id_mediumint_unsigned_max":     int32(16777214),
+		"id_mediumint_unsigned_signbit": int32(8388609),
+		"id_int_unsigned_max":           int64(4294967294),
+		"id_bigint_unsigned":            int64(6003),
+		"id_bigint_unsigned_signbit":    int64(math.MinInt64 + 1), // should be 9223372036854775809 (2^63+1)
+		"id_bigint_unsigned_max":        int64(-2),                // should be 18446744073709551614 (2^64-2)
+		"price_decimal":                 float64(543.21),
+		"amount_decimal_9_2":            float64(1234567.89),
+		"price_double":                  float64(654.321),
+		"price_double_precision":        float64(654.321),
+		"price_float":                   float64(543.21),
+		"price_numeric":                 float64(543.21),
+		"price_real":                    float64(654.321),
+		"name_char":                     "X",
+		"name_varchar":                  "updated varchar",
+		"name_text":                     "updated text",
+		"name_tinytext":                 "upd tiny",
+		"name_mediumtext":               "upd medium",
+		"name_longtext":                 "upd long",
+		"created_date":                  arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+		"created_timestamp":             arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+		"is_active":                     int32(0),
+		"long_varchar":                  "updated long...",
+		"name_bool":                     int32(0),
+		"status":                        "pending",
+		"priority":                      "low",
+		"name_latin1":                   "updated latin1",
+		"name_ucs2":                     "updated ucs2",
+		"name_utf16le":                  "updated utf16le",
+		"grade":                         "café",
+		"tags":                          "gaming,reading",
+		"permissions":                   "read,write,execute",
+		"data_fixed_binary":             []byte{0xff, 0xfe, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, // MySQL pads BINARY(16)
+		"data_fixed_binary_utf8":        []byte("update12"),
+		"data_varbinary":                []byte{0x01, 0x02, 0xff, 0x00, 0x00},
+		"data_blob":                     []byte{0xe2, 0x82, 0x28},
+		"includedcolumn":                int32(202),
+	}
 }
 
 var MySQLToDestinationSchema = map[string]string{

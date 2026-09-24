@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/datazip-inc/olake/constants"
@@ -94,6 +95,7 @@ func (t *TypeSchema) UnmarshalJSON(data []byte) error {
 
 	// Populate sync.Map with the data from temporary map
 	for key, value := range aux.Properties {
+		value.applyStateVersionChecks()
 		t.Properties.Store(key, value)
 	}
 
@@ -232,9 +234,21 @@ func (p *Property) DataType() DataType {
 	for idx := 1; idx < len(types); idx++ {
 		commonType = GetCommonAncestorType(commonType, types[idx])
 	}
-	// a catalog written by a newer build can declare a type this state predates, so the state
-	// decides what the column carries, not the catalog
-	return ForLoadedState(commonType)
+	return commonType
+}
+
+// applyStateVersionChecks rewrites the property's types for the state version this sync is pinned at.
+func (p *Property) applyStateVersionChecks() {
+	switch {
+	case constants.LoadedStateVersion < 8:
+		types := p.Type.Array()
+		for i, d := range types {
+			if _, isBytes := BytesWidth(d); isBytes {
+				types[i] = String
+			}
+		}
+		p.Type = NewSet(types...)
+	}
 }
 
 func (p *Property) Nullable() bool {
@@ -286,13 +300,13 @@ type typeNode struct {
 //	            (Float64)             (TimestampNano)
 //		        /	    \            		/
 //			   / 	     \				   /
-//	    (Float32)       (Int64)       (TimestampMicro)
-//			             /                  /
-//			            /                  /
-//			         (Int32)         (TimestampMilli)
-//			          /                  /
-//			         /                  /
-//				  (Bool)           (Timestamp)
+//	       (Int64)      (Float32)    (TimestampMicro)
+//			 /          		        /
+//			/           		       /
+//		(Int32)         		 (TimestampMilli)
+//		  /             		     /
+//		 /              		    /
+//	  (Bool)           			(Timestamp)
 var typecastTree = &typeNode{
 	t: Binary,
 	children: []*typeNode{{
@@ -335,6 +349,19 @@ var typeParent = func() map[DataType]DataType {
 	return parents
 }()
 
+// typeAncestors maps every promotable DataType to its path up typecastTree: the type itself, its
+// parent and so on to the root. The tree never changes, so the paths are built once and
+// lowestCommonAncestor walks them without allocating.
+var typeAncestors = func() map[DataType][]DataType {
+	ancestors := make(map[DataType][]DataType, len(typeParent))
+	for t := range typeParent {
+		for ancestor := t; ancestor != ""; ancestor = typeParent[ancestor] {
+			ancestors[t] = append(ancestors[t], ancestor)
+		}
+	}
+	return ancestors
+}()
+
 // GetCommonAncestorType returns lowest common ancestor type
 func GetCommonAncestorType(t1, t2 DataType) DataType {
 	return lowestCommonAncestor(t1, t2)
@@ -351,10 +378,12 @@ func lowestCommonAncestor(t1, t2 DataType) DataType {
 	}
 
 	base1, base2 := BaseOf(t1), BaseOf(t2)
+
+	// String is the default fallback as not all the drivers support binary
 	if _, ok := typeParent[base1]; !ok {
-		// TODO: move the default type to Binary when all drivers supports binary columns
 		return String
 	}
+	// String is the default fallback as not all the drivers support binary
 	if _, ok := typeParent[base2]; !ok {
 		return String
 	}
@@ -366,12 +395,9 @@ func lowestCommonAncestor(t1, t2 DataType) DataType {
 		return base1
 	}
 
-	ancestors := make(map[DataType]bool)
-	for t := base1; t != ""; t = typeParent[t] {
-		ancestors[t] = true
-	}
-	for t := base2; t != ""; t = typeParent[t] {
-		if ancestors[t] {
+	ancestors1 := typeAncestors[base1]
+	for _, t := range typeAncestors[base2] {
+		if slices.Contains(ancestors1, t) {
 			return t
 		}
 	}

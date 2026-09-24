@@ -134,6 +134,23 @@ type syncTestCase struct {
 // updateStreamConfig sets sync_mode and cursor_field on the stream identified by
 // namespace+name in streams[].
 func updateStreamConfig(config *testutils.TestConfig, namespace, streamName, syncMode, cursorField string) error {
+	return editStream(config, namespace, streamName, func(stream map[string]interface{}) {
+		stream["sync_mode"] = syncMode
+		stream["cursor_field"] = cursorField
+	})
+}
+
+// updateStreamPrimaryKey sets source_defined_primary_key on the stream identified by
+// namespace+name in streams[], for a suite whose table is keyed on a column other than the one
+// the committed catalog template declares.
+func updateStreamPrimaryKey(config *testutils.TestConfig, namespace, streamName, primaryKey string) error {
+	return editStream(config, namespace, streamName, func(stream map[string]interface{}) {
+		stream["source_defined_primary_key"] = []interface{}{primaryKey}
+	})
+}
+
+// editStream applies edit to the stream identified by namespace+name in streams[].
+func editStream(config *testutils.TestConfig, namespace, streamName string, edit func(stream map[string]interface{})) error {
 	// in case of Oracle, the stream names are in uppercase in streams.json
 	streamName = testutils.NormalizeStreamName(config.Driver, streamName)
 	return testutils.EditJSONFile(config.GetFilePath("streams.json"), func(doc map[string]interface{}) error {
@@ -148,8 +165,7 @@ func updateStreamConfig(config *testutils.TestConfig, namespace, streamName, syn
 				continue
 			}
 			if stream["namespace"] == namespace && stream["name"] == streamName {
-				stream["sync_mode"] = syncMode
-				stream["cursor_field"] = cursorField
+				edit(stream)
 			}
 		}
 		return nil

@@ -108,6 +108,9 @@ func allTypeColumns() []fixtureColumn {
 		{name: "c_varbinary", columnType: mysql.MYSQL_TYPE_VARCHAR, columnMeta: 64,
 			sqlType: "varbinary(64)", collation: "binary",
 			value: string([]byte{0x10, 0x20}), want: []byte{0x10, 0x20}},
+		{name: "c_binary", columnType: mysql.MYSQL_TYPE_STRING, columnMeta: stringColumnMeta(16),
+			sqlType: "binary(16)", collation: "binary",
+			value: string([]byte{0xFF, 0x05}), want: append([]byte{0xFF, 0x05}, make([]byte, 14)...)},
 		{name: "c_json", columnType: mysql.MYSQL_TYPE_JSON, columnMeta: 4, sqlType: "json",
 			value: `{"a":1}`, want: `{"a":1}`},
 		{name: "c_geometry", columnType: mysql.MYSQL_TYPE_GEOMETRY, columnMeta: 4, sqlType: "geometry",
@@ -296,7 +299,7 @@ func TestResolvedTypesAllTypes(t *testing.T) {
 		"c_bit": "BIT", "c_year": "YEAR", "c_date": "DATE",
 		"c_datetime": "DATETIME", "c_timestamp": "TIMESTAMP", "c_time": "TIME",
 		"c_char": "CHAR", "c_varchar": "VARCHAR", "c_varchar_latin1": "VARCHAR",
-		"c_text": "BLOB", "c_blob": "BLOB", "c_varbinary": "VARCHAR",
+		"c_text": "BLOB", "c_blob": "BLOB", "c_varbinary": "VARCHAR", "c_binary": "CHAR",
 		"c_json": "JSON", "c_geometry": "GEOMETRY",
 		"c_enum": "CHAR", "c_set": "CHAR",
 		"c_null_int": "INT", "c_null_varchar": "VARCHAR",
@@ -363,7 +366,8 @@ func TestColumnMetaFromBinaryCollation(t *testing.T) {
 
 // TestConvertRowToMap pins both sides of the state version 8 gate for a
 // binary-collation column: older state decodes its bytes to a string and keeps the column's text
-// type, while newer state hands the raw bytes over under the column's binary type.
+// type, while newer state hands the raw bytes over under the column's binary type, a BINARY(n)
+// value padded back to the width the row image trimmed it from.
 func TestConvertRowToMap(t *testing.T) {
 	defer func(version int) { constants.LoadedStateVersion = version }(constants.LoadedStateVersion)
 
@@ -372,25 +376,30 @@ func TestConvertRowToMap(t *testing.T) {
 			collation: "binary", value: []byte{0x00, 0x01, 0xFF}},
 		{name: "c_varbinary", columnType: mysql.MYSQL_TYPE_VARCHAR, columnMeta: 64,
 			sqlType: "varbinary(64)", collation: "binary", value: string([]byte{0x10, 0x20})},
+		{name: "c_binary", columnType: mysql.MYSQL_TYPE_STRING, columnMeta: stringColumnMeta(16),
+			sqlType: "binary(16)", collation: "binary", value: string([]byte{0xFF, 0x05})},
 	}
 
 	testCases := []struct {
 		stateVersion int
 		blob         interface{}
 		varbinary    interface{}
+		binary       interface{}
 		columnTypes  []string
 	}{
 		{
 			stateVersion: 7,
 			blob:         string([]byte{0x00, 0x01, 0xFF}),
 			varbinary:    string([]byte{0x10, 0x20}),
-			columnTypes:  []string{"BLOB", "VARCHAR"},
+			binary:       string([]byte{0xFF, 0x05}),
+			columnTypes:  []string{"BLOB", "VARCHAR", "CHAR"},
 		},
 		{
 			stateVersion: 8,
 			blob:         []byte{0x00, 0x01, 0xFF},
 			varbinary:    []byte{0x10, 0x20},
-			columnTypes:  []string{"BLOB", "VARBINARY"},
+			binary:       append([]byte{0xFF, 0x05}, make([]byte, 14)...),
+			columnTypes:  []string{"BLOB", "VARBINARY", "BINARY"},
 		},
 	}
 
@@ -410,6 +419,7 @@ func TestConvertRowToMap(t *testing.T) {
 
 			assert.Equal(t, tc.blob, record["c_blob"])
 			assert.Equal(t, tc.varbinary, record["c_varbinary"])
+			assert.Equal(t, tc.binary, record["c_binary"])
 			assert.Equal(t, tc.columnTypes, columnTypes)
 		})
 	}

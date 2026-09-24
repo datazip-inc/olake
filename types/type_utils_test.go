@@ -81,9 +81,9 @@ func TestFixedBinaryGrammar(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(string(tc.dataType), func(t *testing.T) {
-			params, ok := tc.dataType.Params()
-			require.Equal(t, tc.ok, ok)
-			if ok {
+			family, params := instanceOf(tc.dataType)
+			require.Equal(t, tc.ok, family != nil && params != nil)
+			if tc.ok {
 				require.Equal(t, tc.length, params[0])
 			}
 		})
@@ -123,49 +123,94 @@ func TestDataTypeOf(t *testing.T) {
 	}
 }
 
-func TestDataTypeParams(t *testing.T) {
+func TestBytesWidth(t *testing.T) {
 	testCases := []struct {
 		dataType DataType
-		params   []int
-		ok       bool
+		width    int
+		isBytes  bool
 	}{
 		{
 			dataType: FixedBinaryOf(16),
-			params:   []int{16},
-			ok:       true,
+			width:    16,
+			isBytes:  true,
 		},
 		{
 			dataType: FixedBinary,
-			params:   nil,
-			ok:       false,
+			width:    0,
+			isBytes:  false,
 		},
 		{
 			dataType: Binary,
-			params:   nil,
-			ok:       false,
+			width:    0,
+			isBytes:  true,
 		},
 		{
 			dataType: String,
-			params:   nil,
-			ok:       false,
+			width:    0,
+			isBytes:  false,
 		},
 		{
 			dataType: DataType("fixed_binary(0)"),
-			params:   nil,
-			ok:       false,
+			width:    0,
+			isBytes:  false,
 		},
 		{
 			dataType: DataType("undeclared(1)"),
-			params:   nil,
-			ok:       false,
+			width:    0,
+			isBytes:  false,
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(string(tc.dataType), func(t *testing.T) {
-			params, ok := tc.dataType.Params()
-			require.Equal(t, tc.ok, ok)
-			require.Equal(t, tc.params, params)
+			width, isBytes := BytesWidth(tc.dataType)
+			require.Equal(t, tc.isBytes, isBytes)
+			require.Equal(t, tc.width, width)
+		})
+	}
+
+	icebergCases := []struct {
+		icebergType string
+		width       int
+		isBytes     bool
+	}{
+		{
+			icebergType: "fixed[16]",
+			width:       16,
+			isBytes:     true,
+		},
+		{
+			icebergType: "binary",
+			width:       0,
+			isBytes:     true,
+		},
+		{
+			icebergType: "string",
+			width:       0,
+			isBytes:     false,
+		},
+		{
+			icebergType: "fixed[0]",
+			width:       0,
+			isBytes:     false,
+		},
+		{
+			icebergType: "fixed[-4]",
+			width:       0,
+			isBytes:     false,
+		},
+		{
+			icebergType: "fixed[16",
+			width:       0,
+			isBytes:     false,
+		},
+	}
+
+	for _, tc := range icebergCases {
+		t.Run("iceberg "+tc.icebergType, func(t *testing.T) {
+			width, isBytes := IcebergBytesWidth(tc.icebergType)
+			require.Equal(t, tc.isBytes, isBytes)
+			require.Equal(t, tc.width, width)
 		})
 	}
 }
@@ -240,170 +285,4 @@ func TestTypeFamilyTwoParameters(t *testing.T) {
 func TestFixedBinaryWidthsMeetAtBinary(t *testing.T) {
 	require.Equal(t, Binary, GetCommonAncestorType(FixedBinaryOf(16), FixedBinaryOf(32)))
 	require.Equal(t, FixedBinaryOf(16), GetCommonAncestorType(FixedBinaryOf(16), FixedBinaryOf(16)))
-}
-
-func TestDataTypeAccepts(t *testing.T) {
-	testCases := []struct {
-		column, detected DataType
-		accepts          bool
-	}{
-		{
-			column:   FixedBinaryOf(16),
-			detected: FixedBinaryOf(16),
-			accepts:  true,
-		},
-		{
-			column:   FixedBinaryOf(16),
-			detected: Binary,
-			accepts:  false,
-		},
-		{
-			column:   FixedBinaryOf(16),
-			detected: FixedBinaryOf(32),
-			accepts:  false,
-		},
-		{
-			column:   FixedBinaryOf(16),
-			detected: String,
-			accepts:  false,
-		},
-		{
-			column:   Binary,
-			detected: FixedBinaryOf(16), // fixed bytes are bytes
-			accepts:  true,
-		},
-		{
-			column:   Binary,
-			detected: String, // text is bytes
-			accepts:  true,
-		},
-		{
-			column:   String,
-			detected: Binary,
-			accepts:  false,
-		},
-		{
-			column:   Int64,
-			detected: Int32,
-			accepts:  true,
-		},
-		{
-			column:   Int32,
-			detected: Int64,
-			accepts:  false,
-		},
-		{
-			column:   String,
-			detected: Float64,
-			accepts:  true,
-		},
-		{
-			column:   Float64,
-			detected: String,
-			accepts:  false,
-		},
-	}
-	for _, tc := range testCases {
-		require.Equal(t, tc.accepts, tc.column.Accepts(tc.detected), "%s accepts %s", tc.column, tc.detected)
-	}
-}
-
-func TestSameType(t *testing.T) {
-	testCases := []struct {
-		name string
-		a    DataType
-		b    DataType
-		same bool
-	}{
-		{
-			name: "a type is itself",
-			a:    Binary,
-			b:    Binary,
-			same: true,
-		},
-		{
-			name: "an instance is itself",
-			a:    FixedBinaryOf(16),
-			b:    FixedBinaryOf(16),
-			same: true,
-		},
-		{
-			name: "binary and fixed with binary",
-			a:    FixedBinaryOf(16),
-			b:    Binary,
-			same: false,
-		},
-		{
-			name: "and the relation is symmetric",
-			a:    Binary,
-			b:    FixedBinaryOf(16),
-			same: false,
-		},
-		{
-			name: "different parameters but same type",
-			a:    FixedBinaryOf(16),
-			b:    FixedBinaryOf(32),
-			same: true,
-		},
-		{
-			name: "unparameterised and parameterised are the same type",
-			a:    FixedBinaryOf(16),
-			b:    FixedBinary,
-			same: true,
-		},
-		{
-			name: "binary is not string",
-			a:    Binary,
-			b:    String,
-			same: false,
-		},
-		{
-			name: "string is not int64",
-			a:    String,
-			b:    Int64,
-			same: false,
-		},
-		{
-			name: "the family pattern is not binary",
-			a:    FixedBinary,
-			b:    Binary,
-			same: false,
-		},
-		{
-			name: "an int is not binary",
-			a:    Int64,
-			b:    Binary,
-			same: false,
-		},
-		{
-			name: "an object is not binary",
-			a:    Object,
-			b:    Binary,
-			same: false,
-		},
-		{
-			name: "null is not binary",
-			a:    Null,
-			b:    Binary,
-			same: false,
-		},
-		{
-			name: "unknown is not binary",
-			a:    Unknown,
-			b:    Binary,
-			same: false,
-		},
-		{
-			name: "an undeclared type is not binary",
-			a:    DataType("undeclared_type"),
-			b:    Binary,
-			same: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.same, SameType(tc.a, tc.b))
-		})
-	}
 }

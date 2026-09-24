@@ -63,8 +63,6 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 	switch dataType {
 	case types.Null:
 		return nil, ErrNullValue
-	case types.Binary:
-		return ReformatBytes(v, 0)
 	case types.Bool:
 		return ReformatBool(v)
 	case types.Int64:
@@ -101,7 +99,7 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		// make it an array
 		return []any{v}, nil
 	default:
-		if width := types.FixedBinaryWidth(dataType); width > 0 {
+		if width, isBytes := types.BytesWidth(dataType); isBytes {
 			return ReformatBytes(v, width)
 		}
 		return v, nil

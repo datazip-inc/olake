@@ -368,7 +368,6 @@ func TestDataTypeConverter(t *testing.T) {
 	old := constants.LoadedStateVersion
 	t.Cleanup(func() { constants.LoadedStateVersion = old })
 
-	m := &MySQL{}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			constants.LoadedStateVersion = constants.LatestStateVersion
@@ -376,6 +375,7 @@ func TestDataTypeConverter(t *testing.T) {
 				constants.LoadedStateVersion = *tc.stateVersion
 			}
 
+			m := &MySQL{typeMapping: mysqlTypeToDataTypes()}
 			got, err := m.dataTypeConverter(tc.value, tc.columnType)
 			switch {
 			case tc.expectedErr != nil:

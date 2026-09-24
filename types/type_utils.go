@@ -145,41 +145,6 @@ func BaseOf(d DataType) DataType {
 	}
 }
 
-// Params returns the parameters a parameterised instance carries; ok is false for every other
-// DataType, a family's bare pattern included.
-func (d DataType) Params() ([]int, bool) {
-	if f, params := instanceOf(d); f != nil && params != nil {
-		return params, true
-	}
-	return nil, false
-}
-
-// SameType reports whether a and b denote the same type, ignoring the parameters if any
-func SameType(a, b DataType) bool {
-	return BaseOf(a) == BaseOf(b)
-}
-
-// ParameterlessForm returns the type value detection yields for a parameterised type, since a
-// value cannot reveal parameters: a fixed_binary(16) value is detected as binary. ok is false for
-// a type that carries none, which detection can already name exactly.
-func ParameterlessForm(d DataType) (DataType, bool) {
-	if _, parameterised := d.Params(); !parameterised {
-		return "", false
-	}
-	if parent, inTree := typeParent[BaseOf(d)]; inTree {
-		return parent, true
-	}
-	return String, true
-}
-
-// Accepts reports whether a column of type d can hold values of a detected type without any change to the column
-func (d DataType) Accepts(detected DataType) bool {
-	if d == detected {
-		return true
-	}
-	return GetCommonAncestorType(d, detected) == d
-}
-
 // icebergPattern returns the iceberg type a family's destination mapping renders its instances
 // into, which is the key its reverse mapping is registered under.
 func (f *typeFamily) icebergPattern() string {
