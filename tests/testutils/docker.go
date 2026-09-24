@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	// CurrentDriverVersion refers to the version of driver image of current code
-	CurrentDriverVersion = "local"
+	// defaultDriverVersion is the current driver code in local
+	defaultDriverVersion = "local"
 
 	// containerTestDataDir is where the driver's testdata is mounted in the container; every
 	// olake input and output lives under it, since the CLI writes next to --config
@@ -57,6 +57,16 @@ func resolveImageOnce(image string, resolve func() error) error {
 	return resolution.err
 }
 
+// GetCurrentDriverVersion resolves the current driverVersion for the test to run against
+func GetCurrentDriverVersion() string {
+	switch env := os.Getenv(driverVersionEnvVar); {
+	case env != "":
+		return env
+	default:
+		return defaultDriverVersion
+	}
+}
+
 // buildDriverImage builds the driver image if needed.
 func buildDriverImage(t *testing.T, cfg *TestConfig) error {
 	t.Helper()
@@ -68,7 +78,7 @@ func buildDriverImage(t *testing.T, cfg *TestConfig) error {
 	return resolveImageOnce(image, func() error {
 		t.Logf("building driver image %s with `make docker.%s.build` to pick up the latest local changes", image, cfg.Driver)
 		defer TrackPhaseTiming(t, "driver-image", "build "+image)()
-		cmd := exec.Command("make", fmt.Sprintf("docker.%s.build", cfg.Driver), fmt.Sprintf("IMAGE_TAG=%s", CurrentDriverVersion))
+		cmd := exec.Command("make", fmt.Sprintf("docker.%s.build", cfg.Driver), fmt.Sprintf("IMAGE_TAG=%s", defaultDriverVersion))
 		cmd.Dir = cfg.OlakeRootPath
 
 		if out, err := cmd.CombinedOutput(); err != nil {

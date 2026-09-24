@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/datazip-inc/olake/tests/testutils"
@@ -41,6 +42,21 @@ type compatibilityGroupSpec struct {
 	destination     string
 	mode            string
 	destinationFile string
+}
+
+// outputComparisonCheckpoint holds both sides after every sync case until their outputs are
+// compared. Any participant failing stops the other two instead of leaving them blocked.
+type outputComparisonCheckpoint struct {
+	synced   chan struct{}
+	compared chan struct{}
+	stopped  chan struct{}
+	stop     func()
+}
+
+// syncCase is one sync of a scenario: the DML that precedes it and whether it reads state.
+type syncCase struct {
+	operation string
+	useState  bool
 }
 
 // compatibilityGroupSpecs is the writer-group fan-out: one group per destination writer, each
@@ -90,15 +106,8 @@ func compatibilityVariantGroups(driver string) []compatibilityGroup {
 	return groups
 }
 
-// syncCase is one sync of a scenario: the DML that precedes it and whether it reads state.
-type syncCase struct {
-	operation string
-	useState  bool
-}
-
-// scenarioCases is the same case sequence TestSync runs, minus its verification: the comparison
-// against the reference run is this suite's only assertion.
-func scenarioCases(driver, kind string) []syncCase {
+// syncCasesForDriver is the sequence of operations TestSync runs
+func syncCasesForDriver(driver, kind string) []syncCase {
 	switch {
 	case kind == scenarioIncremental:
 		return []syncCase{{operation: "", useState: false}, {operation: "insert", useState: true}, {operation: "update", useState: true}}
@@ -115,15 +124,17 @@ func scenarioCases(driver, kind string) []syncCase {
 	}
 }
 
-// runVariantSide seeds, syncs and tears down one side of a variant on its own config. pick routes each
-// sync to a driver version: the reference side always answers the baseline, the upgrade side
-// hands stateful syncs to the candidate.
-func runVariantSide(
+// getDriverVersionFoSync gives what driver version the sync should run with in case of stateful version upgrade
+func getDriverVersionForSync(useState bool, oldVersion, newVersion string) string {
+	return testutils.Ternary(useState, newVersion, oldVersion).(string)
+}
+
+// prepareSourceTable will execute necessary queries to setup the source before the first stateless sync
+func perpareSourceTable(
 	t *testing.T,
 	cfg *testutils.TestConfig,
 	group compatibilityGroup,
 	v compatibilityVariant,
-	pick func(useState bool) string,
 	policies *assertionPolicies,
 ) {
 	ctx := t.Context()
@@ -137,7 +148,7 @@ func runVariantSide(
 	// Stream selection on the freshly rendered catalog. No filter and no column selection: this
 	// suite compares what a sync produces, and either would only narrow both sides equally.
 	require.NoError(t, cfg.IsolateDestinationDB(), "failed to isolate the compatibility destination database")
-	require.NoError(t, testutils.UpdateSelectedStreams(cfg, cfg.Namespace, cfg.PartitionRegex, "", []string{table}, policies.catalogExcluded),
+	require.NoError(t, testutils.UpdateSelectedStreams(cfg, cfg.Namespace, cfg.PartitionRegex, "", []string{table}, policies.seedExcluded),
 		"failed to select the compatibility stream")
 	// A seed-excluded column is absent from the table, so it leaves the catalog's schema too: a
 	// binary that predates column selection writes every column the catalog declares.
@@ -150,42 +161,101 @@ func runVariantSide(
 	// scenarios themselves never clear, so the candidate binary meets the table the baseline made.
 	clearDestination(t, group, cfg.DestinationDB, table)
 
-	if testutils.KeepTestData() {
-		t.Logf("compatibility side %q: leaving source table %s in place (%s is set); it holds the last case's data",
-			cfg.Suite, table, testutils.KeepTestDataEnvVar)
-	} else {
-		defer cfg.ExecuteQuery(ctx, t, cfg, "drop")
+	// Dropped when the side finishes all its cases; t.Context() is already canceled by then.
+	if !testutils.KeepTestData() {
+		t.Cleanup(func() { cfg.ExecuteQuery(context.Background(), t, cfg, "drop") })
 	}
 
 	// Seed the source: the same reset every TestSync scenario starts from.
 	cfg.ExecuteQuery(ctx, t, cfg, "drop")
 	cfg.ExecuteQuery(ctx, t, cfg, "create")
 	cfg.ExecuteQuery(ctx, t, cfg, "add")
+}
 
-	for _, c := range scenarioCases(cfg.Driver, v.kind) {
-		if c.operation == "update" && !cfg.SkipSchemaEvolution {
-			cfg.ExecuteQuery(ctx, t, cfg, "evolve-schema")
-		}
-		if c.useState && c.operation != "" {
-			cfg.ExecuteQuery(ctx, t, cfg, c.operation)
-		}
-		// Successive syncs write the same parquet column with different types, which Spark refuses
-		// to read together (CANNOT_MERGE_SCHEMAS; F2 in docs/backward-compatibility.md) -- so a
-		// parquet variant holds, and compares, only its last case's files.
-		if group.destination == "parquet" {
-			require.NoErrorf(t, testutils.DeleteParquetFiles(t, cfg.DestinationDB, table), "failed to clear parquet files before %q", c.operation)
-		}
-		runSync(ctx, t, cfg, group.destinationFile, pick(c.useState), c.useState)
+func newOutputComparisonCheckpoint() *outputComparisonCheckpoint {
+	stopped := make(chan struct{})
+	return &outputComparisonCheckpoint{
+		synced:   make(chan struct{}),
+		compared: make(chan struct{}),
+		stopped:  stopped,
+		stop:     sync.OnceFunc(func() { close(stopped) }),
 	}
 }
 
-// runSync runs one sync of the scenario on the image of the given driver version.
-func runSync(ctx context.Context, t *testing.T, cfg *testutils.TestConfig, destinationFile, version string, useState bool) {
-	t.Helper()
-	cfg.DriverVersion = version
-	t.Logf("running %s sync on image %s", testutils.Ternary(useState, "stateful", "stateless").(string), cfg.GetDriverImage())
+// sideDone reports a side's case finished and waits for its comparison; false means the run stopped.
+func (b *outputComparisonCheckpoint) sideDone() bool {
+	select {
+	case b.synced <- struct{}{}:
+	case <-b.stopped:
+		return false
+	}
+	select {
+	case <-b.compared:
+		return true
+	case <-b.stopped:
+		return false
+	}
+}
 
-	if err := testutils.RunSync(ctx, t, cfg, destinationFile, useState); err != nil {
+// bothDone waits for both sides to finish the current case; false means one of them failed.
+func (b *outputComparisonCheckpoint) bothDone() bool {
+	for range 2 {
+		select {
+		case <-b.synced:
+		case <-b.stopped:
+			return false
+		}
+	}
+	return true
+}
+
+// release lets both sides move on to the next case.
+func (b *outputComparisonCheckpoint) release() {
+	for range 2 {
+		select {
+		case b.compared <- struct{}{}:
+		case <-b.stopped:
+			return
+		}
+	}
+}
+
+func (b *outputComparisonCheckpoint) stopIfFailed(t *testing.T) {
+	if t.Failed() {
+		b.stop()
+	}
+}
+
+// runSync seeds, syncs and tears down one side of a variant on its own config. pick routes each
+// sync to a driver version: the reference side always answers the baseline, the upgrade side
+// hands stateful syncs to the candidate.
+func runSync(
+	t *testing.T,
+	cfg *testutils.TestConfig,
+	group compatibilityGroup,
+	syncCase syncCase,
+) {
+	t.Helper()
+
+	ctx := t.Context()
+
+	if syncCase.operation == "update" && !cfg.SkipSchemaEvolution {
+		cfg.ExecuteQuery(ctx, t, cfg, "evolve-schema")
+	}
+	if syncCase.useState && syncCase.operation != "" {
+		cfg.ExecuteQuery(ctx, t, cfg, syncCase.operation)
+	}
+
+	// Successive syncs write the same parquet column with different types, which Spark refuses
+	// to read together (CANNOT_MERGE_SCHEMAS; F2 in docs/backward-compatibility.md) -- so a
+	// parquet variant holds, and compares, only its last case's files.
+	if group.destination == "parquet" {
+		require.NoErrorf(t, testutils.DeleteParquetFiles(t, cfg.DestinationDB, cfg.GetTableName()), "failed to clear parquet files before %q", syncCase.operation)
+	}
+
+	t.Logf("running %s sync on image %s", testutils.Ternary(syncCase.useState, "stateful", "stateless").(string), cfg.GetDriverImage())
+
+	if err := testutils.RunSync(ctx, t, cfg, group.destinationFile, syncCase.useState); err != nil {
 		t.Fatal(err)
 	}
 }

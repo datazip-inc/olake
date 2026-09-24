@@ -39,8 +39,8 @@ type TestConfig struct {
 	// only for amd64 and run emulated elsewhere.
 	ImagePlatform string
 
-	// DriverVersion to run the test against. This can be commit id or a released version
-	// Defaults to local codebase
+	// DriverVersion identifies the driver revision to run the test against.
+	// It can be a released version or a commit ID. Defaults to the local codebase.
 	DriverVersion string
 
 	// OlakeRootPath is the repo the tests run from, the directory `make docker.<driver>.build`
@@ -165,13 +165,9 @@ func (c *TestConfig) String() string {
 
 // pullOrBuildDriverImage just sets the driver image in case  builds the driver image against current codebase
 func (c *TestConfig) pullOrBuildDriverImage(t *testing.T) (err error) {
-	switch env := os.Getenv(driverVersionEnvVar); {
-	case env != "":
-		c.DriverVersion = env
-	case c.DriverVersion == "":
-		c.DriverVersion = CurrentDriverVersion
+	if c.DriverVersion == "" {
+		c.DriverVersion = GetCurrentDriverVersion()
 	}
-
 	return c.resolveImage(t)
 }
 
@@ -181,7 +177,7 @@ func (c *TestConfig) pullOrBuildDriverImage(t *testing.T) (err error) {
 //	"latest", "v0.6.5"                 -> olakego/source-<driver>:<spec>, pulled
 //	"9f3c1ab", "sha:9f3c1ab"           -> built from a detached worktree at that commit
 func (c *TestConfig) resolveImage(t *testing.T) error {
-	if c.DriverVersion == CurrentDriverVersion {
+	if c.DriverVersion == defaultDriverVersion {
 		return buildDriverImage(t, c)
 	}
 	// A commit id is abbreviated on the way in, and that short form becomes the image tag.
@@ -246,9 +242,11 @@ func (c *TestConfig) setupWorkingDir(t *testing.T) (err error) {
 		return fmt.Errorf("failed to determine the repo root; the tests run from a git checkout: %s", err)
 	}
 
+	// static committed files(called fixtures) are copied into the working dir.
+	// It contains the source and destination configs, the catalog and the initial state
 	commonFixturesDir := filepath.Join(c.OlakeRootPath, "tests/testdata")
-	driverFixuresDir := filepath.Join(c.OlakeRootPath, "tests", c.Driver, "testdata", c.DataFormat)
-	for _, fixtures := range []string{commonFixturesDir, driverFixuresDir} {
+	driverFixturesDir := filepath.Join(c.OlakeRootPath, "tests", c.Driver, "testdata", c.DataFormat)
+	for _, fixtures := range []string{commonFixturesDir, driverFixturesDir} {
 		if err := CopyDirFiles(fixtures, c.TestWorkingDir); err != nil {
 			return fmt.Errorf("failed to copy the fixtures of %s into %s: %s", fixtures, c.TestWorkingDir, err)
 		}

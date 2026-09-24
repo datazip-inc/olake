@@ -5,6 +5,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"golang.org/x/mod/semver"
 )
 
 // ColumnRule is one column's backward-compatibility assertion policy, keyed on the baseline release
@@ -22,17 +24,17 @@ type ColumnRule struct {
 // resolveColumnPolicies resolves the dated rules against the baseline into seedExcluded, typeOnly and
 // a note per decision. An undatable baseline ("latest", an image ref) reads as newest, so none fire.
 func resolveColumnPolicies(rules []ColumnRule, spec string) *assertionPolicies {
-	version, isRelease := parseReleaseTag(spec)
+	isRelease := semver.IsValid(spec)
 	policies := &assertionPolicies{}
 	for _, rule := range rules {
-		if boundary, ok := parseReleaseTag(rule.ExcludeBelow); ok && isRelease && compareRelease(version, boundary) < 0 {
+		if rule.ExcludeBelow != "" && isRelease && semver.Compare(spec, rule.ExcludeBelow) < 0 {
 			policies.seedExcluded = append(policies.seedExcluded, rule.Column)
 			policies.notes = append(policies.notes, fmt.Sprintf(
 				"column %s: excluded from the seed data, baseline %s is older than %s", rule.Column, spec, rule.ExcludeBelow))
 			// Absent from both runs, so its assertion policy is moot.
 			continue
 		}
-		if boundary, ok := parseReleaseTag(rule.AssertValueFrom); ok && isRelease && compareRelease(version, boundary) < 0 {
+		if rule.AssertValueFrom != "" && isRelease && semver.Compare(spec, rule.AssertValueFrom) < 0 {
 			policies.typeOnly = append(policies.typeOnly, rule.Column)
 			policies.notes = append(policies.notes, fmt.Sprintf(
 				"column %s: type-only, baseline %s is older than %s", rule.Column, spec, rule.AssertValueFrom))
@@ -49,14 +51,13 @@ func resolveColumnPolicies(rules []ColumnRule, spec string) *assertionPolicies {
 // scenarios read catalogExcluded, the fixture's seeding reads seedExcluded, and the comparison
 // reads typeOnly; nothing else consults the rules again.
 type assertionPolicies struct {
-	seedExcluded    []string
-	catalogExcluded []string
-	typeOnly        []string
-	notes           []string
+	seedExcluded []string
+	typeOnly     []string
+	notes        []string
 }
 
 // resolveAssertionPolicies folds the driver's and variant's rules -- type-keyed and column-keyed,
-// dated and unconditional -- with the always-volatile columns into one policy set for this baseline.
+// dated and unconditional -- with the always type-only columns into one policy set for this baseline.
 func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules compatibilityDriverRules, dataFormat string) (*assertionPolicies, error) {
 	// The destinations' shared rules first (olake's own columns), then the driver's -- destination
 	// columns and source columns are separate lists in the json -- then the data format's.
@@ -86,21 +87,18 @@ func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules com
 		return nil, err
 	}
 	policies := resolveColumnPolicies(columnRules, spec)
-	// Seed-excluded columns leave the catalog too, so streams.json never selects a column the
-	// fixture left out of the table.
-	policies.catalogExcluded = slices.Clone(policies.seedExcluded)
 
 	// Compared by type but never by value: the driver's CDC columns (source-log coordinates),
 	// the dated rules' columns, and the unconditional type_only ones -- olake's own and any
 	// driver's exceptions among them, all from the json.
-	volatile := map[string]bool{}
+	typeOnly := map[string]bool{}
 	for column := range fixture.CDCColumnsSchema {
-		volatile[column] = true
+		typeOnly[column] = true
 	}
 	for _, column := range append(policies.typeOnly, alwaysTypeOnly...) {
-		volatile[column] = true
+		typeOnly[column] = true
 	}
-	policies.typeOnly = slices.Sorted(maps.Keys(volatile))
+	policies.typeOnly = slices.Sorted(maps.Keys(typeOnly))
 	return policies, nil
 }
 
