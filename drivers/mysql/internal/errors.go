@@ -11,12 +11,17 @@ import (
 
 // Codes for conditions this driver detects itself, where the server never named the failure.
 const (
-	codeGlobalStateInvalid   = "mysql.global_state_invalid"
-	codeServerIDMissing      = "mysql.server_id_missing"
-	codeMetadataStateInvalid = "mysql.metadata_state_invalid"
-	codePortInvalid          = "mysql.port_invalid"
-	codeTableNotVisible      = "mysql.table_not_visible"
-	codeCDCUnsupported       = "mysql.cdc_unsupported"
+	codeGlobalStateInvalid     = "mysql.global_state_invalid"
+	codeServerIDMissing        = "mysql.server_id_missing"
+	codeMetadataStateInvalid   = "mysql.metadata_state_invalid"
+	codePortInvalid            = "mysql.port_invalid"
+	codeTableNotVisible        = "mysql.table_not_visible"
+	codeCDCUnsupported         = "mysql.cdc_unsupported"
+	codeHostMissing            = "mysql.host_missing"
+	codeHostSchemeIncluded     = "mysql.host_scheme_included"
+	codeUsernameMissing        = "mysql.username_missing"
+	codePasswordMissing        = "mysql.password_missing"
+	codeConfigValidationFailed = "mysql.config_validation_failed"
 )
 
 // errnoCategories maps a MySQL server error number to a failure category. Numbers are stable

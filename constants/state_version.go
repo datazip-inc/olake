@@ -1,12 +1,14 @@
 package constants
 
+import (
+	_ "embed"
+	"encoding/json"
+)
+
 // State version constants for backward compatibility
 // State files can have different versions to support migration and backward compatibility
 // when the state file format or behavior changes.
 
-// LatestStateVersion is the current version of the state file format.
-// This version is used when creating new state files.
-//
 // Version History:
 //   - Version 0: Legacy format (backward compatibility)
 //     * More lenient date/timestamp parsing behavior
@@ -37,14 +39,42 @@ package constants
 //     * Previously, numeric values returned as byte slices (common in some SQL drivers) caused errors
 //     * Now these byte slices are parsed and converted into int64
 //
-//   - Version 7: (Current Version) Parquet INT96 and unsigned 32-bit columns map to their correct types.
+//   - Version 7: Parquet INT96 and unsigned 32-bit columns map to their correct types.
 //     * INT96: earlier the raw 96-bit integer was emitted as a string, which disagreed with the inferred Timestamp schema and collapsed the column to String.
 //     * Unsigned 32-bit: earlier read as a signed int32 and mapped to Int32, so values above 2^31-1 wrapped negative. Now widened to Int64, matching pg/mysql.
 //     * Older state keeps both previous behaviors so existing destination columns do not change type on upgrade.
+//
+//   - Version 8: (Current Version) MySQL binary columns keep their bytes.
+//     * BINARY/VARBINARY/BLOB map to Binary, and BINARY(n) to fixed_binary(n), where they were String.
+//     * A byte value detects as Binary and survives flattening instead of being cast to a string.
+//     * The binlog keeps a binary-collation column's raw bytes and reports its BINARY type name.
+//     * A binary primary key hex encodes into the olake id instead of rendering as a Go value.
+//     * Older state keeps every one of those as text so existing destination columns do not change type.
 
-// tests/testutils/constants keeps a temporary copy of this value; update it there as well when bumping the version.
-// TODO: remove this file after state version is moved to secrets
-const LatestStateVersion = 7
+var (
+	// LatestStateVersion is the current version of the state file format.
+	// This version is used when creating new state files.
+	LatestStateVersion int
 
-// Used as the current version of the state when the program is running
-var LoadedStateVersion = LatestStateVersion
+	// Used as the current version of the state when the program is running
+	LoadedStateVersion int
+
+	//go:embed state-versions.json
+	rawStateVersions []byte
+)
+
+// init initializes static information only: the version this build writes. The version a running
+// sync is pinned at comes from its state file, via SetLoadedStateVersion.
+func init() {
+	var doc struct {
+		LatestStateVersion int `json:"latest_state_version"`
+	}
+	if err := json.Unmarshal(rawStateVersions, &doc); err != nil {
+		panic("constants/state-versions.json is not valid JSON: " + err.Error())
+	}
+	if doc.LatestStateVersion <= 0 {
+		panic("constants/state-versions.json must set latest_state_version to a positive integer")
+	}
+	LatestStateVersion = doc.LatestStateVersion
+	LoadedStateVersion = LatestStateVersion
+}

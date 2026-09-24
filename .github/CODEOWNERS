@@ -1,0 +1,6 @@
+# CODEOWNERS
+
+/.github/CODEOWNERS @datazip-inc/olake-admins
+
+/constants/state-versions.json @datazip-inc/state-version-owners
+/tests/testutils/compatibility/compatibility_rules.json @datazip-inc/state-version-owners

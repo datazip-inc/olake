@@ -60,11 +60,6 @@ var syncCmd = &cobra.Command{
 			viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
 		}
 
-		catalog = &types.Catalog{}
-		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
-			return err
-		}
-
 		syncID = utils.ComputeConfigHash(configPath, destinationConfigPath)
 
 		// Initialize state
@@ -80,6 +75,11 @@ var syncCmd = &cobra.Command{
 		}
 		// set state version to global variable to use throughout olake cli instance
 		constants.LoadedStateVersion = state.Version
+
+		catalog = &types.Catalog{}
+		if err := utils.UnmarshalFile(streamsPath, catalog, false); err != nil {
+			return err
+		}
 
 		state.RWMutex = &sync.RWMutex{}
 
@@ -163,7 +163,7 @@ var syncCmd = &cobra.Command{
 			telemetry.TrackSyncStarted(syncID, selectedStreamsMetadata.Mix, connector.Type(), destinationConfig, len(catalog.Streams))
 			defer func() {
 				stats := pool.GetStats()
-				telemetry.TrackSyncCompleted(syncID, selectedStreamsMetadata.Mix, destinationConfig, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
+				telemetry.TrackSyncCompleted(syncID, selectedStreamsMetadata.Mix, connector.Type(), destinationConfig, err == nil, stats.ReadCount.Load(), stats.BytesRead.Load())
 				logger.Infof("Sync completed, wait 5 seconds cleanup in progress...")
 				time.Sleep(5 * time.Second)
 			}()

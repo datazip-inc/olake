@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/parquet-go/parquet-go"
@@ -23,33 +25,9 @@ const (
 	TimestampMilli DataType = "timestamp_milli" // storing datetime up to 3 precisions
 	TimestampMicro DataType = "timestamp_micro" // storing datetime up to 6 precisions
 	TimestampNano  DataType = "timestamp_nano"  // storing datetime up to 9 precisions
+	Binary         DataType = "binary"
+	FixedBinary    DataType = "fixed_binary(%d)"
 )
-
-// Tree Representation of TypeWeights
-//
-//                              5 (String)
-//                            /       	   \
-//             3 (Float64)   /              \ 9 (TimestampNano)
-//                         /  \             /
-//             2 (Int64)  /    \4(Float32) / 8 (TimestampMicro)
-//                       /                /
-//            1 (Int32) /                / 7 (TimestampMilli)
-//                     /                /
-//           0 (Bool) /                / 6 (Timestamp)
-//
-
-var TypeWeights = map[DataType]int{
-	Bool:           0,
-	Int32:          1,
-	Int64:          2,
-	Float64:        3,
-	Float32:        4,
-	String:         5,
-	TimestampNano:  9,
-	TimestampMicro: 8,
-	TimestampMilli: 7,
-	Timestamp:      6,
-}
 
 var RawSchema = map[string]DataType{
 	constants.StringifiedData: String,
@@ -57,6 +35,77 @@ var RawSchema = map[string]DataType{
 	constants.OlakeTimestamp:  Timestamp,
 	constants.OpType:          String,
 	constants.OlakeID:         String,
+}
+
+type destinationTypesMap map[DataType]destinationType
+
+// get returns the destination type a DataType maps to, along with any parameters it carries.
+func (m destinationTypesMap) get(d DataType) (destinationType, []any, bool) {
+	if mapping, ok := m[d]; ok {
+		return mapping, nil, true
+	}
+
+	family, params := instanceOf(d)
+	if family == nil {
+		return destinationType{}, nil, false
+	}
+	mapping, ok := m[family.pattern]
+	if !ok {
+		return destinationType{}, nil, false
+	}
+	return mapping, asAny(params), true
+}
+
+// destinationTypes is the canonical DataType -> destination type mapping. Every declared DataType
+// must have an entry here (enforced by unit tests)
+var destinationTypes = destinationTypesMap{
+	Bool:           {"boolean", leafNode(parquet.BooleanType)},
+	Int32:          {"int", leafNode(parquet.Int32Type)},
+	Int64:          {"long", leafNode(parquet.Int64Type)},
+	Float32:        {"float", leafNode(parquet.FloatType)},
+	Float64:        {"double", leafNode(parquet.DoubleType)},
+	String:         {"string", plainNode(parquet.String)},
+	Timestamp:      {"timestamptz", timestampNode}, // timestamptz as we use default utc
+	TimestampMilli: {"timestamptz", timestampNode},
+	TimestampMicro: {"timestamptz", timestampNode},
+	TimestampNano:  {"timestamptz", timestampNode},
+	Object:         {"string", plainNode(parquet.String)}, // nested structures are serialized as strings
+	Array:          {"string", plainNode(parquet.String)},
+	Binary:         {"binary", leafNode(parquet.ByteArrayType)},
+	FixedBinary:    {"fixed[%d]", fixedBinaryNode}, // the pattern is a registry key; only an instance renders
+}
+
+type icebergToDataTypeMap map[string]DataType
+
+// get returns the DataType an iceberg type denotes.
+func (m icebergToDataTypeMap) get(icebergType string) (DataType, bool) {
+	if dataType, declared := m[icebergType]; declared {
+		return dataType, true
+	}
+	family, params := icebergInstanceOf(icebergType)
+	if family == nil {
+		return "", false
+	}
+	pattern, registered := m[family.icebergPattern()]
+	if !registered {
+		return "", false
+	}
+	return pattern.Of(asAny(params)...), true
+}
+
+// icebergToDataType maps each iceberg type back to one canonical DataType — several DataTypes
+// share the same iceberg type. A family is registered under its pattern, the same key its
+// destination mapping produces. IcebergTypeToDatatype's fallback is String.
+var icebergToDataType = icebergToDataTypeMap{
+	"boolean":     Bool,
+	"int":         Int32,
+	"long":        Int64,
+	"float":       Float32,
+	"double":      Float64,
+	"timestamptz": TimestampMilli,
+	"string":      String,
+	"binary":      Binary,
+	"fixed[%d]":   FixedBinary,
 }
 
 type Record map[string]any
@@ -84,69 +133,31 @@ func GetIcebergRawSchema() []*proto.IcebergPayload_SchemaField {
 	}
 	return icebergFields
 }
+
+// ToNewParquet returns the parquet node for d, always optional so the field is nullable.
 func (d DataType) ToNewParquet() parquet.Node {
-	var n parquet.Node
-
-	switch d {
-	case Int32:
-		n = parquet.Leaf(parquet.Int32Type)
-	case Float32:
-		n = parquet.Leaf(parquet.FloatType)
-	case Int64:
-		n = parquet.Leaf(parquet.Int64Type)
-	case Float64:
-		n = parquet.Leaf(parquet.DoubleType)
-	case String:
-		n = parquet.String()
-	case Bool:
-		n = parquet.Leaf(parquet.BooleanType)
-	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
-		n = parquet.Timestamp(parquet.Microsecond)
-	case Object, Array:
-		// Ensure proper handling of nested structures
-		n = parquet.String()
-	default:
-		n = parquet.Leaf(parquet.ByteArrayType)
+	mapping, params, registered := destinationTypes.get(d)
+	if !registered {
+		return parquet.Optional(parquet.Leaf(parquet.ByteArrayType)) // unregistered types travel as bytes
 	}
-
-	n = parquet.Optional(n) // Ensure the field is nullable
-	return n
+	return parquet.Optional(mapping.parquetNodeConstructor(params...))
 }
 
 func (d DataType) ToIceberg() string {
-	switch d {
-	case Bool:
-		return "boolean"
-	case Int32:
-		return "int"
-	case Int64:
-		return "long"
-	case Float32:
-		return "float"
-	case Float64:
-		return "double"
-	case Timestamp, TimestampMilli, TimestampMicro, TimestampNano:
-		return "timestamptz" // use with timezone as we use default utc
+	mapping, params, registered := destinationTypes.get(d)
+	switch {
+	case !registered:
+		return "string" // fallback for unregistered types
+	case len(params) == 0:
+		return mapping.icebergType
 	default:
-		return "string"
+		return fmt.Sprintf(mapping.icebergType, params...)
 	}
 }
 
 func IcebergTypeToDatatype(d string) DataType {
-	switch d {
-	case "boolean":
-		return Bool
-	case "int":
-		return Int32
-	case "long":
-		return Int64
-	case "float":
-		return Float32
-	case "double":
-		return Float64
-	case "timestamptz":
-		return TimestampMilli
-	default:
-		return String
+	if dataType, registered := icebergToDataType.get(d); registered {
+		return dataType
 	}
+	return String // fallback for unregistered types
 }

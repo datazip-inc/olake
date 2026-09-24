@@ -7,6 +7,7 @@ To ensure consistency, we follow a structured contribution process. All guidelin
 - [How To Raise A PR](https://olake.io/docs/community/issues-and-prs)
 - [Setting Up A Development Environment](https://olake.io/docs/community/setting-up-a-dev-env)
 - **Running tests locally** — run `make help` for all local database-stack and test targets (e.g. `make test.integration.<driver>` for a driver's whole suite, `make test.discover.<driver>` / `make test.sync.<driver>` / `make test.2pc.<driver>` for one of them, `make test.unit`)
+- **Backward compatibility tests** — see [tests/testutils/compatibility/README.md](tests/testutils/compatibility/README.md) for what the suite asserts, how `constants/state-versions.json` drives it, and what a PR introducing a state version has to add
 
 ---
 

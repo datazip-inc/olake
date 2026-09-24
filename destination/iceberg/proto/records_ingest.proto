@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package io.debezium.server.iceberg.rpc;
+package io.olake.iceberg.rpc;
 
 option go_package = "iceberg/proto";
 option java_outer_classname = "RecordIngest";
@@ -151,6 +151,7 @@ message ArrowPayload {
         float float_value = 4;
         double double_value = 5;
         bool bool_value = 6;
+        bytes bytes_value = 7;
       }
     }
 
