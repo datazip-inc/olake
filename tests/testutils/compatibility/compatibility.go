@@ -26,6 +26,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -197,27 +198,28 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baselineVersion st
 								return getDriverVersionForSync(useState, baselineVersion, upgradedVersion)
 							}},
 						}
+						var sidesDone sync.WaitGroup
 						for i, side := range sides {
-							t.Run(side.name, func(t *testing.T) {
-								t.Parallel()
-								t.Cleanup(func() { checkpoint.stopIfFailed(t) })
-								cfg := th.NewConfig(t, side.defaultVersion)
-								configs[i] = cfg
-								perpareSourceTable(t, cfg, group, v, policies)
-								for _, c := range cases {
-									cfg.DriverVersion = side.pickVersion(c.useState)
-									runSync(t, cfg, group, c)
-									if !checkpoint.sideDone() {
-										t.Logf("stopping after case %q: the other side or the comparison failed", c.operation)
-										return
+							sidesDone.Go(func() {
+								t.Run(side.name, func(t *testing.T) {
+									t.Cleanup(func() { checkpoint.stopIfFailed(t) })
+									cfg := th.NewConfig(t, side.defaultVersion)
+									configs[i] = cfg
+									perpareSourceTable(t, cfg, group, v, policies)
+									for _, c := range cases {
+										cfg.DriverVersion = side.pickVersion(c.useState)
+										runSync(t, cfg, group, c)
+										if !checkpoint.sideDone() {
+											t.Logf("stopping after case %q: the other side or the comparison failed", c.operation)
+											return
+										}
 									}
-								}
+								})
 							})
 						}
 
 						// Output comparison checkpoint after every case, once both sides have finished it.
 						t.Run("compare", func(t *testing.T) {
-							t.Parallel()
 							t.Cleanup(func() { checkpoint.stopIfFailed(t) })
 							for _, c := range cases {
 								if !checkpoint.bothDone() {
@@ -227,6 +229,8 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baselineVersion st
 								checkpoint.release()
 							}
 						})
+						checkpoint.stop()
+						sidesDone.Wait()
 					})
 					if !ok {
 						report.add(group.name, v.name, diag)
