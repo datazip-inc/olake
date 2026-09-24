@@ -43,6 +43,7 @@ func mssqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integrat
 		TestConfig:                mssqlTestConfig(t, opts...),
 		ExpectedData:              ExpectedMSSQLData,
 		DestinationDataTypeSchema: MSSQLToDestinationSchema,
+		TypeMapping:               MSSQLTypeMapping,
 		DefaultCDCColumnsSchema:   ExpectedMSSQLDefaultCDCColumnsSchema,
 	}
 }

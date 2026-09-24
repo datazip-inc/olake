@@ -645,3 +645,15 @@ var ExpectedKafkaDefaultCDCColumnsSchema = map[string]string{
 	"_olake_id":        "string",
 	"_olake_timestamp": "timestamp",
 }
+
+// KafkaTypeMapping maps the source types the Kafka JSON and Avro schemas declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var KafkaTypeMapping = map[string]string{
+	"bigint":    "bigint",
+	"boolean":   "boolean",
+	"double":    "double",
+	"float":     "float",
+	"int":       "int",
+	"string":    "string",
+	"timestamp": "timestamp",
+}

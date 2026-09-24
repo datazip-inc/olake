@@ -60,6 +60,7 @@ func kafkaJSONBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *inte
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedJSONData,
 		DestinationDataTypeSchema:        KafkaToDestinationJSONSchema,
 		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationJSONSchema,
+		TypeMapping:                      KafkaTypeMapping,
 		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 	}
 }
@@ -99,6 +100,7 @@ func kafkaAvroBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *inte
 		ExpectedUpdatedData:              ExpectedKafkaUpdatedAvroData,
 		DestinationDataTypeSchema:        KafkaToDestinationAvroSchema,
 		UpdatedDestinationDataTypeSchema: UpdatedKafkaToDestinationAvroSchema,
+		TypeMapping:                      KafkaTypeMapping,
 		DefaultCDCColumnsSchema:          ExpectedKafkaDefaultCDCColumnsSchema,
 	}
 }

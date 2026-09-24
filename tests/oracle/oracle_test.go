@@ -42,6 +42,7 @@ func oracleBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integra
 		TestConfig:                oracleTestConfig(t, opts...),
 		ExpectedData:              ExpectedOracleData,
 		DestinationDataTypeSchema: OracleToDestinationSchema,
+		TypeMapping:               OracleTypeMapping,
 	}
 }
 

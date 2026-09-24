@@ -261,7 +261,7 @@ var (
 
 	// S3ParquetToDestinationSchema is the expected destination schema for Parquet sources,
 	// which carry their own schema rather than having one inferred from text. Keys are the
-	// driver-side type names testutils.GlobalTypeMapping resolves to an Iceberg type.
+	// driver-side type names S3TypeMapping resolves to an Iceberg type.
 	S3ParquetToDestinationSchema = map[string]string{
 		"id":       "bigint",
 		"bool_col": "boolean",
@@ -1277,4 +1277,18 @@ func gzipBytes(t *testing.T, data []byte) []byte {
 	require.NoError(t, err, "failed to gzip data")
 	require.NoError(t, writer.Close(), "failed to close gzip writer")
 	return buf.Bytes()
+}
+
+// S3TypeMapping maps the source types the S3 variant schemas declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var S3TypeMapping = map[string]string{
+	"array":     "string",
+	"bigint":    "bigint",
+	"boolean":   "boolean",
+	"double":    "double",
+	"float":     "float",
+	"int":       "int",
+	"json":      "string",
+	"string":    "string",
+	"timestamp": "timestamp",
 }
