@@ -144,7 +144,7 @@ func TestValidateCatalogFlags(t *testing.T) {
 		{name: "new format pair, required", available: "available_streams.json", selected: "selected_streams.json", required: true, expectErr: false},
 		{name: "nothing passed, required", required: true, expectErr: true, expectedCode: codeFlagMissing},
 		{name: "nothing passed, not required (discover)", required: false, expectErr: false},
-		{name: "legacy and new format together", streams: "streams.json", available: "available_streams.json", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeConflictingStreamFlags},
+		{name: "legacy and new format together", streams: "streams.json", available: "available_streams.json", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeConflictingCatalogFlags},
 		{name: "legacy and available only", streams: "streams.json", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeFlagMissing},
 		{name: "available without selected", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeFlagMissing},
 		{name: "selected without available", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeFlagMissing},
@@ -184,7 +184,7 @@ func TestValidateDifferenceFlags(t *testing.T) {
 		{name: "new format pair", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: false},
 		{name: "available without selected", available: "new_available_streams.json", expectErr: true, expectedCode: codeFlagMissing},
 		{name: "selected without available", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeFlagMissing},
-		{name: "legacy and new format together", difference: "new_streams.json", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeConflictingStreamFlags},
+		{name: "legacy and new format together", difference: "new_streams.json", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeConflictingDifferenceFlags},
 	}
 
 	for _, tc := range testCases {

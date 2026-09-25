@@ -178,10 +178,11 @@ func init() {
 
 const (
 	// Codes for conditions the CLI detects itself, before any connector is reached.
-	codeFlagMissing            = "config.flag_missing"
-	codeConflictingStreamFlags = "config.conflicting_stream_flags"
-	codeNoValidStreams         = "catalog.no_valid_streams"
-	codeNoStreams              = "catalog.no_streams_discovered"
+	codeFlagMissing                = "config.flag_missing"
+	codeConflictingCatalogFlags    = "config.conflicting_catalog_flags"
+	codeConflictingDifferenceFlags = "config.conflicting_difference_flags"
+	codeNoValidStreams             = "catalog.no_valid_streams"
+	codeNoStreams                  = "catalog.no_streams_discovered"
 	// recovered panic as an internal error
 	codePanicRecovered = "sync.panic_recovered"
 )
@@ -192,20 +193,20 @@ func validateCatalogFlags(streamsFlagRequired bool) error {
 	hasLegacy := streamsPath != ""
 	hasAvailable, hasSelected := availableStreamsPath != "", selectedStreamsPath != ""
 	hasNew := hasAvailable && hasSelected
+	if streamsFlagRequired && !hasLegacy && !hasNew {
+		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
+			fmt.Errorf("--streams or --available-streams and --selected-streams not passed"))
+	}
+	if hasLegacy && hasNew {
+		return errs.Precondition(errs.ConfigInvalid, codeConflictingCatalogFlags,
+			fmt.Errorf("--streams cannot be combined with --available-streams/--selected-streams"))
+	}
 	if hasAvailable != hasSelected {
 		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
 			fmt.Errorf("--available-streams and --selected-streams must be passed"))
 	}
-	if hasLegacy && hasNew {
-		return errs.Precondition(errs.ConfigInvalid, codeConflictingStreamFlags,
-			fmt.Errorf("--streams cannot be combined with --available-streams/--selected-streams"))
-	}
 	if hasLegacy {
 		logger.Warn("--streams is deprecated and will be removed in a future release; use --available-streams and --selected-streams instead")
-	}
-	if streamsFlagRequired && !hasLegacy && !hasNew {
-		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
-			fmt.Errorf("--streams or --available-streams + --selected-streams not passed"))
 	}
 	return nil
 }
@@ -215,13 +216,14 @@ func validateCatalogFlags(streamsFlagRequired bool) error {
 func validateDifferenceFlags() error {
 	hasLegacy := differencePath != ""
 	hasAvailable, hasSelected := differenceAvailableStreamsPath != "", differenceSelectedStreamsPath != ""
+	hasNew := hasAvailable && hasSelected
+	if hasLegacy && hasNew {
+		return errs.Precondition(errs.ConfigInvalid, codeConflictingDifferenceFlags,
+			fmt.Errorf("--difference cannot be combined with --difference-available-streams/--difference-selected-streams"))
+	}
 	if hasAvailable != hasSelected {
 		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
 			fmt.Errorf("--difference-available-streams and --difference-selected-streams must be passed"))
-	}
-	if hasLegacy && hasAvailable {
-		return errs.Precondition(errs.ConfigInvalid, codeConflictingStreamFlags,
-			fmt.Errorf("--difference cannot be combined with --difference-available-streams/--difference-selected-streams"))
 	}
 	return nil
 }
