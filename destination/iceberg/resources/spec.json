@@ -54,7 +54,7 @@
                 "catalog_name": {
                   "type": "string",
                   "title": "Catalog Name",
-                  "pattern": "^[a-z_]+$",
+                  "pattern": "^[a-z0-9_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "jdbc_url": {
@@ -127,7 +127,7 @@
                 "catalog_name": {
                   "type": "string",
                   "title": "Catalog Name",
-                  "pattern": "^[a-z_]+$",
+                  "pattern": "^[a-z0-9_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "hive_uri": {
@@ -195,7 +195,7 @@
                 "catalog_name": {
                   "type": "string",
                   "title": "Catalog Name",
-                  "pattern": "^[a-z_]+$",
+                  "pattern": "^[a-z0-9_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "iceberg_s3_path": {
@@ -306,7 +306,7 @@
                 "catalog_name": {
                   "type": "string",
                   "title": "Catalog Name",
-                  "pattern": "^[a-z_]+$",
+                  "pattern": "^[a-z0-9_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
@@ -402,7 +402,7 @@
                 "catalog_name": {
                   "type": "string",
                   "title": "Catalog Name",
-                  "pattern": "^[a-z_]+$",
+                  "pattern": "^[a-z0-9_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
@@ -515,7 +515,7 @@
                 "catalog_name": {
                   "type": "string",
                   "title": "Catalog Name",
-                  "pattern": "^[a-z_]+$",
+                  "pattern": "^[a-z0-9_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
@@ -578,7 +578,7 @@
                 "catalog_name": {
                   "type": "string",
                   "title": "Catalog Name",
-                  "pattern": "^[a-z_]+$",
+                  "pattern": "^[a-z0-9_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
@@ -695,7 +695,7 @@
                 "catalog_name": {
                   "type": "string",
                   "title": "Catalog Name",
-                  "pattern": "^[a-z_]+$",
+                  "pattern": "^[a-z0-9_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_auth_type": {
@@ -801,7 +801,7 @@
                 "catalog_name": {
                   "type": "string",
                   "title": "Catalog Name",
-                  "pattern": "^[a-z_]+$",
+                  "pattern": "^[a-z0-9_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
                 "rest_catalog_url": {
