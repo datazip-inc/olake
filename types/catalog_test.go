@@ -1152,7 +1152,7 @@ func TestCatalogS3JSONSerialization(t *testing.T) {
 			Schema:    &TypeSchema{Properties: sync.Map{}},
 		},
 	}
-	catalog := GetWrappedCatalog(streams, "s3")
+	catalog := GetWrappedCatalog(streams, "s3", nil)
 
 	// Verify the default catalog contains AppendMode: true
 	assert.True(t, catalog.SelectedStreams["namespace1"][0].AppendMode, "S3 stream should default to AppendMode: true")
@@ -1162,7 +1162,6 @@ func TestCatalogS3JSONSerialization(t *testing.T) {
 	assert.NoError(t, err)
 
 	jsonStr := string(bytes)
-	fmt.Println("GENERATED CATALOG JSON")
-	fmt.Println(jsonStr)
+
 	assert.Contains(t, jsonStr, `"append_mode": true`, "JSON should explicitly contain '\"append_mode\": true' and not omit it")
 }

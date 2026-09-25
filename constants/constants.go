@@ -84,9 +84,7 @@ const (
 // Drivers where filters are applied in memory after full refresh data is read.
 var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
 
-// AppendOnlyDrivers are drivers whose discovered streams default to append-only
-// sync (no primary-key based upserts), since their source data has no natural
-// update/delete semantics to reconcile.
+// AppendOnlyDrivers are drivers whose discovered streams default to append-only sync.
 var AppendOnlyDrivers = []DriverType{S3, Kafka}
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 

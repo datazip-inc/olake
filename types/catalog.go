@@ -111,7 +111,7 @@ func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) 
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
 			StreamName:      stream.Name,
-			AppendMode:      utils.Ternary(IsDriverAppendOnly(driver), true, false).(bool),
+			AppendMode:      IsDriverAppendOnly(driver),
 			Normalization:   IsDriverRelational(driver),
 			UpdateType:      string(updateType),
 			SelectedColumns: selectedCols,
