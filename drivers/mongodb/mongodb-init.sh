@@ -42,11 +42,6 @@ mongosh --port 27017 --eval "
         roles: [{ role: 'root', db: 'admin' }]
     });
 
-    db = db.getSiblingDB('olake_mongodb_test');
-    db.createCollection('test_collection');
-
-    db = db.getSiblingDB('admin');
-    
     try { db.dropUser('mongodb'); } catch(e) { print('User mongodb does not exist, skipping drop'); }
 
     db.createUser({

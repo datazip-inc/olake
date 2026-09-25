@@ -70,7 +70,7 @@ type colBatch struct {
 func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any, onMessage abstract.BackfillMsgFn) error {
 	sqlConn, err := d.client.Conn(ctx)
 	if err != nil {
-		return fmt.Errorf("readBatchConcurrent: acquire conn: %s", err)
+		return fmt.Errorf("readBatchConcurrent: acquire conn: %w", err)
 	}
 	defer sqlConn.Close()
 
@@ -95,7 +95,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		}
 		rows, err := conn.QueryBatch(query, driverArgs)
 		if err != nil {
-			return fmt.Errorf("readBatchConcurrent: query: %s", err)
+			return fmt.Errorf("readBatchConcurrent: query: %w", err)
 		}
 		defer rows.Close()
 
@@ -126,6 +126,9 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		processBatch := func(batch *colBatch) error {
 			for rowIdx := range batch.rowCount {
 				record := make(map[string]interface{}, nCols)
+				// rowBytes accumulates the DB2 on-disk source size of the row,
+				// reported to OnMessage so the writer can track bytes read.
+				var rowBytes int64
 				for colIdx, colName := range colNames {
 					// SQL NULL is reported via the driver's null mask
 					if batch.nulls[colIdx][rowIdx] {
@@ -135,11 +138,12 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 					raw := batch.getValues[colIdx](rowIdx)
 					conv, err := convFuncs[colIdx](raw)
 					if err != nil {
-						return fmt.Errorf("column %s: %s", colName, err)
+						return fmt.Errorf("column %s: %w", colName, err)
 					}
 					record[colName] = conv
+					rowBytes += db2ColumnBytes(raw, colTypeNames[colIdx])
 				}
-				if err := onMessage(ctx, record); err != nil {
+				if err := onMessage(ctx, record, rowBytes); err != nil {
 					return err
 				}
 			}
@@ -165,7 +169,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 				if errors.Is(readErr, io.EOF) {
 					return nil
 				} else if readErr != nil {
-					return fmt.Errorf("ReadBatchConcurrent: %s", readErr)
+					return fmt.Errorf("ReadBatchConcurrent: %w", readErr)
 				}
 			}
 		}
@@ -205,7 +209,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 					if errors.Is(readErr, io.EOF) {
 						return nil
 					} else if readErr != nil {
-						return fmt.Errorf("ReadBatchConcurrent producer: %s", readErr)
+						return fmt.Errorf("ReadBatchConcurrent producer: %w", readErr)
 					}
 				}
 			}
@@ -215,7 +219,7 @@ func (d *DB2) readBatchConcurrent(ctx context.Context, query string, args []any,
 		// Converts each row of each batch through the pre-compiled converters
 		// and calls OnMessage. Runs concurrently with the producer, then returns
 		// the buffer set to freeCh for reuse.
-		consumer := func(ctx context.Context) (err error) {
+		consumer := func(_ context.Context) (err error) {
 			// recover so a panic in processBatch returns an error instead of crashing the process.
 			defer func() {
 				if r := recover(); r != nil {

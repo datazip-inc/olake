@@ -19,25 +19,26 @@ func (m *MSSQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 	}
 	incrementalQuery, queryArgs, err := jdbc.BuildIncrementalQuery(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to build incremental condition: %s", err)
+		return fmt.Errorf("failed to build incremental condition: %w", err)
 	}
 
 	var rows *sql.Rows
 	rows, err = m.client.QueryContext(ctx, incrementalQuery, queryArgs...)
 	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %s", err)
+		return fmt.Errorf("failed to execute incremental query: %w", err)
 	}
 	defer rows.Close()
 
 	// Scan rows and process
 	for rows.Next() {
 		record := make(types.Record)
-		if err := jdbc.MapScan(rows, record, m.dataTypeConverter); err != nil {
-			return fmt.Errorf("failed to scan record: %s", err)
+		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mssqlColumnSizer)
+		if err != nil {
+			return fmt.Errorf("failed to scan record: %w", err)
 		}
 
-		if err := processFn(ctx, record); err != nil {
-			return fmt.Errorf("process error: %s", err)
+		if err := processFn(ctx, record, rowBytes); err != nil {
+			return fmt.Errorf("process error: %w", err)
 		}
 	}
 

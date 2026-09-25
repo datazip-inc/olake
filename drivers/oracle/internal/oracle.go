@@ -31,14 +31,14 @@ type Oracle struct {
 func (o *Oracle) Setup(ctx context.Context) error {
 	err := o.config.Validate()
 	if err != nil {
-		return fmt.Errorf("failed to validate config: %s", err)
+		return fmt.Errorf("failed to validate config: %w", err)
 	}
 
 	if o.config.SSHConfig != nil && o.config.SSHConfig.Host != "" {
 		logger.Info("Found SSH Configuration")
 		o.sshClient, err = o.config.SSHConfig.SetupSSHConnection()
 		if err != nil {
-			return fmt.Errorf("failed to setup SSH connection: %s", err)
+			return fmt.Errorf("failed to setup SSH connection: %w", err)
 		}
 	}
 
@@ -48,7 +48,7 @@ func (o *Oracle) Setup(ctx context.Context) error {
 
 		oracleCfg, err := go_ora.ParseConfig(o.config.connectionString())
 		if err != nil {
-			return fmt.Errorf("failed to parse oracle connection string: %s", err)
+			return fmt.Errorf("failed to parse oracle connection string: %w", err)
 		}
 
 		// Allows oracle driver to use the SSH client to connect to the database
@@ -64,13 +64,13 @@ func (o *Oracle) Setup(ctx context.Context) error {
 
 		client, err = sqlx.Open("oracle", "")
 		if err != nil {
-			return fmt.Errorf("failed to open tunneled database connection: %s", err)
+			return fmt.Errorf("failed to open tunneled database connection: %w", err)
 		}
 	} else {
 		// TODO: Add support for more encryption options provided in OracleDB
 		client, err = sqlx.Open("oracle", o.config.connectionString())
 		if err != nil {
-			return fmt.Errorf("failed to open database connection: %s", err)
+			return fmt.Errorf("failed to open database connection: %w", err)
 		}
 	}
 
@@ -81,7 +81,7 @@ func (o *Oracle) Setup(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if err := client.PingContext(ctx); err != nil {
-		return fmt.Errorf("failed to ping database: %s", err)
+		return fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	o.client = client
@@ -131,46 +131,42 @@ func (o *Oracle) MaxRetries() int {
 }
 
 // GetStreamNames returns a list of available tables/streams
-func (o *Oracle) GetStreamNames(ctx context.Context) ([]string, error) {
+func (o *Oracle) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	logger.Infof("Starting discover for Oracle database")
 	// TODO: Add support for custom schema names
 	query := jdbc.OracleTableDiscoveryQuery()
 	rows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query tables: %s", err)
+		return nil, fmt.Errorf("failed to query tables: %w", err)
 	}
 	defer rows.Close()
 
-	var streamNames []string
+	var streamNames []types.StreamID
 	for rows.Next() {
-		var owner, table_name string
-		if err := rows.Scan(&owner, &table_name); err != nil {
-			return nil, fmt.Errorf("failed to scan table: %s", err)
+		var owner, tableName string
+		if err := rows.Scan(&owner, &tableName); err != nil {
+			return nil, fmt.Errorf("failed to scan table: %w", err)
 		}
-		streamNames = append(streamNames, fmt.Sprintf("%s.%s", owner, table_name))
+		streamNames = append(streamNames, types.StreamID{Namespace: owner, Name: tableName})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating tables: %s", err)
+		return nil, fmt.Errorf("error iterating tables: %w", err)
 	}
 
 	return streamNames, nil
 }
 
 // ProduceSchema generates the schema for a given stream
-func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.Stream, error) {
+func (o *Oracle) ProduceSchema(ctx context.Context, streamName types.StreamID) (*types.Stream, error) {
 	logger.Infof("producing type schema for stream [%s]", streamName)
-	parts := strings.Split(streamName, ".")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid stream name format: %s", streamName)
-	}
-	schemaName, tableName := parts[0], parts[1]
+	schemaName, tableName := streamName.Namespace, streamName.Name
 	stream := types.NewStream(tableName, schemaName, nil)
 
 	// Get column information
 	query := jdbc.OracleTableDetailsQuery(schemaName, tableName)
 	rows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query column information: %s", err)
+		return nil, fmt.Errorf("failed to query column information: %w", err)
 	}
 	defer rows.Close()
 
@@ -178,10 +174,10 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 		var columnName, dataType, isNullable string
 		var dataPrecision, dataScale sql.NullInt64
 		if err := rows.Scan(&columnName, &dataType, &isNullable, &dataPrecision, &dataScale); err != nil {
-			return nil, fmt.Errorf("failed to scan column: %s", err)
+			return nil, fmt.Errorf("failed to scan column: %w", err)
 		}
 		stream.WithCursorField(columnName)
-		datatype := types.Unknown
+		var datatype types.DataType
 		if val, found := reformatOracleDatatype(dataType, dataPrecision, dataScale); found {
 			datatype = val
 		} else {
@@ -195,14 +191,14 @@ func (o *Oracle) ProduceSchema(ctx context.Context, streamName string) (*types.S
 	query = jdbc.OraclePrimaryKeyColummsQuery(schemaName, tableName)
 	pkRows, err := o.client.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query primary key information: %s", err)
+		return nil, fmt.Errorf("failed to query primary key information: %w", err)
 	}
 	defer pkRows.Close()
 
 	for pkRows.Next() {
 		var columnName string
 		if err := pkRows.Scan(&columnName); err != nil {
-			return nil, fmt.Errorf("failed to scan primary key column: %s", err)
+			return nil, fmt.Errorf("failed to scan primary key column: %w", err)
 		}
 		stream.WithPrimaryKey(columnName)
 	}

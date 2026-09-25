@@ -28,6 +28,8 @@ const (
 	fileTypePositionalDelete = "positionalDelete"
 	targetDataFileSize       = int64(512 * 1024 * 1024) // 512 MB
 	targetDeleteFileSize     = int64(64 * 1024 * 1024)  // 64 MB
+	// deletionVectorBatchSize is how many positions accumulate before being sent to the server for encoding as deletion vectors.
+	deletionVectorBatchSize = 100_000
 )
 
 func getDefaultWriterProps() []parquet.WriterProperty {
@@ -233,7 +235,24 @@ func createDeleteArrowRecord(records []string, allocator memory.Allocator, schem
 	return recordBuilder.NewRecord()
 }
 
+func sortPositionalDeletes(posDeletes []PositionalDelete) []PositionalDelete {
+	if len(posDeletes) <= 1 {
+		return posDeletes
+	}
+
+	sort.Slice(posDeletes, func(i, j int) bool {
+		if posDeletes[i].FilePath != posDeletes[j].FilePath {
+			return posDeletes[i].FilePath < posDeletes[j].FilePath
+		}
+		return posDeletes[i].Position < posDeletes[j].Position
+	})
+
+	return posDeletes
+}
+
 func createPositionalDeleteArrowRecord(posDeletes []PositionalDelete, allocator memory.Allocator, schema *arrow.Schema) arrow.Record {
+	posDeletes = sortPositionalDeletes(posDeletes)
+
 	recordBuilder := array.NewRecordBuilder(allocator, schema)
 	defer recordBuilder.Release()
 

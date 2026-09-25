@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -11,19 +12,118 @@ import (
 	"github.com/datazip-inc/olake/pkg/waljs"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/jackc/pglogrepl"
 	"github.com/jmoiron/sqlx"
 )
 
+// publicationTablesTmpl queries pg_publication_tables to return all (schemaname, tablename)
+// pairs tracked by the given publication name.
+const publicationTablesTmpl = `
+	SELECT schemaname, tablename
+	FROM pg_publication_tables
+	WHERE pubname = $1`
+
+// pubTable is an internal scan target for rows returned by publicationTablesTmpl.
+type pubTable struct {
+	Schema string `db:"schemaname"`
+	Table  string `db:"tablename"`
+}
+
+// fetchPublicationTables fetches all tables registered under a publication.
+func fetchPublicationTables(ctx context.Context, conn *sqlx.DB, publication string) ([]pubTable, error) {
+	var rows []pubTable
+	if err := conn.SelectContext(ctx, &rows, publicationTablesTmpl, publication); err != nil {
+		return nil, fmt.Errorf("failed to query publication tables for publication %q: %w", publication, err)
+	}
+	return rows, nil
+}
+
+// checkStreamsInPublication is the pure validation logic.
+// Given the list of publication tables and selected streams, returns an error
+// if any stream is not covered by the publication.
+func checkStreamsInPublication(publication string, pubTables []pubTable, streams []types.StreamInterface) error {
+	if len(pubTables) == 0 {
+		return fmt.Errorf(
+			"%w: publication %q exists but contains no tables; "+
+				"add the required tables with: ALTER PUBLICATION %s ADD TABLE <schema>.<table>",
+			constants.ErrNonRetryable, publication, publication,
+		)
+	}
+
+	// Build a normalised lookup set: "schema.table" -> present
+	pubSet := types.NewSet[string]()
+	for _, r := range pubTables {
+		id := utils.StreamIdentifier(r.Table, r.Schema)
+		pubSet.Insert(id)
+	}
+
+	var missing []string
+	for _, stream := range streams {
+		if !pubSet.Exists(stream.ID()) {
+			missing = append(missing, stream.ID())
+		}
+	}
+
+	if len(missing) > 0 {
+		return fmt.Errorf(
+			"%w: the following tables are selected in streams.json but are NOT tracked by "+
+				"publication %q — add them before starting the sync:\n  %s\n"+
+				"Run: ALTER PUBLICATION %s ADD TABLE %s",
+			constants.ErrNonRetryable,
+			publication,
+			strings.Join(missing, "\n  "),
+			publication,
+			strings.Join(missing, ", "),
+		)
+	}
+	return nil
+}
+
+// checkPublicationExists verifies if a publication exists in the database.
+func checkPublicationExists(ctx context.Context, conn *sqlx.DB, publication string) (bool, error) {
+	var exists bool
+	err := conn.GetContext(ctx, &exists, "SELECT EXISTS(SELECT 1 FROM pg_publication WHERE pubname = $1)", publication)
+	return exists, err
+}
+
+// validatePublicationContainsStreams is called from PreCDC.
+// It fetches the publication's table list and delegates to
+// checkStreamsInPublication for the comparison.
+func validatePublicationContainsStreams(ctx context.Context, conn *sqlx.DB, publication string, streams []types.StreamInterface) error {
+	if publication == "" || len(streams) == 0 {
+		return nil
+	}
+
+	exists, err := checkPublicationExists(ctx, conn, publication)
+	if err != nil {
+		return fmt.Errorf("failed to verify publication existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf(
+			"%w: publication %q does not exist; "+
+				"please create it with: CREATE PUBLICATION %s FOR TABLE <schema>.<table>",
+			constants.ErrNonRetryable, publication, publication,
+		)
+	}
+
+	pubTables, err := fetchPublicationTables(ctx, conn, publication)
+	if err != nil {
+		return err
+	}
+	return checkStreamsInPublication(publication, pubTables, streams)
+}
+
 func (p *Postgres) prepareWALJSConfig(streams ...types.StreamInterface) (*waljs.Config, error) {
 	if !p.CDCSupport {
-		return nil, fmt.Errorf("invalid call; %s not running in CDC mode", p.Type())
+		return nil, errs.Precondition(errs.CDCPreconditionFailed, codeCDCNotConfigured,
+			fmt.Errorf("invalid call; %s not running in CDC mode", p.Type()))
 	}
 
 	tlsConfig, err := p.config.buildTLSConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to build tls config for wal replication: %s", err)
+		return nil, fmt.Errorf("failed to build tls config for wal replication: %w", err)
 	}
 
 	return &waljs.Config{
@@ -42,9 +142,13 @@ func (p *Postgres) ChangeStreamConfig() (bool, bool, bool) {
 }
 
 func (p *Postgres) PreCDC(ctx context.Context, streams []types.StreamInterface) error {
+	if err := validatePublicationContainsStreams(ctx, p.client, p.cdcConfig.Publication, streams); err != nil {
+		return fmt.Errorf("publication validation failed: %w", err)
+	}
+
 	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
 	if err != nil {
-		return fmt.Errorf("failed to get slot position: %s", err)
+		return fmt.Errorf("failed to get slot position: %w", err)
 	}
 
 	globalState := p.state.GetGlobal()
@@ -63,7 +167,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	var postgresGlobalState waljs.WALState
 	rawGlobalState := p.state.GetGlobal()
 	if err := utils.Unmarshal(rawGlobalState.State, &postgresGlobalState); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal global state: %s", err)
+		return nil, errs.Precondition(errs.StateInvalid, codeGlobalStateUnreadable,
+			fmt.Errorf("failed to unmarshal global state: %w", err))
 	}
 
 	var metadataCommittedLSN string
@@ -77,17 +182,20 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		if stMtState, ok := rawMtState.(string); ok {
 			var mtState waljs.WALState
 			if err := json.Unmarshal([]byte(stMtState), &mtState); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal metadata state: %s", err)
+				return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateUnreadable,
+					fmt.Errorf("failed to unmarshal metadata state: %w", err))
 			}
 
 			// Recovery is only needed when metadata is strictly AHEAD of state .
 			parsedMetaLSN, err := pglogrepl.ParseLSN(mtState.LSN)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse metadata LSN %q: %s", mtState.LSN, err)
+				return nil, errs.Precondition(errs.StateInvalid, codeMetadataLSNUnparseable,
+					fmt.Errorf("failed to parse metadata LSN %q: %w", mtState.LSN, err))
 			}
 			parsedStateLSN, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse global state LSN %q: %s", postgresGlobalState.LSN, err)
+				return nil, errs.Precondition(errs.StateInvalid, codeGlobalLSNUnparseable,
+					fmt.Errorf("failed to parse global state LSN %q: %w", postgresGlobalState.LSN, err))
 			}
 			if parsedMetaLSN > parsedStateLSN {
 				// metadata ahead of state: genuine crash-recovery path
@@ -96,7 +204,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 			}
 			// state >= metadata: blank sync scenario — stream forward normally
 		} else {
-			return nil, fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState)
+			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateNotString,
+				fmt.Errorf("failed to typecast metadata state of type[%T] to string", rawMtState))
 		}
 	}
 
@@ -109,7 +218,8 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 		// recovery sync required: read up to the LSN stored in the Iceberg metadata
 		parsed, err := pglogrepl.ParseLSN(metadataCommittedLSN)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse recovery LSN %q: %s", metadataCommittedLSN, err)
+			return nil, errs.Precondition(errs.StateInvalid, codeMetadataLSNUnparseable,
+				fmt.Errorf("failed to parse recovery LSN %q: %w", metadataCommittedLSN, err))
 		}
 		recoveryLSN = &parsed
 
@@ -127,17 +237,17 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 
 	config, err := p.prepareWALJSConfig(remainingStreams...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to prepare wal config: %s", err)
+		return nil, fmt.Errorf("failed to prepare wal config: %w", err)
 	}
 
 	slot, err := waljs.GetSlotPosition(ctx, p.client, p.cdcConfig.ReplicationSlot)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get slot position: %s", err)
+		return nil, fmt.Errorf("failed to get slot position: %w", err)
 	}
 
 	replicator, err := waljs.NewReplicator(ctx, config, slot, recoveryLSN, p.dataTypeConverter)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create wal connection: %s", err)
+		return nil, fmt.Errorf("failed to create wal connection: %w", err)
 	}
 
 	// persist replicator for post cdc
@@ -150,7 +260,7 @@ func (p *Postgres) StreamChanges(ctx context.Context, _ int, metadataStates map[
 	slotAtMetadataLSN := recoveryLSN != nil && slot.LSN == *recoveryLSN
 	if len(remainingStreams) > 0 && !slotAtMetadataLSN {
 		if err := validateGlobalState(postgresGlobalState, slot.LSN); err != nil {
-			return nil, fmt.Errorf("%s: invalid global state: %s", constants.ErrNonRetryable, err)
+			return nil, fmt.Errorf("%w: invalid global state: %w", constants.ErrNonRetryable, err)
 		}
 	} else {
 		logger.Infof("all streams already committed in destination, skipping state LSN validation")
@@ -201,7 +311,7 @@ func (p *Postgres) PostCDC(ctx context.Context, _ int) error {
 	}
 }
 
-func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string, database string) (bool, error) {
+func doesReplicationSlotExists(ctx context.Context, conn *sqlx.DB, slotName string, publication string, _ string) (bool, error) {
 	var exists bool
 	err := conn.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pg_replication_slots WHERE slot_name = $1 AND database = current_database())`, slotName).Scan(&exists)
 	if err != nil {
@@ -219,12 +329,14 @@ func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string
 	}
 
 	if slot.SlotType != "logical" {
-		return fmt.Errorf("only logical slots are supported: %s", slot.SlotType)
+		return errs.Precondition(errs.CDCPreconditionFailed, codeSlotTypeUnsupported,
+			fmt.Errorf("only logical slots are supported: %s", slot.SlotType))
 	}
 
 	logger.Debugf("replication slot[%s] with pluginType[%s] found", slotName, slot.Plugin)
 	if slot.Plugin == "pgoutput" && publication == "" {
-		return fmt.Errorf("publication is required for pgoutput")
+		return errs.Precondition(errs.CDCPreconditionFailed, codePublicationMissing,
+			fmt.Errorf("publication is required for pgoutput"))
 	}
 	return nil
 }
@@ -232,17 +344,19 @@ func validateReplicationSlot(ctx context.Context, conn *sqlx.DB, slotName string
 func validateGlobalState(postgresGlobalState waljs.WALState, confirmedFlushLSN pglogrepl.LSN) error {
 	// global state exist check for cursor and cursor mismatch
 	if postgresGlobalState.LSN == "" {
-		return fmt.Errorf("%w: lsn is empty, please proceed with clear destination", constants.ErrNonRetryable)
-	} else {
-		parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
-		if err != nil {
-			return fmt.Errorf("failed to parse stored lsn[%s]: %s", postgresGlobalState.LSN, err)
-		}
-		// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
-		// suggesting to proceed with clear destination
-		if parsed != confirmedFlushLSN {
-			return fmt.Errorf("%w: lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", constants.ErrNonRetryable, parsed, confirmedFlushLSN)
-		}
+		return errs.Precondition(errs.StateInvalid, codeGlobalLSNMissing,
+			fmt.Errorf("lsn is empty, please proceed with clear destination"))
+	}
+	parsed, err := pglogrepl.ParseLSN(postgresGlobalState.LSN)
+	if err != nil {
+		return errs.Precondition(errs.StateInvalid, codeGlobalLSNUnparseable,
+			fmt.Errorf("failed to parse stored lsn[%s]: %w", postgresGlobalState.LSN, err))
+	}
+	// failing sync when lsn mismatch found (from state and confirmed flush lsn), as otherwise on backfill, duplication of data will occur
+	// suggesting to proceed with clear destination
+	if parsed != confirmedFlushLSN {
+		return errs.Precondition(errs.StateInvalid, codeLSNMismatch,
+			fmt.Errorf("lsn mismatch, please proceed with clear destination. lsn saved in state [%s] current lsn [%s]", parsed, confirmedFlushLSN))
 	}
 	return nil
 }

@@ -2,7 +2,7 @@
 Production-ready S3 source connector for Olake that ingests data directly from AWS S3 or S3-compatible storage (MinIO, LocalStack, etc.).
 
 ## Highlights
-- **Multi-format**: CSV (plain or `.gz`), JSON (JSONL/array/object), and Parquet with schema inference.
+- **Multi-format**: CSV (plain or `.gz`), JSON (JSONL/array/object), Parquet, and XML with schema inference.
 - **Incremental sync**: Tracks `_last_modified_time` per stream and processes only newer files.
 - **Parallel processing**: Chunked downloads and configurable `max_threads` keep throughput high.
 - **Stateful**: Stream-level state keeps cursor information so you can resume syncs reliably.
@@ -13,7 +13,7 @@ Production-ready S3 source connector for Olake that ingests data directly from A
 | --- | --- | --- |
 | `bucket_name` | string | Target S3 bucket name |
 | `region` | string | AWS region (e.g., `us-east-1`) |
-| `file_format` | string | `csv`, `json`, or `parquet` |
+| `file_format` | string | `csv`, `json`, `parquet`, or `xml` |
 | `path_prefix` | string | Prefix used to group files into streams |
 
 ### Optional fields
@@ -42,6 +42,12 @@ Use the `json` block to override parsing of JSON files.
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `line_delimited` | boolean | `true` | When true, treat each line as a separate record; set to false for JSON arrays or single objects |
+
+### XML-specific tuning
+Use the `xml` block to control how records are split.
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `row_identifier` | string | `""` | Local element name for one row. Used when stream normalization is ON, when OFF or empty whole document is one record |
 
 ## Commands
 Run the driver binaries through the repository root `build.sh` helper:
@@ -92,6 +98,19 @@ Use these as a starting point; substitute your bucket, path, and authentication 
   "retry_count": 3
 }
 ```
+### XML stream example
+```json
+{
+  "bucket_name": "your-bucket",
+  "region": "us-east-1",
+  "path_prefix": "data/xml/",
+  "file_format": "xml",
+  "xml": { "row_identifier": "order" },
+  "compression": "none",
+  "max_threads": 5,
+  "retry_count": 3
+}
+```
 
 ## Catalog guidance (streams)
 - `selected_streams` selects which folders (streams) to sync; each entry maps to a stream name under your prefix (e.g., `users`).
@@ -132,5 +151,31 @@ The `state.json` structure mirrors the catalog streams and records the latest `_
 }
 ```
 Use this file when re-running syncs to resume from the last `_last_modified_time` per stream.
+
+## Integration tests
+`TestS3Integration` runs one variant per source format (CSV, JSON, Parquet), each doing a discover plus a full-refresh and incremental sync into both the Iceberg and Parquet destinations, verifying rows, datatypes and the partition column. S3 exposes no CDC, so those subtests are skipped as they are for Oracle and DB2 (`constants.SkipCDCDrivers`).
+
+Each stream is seeded with a plain file and, for CSV and JSON, a gzipped one: the driver detects compression from each file's own extension, so one stream mixes both. Incremental sync then re-reads only files newer than the `_last_modified_time` cursor, which is what the `insert` and `update` operations upload.
+
+Source and destination share one MinIO (`localhost:9000`): it is defined in this driver's `docker-compose.yml` (the s3 source reads from it) and `include`d by the Iceberg destination stack (which uses it as the warehouse store), so there is a single instance. The s3 formats share the `olake-s3-test` source bucket, isolated by per-format folder prefixes, and everything lands in the `s3_olake_s3_test_s3` database as one table per format.
+
+`testdata/<format>/` holds the committed `source.json`, `iceberg_destination.json`, `parquet_destination.json` and `test_streams.json` (the expected discover output). Note the sync flips `arrow_writes` in `iceberg_destination.json` to cover both writers, leaving the file modified after a run.
+
+```sh
+# simplest: auto-provisions the destination stack + Iceberg JAR, then runs the suite (from repo root)
+make test.integration.s3
+
+# or iterate directly against an already-up stack (heavy locally: one amd64 test container per phase
+# per format; throttle with -parallel)
+go test -v -timeout 0 -parallel 2 -run 'TestS3Integration' ./internal/
+
+# one format, or only its sync phase (reuses testdata/<format>/streams.json from a prior discover)
+go test -v -timeout 0 -run 'TestS3Integration/Variants/Parquet' ./internal/
+go test -v -timeout 0 -run 'TestS3Integration/Variants/CSV/Sync' ./internal/
+
+# inspect what landed, e.g.
+#   docker exec spark-iceberg /opt/spark/bin/spark-sql \
+#     -e "SELECT * FROM olake_iceberg.s3_olake_s3_test_s3.s3_csv_test_table_olake"
+```
 
 Find more at [S3 Docs](https://olake.io/docs/category/s3)

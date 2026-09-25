@@ -1,6 +1,7 @@
 services:
   db2:
     image: icr.io/db2_community/db2
+    platform: linux/amd64
     container_name: db2-test
     restart: always
     privileged: true
@@ -8,4 +9,7 @@ services:
     ports:
       - "50000:50000"
     volumes:
-      - /data/db2:/database
+      - db2-data:/database
+
+volumes:
+  db2-data:

@@ -12,6 +12,7 @@ import (
 	"github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/apache/arrow-go/v18/parquet/metadata"
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/destination"
 	"github.com/datazip-inc/olake/destination/iceberg/internal"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/types"
@@ -20,6 +21,7 @@ import (
 )
 
 type ArrowWriter struct {
+	options        *destination.Options
 	fileschemajson map[string]string // file type -> iceberg schema JSON
 	schema         map[string]string
 	arrowSchema    map[string]*arrow.Schema // file type -> arrow schema
@@ -30,6 +32,18 @@ type ArrowWriter struct {
 	writers        map[string]*Writer
 	createdFiles   map[string]*PartitionFiles
 	upsertMode     bool
+	indexThread    *types.StreamIndexThread
+	// deleteMode decides how superseded rows are expressed: under DeletionVector, positions stream to the server as Puffin vectors instead of a delete file.
+	deleteMode types.UpdateType
+	// pendingVectors buffers positions per data file until a batch is worth sending. Only used under DeleteModeDeletionVector.
+	pendingVectors     map[string]*pendingVector
+	pendingVectorCount int
+}
+
+// pendingVector is the positions to delete from one data file, plus the partition it's stamped with (the one being written, not necessarily the referenced file's). First writer to touch a path wins - a data file carries only one vector.
+type pendingVector struct {
+	positions       []int64
+	partitionValues []any
 }
 
 type Writer struct {
@@ -64,8 +78,9 @@ type PositionalDelete struct {
 	Position int64
 }
 
-func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
+func New(ctx context.Context, options *destination.Options, partitionInfo []internal.PartitionInfo, schema map[string]string, stream types.StreamInterface, server internal.ServerClient, upsertMode bool) (*ArrowWriter, error) {
 	writer := &ArrowWriter{
+		options:       options,
 		partitionInfo: partitionInfo,
 		schema:        schema,
 		stream:        stream,
@@ -74,10 +89,14 @@ func New(ctx context.Context, partitionInfo []internal.PartitionInfo, schema map
 		writers:       make(map[string]*Writer),
 		createdFiles:  make(map[string]*PartitionFiles),
 		upsertMode:    upsertMode,
+		indexThread:   types.NewStreamIndexThread(options.TableIndex),
+		deleteMode:    stream.GetUpdateType(),
+
+		pendingVectors: make(map[string]*pendingVector),
 	}
 
 	if err := writer.initialize(ctx); err != nil {
-		return nil, fmt.Errorf("failed to initialize: %s", err)
+		return nil, fmt.Errorf("failed to initialize: %w", err)
 	}
 
 	return writer, nil
@@ -135,8 +154,11 @@ func (w *ArrowWriter) getOrCreateWriter(ctx context.Context, pKey string, values
 		}
 	}
 
-	if w.upsertMode {
-		if writer.equalityDeleteWriter == nil {
+	// Deletion vectors are encoded server-side from streamed positions, so dv mode writes no delete file of its own - see sendPendingVectors.
+	if w.upsertMode && w.deleteMode != types.UpdateTypeDeletionVector {
+		// In positional delete mode the index resolves every row to a location, so
+		// no equality deletes are produced at all.
+		if writer.equalityDeleteWriter == nil && w.indexThread == nil {
 			if writer.equalityDeleteWriter, err = w.createWriter(ctx, pKey, values, *w.arrowSchema[fileTypeEqualityDelete], fileTypeEqualityDelete); err != nil {
 				return nil, err
 			}
@@ -168,9 +190,13 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		writer.data = append(writer.data, rec)
 		recordOpType := rec.OlakeColumns[constants.OpType].(string)
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
-		if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i") {
-			filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
+		filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
+		if w.indexThread != nil {
+			if err := w.indexRecord(writer, recordOlakeID, recordOpType, filePosition); err != nil {
+				return err
+			}
+		} else if w.upsertMode && (recordOpType == "d" || recordOpType == "u" || recordOpType == "i" || recordOpType == "c") {
 			if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
 				// first time, add to equality deletes and track position
 				writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
@@ -202,11 +228,34 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 	return nil
 }
 
+// search for index for the record and emmit pos when found
+func (w *ArrowWriter) indexRecord(writer *Writer, olakeID, opType string, filePosition int64) error {
+	if w.upsertMode && (opType != "r" && opType != "c") {
+		previous, found, err := w.indexThread.Lookup(olakeID)
+		if err != nil {
+			return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
+		}
+		if found {
+			writer.positionalDeletes = append(writer.positionalDeletes, PositionalDelete{
+				FilePath: previous.FilePath,
+				Position: previous.Position,
+			})
+		}
+	}
+
+	w.indexThread.Put(olakeID, types.RowLocation{
+		FilePath: writer.dataWriter.filePath,
+		Position: filePosition,
+	})
+
+	return nil
+}
+
 func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) error {
 	var err error
 
 	if err := w.extract(ctx, records); err != nil {
-		return fmt.Errorf("failed to partition data: %s", err)
+		return fmt.Errorf("failed to partition data: %w", err)
 	}
 
 	for pKey, writer := range w.writers {
@@ -215,32 +264,40 @@ func (w *ArrowWriter) Write(ctx context.Context, records []types.RawRecord) erro
 		}
 
 		if w.upsertMode {
-			posRecord := createPositionalDeleteArrowRecord(writer.positionalDeletes, w.allocator, w.arrowSchema[fileTypePositionalDelete])
-			if err := writer.positionalDeleteWriter.currentWriter.WriteBuffered(posRecord); err != nil {
+			if w.deleteMode == types.UpdateTypeDeletionVector {
+				if err := w.queueVectorDeletes(ctx, writer.positionalDeletes, writer.dataWriter.partitionValues); err != nil {
+					return err
+				}
+			} else if len(writer.positionalDeletes) > 0 {
+				posRecord := createPositionalDeleteArrowRecord(writer.positionalDeletes, w.allocator, w.arrowSchema[fileTypePositionalDelete])
+				if err := writer.positionalDeleteWriter.currentWriter.WriteBuffered(posRecord); err != nil {
+					posRecord.Release()
+
+					return fmt.Errorf("failed to write positional delete record: %s", err)
+				}
+
+				writer.positionalDeleteWriter.currentRowCount += posRecord.NumRows()
 				posRecord.Release()
 
-				return fmt.Errorf("failed to write positional delete record: %s", err)
+				if writer.positionalDeleteWriter, err = w.checkAndFlush(ctx, writer.positionalDeleteWriter, pKey); err != nil {
+					return err
+				}
 			}
 
-			writer.positionalDeleteWriter.currentRowCount += posRecord.NumRows()
-			posRecord.Release()
+			if writer.equalityDeleteWriter != nil {
+				record := createDeleteArrowRecord(writer.equalityDeletes, w.allocator, w.arrowSchema[fileTypeEqualityDelete])
+				if err := writer.equalityDeleteWriter.currentWriter.WriteBuffered(record); err != nil {
+					record.Release()
 
-			if writer.positionalDeleteWriter, err = w.checkAndFlush(ctx, writer.positionalDeleteWriter, pKey); err != nil {
-				return err
-			}
+					return fmt.Errorf("failed to write equality delete record: %s", err)
+				}
 
-			record := createDeleteArrowRecord(writer.equalityDeletes, w.allocator, w.arrowSchema[fileTypeEqualityDelete])
-			if err := writer.equalityDeleteWriter.currentWriter.WriteBuffered(record); err != nil {
+				writer.equalityDeleteWriter.currentRowCount += record.NumRows()
 				record.Release()
 
-				return fmt.Errorf("failed to write equality delete record: %s", err)
-			}
-
-			writer.equalityDeleteWriter.currentRowCount += record.NumRows()
-			record.Release()
-
-			if writer.equalityDeleteWriter, err = w.checkAndFlush(ctx, writer.equalityDeleteWriter, pKey); err != nil {
-				return err
+				if writer.equalityDeleteWriter, err = w.checkAndFlush(ctx, writer.equalityDeleteWriter, pKey); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -291,7 +348,7 @@ func (w *ArrowWriter) checkAndFlush(ctx context.Context, rw *RollingWriter, part
 
 	newFilePath, err := w.allocateFilePath(ctx, partitionKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to allocate new file path after flush: %s", err)
+		return nil, fmt.Errorf("failed to allocate new file path after flush: %w", err)
 	}
 	newWriter.filePath = newFilePath
 
@@ -309,7 +366,7 @@ func (w *ArrowWriter) flush(ctx context.Context, rw *RollingWriter, partitionKey
 	}
 
 	if err := w.uploadFile(ctx, rw, partitionKey); err != nil {
-		return fmt.Errorf("failed to upload parquet during flush: %s", err)
+		return fmt.Errorf("failed to upload parquet during flush: %w", err)
 	}
 
 	return nil
@@ -317,22 +374,27 @@ func (w *ArrowWriter) flush(ctx context.Context, rw *RollingWriter, partitionKey
 
 func (w *ArrowWriter) EvolveSchema(ctx context.Context, newSchema map[string]string) error {
 	if err := w.completeWriters(ctx); err != nil {
-		return fmt.Errorf("failed to flush writers during schema evolution: %s", err)
+		return fmt.Errorf("failed to flush writers during schema evolution: %w", err)
 	}
 
 	w.schema = newSchema
 
 	if err := w.initialize(ctx); err != nil {
-		return fmt.Errorf("failed to reinitialize with evolved schema: %s", err)
+		return fmt.Errorf("failed to reinitialize with evolved schema: %w", err)
 	}
 
 	return nil
 }
 
 // Close flushes all writers and commits files to Iceberg.
-func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
+func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) (err error) {
 	if err := w.completeWriters(ctx); err != nil {
-		return fmt.Errorf("failed to close arrow writers: %s", err)
+		return fmt.Errorf("failed to close arrow writers: %w", err)
+	}
+
+	// The trailing partial batch has to reach the server before the commit, which is where the vectors holding it are published.
+	if err := w.sendPendingVectors(ctx); err != nil {
+		return err
 	}
 
 	// Build ordered file list: equality deletes → data → positional deletes
@@ -346,9 +408,8 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 	commitRequest := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_REGISTER_AND_COMMIT,
 		Metadata: &proto.ArrowPayload_Metadata{
-			ThreadId:      w.server.ServerID(),
-			DestTableName: w.stream.GetDestinationTable(),
-			FileMetadata:  orderedFiles,
+			ThreadId:     w.options.ThreadID,
+			FileMetadata: orderedFiles,
 		},
 	}
 
@@ -358,14 +419,41 @@ func (w *ArrowWriter) Close(ctx context.Context, finalMetadataState any) error {
 		commitRequest.Metadata.Payload = string(payloadBytes)
 	}
 
+	if w.indexThread != nil {
+		indexBaseSnapshotID, err := w.options.TableIndex.LastCommittedSnapshot()
+		if err != nil {
+			return fmt.Errorf("failed to get last committed snapshot ID: %s", err)
+		}
+
+		commitRequest.Metadata.BaseSnapshotId = &indexBaseSnapshotID
+	}
+
 	commitCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
-	if _, err := w.server.SendClientRequest(commitCtx, commitRequest); err != nil {
+	response, err := w.server.SendClientRequest(commitCtx, commitRequest)
+	if err != nil {
 		return fmt.Errorf("failed to commit arrow files: %s", err)
 	}
 
+	committedSnapshotID := response.(*proto.ArrowIngestResponse).SnapshotId
+
+	// apply stream index if it exists
+	// and the committed snapshot id is not 0, can be 0 when there is external commits or there is no records to commit
+	if w.indexThread != nil && committedSnapshotID != nil && *committedSnapshotID != 0 {
+		batch := w.indexThread
+		w.indexThread = nil
+		if applyErr := w.options.TableIndex.Commit(batch, committedSnapshotID); applyErr != nil {
+			return fmt.Errorf("failed to apply stream index: %s", applyErr)
+		}
+	}
+
 	return nil
+}
+
+// abort index batch when thread is aborted
+func (w *ArrowWriter) Abort() {
+	w.indexThread = nil
 }
 
 func (w *ArrowWriter) completeWriters(ctx context.Context) error {
@@ -481,7 +569,7 @@ func (w *ArrowWriter) initializeDeleteSchemas() error {
 func (w *ArrowWriter) createWriter(ctx context.Context, pKey string, values []any, schema arrow.Schema, fileType string) (*RollingWriter, error) {
 	filePath, err := w.allocateFilePath(ctx, pKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to allocate file path: %s", err)
+		return nil, fmt.Errorf("failed to allocate file path: %w", err)
 	}
 
 	rw, err := w.newRollingWriter(ctx, schema, fileType, values, filePath)
@@ -519,12 +607,71 @@ func (w *ArrowWriter) newRollingWriter(ctx context.Context, arrowSchema arrow.Sc
 	}, nil
 }
 
+// queueVectorDeletes buffers positions and ships them once enough have accumulated.
+func (w *ArrowWriter) queueVectorDeletes(ctx context.Context, deletes []PositionalDelete, partitionValues []any) error {
+	for _, d := range deletes {
+		pending, exists := w.pendingVectors[d.FilePath]
+		if !exists {
+			pending = &pendingVector{partitionValues: partitionValues}
+			w.pendingVectors[d.FilePath] = pending
+		}
+		pending.positions = append(pending.positions, d.Position)
+	}
+	w.pendingVectorCount += len(deletes)
+
+	if w.pendingVectorCount < deletionVectorBatchSize {
+		return nil
+	}
+	return w.sendPendingVectors(ctx)
+}
+
+// sendPendingVectors hands the buffered positions to the server, which folds them into the deletion vectors it publishes at commit.
+func (w *ArrowWriter) sendPendingVectors(ctx context.Context) error {
+	if w.pendingVectorCount == 0 {
+		return nil
+	}
+
+	entries := make([]*proto.ArrowPayload_DeletionVectorBatch_Entry, 0, len(w.pendingVectors))
+	for path, pending := range w.pendingVectors {
+		partitionValues, err := toProtoPartitionValues(pending.partitionValues)
+		if err != nil {
+			return fmt.Errorf("failed to convert partition values of %s: %s", path, err)
+		}
+
+		entries = append(entries, &proto.ArrowPayload_DeletionVectorBatch_Entry{
+			DataFilePath:    path,
+			Positions:       pending.positions,
+			PartitionValues: partitionValues,
+		})
+	}
+
+	request := &proto.ArrowPayload{
+		Type: proto.ArrowPayload_DELETION_VECTORS,
+		Metadata: &proto.ArrowPayload_Metadata{
+			ThreadId: w.options.ThreadID,
+			DeletionVectors: &proto.ArrowPayload_DeletionVectorBatch{
+				Entries: entries,
+			},
+		},
+	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
+	defer cancel()
+
+	if _, err := w.server.SendClientRequest(reqCtx, request); err != nil {
+		return fmt.Errorf("failed to send deletion vector rows: %s", err)
+	}
+
+	w.pendingVectors = make(map[string]*pendingVector)
+	w.pendingVectorCount = 0
+	return nil
+}
+
 func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string) (string, error) {
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_FILEPATH,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
+			ThreadId: w.options.ThreadID,
 		},
 	}
 
@@ -533,7 +680,7 @@ func (w *ArrowWriter) allocateFilePath(ctx context.Context, partitionKey string)
 
 	resp, err := w.server.SendClientRequest(reqCtx, request)
 	if err != nil {
-		return "", fmt.Errorf("failed to allocate file path: %s", err)
+		return "", fmt.Errorf("failed to allocate file path: %w", err)
 	}
 
 	basePath := resp.(*proto.ArrowIngestResponse).GetResult()
@@ -551,8 +698,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_UPLOAD_FILE,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
+			ThreadId: w.options.ThreadID,
 			FileUpload: &proto.ArrowPayload_FileUploadRequest{
 				FileData: rw.currentBuffer.Bytes(),
 				FilePath: rw.filePath,
@@ -564,7 +710,7 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	defer cancel()
 
 	if _, err := w.server.SendClientRequest(uploadCtx, request); err != nil {
-		return fmt.Errorf("failed to upload %s file: %s", rw.fileType, err)
+		return fmt.Errorf("failed to upload %s file: %w", rw.fileType, err)
 	}
 
 	protoPartitionValues, err := toProtoPartitionValues(rw.partitionValues)
@@ -597,12 +743,12 @@ func (w *ArrowWriter) uploadFile(ctx context.Context, rw *RollingWriter, partiti
 	return nil
 }
 
+// fetchFileSchemaJSON retrieves the Iceberg schemas for Arrow serialization.
 func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 	request := &proto.ArrowPayload{
 		Type: proto.ArrowPayload_JSONSCHEMA,
 		Metadata: &proto.ArrowPayload_Metadata{
-			DestTableName: w.stream.GetDestinationTable(),
-			ThreadId:      w.server.ServerID(),
+			ThreadId: w.options.ThreadID,
 		},
 	}
 
@@ -611,7 +757,7 @@ func (w *ArrowWriter) fetchFileSchemaJSON(ctx context.Context) error {
 
 	resp, err := w.server.SendClientRequest(schemaCtx, request)
 	if err != nil {
-		return fmt.Errorf("failed to fetch schema JSON from server: %s", err)
+		return fmt.Errorf("failed to fetch schema JSON from server: %w", err)
 	}
 
 	w.fileschemajson = resp.(*proto.ArrowIngestResponse).GetIcebergSchemas()

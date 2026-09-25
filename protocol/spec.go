@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/spec"
@@ -15,6 +16,13 @@ var specCmd = &cobra.Command{
 	Use:   "spec",
 	Short: "spec command",
 	RunE: func(_ *cobra.Command, _ []string) error {
+		// Served independently of any driver or destination spec file: the engine matrix
+		// is static per OLake version, and callers need it before a destination is picked.
+		if availableQueryEngines {
+			logger.Info(map[string]interface{}{"query_engines": types.QueryEngineCatalog()})
+			return nil
+		}
+
 		specPath, err := resolveSpecPath()
 		if err != nil {
 			return err
@@ -22,13 +30,13 @@ var specCmd = &cobra.Command{
 
 		var specData map[string]interface{}
 		if err := utils.UnmarshalFile(specPath, &specData, false); err != nil {
-			return fmt.Errorf("failed to read spec file %s: %v", specPath, err)
+			return fmt.Errorf("failed to read spec file %s: %w", specPath, err)
 		}
 
 		schemaType := utils.Ternary(destinationType == "not-set", connector.Type(), destinationType).(string)
 		uiSchema, err := spec.LoadUISchema(schemaType)
 		if err != nil {
-			return fmt.Errorf("failed to get ui schema: %v", err)
+			return fmt.Errorf("failed to get ui schema: %w", err)
 		}
 
 		specSchema := map[string]interface{}{
