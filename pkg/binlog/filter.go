@@ -447,9 +447,27 @@ func decodeRawString(b []byte) (string, error) {
 	return string(b), nil
 }
 
+// mysqlLatin1Undefined holds the five bytes cp1252 leaves undefined. MySQL's
+// latin1 maps them to the matching C1 control characters, while x/text's
+// Windows1252 decoder replaces them with U+FFFD, which is not reversible.
+var mysqlLatin1Undefined = map[byte]rune{
+	0x81: 0x81, 0x8D: 0x8D, 0x8F: 0x8F, 0x90: 0x90, 0x9D: 0x9D,
+}
+
+// decodeLatin1 decodes MySQL's latin1, which is cp1252 rather than ISO-8859-1:
+// bytes 0x80-0x9F carry typographic characters (curly quotes, dashes, ellipsis,
+// euro sign) instead of C1 controls.
 func decodeLatin1(b []byte) (string, error) {
-	out, err := charmap.ISO8859_1.NewDecoder().Bytes(b)
-	return string(out), err
+	var sb strings.Builder
+	sb.Grow(len(b))
+	for _, c := range b {
+		if r, ok := mysqlLatin1Undefined[c]; ok {
+			sb.WriteRune(r)
+			continue
+		}
+		sb.WriteRune(charmap.Windows1252.DecodeByte(c))
+	}
+	return sb.String(), nil
 }
 
 func decodeUTF16BE(b []byte) (string, error) {
