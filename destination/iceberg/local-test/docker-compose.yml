@@ -17,7 +17,7 @@ services:
       - 9000:9000
     volumes:
       - ./data/minio-data:/data
-    command: [ "server", "/data", "--console-address", ":9001" ]
+    command: ["server", "/data", "--console-address", ":9001"]
 
   mc:
     depends_on:
@@ -40,6 +40,30 @@ services:
       tail -f /dev/null
       "
 
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.37.0
+    container_name: "azurite"
+    networks:
+      iceberg_net:
+    hostname: azurite
+    restart: always
+    ports:
+      - "11000:10000"
+    command:
+      [
+        "azurite-blob",
+        "--blobHost",
+        "0.0.0.0",
+        "--blobPort",
+        "11000",
+        "--debug",
+        "--loose",
+        "--version",
+        "--oauth",
+        "basic",
+        "--skipApiVersionCheck",
+      ]
+
   lakekeeper:
     image: &lakekeeper-image ${LAKEKEEPER__SERVER_IMAGE:-quay.io/lakekeeper/catalog:v0.11.1}
     pull_policy: &lakekeeper-pull-policy always
@@ -54,9 +78,9 @@ services:
       - LAKEKEEPER__OPENID_ADDITIONAL_ISSUERS
       - LAKEKEEPER__UI__OPENID_CLIENT_ID
       - LAKEKEEPER__UI__OPENID_SCOPE
-    command: [ "serve" ]
+    command: ["serve"]
     healthcheck:
-      test: [ "CMD", "/home/nonroot/iceberg-catalog", "healthcheck" ]
+      test: ["CMD", "/home/nonroot/iceberg-catalog", "healthcheck"]
       interval: 1s
       timeout: 10s
       retries: 3
@@ -69,19 +93,17 @@ services:
     networks:
       iceberg_net:
 
-
   migrate:
     image: *lakekeeper-image
     pull_policy: *lakekeeper-pull-policy
     environment: *lakekeeper-environment
     restart: "no"
-    command: [ "migrate" ]
+    command: ["migrate"]
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       iceberg_net:
-
 
   spark-iceberg:
     image: olakego/spark-connect:v0.0.1
@@ -102,17 +124,16 @@ services:
       - 10001:10001
       - 15002:15002
     entrypoint: |
-          /bin/sh -c "
-          ./entrypoint.sh &&
-          echo 'Starting Spark Connect server...' &&
-          /opt/spark/sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem &
-          echo 'Starting Jupyter Notebook server...' &&
-          export PYSPARK_DRIVER_PYTHON=jupyter-notebook &&
-          export PYSPARK_DRIVER_PYTHON_OPTS=\"--notebook-dir=/home/iceberg/notebooks --ip='*' --NotebookApp.token='' --NotebookApp.password='' --port=8888 --no-browser --allow-root\" &&
-          pyspark &
-          while true; do sleep 30; done
-          "
-
+      /bin/sh -c "
+      ./entrypoint.sh &&
+      echo 'Starting Spark Connect server...' &&
+      /opt/spark/sbin/start-connect-server.sh --packages org.apache.spark:spark-connect_2.12:3.5.2,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262 --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem &
+      echo 'Starting Jupyter Notebook server...' &&
+      export PYSPARK_DRIVER_PYTHON=jupyter-notebook &&
+      export PYSPARK_DRIVER_PYTHON_OPTS=\"--notebook-dir=/home/iceberg/notebooks --ip='*' --NotebookApp.token='' --NotebookApp.password='' --port=8888 --no-browser --allow-root\" &&
+      pyspark &
+      while true; do sleep 30; done
+      "
 
   postgres:
     image: postgres:15
@@ -124,7 +145,7 @@ services:
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=iceberg
     healthcheck:
-      test: [ "CMD", "pg_isready", "-U", "iceberg", "-d", "iceberg" ]
+      test: ["CMD", "pg_isready", "-U", "iceberg", "-d", "iceberg"]
       interval: 2s
       timeout: 10s
       retries: 3
@@ -145,14 +166,14 @@ services:
     ports:
       - "9083:9083"
     environment:
-        - SERVICE_NAME=metastore
+      - SERVICE_NAME=metastore
     depends_on:
       - postgres
       - spark-iceberg
     user: root
     volumes:
-        - ./data/ivy-cache:/root/.ivy2
-        - ./hive-site.conf:/opt/hive/conf/hive-site.xml
+      - ./data/ivy-cache:/root/.ivy2
+      - ./hive-site.conf:/opt/hive/conf/hive-site.xml
     entrypoint: |
       /bin/sh -c "
       # Wait for Spark to download JARs
@@ -163,25 +184,25 @@ services:
         echo 'Waiting for JARs to be available...'
         sleep 5
       done
-      
+
       echo 'JARs found. Copying to Hive lib directory...'
-      
+
       # Copy the JAR files to Hive's lib directory
       cp /root/.ivy2/jars/org.apache.hadoop_hadoop-aws-3.3.4.jar /opt/hive/lib/hadoop-aws-3.3.4.jar || { echo 'Failed to copy hadoop-aws-3.3.4.jar'; exit 1; }
       cp /root/.ivy2/jars/com.amazonaws_aws-java-sdk-bundle-1.12.262.jar /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar || { echo 'Failed to copy aws-java-sdk-bundle-1.12.262.jar'; exit 1; }
       cp /root/.ivy2/jars/org.postgresql_postgresql-42.5.4.jar /opt/hive/lib/postgresql-42.5.4.jar || { echo 'Failed to copy postgresql-42.5.4.jar'; exit 1; }
-      
+
       # Verify files were copied successfully
       if [ ! -f /opt/hive/lib/hadoop-aws-3.3.4.jar ] || [ ! -f /opt/hive/lib/aws-java-sdk-bundle-1.12.262.jar ] || [ ! -f /opt/hive/lib/postgresql-42.5.4.jar ]; then
         echo 'JAR files not found in Hive lib directory. Exiting.'
         exit 1
       fi
-      
+
       # Fix permissions for Hive directories
       chown -R hive:hive /opt/hive/lib
-      
+
       echo 'JAR files copied to Hive lib directory. Starting hive-metastore...'
-      
+
       # Start the hive metastore service
       sh -c "/entrypoint.sh"
       "
