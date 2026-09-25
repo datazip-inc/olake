@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httputil"
@@ -207,7 +208,10 @@ func Init() {
 	}
 
 	// Thread-safe ConsoleWriter (each goroutine gets its own copy)
-	newConsoleWriter := func() zerolog.ConsoleWriter {
+	newConsoleWriter := func() io.Writer {
+		if strings.EqualFold(viper.GetString(constants.LogFormat), "json") {
+			return os.Stdout
+		}
 		return zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: "2006-01-02 15:04:05",

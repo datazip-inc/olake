@@ -23,6 +23,7 @@ const (
 	DefaultReadPreference  = "secondaryPreferred"
 	EncryptionKey          = "OLAKE_ENCRYPTION_KEY"
 	ConfigFolder           = "CONFIG_FOLDER"
+	LogFormat              = "LOG_FORMAT"
 	StatePath              = "STATE_PATH"
 	StreamsPath            = "STREAMS_PATH"
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
