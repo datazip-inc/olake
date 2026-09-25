@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -147,6 +148,41 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:  "",
 							AppendMode:      false,
 							Normalization:   true,
+							UpdateType:      "eq",
+							SelectedColumns: createSelectedColumns(nil, true),
+						},
+					},
+				},
+			},
+		},
+		// single stream in s3
+		{
+			name: "single stream - s3 driver",
+			streams: []*Stream{
+				{
+					Name:      "stream1",
+					Namespace: "namespace1",
+					Schema:    &TypeSchema{Properties: sync.Map{}},
+				},
+			},
+			driver: "s3",
+			expected: &Catalog{
+				Streams: []*ConfiguredStream{
+					{
+						Stream: &Stream{
+							Name:      "stream1",
+							Namespace: "namespace1",
+							Schema:    &TypeSchema{Properties: sync.Map{}},
+						},
+					},
+				},
+				SelectedStreams: map[string][]StreamMetadata{
+					"namespace1": {
+						{
+							StreamName:      "stream1",
+							PartitionRegex:  "",
+							AppendMode:      true,
+							Normalization:   false,
 							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns(nil, true),
 						},
@@ -1105,4 +1141,26 @@ func validateBasicSchemas(t *testing.T, expected, actual *TypeSchema, testName s
 				testName, key, expectedProp.Type.Len(), actualProp.Type.Len())
 		}
 	}
+}
+
+func TestCatalogS3JSONSerialization(t *testing.T) {
+	// Create an S3 catalog using GetWrappedCatalog
+	streams := []*Stream{
+		{
+			Name:      "stream1",
+			Namespace: "namespace1",
+			Schema:    &TypeSchema{Properties: sync.Map{}},
+		},
+	}
+	catalog := GetWrappedCatalog(streams, "s3", nil)
+
+	// Verify the default catalog contains AppendMode: true
+	assert.True(t, catalog.SelectedStreams["namespace1"][0].AppendMode, "S3 stream should default to AppendMode: true")
+
+	// Marshal to JSON and verify "append_mode":true is explicitly present
+	bytes, err := json.MarshalIndent(catalog, "", "  ")
+	assert.NoError(t, err)
+
+	jsonStr := string(bytes)
+	assert.Contains(t, jsonStr, `"append_mode": true`, "JSON should explicitly contain '\"append_mode\": true' and not omit it")
 }
