@@ -21,7 +21,7 @@ func NewUpsertConfig(meta types.StreamMetadata, dedupKeys []string) (UpsertConfi
 	// case 1 - dedup key is only _kafka_key -- upsert + tombstone deletes on
 	// case 2 - dedup key selection [_kafka_key(choice) + columns] -- upsert only (no tombstones)
 	cfg := UpsertConfig{
-		Enabled:               !meta.AppendMode,
+		Enabled:               !meta.AppendMode && len(dedupKeys) > 0,
 		DedupKeys:             dedupKeys,
 		AllowTombstoneDeletes: isKafkaKeyOnlyDedup(dedupKeys),
 	}
