@@ -183,6 +183,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex:  "",
 							AppendMode:      true,
 							Normalization:   false,
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns(nil, true),
 						},
 					},
@@ -1151,7 +1152,7 @@ func TestCatalogS3JSONSerialization(t *testing.T) {
 			Schema:    &TypeSchema{Properties: sync.Map{}},
 		},
 	}
-	catalog := GetWrappedCatalog(streams, "s3")
+	catalog := GetWrappedCatalog(streams, "s3", nil)
 
 	// Verify the default catalog contains AppendMode: true
 	assert.True(t, catalog.SelectedStreams["namespace1"][0].AppendMode, "S3 stream should default to AppendMode: true")
