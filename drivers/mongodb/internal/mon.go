@@ -88,6 +88,8 @@ type Mongo struct {
 	state      *types.State // reference to globally present state
 	streams    []types.StreamInterface
 	sshDialer  *MongoSSHDialer
+	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
+	prerequisites types.Prerequisites
 }
 
 // MongoSSHDialer implements a custom dialer for SSH tunnel connections.
@@ -171,6 +173,7 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	m.client = conn
 	// no need to check from discover if it have cdc support or not
 	m.CDCSupport = true
+	m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks())
 	// check for default backoff count
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount == 0, 1, m.config.RetryCount+1).(int)
 	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
