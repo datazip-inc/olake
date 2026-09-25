@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   performance-tests:
-    environment: Performance Testing
+    environment: ${{ github.event_name == 'pull_request' && 'Performance Testing' || 'Performance Testing Push' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
