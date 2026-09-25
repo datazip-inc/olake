@@ -123,7 +123,7 @@ func (m *Mongo) CDCSupported() bool {
 	return m.CDCSupport
 }
 
-func (m *Mongo) CDCColumns() map[string]types.DataType {
+func (m *Mongo) CDCMetadataColumns() map[string]types.DataType {
 	return map[string]types.DataType{
 		CDCResumeToken: types.String,
 	}

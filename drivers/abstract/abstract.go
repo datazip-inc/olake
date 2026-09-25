@@ -49,7 +49,6 @@ var DefaultColumns = map[string]types.DataType{
 	constants.OlakeID:        types.String,
 	constants.OlakeTimestamp: types.TimestampMicro,
 	constants.OpType:         types.String,
-	constants.CdcTimestamp:   types.TimestampMicro,
 }
 
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
@@ -120,11 +119,8 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
 
-		// add default columns
+		// add default columns (CDC metadata columns are injected at sync time, see injectCDCColumns)
 		for column, typ := range DefaultColumns {
-			if column == constants.CdcTimestamp {
-				continue
-			}
 			convStream.UpsertField(column, typ, true, true)
 		}
 
@@ -195,13 +191,10 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
 	}
 
-	if len(cdcStreams) > 0 && a.driver.CDCSupported() {
-		injectCDCColumns(a.driver, cdcStreams)
-	}
-
 	// run cdc sync
 	if len(cdcStreams) > 0 {
 		if a.driver.CDCSupported() {
+			injectCDCColumns(a.driver, cdcStreams)
 			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
 				return fmt.Errorf("failed to run change stream: %w", err)
 			}
@@ -238,26 +231,17 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 	return nil
 }
 
-// injectCDCColumns adds _cdc_timestamp and driver-specific CDC metadata to stream schemas at sync time.
-// CDC columns are omitted during discover so they do not appear in streams.json for non-CDC modes.
+// injectCDCColumns adds _cdc_timestamp and the driver's own CDC metadata columns to the stream
+// schema at sync time. Discover omits them so they never reach streams.json for non-CDC modes;
+// they are marked as olake columns, which ToParquet and ToIceberg keep regardless of the user's
+// column selection.
 func injectCDCColumns(driver DriverInterface, streams []types.StreamInterface) {
-	driverColumns := driver.CDCColumns()
+	driverColumns := driver.CDCMetadataColumns()
 	for _, stream := range streams {
-		if stream == nil {
-			continue
-		}
 		s := stream.GetStream()
 		s.UpsertField(constants.CdcTimestamp, types.TimestampMicro, true, true)
 		for name, typ := range driverColumns {
 			s.UpsertField(name, typ, true, true)
-		}
-
-		selectedCols := stream.Self().StreamMetadata.SelectedColumns
-		if selectedCols != nil && len(selectedCols.Columns) > 0 {
-			selectedCols.Columns = append(selectedCols.Columns, constants.CdcTimestamp)
-			for name := range driverColumns {
-				selectedCols.Columns = append(selectedCols.Columns, name)
-			}
 		}
 	}
 }

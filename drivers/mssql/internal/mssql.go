@@ -54,7 +54,7 @@ func (m *MSSQL) CDCSupported() bool {
 	return m.cdcSupported
 }
 
-func (m *MSSQL) CDCColumns() map[string]types.DataType {
+func (m *MSSQL) CDCMetadataColumns() map[string]types.DataType {
 	return map[string]types.DataType{
 		CDCStartLSN: types.String,
 		CDCSeqVal:   types.String,

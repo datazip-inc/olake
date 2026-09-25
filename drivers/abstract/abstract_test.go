@@ -285,31 +285,28 @@ func TestGenerateThreadID(t *testing.T) {
 
 func TestInjectCDCColumns(t *testing.T) {
 	testCases := []struct {
-		name              string
-		driverColumns     map[string]types.DataType
-		selectedColumns   []string
-		expectInSelected  []string
-		expectNotSelected bool
+		name            string
+		driverColumns   map[string]types.DataType
+		selectedColumns []string
 	}{
 		{
 			name: "injects common and driver columns into schema",
 			driverColumns: map[string]types.DataType{
 				"_cdc_lsn": types.String,
 			},
-			expectNotSelected: true,
 		},
 		{
-			name: "appends to non-empty selected columns list",
+			// the injected columns are olake columns, so they are emitted without being
+			// listed in selected_columns; the user's selection must stay untouched
+			name: "leaves a configured selected columns list untouched",
 			driverColumns: map[string]types.DataType{
 				"_cdc_lsn": types.String,
 			},
-			selectedColumns:  []string{"id", "name"},
-			expectInSelected: []string{constants.CdcTimestamp, "_cdc_lsn"},
+			selectedColumns: []string{"id", "name"},
 		},
 		{
-			name:              "kafka driver has no extra columns",
-			driverColumns:     nil,
-			expectNotSelected: true,
+			name:          "kafka driver has no extra columns",
+			driverColumns: nil,
 		},
 	}
 
@@ -327,25 +324,19 @@ func TestInjectCDCColumns(t *testing.T) {
 
 			injectCDCColumns(stubDriver{cdcColumns: tc.driverColumns}, []types.StreamInterface{configured})
 
-			hasCdcTimestamp, _ := stream.Schema.GetProperty(constants.CdcTimestamp)
+			hasCdcTimestamp, cdcTimestampProp := stream.Schema.GetProperty(constants.CdcTimestamp)
 			assert.True(t, hasCdcTimestamp)
+			assert.True(t, cdcTimestampProp.OlakeColumn, "expected %s to be marked as an olake column", constants.CdcTimestamp)
 
 			for col := range tc.driverColumns {
-				found, _ := stream.Schema.GetProperty(col)
+				found, prop := stream.Schema.GetProperty(col)
 				assert.True(t, found, "expected driver CDC column %s in schema", col)
+				assert.True(t, prop.OlakeColumn, "expected driver CDC column %s to be marked as an olake column", col)
 			}
 
-			if tc.expectNotSelected {
-				if configured.StreamMetadata.SelectedColumns != nil {
-					for _, col := range []string{constants.CdcTimestamp, "_cdc_lsn"} {
-						assert.NotContains(t, configured.StreamMetadata.SelectedColumns.Columns, col)
-					}
-				}
-				return
-			}
-
-			for _, col := range tc.expectInSelected {
-				assert.Contains(t, configured.StreamMetadata.SelectedColumns.Columns, col)
+			if tc.selectedColumns != nil {
+				assert.Equal(t, tc.selectedColumns, configured.StreamMetadata.SelectedColumns.Columns,
+					"injection must not mutate the configured column selection")
 			}
 		})
 	}
@@ -505,7 +496,7 @@ func (s stubDriver) StreamIncrementalChanges(context.Context, types.StreamInterf
 	return nil
 }
 func (s stubDriver) CDCSupported() bool                    { return s.cdcSupported }
-func (s stubDriver) CDCColumns() map[string]types.DataType { return s.cdcColumns }
+func (s stubDriver) CDCMetadataColumns() map[string]types.DataType { return s.cdcColumns }
 func (s stubDriver) ChangeStreamConfig() (bool, bool, bool) {
 	return false, false, false
 }

@@ -31,7 +31,7 @@ func (d *DB2) CDCSupported() bool {
 	return false // CDC is not supported for db2 yet
 }
 
-func (d *DB2) CDCColumns() map[string]types.DataType {
+func (d *DB2) CDCMetadataColumns() map[string]types.DataType {
 	return nil
 }
 

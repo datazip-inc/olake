@@ -86,7 +86,7 @@ func (p *Postgres) CDCSupported() bool {
 	return p.CDCSupport
 }
 
-func (p *Postgres) CDCColumns() map[string]types.DataType {
+func (p *Postgres) CDCMetadataColumns() map[string]types.DataType {
 	return map[string]types.DataType{
 		waljs.CDCLSN: types.String,
 	}

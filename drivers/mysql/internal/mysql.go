@@ -61,7 +61,7 @@ func (m *MySQL) CDCSupported() bool {
 	return m.CDCSupport
 }
 
-func (m *MySQL) CDCColumns() map[string]types.DataType {
+func (m *MySQL) CDCMetadataColumns() map[string]types.DataType {
 	return map[string]types.DataType{
 		binlog.CDCBinlogFileName: types.String,
 		binlog.CDCBinlogFilePos:  types.Int64,

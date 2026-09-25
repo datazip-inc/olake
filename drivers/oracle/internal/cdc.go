@@ -29,7 +29,7 @@ func (o *Oracle) CDCSupported() bool {
 	return o.CDCSupport // CDC is not supported yet
 }
 
-func (o *Oracle) CDCColumns() map[string]types.DataType {
+func (o *Oracle) CDCMetadataColumns() map[string]types.DataType {
 	return nil
 }
 

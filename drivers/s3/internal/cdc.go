@@ -19,7 +19,7 @@ func (s *S3) CDCSupported() bool {
 	return false
 }
 
-func (s *S3) CDCColumns() map[string]types.DataType {
+func (s *S3) CDCMetadataColumns() map[string]types.DataType {
 	return nil
 }
 

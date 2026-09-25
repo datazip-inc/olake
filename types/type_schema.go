@@ -135,20 +135,30 @@ func (t *TypeSchema) GetProperty(column string) (bool, *Property) {
 	return true, p.(*Property)
 }
 
-// keeping default columns parquet schema for backward compatibility for olake columns
 func (t *TypeSchema) ToParquet(defaultColumns bool, stream StreamInterface) *parquet.Schema {
+	// keeping default columns parquet schema for backward compatibility for olake columns
 	groupNode := parquet.Group{
 		constants.OlakeID:        parquet.String(),
 		constants.OlakeTimestamp: parquet.Timestamp(parquet.Microsecond),
 		constants.OpType:         parquet.String(),
 	}
 	isSelected := stream.IsSelectedColumn()
+	// in normalized mode t is built from the types detected in the records (typeutils.Fields),
+	// which carries no olake flag, so fall back to the catalog schema to identify olake columns.
+	streamSchema := stream.Schema()
 
 	t.Properties.Range(func(key, value interface{}) bool {
 		prop := value.(*Property)
 		colName := key.(string)
 		outName := stream.ResolveColumnName(colName)
-		if !isSelected(outName) || (defaultColumns && !prop.OlakeColumn) {
+		olakeColumn := prop.OlakeColumn
+		if !olakeColumn && streamSchema != nil {
+			if found, streamProp := streamSchema.GetProperty(colName); found {
+				olakeColumn = streamProp.OlakeColumn
+			}
+		}
+		// olake columns are always emitted, they are not subject to column selection
+		if !olakeColumn && (!isSelected(outName) || defaultColumns) {
 			return true
 		}
 		groupNode[outName] = prop.DataType().ToNewParquet()

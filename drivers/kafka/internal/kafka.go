@@ -79,7 +79,7 @@ func (k *Kafka) CDCSupported() bool {
 	return true
 }
 
-func (k *Kafka) CDCColumns() map[string]types.DataType {
+func (k *Kafka) CDCMetadataColumns() map[string]types.DataType {
 	return nil
 }
 
