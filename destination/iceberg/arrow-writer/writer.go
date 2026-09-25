@@ -182,7 +182,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 			}
 		} else if w.upsertMode {
 			recordOpType := rec.OlakeColumns[constants.OpType].(string)
-			if recordOpType == "d" || recordOpType == "u" || recordOpType == "i" {
+			if recordOpType == "d" || recordOpType == "u" || recordOpType == "i" || recordOpType =="c" {
 				if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
 					// first time, add to equality deletes and track position
 					writer.equalityDeletes = append(writer.equalityDeletes, recordOlakeID)
