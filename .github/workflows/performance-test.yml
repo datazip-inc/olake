@@ -128,7 +128,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        PREVIOUS_ID=$(gh run list --workflow ".github/workflows/performance-test.yml" --branch "staging" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+        PREVIOUS_ID=$(gh run list --workflow ".github/workflows/performance-test.yml" --branch "${{ github.event.repository.default_branch }}" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
         
         if [ -n "$PREVIOUS_ID" ]; then
           echo "id=$PREVIOUS_ID" >> $GITHUB_OUTPUT
