@@ -382,11 +382,12 @@ func DropStreams(ctx context.Context, config *types.WriterConfig, dropStreams []
 		return nil
 	}
 
+	// Always drop the stream index: dropStreams carry the new update type, not the one the
+	// index was built under, so a dv/pos -> eq clear would otherwise leave a stale index
+	// that outlives the recreated table. Dropping a missing index is a no-op.
 	for _, stream := range dropStreams {
-		if stream.GetUpdateType().NeedsTableIndex(config.Type) {
-			if err := indexdb.Drop(stream); err != nil {
-				return err
-			}
+		if err := indexdb.Drop(stream); err != nil {
+			return err
 		}
 	}
 
