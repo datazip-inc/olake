@@ -30,6 +30,8 @@ type stream struct {
 	partitioned bool
 	unselected  bool                // present in streams but absent from selected_streams
 	filter      *types.FilterConfig // only read when normalized, so it can be made invalid
+	updateType  string              // selected_streams update_type; blank as legacy catalogs leave it
+	available   []types.UpdateType  // stream's available_update_types; empty on legacy catalogs
 }
 
 // catalogOf builds the two halves classifyStreams reads: the configured streams and the
@@ -38,12 +40,12 @@ func catalogOf(streams ...stream) *types.Catalog {
 	catalog := &types.Catalog{SelectedStreams: map[string][]types.StreamMetadata{}}
 	for _, s := range streams {
 		catalog.Streams = append(catalog.Streams, &types.ConfiguredStream{
-			Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode},
+			Stream: &types.Stream{Name: s.name, Namespace: "public", SyncMode: s.mode, AvailableUpdateTypes: s.available},
 		})
 		if s.unselected {
 			continue
 		}
-		metadata := types.StreamMetadata{StreamName: s.name, Normalization: s.normalized, FilterConfig: s.filter}
+		metadata := types.StreamMetadata{StreamName: s.name, Normalization: s.normalized, FilterConfig: s.filter, UpdateType: s.updateType}
 		if s.partitioned {
 			metadata.PartitionRegex = "/{now,year}"
 		}
@@ -123,6 +125,18 @@ func TestClassifyStreamsMix(t *testing.T) {
 				},
 			},
 			expectedMix: types.StreamMix{CDC: 1, Selected: 1},
+		},
+		// discover clears update_type the target engines cannot read; the stream must wait for
+		// an explicit choice, while a legacy catalog without the list still defaults to equality
+		{
+			name: "streams skipped for an unset or unreadable update type are not counted",
+			streams: []stream{
+				{name: "a", mode: types.CDC},
+				{name: "b", mode: types.CDC, available: []types.UpdateType{types.UpdateTypePosition}},
+				{name: "c", mode: types.CDC, updateType: "eq", available: []types.UpdateType{types.UpdateTypePosition}},
+				{name: "d", mode: types.CDC, updateType: "pos", available: []types.UpdateType{types.UpdateTypePosition}},
+			},
+			expectedMix: types.StreamMix{CDC: 2, Selected: 2, StreamWithPosUpdateType: 1},
 		},
 		// with nothing left to sync there is no mix to report, and the run fails before the
 		// sync events are sent rather than reporting a run of zero streams
