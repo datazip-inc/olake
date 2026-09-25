@@ -8,6 +8,7 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -85,12 +86,17 @@ type Config struct {
 	// Required by BigLake for request routing/billing (sent as the x-goog-user-project header).
 	GCPProjectID string `json:"gcp_project_id,omitempty"`
 
+	// Horizon
+	RESTAccessDelegation              string `json:"rest_access_delegation,omitempty"`
+	SnowflakeWorkloadIdentityProvider string `json:"snowflake_workload_identity_provider,omitempty"`
+
 	UseArrowWrites bool `json:"arrow_writes,omitempty"`
 }
 
 func (c *Config) Validate() error {
 	if c.IcebergS3Path == "" {
-		return fmt.Errorf("s3_path is required")
+		return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+			fmt.Errorf("s3_path is required"))
 	}
 
 	// Set defaults for catalog type
@@ -114,6 +120,11 @@ func (c *Config) Validate() error {
 	if c.CatalogType == "biglake" {
 		c.RestAuthType = "org.apache.iceberg.gcp.auth.GoogleAuthManager"
 	}
+	// Horizon requires access delegation
+	if c.CatalogType == "horizon" {
+		c.RESTAccessDelegation = "vended-credentials"
+	}
+	c.RestAuthType = olakeAuthTypeToIcebergAuthType(c.RestAuthType)
 	if slices.Contains(constants.RESTCatalogs, string(c.CatalogType)) {
 		c.CatalogType = RestCatalog
 	}
@@ -144,27 +155,31 @@ func (c *Config) Validate() error {
 	switch c.CatalogType {
 	case JDBCCatalog:
 		if c.JDBCUrl == "" {
-			return fmt.Errorf("jdbc_url is required when using JDBC catalog")
+			return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+				fmt.Errorf("jdbc_url is required when using JDBC catalog"))
 		}
 	case RestCatalog:
 		if c.RestCatalogURL == "" {
-			return fmt.Errorf("rest_catalog_url is required when using REST catalog")
+			return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+				fmt.Errorf("rest_catalog_url is required when using REST catalog"))
 		}
 	case HiveCatalog:
 		if c.HiveURI == "" {
-			return fmt.Errorf("hive_uri is required when using Hive catalog")
+			return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+				fmt.Errorf("hive_uri is required when using Hive catalog"))
 		}
 	case GlueCatalog:
 		// No additional validation required for Glue catalog
 	default:
-		return fmt.Errorf("unsupported catalog_type: %s", c.CatalogType)
+		return errs.Precondition(errs.ConfigInvalid, codeUnsupportedCatalogType,
+			fmt.Errorf("unsupported catalog_type: %s", c.CatalogType))
 	}
 
 	if c.JarPath == "" {
 		// Set JarPath based on file existence in two possible locations
 		execDir, err := os.Getwd()
 		if err != nil {
-			return fmt.Errorf("failed to get current directory for searching jar file: %s", err)
+			return fmt.Errorf("failed to get current directory for searching jar file: %w", err)
 		}
 
 		// Remove /drivers/* from execDir if present
@@ -185,8 +200,9 @@ func (c *Config) Validate() error {
 				logger.Infof("Iceberg JAR file found in target directory: %s", targetJarPath)
 				c.JarPath = targetJarPath
 			} else {
-				return fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to destination/iceberg/olake-iceberg-java-writer/target/ directory and run mvn clean package -DskipTests",
-					baseJarPath, targetJarPath)
+				return errs.Precondition(errs.InternalError, codeJarNotFound,
+					fmt.Errorf("Iceberg JAR file not found in any of the expected locations: %s, %s. Go to destination/iceberg/olake-iceberg-java-writer/target/ directory and run mvn clean package -DskipTests",
+						baseJarPath, targetJarPath))
 			}
 		}
 	}
@@ -194,4 +210,26 @@ func (c *Config) Validate() error {
 		c.ServerHost = "localhost"
 	}
 	return utils.Validate(c)
+}
+
+func olakeAuthTypeToIcebergAuthType(authType string) string {
+	switch strings.ToLower(strings.TrimSpace(authType)) {
+	case "oauth2", "oauth2 u2m", "oauth2 m2m", "token", "token federation",
+		"personal access token (pat)", "pat", "external oauth",
+		"key-pair authentication", "programmatic access token (pat)",
+		"workload identity federation(wif)/oidc":
+		return "oauth2"
+	case "none":
+		return "none"
+	case "sigv4":
+		return "sigv4"
+	case "google", "gcp":
+		return "google"
+	default:
+		if strings.Contains(authType, ".") && !strings.Contains(authType, " ") {
+			return authType
+		}
+		logger.Warnf("unmapped rest_auth_type %q. Iceberg rest.auth.type omitted", authType)
+		return ""
+	}
 }

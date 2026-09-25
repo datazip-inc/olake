@@ -55,7 +55,7 @@ func NewS3Store(ctx context.Context, cfg S3Config) (Store, error) {
 
 	awsCfg, err := config.LoadDefaultConfig(ctx, configOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %s", err)
+		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	var client *s3.Client
@@ -173,13 +173,13 @@ func wrapNotFound(err error) error {
 	if errors.As(err, &apiErr) {
 		code := apiErr.ErrorCode()
 		if code == "NoSuchKey" || code == "NotFound" {
-			return fmt.Errorf("%w: %s", ErrNotFound, err)
+			return fmt.Errorf("%w: %w", ErrNotFound, err)
 		}
 	}
 	// Fallback for S3-compatible services whose not-found surfaces without a
 	// typed API error code
 	if strings.Contains(err.Error(), "NoSuchKey") || strings.Contains(err.Error(), "NotFound") {
-		return fmt.Errorf("%w: %s", ErrNotFound, err)
+		return fmt.Errorf("%w: %w", ErrNotFound, err)
 	}
 	return err
 }

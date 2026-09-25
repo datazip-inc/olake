@@ -25,12 +25,12 @@ func (p *Postgres) ChunkIterator(ctx context.Context, stream types.StreamInterfa
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return fmt.Errorf("failed to set threshold filter: %w", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, p.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during chunk iteration: %w", err)
 	}
 	tx, err := p.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead})
 	if err != nil {
@@ -59,7 +59,7 @@ func (p *Postgres) GetOrSplitChunks(ctx context.Context, pool *destination.Write
 	approxRowCountQuery := jdbc.PostgresRowCountQuery(stream)
 	err := p.client.QueryRowContext(ctx, approxRowCountQuery).Scan(&approxRowCount)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get approx row count: %s", err)
+		return nil, fmt.Errorf("failed to get approx row count: %w", err)
 	}
 	pool.AddRecordsToSyncStats(approxRowCount)
 	return p.splitTableIntoChunks(ctx, stream)
@@ -71,7 +71,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		var blockSize uint32
 		err := p.client.QueryRowContext(ctx, blockSizeQuery).Scan(&blockSize)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get block size: %s", err)
+			return nil, fmt.Errorf("failed to get block size: %w", err)
 		}
 
 		//  Step 1: Detect if the table is partitioned
@@ -79,7 +79,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		partitionQuery := jdbc.PostgresIsPartitionedQuery(stream)
 		err = p.client.QueryRowContext(ctx, partitionQuery).Scan(&partitionCount)
 		if err != nil {
-			return nil, fmt.Errorf("failed to detect table partitioning: %s", err)
+			return nil, fmt.Errorf("failed to detect table partitioning: %w", err)
 		}
 
 		//  Step 2: Non-partitioned
@@ -88,7 +88,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 			relPagesQuery := jdbc.PostgresRelPageCount(stream)
 			err := p.client.QueryRowContext(ctx, relPagesQuery).Scan(&relPages)
 			if err != nil {
-				return nil, fmt.Errorf("failed to get relPages: %s", err)
+				return nil, fmt.Errorf("failed to get relPages: %w", err)
 			}
 
 			batchSize := uint32(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
@@ -111,7 +111,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		//  Step 3: Partitioned table
 		partitions, maxPageCountAcrossPartitions, err := loadPartitionPages(ctx, p.client.DB, stream)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load partition pages: %s", err)
+			return nil, fmt.Errorf("failed to load partition pages: %w", err)
 		}
 
 		batchPages := int64(math.Ceil(float64(constants.EffectiveParquetSize) / float64(blockSize)))
@@ -142,7 +142,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		chunkStart := minVal
 		chunkEnd, err := utils.AddConstantToInterface(minVal, dynamicChunkSize)
 		if err != nil {
-			return nil, fmt.Errorf("failed to split batch size chunks: %s", err)
+			return nil, fmt.Errorf("failed to split batch size chunks: %w", err)
 		}
 
 		for typeutils.Compare(chunkEnd, maxVal) <= 0 {
@@ -150,7 +150,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 			chunkStart = chunkEnd
 			newChunkEnd, err := utils.AddConstantToInterface(chunkEnd, dynamicChunkSize)
 			if err != nil {
-				return nil, fmt.Errorf("failed to split batch size chunks: %s", err)
+				return nil, fmt.Errorf("failed to split batch size chunks: %w", err)
 			}
 			chunkEnd = newChunkEnd
 		}
@@ -164,7 +164,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		for {
 			chunkEnd, err := p.nextChunkEnd(ctx, stream, chunkStart, chunkColumn)
 			if err != nil {
-				return nil, fmt.Errorf("failed to split chunks based on next query size: %s", err)
+				return nil, fmt.Errorf("failed to split chunks based on next query size: %w", err)
 			}
 			if chunkEnd == nil || chunkEnd == chunkStart {
 				splits.Insert(types.Chunk{Min: chunkStart, Max: nil})
@@ -184,7 +184,7 @@ func (p *Postgres) splitTableIntoChunks(ctx context.Context, stream types.Stream
 		// TODO: Fails on UUID type (Good First Issue)
 		err := p.client.QueryRowContext(ctx, minMaxRowCountQuery).Scan(&minValue, &maxValue)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch table min max: %s", err)
+			return nil, fmt.Errorf("failed to fetch table min max: %w", err)
 		}
 		if minValue == maxValue {
 			return types.NewSet(types.Chunk{Min: minValue, Max: nil}), nil
@@ -212,7 +212,7 @@ func (p *Postgres) nextChunkEnd(ctx context.Context, stream types.StreamInterfac
 	nextChunkEnd := jdbc.PostgresNextChunkEndQuery(stream, chunkColumn, previousChunkEnd)
 	err := p.client.QueryRowContext(ctx, nextChunkEnd).Scan(&chunkEnd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query[%s] next chunk end: %s", nextChunkEnd, err)
+		return nil, fmt.Errorf("failed to query[%s] next chunk end: %w", nextChunkEnd, err)
 	}
 	return chunkEnd, nil
 }
@@ -229,7 +229,7 @@ const postgresMinVersionPG12 = 120000
 func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInterface) ([]PartitionPage, int64, error) {
 	var serverVersionNum int
 	if err := db.QueryRowContext(ctx, jdbc.PostgresServerVersionNum()).Scan(&serverVersionNum); err != nil {
-		return nil, 0, fmt.Errorf("failed to detect postgres server version: %s", err)
+		return nil, 0, fmt.Errorf("failed to detect postgres server version: %w", err)
 	}
 
 	var query string
@@ -243,7 +243,7 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 
 	rows, err := db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to load partition pages: %s", err)
+		return nil, 0, fmt.Errorf("failed to load partition pages: %w", err)
 	}
 	defer rows.Close()
 
@@ -258,7 +258,7 @@ func loadPartitionPages(ctx context.Context, db *sql.DB, stream types.StreamInte
 		partitions = append(partitions, p)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, 0, fmt.Errorf("failed to iterate partition pages: %s", err)
+		return nil, 0, fmt.Errorf("failed to iterate partition pages: %w", err)
 	}
 
 	if maxPageCountAcrossPartitions == 0 {

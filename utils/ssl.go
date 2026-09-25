@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -36,20 +37,44 @@ type SSLConfig struct {
 	ClientKey  string `mapstructure:"client_key,omitempty" json:"client_key,omitempty" yaml:"client_key,omitempty"`
 }
 
+const (
+	// The ssl block itself is missing a field.
+	codeSSLMissing         = "config.ssl_missing"
+	codeSSLModeMissing     = "config.ssl_mode_missing"
+	codeSSLServerCAMissing = "config.ssl_server_ca_missing"
+
+	// The PEM material the user supplied is unusable; nothing was sent to a server yet.
+	codeSSLMaterialMissing        = "config.ssl_material_missing"
+	codeSSLPEMNotCertificate      = "config.ssl_pem_not_certificate"
+	codeSSLCertificateUnparseable = "config.ssl_certificate_unparseable"
+	codeSSLPEMMalformed           = "config.ssl_pem_malformed"
+	codeSSLPEMTrailingData        = "config.ssl_pem_trailing_data"
+	codeSSLCAUnusable             = "config.ssl_ca_unusable"
+	codeSSLClientKeypairInvalid   = "config.ssl_client_keypair_invalid"
+
+	// Raised during the handshake, against the CA the user supplied.
+	codeServerCertAbsent      = "tls.server_cert_absent"
+	codeServerCertUnparseable = "tls.server_cert_unparseable"
+	codeServerCertUnverified  = "tls.server_cert_unverified"
+)
+
 // Validate returns err if the ssl configuration is invalid
 func (sc *SSLConfig) Validate() error {
 	// TODO: Add Proper validations and test
 	if sc == nil {
-		return errors.New("'ssl' config is required")
+		return errs.Precondition(errs.ConfigInvalid, codeSSLMissing,
+			errors.New("'ssl' config is required"))
 	}
 
 	if sc.Mode == Unknown {
-		return errors.New("'ssl.mode' is required parameter")
+		return errs.Precondition(errs.ConfigInvalid, codeSSLModeMissing,
+			errors.New("'ssl.mode' is required parameter"))
 	}
 
 	if sc.Mode == SSLModeVerifyCA || sc.Mode == SSLModeVerifyFull {
 		if sc.ServerCA == "" {
-			return errors.New("'ssl.server_ca' is required parameter")
+			return errs.Precondition(errs.ConfigInvalid, codeSSLServerCAMissing,
+				errors.New("'ssl.server_ca' is required parameter"))
 		}
 	}
 
@@ -78,7 +103,8 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 		return nil, err
 	}
 	if ok := rootCertPool.AppendCertsFromPEM(serverCAPEM); !ok {
-		return nil, fmt.Errorf("failed to append CA certificate")
+		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLCAUnusable,
+			fmt.Errorf("failed to append CA certificate"))
 	}
 
 	tlsConfig := &tls.Config{
@@ -91,11 +117,13 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 		tlsConfig.InsecureSkipVerify = true
 		tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 			if len(rawCerts) == 0 {
-				return fmt.Errorf("no server certificate provided")
+				return errs.Precondition(errs.TLSFailed, codeServerCertAbsent,
+					fmt.Errorf("no server certificate provided"))
 			}
 			cert, err := x509.ParseCertificate(rawCerts[0])
 			if err != nil {
-				return fmt.Errorf("failed to parse server certificate: %w", err)
+				return errs.Precondition(errs.TLSFailed, codeServerCertUnparseable,
+					fmt.Errorf("failed to parse server certificate: %w", err))
 			}
 
 			intermediates := x509.NewCertPool()
@@ -113,7 +141,8 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 				Intermediates: intermediates,
 			}
 			if _, err := cert.Verify(verifyOpts); err != nil {
-				return fmt.Errorf("failed to verify server certificate against CA: %w", err)
+				return errs.Precondition(errs.TLSFailed, codeServerCertUnverified,
+					fmt.Errorf("failed to verify server certificate against CA: %w", err))
 			}
 			return nil
 		}
@@ -133,7 +162,8 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 		}
 		clientCert, err := tls.X509KeyPair(clientCertPEM, clientKeyPEM)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load client certificate and key: %s", err)
+			return nil, errs.Precondition(errs.ConfigInvalid, codeSSLClientKeypairInvalid,
+				fmt.Errorf("failed to load client certificate and key: %s", err))
 		}
 		tlsConfig.Certificates = []tls.Certificate{clientCert}
 	}
@@ -144,7 +174,8 @@ func BuildTLSConfig(host string, sc *SSLConfig) (*tls.Config, error) {
 func readPEMData(value string, field SSLField, parseAsCert bool) ([]byte, error) {
 	trimmed := strings.TrimSpace(value)
 	if trimmed == "" {
-		return nil, fmt.Errorf("'%s' is required", string(field))
+		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLMaterialMissing,
+			fmt.Errorf("'%s' is required", string(field)))
 	}
 
 	// PEM files may contain multiple blocks (e.g., certificate chains).
@@ -161,19 +192,23 @@ func readPEMData(value string, field SSLField, parseAsCert bool) ([]byte, error)
 
 		if parseAsCert {
 			if block.Type != "CERTIFICATE" {
-				return nil, fmt.Errorf("'%s' must contain CERTIFICATE PEM blocks", string(field))
+				return nil, errs.Precondition(errs.ConfigInvalid, codeSSLPEMNotCertificate,
+					fmt.Errorf("'%s' must contain CERTIFICATE PEM blocks", string(field)))
 			}
 			if _, err := x509.ParseCertificate(block.Bytes); err != nil {
-				return nil, fmt.Errorf("'%s' contains an invalid certificate: %w", string(field), err)
+				return nil, errs.Precondition(errs.ConfigInvalid, codeSSLCertificateUnparseable,
+					fmt.Errorf("'%s' contains an invalid certificate: %w", string(field), err))
 			}
 		}
 	}
 
 	if !foundBlock {
-		return nil, fmt.Errorf("'%s' is not a valid PEM encoded block", string(field))
+		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLPEMMalformed,
+			fmt.Errorf("'%s' is not a valid PEM encoded block", string(field)))
 	}
 	if strings.TrimSpace(string(remaining)) != "" {
-		return nil, fmt.Errorf("'%s' must contain only PEM blocks", string(field))
+		return nil, errs.Precondition(errs.ConfigInvalid, codeSSLPEMTrailingData,
+			fmt.Errorf("'%s' must contain only PEM blocks", string(field)))
 	}
 
 	return []byte(trimmed), nil

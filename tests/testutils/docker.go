@@ -21,6 +21,9 @@ const (
 	// driverImageEnvVar pins the image to run instead of olake/source-<driver>:local, and means
 	// the caller already built exactly what it wants tested (see getOrBuildDriverImage)
 	driverImageEnvVar = "OLAKE_DRIVER_IMAGE"
+
+	// containerTableIndexDir is where the table index database is mounted in the container
+	containerTableIndexDir = "/testdata/olake-table-index"
 )
 
 // driverImageRef returns the image the harness runs, `olake/source-<driver>:local` as
@@ -68,6 +71,7 @@ func dockerRunArgs(cfg *TestConfig, extraFlags []string, olakeArgs []string) []s
 		"--tmpfs", fmt.Sprintf("%s/logs", containerTestDataDir),
 		"-e", "TELEMETRY_DISABLED=true",
 		"-e", "OLAKE_TIMING=1",
+		"-e", fmt.Sprintf("OLAKE_INDEX_DB_DIR=%s", containerTableIndexDir),
 	}
 
 	if cfg.ImagePlatform != "" {

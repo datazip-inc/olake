@@ -36,12 +36,12 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 	}
 	thresholdFilter, args, err := jdbc.ThresholdFilter(ctx, opts)
 	if err != nil {
-		return fmt.Errorf("failed to set threshold filter: %s", err)
+		return fmt.Errorf("failed to set threshold filter: %w", err)
 	}
 
 	filter, err := jdbc.SQLFilter(stream, m.Type(), thresholdFilter)
 	if err != nil {
-		return fmt.Errorf("failed to parse filter during MSSQL chunk iteration: %s", err)
+		return fmt.Errorf("failed to parse filter during MSSQL chunk iteration: %w", err)
 	}
 
 	keyCols := stream.GetStream().SourceDefinedPrimaryKey.Array()
@@ -63,7 +63,7 @@ func (m *MSSQL) ChunkIterator(ctx context.Context, stream types.StreamInterface,
 
 	tx, err := m.client.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %s", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
 		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
@@ -88,7 +88,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	rowStatsQuery := jdbc.MSSQLTableRowStatsQuery()
 	err := m.client.QueryRowContext(ctx, rowStatsQuery, stream.Namespace(), stream.Name()).Scan(&approxRowCount, &avgRowSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get approx row count and avg row size: %s", err)
+		return nil, fmt.Errorf("failed to get approx row count and avg row size: %w", err)
 	}
 
 	if approxRowCount == 0 {
@@ -96,7 +96,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 		existsQuery := jdbc.MSSQLTableExistsQuery(stream)
 		err := m.client.QueryRowContext(ctx, existsQuery).Scan(&hasRows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to check if table has rows: %s", err)
+			return nil, fmt.Errorf("failed to check if table has rows: %w", err)
 		}
 
 		if hasRows {
@@ -112,7 +112,7 @@ func (m *MSSQL) GetOrSplitChunks(ctx context.Context, pool *destination.WriterPo
 	// avgRowSize is returned as []uint8 which is converted to float64
 	avgRowSizeFloat, err := typeutils.ReformatFloat64(avgRowSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get avg row size: %s", err)
+		return nil, fmt.Errorf("failed to get avg row size: %w", err)
 	}
 	chunkSize := int64(math.Ceil(float64(constants.EffectiveParquetSize) / avgRowSizeFloat))
 	numberOfChunks := max(int64(math.Ceil(float64(approxRowCount)/float64(chunkSize))), int64(1))
@@ -177,7 +177,7 @@ func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 	// Get the minimum and maximum values for the primary key columns
 	minVal, maxVal, err := m.getTableExtremes(ctx, stream, pkCols)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get table extremes: %s", err)
+		return nil, fmt.Errorf("failed to get table extremes: %w", err)
 	}
 	// Skip if table is empty
 	if minVal == nil {
@@ -188,7 +188,7 @@ func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 	if len(pkCols) == 1 {
 		columnType, err = m.getColumnTypeMSSQL(ctx, stream, pkCols[0])
 		if err != nil {
-			return nil, fmt.Errorf("failed to get table column type: %s", err)
+			return nil, fmt.Errorf("failed to get table column type: %w", err)
 		}
 	}
 
@@ -225,7 +225,7 @@ func (m *MSSQL) splitViaPrimaryKey(ctx context.Context, stream types.StreamInter
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to get next chunk end: %s", err)
+			return nil, fmt.Errorf("failed to get next chunk end: %w", err)
 		}
 		// Create a chunk between current and next boundary
 		if currentVal != nil {
@@ -251,7 +251,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 	// These define the boundaries of our table for chunking
 	minVal, maxVal, err := m.getPhysLocExtremes(ctx, stream)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get %%physloc%% extremes: %s", err)
+		return nil, fmt.Errorf("failed to get %%physloc%% extremes: %w", err)
 	}
 	// Skip if table is empty (no rows to chunk)
 	if minVal == nil || maxVal == nil {
@@ -274,7 +274,7 @@ func (m *MSSQL) splitViaPhysLoc(ctx context.Context, stream types.StreamInterfac
 			break
 		}
 		if err != nil {
-			return nil, fmt.Errorf("failed to get next %%physloc%% chunk end: %s", err)
+			return nil, fmt.Errorf("failed to get next %%physloc%% chunk end: %w", err)
 		}
 		chunks.Insert(types.Chunk{Min: utils.HexEncode(current), Max: utils.HexEncode(next)})
 		current = next
@@ -293,7 +293,7 @@ func (m *MSSQL) splitViaPKSample(ctx context.Context, stream types.StreamInterfa
 
 	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLPKSampleBoundaryQuery(stream, pkCols, samplePercent))
 	if err != nil {
-		return nil, fmt.Errorf("PK TABLESAMPLE query failed: %s", err)
+		return nil, fmt.Errorf("PK TABLESAMPLE query failed: %w", err)
 	}
 	defer rows.Close()
 
@@ -313,12 +313,12 @@ func (m *MSSQL) splitViaPKSample(ctx context.Context, stream types.StreamInterfa
 	for rows.Next() {
 		var val any
 		if err := rows.Scan(&val); err != nil {
-			return nil, fmt.Errorf("failed to scan PK sample: %s", err)
+			return nil, fmt.Errorf("failed to scan PK sample: %w", err)
 		}
 		samples = append(samples, normalizeBoundaryValue(val, pkCols, columnType))
 	}
 	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate PK samples: %s", err)
+		return nil, fmt.Errorf("failed to iterate PK samples: %w", err)
 	}
 
 	if int64(len(samples)) < numberOfChunks {
@@ -347,12 +347,12 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 	var objectID int64
 	err := m.client.QueryRowContext(ctx, jdbc.MSSQLObjectIDQuery(), stream.Namespace(), stream.Name()).Scan(&objectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to resolve object_id for IAM walk: %s", err)
+		return nil, fmt.Errorf("failed to resolve object_id for IAM walk: %w", err)
 	}
 
 	rows, err := m.client.QueryContext(ctx, jdbc.MSSQLIAMWalkQuery(), objectID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to run IAM walk query: %s", err)
+		return nil, fmt.Errorf("failed to run IAM walk query: %w", err)
 	}
 	defer rows.Close()
 
@@ -361,12 +361,12 @@ func (m *MSSQL) splitViaIAMWalk(ctx context.Context, stream types.StreamInterfac
 		var fileID uint16
 		var pageID uint32
 		if err := rows.Scan(&fileID, &pageID); err != nil {
-			return nil, fmt.Errorf("failed to scan IAM walk page: %s", err)
+			return nil, fmt.Errorf("failed to scan IAM walk page: %w", err)
 		}
 		pages = append(pages, physlocSortKey(fileID, pageID))
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to iterate IAM walk rows: %s", err)
+		return nil, fmt.Errorf("failed to iterate IAM walk rows: %w", err)
 	}
 
 	total := int64(len(pages))

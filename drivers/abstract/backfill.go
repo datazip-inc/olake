@@ -21,7 +21,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 	if chunksSet == nil || chunksSet.Len() == 0 {
 		chunksSet, err = a.driver.GetOrSplitChunks(mainCtx, pool, stream)
 		if err != nil {
-			return fmt.Errorf("failed to get or split chunks: %s", err)
+			return fmt.Errorf("failed to get or split chunks: %w", err)
 		}
 		// set state chunks
 		a.state.SetChunks(stream.Self(), chunksSet)
@@ -51,7 +51,7 @@ func (a *AbstractDriver) Backfill(mainCtx context.Context, backfilledStreams cha
 		threadID := generateThreadID(stream.ID(), fmt.Sprintf("min[%v]-max[%v]", chunk.Min, chunk.Max))
 		inserter, prevMetadataState, err := pool.NewWriter(backfillCtx, stream, destination.WithBackfill(true), destination.WithThreadID(threadID), destination.WithApplyFilter(slices.Contains(constants.FullRefreshPostReadFilterDrivers, constants.DriverType(a.driver.Type()))))
 		if err != nil {
-			return fmt.Errorf("failed to create new writer thread: %s", err)
+			return fmt.Errorf("failed to create new writer thread: %w", err)
 		}
 
 		defer func(ctx context.Context) {

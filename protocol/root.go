@@ -12,6 +12,7 @@ import (
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
 	"github.com/datazip-inc/olake/utils/telemetry"
 	"github.com/spf13/cobra"
@@ -27,6 +28,7 @@ var (
 	syncID                    string
 	batchSize                 int64
 	maxDiscoverThreads        int
+	discoverSchema            bool
 	noSave                    bool
 	encryptionKey             string
 	destinationType           string
@@ -35,9 +37,8 @@ var (
 	timeout                   int64 // timeout in seconds
 	destinationConfig         *types.WriterConfig
 	differencePath            string
-
-	commands  = []*cobra.Command{}
-	connector *abstract.AbstractDriver
+	commands                  = []*cobra.Command{}
+	connector                 *abstract.AbstractDriver
 )
 
 // RootCmd represents the base command when called without any subcommands
@@ -47,7 +48,6 @@ var RootCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 
 		// set global variables
-
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
@@ -141,6 +141,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&statePath, "state", "", "", "(Required) State for connector")
 	RootCmd.PersistentFlags().Int64VarP(&batchSize, "destination-buffer-size", "", 10000, "(Optional) Batch size for destination")
 	RootCmd.PersistentFlags().IntVarP(&maxDiscoverThreads, "max-discover-threads", "", 50, "(Optional) Max number of parallel threads for discovery of table in database")
+	RootCmd.PersistentFlags().BoolVar(&discoverSchema, "discover-schema", false, "(Optional) Re-discover source schema during sync and validate sync mode, primary keys, and cursor fields")
 	RootCmd.PersistentFlags().BoolVarP(&noSave, "no-save", "", false, "(Optional) Flag to skip logging artifacts in file")
 	RootCmd.PersistentFlags().StringVarP(&encryptionKey, "encryption-key", "", "", "(Optional) Decryption key. Provide the ARN of a KMS key, a UUID, or a custom string based on your encryption configuration.")
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
@@ -153,4 +154,63 @@ func init() {
 	if err != nil {
 		logger.Fatal(err)
 	}
+}
+
+const (
+	// Codes for conditions the CLI detects itself, before any connector is reached.
+	codeFlagMissing    = "config.flag_missing"
+	codeNoValidStreams = "catalog.no_valid_streams"
+	codeNoStreams      = "catalog.no_streams_discovered"
+	// recovered panic as an internal error
+	codePanicRecovered = "sync.panic_recovered"
+)
+
+// recoverToError turns a panic into a classified error written through err, then re-panics so
+// safego.Recovery still prints the stack and the process still exits non-zero. Deferred by a
+// command whose result telemetry reads: a panic would otherwise leave err nil and the run would
+// be reported as a success.
+func recoverToError(err *error) {
+	if r := recover(); r != nil {
+		*err = errs.Precondition(errs.InternalError, codePanicRecovered,
+			fmt.Errorf("panic during sync: %v", r))
+		panic(r)
+	}
+}
+
+// ReportFailure classifies and reports a failed run, blocking until sent: telemetry sends in the
+// background and the process exits right after. check calls it directly: FAILED status, nil error.
+func ReportFailure(err error) {
+	if err == nil {
+		return
+	}
+
+	if telemetry.Disabled() {
+		return
+	}
+
+	// Classified here because this is the only point every failure reaches. A command's RunE
+	// misses its own PreRunE hooks, where the config is read and decrypted, and spec and
+	// clear-destination have no wrapper at all.
+	f := errs.From(errs.Classify(err))
+
+	// The classifier that recognized the error names itself. Where none did — the shared rules
+	// cannot know whose endpoint was on the far end — this falls back to the connector that
+	// ran, which a consumer tells apart by classified_by: "stdlib".
+	errorSource := f.Component
+	if errorSource == "" && connector != nil {
+		errorSource = connector.Type()
+	}
+	// Set only by sync, which is what makes this event joinable to the rest of the run's shape.
+	telemetry.TrackFailure(executedCommand(), errorSource, syncID, f)
+	telemetry.Flush()
+}
+
+// executedCommand names the subcommand that ran. Asking cobra keeps it correct when flags
+// precede the command.
+func executedCommand() string {
+	cmd, _, err := RootCmd.Find(os.Args[1:])
+	if err != nil || cmd == nil || cmd == RootCmd {
+		return "unknown"
+	}
+	return cmd.Name()
 }
