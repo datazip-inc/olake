@@ -29,6 +29,10 @@ func (o *Oracle) CDCSupported() bool {
 	return o.CDCSupport // CDC is not supported yet
 }
 
+func (o *Oracle) CDCMetadataColumns() map[string]types.DataType {
+	return nil
+}
+
 func (o *Oracle) ChangeStreamConfig() (bool, bool, bool) {
 	return false, false, false
 }

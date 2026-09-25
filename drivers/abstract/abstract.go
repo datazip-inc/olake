@@ -49,7 +49,6 @@ var DefaultColumns = map[string]types.DataType{
 	constants.OlakeID:        types.String,
 	constants.OlakeTimestamp: types.TimestampMicro,
 	constants.OpType:         types.String,
-	constants.CdcTimestamp:   types.TimestampMicro,
 }
 
 func NewAbstractDriver(ctx context.Context, driver DriverInterface) *AbstractDriver {
@@ -120,11 +119,8 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 	streamMap.Range(func(_, value any) bool {
 		convStream, _ := value.(*types.Stream)
 
-		// add default columns
+		// add default columns (CDC metadata columns are injected at sync time, see injectCDCColumns)
 		for column, typ := range DefaultColumns {
-			if column == constants.CdcTimestamp && !a.supportsCdcColumn() {
-				continue
-			}
 			convStream.UpsertField(column, typ, true, true)
 		}
 
@@ -198,6 +194,7 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 	// run cdc sync
 	if len(cdcStreams) > 0 {
 		if a.driver.CDCSupported() {
+			injectCDCColumns(a.driver, cdcStreams)
 			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
 				return fmt.Errorf("failed to run change stream: %w", err)
 			}
@@ -232,6 +229,21 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 		return fmt.Errorf("error occurred while waiting for connections: %w", err)
 	}
 	return nil
+}
+
+// injectCDCColumns adds _cdc_timestamp and the driver's own CDC metadata columns to the stream
+// schema at sync time. Discover omits them so they never reach streams.json for non-CDC modes;
+// they are marked as olake columns, which ToParquet and ToIceberg keep regardless of the user's
+// column selection.
+func injectCDCColumns(driver DriverInterface, streams []types.StreamInterface) {
+	driverColumns := driver.CDCMetadataColumns()
+	for _, stream := range streams {
+		s := stream.GetStream()
+		s.UpsertField(constants.CdcTimestamp, types.TimestampMicro, true, true)
+		for name, typ := range driverColumns {
+			s.UpsertField(name, typ, true, true)
+		}
+	}
 }
 
 // waitForBackfillCompletion waits for all backfill processes to complete and processes each completed stream
@@ -345,12 +357,4 @@ func handleWriterCleanup(ctx context.Context, cancel context.CancelFunc, err *er
 	if *err != nil && threadID != "" {
 		*err = fmt.Errorf("thread[%s]: %w", threadID, *err)
 	}
-}
-
-func (a *AbstractDriver) supportsCdcColumn() bool {
-	if a.driver.CDCSupported() && a.driver.Type() != string(constants.Kafka) {
-		// kafka driver does not support cdc column
-		return true
-	}
-	return false
 }
