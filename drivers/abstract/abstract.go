@@ -147,6 +147,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 		convStream.DefaultStreamProperties = &types.DefaultStreamProperties{
 			Normalization: types.IsDriverRelational(a.driver.Type()),
 			AppendMode:    types.IsDriverAppendOnly(a.driver.Type()),
+			UpdateType:    types.UpdateTypeEquality,
 		}
 
 		finalStreams = append(finalStreams, convStream)
