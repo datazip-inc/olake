@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/datazip-inc/olake/types"
+	"github.com/datazip-inc/olake/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -325,4 +326,133 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGenerateOlakeIDFromExistingKeys(t *testing.T) {
+	tests := []struct {
+		name           string
+		dedupKeys      []string
+		data           map[string]any
+		want           string
+		notEqualAppend bool
+	}{
+		{
+			name:      "partial null name, same id as missing name - null so drop from olakeID",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"id":   "42",
+				"name": nil,
+			},
+			want: "upsert|id=42",
+		},
+		{
+			name: "missing name same id as partial null - missing column name included with empty value in olakeID",
+			dedupKeys: []string{
+				"id", "name",
+			},
+			data: map[string]any{
+				"id": "42",
+			},
+			want: "upsert|id=42|name=",
+		},
+		{
+			name:      "empty string name is kept as empty slot - include column name with empy value in olakeID",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"id":   "42",
+				"name": "",
+			},
+			want: "upsert|id=42|name=",
+		},
+		{
+			name:      "null id is dropped, name kept",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"id":   nil,
+				"name": "sam",
+			},
+			want: "upsert|name=sam",
+		},
+		{
+			name:      "missing id keeps empty slot, name kept",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"name": "sam",
+			},
+			want: "upsert|id=|name=sam",
+		},
+		{
+			name:      "empty string id is kept as empty slot, name kept",
+			dedupKeys: []string{"id", "name"},
+			data: map[string]any{
+				"id":   "",
+				"name": "sam",
+			},
+			want: "upsert|id=|name=sam",
+		},
+		{
+			name:      "only customer_id does not effect with only order_id",
+			dedupKeys: []string{"customer_id", "order_id"},
+			data: map[string]any{
+				"customer_id": "42",
+			},
+			want: "upsert|customer_id=42|order_id=",
+		},
+		{
+			name:      "only order_id does not effect with only customer_id",
+			dedupKeys: []string{"customer_id", "order_id"},
+			data: map[string]any{
+				"order_id": "42",
+			},
+			want: "upsert|customer_id=|order_id=42",
+		},
+		{
+			name:      "composite upsert id is not append offset 5 partition 0",
+			dedupKeys: []string{"customer_id", "order_id"},
+			data: map[string]any{
+				"customer_id": "5",
+				"order_id":    "0",
+			},
+			want:           "upsert|customer_id=5|order_id=0",
+			notEqualAppend: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := UpsertConfig{
+				DedupKeys: tt.dedupKeys,
+			}
+			olakeID := cfg.generateOlakeIDFromExistingKeys(tt.data)
+			assert.Equal(t, tt.want, olakeID)
+			if tt.notEqualAppend {
+				appendID := utils.GetKeysHash(map[string]any{
+					Offset:    int64(5),
+					Partition: int32(0),
+				}, Offset, Partition)
+				assert.NotEqual(t, appendID, olakeID)
+			}
+		})
+	}
+}
+
+func TestGenerateOlakeIDNullVsMissingVsEmpty(t *testing.T) {
+	cfg := UpsertConfig{DedupKeys: []string{"id", "name"}}
+
+	nullName := cfg.generateOlakeIDFromExistingKeys(map[string]any{
+		"id":   "42",
+		"name": nil,
+	})
+	missingName := cfg.generateOlakeIDFromExistingKeys(map[string]any{
+		"id": "42",
+	})
+	emptyName := cfg.generateOlakeIDFromExistingKeys(map[string]any{
+		"id":   "42",
+		"name": "",
+	})
+
+	assert.Equal(t, "upsert|id=42", nullName)
+	assert.Equal(t, "upsert|id=42|name=", missingName)
+	assert.Equal(t, missingName, emptyName, "missing and empty string must share the empty slot")
+	assert.NotEqual(t, nullName, missingName, "null is dropped; missing keeps the column slot")
+	assert.NotEqual(t, nullName, emptyName, "null is dropped; empty string is kept")
 }

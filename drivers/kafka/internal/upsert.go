@@ -3,10 +3,10 @@ package driver
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/datazip-inc/olake/types"
-	"github.com/datazip-inc/olake/utils"
 )
 
 var errNullDedupKeys = errors.New("all dedup keys are null")
@@ -97,11 +97,20 @@ func (c UpsertConfig) checkDedupKeysExist(data map[string]any, kafkaKey string, 
 }
 
 func (c UpsertConfig) generateOlakeIDFromExistingKeys(data map[string]any) string {
-	existing := make([]string, 0, len(c.DedupKeys))
+	keys := append([]string(nil), c.DedupKeys...)
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	parts = append(parts, "upsert")
 	for _, pk := range c.DedupKeys {
-		if _, ok := data[pk]; ok {
-			existing = append(existing, pk)
+		v, ok := data[pk]
+		if !ok {
+			parts = append(parts, pk+"=")
+			continue
 		}
+		if v == nil {
+			continue
+		}
+		parts = append(parts, pk+"="+fmt.Sprint(v))
 	}
-	return utils.GetKeysHash(data, existing...)
+	return strings.Join(parts, "|")
 }
