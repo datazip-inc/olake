@@ -78,13 +78,7 @@ type StreamMetadata struct {
 // resolveConfigurableField returns the first non-zero value.
 // Callers pass values in priority order: selected_streams, then streams[].
 func resolveConfigurableField[T comparable](values ...T) T {
-	var zero T
-	for _, v := range values {
-		if v != zero {
-			return v
-		}
-	}
-	return zero
+	return cmp.Or(values...)
 }
 
 type Catalog struct {
@@ -401,6 +395,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 
 			// NOTE: we are not droping table if there is delete mode change
 			// TODO: log the differences for user reference
+			oldDestinationDatabase := resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
+			oldDestinationTable := resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
 			isDifferent := func() bool {
 				oldConfigured := &ConfiguredStream{Stream: oldStream.Stream, StreamMetadata: oldMetadata}
 				newConfigured := &ConfiguredStream{Stream: newStream.Stream, StreamMetadata: newMetadata}
@@ -409,9 +405,7 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				newSyncMode := resolveConfigurableField(newMetadata.SyncMode, newStream.Stream.SyncMode)
 				oldCursorField := resolveConfigurableField(oldMetadata.CursorField, oldStream.Stream.CursorField)
 				newCursorField := resolveConfigurableField(newMetadata.CursorField, newStream.Stream.CursorField)
-				oldDestinationDatabase := resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
 				newDestinationDatabase := resolveConfigurableField(newMetadata.DestinationDatabase, newStream.Stream.DestinationDatabase)
-				oldDestinationTable := resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
 				newDestinationTable := resolveConfigurableField(newMetadata.DestinationTable, newStream.Stream.DestinationTable)
 
 				// check cursor field if SyncMode is incremental
@@ -438,8 +432,6 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				}
 
 				// keep the user's existing destination mapping in the diff output even when discover produced new values
-				oldDestinationDatabase := resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
-				oldDestinationTable := resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
 				deltaStream.Stream.DestinationDatabase = oldDestinationDatabase
 				deltaStream.Stream.DestinationTable = oldDestinationTable
 				newMetadata.DestinationDatabase = oldDestinationDatabase
