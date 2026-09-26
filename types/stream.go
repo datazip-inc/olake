@@ -1,8 +1,6 @@
 package types
 
 import (
-	"sort"
-
 	"github.com/goccy/go-json"
 	"github.com/spf13/viper"
 
@@ -113,9 +111,7 @@ func (s *Stream) RefreshSelectableColumns() {
 	if s == nil || s.Schema == nil {
 		return
 	}
-	cols := s.Schema.ColumnNames()
-	sort.Strings(cols)
-	s.SelectableColumns = cols
+	s.SelectableColumns = s.Schema.ColumnNames()
 }
 
 // Add or Update Column in Stream Type Schema

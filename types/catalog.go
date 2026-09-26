@@ -293,6 +293,7 @@ func MergeSelectedColumns(metadata *StreamMetadata, oldStream *Stream, newStream
 		}
 		return true
 	})
+	slices.Sort(columns)
 
 	metadata.SelectedColumns = &SelectedColumns{
 		Columns:        columns,

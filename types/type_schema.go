@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/datazip-inc/olake/constants"
@@ -23,8 +24,7 @@ func NewTypeSchema() *TypeSchema {
 	}
 }
 
-// ColumnNames returns the list of column names currently present in the schema.
-// Note: ordering is not guaranteed because sync.Map iteration order is not defined.
+// ColumnNames returns the column names currently present in the schema, sorted in byte order.
 func (t *TypeSchema) ColumnNames() []string {
 	var columns []string
 	t.Properties.Range(func(col, _ interface{}) bool {
@@ -33,6 +33,7 @@ func (t *TypeSchema) ColumnNames() []string {
 		}
 		return true
 	})
+	slices.Sort(columns)
 	return columns
 }
 

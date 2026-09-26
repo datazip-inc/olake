@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/goccy/go-json"
@@ -205,8 +206,14 @@ func (st *Set[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON writes the elements sorted by their string form in byte order, so a set is
+// written in the same order on every run.
 func (st *Set[T]) MarshalJSON() ([]byte, error) {
-	return json.Marshal(st.Array())
+	arr := st.Array()
+	slices.SortFunc(arr, func(a, b T) int {
+		return strings.Compare(fmt.Sprint(a), fmt.Sprint(b))
+	})
+	return json.Marshal(arr)
 }
 
 // Clear removes all elements from the set
