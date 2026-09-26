@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 )
@@ -49,9 +48,16 @@ func (c *Config) Validate() error {
 			fmt.Errorf("invalid port number: must be between 1 and 65535"))
 	}
 
-	// default number of threads
-	if c.MaxThreads <= 0 {
-		c.MaxThreads = constants.DefaultThreadCount
+	if c.Database == "" {
+		return fmt.Errorf("database name is required")
+	}
+
+	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {
+		return err
+	}
+
+	if err := utils.ApplyRetryCountDefault(&c.RetryCount); err != nil {
+		return err
 	}
 
 	// Add the connection parameters to the url
