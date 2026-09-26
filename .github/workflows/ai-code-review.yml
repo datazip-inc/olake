@@ -49,9 +49,9 @@ jobs:
       DEEP: ${{ contains(github.event.pull_request.labels.*.name, 'ai-review-deep') }}
     steps:
       - name: Review pull request
-        uses: alibaba/open-code-review@f1101fd7f51304c82e4a4f292bbee88aea0823cf # v1.12.4
+        uses: alibaba/open-code-review@v1.12.9
         with:
-          ocr_version: '1.12.4'
+          ocr_version: '1.12.9'
           llm_url: ${{ env.DEEP == 'true' && secrets.OCR_LLM_URL_DEEP || secrets.OCR_LLM_URL }}
           llm_auth_token: ${{ env.DEEP == 'true' && secrets.OCR_LLM_AUTH_TOKEN_DEEP || secrets.OCR_LLM_AUTH_TOKEN }}
           llm_model: ${{ env.DEEP == 'true' && secrets.OCR_LLM_MODEL_DEEP || secrets.OCR_LLM_MODEL }}
