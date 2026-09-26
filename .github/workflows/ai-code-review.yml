@@ -3,15 +3,17 @@
 # Two tiers: every PR is reviewed with the cheap model; a PR labelled 'ai-review-deep' is reviewed
 # with the strong one. Each tier has its own provider, so each has its own endpoint, key and flag.
 #
-# Required (Settings -> Environments -> ai_code_review, with maintainers as required reviewers):
-#   secret    OCR_LLM_AUTH_TOKEN          key for the default model      (Z.ai)
-#   variable  OCR_LLM_URL                 https://api.z.ai/api/paas/v4
-#   variable  OCR_LLM_MODEL               glm-5.3-flash
-#   variable  OCR_LLM_USE_ANTHROPIC       false
-#   secret    OCR_LLM_AUTH_TOKEN_DEEP     key for 'ai-review-deep' PRs   (Anthropic)
-#   variable  OCR_LLM_URL_DEEP            https://api.anthropic.com
-#   variable  OCR_LLM_MODEL_DEEP          claude-opus-5
-#   variable  OCR_LLM_USE_ANTHROPIC_DEEP  true
+# Required, all as secrets (Settings -> Environments -> ai-code-review, with maintainers as required
+# reviewers). The environment must carry exactly that name, or GitHub creates an empty one with no
+# reviewers and every run fails on an unset endpoint.
+#   OCR_LLM_AUTH_TOKEN          key for the default model      (Z.ai)
+#   OCR_LLM_URL                 https://api.z.ai/api/paas/v4
+#   OCR_LLM_MODEL               glm-5.3-flash
+#   OCR_LLM_USE_ANTHROPIC       false
+#   OCR_LLM_AUTH_TOKEN_DEEP     key for 'ai-review-deep' PRs   (Anthropic)
+#   OCR_LLM_URL_DEEP            https://api.anthropic.com
+#   OCR_LLM_MODEL_DEEP          claude-opus-5
+#   OCR_LLM_USE_ANTHROPIC_DEEP  true
 
 name: AI Code Review
 
@@ -40,7 +42,7 @@ jobs:
           && !github.event.pull_request.draft
           && (github.event.action != 'labeled' || github.event.label.name == 'ai-review-deep') }}
     runs-on: ubuntu-latest
-    environment: ai_code_review
+    environment: ai-code-review
     timeout-minutes: 45
     env:
       # Set all four _DEEP settings together: each one on its own falls back to the default tier.
@@ -50,10 +52,10 @@ jobs:
         uses: alibaba/open-code-review@f1101fd7f51304c82e4a4f292bbee88aea0823cf # v1.12.4
         with:
           ocr_version: '1.12.4'
-          llm_url: ${{ env.DEEP == 'true' && vars.OCR_LLM_URL_DEEP || vars.OCR_LLM_URL }}
+          llm_url: ${{ env.DEEP == 'true' && secrets.OCR_LLM_URL_DEEP || secrets.OCR_LLM_URL }}
           llm_auth_token: ${{ env.DEEP == 'true' && secrets.OCR_LLM_AUTH_TOKEN_DEEP || secrets.OCR_LLM_AUTH_TOKEN }}
-          llm_model: ${{ env.DEEP == 'true' && vars.OCR_LLM_MODEL_DEEP || vars.OCR_LLM_MODEL }}
-          llm_use_anthropic: ${{ env.DEEP == 'true' && vars.OCR_LLM_USE_ANTHROPIC_DEEP || vars.OCR_LLM_USE_ANTHROPIC }}
+          llm_model: ${{ env.DEEP == 'true' && secrets.OCR_LLM_MODEL_DEEP || secrets.OCR_LLM_MODEL }}
+          llm_use_anthropic: ${{ env.DEEP == 'true' && secrets.OCR_LLM_USE_ANTHROPIC_DEEP || secrets.OCR_LLM_USE_ANTHROPIC }}
           # Anthropic keys go in x-api-key; OCR ignores this for OpenAI-compatible providers.
           llm_auth_header: x-api-key
           llm_extra_body: '{}'
