@@ -22,6 +22,14 @@ message IcebergPayload {
   
   PayloadType type = 1;
 
+  // How a superseded row's removal is expressed: EQUALITY (no index), POSITION (needs table index, rejected on v3), or DELETION_VECTOR (v3 Puffin bitmap, needs table index); UNSPECIFIED is rejected, not a default.
+  enum DeleteMode {
+    DELETE_MODE_UNSPECIFIED = 0;
+    DELETE_MODE_EQUALITY = 1;
+    DELETE_MODE_POSITION = 2;
+    DELETE_MODE_DELETION_VECTOR = 3;
+  }
+
   message Metadata {
     string dest_table_name = 1;
     string thread_id = 2;
@@ -31,14 +39,17 @@ message IcebergPayload {
     // Per-stream context (previously baked into JVM CLI args)
     string namespace = 7;
     bool upsert = 8;
-    // When true, the writer resolves superseding rows via positional deletes
-    // (fed by the caller's table index) instead of equality deleteKey.
-    bool use_positional_deletes = 9;
-    repeated PartitionField partition_fields = 10;
-    // COMMIT: snapshot the caller's stream index is checkpointed at. The server
-    // checks the committed snapshot parent and matches with the stream index's snapshot,
-    // if mismatch the stream index will not get updated 
-    optional int64 base_snapshot_id = 11;
+    repeated PartitionField partition_fields = 9;
+    // COMMIT: snapshot the caller's table index is checkpointed at. The server
+    // refreshes the table and refuses the commit when the tip has moved, so
+    // positional deletes built from a stale index cannot be published.
+    optional int64 base_snapshot_id = 10;
+    // GET_OR_CREATE_TABLE: how this stream expresses deletes. Also decides the
+    // format version a newly created table is built at, and is validated against
+    // an existing table's version before any writer is built.
+    DeleteMode delete_mode = 11;
+    // Whether the catalog allows declaring identifier_field on the table; only equality deletes need it declared.
+    bool declare_identifier_fields = 12;
   }
 
   message SchemaField {
@@ -98,6 +109,24 @@ message RecordIngestResponse {
 
 // FilePositionMap describes row ranges written to a single data file.
 // Multiple contiguous ranges within a single batch land under the same file_path.
+// example:
+  // FilePositionMaps: []*proto.FilePositionMap{
+  // 	{
+  // 		FilePath: "s3a://warehouse/olake_test/test_table/data/00000-0-1111.parquet",
+  // 		Ranges: []*proto.FilePositionMap_Range{
+  // 			{
+  // 				BatchStartIdx: 0,   // maps to sentRecords[0], sentRecords[1], sentRecords[2]
+  // 				StartPosition: 100, // row offset 100 in File 1
+  // 				Count:         3,
+  // 			},
+  // 			{
+  // 				BatchStartIdx: 5,   // maps to sentRecords[5], sentRecords[6]
+  // 				StartPosition: 103, // row offset 103 in File 1
+  // 				Count:         2,
+  // 			},
+  // 		},
+  // 	},
+  // },
 message FilePositionMap {
   string file_path = 1;
 
@@ -120,6 +149,12 @@ message ArrowPayload {
     REGISTER_AND_COMMIT = 1;
     JSONSCHEMA = 2;
     FILEPATH = 3;
+    // Rows superseded by this sync, to be encoded as deletion vectors. Only sent
+    // under delete_mode DELETION_VECTOR, where the caller writes no delete file of
+    // its own: format version 3 rejects Parquet positional deletes, and the
+    // positions are already structured data on the caller's side. Sent incrementally
+    // during the sync so neither side buffers the whole set.
+    DELETION_VECTORS = 4;
   }
 
   PayloadType type = 1;
@@ -147,6 +182,23 @@ message ArrowPayload {
     string file_path = 2;
   }
 
+  // Rows to delete, grouped by the data file holding them - which is also how a
+  // deletion vector is scoped: one bitmap per data file. Grouping matters, since CDC
+  // updates cluster on a few recent data files, so one path per many positions
+  // collapses the dominant cost of the message without any compression work.
+  message DeletionVectorBatch {
+    message Entry {
+      string data_file_path = 1;
+      repeated int64 positions = 2;
+      // Partition the vector is stamped with: the one being WRITTEN when these rows
+      // were superseded, not necessarily the one the referenced data file lives in.
+      // Matches how the rows path routes the same delete - see the TODO on
+      // ArrowDeletionVectorWriter.
+      repeated FileMetadata.PartitionValue partition_values = 3;
+    }
+    repeated Entry entries = 1;
+  }
+
   message Metadata {
     string dest_table_name = 1;
     string thread_id = 2;
@@ -156,6 +208,8 @@ message ArrowPayload {
     // REGISTER_AND_COMMIT: snapshot the caller's table index is checkpointed at.
     // The server refuses the commit when the table tip has moved past it.
     optional int64 base_snapshot_id = 7;
+    // DELETION_VECTORS only.
+    optional DeletionVectorBatch deletion_vectors = 8;
   }
 
   Metadata metadata = 2;
@@ -186,7 +240,6 @@ message TableIndexScanRequest {
   optional int64 from_snapshot_id = 2;
 }
 
-// TableIndexScanBatch is a batch of entries from the table to build index in go side.
 message TableIndexScanBatch {
   message Entry {
     string olake_id = 1;
@@ -202,6 +255,10 @@ message TableIndexScanBatch {
 
 message MigrateEqualityDeletesRequest {
   string thread_id = 1;
+  // The representation equality deletes get rewritten into: POSITION or
+  // DELETION_VECTOR. UNSPECIFIED falls back to the session's own delete mode,
+  // which is what gated this RPC being called at all.
+  IcebergPayload.DeleteMode target_mode = 2;
 }
 
 message MigrateEqualityDeletesResponse {
