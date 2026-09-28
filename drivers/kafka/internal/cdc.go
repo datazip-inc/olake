@@ -3,12 +3,13 @@ package driver
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -152,7 +153,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 				}
 			}
 			if kafkaKey == "" && len(record.Message.Key) > 0 {
-				kafkaKey = k.canonicalizeKafkaKey(string(record.Message.Key))
+				kafkaKey = k.canonicalizeKafkaKey(record.Message.Key)
 			}
 
 			appendByOffsetPartition := func(data map[string]any) error {
@@ -414,25 +415,25 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 }
 
 // canonicalizeKafkaKey - normalize _kafka_key string
-func (k *Kafka) canonicalizeKafkaKey(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return raw
+func (k *Kafka) canonicalizeKafkaKey(raw []byte) string {
+	if len(raw) == 0 {
+		return ""
 	}
-	if raw[0] != '{' {
-		return raw
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) > 0 && trimmed[0] == '{' {
+		var m map[string]interface{}
+		dec := json.NewDecoder(bytes.NewReader(trimmed))
+		dec.UseNumber()
+		if err := dec.Decode(&m); err == nil {
+			if b, err := json.Marshal(m); err == nil {
+				return string(b)
+			}
+		}
 	}
-	var m map[string]interface{}
-	dec := json.NewDecoder(strings.NewReader(raw))
-	dec.UseNumber()
-	if err := dec.Decode(&m); err != nil {
-		return raw
+	if utf8.Valid(raw) {
+		return string(raw)
 	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return raw
-	}
-	return string(b)
+	return base64.StdEncoding.EncodeToString(raw)
 }
 
 func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, string, map[string]interface{}, error) {
@@ -488,19 +489,19 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 		parsedKey, err := parseData(message.Key)
 		if err != nil {
 			// standard fallback: raw key as string
-			keyValue = k.canonicalizeKafkaKey(string(message.Key))
+			keyValue = k.canonicalizeKafkaKey(message.Key)
 		} else {
 			switch v := parsedKey.(type) {
 			case string:
-				keyValue = k.canonicalizeKafkaKey(v)
+				keyValue = k.canonicalizeKafkaKey([]byte(v))
 			case []byte:
-				keyValue = k.canonicalizeKafkaKey(string(v))
+				keyValue = k.canonicalizeKafkaKey(v)
 			case map[string]interface{}:
 				keyFields = v
 				keyJSON, msgErr := json.Marshal(v)
 				if msgErr != nil {
 					logger.Warnf("failed to marshal decoded key at offset %d: %s, using raw string", message.Offset, msgErr)
-					keyValue = k.canonicalizeKafkaKey(string(message.Key))
+					keyValue = k.canonicalizeKafkaKey(message.Key)
 				} else {
 					keyValue = string(keyJSON)
 				}
@@ -508,9 +509,9 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 				keyJSON, err := json.Marshal(v)
 				if err != nil {
 					logger.Warnf("failed to marshal decoded key at offset %d: %s, using raw string", message.Offset, err)
-					keyValue = k.canonicalizeKafkaKey(string(message.Key))
+					keyValue = k.canonicalizeKafkaKey(message.Key)
 				} else {
-					keyValue = k.canonicalizeKafkaKey(string(keyJSON))
+					keyValue = k.canonicalizeKafkaKey(keyJSON)
 				}
 			}
 		}
