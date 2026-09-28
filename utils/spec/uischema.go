@@ -137,10 +137,13 @@ const PostgresUISchema = `{
       },
       "update_method": {
         "ui:widget": "radio",
-        "ui:grid": [{ "replication_slot": 12, "initial_wait_time": 12}, { "publication": 12 }],
+        "ui:grid": [{ "replication_slot": 12, "initial_wait_time": 12}, { "publication": 12, "post_read": 12 }],
         "ui:options": {
           "title": false,
           "description": false
+        },
+        "post_read": {
+          "ui:widget": "boolean"
         }
       },
       "ssh_config": {

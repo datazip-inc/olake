@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
@@ -32,6 +33,7 @@ type serverInstance struct {
 	client             proto.RecordIngestServiceClient
 	arrowClient        proto.ArrowIngestServiceClient
 	tableIndexClient   proto.TableIndexServiceClient
+	toastReadClient    proto.ToastReadServiceClient
 	conn               *grpc.ClientConn
 	defaultServerID    string
 	gcpCredentialsTemp string // temp file holding gcp_service_account_json content, if used; cleaned up on Shutdown
@@ -248,6 +250,7 @@ func startServer(config *Config) (*serverInstance, error) {
 		client:             proto.NewRecordIngestServiceClient(conn),
 		arrowClient:        proto.NewArrowIngestServiceClient(conn),
 		tableIndexClient:   proto.NewTableIndexServiceClient(conn),
+		toastReadClient:    proto.NewToastReadServiceClient(conn),
 		conn:               conn,
 		defaultServerID:    serverID,
 		gcpCredentialsTemp: gcpCredsTemp,
@@ -263,6 +266,20 @@ func (s *serverInstance) SendClientRequest(ctx context.Context, payload interfac
 	default:
 		return nil, fmt.Errorf("unsupported payload type: %T", payload)
 	}
+}
+
+// FlushOpenFiles asks Java to close threadID's open data files without committing, so
+// ReadRows can read rows written earlier in this sync.
+func (s *serverInstance) FlushOpenFiles(ctx context.Context, threadID string) (int64, error) {
+	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
+	defer cancel()
+
+	response, err := s.toastReadClient.FlushOpenFiles(reqCtx, &proto.FlushOpenFilesRequest{ThreadId: threadID})
+	if err != nil {
+		return 0, fmt.Errorf("failed to flush open data files: %w", err)
+	}
+
+	return response.GetFlushedFiles(), nil
 }
 
 // Shutdown kills the JVM and releases its port. Safe to call from defer.

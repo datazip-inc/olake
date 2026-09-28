@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package io.debezium.server.iceberg.rpc;
+
+option go_package = "iceberg/proto";
+option java_outer_classname = "ToastRead";
+
+// ToastReadService serves values a CDC change could not carry (Postgres omits unchanged
+// out-of-line columns from an UPDATE) by reading them out of the rows the destination
+// table already holds. Both calls reuse the session created by GET_OR_CREATE_TABLE.
+service ToastReadService {
+  // ReadRows streams the requested columns of the rows addressed by data file and position.
+  rpc ReadRows(ReadRowsRequest) returns (stream ReadRowsBatch);
+  // FlushOpenFiles closes the data files this thread's writer still holds open, without
+  // committing them, so rows written earlier in the same sync become readable.
+  rpc FlushOpenFiles(FlushOpenFilesRequest) returns (FlushOpenFilesResponse);
+}
+
+message ReadRowsRequest {
+  string thread_id = 1;
+  // Table columns to project, by name.
+  repeated string columns = 2;
+
+  message FileRows {
+    string file_path = 1;
+    // Row positions to read, ascending.
+    repeated int64 positions = 2;
+  }
+
+  repeated FileRows files = 3;
+}
+
+// ColumnValue carries one stored value; an unset oneof means the value is NULL.
+message ColumnValue {
+  oneof value {
+    string string_value = 1;
+    int64 long_value = 2;
+    double double_value = 3;
+    bool bool_value = 4;
+    bytes bytes_value = 5;
+  }
+}
+
+message ReadRowsBatch {
+  message Row {
+    string file_path = 1;
+    int64 position = 2;
+    // One entry per requested column, in request order.
+    repeated ColumnValue values = 3;
+  }
+
+  repeated Row rows = 1;
+}
+
+message FlushOpenFilesRequest {
+  string thread_id = 1;
+}
+
+message FlushOpenFilesResponse {
+  int64 flushed_files = 1;
+}

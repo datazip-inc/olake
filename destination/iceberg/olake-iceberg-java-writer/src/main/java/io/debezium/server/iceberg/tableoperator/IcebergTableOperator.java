@@ -287,6 +287,11 @@ public class IcebergTableOperator {
     }
   }
 
+  /** Whether this thread's writer currently holds files open. */
+  public boolean hasOpenWriter() {
+    return writer != null;
+  }
+
   public void completeWriter() {
     try {
       if (writer == null) {

@@ -6,6 +6,9 @@ import (
 
 type ServerClient interface {
 	SendClientRequest(ctx context.Context, reqPayload interface{}) (interface{}, error)
+	// FlushOpenFiles closes threadID's open Java data files without committing them, so
+	// their rows can be read. Returns 1 if files were open, 0 if not.
+	FlushOpenFiles(ctx context.Context, threadID string) (int64, error)
 }
 
 // PartitionInfo represents an Iceberg partition column with its transform, preserving order.

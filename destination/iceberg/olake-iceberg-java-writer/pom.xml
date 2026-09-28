@@ -34,6 +34,9 @@
     <version.googlebigdataoss>2.2.28</version.googlebigdataoss>
     <version.testcontainers>1.20.4</version.testcontainers>
     <version.protobuf>3.25.5</version.protobuf>
+    <!-- matches the parquet iceberg-parquet pulls in; needed at compile time to read
+         individual rows back by position (see tableIndex/RowReader) -->
+    <version.parquet>1.16.0</version.parquet>
     <version.log4j2>2.26.1</version.log4j2>
     <!-- deliberate family pins; see DEPENDENCY POLICY above -->
     <version.netty>4.1.137.Final</version.netty>
@@ -551,6 +554,12 @@
       <version>3.12.14</version>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <groupId>org.apache.parquet</groupId>
+      <artifactId>parquet-hadoop</artifactId>
+      <version>${version.parquet}</version>
+    </dependency>
+
     <dependency>
       <groupId>com.google.protobuf</groupId>
       <artifactId>protobuf-java</artifactId>
