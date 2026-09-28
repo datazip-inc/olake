@@ -33,6 +33,9 @@ var (
 	encryptionKey             string
 	destinationType           string
 	catalog                   *types.Catalog
+	availableQueryEngines     bool
+	targetQueryEngines        []string
+	queryEngines              []types.QueryEngine
 	state                     *types.State
 	timeout                   int64 // timeout in seconds
 	destinationConfig         *types.WriterConfig
@@ -147,6 +150,8 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&destinationDatabasePrefix, "destination-database-prefix", "", "", "(Optional) Destination database prefix is used as prefix for destination database name")
 	RootCmd.PersistentFlags().Int64VarP(&timeout, "timeout", "", -1, "(Optional) Timeout to override default timeouts (in seconds)")
 	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared. Generates a difference_streams.json file.")
+	RootCmd.PersistentFlags().BoolVarP(&availableQueryEngines, "available-query-engines", "", false, "(Optional) Print the query engines OLake supports and the delete formats each can read, then exit")
+	RootCmd.PersistentFlags().StringSliceVarP(&targetQueryEngines, "target-query-engines", "", nil, "(Optional) Comma separated query engines that will read the destination tables (e.g. spark,duckdb,hive). Narrows the delete formats available to each stream")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true
@@ -160,7 +165,9 @@ const (
 	// Codes for conditions the CLI detects itself, before any connector is reached.
 	codeFlagMissing    = "config.flag_missing"
 	codeNoValidStreams = "catalog.no_valid_streams"
-	codeNoStreams      = "catalog.no_streams_discovered"
+	// codeQueryEngineInvalid marks a target query engine selection the CLI cannot serve.
+	codeQueryEngineInvalid = "catalog.query_engine_invalid"
+	codeNoStreams          = "catalog.no_streams_discovered"
 	// recovered panic as an internal error
 	codePanicRecovered = "sync.panic_recovered"
 )
