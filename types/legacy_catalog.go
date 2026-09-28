@@ -9,8 +9,7 @@ import (
 )
 
 const (
-	codeLegacyStreamsMissing       = "catalog.streams_missing"
-	codeLegacySelectedStreamsEmpty = "catalog.legacy_selected_streams_empty"
+	codeLegacyStreamsMissing = "catalog.streams_missing"
 )
 
 // LegacyStreamMetadata is the streams.json selected_streams entry shape, frozen to match the pre-split behavior
@@ -43,11 +42,6 @@ func ResolveLegacyCatalog(streamsFilePath string) (*LegacyCatalog, error) {
 		return nil, fmt.Errorf("failed to read streams from %s: %w", streamsFilePath, err)
 	}
 
-	if len(catalog.Streams) > 0 && len(catalog.SelectedStreams) == 0 {
-		return nil, errs.Precondition(errs.CatalogError, codeLegacySelectedStreamsEmpty,
-			fmt.Errorf("streams file %s has streams[] but no selected_streams", streamsFilePath))
-	}
-
 	if len(catalog.Streams) == 0 && len(catalog.SelectedStreams) > 0 {
 		return nil, errs.Precondition(errs.CatalogError, codeLegacyStreamsMissing,
 			fmt.Errorf("streams file %s has selected_streams but no streams[]", streamsFilePath))
@@ -76,6 +70,10 @@ func legacyToStreamMetadata(streamMetadata LegacyStreamMetadata) StreamMetadata 
 
 // legacyToCanonical converts a LegacyCatalog (streams.json) into a Catalog (available_streams.json and selected_streams.json).
 func legacyToCanonical(legacy *LegacyCatalog) *Catalog {
+	// Missing selected_streams stays nil, which sync reads as "all streams"; an explicit {} selects nothing.
+	if legacy.SelectedStreams == nil {
+		return &Catalog{Streams: legacy.Streams}
+	}
 	selectedStreams := make(map[string][]StreamMetadata, len(legacy.SelectedStreams))
 	for namespace, metadataList := range legacy.SelectedStreams {
 		converted := make([]StreamMetadata, len(metadataList))

@@ -1736,12 +1736,13 @@ func TestResolveCatalog(t *testing.T) {
 			expected: &Catalog{},
 		},
 		{
-			name: "legacy streams[] without selected_streams returns error",
+			name: "legacy streams[] without selected_streams loads with nil selected_streams",
 			legacy: &LegacyCatalog{
 				Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}},
 			},
-			expectedCode: codeLegacySelectedStreamsEmpty,
-			expectedErr:  "no selected_streams",
+			expected: &Catalog{
+				Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}},
+			},
 		},
 		{
 			name: "legacy selected_streams without streams[] returns error",
