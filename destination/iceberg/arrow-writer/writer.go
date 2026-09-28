@@ -233,7 +233,9 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 // search for index for the record and emmit pos when found
 func (w *ArrowWriter) indexRecord(writer *Writer, olakeID string, olakeColumns map[string]any, filePosition int64) error {
 	opType := olakeColumns[constants.OpType].(string)
-	if w.upsertMode && opType != "r" {
+	// if there are dedup keys, we need to index the record - kafka duplicate in same stream
+	hasDedupKeys := len(w.stream.Self().StreamMetadata.DedupKeys) > 0
+	if w.upsertMode && opType != "r" && (opType != "c" || hasDedupKeys) {
 		previous, found, err := w.indexThread.Lookup(olakeID)
 		if err != nil {
 			return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)

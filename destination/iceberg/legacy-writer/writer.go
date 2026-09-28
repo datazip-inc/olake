@@ -60,7 +60,9 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 		var deletePosition *int64
 
 		// check if we need to write pos for the current record
-		if w.indexThread != nil && (opType != "r") {
+		// lookup u/i/d always. Lookup c only if dedup keys are set (kafka upsert)
+		hasDedupKeys := len(w.stream.Self().StreamMetadata.DedupKeys) > 0
+		if w.indexThread != nil && (opType != "r" && (opType != "c" || hasDedupKeys)) {
 			olakeID := record.OlakeColumns[constants.OlakeID].(string)
 			previous, found, err := w.indexThread.Lookup(olakeID)
 			if err != nil {
