@@ -698,6 +698,7 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T) error 
 		if err := resetStateFile(cfg.TestConfig); err != nil {
 			return err
 		}
+		_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index"))
 	}
 	if cfg.TestConfig.Driver == string(constants.DB2) {
 		// to populate stats for DB2
