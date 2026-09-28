@@ -104,6 +104,62 @@ func TestFilterRecords_EmptyRecords(t *testing.T) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Test: All Deletes (should return all records)
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestFilterRecords_AllDeletes(t *testing.T) {
+	ctx := context.Background()
+	records := []types.RawRecord{
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k1"}, map[string]any{constants.OpType: "d"}),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k2"}, map[string]any{constants.OpType: "d"}),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k3"}, map[string]any{constants.OpType: "d"}),
+	}
+	filter := types.FilterConfig{
+		LogicalOperator: "AND",
+		Conditions: []types.FilterCondition{
+			{Column: "float_value", Operator: "<", Value: 100.0},
+		},
+	}
+	schema := makeIcebergSchema(map[string]string{"_kafka_key": "string"})
+	result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
+	require.NoError(t, err)
+	assert.Len(t, result, 3, "all deletes should return all records")
+	assert.Equal(t, records, result, "all deletes should return all records")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: Mixed Records (should return all deletes and the matching records)
+// ─────────────────────────────────────────────────────────────────────────────
+
+func TestFilterRecords_MixedRecords(t *testing.T) {
+	ctx := context.Background()
+	records := []types.RawRecord{
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k1"}, map[string]any{constants.OpType: "d"}),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k2"}, map[string]any{constants.OpType: "d"}),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k3", "id": int64(1), "name": "Alice", "float_value": float64(100)}, map[string]any{constants.OpType: "c"}),
+		types.CreateRawRecord(map[string]any{"_kafka_key": "k4", "id": int64(2), "name": "Bob", "float_value": float64(50)}, map[string]any{constants.OpType: "c"}),
+	}
+	filter := types.FilterConfig{
+		LogicalOperator: "AND",
+		Conditions: []types.FilterCondition{
+			{Column: "float_value", Operator: "<", Value: 100.0},
+		},
+	}
+	schema := makeIcebergSchema(map[string]string{"_kafka_key": "string", "id": "long", "name": "string", "float_value": "double"})
+	result, err := FilterRecords(ctx, records, filter, false, schema, utils.Reformat)
+	require.NoError(t, err)
+	require.Len(t, result, 3)
+	assert.Len(t, result, 3, "all deletes should return all records")
+	assert.Equal(t, "d", result[0].OlakeColumns[constants.OpType])
+	assert.Equal(t, "k1", result[0].Data["_kafka_key"])
+	assert.Equal(t, "d", result[1].OlakeColumns[constants.OpType])
+	assert.Equal(t, "k2", result[1].Data["_kafka_key"])
+	assert.Equal(t, "c", result[2].OlakeColumns[constants.OpType])
+	assert.Equal(t, "k4", result[2].Data["_kafka_key"])
+	assert.Equal(t, float64(50), result[2].Data["float_value"])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Test: Column Name Case Variations (Iceberg)
 // ─────────────────────────────────────────────────────────────────────────────
 
