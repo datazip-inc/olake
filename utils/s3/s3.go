@@ -7,10 +7,9 @@ import (
 	"path"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/pkg/objstorage/s3client"
 )
 
 var (
@@ -30,34 +29,18 @@ func Init(ctx context.Context) error {
 		return nil
 	}
 
-	configOpts := []func(*config.LoadOptions) error{}
-	if region := os.Getenv(constants.EnvS3Region); region != "" {
-		configOpts = append(configOpts, config.WithRegion(region))
-	}
-
-	accessKey := os.Getenv(constants.EnvS3AccessKeyID)
-	secretKey := os.Getenv(constants.EnvS3SecretAccessKey)
-	if accessKey != "" && secretKey != "" {
-		configOpts = append(configOpts, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(accessKey, secretKey, os.Getenv(constants.EnvS3SessionToken)),
-		))
-	}
-
-	awsCfg, err := config.LoadDefaultConfig(ctx, configOpts...)
+	client, err := s3client.NewS3Client(ctx, s3client.Config{
+		Region:          os.Getenv(constants.EnvS3Region),
+		AccessKeyID:     os.Getenv(constants.EnvS3AccessKeyID),
+		SecretAccessKey: os.Getenv(constants.EnvS3SecretAccessKey),
+		SessionToken:    os.Getenv(constants.EnvS3SessionToken),
+		Endpoint:        os.Getenv(constants.EnvS3Endpoint),
+	})
 	if err != nil {
-		return fmt.Errorf("failed to load AWS config: %s", err)
+		return err
 	}
 
-	var s3Opts []func(*awss3.Options)
-	if endpoint := os.Getenv(constants.EnvS3Endpoint); endpoint != "" {
-		// Path-style is required for MinIO and other S3-compatible endpoints.
-		s3Opts = append(s3Opts, func(o *awss3.Options) {
-			o.BaseEndpoint = aws.String(endpoint)
-			o.UsePathStyle = true
-		})
-	}
-
-	s3Client = awss3.NewFromConfig(awsCfg, s3Opts...)
+	s3Client = client
 	return nil
 }
 

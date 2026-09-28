@@ -17,58 +17,48 @@ import (
 
 const s3URIPrefix = "s3://"
 
-// S3PathMapping tracks an S3 URI and its downloaded local copy.
-type S3PathMapping struct {
-	OriginalPath string
-	LocalPath    string
-	IsS3         bool
-	Bucket       string
-	Key          string
+// s3PathMapping tracks an S3 URI and its downloaded local copy.
+type s3PathMapping struct {
+	localPath string
 }
 
-// ResolveS3Path downloads an s3:// path into S3LocalPath() as the object basename. Local paths are returned unchanged.
-func ResolveS3Path(ctx context.Context, s3Path string) (S3PathMapping, error) {
-	if !IsS3Path(s3Path) {
-		return S3PathMapping{OriginalPath: s3Path, LocalPath: s3Path}, nil
+// resolveS3Path downloads an s3:// path into s3LocalPath() as the object basename. Local paths are returned unchanged.
+func resolveS3Path(ctx context.Context, s3Path string) (s3PathMapping, error) {
+	if !isS3Path(s3Path) {
+		return s3PathMapping{localPath: s3Path}, nil
 	}
 
-	bucket, key, err := ParseS3URI(s3Path)
+	bucket, key, err := parseS3URI(s3Path)
 	if err != nil {
-		return S3PathMapping{}, err
+		return s3PathMapping{}, err
 	}
 
 	resp, err := s3util.GetObject(ctx, bucket, key)
 	if err != nil {
-		return S3PathMapping{}, fmt.Errorf("failed to download %s: %s", s3Path, err)
+		return s3PathMapping{}, fmt.Errorf("failed to download %s: %s", s3Path, err)
 	}
 	defer resp.Body.Close()
 
-	localPath := filepath.Join(S3LocalPath(), path.Base(key))
+	localPath := filepath.Join(s3LocalPath(), path.Base(key))
 	file, err := os.Create(localPath)
 	if err != nil {
-		return S3PathMapping{}, fmt.Errorf("failed to create local file for %s: %s", s3Path, err)
+		return s3PathMapping{}, fmt.Errorf("failed to create local file for %s: %s", s3Path, err)
 	}
 
 	if _, err = io.Copy(file, resp.Body); err != nil {
 		file.Close()
-		return S3PathMapping{}, fmt.Errorf("failed to write local file for %s: %s", s3Path, err)
+		return s3PathMapping{}, fmt.Errorf("failed to write local file for %s: %s", s3Path, err)
 	}
 	if err := file.Close(); err != nil {
-		return S3PathMapping{}, fmt.Errorf("failed to close local file for %s: %s", s3Path, err)
+		return s3PathMapping{}, fmt.Errorf("failed to close local file for %s: %s", s3Path, err)
 	}
 
-	return S3PathMapping{
-		OriginalPath: s3Path,
-		LocalPath:    localPath,
-		IsS3:         true,
-		Bucket:       bucket,
-		Key:          key,
-	}, nil
+	return s3PathMapping{localPath: localPath}, nil
 }
 
-// ParseS3URI parses an s3:// URI into a bucket and key.
+// parseS3URI parses an s3:// URI into a bucket and key.
 // Caller must ensure uri is an s3:// path.
-func ParseS3URI(uri string) (bucket, key string, err error) {
+func parseS3URI(uri string) (bucket, key string, err error) {
 	rest := strings.TrimPrefix(uri, s3URIPrefix)
 	parts := strings.SplitN(rest, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -78,20 +68,20 @@ func ParseS3URI(uri string) (bucket, key string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// S3LocalPath is the temp dir that holds downloaded s3:// flag files for this process.
-func S3LocalPath() string {
+// s3LocalPath is the temp dir that holds downloaded s3:// flag files for this process.
+func s3LocalPath() string {
 	return os.TempDir()
 }
 
-// IsS3Path returns true if the path is an S3 URI.
-func IsS3Path(path string) bool {
+// isS3Path returns true if the path is an S3 URI.
+func isS3Path(path string) bool {
 	return strings.HasPrefix(path, s3URIPrefix)
 }
 
-// ApplyConfigFolder rewrites flag paths to live under configFolder, keeping only the filename.
+// applyConfigFolder rewrites flag paths to live under configFolder, keeping only the filename.
 // The worker sets CONFIG_FOLDER to the execution dir (/mnt/config or s3://bucket/[prefix/]hash)
 // so schedule-time hashes baked into CLI args are ignored.
-func ApplyConfigFolder(configFolder string, pathSets ...[]*string) {
+func applyConfigFolder(configFolder string, pathSets ...[]*string) {
 	if configFolder == "" {
 		return
 	}
@@ -106,10 +96,10 @@ func ApplyConfigFolder(configFolder string, pathSets ...[]*string) {
 	}
 }
 
-// ResolveS3Paths initializes storage and downloads s3:// flag paths into S3LocalPath().
+// ResolveS3Paths initializes storage and downloads s3:// flag paths into s3LocalPath().
 func ResolveS3Paths(ctx context.Context, flagPaths []*string, telemetryFiles []*string) error {
-	configFolder := os.Getenv(constants.ConfigFolder)
-	ApplyConfigFolder(configFolder, flagPaths, telemetryFiles)
+	configFolder := os.Getenv(constants.EnvS3ConfigFolder)
+	applyConfigFolder(configFolder, flagPaths, telemetryFiles)
 
 	if err := s3util.Init(ctx); err != nil {
 		return err
@@ -132,11 +122,11 @@ func resolveS3PathFlag(ctx context.Context, flagPath *string) error {
 		return nil
 	}
 
-	s3PathMap, err := ResolveS3Path(ctx, *flagPath)
+	s3PathMap, err := resolveS3Path(ctx, *flagPath)
 	if err != nil {
 		return err
 	}
-	*flagPath = s3PathMap.LocalPath
+	*flagPath = s3PathMap.localPath
 	return nil
 }
 
@@ -148,18 +138,12 @@ func FinalizeS3Upload(ctx context.Context, noSave bool) error {
 		return nil
 	}
 
-	statsPath := ""
-	if configFolder := viper.GetString(constants.ConfigFolder); configFolder != "" {
-		statsPath = filepath.Join(configFolder, "stats.json")
-	}
-
 	files := []struct {
 		local string
 		name  string
 	}{
 		{viper.GetString(constants.StreamsPath), "streams.json"},
 		{viper.GetString(constants.StatePath), "state.json"},
-		{statsPath, "stats.json"},
 		{viper.GetString(constants.DifferencePath), "difference_streams.json"},
 	}
 

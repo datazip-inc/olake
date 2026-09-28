@@ -39,8 +39,8 @@ const (
 	maxEventPropsFileSize = 1 << 20 // 1 MiB
 )
 
-// TelemetryFiles returns optional job-dir files S3 mode should fetch so Init can read them.
-func TelemetryFiles() []*string {
+// PropsFiles returns optional job-dir files S3 mode should fetch so Init can read them.
+func PropsFiles() []*string {
 	eventProps := eventPropsFile
 	userID := userIDFile + ".txt"
 	return []*string{&eventProps, &userID}

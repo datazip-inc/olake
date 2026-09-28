@@ -51,13 +51,16 @@ var RootCmd = &cobra.Command{
 	Short: "root command",
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 		// Resolve now as configPaths are needed by logger.Init(), but the error is handled later because the logger is not initialized yet.
-		s3Err := utils.ResolveS3Paths(cmd.Context(), []*string{&configPath, &destinationConfigPath, &streamsPath, &statePath, &differencePath}, telemetry.TelemetryFiles())
+		s3Err := utils.ResolveS3Paths(cmd.Context(), []*string{&configPath, &destinationConfigPath, &streamsPath, &statePath, &differencePath}, telemetry.PropsFiles())
 		// set global variables
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
 		viper.SetDefault(constants.DifferencePath, filepath.Join(os.TempDir(), "difference_streams.json"))
-		if s3Err == nil && !noSave {
+		// An S3 job without --config or --destination (spec) has no folder to derive: filepath.Dir("not-set")
+		// would give ".", so keep the TempDir defaults, where ResolveS3Paths downloads the telemetry files.
+		noPathFlag := configPath == "not-set" && destinationConfigPath == "not-set"
+		if s3Err == nil && !noSave && !(s3.IsS3Job() && noPathFlag) {
 			configFolder := utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)).(string)
 			streamsPathEnv := utils.Ternary(streamsPath == "", filepath.Join(configFolder, "streams.json"), streamsPath).(string)
 			differencePathEnv := utils.Ternary(streamsPath != "", filepath.Join(filepath.Dir(streamsPath), "difference_streams.json"), filepath.Join(configFolder, "difference_streams.json")).(string)
