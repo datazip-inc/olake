@@ -27,7 +27,6 @@ const (
 	EnvS3Region            = "OLAKE_S3_REGION"
 	EnvS3AccessKeyID       = "OLAKE_S3_ACCESS_KEY_ID"
 	EnvS3SecretAccessKey   = "OLAKE_S3_SECRET_ACCESS_KEY" // #nosec G101 -- env var name, not a credential
-	EnvS3SessionToken      = "OLAKE_S3_SESSION_TOKEN"     // #nosec G101 -- env var name, not a credential
 	EnvS3Endpoint          = "OLAKE_S3_ENDPOINT"
 	EnvS3ConfigFolder      = "OLAKE_S3_CONFIG_FOLDER"
 	ConfigFolder           = "CONFIG_FOLDER"

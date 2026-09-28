@@ -18,7 +18,6 @@ type Config struct {
 	Region          string // optional; empty defers to the AWS default region resolution
 	AccessKeyID     string // optional; must be set together with SecretAccessKey
 	SecretAccessKey string
-	SessionToken    string // optional; only used with static credentials
 	Endpoint        string // optional; set for S3-compatible services (MinIO, GCS interop, R2, ...)
 }
 
@@ -39,7 +38,7 @@ func NewS3Client(ctx context.Context, cfg Config) (*s3.Client, error) {
 
 	if cfg.UsesStaticCredentials() {
 		configOpts = append(configOpts, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, cfg.SessionToken),
+			credentials.StaticCredentialsProvider{Value: aws.Credentials{AccessKeyID: cfg.AccessKeyID, SecretAccessKey: cfg.SecretAccessKey}},
 		))
 	}
 

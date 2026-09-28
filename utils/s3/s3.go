@@ -33,7 +33,6 @@ func Init(ctx context.Context) error {
 		Region:          os.Getenv(constants.EnvS3Region),
 		AccessKeyID:     os.Getenv(constants.EnvS3AccessKeyID),
 		SecretAccessKey: os.Getenv(constants.EnvS3SecretAccessKey),
-		SessionToken:    os.Getenv(constants.EnvS3SessionToken),
 		Endpoint:        os.Getenv(constants.EnvS3Endpoint),
 	})
 	if err != nil {
