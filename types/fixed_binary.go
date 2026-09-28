@@ -39,11 +39,8 @@ func bytesWidth(typeName, prefix, suffix string) (int, bool) {
 		return 0, true
 	}
 	digits, isFixed := strings.CutPrefix(typeName, prefix)
-	if !isFixed {
-		return 0, false
-	}
 	digits, closed := strings.CutSuffix(digits, suffix)
-	if !closed {
+	if !isFixed || !closed {
 		return 0, false
 	}
 	width, err := strconv.Atoi(digits)
