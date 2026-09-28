@@ -179,7 +179,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 					if err != nil {
 						//key - null
 						if errors.Is(err, errNullDedupKeys) {
-							return false, fmt.Errorf("stream[%s] offset=%d: %w", stream.ID(), record.Message.Offset, err)
+							return false, errs.Precondition(errs.CDCPreconditionFailed, "_kafka.null_dedup_keys",
+								fmt.Errorf("%w: stream[%s] partition=%d offset=%d: %w",
+									constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, err))
 						}
 						// key - absent
 					} else {
@@ -214,7 +216,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 				if err != nil {
 					// all present dedup fields null - fail sync
 					if errors.Is(err, errNullDedupKeys) {
-						return false, fmt.Errorf("stream[%s] offset=%d: %w", stream.ID(), record.Message.Offset, err)
+						return false, errs.Precondition(errs.CDCPreconditionFailed, "kafka.null_dedup_keys",
+							fmt.Errorf("%w: stream[%s], paritition=%d, offset=%d: %w",
+								constants.ErrNonRetryable, stream.ID(), record.Message.Partition, record.Message.Offset, err))
 					}
 					// no selected dedup fields is present - append
 					if err := appendByOffsetPartition(record.Data); err != nil {
