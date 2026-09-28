@@ -155,7 +155,6 @@ func (i *Iceberg) Setup(ctx context.Context, stream types.StreamInterface, _ any
 	return schema, &metadataState, nil
 }
 
-// note: java server parses time from long value which will in milliseconds
 func (i *Iceberg) Write(ctx context.Context, records []types.RawRecord) error {
 	return i.writer.Write(ctx, records)
 }
