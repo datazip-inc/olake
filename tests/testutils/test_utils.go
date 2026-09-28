@@ -848,7 +848,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
 	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
-	evolvedSchema := operation == "update"
+	evolvedSchema := operation == "update" || operation == "upsert_update"
 
 	// Verification reads the destination back through Spark Connect (with retries), a real slice of
 	// sync wall-clock; time it as its own phase.
