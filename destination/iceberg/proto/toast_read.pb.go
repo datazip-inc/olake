@@ -463,11 +463,11 @@ var File_toast_read_proto protoreflect.FileDescriptor
 
 const file_toast_read_proto_rawDesc = "" +
 	"\n" +
-	"\x10toast_read.proto\x12\x1eio.debezium.server.iceberg.rpc\"\xdf\x01\n" +
+	"\x10toast_read.proto\x12\x14io.olake.iceberg.rpc\"\xd5\x01\n" +
 	"\x0fReadRowsRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\x12\x18\n" +
-	"\acolumns\x18\x02 \x03(\tR\acolumns\x12N\n" +
-	"\x05files\x18\x03 \x03(\v28.io.debezium.server.iceberg.rpc.ReadRowsRequest.FileRowsR\x05files\x1aE\n" +
+	"\acolumns\x18\x02 \x03(\tR\acolumns\x12D\n" +
+	"\x05files\x18\x03 \x03(\v2..io.olake.iceberg.rpc.ReadRowsRequest.FileRowsR\x05files\x1aE\n" +
 	"\bFileRows\x12\x1b\n" +
 	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12\x1c\n" +
 	"\tpositions\x18\x02 \x03(\x03R\tpositions\"\xc5\x01\n" +
@@ -480,20 +480,20 @@ const file_toast_read_proto_rawDesc = "" +
 	"bool_value\x18\x04 \x01(\bH\x00R\tboolValue\x12!\n" +
 	"\vbytes_value\x18\x05 \x01(\fH\x00R\n" +
 	"bytesValueB\a\n" +
-	"\x05value\"\xdc\x01\n" +
-	"\rReadRowsBatch\x12E\n" +
-	"\x04rows\x18\x01 \x03(\v21.io.debezium.server.iceberg.rpc.ReadRowsBatch.RowR\x04rows\x1a\x83\x01\n" +
+	"\x05value\"\xc7\x01\n" +
+	"\rReadRowsBatch\x12;\n" +
+	"\x04rows\x18\x01 \x03(\v2'.io.olake.iceberg.rpc.ReadRowsBatch.RowR\x04rows\x1ay\n" +
 	"\x03Row\x12\x1b\n" +
 	"\tfile_path\x18\x01 \x01(\tR\bfilePath\x12\x1a\n" +
-	"\bposition\x18\x02 \x01(\x03R\bposition\x12C\n" +
-	"\x06values\x18\x03 \x03(\v2+.io.debezium.server.iceberg.rpc.ColumnValueR\x06values\"4\n" +
+	"\bposition\x18\x02 \x01(\x03R\bposition\x129\n" +
+	"\x06values\x18\x03 \x03(\v2!.io.olake.iceberg.rpc.ColumnValueR\x06values\"4\n" +
 	"\x15FlushOpenFilesRequest\x12\x1b\n" +
 	"\tthread_id\x18\x01 \x01(\tR\bthreadId\"=\n" +
 	"\x16FlushOpenFilesResponse\x12#\n" +
-	"\rflushed_files\x18\x01 \x01(\x03R\fflushedFiles2\x81\x02\n" +
-	"\x10ToastReadService\x12l\n" +
-	"\bReadRows\x12/.io.debezium.server.iceberg.rpc.ReadRowsRequest\x1a-.io.debezium.server.iceberg.rpc.ReadRowsBatch0\x01\x12\x7f\n" +
-	"\x0eFlushOpenFiles\x125.io.debezium.server.iceberg.rpc.FlushOpenFilesRequest\x1a6.io.debezium.server.iceberg.rpc.FlushOpenFilesResponseB\x1aB\tToastReadZ\riceberg/protob\x06proto3"
+	"\rflushed_files\x18\x01 \x01(\x03R\fflushedFiles2\xd9\x01\n" +
+	"\x10ToastReadService\x12X\n" +
+	"\bReadRows\x12%.io.olake.iceberg.rpc.ReadRowsRequest\x1a#.io.olake.iceberg.rpc.ReadRowsBatch0\x01\x12k\n" +
+	"\x0eFlushOpenFiles\x12+.io.olake.iceberg.rpc.FlushOpenFilesRequest\x1a,.io.olake.iceberg.rpc.FlushOpenFilesResponseB\x1aB\tToastReadZ\riceberg/protob\x06proto3"
 
 var (
 	file_toast_read_proto_rawDescOnce sync.Once
@@ -509,22 +509,22 @@ func file_toast_read_proto_rawDescGZIP() []byte {
 
 var file_toast_read_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_toast_read_proto_goTypes = []any{
-	(*ReadRowsRequest)(nil),          // 0: io.debezium.server.iceberg.rpc.ReadRowsRequest
-	(*ColumnValue)(nil),              // 1: io.debezium.server.iceberg.rpc.ColumnValue
-	(*ReadRowsBatch)(nil),            // 2: io.debezium.server.iceberg.rpc.ReadRowsBatch
-	(*FlushOpenFilesRequest)(nil),    // 3: io.debezium.server.iceberg.rpc.FlushOpenFilesRequest
-	(*FlushOpenFilesResponse)(nil),   // 4: io.debezium.server.iceberg.rpc.FlushOpenFilesResponse
-	(*ReadRowsRequest_FileRows)(nil), // 5: io.debezium.server.iceberg.rpc.ReadRowsRequest.FileRows
-	(*ReadRowsBatch_Row)(nil),        // 6: io.debezium.server.iceberg.rpc.ReadRowsBatch.Row
+	(*ReadRowsRequest)(nil),          // 0: io.olake.iceberg.rpc.ReadRowsRequest
+	(*ColumnValue)(nil),              // 1: io.olake.iceberg.rpc.ColumnValue
+	(*ReadRowsBatch)(nil),            // 2: io.olake.iceberg.rpc.ReadRowsBatch
+	(*FlushOpenFilesRequest)(nil),    // 3: io.olake.iceberg.rpc.FlushOpenFilesRequest
+	(*FlushOpenFilesResponse)(nil),   // 4: io.olake.iceberg.rpc.FlushOpenFilesResponse
+	(*ReadRowsRequest_FileRows)(nil), // 5: io.olake.iceberg.rpc.ReadRowsRequest.FileRows
+	(*ReadRowsBatch_Row)(nil),        // 6: io.olake.iceberg.rpc.ReadRowsBatch.Row
 }
 var file_toast_read_proto_depIdxs = []int32{
-	5, // 0: io.debezium.server.iceberg.rpc.ReadRowsRequest.files:type_name -> io.debezium.server.iceberg.rpc.ReadRowsRequest.FileRows
-	6, // 1: io.debezium.server.iceberg.rpc.ReadRowsBatch.rows:type_name -> io.debezium.server.iceberg.rpc.ReadRowsBatch.Row
-	1, // 2: io.debezium.server.iceberg.rpc.ReadRowsBatch.Row.values:type_name -> io.debezium.server.iceberg.rpc.ColumnValue
-	0, // 3: io.debezium.server.iceberg.rpc.ToastReadService.ReadRows:input_type -> io.debezium.server.iceberg.rpc.ReadRowsRequest
-	3, // 4: io.debezium.server.iceberg.rpc.ToastReadService.FlushOpenFiles:input_type -> io.debezium.server.iceberg.rpc.FlushOpenFilesRequest
-	2, // 5: io.debezium.server.iceberg.rpc.ToastReadService.ReadRows:output_type -> io.debezium.server.iceberg.rpc.ReadRowsBatch
-	4, // 6: io.debezium.server.iceberg.rpc.ToastReadService.FlushOpenFiles:output_type -> io.debezium.server.iceberg.rpc.FlushOpenFilesResponse
+	5, // 0: io.olake.iceberg.rpc.ReadRowsRequest.files:type_name -> io.olake.iceberg.rpc.ReadRowsRequest.FileRows
+	6, // 1: io.olake.iceberg.rpc.ReadRowsBatch.rows:type_name -> io.olake.iceberg.rpc.ReadRowsBatch.Row
+	1, // 2: io.olake.iceberg.rpc.ReadRowsBatch.Row.values:type_name -> io.olake.iceberg.rpc.ColumnValue
+	0, // 3: io.olake.iceberg.rpc.ToastReadService.ReadRows:input_type -> io.olake.iceberg.rpc.ReadRowsRequest
+	3, // 4: io.olake.iceberg.rpc.ToastReadService.FlushOpenFiles:input_type -> io.olake.iceberg.rpc.FlushOpenFilesRequest
+	2, // 5: io.olake.iceberg.rpc.ToastReadService.ReadRows:output_type -> io.olake.iceberg.rpc.ReadRowsBatch
+	4, // 6: io.olake.iceberg.rpc.ToastReadService.FlushOpenFiles:output_type -> io.olake.iceberg.rpc.FlushOpenFilesResponse
 	5, // [5:7] is the sub-list for method output_type
 	3, // [3:5] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name

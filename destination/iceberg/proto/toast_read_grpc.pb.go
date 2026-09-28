@@ -19,8 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ToastReadService_ReadRows_FullMethodName       = "/io.debezium.server.iceberg.rpc.ToastReadService/ReadRows"
-	ToastReadService_FlushOpenFiles_FullMethodName = "/io.debezium.server.iceberg.rpc.ToastReadService/FlushOpenFiles"
+	ToastReadService_ReadRows_FullMethodName       = "/io.olake.iceberg.rpc.ToastReadService/ReadRows"
+	ToastReadService_FlushOpenFiles_FullMethodName = "/io.olake.iceberg.rpc.ToastReadService/FlushOpenFiles"
 )
 
 // ToastReadServiceClient is the client API for ToastReadService service.
@@ -158,7 +158,7 @@ func _ToastReadService_FlushOpenFiles_Handler(srv interface{}, ctx context.Conte
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ToastReadService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "io.debezium.server.iceberg.rpc.ToastReadService",
+	ServiceName: "io.olake.iceberg.rpc.ToastReadService",
 	HandlerType: (*ToastReadServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

@@ -148,7 +148,7 @@ func IcebergTypeToDatatype(d string) DataType {
 	case "double":
 		return Float64
 	case "timestamptz":
-		return TimestampMilli
+		return TimestampMicro
 	default:
 		return String
 	}
