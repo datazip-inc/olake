@@ -102,7 +102,7 @@ var icebergToDataType = icebergToDataTypeMap{
 	"long":        Int64,
 	"float":       Float32,
 	"double":      Float64,
-	"timestamptz": TimestampMilli,
+	"timestamptz": TimestampMicro,
 	"string":      String,
 	"binary":      Binary,
 	"fixed[%d]":   FixedBinary,

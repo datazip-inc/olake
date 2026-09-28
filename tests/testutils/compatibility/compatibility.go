@@ -189,12 +189,11 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baselineVersion st
 						// Each side runs every case on its own long-lived config, both starting on the
 						// baseline; the upgrade side hands its stateful syncs to the candidate.
 						sides := []struct {
-							name           string
-							defaultVersion string
-							pickVersion    func(useState bool) string
+							name        string
+							pickVersion func(useState bool) string
 						}{
-							{"ref", baselineVersion, func(bool) string { return baselineVersion }},
-							{"upg", upgradedVersion, func(useState bool) string {
+							{"ref", func(bool) string { return baselineVersion }},
+							{"upg", func(useState bool) string {
 								return getDriverVersionForSync(useState, baselineVersion, upgradedVersion)
 							}},
 						}
@@ -203,7 +202,7 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baselineVersion st
 							sidesDone.Go(func() {
 								t.Run(side.name, func(t *testing.T) {
 									t.Cleanup(func() { checkpoint.stopIfFailed(t) })
-									cfg := th.NewConfig(t, side.defaultVersion)
+									cfg := th.NewConfig(t, baselineVersion)
 									configs[i] = cfg
 									perpareSourceTable(t, cfg, group, v, policies)
 									for _, c := range cases {

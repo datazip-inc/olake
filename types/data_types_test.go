@@ -84,7 +84,7 @@ func TestIcebergTypeToDatatype(t *testing.T) {
 		{"long", Int64},
 		{"float", Float32},
 		{"double", Float64},
-		{"timestamptz", TimestampMilli},
+		{"timestamptz", TimestampMicro},
 		{"string", String},
 		{"binary", Binary},
 		{"fixed[16]", FixedBinaryOf(16)},

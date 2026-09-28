@@ -187,6 +187,11 @@
                         }
                     }
                 },
+                "available_update_types": [
+                    "eq",
+                    "pos",
+                    "dv"
+                ],
                 "supported_sync_modes": [
                     "full_refresh",
                     "incremental"

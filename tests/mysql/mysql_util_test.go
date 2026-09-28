@@ -64,8 +64,8 @@ var seedColumns = []seedColumn{
 	{name: "name_tinytext", datatype: "TINYTEXT", value: "'tinytext_val'", filtered: "'filtered tiny'", updated: "'upd tiny'"},
 	{name: "name_mediumtext", datatype: "MEDIUMTEXT", value: "'mediumtext_val'", filtered: "'filtered medium'", updated: "'upd medium'"},
 	{name: "name_longtext", datatype: "LONGTEXT", value: "'longtext_val'", filtered: "'filtered long'", updated: "'upd long'"},
-	{name: "created_date", datatype: "DATETIME", value: "'2023-01-01 12:00:00'", filtered: "'2022-06-15 10:00:00'", updated: "'2024-07-01 15:30:00'"},
-	{name: "created_timestamp", datatype: "TIMESTAMP NULL", value: "'2023-01-01 12:00:00'", filtered: "'2021-06-15 10:00:00'", updated: "'2024-07-01 15:30:00'"},
+	{name: "created_date", datatype: "DATETIME(6)", value: "'2023-01-01 12:00:00.573605'", filtered: "'2022-06-15 10:00:00'", updated: "'2024-07-01 15:30:00.573605'"},
+	{name: "created_timestamp", datatype: "TIMESTAMP(6) NULL", value: "'2023-01-01 12:00:00.573605'", filtered: "'2021-06-15 10:00:00'", updated: "'2024-07-01 15:30:00.573605'"},
 	{name: "is_active", datatype: "TINYINT(1)", value: "1", filtered: "0", updated: "0"},
 	{name: "long_varchar", datatype: "MEDIUMTEXT", value: "'long_varchar_val'", filtered: "'filtered long varchar'", updated: "'updated long...'"},
 	{name: "name_bool", datatype: "TINYINT(1) DEFAULT '1'", value: "1", filtered: "0", updated: "0"},
@@ -291,6 +291,77 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	case "evolve-schema":
 		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
 
+	case "dv-create":
+		for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+			_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
+			require.NoError(t, err, "failed to drop %s before create", table)
+			_, err = db.ExecContext(ctx, fmt.Sprintf(`
+				CREATE TABLE %s (
+					id INT PRIMARY KEY,
+					customer VARCHAR(64),
+					amount DECIMAL(10,2),
+					status VARCHAR(16),
+					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+				)`, table))
+			require.NoError(t, err, "failed to create %s", table)
+		}
+		return
+
+	case "dv-drop":
+		for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+			_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
+			require.NoError(t, err, "failed to drop %s", table)
+		}
+		return
+
+	case "dv-seed":
+		// id 2 and 3 share a status on purpose: whichever scenario deletes both is
+		// relying on them landing in the same partition (and so the same data file)
+		// on dv_part, while id 1, 4 and 5 spread across other partitions.
+		rows := []struct {
+			id     int
+			status string
+		}{
+			{1, "new"}, {2, "processing"}, {3, "processing"}, {4, "shipped"}, {5, "shipped"},
+		}
+		for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+			for _, row := range rows {
+				_, err = db.ExecContext(ctx, fmt.Sprintf(
+					"INSERT INTO %s (id, customer, amount, status) VALUES (%d, 'customer_%d', %d.00, '%s')",
+					table, row.id, row.id, row.id*100, row.status))
+				require.NoError(t, err, "failed to seed %s row id=%d", table, row.id)
+			}
+		}
+		return
+
+	case "dv-unpart-update-id1":
+		query = fmt.Sprintf("UPDATE %s SET amount = 150.00, status = 'updated' WHERE id = 1", testutils.DVUnpartTable)
+
+	case "dv-part-update-id1":
+		// amount only, deliberately NOT status: status is dv_part's partition column, and a
+		// partition-moving update is a separate, out-of-scope edge case (equality/positional
+		// deletes get scoped to the row's new partition, not the old one it physically lives
+		// in, orphaning the delete
+		query = fmt.Sprintf("UPDATE %s SET amount = 150.00 WHERE id = 1", testutils.DVPartTable)
+
+	case "dv-unpart-delete-id5":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 5", testutils.DVUnpartTable)
+
+	case "dv-part-delete-id5":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 5", testutils.DVPartTable)
+
+	case "dv-unpart-delete-id2":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 2", testutils.DVUnpartTable)
+
+	case "dv-part-delete-id2":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 2", testutils.DVPartTable)
+
+	case "dv-unpart-delete-id3":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 3", testutils.DVUnpartTable)
+
+	case "dv-part-delete-id3":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 3", testutils.DVPartTable)
+
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
@@ -369,8 +440,8 @@ var ExpectedMySQLData = map[string]interface{}{
 	"name_tinytext":                 "tinytext_val",
 	"name_mediumtext":               "mediumtext_val",
 	"name_longtext":                 "longtext_val",
-	"created_date":                  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"created_timestamp":             arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_date":                  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_timestamp":             arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"is_active":                     int32(1),
 	"long_varchar":                  "long_varchar_val",
 	"name_bool":                     int32(1),
@@ -424,8 +495,8 @@ func ExpectedUpdatedData() map[string]interface{} {
 		"name_tinytext":                 "upd tiny",
 		"name_mediumtext":               "upd medium",
 		"name_longtext":                 "upd long",
-		"created_date":                  arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-		"created_timestamp":             arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+		"created_date":                  arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+		"created_timestamp":             arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 		"is_active":                     int32(0),
 		"long_varchar":                  "updated long...",
 		"name_bool":                     int32(0),

@@ -73,6 +73,7 @@ for each baseline in state-versions.json (applicable to this driver)
         reference run                     upgrade run
         ─────────────                     ───────────
         seed source                       seed source
+        discover        @ baseline        discover        @ baseline
         stateless load  @ baseline        stateless load  @ baseline
         sync (insert)   @ baseline        sync (insert)   @ candidate
         sync (update)   @ baseline        sync (update)   @ candidate
@@ -81,7 +82,9 @@ for each baseline in state-versions.json (applicable to this driver)
                     └───────── compare ───────────────┘
 ```
 
-Both sides run in parallel on their own source table and destination namespace, then the two destinations are compared: row counts, per-column values, and the destination schema. Columns that cannot match by construction — `_olake_timestamp`, CDC log coordinates, server-generated ids — are compared by type only, per `destination_rules`.
+Each side's `streams.json` is what the baseline's `discover` writes for its freshly seeded table: a user upgrades with the catalog their older build discovered, so the candidate is tested on that catalog, never on the committed `streams.template.json`.
+
+Both sides run in parallel on their own source table and, through the destination database prefix each side hands its discover, their own destination namespace, then the two destinations are compared: row counts, per-column values, and the destination schema. Columns that cannot match by construction — `_olake_timestamp`, CDC log coordinates, server-generated ids — are compared by type only, per `destination_rules`.
 
 ### Example: a failure
 

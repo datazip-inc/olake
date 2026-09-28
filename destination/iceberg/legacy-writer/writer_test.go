@@ -54,10 +54,10 @@ func TestToProtoFieldValue(t *testing.T) {
 			want:    &proto.IcebergPayload_IceRecord_FieldValue_DoubleValue{DoubleValue: 2.5},
 		},
 		{
-			name:    "timestamptz travels as epoch millis",
+			name:    "timestamptz travels as epoch micros",
 			iceType: "timestamptz",
 			value:   sample,
-			want:    &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: sample.UnixMilli()},
+			want:    &proto.IcebergPayload_IceRecord_FieldValue_LongValue{LongValue: sample.UnixMicro()},
 		},
 		{
 			name:    "bytes into a binary column",

@@ -1,0 +1,504 @@
+package integration
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"slices"
+	"testing"
+
+	"github.com/apache/spark-connect-go/v35/spark/sql"
+	"github.com/datazip-inc/olake/tests/testutils"
+	"github.com/datazip-inc/olake/tests/testutils/constants"
+	"github.com/datazip-inc/olake/tests/testutils/require"
+)
+
+// icebergDVTestDrivers gates the deletion-vector suite the same way icebergTableIndexTestDrivers
+// gates the pos/table-index suite (see hasIcebergTableIndexTest). One CDC-capable driver is
+// enough - these exercise destination behavior, not source specifics.
+var icebergDVTestDrivers = []constants.DriverType{constants.MySQL}
+
+func hasIcebergDVTest(driver string) bool {
+	return slices.Contains(icebergDVTestDrivers, constants.DriverType(driver))
+}
+
+// dvColumnSchema is the type_schema every dv stream shares - both tables have the same
+// columns, so this is built once and reused for both catalog entries.
+func dvColumnSchema() map[string]interface{} {
+	return map[string]interface{}{
+		"id":                    map[string]interface{}{"type": []interface{}{"integer_small"}, "destination_column_name": "id"},
+		"customer":              map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "customer"},
+		"amount":                map[string]interface{}{"type": []interface{}{"number", "null"}, "destination_column_name": "amount"},
+		"status":                map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "status"},
+		"updated_at":            map[string]interface{}{"type": []interface{}{"timestamp", "null"}, "destination_column_name": "updated_at"},
+		"_op_type":              map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "_op_type", "olake_column": true},
+		"_olake_id":             map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "_olake_id", "olake_column": true},
+		"_olake_timestamp":      map[string]interface{}{"type": []interface{}{"timestamp_micro", "null"}, "destination_column_name": "_olake_timestamp", "olake_column": true},
+		"_cdc_timestamp":        map[string]interface{}{"type": []interface{}{"timestamp_micro", "null"}, "destination_column_name": "_cdc_timestamp", "olake_column": true},
+		"_cdc_binlog_file_name": map[string]interface{}{"type": []interface{}{"string", "null"}, "destination_column_name": "_cdc_binlog_file_name", "olake_column": true},
+		"_cdc_binlog_file_pos":  map[string]interface{}{"type": []interface{}{"integer", "null"}, "destination_column_name": "_cdc_binlog_file_pos", "olake_column": true},
+	}
+}
+
+// dvStreamEntry builds one `streams[]` entry, matching the shape discover would produce for a
+// table this narrow.
+//
+// destinationDatabase is set explicitly here rather than left for `--destination-database-prefix`
+// to fill in: that flag only ever gets baked into a stream's destination_database by `discover`
+// itself (utils.GenerateDestinationDetails, types/catalog.go's discover-time logic) - it has no
+// effect on a catalog written directly like this one. Leaving destination_database unset would
+// make GetDestinationDatabase fall back to the destination config's own iceberg_db namespace
+// instead of the one every Spark query in this suite expects (th.TestConfig.DestinationDB) - the sync would
+// still succeed, just against the wrong namespace, which looks like the table never got created.
+func dvStreamEntry(namespace, table, destinationDatabase string) map[string]interface{} {
+	return map[string]interface{}{
+		"stream": map[string]interface{}{
+			"name":                       table,
+			"namespace":                  namespace,
+			"type_schema":                map[string]interface{}{"properties": dvColumnSchema()},
+			"supported_sync_modes":       []interface{}{"strict_cdc", "full_refresh", "incremental", "cdc"},
+			"source_defined_primary_key": []interface{}{"id"},
+			"available_cursor_fields":    []interface{}{"id", "customer", "amount", "status", "updated_at"},
+			"sync_mode":                  "cdc",
+			"destination_database":       destinationDatabase,
+			"destination_table":          table,
+			"default_stream_properties":  map[string]interface{}{"normalization": true, "append_mode": false},
+		},
+	}
+}
+
+// dvSelectedEntry builds one `selected_streams[namespace][]` entry. partitionRegex is "" for
+// the unpartitioned table.
+func dvSelectedEntry(table, updateType, partitionRegex string) map[string]interface{} {
+	return map[string]interface{}{
+		"stream_name":     table,
+		"update_type":     updateType,
+		"partition_regex": partitionRegex,
+		"normalization":   true,
+		"append_mode":     false,
+	}
+}
+
+// dvCatalogDoc builds a whole streams.json selecting both dv tables under CDC, in the given
+// update_type, with testutils.DVPartTable's stream carrying a partition_regex (identity on `status`) and
+// testutils.DVUnpartTable's carrying none. Written directly rather than derived from a discover run or a
+// checked-in fixture, since the shape needed here (two narrow, purpose-built tables) has nothing
+// in common with the wide datatype-matrix fixture every other suite seeds from.
+func dvCatalogDoc(namespace, destinationDatabase, updateType string) map[string]interface{} {
+	return map[string]interface{}{
+		"streams": []interface{}{
+			dvStreamEntry(namespace, testutils.DVUnpartTable, destinationDatabase),
+			dvStreamEntry(namespace, testutils.DVPartTable, destinationDatabase),
+		},
+		"selected_streams": map[string]interface{}{
+			namespace: []interface{}{
+				dvSelectedEntry(testutils.DVUnpartTable, updateType, ""),
+				dvSelectedEntry(testutils.DVPartTable, updateType, "/{status,identity}"),
+			},
+		},
+	}
+}
+
+// prepareDVSync creates and seeds both dv tables, writes a fresh catalog selecting both under
+// the given update_type, and clears the table index - the dv-suite equivalent of
+// prepareTableIndexSync in iceberg_index.go. A scenario's first sync then runs without state,
+// which is what resets it.
+//
+// Every scenario drops and recreates dv_unpart/dv_part under the SAME table names, so each one
+// gets a brand new Iceberg table with its own fresh snapshot history. The on-disk table index
+// does not know that - left alone, it replays whatever WAL a PRIOR scenario's now-deleted table
+// left behind and hands the new table a bookmark snapshot ID that belongs to a completely
+// different table's history, which the server can only report as "not an ancestor, full scan
+// required".
+func (th *TestHandler) prepareDVSync(ctx context.Context, t *testing.T, updateType string) error {
+	t.Helper()
+
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-drop")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-create")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-seed")
+
+	doc := dvCatalogDoc(th.Namespace, th.TestConfig.DestinationDB, updateType)
+	raw, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to build dv catalog: %w", err)
+	}
+	if err := testutils.WriteHostFile(th.TestConfig.GetFilePath("streams.json"), raw); err != nil {
+		return fmt.Errorf("failed to write dv catalog: %w", err)
+	}
+
+	if err := os.RemoveAll(th.tableIndexHostDir()); err != nil {
+		return fmt.Errorf("failed to clear table index: %w", err)
+	}
+	return nil
+}
+
+// dvSetUpdateType flips update_type for both dv streams between syncs - the two-table
+// equivalent of setUpdateType.
+func dvSetUpdateType(config *testutils.TestConfig, namespace, updateType string) error {
+	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		if err := setUpdateType(config, namespace, table, updateType); err != nil {
+			return fmt.Errorf("failed to set update_type on %s: %w", table, err)
+		}
+	}
+	return nil
+}
+
+// dvFullTableName is table's Iceberg identifier in the suite's destination namespace.
+func dvFullTableName(th *TestHandler, table string) string {
+	return fmt.Sprintf("%s.%s.%s", testutils.IcebergCatalog, th.TestConfig.DestinationDB, table)
+}
+
+// dvSync runs one sync against the arrow or legacy destination config, then fails the test
+// immediately on a failed run - every dv scenario is a sequence of these. A scenario's first sync
+// runs without state; every later one resumes it.
+func (th *TestHandler) dvSync(ctx context.Context, t *testing.T, useArrow, useState bool, label string) {
+	t.Helper()
+	destinationFile := testutils.Ternary(useArrow, icebergArrowDestinationFile, icebergDestinationFile).(string)
+	require.NoError(t, testutils.RunSync(ctx, t, th.TestConfig, destinationFile, useState), "%s sync failed", label)
+}
+
+// dvTableState is the full picture one table's assertions are checked against after a sync.
+type dvTableState struct {
+	liveRows           map[string]string // id -> _op_type, from every live row
+	posOrDVDeleteFiles int64             // delete_files, content=1 (positional or DV, current snapshot)
+	eqDeleteFiles      int64             // delete_files, content=2 (equality, current snapshot)
+	parquetPosFiles    int64             // delete_files, content=1, file_format=PARQUET
+	puffinVectorFiles  int64             // delete_files, content=1, file_format=PUFFIN
+	duplicateVectors   int64             // referenced_data_file appearing more than once among live PUFFIN vectors - must be 0
+	formatVersion      int64
+}
+
+func dvState(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) dvTableState {
+	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
+
+	return dvTableState{
+		liveRows:           queryLiveOpTypesByID(ctx, t, spark, fullTableName),
+		posOrDVDeleteFiles: countDeleteFiles(ctx, t, spark, fullTableName, 1),
+		eqDeleteFiles:      countDeleteFiles(ctx, t, spark, fullTableName, 2),
+		parquetPosFiles:    countDeleteFilesByFormat(ctx, t, spark, fullTableName, 1, "PARQUET"),
+		puffinVectorFiles:  countDeleteFilesByFormat(ctx, t, spark, fullTableName, 1, "PUFFIN"),
+		duplicateVectors:   duplicateVectorCount(ctx, t, spark, fullTableName),
+		formatVersion:      formatVersion(ctx, t, spark, fullTableName),
+	}
+}
+
+// queryLiveOpTypesByID is queryLiveOpTypes keyed on the dv tables' own primary key column - the
+// existing helper is keyed on col_bigserial, which these tables do not have.
+func queryLiveOpTypesByID(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) map[string]string {
+	t.Helper()
+	df, err := spark.Sql(ctx, fmt.Sprintf("SELECT id, _op_type FROM %s", fullTableName))
+	require.NoError(t, err)
+	rows, err := df.Collect(ctx)
+	require.NoError(t, err)
+
+	result := make(map[string]string, len(rows))
+	for _, r := range rows {
+		result[fmt.Sprintf("%v", r.Value("id"))] = fmt.Sprintf("%v", r.Value("_op_type"))
+	}
+	return result
+}
+
+func countDeleteFilesByFormat(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string, content int, format string) int64 {
+	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
+	return countSpark(ctx, t, spark, fmt.Sprintf(
+		"SELECT count(*) as cnt FROM %s.delete_files WHERE content = %d AND file_format = '%s'",
+		fullTableName, content, format,
+	))
+}
+
+// duplicateVectorCount is "at most one live deletion vector per data file" as a count: any
+// referenced_data_file appearing more than once among current-snapshot PUFFIN entries means a
+// superseded vector was left behind instead of being replaced. Must be 0 on every dv table.
+func duplicateVectorCount(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) int64 {
+	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
+	return countSpark(ctx, t, spark, fmt.Sprintf(`
+		SELECT count(*) as cnt FROM (
+			SELECT referenced_data_file FROM %s.delete_files
+			WHERE file_format = 'PUFFIN'
+			GROUP BY referenced_data_file HAVING count(*) > 1
+		)`, fullTableName))
+}
+
+// dvHistoryIncreasing returns the record_count of every PUFFIN vector ever written for
+// fullTableName, oldest snapshot first. A merge that actually unions old and new positions
+// produces a strictly increasing sequence per data file; a merge that silently reset instead of
+// merging produces a flat one. Grouped by referenced_data_file since more than one file may have
+// history in the same table (dv_part, once seeded across partitions, always does).
+func dvHistoryIncreasing(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) map[string][]int64 {
+	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
+	df, err := spark.Sql(ctx, fmt.Sprintf(`
+		SELECT referenced_data_file, record_count FROM %s.all_delete_files
+		WHERE file_format = 'PUFFIN'
+		ORDER BY referenced_data_file, record_count`, fullTableName))
+	require.NoError(t, err)
+	rows, err := df.Collect(ctx)
+	require.NoError(t, err)
+
+	out := map[string][]int64{}
+	for _, r := range rows {
+		file := fmt.Sprintf("%v", r.Value("referenced_data_file"))
+		count, ok := r.Value("record_count").(int64)
+		require.True(t, ok, "record_count is not int64: %T", r.Value("record_count"))
+		out[file] = append(out[file], count)
+	}
+	return out
+}
+
+func removedDeleteFileCount(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) int64 {
+	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
+	df, err := spark.Sql(ctx, fmt.Sprintf(
+		"SELECT summary['removed-delete-files'] AS removed FROM %s.snapshots ORDER BY committed_at DESC LIMIT 1",
+		fullTableName))
+	require.NoError(t, err)
+	rows, err := df.Collect(ctx)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	removed := fmt.Sprintf("%v", rows[0].Value("removed"))
+	var n int64
+	_, err = fmt.Sscanf(removed, "%d", &n)
+	require.NoError(t, err, "removed-delete-files is not numeric: %q", removed)
+	return n
+}
+
+// formatVersion reads the table's format-version property. Iceberg's Spark catalog surfaces it
+// through SHOW TBLPROPERTIES like any other table property, even though it is intrinsic
+// metadata rather than something OLake or a user ever sets directly.
+func formatVersion(ctx context.Context, t *testing.T, spark sql.SparkSession, fullTableName string) int64 {
+	t.Helper()
+	refreshTable(ctx, t, spark, fullTableName)
+	df, err := spark.Sql(ctx, fmt.Sprintf("SHOW TBLPROPERTIES %s", fullTableName))
+	require.NoError(t, err)
+	rows, err := df.Collect(ctx)
+	require.NoError(t, err)
+	for _, r := range rows {
+		if fmt.Sprintf("%v", r.Value("key")) == "format-version" {
+			var n int64
+			_, err := fmt.Sscanf(fmt.Sprintf("%v", r.Value("value")), "%d", &n)
+			require.NoError(t, err, "format-version is not numeric on %s", fullTableName)
+			return n
+		}
+	}
+	t.Fatalf("no format-version property found on %s", fullTableName)
+	return 0
+}
+
+// requireLiveRowsEqual is the row-correctness check every dv scenario ends with: the live id ->
+// _op_type map must be identical across both tables and must match the caller's expectation
+// exactly, no more and no fewer ids.
+func requireLiveRowsEqual(t *testing.T, want map[string]string, got dvTableState, tableLabel string) {
+	t.Helper()
+	require.Equal(t, want, got.liveRows, "%s: unexpected live row set", tableLabel)
+}
+
+// -----------------------------------------------------------------------------------------------
+// Scenarios. Each runs a source-side step against both tables, syncs once, then asserts against
+// both tables' state - a scenario passes only if both agree.
+// -----------------------------------------------------------------------------------------------
+
+// testIcebergDVBackfillAndCore backfills both dv tables, then runs one CDC sync that updates one
+// row and deletes another. It is the smallest possible proof that "dv" actually reaches the
+// server end to end: a table created under this mode should be on format version 3 from the
+// very first sync (never 2, upgraded later), and every delete it produces should show up as a
+// Puffin file, never a Parquet one.
+func (th *TestHandler) testIcebergDVBackfillAndCore(ctx context.Context, t *testing.T, useArrow bool) error {
+	defer testutils.DropIcebergTable(t, testutils.DVUnpartTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testutils.DVPartTable, th.TestConfig.DestinationDB)
+
+	if err := th.prepareDVSync(ctx, t, "dv"); err != nil {
+		return err
+	}
+
+	th.dvSync(ctx, t, useArrow, false, "backfill")
+
+	spark := getSparkSession(ctx, t)
+	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		full := dvFullTableName(th, table)
+		state := dvState(ctx, t, spark, full)
+		require.Equal(t, int64(3), state.formatVersion, "%s: table created under dv must start at format version 3", table)
+		require.Zerof(t, state.posOrDVDeleteFiles, "%s: fresh backfill should have no deletes yet", table)
+	}
+
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-unpart-update-id1")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-part-update-id1")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-unpart-delete-id5")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-part-delete-id5")
+	th.dvSync(ctx, t, useArrow, true, "cdc update+delete")
+
+	// A delete does not remove its id from a plain SELECT: the old row is removed via the
+	// delete mechanism, but a new tombstone row recording the delete event stays, carrying
+	// _op_type='d' - the same convention every other suite's delete checks rely on
+	// (test_utils.go's "WHERE _op_type = 'd'" verification). id=5 is "d", not absent.
+	wantRows := map[string]string{"1": "u", "2": "r", "3": "r", "4": "r", "5": "d"}
+	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		full := dvFullTableName(th, table)
+		state := dvState(ctx, t, spark, full)
+		requireLiveRowsEqual(t, wantRows, state, table)
+		require.Equal(t, int64(0), state.parquetPosFiles, "%s: dv mode must never write a Parquet positional delete", table)
+		require.Greaterf(t, state.puffinVectorFiles, int64(0), "%s: expected at least one deletion vector after a delete", table)
+		require.Equal(t, int64(3), state.formatVersion, "%s: format version must stay 3", table)
+	}
+	return nil
+}
+
+// testIcebergDVMergeAcrossSyncs is the single highest-value scenario in this suite. It deletes
+// id=2 in one sync and id=3 in the next, both from the SAME data file (they share a status).
+// A deletion vector REPLACES the previous vector for a data file rather than adding to it, so
+// writing the second sync's vector without first reading the first sync's would silently
+// resurrect id=2. That is exactly the bug this test exists to catch.
+//
+// On dv_part, id=2 and id=3 still land in one shared data file (same status, same partition),
+// but the table's OTHER seed rows sit in different partitions - so this also proves the single
+// shared vector writer used for the whole commit handles more than one partition's data files
+// correctly, not just the one dv_unpart happens to have.
+func (th *TestHandler) testIcebergDVMergeAcrossSyncs(ctx context.Context, t *testing.T, useArrow bool) error {
+	defer testutils.DropIcebergTable(t, testutils.DVUnpartTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testutils.DVPartTable, th.TestConfig.DestinationDB)
+
+	if err := th.prepareDVSync(ctx, t, "dv"); err != nil {
+		return err
+	}
+	th.dvSync(ctx, t, useArrow, false, "backfill")
+
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-unpart-delete-id2")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-part-delete-id2")
+	th.dvSync(ctx, t, useArrow, true, "delete id=2")
+
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-unpart-delete-id3")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-part-delete-id3")
+	th.dvSync(ctx, t, useArrow, true, "delete id=3")
+
+	spark := getSparkSession(ctx, t)
+	// Same tombstone convention as testIcebergDVBackfillAndCore: id=2 and id=3 stay present
+	// with _op_type='d', they don't disappear.
+	wantRows := map[string]string{"1": "r", "2": "d", "3": "d", "4": "r", "5": "r"}
+	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		full := dvFullTableName(th, table)
+		state := dvState(ctx, t, spark, full)
+
+		requireLiveRowsEqual(t, wantRows, state, table)
+		require.Equal(t, int64(0), state.duplicateVectors,
+			"%s: the id=2 sync's vector must have been REPLACED by id=3's, not left alongside it - a non-zero count here means id=2 could read as un-deleted again", table)
+		require.Greaterf(t, removedDeleteFileCount(ctx, t, spark, full), int64(0),
+			"%s: the superseded vector from the id=2 sync should show up as removed in the id=3 sync's snapshot summary", table)
+
+		for file, history := range dvHistoryIncreasing(ctx, t, spark, full) {
+			for i := 1; i < len(history); i++ {
+				require.Greaterf(t, history[i], history[i-1],
+					"%s: vector history for %s is not increasing (%v) - a flat or shrinking sequence means a later sync overwrote instead of merging with the earlier one",
+					table, file, history)
+			}
+		}
+	}
+	return nil
+}
+
+// testIcebergEqToDVMigration backfills both tables under "eq" so they accumulate real equality
+// deletes, then flips update_type to "dv" mid-stream. OLake's handshake detects the leftover
+// equality deletes and migrates them to deletion vectors in one commit before any dv write
+// happens, rather than the table passing through positional deletes on the way. The row set
+// must come out identical to what it was under eq - a migration that changes what a query
+// returns is a correctness bug regardless of which representation it lands on.
+func (th *TestHandler) testIcebergEqToDVMigration(ctx context.Context, t *testing.T, useArrow bool) error {
+	defer testutils.DropIcebergTable(t, testutils.DVUnpartTable, th.TestConfig.DestinationDB)
+	defer testutils.DropIcebergTable(t, testutils.DVPartTable, th.TestConfig.DestinationDB)
+
+	if err := th.prepareDVSync(ctx, t, "eq"); err != nil {
+		return err
+	}
+	th.dvSync(ctx, t, useArrow, false, "eq backfill")
+
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-unpart-update-id1")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-part-update-id1")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-unpart-delete-id5")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-part-delete-id5")
+	th.dvSync(ctx, t, useArrow, true, "eq cdc")
+
+	spark := getSparkSession(ctx, t)
+	rowsBefore := map[string]dvTableState{}
+	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		state := dvState(ctx, t, spark, dvFullTableName(th, table))
+		require.Equal(t, int64(2), state.formatVersion, "%s: eq mode does not need v3 yet", table)
+		require.Greaterf(t, state.eqDeleteFiles, int64(0), "%s: eq mode should have produced equality deletes to migrate", table)
+		rowsBefore[table] = state
+	}
+
+	if err := dvSetUpdateType(th.TestConfig, th.Namespace, "dv"); err != nil {
+		return err
+	}
+	// Nothing changes on the source between eq and dv - the migration alone is what this
+	// sync exercises, triggered purely by the update_type flip.
+	th.dvSync(ctx, t, useArrow, true, "migrate eq to dv")
+
+	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		full := dvFullTableName(th, table)
+		after := dvState(ctx, t, spark, full)
+		require.Equal(t, int64(3), after.formatVersion, "%s: migrating to dv must raise format version to 3", table)
+		require.Equal(t, int64(0), after.eqDeleteFiles, "%s: no equality deletes should remain after migration", table)
+		requireLiveRowsEqual(t, rowsBefore[table].liveRows, after, table)
+	}
+
+	// A further sync after migration should behave exactly like a table that was native dv
+	// from the start - re-run the merge-across-syncs style check once more.
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-unpart-delete-id2")
+	th.TestConfig.ExecuteQuery(ctx, t, th.TestConfig, "dv-part-delete-id2")
+	th.dvSync(ctx, t, useArrow, true, "post-migration delete")
+	for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+		state := dvState(ctx, t, spark, dvFullTableName(th, table))
+		require.Equal(t, int64(0), state.parquetPosFiles, "%s: post-migration deletes must still be vectors, not Parquet", table)
+	}
+	return nil
+}
+
+// TestIcebergDV runs the deletion-vector suite. Every sync in every scenario is a real docker
+// container launch (source + destination + Spark), so the scenario count here is deliberately
+// kept to what actually needs its own run - each one is minutes, not seconds, and this suite
+// runs inside the same per-driver job budget as everything else in the mysql package.
+//
+// All three remaining scenarios run under BOTH writers, because that is the whole point of each:
+// they are checking the rows writer and the arrow writer produce the same Iceberg state, or (for
+// migration) that CDC syncs on either writer behave the same before and after the mode switch.
+//
+// Two prior scenarios were cut for cost rather than kept "for completeness": an append-mode
+// check and an eq/pos-rejection check, both real behavior but both writer-independent (append
+// mode never writes a delete file regardless of writer; the eq/pos rejection is enforced
+// server-side at handshake, before any writer is chosen) and both fully covered in spirit by
+// unit-level or Iceberg-bytecode verification already recorded, so
+// spending real container-launch time on them here wasn't worth it. A prior arrow-only
+// rolled-file scenario was cut earlier for the same reason: at a size that fits inside an
+// integration test's time budget, it never actually reached the writer's real file-roll
+// threshold, so it exercised nothing beyond what backfill/core already covers.
+func (th *TestHandler) TestIcebergDV(t *testing.T) {
+	ctx := t.Context()
+	if !hasIcebergDVTest(th.Driver) {
+		t.Skip("deletion-vector suite is gated to specific drivers")
+	}
+	require.NoError(t, th.IsolateDestinationDB(), "failed to give the deletion-vector suite its own destination namespace")
+
+	writerTypes := []struct {
+		name     string
+		useArrow bool
+	}{
+		{"Legacy", false},
+		{"Arrow", true},
+	}
+
+	for _, wt := range writerTypes {
+		t.Run(wt.name, func(t *testing.T) {
+			t.Run("Backfill and core", func(t *testing.T) {
+				require.NoError(t, th.testIcebergDVBackfillAndCore(ctx, t, wt.useArrow))
+			})
+			t.Run("Merge across syncs", func(t *testing.T) {
+				require.NoError(t, th.testIcebergDVMergeAcrossSyncs(ctx, t, wt.useArrow))
+			})
+			t.Run("Eq to DV migration", func(t *testing.T) {
+				require.NoError(t, th.testIcebergEqToDVMigration(ctx, t, wt.useArrow))
+			})
+		})
+	}
+}
