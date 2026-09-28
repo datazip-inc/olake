@@ -48,8 +48,8 @@ func resolveColumnPolicies(rules []ColumnRule, spec string) *assertionPolicies {
 }
 
 // assertionPolicies is every rule resolved against one baseline: the one set the run applies. The
-// scenarios read catalogExcluded, the fixture's seeding reads seedExcluded, and the comparison
-// reads typeOnly; nothing else consults the rules again.
+// fixture's seeding reads seedExcluded and the comparison reads typeOnly; nothing else consults the
+// rules again.
 type assertionPolicies struct {
 	seedExcluded []string
 	typeOnly     []string
