@@ -42,6 +42,7 @@ var (
 	differencePath                 string
 	differenceAvailableStreamsPath string
 	differenceSelectedStreamsPath  string
+	convertStreams                 bool
 	commands                       = []*cobra.Command{}
 	connector                      *abstract.AbstractDriver
 )
@@ -167,6 +168,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVarP(&differencePath, "difference", "", "", "new streams.json file path to be compared (legacy format candidate). Generates a difference_streams.json file.")
 	RootCmd.PersistentFlags().StringVarP(&differenceAvailableStreamsPath, "difference-available-streams", "", "", "new available_streams file path to be compared. Must be passed together with --difference-selected-streams.")
 	RootCmd.PersistentFlags().StringVarP(&differenceSelectedStreamsPath, "difference-selected-streams", "", "", "new selected_streams file path to be compared. Must be passed together with --difference-available-streams.")
+	RootCmd.PersistentFlags().BoolVarP(&convertStreams, "convert-streams", "", false, "(Optional) With discover: convert the --streams file into available_streams.json and selected_streams.json next to it, without connecting to the source")
 	// Disable Cobra CLI's built-in usage and error handling
 	RootCmd.SilenceUsage = true
 	RootCmd.SilenceErrors = true

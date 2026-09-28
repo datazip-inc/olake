@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -153,6 +154,17 @@ func (c *Catalog) sortByNamespaceStreamName() {
 			return strings.Compare(a.StreamName, b.StreamName)
 		})
 	}
+}
+
+// writeSplitFiles writes the catalog as available_streams.json and selected_streams.json.
+func (c *Catalog) writeSplitFiles() error {
+	if err := (&Catalog{Streams: c.Streams}).WriteToFile(viper.GetString(constants.AvailableStreamsPath)); err != nil {
+		return fmt.Errorf("failed to create available_streams file: %w", err)
+	}
+	if err := (&Catalog{SelectedStreams: c.SelectedStreams}).WriteToFile(viper.GetString(constants.SelectedStreamsPath)); err != nil {
+		return fmt.Errorf("failed to create selected_streams file: %w", err)
+	}
+	return nil
 }
 
 func (c *Catalog) WriteToFile(path string) error {

@@ -34,6 +34,13 @@ var discoverCmd = &cobra.Command{
 		if err := validateDifferenceFlags(); err != nil {
 			return err
 		}
+		if convertStreams {
+			if streamsPath == "" {
+				return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
+					fmt.Errorf("--convert-streams requires --streams"))
+			}
+			return nil
+		}
 		if isStreamDifferenceCommand() {
 			return nil
 		}
@@ -65,6 +72,9 @@ var discoverCmd = &cobra.Command{
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		if convertStreams {
+			return convertLegacyStreams()
+		}
 		if isStreamDifferenceCommand() {
 			return compareStreams()
 		}
@@ -101,6 +111,24 @@ var discoverCmd = &cobra.Command{
 		}
 		return nil
 	},
+}
+
+// convertLegacyStreams rewrites the --streams file as available_streams.json and selected_streams.json.
+// used to convert raw file to new format without discovering the source
+func convertLegacyStreams() error {
+	legacy, err := types.ResolveLegacyCatalog(streamsPath)
+	if err != nil {
+		return err
+	}
+	if len(legacy.SelectedStreams) == 0 {
+		return errs.Precondition(errs.CatalogError, codeNoValidStreams,
+			fmt.Errorf("streams file %s has no selected_streams to convert", streamsPath))
+	}
+	if err := types.WriteConvertedCatalog(legacy); err != nil {
+		return err
+	}
+	logger.Infof("Successfully converted %s into available_streams and selected_streams", streamsPath)
+	return nil
 }
 
 // compareStreams reads two catalogs, computes the difference, and writes the result to difference_streams.json

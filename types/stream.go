@@ -176,14 +176,8 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, oldLegacyCatalog *Legacy
 	}
 	merged := mergeCatalogs(priorCatalog, message.Catalog)
 
-	availableStreamsFilePath := viper.GetString(constants.AvailableStreamsPath)
-	if err := (&Catalog{Streams: merged.Streams}).WriteToFile(availableStreamsFilePath); err != nil {
-		logger.Fatalf("failed to create available_streams file: %s", err)
-	}
-
-	selectedStreamsFilePath := viper.GetString(constants.SelectedStreamsPath)
-	if err := (&Catalog{SelectedStreams: merged.SelectedStreams}).WriteToFile(selectedStreamsFilePath); err != nil {
-		logger.Fatalf("failed to create selected_streams file: %s", err)
+	if err := merged.writeSplitFiles(); err != nil {
+		logger.Fatal(err)
 	}
 
 	streamsFilePath := viper.GetString(constants.StreamsPath)

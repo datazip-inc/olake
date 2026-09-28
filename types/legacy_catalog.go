@@ -91,6 +91,11 @@ func legacyToCanonical(legacy *LegacyCatalog) *Catalog {
 	}
 }
 
+// WriteConvertedCatalog writes a legacy catalog as available_streams.json and selected_streams.json
+func WriteConvertedCatalog(legacy *LegacyCatalog) error {
+	return legacyToCanonical(legacy).writeSplitFiles()
+}
+
 // WriteToFile writes the legacy catalog as-is; toLegacyCatalog already emits it sorted.
 func (c *LegacyCatalog) WriteToFile(path string) error {
 	return logger.FileLoggerWithPath(c, path)
