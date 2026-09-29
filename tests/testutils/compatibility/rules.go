@@ -19,9 +19,10 @@ import (
 
 // compatibilityGate bounds which baselines a scope runs against. Empty fields mean no bound.
 type compatibilityGate struct {
-	MinBaseline   string   `json:"min_baseline"`
-	SkipBaselines []string `json:"skip_baselines"`
-	Note          string   `json:"note"`
+	MinBaseline   string                  `json:"min_baseline"`
+	SkipBaselines []string                `json:"skip_baselines"`
+	Note          string                  `json:"note"`
+	Rules         []compatibilityTypeRule `json:"rules"`
 }
 
 // compatibilityRuleScope names the columns a rule applies to: exactly one of data_types (resolved
@@ -222,7 +223,7 @@ func (g compatibilityGate) validate(scope string) error {
 			return fmt.Errorf("%s: %q is not a release tag", scope, tag)
 		}
 	}
-	return nil
+	return validateRules(scope, g.Rules)
 }
 
 func validateRules(scope string, rules []compatibilityTypeRule) error {

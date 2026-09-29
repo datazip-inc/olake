@@ -153,13 +153,13 @@ func reportColumnDiffs(ctx context.Context, t *testing.T, diag *diagnostics, spa
 			continue
 		}
 		diag.logf(t, "column %s differs in %d row(s)\n  reference: %v\n  upgrade:   %v",
-			col, n, sampleColumn(ctx, spark, referenceOutput, col), sampleColumn(ctx, spark, upgradedOutput, col))
+			col, n, sampleColumn(ctx, spark, referenceOutput, upgradedOutput, col), sampleColumn(ctx, spark, upgradedOutput, referenceOutput, col))
 	}
 }
 
-// sampleColumn returns up to three values of one column, for a failure message.
-func sampleColumn(ctx context.Context, spark sql.SparkSession, output, col string) []any {
-	df, err := spark.Sql(ctx, fmt.Sprintf("SELECT %s AS v FROM %s LIMIT 3", col, output))
+// sampleColumn returns up to three values of one column that left holds and right does not.
+func sampleColumn(ctx context.Context, spark sql.SparkSession, left, right, col string) []any {
+	df, err := spark.Sql(ctx, fmt.Sprintf("SELECT %s AS v FROM (SELECT %s FROM %s EXCEPT ALL SELECT %s FROM %s) LIMIT 3", col, col, left, col, right))
 	if err != nil {
 		return nil
 	}

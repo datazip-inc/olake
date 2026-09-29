@@ -102,6 +102,11 @@
         "arrow": {
           "min_baseline": "v0.3.17",
           "note": "P1: v0.3.6 through v0.3.16 arrow integer widths disagree with today's; below v0.3.6 no arrow writer exists"
+        },
+        "legacy": {
+          "rules": [
+            {"data_types": ["timestamp"], "assert_value_from": "v0.11.1", "note": "#1233: the legacy writer truncated timestamps to milliseconds; the candidate keeps microseconds"}
+          ]
         }
       },
       "parquet": {
