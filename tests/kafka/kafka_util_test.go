@@ -82,9 +82,13 @@ var (
 	jsonUpdatedValue = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 	jsonFilterValue  = []byte(`{"string_value": "","float_value": 99.99,"col_excluded": 101}`)
 
-	upsertKey    = []byte(`{"key":"upsert-key"}`)
-	upsertAdd    = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
-	upsertUpdate = []byte(`{"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	upsertKey          = []byte(`{"key":"upsert-key"}`)
+	upsertAdd          = jsonValue
+	upsertUpdate       = jsonUpdatedValue
+	upsertColumnAdd    = []byte(`{"customer_id":"c1","order_id":"o1","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
+	upsertColumnUpdate = []byte(`{"customer_id":"c1","order_id":"o1","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	upsertOutOfFilter  = []byte(`{"int_value": 100,"float_value": 150.0,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	upsertRepartition  = []byte(`{"int_value": 200,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 
 	// Avro
 	avroKey   = []byte(`{"key":"avro-key"}`)
@@ -205,6 +209,47 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestCon
 	case "upsert_tombstone":
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: nil, Partition: 0})
 		t.Logf("Deleted 1 message from topic '%s' on partition %d", topic, 0)
+
+	case "upsert_column_add":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertColumnAdd, Partition: 0})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_column_update":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertColumnUpdate, Partition: 0})
+		t.Logf("Added 1 updated message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_update_out_of_filter":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertOutOfFilter, Partition: 0})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_update_repartition":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertRepartition, Partition: 0})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_same_key_batch":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertAdd, Partition: 0})
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertUpdate, Partition: 0})
+		t.Logf("Added 2 messages for the same key on topic '%s'", topic)
+
+	case "upsert_update_partition_1":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: upsertKey, Value: upsertUpdate, Partition: 1})
+		t.Logf("Added 1 updated message to topic '%s' on partition %d", topic, 1)
+
+	case "upsert_empty":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{
+			Key:       upsertKey,
+			Value:     []byte(`{"customer_id":"","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`),
+			Partition: 0,
+		})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
+
+	case "upsert_null":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{
+			Key:       upsertKey,
+			Value:     []byte(`{"customer_id":null,"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`),
+			Partition: 0,
+		})
+		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
 
 	default:
 		t.Fatalf("unsupported operation: %s", operation)
@@ -355,6 +400,26 @@ func ExecuteQueryAvro(ctx context.Context, t *testing.T, conf *testutils.TestCon
 		// avro message written with new schema
 		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroUpdatedValue, topic)
 		t.Logf("Added 1 updated message to topic '%s'", topic)
+
+	case "upsert_add":
+		codec, err := goavro.NewCodec(avroSchema)
+		require.NoError(t, err)
+		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, topic, avroSchema)
+
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroValue, topic)
+		t.Logf("Added 1 message to topic '%s'", topic)
+
+	case "upsert_update":
+		codec, err := goavro.NewCodec(updatedAvroSchema)
+		require.NoError(t, err)
+		schemaID := registerSchemaWithRetry(t, avroSchemaRegistryURL, topic, updatedAvroSchema)
+
+		encodeAndWriteAvro(ctx, t, client, codec, schemaID, avroKey, avroUpdatedValue, topic)
+		t.Logf("Added 1 updated message to topic '%s'", topic)
+
+	case "upsert_tombstone":
+		writeMessagesWithRetry(ctx, t, client, &kgo.Record{Key: avroKey, Value: nil})
+		t.Logf("Deleted 1 message from topic '%s'", topic)
 
 	default:
 		t.Fatalf("unsupported operation: %s", operation)

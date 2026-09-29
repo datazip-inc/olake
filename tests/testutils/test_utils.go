@@ -52,6 +52,9 @@ type IntegrationTest struct {
 	FilterConfig                     string
 	ColumnToExclude                  string
 	DedupKeys                        []string
+	UpsertAddOp                      string
+	UpsertUpdateOp                   string
+	SkipTombstone                    bool
 }
 
 type PerformanceTest struct {
@@ -693,7 +696,7 @@ func GetBackfillStreamsFromCDC(cdcStreams []string) []string {
 func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T) error {
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "create")
-	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, Ternary(len(cfg.DedupKeys) > 0, "upsert_add", "add").(string))
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, Ternary(len(cfg.DedupKeys) > 0, Ternary(cfg.UpsertAddOp != "", cfg.UpsertAddOp, "upsert_add"), "add").(string))
 	if len(cfg.DedupKeys) > 0 {
 		if err := resetStateFile(cfg.TestConfig); err != nil {
 			return err
@@ -849,7 +852,7 @@ func (cfg *IntegrationTest) runSyncAndVerify(
 
 	// Use evolved schema only for CDC "update" operation (where schema evolution is expected)
 	// Incremental "insert" uses opSymbol "u" but doesn't have schema evolution
-	evolvedSchema := operation == "update" || operation == "upsert_update"
+	evolvedSchema := operation == "update" || operation == "upsert_update" || operation == "upsert_column_update" || operation == "upsert_update_repartition" || operation == "upsert_update_partition_1"
 
 	// Verification reads the destination back through Spark Connect (with retries), a real slice of
 	// sync wall-clock; time it as its own phase.
@@ -955,8 +958,11 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 	}
 
 	testCases := Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
-	upsert := len(cfg.DedupKeys) > 0
-	if upsert {
+	if len(cfg.DedupKeys) > 0 {
+		updateOp := "upsert_update"
+		if cfg.UpsertUpdateOp != "" {
+			updateOp = cfg.UpsertUpdateOp
+		}
 		testCases = []syncTestCase{
 			{
 				name:      "CDC - strict - insert",
@@ -967,18 +973,20 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 			},
 			{
 				name:      "CDC - strict - update",
-				operation: "upsert_update",
+				operation: updateOp,
 				useState:  true,
 				opSymbol:  "u",
 				expected:  cfg.ExpectedUpdatedData,
 			},
-			{
+		}
+		if !cfg.SkipTombstone {
+			testCases = append(testCases, syncTestCase{
 				name:      "CDC - strict - delete",
 				operation: "upsert_tombstone",
 				useState:  true,
 				opSymbol:  "d",
 				expected:  nil,
-			},
+			})
 		}
 	}
 
@@ -1081,8 +1089,11 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 	}
 
 	testCases := Ternary(cfg.TestConfig.Driver == string(constants.Kafka), kafkaTestCases, dbTestCases).([]syncTestCase)
-	upsert := len(cfg.DedupKeys) > 0
-	if upsert {
+	if len(cfg.DedupKeys) > 0 {
+		updateOp := "upsert_update"
+		if cfg.UpsertUpdateOp != "" {
+			updateOp = cfg.UpsertUpdateOp
+		}
 		testCases = []syncTestCase{
 			{
 				name:      "CDC - strict - insert",
@@ -1093,18 +1104,20 @@ func (cfg *IntegrationTest) testParquetFullLoadAndCDC(
 			},
 			{
 				name:      "CDC - strict - update",
-				operation: "upsert_update",
+				operation: updateOp,
 				useState:  true,
 				opSymbol:  "u",
 				expected:  cfg.ExpectedUpdatedData,
 			},
-			{
+		}
+		if !cfg.SkipTombstone {
+			testCases = append(testCases, syncTestCase{
 				name:      "CDC - strict - delete",
 				operation: "upsert_tombstone",
 				useState:  true,
 				opSymbol:  "d",
 				expected:  nil,
-			},
+			})
 		}
 	}
 
@@ -1727,6 +1740,86 @@ func (cfg *IntegrationTest) TestRebalance(t *testing.T) {
 	})
 }
 
+type Upsert struct {
+	Name      string
+	Operation string
+	UseState  bool
+	OpSymbol  string
+	Expected  map[string]interface{}
+}
+
+// RunUpsertIceberg isolates a Kafka upsert stream, seeds the topic, and runs Arrow Iceberg sync+verify steps.
+func (cfg *IntegrationTest) RunUpsertIceberg(t *testing.T, suite, seedOp string, steps []Upsert) {
+	cfg.IsolateSuite(t, suite)
+	ctx := t.Context()
+
+	cfg.ExecuteQuery = timedExecuteQuery(cfg.TestConfig.Driver, cfg.ExecuteQuery)
+	testTable := TestTableName(cfg.TestConfig)
+	seedCatalogFromTestStreams(t, cfg.TestConfig, testTable)
+
+	if err := setStreamUpsert(cfg.TestConfig, cfg.Namespace, testTable, cfg.DedupKeys); err != nil {
+		t.Fatalf("failed to set stream upsert: %s", err)
+	}
+	if err := updateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{testTable}, cfg.ColumnToExclude); err != nil {
+		t.Fatalf("failed to update streams.json: %s", err)
+	}
+
+	if err := cfg.testIcebergWriter(ctx, t, testTable, true, func(ctx context.Context, t *testing.T, testTable string) error {
+		dropIcebergTable(t, testTable, cfg.DestinationDB)
+		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
+		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "create")
+		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, seedOp)
+
+		// Reset state file and remove table index
+		if err := resetStateFile(cfg.TestConfig); err != nil {
+			return err
+		}
+		_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index"))
+
+		for _, tc := range steps {
+			if err := cfg.runSyncAndVerify(ctx, t, testTable, tc.UseState, "iceberg", tc.Operation, tc.OpSymbol, tc.Expected, true); err != nil {
+				return fmt.Errorf("%s: %w", tc.Name, err)
+			}
+		}
+		dropIcebergTable(t, testTable, cfg.DestinationDB)
+		return nil
+	}); err != nil {
+		t.Fatalf("upsert iceberg: %v", err)
+	}
+}
+
+func (cfg *IntegrationTest) RunUpsertIcebergExpectFail(t *testing.T, suite, seedOp string) {
+	cfg.IsolateSuite(t, suite)
+	ctx := t.Context()
+
+	cfg.ExecuteQuery = timedExecuteQuery(cfg.TestConfig.Driver, cfg.ExecuteQuery)
+	testTable := TestTableName(cfg.TestConfig)
+	seedCatalogFromTestStreams(t, cfg.TestConfig, testTable)
+
+	if err := setStreamUpsert(cfg.TestConfig, cfg.Namespace, testTable, cfg.DedupKeys); err != nil {
+		t.Fatalf("failed to set stream upsert: %s", err)
+	}
+	if err := updateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{testTable}, cfg.ColumnToExclude); err != nil {
+		t.Fatalf("failed to update streams.json: %s", err)
+	}
+
+	if err := cfg.testIcebergWriter(ctx, t, testTable, true, func(ctx context.Context, t *testing.T, testTable string) error {
+		dropIcebergTable(t, testTable, cfg.DestinationDB)
+		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
+		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "create")
+		cfg.ExecuteQuery(ctx, t, cfg.TestConfig, seedOp)
+
+		// Reset state file and remove table index
+		if err := resetStateFile(cfg.TestConfig); err != nil {
+			return err
+		}
+		_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index"))
+		return cfg.runSyncAndVerify(ctx, t, testTable, false, "iceberg", "", "c", cfg.ExpectedData, true)
+	}); err == nil {
+		t.Fatal("all-null dedup keys must fail sync")
+	}
+}
+
 // TestDiscover seeds the source with this driver's test table, runs discover against the driver
 // image and asserts the catalog it writes matches test_streams.json exactly.
 //
@@ -1791,7 +1884,7 @@ func (cfg *IntegrationTest) TestSync(t *testing.T) {
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "drop")
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "create")
 	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, "clean")
-	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, Ternary(len(cfg.DedupKeys) > 0, "upsert_add", "add").(string))
+	cfg.ExecuteQuery(ctx, t, cfg.TestConfig, Ternary(len(cfg.DedupKeys) > 0, Ternary(cfg.UpsertAddOp != "", cfg.UpsertAddOp, "upsert_add"), "add").(string))
 
 	// 2. Enable normalization, partition regex, filter and column exclusion in streams.json
 	if err := updateSelectedStreams(cfg.TestConfig, cfg.Namespace, cfg.PartitionRegex, cfg.FilterConfig, []string{currentTestTable}, cfg.ColumnToExclude); err != nil {
