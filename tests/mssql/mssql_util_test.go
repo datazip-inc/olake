@@ -244,13 +244,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				123.50, 12.50, 1,
 				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
 				'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
-				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+				'2023-01-01 12:00:00.573605', '2023-01-01 12:00:00.573605 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
 				'<xml>test</xml>', 'sysname_val',
 				0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
-				'2023-01-01 12:00:00',
+				'2023-01-01 12:00:00.573605',
 				101
 			);
 		`, integrationTestTable)
@@ -278,13 +278,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 					123.50, 12.50, 1,
 					'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
 					'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
-					'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+					'2023-01-01 12:00:00.573605', '2023-01-01 12:00:00.573605 +00:00',
 					'123e4567-e89b-12d3-a456-426614174000',
 					'<xml>test</xml>', 'sysname_val',
 					0x43434343,
 					hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 					NULL, NULL, NULL,
-					'2023-01-01 12:00:00',
+					'2023-01-01 12:00:00.573605',
 					101
 			);
 		`, integrationTestTable)
@@ -312,13 +312,13 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				123.50, 12.50, 1,
 				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
 				'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
-				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+				'2023-01-01 12:00:00.573605', '2023-01-01 12:00:00.573605 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
 				'<xml>test</xml>', 'sysname_val',
 				0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
-				'2023-01-01 12:00:00'
+				'2023-01-01 12:00:00.573605'
 			);
 		`, integrationTestTable)
 		_, err2 := db.ExecContext(ctx, insertTwo)
@@ -334,15 +334,15 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				col_real = 321.0,
 				col_bit = 0,
 				col_varchar = 'updated varchar',
-				col_datetime2 = '2024-07-01 15:30:00',
-				col_datetimeoffset = '2024-07-01 15:30:00 +00:00',
+				col_datetime2 = '2024-07-01 15:30:00.573605',
+				col_datetimeoffset = '2024-07-01 15:30:00.573605 +00:00',
 				col_uniqueidentifier = '00000000-0000-0000-0000-000000000000',
 				col_xml = '<xml>updated</xml>',
 				col_sysname = 'updated_sysname',
 				col_int_nullable = 123,
 				col_varchar_nullable = 'nullable updated',
-				col_datetime2_nullable = '2024-07-01 15:30:00',
-				created_at = '2024-07-01 15:30:00',
+				col_datetime2_nullable = '2024-07-01 15:30:00.573605',
+				created_at = '2024-07-01 15:30:00.573605',
 				excludedColumn = 102
 			WHERE id = 1;
 		`, integrationTestTable)
@@ -459,13 +459,13 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 				123.50, 12.50, 1,
 				'char_val__', 'varchar_val', 'text_val', N'nchar_val_', N'nvarchar_val', N'ntext_val',
 				'2023-01-01', '12:00:00', '2023-01-01 12:00:00', '2023-01-01 12:00:00',
-				'2023-01-01 12:00:00', '2023-01-01 12:00:00 +00:00',
+				'2023-01-01 12:00:00.573605', '2023-01-01 12:00:00.573605 +00:00',
 				'123e4567-e89b-12d3-a456-426614174000',
 				'<xml>test</xml>', 'sysname_val',
 				0x43434343,
 				hierarchyid::Parse('/1/1/'), CAST('variant_base' AS sql_variant),
 				NULL, NULL, NULL,
-				'2023-01-01 12:00:00',
+				'2023-01-01 12:00:00.573605',
 				100
 			);
 		`, tableName, i)
@@ -506,9 +506,9 @@ var ExpectedMSSQLData = map[string]interface{}{
 	"col_time":           "12:00:00",
 	"col_smalldatetime":  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetime":       arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_datetime2":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_datetimeoffset": arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"created_at":         arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetime2":      arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetimeoffset": arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_at":         arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 
 	"col_uniqueidentifier": "123e4567-e89b-12d3-a456-426614174000",
 	"col_xml":              "<xml>test</xml>",
@@ -552,8 +552,8 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 	"col_time":           "12:00:00",
 	"col_smalldatetime":  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"col_datetime":       arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_datetime2":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"col_datetimeoffset": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetime2":      arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetimeoffset": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 
 	"col_uniqueidentifier": "00000000-0000-0000-0000-000000000000",
 	"col_xml":              "<xml>updated</xml>",
@@ -565,9 +565,9 @@ var ExpectedUpdatedMSSQLData = map[string]interface{}{
 
 	"col_int_nullable":       int32(123),
 	"col_varchar_nullable":   "nullable updated",
-	"col_datetime2_nullable": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"col_datetime2_nullable": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 
-	"created_at": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_at": arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 }
 
 var ExpectedMSSQLDefaultCDCColumnsSchema = map[string]string{
