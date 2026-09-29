@@ -34,4 +34,8 @@ http://www.apache.org/licenses/LICENSE-2.0
 
 We have also changed the name of the project to olake-iceberg-java-writer
 
+The Java packages have been renamed from io.debezium.server.iceberg to io.olake.iceberg,
+and the gRPC protobuf package from io.debezium.server.iceberg.rpc to io.olake.iceberg.rpc.
+olake-iceberg-java-writer does not use or depend on Debezium.
+
 Copyright 2025 Datazip Inc.

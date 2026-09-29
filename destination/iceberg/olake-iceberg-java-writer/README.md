@@ -1,6 +1,6 @@
 # Java Iceberg Sink
 
-This project is a fork and modified version of the [debezium-server-iceberg](https://github.com/memiiso/debezium-server-iceberg) project, originally used to dump data from Debezium Server into Iceberg. The modifications make it compatible with Olake by sending data in Debezium format.
+This project is a standalone gRPC writer that OLake uses to write data into Iceberg. It does not use or depend on Debezium. It was originally derived from [debezium-server-iceberg](https://github.com/memiiso/debezium-server-iceberg) (Apache License 2.0) and has since been rewritten for OLake; see `Olake-changes-notice.txt` for attribution details.
 
 ## Architecture
 
