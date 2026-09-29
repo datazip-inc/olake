@@ -35,6 +35,7 @@ type compatibilityVariant struct {
 type compatibilityGroup struct {
 	compatibilityGroupSpec
 	gate     compatibilityGate
+	rules    []compatibilityTypeRule
 	variants []compatibilityVariant
 }
 
@@ -104,7 +105,8 @@ func compatibilityVariantGroups(driver string) []compatibilityGroup {
 			continue
 		}
 		gate := mergedGate(spec.gateFrom(compatibilityRules.Destinations.gates()), spec.gateFrom(driverDestinations))
-		groups = append(groups, compatibilityGroup{compatibilityGroupSpec: spec, gate: gate, variants: variants})
+		rules := compatibilityRules.Destinations.gates()[spec.destination].Modes[spec.mode].Rules
+		groups = append(groups, compatibilityGroup{compatibilityGroupSpec: spec, gate: gate, rules: rules, variants: variants})
 	}
 	return groups
 }
