@@ -70,8 +70,9 @@ jobs:
   integration-tests:
     name: Integration Test ${{ matrix.name }}
     needs: approve
+    if: github.event_name == 'pull_request'
     runs-on: 16gb-runner
-    environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
+    environment: ${{ needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
