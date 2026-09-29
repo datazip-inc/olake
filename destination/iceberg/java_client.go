@@ -102,33 +102,64 @@ func getServerConfigJSON(config *Config, port int, arrowWriterEnabled bool, gcpC
 		return nil, errs.Precondition(errs.ConfigInvalid, codeUnsupportedCatalogType,
 			fmt.Errorf("unsupported catalog type: %s", config.CatalogType))
 	}
-	// Only set access keys if explicitly provided, otherwise they'll be picked up from
-	// environment variables or AWS credential files
-	serverConfig["s3.path-style-access"] = utils.Ternary(config.S3PathStyle, "true", "false").(string)
-	addMapKeyIfNotEmpty("s3.access-key-id", config.AccessKey)
-	addMapKeyIfNotEmpty("s3.secret-access-key", config.SecretKey)
-	addMapKeyIfNotEmpty("aws.profile", config.ProfileName)
-	addMapKeyIfNotEmpty("aws.session-token", config.SessionToken)
-	// Configure region for AWS S3
-	if config.Region != "" {
-		serverConfig["s3.region"] = config.Region
-		// Horizon - same value as Snowflake client.region
-		if config.RESTAccessDelegation != "" {
-			serverConfig["client.region"] = config.Region
-		}
-	} else if config.S3Endpoint == "" && config.CatalogType == GlueCatalog {
-		logger.Warnf("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
-	}
 
-	if config.S3Endpoint != "" {
-		serverConfig["s3.endpoint"] = config.S3Endpoint
+	if config.usingAzure() {
+		path := strings.Trim(config.AzurePath, "/")
+		warehouse := fmt.Sprintf("abfs://%s@%s.dfs.core.windows.net", config.AzureContainerName, config.AzureStorageAccountName)
+		if path != "" {
+			warehouse = warehouse + "/" + path
+		}
+		// Lakekeeper/Polaris (.../catalog) and Nessie (.../iceberg) resolve
+		// `warehouse` as a registered name, not an object-store URI.
+		if config.CatalogType == RestCatalog && (strings.Contains(config.RestCatalogURL, "/catalog") || strings.Contains(config.RestCatalogURL, "/iceberg")) {
+			warehouse = config.CatalogName
+			if warehouse == "" {
+				warehouse = "olake_iceberg"
+			}
+		}
+		serverConfig["warehouse"] = warehouse
+		serverConfig["io-impl"] = "org.apache.iceberg.azure.adlsv2.ADLSFileIO"
+		serverConfig["adls.auth.shared-key.account.name"] = config.AzureStorageAccountName
+		serverConfig["adls.auth.shared-key.account.key"] = config.AzureStorageAccountKey
+
+		if config.AzureEndpoint != "" {
+			serverConfig["adls.connection-string."+config.AzureStorageAccountName] = fmt.Sprintf(
+				"DefaultEndpointsProtocol:http;AccountName=%s;AccountKey=%s;BlobEndpoint=%s;DfsEndpoint=%s",
+				config.AzureStorageAccountName, config.AzureStorageAccountKey, config.AzureEndpoint,
+				strings.Replace(config.AzureEndpoint, ":11000", ":11001", 1),
+			)
+		}
+		addMapKeyIfNotEmpty("azure.path", config.AzurePath)
+	} else {
+		// Only set access keys if explicitly provided, otherwise they'll be picked up from
+		// environment variables or AWS credential files
+		serverConfig["s3.path-style-access"] = utils.Ternary(config.S3PathStyle, "true", "false").(string)
+		addMapKeyIfNotEmpty("s3.access-key-id", config.AccessKey)
+		addMapKeyIfNotEmpty("s3.secret-access-key", config.SecretKey)
+		addMapKeyIfNotEmpty("aws.profile", config.ProfileName)
+		addMapKeyIfNotEmpty("aws.session-token", config.SessionToken)
+
+		// Configure region for AWS S3
+		if config.Region != "" {
+			serverConfig["s3.region"] = config.Region
+			// Horizon - same value as Snowflake client.region
+			if config.RESTAccessDelegation != "" {
+				serverConfig["client.region"] = config.Region
+			}
+		} else if config.S3Endpoint == "" && config.CatalogType == GlueCatalog {
+			logger.Warnf("No region explicitly provided for Glue catalog, the Java process will attempt to use region from AWS environment")
+		}
+
+		if config.S3Endpoint != "" {
+			serverConfig["s3.endpoint"] = config.S3Endpoint
+		}
+		// Some s3-compatible stores (GCS's S3-interop) return 404 when deleting a
+		// missing key where AWS returns 204, and Iceberg expects the AWS behavior.
+		// The wrapper is a no-op on stores with AWS semantics.
+		serverConfig["s3.client-factory-impl"] = olakeS3ClientFactoryClass
+		serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
+		serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 	}
-	// Some s3-compatible stores (GCS's S3-interop) return 404 when deleting a
-	// missing key where AWS returns 204, and Iceberg expects the AWS behavior.
-	// The wrapper is a no-op on stores with AWS semantics.
-	serverConfig["s3.client-factory-impl"] = olakeS3ClientFactoryClass
-	serverConfig["io-impl"] = "org.apache.iceberg.io.ResolvingFileIO"
-	serverConfig["s3.ssl-enabled"] = utils.Ternary(config.S3UseSSL, "true", "false").(string)
 	// Marshal the config to JSON
 	return json.Marshal(serverConfig)
 }

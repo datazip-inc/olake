@@ -26,6 +26,8 @@ const (
 	RestCatalog CatalogType = "rest"
 )
 
+var azureIncompatibleCatalogs = []CatalogType{"glue", "s3tables", "biglake"}
+
 // TODO: add validation for each catalog properly
 type Config struct {
 	// S3-compatible Storage Configuration
@@ -40,6 +42,12 @@ type Config struct {
 	S3Endpoint  string `json:"s3_endpoint,omitempty"`
 	S3UseSSL    bool   `json:"s3_use_ssl,omitempty"`    // Use HTTPS if true
 	S3PathStyle bool   `json:"s3_path_style,omitempty"` // Use path-style instead of virtual-hosted-style https://docs.aws.amazon.com/AmazonS3/latest/userguide/VirtualHosting.html
+
+	AzureStorageAccountName string `json:"azure_storage_account_name,omitempty"`
+	AzureStorageAccountKey  string `json:"azure_storage_account_key,omitempty"`
+	AzureContainerName      string `json:"azure_container_name,omitempty"`
+	AzurePath               string `json:"azure_path,omitempty"`
+	AzureEndpoint           string `json:"azure_endpoint,omitempty"`
 
 	// Catalog Configuration
 	CatalogType CatalogType `json:"catalog_type,omitempty"`
@@ -94,9 +102,13 @@ type Config struct {
 }
 
 func (c *Config) Validate() error {
-	if c.IcebergS3Path == "" {
-		return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
-			fmt.Errorf("s3_path is required"))
+	validationErr := c.validateStorageType()
+	if validationErr != nil {
+		return validationErr
+	}
+	validPairingErr := c.validateCatalogStorageTypePairing()
+	if validPairingErr != nil {
+		return validPairingErr
 	}
 
 	// Set defaults for catalog type
@@ -134,20 +146,22 @@ func (c *Config) Validate() error {
 		c.S3PathStyle = true
 	}
 
-	// Validate S3 configuration
-	// Region can be picked up from environment or credentials file for AWS S3
-	if c.S3Endpoint == "" && c.Region == "" {
-		logger.Warn("aws_region not explicitly provided, will attempt to use region from environment variables or AWS config/credentials file")
-	}
+	if !c.usingAzure() {
+		// Validate S3 configuration
+		// Region can be picked up from environment or credentials file for AWS S3
+		if c.S3Endpoint == "" && c.Region == "" {
+			logger.Warn("aws_region not explicitly provided, will attempt to use region from environment variables or AWS config/credentials file")
+		}
 
-	// Log information about credentials for all S3 configurations
-	if c.AccessKey == "" && c.SecretKey == "" && c.ProfileName == "" {
-		if c.S3Endpoint == "" {
-			// AWS S3 scenario
-			logger.Info("AWS credentials not explicitly provided, will use default credential chain (environment variables, AWS config/credentials file, or instance metadata service)")
-		} else {
-			// Custom S3 endpoint scenario
-			logger.Info("S3 credentials not explicitly provided for custom endpoint. Ensure the service supports anonymous access or credentials are available through other means")
+		// Log information about credentials for all S3 configurations
+		if c.AccessKey == "" && c.SecretKey == "" && c.ProfileName == "" {
+			if c.S3Endpoint == "" {
+				// AWS S3 scenario
+				logger.Info("AWS credentials not explicitly provided, will use default credential chain (environment variables, AWS config/credentials file, or instance metadata service)")
+			} else {
+				// Custom S3 endpoint scenario
+				logger.Info("S3 credentials not explicitly provided for custom endpoint. Ensure the service supports anonymous access or credentials are available through other means")
+			}
 		}
 	}
 
@@ -210,6 +224,50 @@ func (c *Config) Validate() error {
 		c.ServerHost = "localhost"
 	}
 	return utils.Validate(c)
+}
+
+func (c *Config) validateStorageType() error {
+	if (c.AzureStorageAccountName == "") != (c.AzureStorageAccountKey == "") {
+		return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+			fmt.Errorf("azure_storage_account_name and azure_storage_account_key must both be set together"))
+	}
+
+	if c.AzureStorageAccountName != "" && c.AzureContainerName == "" {
+		return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+			fmt.Errorf("azure_container_name is required when using Azure storage"))
+	}
+
+	if c.usingAzure() && (c.IcebergS3Path != "" || c.S3Endpoint != "" || c.AccessKey != "") {
+		return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+			fmt.Errorf("only one of azure or s3 can be configured"))
+	}
+
+	if !c.usingAzure() && c.IcebergS3Path == "" {
+		return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+			fmt.Errorf("iceberg_s3_path is required when not using azure"))
+	}
+	return nil
+}
+
+func (c *Config) validateCatalogStorageTypePairing() error {
+	if !c.usingAzure() {
+		return nil
+	}
+	catalog := c.CatalogType
+	if catalog == "" {
+		catalog = GlueCatalog
+	}
+	for _, incompatibleCatalog := range azureIncompatibleCatalogs {
+		if catalog == incompatibleCatalog {
+			return errs.Precondition(errs.ConfigInvalid, codeCatalogConfigInvalid,
+				fmt.Errorf("catalog_type %s is not compatible with Azure storage", catalog))
+		}
+	}
+	return nil
+}
+
+func (c *Config) usingAzure() bool {
+	return c.AzureStorageAccountName != "" && c.AzureStorageAccountKey != "" && c.AzureContainerName != ""
 }
 
 func olakeAuthTypeToIcebergAuthType(authType string) string {

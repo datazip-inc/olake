@@ -27,21 +27,18 @@
           "title": "Catalog Type",
           "description": "Type of catalog to use"
         },
-        "iceberg_s3_path": {
-          "type": "string",
-          "title": "S3 Path",
-          "description": "The S3 path or storage location for Iceberg data"
-        },
         "arrow_writes": {
           "type": "boolean",
           "default": false,
           "title": "Enable Arrow Writes",
           "description": "Enable Apache Arrow-based Writer for Iceberg"
+        },
+        "grid_pad": {
+          "type": "string"
         }
       },
       "required": [
-        "catalog_type",
-        "iceberg_s3_path"
+        "catalog_type"
       ],
       "dependencies": {
         "catalog_type": {
@@ -57,13 +54,20 @@
                   "pattern": "^[a-z_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
+                "storage_type": {
+                  "type": "string",
+                  "enum": [
+                    "S3",
+                    "Azure"
+                  ],
+                  "default": "S3",
+                  "title": "Storage Type",
+                  "description": "Type of storage to use"
+                },
                 "jdbc_url": {
                   "type": "string",
                   "title": "JDBC URL",
                   "description": "Specifies the JDBC URL used to connect to the PostgreSQL catalog"
-                },
-                "iceberg_s3_path": {
-                  "description": "S3 bucket path where Iceberg data and metadata are stored"
                 },
                 "jdbc_username": {
                   "type": "string",
@@ -76,48 +80,102 @@
                   "minLength": 1,
                   "title": "JDBC Password",
                   "description": "Password for PostgreSQL catalog authentication"
-                },
-                "s3_endpoint": {
-                  "type": "string",
-                  "title": "S3 Endpoint",
-                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
-                },
-                "s3_path_style": {
-                  "type": "boolean",
-                  "default": true,
-                  "title": "Use Path Style for S3",
-                  "description": "Use path-style URLs for S3 API Requests. Required for S3-compatible storages apart from AWS S3"
-                },
-                "s3_use_ssl": {
-                  "type": "boolean",
-                  "default": false,
-                  "title": "Use SSL for S3",
-                  "description": "Enable HTTPS for S3 connections. Required for AWS S3."
-                },
-                "aws_secret_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Secret Key",
-                  "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
-                },
-                "aws_access_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Access Key",
-                  "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
-                },
-                "aws_region": {
-                  "type": "string",
-                  "title": "AWS Region",
-                  "description": "Specify the AWS region where the S3 bucket is hosted"
                 }
               },
               "required": [
                 "jdbc_url",
                 "jdbc_username",
-                "jdbc_password",
-                "aws_region"
-              ]
+                "jdbc_password"
+              ],
+              "dependencies": {
+                "storage_type": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "S3"
+                        },
+                        "iceberg_s3_path": {
+                          "type": "string",
+                          "title": "S3 Path",
+                          "description": "S3 bucket path where Iceberg data and metadata are stored"
+                        },
+                        "s3_endpoint": {
+                          "type": "string",
+                          "title": "S3 Endpoint",
+                          "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
+                        },
+                        "aws_secret_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Secret Key",
+                          "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
+                        },
+                        "aws_access_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Access Key",
+                          "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
+                        },
+                        "aws_region": {
+                          "type": "string",
+                          "title": "AWS Region",
+                          "description": "Specify the AWS region where the S3 bucket is hosted"
+                        },
+                        "s3_path_style": {
+                          "type": "boolean",
+                          "default": true,
+                          "title": "Use Path Style for S3",
+                          "description": "Use path-style URLs for S3 API Requests. Required for S3-compatible storages apart from AWS S3"
+                        },
+                        "s3_use_ssl": {
+                          "type": "boolean",
+                          "default": false,
+                          "title": "Use SSL for S3",
+                          "description": "Enable HTTPS for S3 connections. Required for AWS S3."
+                        }
+                      },
+                      "required": [
+                        "iceberg_s3_path",
+                        "aws_region"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "Azure"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "Name of the Azure storage account"
+                        },
+                        "azure_storage_account_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "Azure Storage Account Key",
+                          "description": "Key of the Azure storage account"
+                        },
+                        "azure_container_name": {
+                          "type": "string",
+                          "title": "Azure Container Name",
+                          "description": "Name of the Azure container"
+                        },
+                        "azure_path": {
+                          "type": "string",
+                          "title": "Azure Path",
+                          "description": "Path of the Azure storage account"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_account_name",
+                        "azure_storage_account_key",
+                        "azure_container_name"
+                      ]
+                    }
+                  ]
+                }
+              }
             },
             {
               "properties": {
@@ -129,6 +187,16 @@
                   "title": "Catalog Name",
                   "pattern": "^[a-z_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
+                },
+                "storage_type": {
+                  "type": "string",
+                  "enum": [
+                    "S3",
+                    "Azure"
+                  ],
+                  "default": "S3",
+                  "title": "Storage Type",
+                  "description": "Type of storage to use"
                 },
                 "hive_uri": {
                   "type": "string",
@@ -145,47 +213,101 @@
                   "default": false,
                   "title": "Enable SASL for Hive",
                   "description": "Enable SASL authentication for Hive Metastore. Required if your metastore enforces SASL"
-                },
-                "s3_path_style": {
-                  "type": "boolean",
-                  "default": false,
-                  "title": "Use Path Style for S3",
-                  "description": "Use path-style URLs for S3 API Requests. Required for S3-compatible storages apart from AWS S3"
-                },
-                "s3_use_ssl": {
-                  "type": "boolean",
-                  "default": false,
-                  "title": "Use SSL for S3",
-                  "description": "Enable HTTPS for S3 connections. Required for AWS S3"
-                },
-                "s3_endpoint": {
-                  "type": "string",
-                  "title": "S3 Endpoint",
-                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
-                },
-                "aws_secret_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Secret Key",
-                  "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
-                },
-                "aws_access_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Access Key",
-                  "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
-                },
-                "aws_region": {
-                  "type": "string",
-                  "title": "AWS Region",
-                  "description": "Specify the AWS region where the S3 bucket is hosted"
                 }
               },
               "required": [
                 "hive_uri",
-                "hive_clients",
-                "aws_region"
-              ]
+                "hive_clients"
+              ],
+              "dependencies": {
+                "storage_type": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "S3"
+                        },
+                        "iceberg_s3_path": {
+                          "type": "string",
+                          "title": "S3 Path",
+                          "description": "The S3 path or storage location for Iceberg data"
+                        },
+                        "s3_endpoint": {
+                          "type": "string",
+                          "title": "S3 Endpoint",
+                          "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
+                        },
+                        "aws_secret_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Secret Key",
+                          "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
+                        },
+                        "aws_access_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Access Key",
+                          "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
+                        },
+                        "aws_region": {
+                          "type": "string",
+                          "title": "AWS Region",
+                          "description": "Specify the AWS region where the S3 bucket is hosted"
+                        },
+                        "s3_path_style": {
+                          "type": "boolean",
+                          "default": false,
+                          "title": "Use Path Style for S3",
+                          "description": "Use path-style URLs for S3 API Requests. Required for S3-compatible storages apart from AWS S3"
+                        },
+                        "s3_use_ssl": {
+                          "type": "boolean",
+                          "default": false,
+                          "title": "Use SSL for S3",
+                          "description": "Enable HTTPS for S3 connections. Required for AWS S3"
+                        }
+                      },
+                      "required": [
+                        "iceberg_s3_path",
+                        "aws_region"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "Azure"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "Name of the Azure storage account"
+                        },
+                        "azure_storage_account_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "Azure Storage Account Key",
+                          "description": "Key of the Azure storage account"
+                        },
+                        "azure_container_name": {
+                          "type": "string",
+                          "title": "Azure Container Name",
+                          "description": "Name of the Azure container"
+                        },
+                        "azure_path": {
+                          "type": "string",
+                          "title": "Azure Path",
+                          "description": "Path of the Azure storage account"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_account_name",
+                        "azure_storage_account_key",
+                        "azure_container_name"
+                      ]
+                    }
+                  ]
+                }
+              }
             },
             {
               "properties": {
@@ -198,18 +320,15 @@
                   "pattern": "^[a-z_]+$",
                   "description": "Name of the Iceberg catalog OLake Go registers tables under. Defaults to olake_iceberg if left empty."
                 },
-                "iceberg_s3_path": {
-                  "description": "S3 bucket path where Iceberg data and metadata are stored"
+                "rest_auth_type": {
+                  "type": "string",
+                  "title": "REST Auth Type",
+                  "description": "Authentication method for the REST catalog"
                 },
                 "rest_catalog_url": {
                   "type": "string",
                   "title": "REST Catalog URI",
                   "description": "Specifies the endpoint URI for the REST catalog service the writer will connect to"
-                },
-                "rest_auth_type": {
-                  "type": "string",
-                  "title": "REST Auth Type",
-                  "description": "Authentication method for the REST catalog"
                 },
                 "credential": {
                   "type": "string",
@@ -248,6 +367,16 @@
                   "description": "Enable AWS Signature V4 signing (boolean)",
                   "default": false
                 },
+                "iceberg_s3_path": {
+                  "type": "string",
+                  "title": "S3 Path",
+                  "description": "S3 bucket path where Iceberg data and metadata are stored"
+                },
+                "s3_endpoint": {
+                  "type": "string",
+                  "title": "S3 Endpoint",
+                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
+                },
                 "aws_secret_key": {
                   "type": "string",
                   "format": "password",
@@ -271,11 +400,6 @@
                   "title": "Disable Identifier Field For Tables",
                   "description": "Create tables without identifier fields. Enable for Unity Catalog"
                 },
-                "s3_endpoint": {
-                  "type": "string",
-                  "title": "S3 Endpoint",
-                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
-                },
                 "gcp_service_account_json": {
                   "type": "string",
                   "format": "password",
@@ -291,11 +415,31 @@
                   "type": "string",
                   "title": "GCP Project ID",
                   "description": "Required for multi-bucket catalogs only. Identifies the GCP project for BigLake request routing and billing."
+                },
+                "azure_storage_account_name": {
+                  "type": "string",
+                  "title": "Azure Storage Account Name",
+                  "description": "Name of the Azure storage account"
+                },
+                "azure_storage_account_key": {
+                  "type": "string",
+                  "format": "password",
+                  "title": "Azure Storage Account Key",
+                  "description": "Key of the Azure storage account"
+                },
+                "azure_container_name": {
+                  "type": "string",
+                  "title": "Azure Container Name",
+                  "description": "Name of the Azure container"
+                },
+                "azure_path": {
+                  "type": "string",
+                  "title": "Azure Path",
+                  "description": "Path of the Azure storage account"
                 }
               },
               "required": [
-                "rest_catalog_url",
-                "aws_region"
+                "rest_catalog_url"
               ]
             },
             {
@@ -319,19 +463,20 @@
                   ],
                   "description": "Authentication types supported by the catalog"
                 },
+                "storage_type": {
+                  "type": "string",
+                  "enum": [
+                    "S3",
+                    "Azure"
+                  ],
+                  "default": "S3",
+                  "title": "Storage Type",
+                  "description": "Type of storage to use"
+                },
                 "rest_catalog_url": {
                   "type": "string",
                   "title": "REST Catalog URI",
                   "description": "Endpoint URL for the Lakekeeper REST catalog service"
-                },
-                "iceberg_s3_path": {
-                  "title": "Lakekeeper Warehouse",
-                  "description": "Name of the warehouse created in your Lakekeeper catalog"
-                },
-                "aws_region": {
-                  "type": "string",
-                  "title": "AWS Region",
-                  "description": "AWS region where the S3 bucket is hosted (Optional if already set in your Lakekeeper warehouse)"
                 }
               },
               "required": [
@@ -391,6 +536,63 @@
                       ]
                     }
                   ]
+                },
+                "storage_type": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "S3"
+                        },
+                        "iceberg_s3_path": {
+                          "type": "string",
+                          "title": "Lakekeeper Warehouse",
+                          "description": "Name of the warehouse created in your Lakekeeper catalog"
+                        },
+                        "aws_region": {
+                          "type": "string",
+                          "title": "AWS Region",
+                          "description": "AWS region where the S3 bucket is hosted (Optional if already set in your Lakekeeper warehouse)"
+                        }
+                      },
+                      "required": [
+                        "iceberg_s3_path"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "Azure"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "Name of the Azure storage account"
+                        },
+                        "azure_storage_account_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "Azure Storage Account Key",
+                          "description": "Key of the Azure storage account"
+                        },
+                        "azure_container_name": {
+                          "type": "string",
+                          "title": "Azure Container Name",
+                          "description": "Name of the Azure container"
+                        },
+                        "azure_path": {
+                          "type": "string",
+                          "title": "Azure Path",
+                          "description": "Path of the Azure storage account"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_account_name",
+                        "azure_storage_account_key",
+                        "azure_container_name"
+                      ]
+                    }
+                  ]
                 }
               }
             },
@@ -415,41 +617,25 @@
                   ],
                   "description": "Authentication types supported by the catalog"
                 },
-                "iceberg_s3_path": {
-                  "description": "S3 bucket path where Iceberg data and metadata are stored"
+                "storage_type": {
+                  "type": "string",
+                  "enum": [
+                    "S3",
+                    "Azure"
+                  ],
+                  "default": "S3",
+                  "title": "Storage Type",
+                  "description": "Type of storage to use"
                 },
                 "rest_catalog_url": {
                   "type": "string",
                   "title": "REST Catalog URI",
                   "description": "Endpoint URL for the Nessie REST catalog service"
-                },
-                "s3_endpoint": {
-                  "type": "string",
-                  "title": "S3 Endpoint",
-                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
-                },
-                "aws_secret_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Secret Key",
-                  "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
-                },
-                "aws_access_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Access Key",
-                  "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
-                },
-                "aws_region": {
-                  "type": "string",
-                  "title": "AWS Region",
-                  "description": "Specify the AWS region where the S3 bucket is hosted"
                 }
               },
               "required": [
                 "rest_catalog_url",
-                "rest_auth_type",
-                "aws_region"
+                "rest_auth_type"
               ],
               "dependencies": {
                 "rest_auth_type": {
@@ -504,6 +690,81 @@
                       ]
                     }
                   ]
+                },
+                "storage_type": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "S3"
+                        },
+                        "iceberg_s3_path": {
+                          "type": "string",
+                          "title": "S3 Path",
+                          "description": "S3 bucket path where Iceberg data and metadata are stored"
+                        },
+                        "s3_endpoint": {
+                          "type": "string",
+                          "title": "S3 Endpoint",
+                          "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
+                        },
+                        "aws_secret_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Secret Key",
+                          "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
+                        },
+                        "aws_access_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Access Key",
+                          "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
+                        },
+                        "aws_region": {
+                          "type": "string",
+                          "title": "AWS Region",
+                          "description": "Specify the AWS region where the S3 bucket is hosted"
+                        }
+                      },
+                      "required": [
+                        "iceberg_s3_path",
+                        "aws_region"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "Azure"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "Name of the Azure storage account"
+                        },
+                        "azure_storage_account_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "Azure Storage Account Key",
+                          "description": "Key of the Azure storage account"
+                        },
+                        "azure_container_name": {
+                          "type": "string",
+                          "title": "Azure Container Name",
+                          "description": "Name of the Azure container"
+                        },
+                        "azure_path": {
+                          "type": "string",
+                          "title": "Azure Path",
+                          "description": "Path of the Azure storage account"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_account_name",
+                        "azure_storage_account_key",
+                        "azure_container_name"
+                      ]
+                    }
+                  ]
                 }
               }
             },
@@ -537,6 +798,7 @@
                   "description": "AWS region for SigV4 signing"
                 },
                 "iceberg_s3_path": {
+                  "type": "string",
                   "title": "S3 Table Buckets ARN",
                   "description": "ARN of your S3 Tables table bucket"
                 },
@@ -564,6 +826,7 @@
                 }
               },
               "required": [
+                "iceberg_s3_path",
                 "rest_catalog_url",
                 "rest_auth_type",
                 "rest_signing_region",
@@ -598,8 +861,15 @@
                   "description": "Databricks workspace URL with Unity Catalog REST API endpoint"
                 },
                 "iceberg_s3_path": {
+                  "type": "string",
                   "title": "Unity Catalog Name",
-                  "description": "Name of the catalog in Unity"
+                  "description": "Name of the catalog in Unity (only for S3 storage, leave empty for ADLS)"
+                },
+                "azure_storage_support": {
+                  "type": "boolean",
+                  "default": false,
+                  "title": "Azure Storage Support",
+                  "description": "Enable Azure storage support when Unity tables live on ADLS "
                 }
               },
               "required": [
@@ -684,6 +954,51 @@
                       ]
                     }
                   ]
+                },
+                "azure_storage_support": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "azure_storage_support": {
+                          "const": false
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "azure_storage_support": {
+                          "const": true
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "Name of the Azure storage account"
+                        },
+                        "azure_storage_account_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "Azure Storage Account Key",
+                          "description": "Key of the Azure storage account"
+                        },
+                        "azure_container_name": {
+                          "type": "string",
+                          "title": "Azure Container Name",
+                          "description": "Name of the Azure container"
+                        },
+                        "azure_path": {
+                          "type": "string",
+                          "title": "Azure Path",
+                          "description": "Path of the Azure storage account"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_support",
+                        "azure_storage_account_name",
+                        "azure_storage_account_key",
+                        "azure_container_name"
+                      ]
+                    }
+                  ]
                 }
               }
             },
@@ -707,42 +1022,25 @@
                   ],
                   "description": "Authentication types supported by the catalog"
                 },
+                "storage_type": {
+                  "type": "string",
+                  "enum": [
+                    "S3",
+                    "Azure"
+                  ],
+                  "default": "S3",
+                  "title": "Storage Type",
+                  "description": "Type of storage to use"
+                },
                 "rest_catalog_url": {
                   "type": "string",
                   "title": "REST Catalog URI",
                   "description": "Endpoint URL for the Polaris REST catalog service"
-                },
-                "iceberg_s3_path": {
-                  "title": "Polaris Catalog Name",
-                  "description": "Name of the catalog created in your Polaris instance"
-                },
-                "s3_endpoint": {
-                  "type": "string",
-                  "title": "S3 Endpoint",
-                  "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
-                },
-                "aws_secret_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Secret Key",
-                  "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
-                },
-                "aws_access_key": {
-                  "type": "string",
-                  "format": "password",
-                  "title": "AWS Access Key",
-                  "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
-                },
-                "aws_region": {
-                  "type": "string",
-                  "title": "AWS Region",
-                  "description": "Specify the AWS region where the S3 bucket is hosted"
                 }
               },
               "required": [
                 "rest_catalog_url",
-                "rest_auth_type",
-                "aws_region"
+                "rest_auth_type"
               ],
               "dependencies": {
                 "rest_auth_type": {
@@ -790,6 +1088,81 @@
                       ]
                     }
                   ]
+                },
+                "storage_type": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "S3"
+                        },
+                        "iceberg_s3_path": {
+                          "type": "string",
+                          "title": "Polaris Catalog Name",
+                          "description": "Name of the catalog created in your Polaris instance"
+                        },
+                        "s3_endpoint": {
+                          "type": "string",
+                          "title": "S3 Endpoint",
+                          "description": "Specifies the endpoint URL for S3 compatible services (like MinIO)"
+                        },
+                        "aws_secret_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Secret Key",
+                          "description": "The AWS secret key for S3 authentication—typically 40+ characters long"
+                        },
+                        "aws_access_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "AWS Access Key",
+                          "description": "The AWS access key for authenticating S3 requests, typically a 20-character alphanumeric string"
+                        },
+                        "aws_region": {
+                          "type": "string",
+                          "title": "AWS Region",
+                          "description": "Specify the AWS region where the S3 bucket is hosted"
+                        }
+                      },
+                      "required": [
+                        "iceberg_s3_path",
+                        "aws_region"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "storage_type": {
+                          "const": "Azure"
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "Name of the Azure storage account"
+                        },
+                        "azure_storage_account_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "Azure Storage Account Key",
+                          "description": "Key of the Azure storage account"
+                        },
+                        "azure_container_name": {
+                          "type": "string",
+                          "title": "Azure Container Name",
+                          "description": "Name of the Azure container"
+                        },
+                        "azure_path": {
+                          "type": "string",
+                          "title": "Azure Path",
+                          "description": "Path of the Azure storage account"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_account_name",
+                        "azure_storage_account_key",
+                        "azure_container_name"
+                      ]
+                    }
+                  ]
                 }
               }
             },
@@ -810,6 +1183,7 @@
                   "description": "Endpoint URL for the Big Lake REST catalog service"
                 },
                 "iceberg_s3_path": {
+                  "type": "string",
                   "title": "BigLake Catalog Path",
                   "description": "Path to your BigLake catalog"
                 },
@@ -872,8 +1246,9 @@
                   "description": "Snowflake Horizon Catalog REST API endpoint"
                 },
                 "iceberg_s3_path": {
+                  "type": "string",
                   "title": "Snowflake Database",
-                  "description": "Snowflake database name used as Iceberg Warehouse"
+                  "description": "Snowflake database name used as Iceberg Warehouse (only for S3/Snowflake managed; leave empty for ADLS"
                 },
                 "aws_region": {
                   "type": "string",
@@ -884,12 +1259,17 @@
                   "type": "string",
                   "title": "Session Role Scope",
                   "description": "Snowflake session role scope in the format of 'session:role:<role>' (space separated for more than one)"
+                },
+                "azure_storage_support": {
+                  "type": "boolean",
+                  "default": false,
+                  "title": "Azure Storage Support",
+                  "description": "Enable Azure storage support when Snowflake Iceberg external volume is customer ADLS"
                 }
               },
               "required": [
                 "rest_catalog_url",
                 "rest_auth_type",
-                "aws_region",
                 "scope"
               ],
               "dependencies": {
@@ -970,6 +1350,50 @@
                       ]
                     }
                   ]
+                },
+                "azure_storage_support": {
+                  "oneOf": [
+                    {
+                      "properties": {
+                        "azure_storage_support": {
+                          "const": false
+                        }
+                      }
+                    },
+                    {
+                      "properties": {
+                        "azure_storage_support": {
+                          "const": true
+                        },
+                        "azure_storage_account_name": {
+                          "type": "string",
+                          "title": "Azure Storage Account Name",
+                          "description": "Name of the Azure storage account"
+                        },
+                        "azure_storage_account_key": {
+                          "type": "string",
+                          "format": "password",
+                          "title": "Azure Storage Account Key",
+                          "description": "Key of the Azure storage account"
+                        },
+                        "azure_container_name": {
+                          "type": "string",
+                          "title": "Azure Container Name",
+                          "description": "Name of the Azure container"
+                        },
+                        "azure_path": {
+                          "type": "string",
+                          "title": "Azure Path",
+                          "description": "Path of the Azure storage account"
+                        }
+                      },
+                      "required": [
+                        "azure_storage_account_name",
+                        "azure_storage_account_key",
+                        "azure_container_name"
+                      ]
+                    }
+                  ]
                 }
               }
             },
@@ -977,6 +1401,11 @@
               "properties": {
                 "catalog_type": {
                   "const": "glue"
+                },
+                "iceberg_s3_path": {
+                  "type": "string",
+                  "title": "Glue Catalog Path",
+                  "description": "The S3 path or storage location for Iceberg data"
                 },
                 "s3_endpoint": {
                   "type": "string",
