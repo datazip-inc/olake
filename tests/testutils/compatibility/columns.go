@@ -58,13 +58,14 @@ type assertionPolicies struct {
 
 // resolveAssertionPolicies folds the driver's and variant's rules -- type-keyed and column-keyed,
 // dated and unconditional -- with the always type-only columns into one policy set for this baseline.
-func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules compatibilityDriverRules, dataFormat string) (*assertionPolicies, error) {
+func resolveAssertionPolicies(fixture *TestHandler, spec string, driverRules compatibilityDriverRules, dataFormat string, modeRules []compatibilityTypeRule) (*assertionPolicies, error) {
 	// The destinations' shared rules first (olake's own columns), then the driver's -- destination
 	// columns and source columns are separate lists in the json -- then the data format's.
 	typeRules := slices.Clone(compatibilityRules.Destinations.Rules)
 	typeRules = append(typeRules, driverRules.DestinationRules...)
 	typeRules = append(typeRules, driverRules.Rules...)
 	typeRules = append(typeRules, driverRules.Variants[dataFormat].Rules...)
+	typeRules = append(typeRules, modeRules...)
 
 	// The columns a data_types rule can select: the driver's declared schema and the fixture's own
 	// tags.

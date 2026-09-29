@@ -143,21 +143,22 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baselineVersion st
 
 	// Every rule -- type-keyed, column-keyed, dated, unconditional -- resolves here into the one
 	// policy set the run applies: seeding, catalog and comparison all read it, nothing re-derives.
-	policies, err := resolveAssertionPolicies(th, ruleSpec, driverRules, dataFormat)
-	require.NoError(t, err)
-	for _, note := range policies.notes {
-		t.Logf("compatibility: %s", note)
-	}
-
 	// Writer-level gates: a group whose writer has a known bounded regression against this
 	// baseline is left out, and says so -- the other writers keep their coverage instead of the
 	// whole baseline being dropped.
 	var groups []compatibilityGroup
+	groupPolicies := map[string]*assertionPolicies{}
 	for _, group := range compatibilityVariantGroups(driver) {
 		if reason := group.gate.skipReason(ruleSpec); reason != "" {
 			t.Logf("compatibility: writer group %s not run against this baseline: %s", group.name, reason)
 			continue
 		}
+		policies, err := resolveAssertionPolicies(th, ruleSpec, driverRules, dataFormat, group.rules)
+		require.NoError(t, err)
+		for _, note := range policies.notes {
+			t.Logf("compatibility: writer group %s: %s", group.name, note)
+		}
+		groupPolicies[group.name] = policies
 		groups = append(groups, group)
 	}
 	require.NotEmpty(t, groups, "no compatibility scenarios for driver %s against this baseline", driver)
@@ -174,6 +175,7 @@ func (th *TestHandler) runCompatibilityBaseline(t *testing.T, baselineVersion st
 		for _, group := range groups {
 			t.Run(group.name, func(t *testing.T) {
 				t.Parallel()
+				policies := groupPolicies[group.name]
 				for _, v := range group.variants {
 					// running variants in series as all the compatibility runs are already in parallel so too much parallelism can degrade performance
 					if aborted.Load() {
