@@ -331,7 +331,7 @@ func (m *MySQL) binlogRowMetadataFull(ctx context.Context) bool {
 
 func (m *MySQL) IsCDCSupported(ctx context.Context) (bool, error) {
 	// Permission check via SHOW MASTER STATUS / SHOW BINARY LOG STATUS
-	if _, err := binlog.GetCurrentBinlogPosition(ctx, m.client); err != nil {
+	if _, err := binlog.GetCurrentBinlogState(ctx, m.client); err != nil {
 		return false, fmt.Errorf("failed to get binlog position: %w", err)
 	}
 

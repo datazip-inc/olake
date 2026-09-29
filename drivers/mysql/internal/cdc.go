@@ -51,7 +51,7 @@ func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlo
 		SchemaClient:            m.client,
 	}
 
-	return binlog.NewConnection(ctx, config, mySQLGlobalState.State.Position, streamsToSync, m.dataTypeConverter)
+	return binlog.NewConnection(ctx, config, mySQLGlobalState.State, streamsToSync, m.dataTypeConverter)
 }
 
 func (m *MySQL) ChangeStreamConfig() (bool, bool, bool) {
@@ -74,11 +74,11 @@ func (m *MySQL) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	// Load or initialize global state
 	globalState := m.state.GetGlobal()
 	if globalState == nil || globalState.State == nil {
-		binlogPos, err := binlog.GetCurrentBinlogPosition(ctx, m.client)
+		binlogState, err := binlog.GetCurrentBinlogState(ctx, m.client)
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %w", err)
 		}
-		m.state.SetGlobal(MySQLGlobalState{ServerID: newServerID(), State: binlog.Binlog{Position: binlogPos}})
+		m.state.SetGlobal(MySQLGlobalState{ServerID: newServerID(), State: binlogState})
 		m.state.ResetStreams()
 	}
 	m.streams = streams
@@ -115,6 +115,11 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 			err := json.Unmarshal([]byte(mtState), &mysqlMetadataState)
 			if err != nil {
 				return nil, fmt.Errorf("failed to unmarshal metadata state: %w", err)
+			}
+			if mySQLGlobalState.State.ServerUUID != "" {
+				if err := mysqlMetadataState.ValidateServerUUID(mySQLGlobalState.State.ServerUUID); err != nil {
+					return nil, fmt.Errorf("invalid metadata for stream[%s]: %w", streamID, err)
+				}
 			}
 
 			// Recovery is only needed when metadata is strictly AHEAD of state.
@@ -164,7 +169,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 		m.BinlogConn.CurrentPos = recoveryPos
 	}
 
-	return binlog.Binlog{Position: m.BinlogConn.CurrentPos}, nil
+	return binlog.Binlog{Position: m.BinlogConn.CurrentPos, ServerUUID: m.BinlogConn.ServerUUID}, nil
 }
 
 func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
@@ -179,7 +184,8 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
 			State: binlog.Binlog{
-				Position: m.BinlogConn.CurrentPos,
+				Position:   m.BinlogConn.CurrentPos,
+				ServerUUID: m.BinlogConn.ServerUUID,
 			},
 		})
 		return nil

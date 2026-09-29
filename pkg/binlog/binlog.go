@@ -12,7 +12,9 @@ import (
 	"github.com/datazip-inc/olake/pkg/jdbc"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jmoiron/sqlx"
@@ -21,25 +23,47 @@ import (
 // Connection manages the binlog syncer and streamer for multiple streams.
 type Connection struct {
 	syncer          *replication.BinlogSyncer
+	cancel          context.CancelFunc
 	CurrentPos      mysql.Position // Current binlog position
+	ServerUUID      string
 	ServerID        uint32
 	initialWaitTime time.Duration
 	changeFilter    ChangeFilter // Filter for processing binlog events
 }
 
 // NewConnection creates a new binlog connection starting from the given position.
-func NewConnection(_ context.Context, config *Config, pos mysql.Position, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
+func NewConnection(ctx context.Context, config *Config, state Binlog, streams []types.StreamInterface, typeConverter func(value interface{}, columnType string) (interface{}, error)) (*Connection, error) {
+	connectionCtx, cancel := context.WithCancel(ctx)
 	syncerConfig := replication.BinlogSyncerConfig{
-		ServerID:        config.ServerID,
-		Flavor:          config.Flavor,
-		Host:            config.Host,
-		Port:            config.Port,
-		User:            config.User,
-		Password:        config.Password,
-		Charset:         config.Charset,
-		VerifyChecksum:  config.VerifyChecksum,
-		HeartbeatPeriod: config.HeartbeatPeriod,
-		TLSConfig:       config.TLSConfig,
+		ServerID:             config.ServerID,
+		Flavor:               config.Flavor,
+		Host:                 config.Host,
+		Port:                 config.Port,
+		User:                 config.User,
+		Password:             config.Password,
+		Charset:              config.Charset,
+		VerifyChecksum:       config.VerifyChecksum,
+		HeartbeatPeriod:      config.HeartbeatPeriod,
+		TLSConfig:            config.TLSConfig,
+		MaxReconnectAttempts: 1,
+	}
+	// SSH channels reject socket deadlines; their reads are interrupted by cancellation.
+	if config.SSHClient == nil {
+		syncerConfig.ReadTimeout = 2 * config.HeartbeatPeriod
+	}
+	if state.ServerUUID != "" {
+		// The hook runs on the actual replication session, including reconnects.
+		syncerConfig.Option = func(conn *client.Conn) error {
+			result, err := conn.Execute("SELECT @@server_uuid")
+			if err != nil {
+				return fmt.Errorf("failed to get replication server UUID: %w", err)
+			}
+			serverUUID, err := result.GetString(0, 0)
+			if err != nil {
+				return fmt.Errorf("failed to read replication server UUID: %w", err)
+			}
+			return state.ValidateServerUUID(serverUUID)
+		}
 	}
 	// For state versions > 1, use the connection's configured timezone.
 	// This ensures consistency between Full Refresh and CDC timestamps.
@@ -48,16 +72,31 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 		syncerConfig.TimestampStringLocation = config.TimestampStringLocation
 	}
 
-	if config.SSHClient != nil {
-		syncerConfig.Dialer = func(_ context.Context, _, addr string) (net.Conn, error) {
-			return config.SSHClient.Dial("tcp", addr)
+	syncerConfig.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if err := connectionCtx.Err(); err != nil {
+			return nil, err
 		}
+		var conn net.Conn
+		var err error
+		if config.SSHClient != nil {
+			conn, err = config.SSHClient.DialContext(ctx, "tcp", addr)
+		} else {
+			conn, err = (&net.Dialer{}).DialContext(ctx, network, addr)
+		}
+		if err != nil {
+			return nil, err
+		}
+		// SSH channels do not support the read deadline used by the syncer's Close.
+		context.AfterFunc(connectionCtx, func() { _ = conn.Close() })
+		return conn, nil
 	}
 
 	return &Connection{
 		ServerID:        config.ServerID,
 		syncer:          replication.NewBinlogSyncer(syncerConfig),
-		CurrentPos:      pos,
+		cancel:          cancel,
+		CurrentPos:      state.Position,
+		ServerUUID:      state.ServerUUID,
 		initialWaitTime: config.InitialWaitTime,
 		changeFilter:    NewChangeFilter(config.SchemaClient, typeConverter, streams...),
 	}, nil
@@ -65,11 +104,14 @@ func NewConnection(_ context.Context, config *Config, pos mysql.Position, stream
 
 func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latestBinlogPos mysql.Position, callback abstract.CDCMsgFn) error {
 	if latestBinlogPos.Name == "" || latestBinlogPos.Pos == 0 {
-		var err error
-		latestBinlogPos, err = GetCurrentBinlogPosition(ctx, client)
+		latestState, err := GetCurrentBinlogState(ctx, client)
 		if err != nil {
 			return fmt.Errorf("failed to get current binlog position: %w", err)
 		}
+		if err := (Binlog{Position: c.CurrentPos, ServerUUID: c.ServerUUID}).ValidateServerUUID(latestState.ServerUUID); err != nil {
+			return err
+		}
+		latestBinlogPos = latestState.Position
 	}
 
 	logger.Infof("Starting MySQL CDC from %s:%d to %s:%d", c.CurrentPos.Name, c.CurrentPos.Pos, latestBinlogPos.Name, latestBinlogPos.Pos)
@@ -145,30 +187,44 @@ func (c *Connection) StreamMessages(ctx context.Context, client *sqlx.DB, latest
 
 // Cleanup terminates the binlog syncer.
 func (c *Connection) Cleanup() {
+	// Close must not redial a changed endpoint to KILL a server-local connection ID.
+	c.cancel()
 	c.syncer.Close()
 }
 
-// GetCurrentBinlogPosition retrieves the current binlog position from MySQL.
-func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Position, error) {
+// GetCurrentBinlogState reads the position and its server identity on the same SQL session.
+func GetCurrentBinlogState(ctx context.Context, client *sqlx.DB) (Binlog, error) {
+	conn, err := client.Connx(ctx)
+	if err != nil {
+		return Binlog{}, fmt.Errorf("failed to acquire binlog state connection: %w", err)
+	}
+	defer conn.Close()
+
 	// SHOW MASTER STATUS is not supported in MySQL 8.4 and after
 
 	// Get MySQL version
-	mysqlFlavor, majorVersion, minorVersion, err := jdbc.MySQLVersion(ctx, client)
+	mysqlFlavor, majorVersion, minorVersion, err := jdbc.MySQLVersion(ctx, conn)
 	if err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to get MySQL version: %w", err)
+		return Binlog{}, fmt.Errorf("failed to get MySQL version: %w", err)
+	}
+	var state Binlog
+	if mysqlFlavor == "MySQL" {
+		if err := conn.QueryRowContext(ctx, "SELECT @@server_uuid").Scan(&state.ServerUUID); err != nil {
+			return Binlog{}, fmt.Errorf("failed to get MySQL server UUID: %w", err)
+		}
 	}
 
 	// Use the appropriate query based on the MySQL version
 	query := utils.Ternary(mysqlFlavor == "MySQL" && (majorVersion > 8 || (majorVersion == 8 && minorVersion >= 4)), jdbc.MySQLMasterStatusQueryNew(), jdbc.MySQLMasterStatusQuery()).(string)
 
-	rows, err := client.QueryContext(ctx, query)
+	rows, err := conn.QueryContext(ctx, query)
 	if err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to get master status: %w", err)
+		return Binlog{}, fmt.Errorf("failed to get master status: %w", err)
 	}
 	defer rows.Close()
 
 	if !rows.Next() {
-		return mysql.Position{}, fmt.Errorf("no binlog position available")
+		return Binlog{}, fmt.Errorf("no binlog position available")
 	}
 
 	var file string
@@ -178,16 +234,26 @@ func GetCurrentBinlogPosition(ctx context.Context, client *sqlx.DB) (mysql.Posit
 	switch mysqlFlavor {
 	case "MySQL":
 		if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB, &executeGtidSet); err != nil {
-			return mysql.Position{}, fmt.Errorf("failed to scan MySQL binlog position: %w", err)
+			return Binlog{}, fmt.Errorf("failed to scan MySQL binlog position: %w", err)
 		}
 	case "MariaDB":
 		// MariaDB returns 4 columns: File, Position, Binlog_Do_DB, Binlog_Ignore_DB
 		if err := rows.Scan(&file, &position, &binlogDoDB, &binlogIgnoreDB); err != nil {
-			return mysql.Position{}, fmt.Errorf("failed to scan MariaDB binlog position: %w", err)
+			return Binlog{}, fmt.Errorf("failed to scan MariaDB binlog position: %w", err)
 		}
 	default:
-		return mysql.Position{}, fmt.Errorf("unsupported database flavor: %s", mysqlFlavor)
+		return Binlog{}, fmt.Errorf("unsupported database flavor: %s", mysqlFlavor)
 	}
 
-	return mysql.Position{Name: file, Pos: position}, nil
+	state.Position = mysql.Position{Name: file, Pos: position}
+	return state, nil
+}
+
+// ValidateServerUUID rejects file positions whose known owner differs from the source.
+func (b Binlog) ValidateServerUUID(serverUUID string) error {
+	if b.ServerUUID == "" || b.ServerUUID == serverUUID {
+		return nil
+	}
+	return errs.Precondition(errs.CDCPositionLost, "mysql.server_uuid_mismatch",
+		fmt.Errorf("%w: MySQL server UUID changed from %q to %q; cannot resume binlog position %s on a different server; reconnect to the original server", constants.ErrNonRetryable, b.ServerUUID, serverUUID, b.Position))
 }
