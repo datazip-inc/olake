@@ -111,7 +111,7 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	// Wire SIGINT/SIGTERM into the root context so CDC, backfill and
 	// destination-writer paths reach their existing ctx.Done() branches on
 	// pod eviction, docker stop, or Ctrl-C, instead of being killed mid-read.
-	ctx := signalAwareRootContext(RootCmd.Context())
+	ctx := signalAwareRootContext()
 	RootCmd.SetContext(ctx)
 
 	connector = abstract.NewAbstractDriver(ctx, driver.(abstract.DriverInterface))
@@ -119,10 +119,10 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 	return RootCmd
 }
 
-// signalAwareRootContext wraps parent so that the returned context cancels on
-// SIGINT / SIGTERM as well as on any parent cancellation. Used to wire pod
-// eviction, docker stop, and Ctrl-C through to the existing ctx.Done()
-// branches in CDC, backfill, and destination-writer paths.
+// signalAwareRootContext returns a context rooted at Background() that cancels
+// on SIGINT / SIGTERM. Used to wire pod eviction, docker stop, and Ctrl-C
+// through to the existing ctx.Done() branches in CDC, backfill, and
+// destination-writer paths.
 //
 // Source / destination consistency on cancel is still owned by each
 // driver.PostCDC and destination writer.Close implementation. This wrapper only
@@ -134,13 +134,8 @@ func CreateRootCommand(_ bool, driver any) *cobra.Command {
 //
 // Drivers may have source-specific checkpointing constraints, so this helper
 // should not be used as a substitute for driver-level cancellation safety.
-func signalAwareRootContext(parent context.Context) context.Context {
-	// CreateRootCommand runs before Execute, so Cobra has not yet defaulted
-	// nil to Background().
-	if parent == nil {
-		parent = context.Background()
-	}
-	ctx, stop := signal.NotifyContext(parent, syscall.SIGINT, syscall.SIGTERM)
+func signalAwareRootContext() context.Context {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	// signal.NotifyContext keeps the signal handler installed until stop() is
 	// called. Releasing it after the first cancellation lets a subsequent
 	// SIGINT/SIGTERM fall through to the Go runtime default (terminate), which
