@@ -203,11 +203,11 @@ func logSelectedStreams(t *testing.T, cfg *testutils.TestConfig) {
 	t.Helper()
 	raw, err := os.ReadFile(cfg.GetFilePath("streams.json"))
 	require.NoError(t, err, "failed to read streams.json")
-	var catalog struct {
-		SelectedStreams json.RawMessage `json:"selected_streams"`
-	}
+	var catalog map[string]any
 	require.NoError(t, json.Unmarshal(raw, &catalog), "failed to parse streams.json")
-	t.Logf("compatibility side %q: selected_streams from discover on %s:\n%s", cfg.Suite, cfg.GetDriverImage(), catalog.SelectedStreams)
+	selected, err := json.Marshal(catalog["selected_streams"])
+	require.NoError(t, err, "failed to encode selected_streams")
+	t.Logf("compatibility side %q: selected_streams from discover on %s: %s", cfg.Suite, cfg.GetDriverImage(), selected)
 }
 
 // discoveredDestinationDB returns the namespace the side's seeded table writes to, as named by the

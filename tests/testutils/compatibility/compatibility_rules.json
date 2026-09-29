@@ -66,7 +66,7 @@
       "min_baseline": "v0.3.14",
       "note": "first release carrying the driver; refine after the first sweep if early db2 images are missing from the registry",
       "rules": [
-        {"data_types": ["decfloat"], "assert_value_from": "v0.7.6", "note": "ReformatValue rendered a float into a String column with %d"}
+        {"data_types": ["decfloat"], "exclude_below": "v0.7.6", "note": "older discovers type DECFLOAT number while the candidate reads it as String, so the upgraded incremental sync fatals on the mixed batch"}
       ],
       "destinations": {
         "parquet": {"min_baseline": "v0.3.17", "note": "P2 for a no-CDC driver: below v0.3.17 the parquet output lacks _cdc_timestamp"}
@@ -105,7 +105,7 @@
         },
         "legacy": {
           "rules": [
-            {"data_types": ["timestamp"], "assert_value_from": "v0.11.1", "note": "#1233: the legacy writer truncated timestamps to milliseconds; the candidate keeps microseconds"}
+            {"data_types": ["timestamp"], "assert_value_from": "v0.11.1", "note": "iceberg column types: #1233, the legacy writer truncated timestamps to milliseconds; the candidate keeps microseconds"}
           ]
         }
       },
