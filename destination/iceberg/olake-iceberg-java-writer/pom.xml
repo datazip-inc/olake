@@ -49,6 +49,12 @@
              pulls the fixed core transitively; Apache Iceberg main pins this same
              5.6.3. Drop when Iceberg itself ships httpclient5 >= 5.6.2. -->
     <version.httpclient5>5.6.4</version.httpclient5>
+    <!-- iceberg-parquet 1.10.2 ships parquet 1.16.0, whose parquet-jackson shades
+             jackson-databind 2.19.2 (CVE-2026-54512, CVE-2026-54513, CVE-2026-68497).
+             parquet-jackson is only a relocated jackson copy used by parquet-hadoop,
+             so pinning it alone swaps in the 2.22.2 copy without moving Parquet.
+             Drop when Iceberg itself ships parquet >= 1.18.1. -->
+    <version.parquet-jackson>1.18.1</version.parquet-jackson>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -98,6 +104,11 @@
         <groupId>org.apache.httpcomponents.client5</groupId>
         <artifactId>httpclient5</artifactId>
         <version>${version.httpclient5}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.parquet</groupId>
+        <artifactId>parquet-jackson</artifactId>
+        <version>${version.parquet-jackson}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
