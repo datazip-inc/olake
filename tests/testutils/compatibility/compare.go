@@ -19,11 +19,11 @@ import (
 	"github.com/apache/spark-connect-go/v35/spark/sql/types"
 	"github.com/datazip-inc/olake/tests/testutils"
 	"github.com/datazip-inc/olake/tests/testutils/require"
+	"golang.org/x/mod/semver"
 )
 
-// compareVariant asserts the upgrade run's destination for one scenario is indistinguishable from
-// the reference run's.
-func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies, reference, upgraded *testutils.TestConfig, group compatibilityGroup, v compatibilityVariant) {
+// compareVariant asserts the upgrade run's destination for one scenario is indistinguishable from the reference run's.
+func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies, reference, upgraded *testutils.TestConfig, group compatibilityGroup, v compatibilityVariant, baselineRelease string) {
 	if reference.DriverVersion == upgraded.DriverVersion {
 		// Both sides ran this case on the same image so skipping comparison
 		t.Logf("both sides ran %s on %s; nothing to compare until the upgrade side switches to the candidate",
@@ -59,7 +59,7 @@ func compareVariant(t *testing.T, diag *diagnostics, policies *assertionPolicies
 		t.Fatalf("unknown destination %q", group.destination)
 	}
 
-	compareDestinationOutputs(ctx, t, diag, spark, referenceOutput, upgradedOutput, policies.typeOnly)
+	compareDestinationOutputs(ctx, t, diag, spark, referenceOutput, upgradedOutput, policies.typeOnly, group.rules, baselineRelease)
 }
 
 // icebergTable refreshes and returns the fully-qualified name of an Iceberg table: the shared
@@ -89,7 +89,7 @@ func parquetView(ctx context.Context, t *testing.T, spark sql.SparkSession, db, 
 
 // compareDestinationOutputs is the assertion. Order matters: a schema mismatch has to be reported before a
 // row query that would fail confusingly because of it.
-func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnostics, spark sql.SparkSession, referenceOutput, upgradedOutput string, typeOnly []string) {
+func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnostics, spark sql.SparkSession, referenceOutput, upgradedOutput string, typeOnly []string, modeRules []compatibilityTypeRule, baselineRelease string) {
 	// 1. Non-vacuity FIRST. Two empty tables satisfy every diff below, and an empty reference is a
 	//    plausible outcome, not a far-fetched one: a stream the baseline binary could not validate
 	//    is skipped with a Warn and the sync still exits 0 (protocol/sync.go, D3 in the doc). Without
@@ -108,6 +108,12 @@ func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnost
 	//    is the assertion that catches a type-mapping change -- I6 in the doc.
 	referenceSchema := describeOutput(ctx, t, spark, referenceOutput)
 	upgradedSchema := describeOutput(ctx, t, spark, upgradedOutput)
+	// A type-only olake column the baseline predates (a CDC coordinate) appears only after the upgrade.
+	for _, col := range typeOnly {
+		if _, ok := referenceSchema[col]; !ok {
+			delete(upgradedSchema, col)
+		}
+	}
 	if !maps.Equal(referenceSchema, upgradedSchema) {
 		diag.fatalf(t, "destination schema differs between the reference and upgrade runs.\n%s\n  full reference schema (%s): %v\n  full upgrade schema   (%s): %v",
 			indent(require.MapDiff("column", "reference run", "post olake upgrade", referenceSchema, upgradedSchema), "  "), referenceOutput, referenceSchema, upgradedOutput, upgradedSchema)
@@ -123,6 +129,18 @@ func compareDestinationOutputs(ctx context.Context, t *testing.T, diag *diagnost
 
 	// 4. Values, both directions. This is the assertion that catches a changed record: every
 	//    column not in typeOnly must hold the same value on both sides.
+	//    A writer mode's rules name destination column types, so they resolve against this schema.
+	typeOnly = slices.Clone(typeOnly)
+	for _, rule := range modeRules {
+		if !semver.IsValid(baselineRelease) || semver.Compare(baselineRelease, rule.AssertValueFrom) >= 0 {
+			continue
+		}
+		for col, dataType := range referenceSchema {
+			if slices.Contains(rule.DataTypes, dataType) && !slices.Contains(typeOnly, col) {
+				typeOnly = append(typeOnly, col)
+			}
+		}
+	}
 	valueColumns := comparableColumns(referenceSchema, typeOnly)
 	require.NotEmpty(t, valueColumns, "every column is type-only; there is nothing left to compare by value")
 	t.Logf("comparing values of %d rows over %d columns (%d more compared by type only)", referenceCount, len(valueColumns), len(typeOnly))
