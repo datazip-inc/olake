@@ -84,8 +84,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				name_tinytext TINYTEXT,
 				name_mediumtext MEDIUMTEXT,
 				name_longtext LONGTEXT,
-				created_date DATETIME,
-				created_timestamp TIMESTAMP NULL,
+				created_date DATETIME(6),
+				created_timestamp TIMESTAMP(6) NULL,
 				is_active TINYINT(1),
 				long_varchar MEDIUMTEXT,
 		name_bool TINYINT(1) DEFAULT '1',
@@ -146,8 +146,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
-			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1,
+			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00.573605',
+			'2023-01-01 12:00:00.573605', 1,
 			'long_varchar_val', 1, 'active', 'high',
 			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
 			'sports,reading', 'read,write',
@@ -225,8 +225,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
-			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1,
+			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00.573605',
+			'2023-01-01 12:00:00.573605', 1,
 			'long_varchar_val', 1, 'active', 'high',
 			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
 			'sports,reading', 'read,write'
@@ -254,8 +254,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 				name_char = 'X', name_varchar = 'updated varchar',
 				name_text = 'updated text', name_tinytext = 'upd tiny',
 				name_mediumtext = 'upd medium', name_longtext = 'upd long',
-				created_date = '2024-07-01 15:30:00',
-				created_timestamp = '2024-07-01 15:30:00', is_active = 0,
+				created_date = '2024-07-01 15:30:00.573605',
+				created_timestamp = '2024-07-01 15:30:00.573605', is_active = 0,
 				long_varchar = 'updated long...', name_bool = 0,
 			status = 'pending', priority = 'low',
 			name_latin1 = 'updated latin1', name_ucs2 = 'updated ucs2',
@@ -308,6 +308,77 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 	case "evolve-schema":
 		query = fmt.Sprintf("ALTER TABLE %s MODIFY COLUMN id_int BIGINT, MODIFY COLUMN price_float DOUBLE, ADD COLUMN includedColumn INT;", integrationTestTable)
 
+	case "dv-create":
+		for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+			_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
+			require.NoError(t, err, "failed to drop %s before create", table)
+			_, err = db.ExecContext(ctx, fmt.Sprintf(`
+				CREATE TABLE %s (
+					id INT PRIMARY KEY,
+					customer VARCHAR(64),
+					amount DECIMAL(10,2),
+					status VARCHAR(16),
+					updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+				)`, table))
+			require.NoError(t, err, "failed to create %s", table)
+		}
+		return
+
+	case "dv-drop":
+		for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+			_, err = db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", table))
+			require.NoError(t, err, "failed to drop %s", table)
+		}
+		return
+
+	case "dv-seed":
+		// id 2 and 3 share a status on purpose: whichever scenario deletes both is
+		// relying on them landing in the same partition (and so the same data file)
+		// on dv_part, while id 1, 4 and 5 spread across other partitions.
+		rows := []struct {
+			id     int
+			status string
+		}{
+			{1, "new"}, {2, "processing"}, {3, "processing"}, {4, "shipped"}, {5, "shipped"},
+		}
+		for _, table := range []string{testutils.DVUnpartTable, testutils.DVPartTable} {
+			for _, row := range rows {
+				_, err = db.ExecContext(ctx, fmt.Sprintf(
+					"INSERT INTO %s (id, customer, amount, status) VALUES (%d, 'customer_%d', %d.00, '%s')",
+					table, row.id, row.id, row.id*100, row.status))
+				require.NoError(t, err, "failed to seed %s row id=%d", table, row.id)
+			}
+		}
+		return
+
+	case "dv-unpart-update-id1":
+		query = fmt.Sprintf("UPDATE %s SET amount = 150.00, status = 'updated' WHERE id = 1", testutils.DVUnpartTable)
+
+	case "dv-part-update-id1":
+		// amount only, deliberately NOT status: status is dv_part's partition column, and a
+		// partition-moving update is a separate, out-of-scope edge case (equality/positional
+		// deletes get scoped to the row's new partition, not the old one it physically lives
+		// in, orphaning the delete
+		query = fmt.Sprintf("UPDATE %s SET amount = 150.00 WHERE id = 1", testutils.DVPartTable)
+
+	case "dv-unpart-delete-id5":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 5", testutils.DVUnpartTable)
+
+	case "dv-part-delete-id5":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 5", testutils.DVPartTable)
+
+	case "dv-unpart-delete-id2":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 2", testutils.DVUnpartTable)
+
+	case "dv-part-delete-id2":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 2", testutils.DVPartTable)
+
+	case "dv-unpart-delete-id3":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 3", testutils.DVUnpartTable)
+
+	case "dv-part-delete-id3":
+		query = fmt.Sprintf("DELETE FROM %s WHERE id = 3", testutils.DVPartTable)
+
 	default:
 		t.Fatalf("Unsupported operation: %s", operation)
 	}
@@ -349,8 +420,8 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			123.45, 5330197.27, 123.456,
 			123.456,  123.45, 123.45, 123.456,
 			'c', 'varchar_val', 'text_val', 'tinytext_val',
-			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
-			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high',
+			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00.573605',
+			'2023-01-01 12:00:00.573605', 1, 'long_varchar_val', 1, 'active', 'high',
 			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
 			'sports,reading', 'read,write',
 			100
@@ -436,8 +507,8 @@ var ExpectedMySQLData = map[string]interface{}{
 	"name_tinytext":                 "tinytext_val",
 	"name_mediumtext":               "mediumtext_val",
 	"name_longtext":                 "longtext_val",
-	"created_date":                  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"created_timestamp":             arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_date":                  arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_timestamp":             arrow.Timestamp(time.Date(2023, 1, 1, 12, 0, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"is_active":                     int32(1),
 	"long_varchar":                  "long_varchar_val",
 	"name_bool":                     int32(1),
@@ -486,8 +557,8 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"name_tinytext":                 "upd tiny",
 	"name_mediumtext":               "upd medium",
 	"name_longtext":                 "upd long",
-	"created_date":                  arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
-	"created_timestamp":             arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_date":                  arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"created_timestamp":             arrow.Timestamp(time.Date(2024, 7, 1, 15, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
 	"is_active":                     int32(0),
 	"long_varchar":                  "updated long...",
 	"name_bool":                     int32(0),
