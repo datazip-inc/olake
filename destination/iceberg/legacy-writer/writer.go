@@ -61,8 +61,10 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 
 		// check if we need to write pos for the current record
 		// lookup u/i/d always. Lookup c only if dedup keys are set (kafka upsert)
+		// uniqueness key (PK or Kafka dedup_keys). PK-less streams hash the whole row, so a second identical insert must not POS-delete the first copy.
 		hasDedupKeys := len(w.stream.Self().StreamMetadata.DedupKeys) > 0
-		if w.indexThread != nil && (opType != "r" && (opType != "c" || hasDedupKeys)) {
+		hasIdentityKey := w.stream.GetStream().SourceDefinedPrimaryKey.Len() > 0
+		if w.indexThread != nil && (opType != "r" && (opType != "c" || hasDedupKeys || hasIdentityKey)) {
 			olakeID := record.OlakeColumns[constants.OlakeID].(string)
 			previous, found, err := w.indexThread.Lookup(olakeID)
 			if err != nil {
