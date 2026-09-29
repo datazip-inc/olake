@@ -436,13 +436,15 @@ func startCDCCapture(ctx context.Context, t *testing.T, db *sqlx.DB) {
 		case status != 0:
 			return // running, or no job to start
 		}
-		// A start the agent is already working on is refused ("already running", "already has a
-		// pending request"); the agent raises those, so T-SQL cannot trap them and the poll above
-		// is what settles whether the job came up.
+		// The agent's "already running" refusal is authoritative even when sysjobactivity lags it;
+		// "already has a pending request" is not, so the poll above settles that one.
 		if err := execCDCMetadata(ctx, t, db, `
 			DECLARE @job SYSNAME = N'cdc.' + DB_NAME() + N'_capture';
 			IF EXISTS (SELECT 1 FROM msdb.dbo.sysjobs WHERE name = @job)
 				EXEC msdb.dbo.sp_start_job @job_name = @job;`); err != nil {
+			if strings.Contains(err.Error(), "is already running") {
+				return
+			}
 			t.Logf("startCDCCapture: start request refused: %s", err)
 		}
 		if time.Now().After(deadline) {
