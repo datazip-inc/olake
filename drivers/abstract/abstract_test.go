@@ -5,8 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
+	"strings"
+	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -471,3 +475,231 @@ func (s stubDriver) StreamChanges(context.Context, int, map[string]any, CDCMsgFn
 	return nil, nil //nolint:nilnil // no metadata state to report
 }
 func (s stubDriver) PostCDC(context.Context, int) error { return nil }
+
+// discoverStreams are the streams stubSampler lists, all in one namespace.
+var discoverStreams = []types.StreamID{{Namespace: "db", Name: "a"}, {Namespace: "db", Name: "b"}, {Namespace: "db", Name: "c"}}
+
+// stubSampler is a sampling driver: each successful ProduceSampledSchema call returns a stream
+// whose only sampled column names the tier, so a test can tell which tier a stream ended at.
+type stubSampler struct {
+	stubDriver
+	streams []types.StreamID
+	// sample decides one call's outcome; nil samples every tier successfully
+	sample func(ctx context.Context, streamID types.StreamID, limit int) error
+
+	mu       sync.Mutex
+	calls    []int            // limits in the order the calls started
+	byStream map[string][]int // limits each stream was sampled with
+}
+
+func newStubSampler(streams []types.StreamID, sample func(context.Context, types.StreamID, int) error) *stubSampler {
+	return &stubSampler{
+		stubDriver: stubDriver{typ: "mongodb"},
+		streams:    streams,
+		sample:     sample,
+		byStream:   make(map[string][]int),
+	}
+}
+
+func (s *stubSampler) GetStreamNames(context.Context) ([]types.StreamID, error) {
+	return s.streams, nil
+}
+
+// MaxRetries is 1 because RetryOnBackoff never calls a function given 0 attempts.
+func (s *stubSampler) MaxRetries() int { return 1 }
+
+func (s *stubSampler) ProduceSampledSchema(ctx context.Context, streamID types.StreamID, limit int) (*types.Stream, error) {
+	s.mu.Lock()
+	s.calls = append(s.calls, limit)
+	s.byStream[streamID.Name] = append(s.byStream[streamID.Name], limit)
+	s.mu.Unlock()
+
+	if s.sample != nil {
+		if err := s.sample(ctx, streamID, limit); err != nil {
+			return nil, err
+		}
+	}
+	stream := types.NewStream(streamID.Name, streamID.Namespace, nil)
+	stream.UpsertField(tierColumn(limit), types.String, true, false)
+	return stream, nil
+}
+
+func tierColumn(limit int) string {
+	return fmt.Sprintf("col_%d", limit)
+}
+
+// sampledColumns maps each discovered stream to the tier columns in its schema.
+func sampledColumns(streams []*types.Stream) map[string][]string {
+	columns := make(map[string][]string, len(streams))
+	for _, stream := range streams {
+		var tiers []string
+		for _, column := range stream.Schema.ColumnNames() {
+			if strings.HasPrefix(column, "col_") {
+				tiers = append(tiers, column)
+			}
+		}
+		columns[stream.Name] = tiers
+	}
+	return columns
+}
+
+// waitForTimeout blocks a sample until the discover timeout, the way a slow source does.
+func waitForTimeout(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestDiscoverSampledTiers(t *testing.T) {
+	first, second, last := DiscoverSampleTiers[0], DiscoverSampleTiers[1], DiscoverSampleTiers[len(DiscoverSampleTiers)-1]
+
+	testCases := []struct {
+		name   string
+		sample func(ctx context.Context, streamID types.StreamID, limit int) error
+		// expectedColumns is each returned stream's tier columns; streams absent from it must be skipped
+		expectedColumns  map[string][]string
+		expectedCalls    map[string][]int
+		expectedErr      bool
+		expectedDeadline bool
+	}{
+		// a discover that finishes in time ends every stream at the last tier, same as before tiers
+		{
+			name:            "all tiers complete within the timeout",
+			expectedColumns: map[string][]string{"a": {tierColumn(last)}, "b": {tierColumn(last)}, "c": {tierColumn(last)}},
+			expectedCalls:   map[string][]int{"a": DiscoverSampleTiers, "b": DiscoverSampleTiers, "c": DiscoverSampleTiers},
+		},
+		// each tier replaces the previous one, so an interrupted tier leaves the previous schema
+		{
+			name: "timeout during the second tier keeps the first tier",
+			sample: func(ctx context.Context, _ types.StreamID, limit int) error {
+				if limit == second {
+					return waitForTimeout(ctx)
+				}
+				return nil
+			},
+			expectedColumns: map[string][]string{"a": {tierColumn(first)}, "b": {tierColumn(first)}, "c": {tierColumn(first)}},
+		},
+		// streams that finish the interrupted tier keep it; the rest keep the tier before
+		{
+			name: "streams that finish the interrupted tier keep it",
+			sample: func(ctx context.Context, streamID types.StreamID, limit int) error {
+				if limit == second && streamID.Name == "a" {
+					return nil
+				}
+				if limit != first {
+					return waitForTimeout(ctx)
+				}
+				return nil
+			},
+			expectedColumns: map[string][]string{"a": {tierColumn(second)}, "b": {tierColumn(first)}, "c": {tierColumn(first)}},
+		},
+		// only a stream that never completed the first tier is left without a schema; the others
+		// wait for it at the tier barrier, so they keep the first tier
+		{
+			name: "timeout during the first tier skips unfinished streams",
+			sample: func(ctx context.Context, streamID types.StreamID, _ int) error {
+				if streamID.Name == "c" {
+					return waitForTimeout(ctx)
+				}
+				return nil
+			},
+			expectedColumns: map[string][]string{"a": {tierColumn(first)}, "b": {tierColumn(first)}},
+			expectedCalls:   map[string][]int{"a": {first}, "b": {first}, "c": {first}},
+		},
+		// with nothing to return, the timeout stays an error
+		{
+			name: "timeout before any stream completes the first tier fails",
+			sample: func(ctx context.Context, _ types.StreamID, _ int) error {
+				return waitForTimeout(ctx)
+			},
+			expectedErr:      true,
+			expectedDeadline: true,
+		},
+		// a sample cut short by the timeout without an error (Kafka's poll deadline) is not trusted
+		{
+			name: "sample returned after the timeout does not replace the previous tier",
+			sample: func(ctx context.Context, _ types.StreamID, limit int) error {
+				if limit == second {
+					<-ctx.Done()
+				}
+				return nil
+			},
+			expectedColumns: map[string][]string{"a": {tierColumn(first)}, "b": {tierColumn(first)}, "c": {tierColumn(first)}},
+		},
+		// errors other than the discover timeout still fail discover
+		{
+			name: "source error in a later tier fails discover",
+			sample: func(_ context.Context, streamID types.StreamID, limit int) error {
+				if limit == second && streamID.Name == "b" {
+					return errors.New("not authorized")
+				}
+				return nil
+			},
+			expectedErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// the timeout only matters to cases that block; the rest finish well before it
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+
+			sampler := newStubSampler(discoverStreams, tc.sample)
+			streams, err := NewAbstractDriver(context.Background(), sampler).Discover(ctx, 10, false)
+
+			if tc.expectedErr {
+				require.Error(t, err)
+				assert.Nil(t, streams)
+				assert.Equal(t, tc.expectedDeadline, errors.Is(err, context.DeadlineExceeded), "deadline error")
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedColumns, sampledColumns(streams))
+			if tc.expectedCalls != nil {
+				assert.Equal(t, tc.expectedCalls, sampler.byStream)
+			}
+		})
+	}
+}
+
+// Every stream finishes a tier before any stream starts the next one.
+func TestDiscoverSampledTiersRunBreadthFirst(t *testing.T) {
+	streams := make([]types.StreamID, 20)
+	for i := range streams {
+		streams[i] = types.StreamID{Namespace: "db", Name: fmt.Sprintf("s%d", i)}
+	}
+	sampler := newStubSampler(streams, func(_ context.Context, _ types.StreamID, _ int) error {
+		time.Sleep(time.Millisecond) // let calls of one tier overlap
+		return nil
+	})
+
+	discovered, err := NewAbstractDriver(context.Background(), sampler).Discover(context.Background(), 4, false)
+
+	require.NoError(t, err)
+	assert.Len(t, discovered, len(streams))
+	assert.Len(t, sampler.calls, len(streams)*len(DiscoverSampleTiers))
+	assert.True(t, slices.IsSorted(sampler.calls), "a tier started before the previous tier finished: %v", sampler.calls)
+}
+
+// A cancelled parent context (a signal, or sync --discover-schema) is not the discover timeout:
+// discover fails instead of returning the streams sampled so far.
+func TestDiscoverSampledTiersCancelledParentFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sampler := newStubSampler(discoverStreams, func(ctx context.Context, _ types.StreamID, limit int) error {
+		if limit == DiscoverSampleTiers[1] {
+			cancel()
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return nil
+	})
+
+	streams, err := NewAbstractDriver(context.Background(), sampler).Discover(ctx, 10, false)
+
+	require.Error(t, err)
+	assert.Nil(t, streams)
+	assert.ErrorIs(t, err, context.Canceled)
+}

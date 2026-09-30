@@ -7,6 +7,17 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
+// DiscoverSampleTiers are the record counts a SampledSchemaProducer builds a stream's schema from,
+// smallest first. Discover runs one tier for every stream before starting the next, so when the
+// discover timeout hits, every stream keeps the largest tier it completed.
+var DiscoverSampleTiers = []int{1, 100, 10000}
+
+// SampledSchemaProducer is implemented by drivers that infer a stream's schema by reading records.
+type SampledSchemaProducer interface {
+	// ProduceSampledSchema builds the full stream from at most limit records.
+	ProduceSampledSchema(ctx context.Context, streamID types.StreamID, limit int) (*types.Stream, error)
+}
+
 type BackfillMsgFn func(ctx context.Context, message map[string]any, sourceBytes int64) error
 type CDCMsgFn func(ctx context.Context, message CDCChange) error
 
