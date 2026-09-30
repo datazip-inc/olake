@@ -22,27 +22,15 @@ func (m *MySQL) StreamIncrementalChanges(ctx context.Context, stream types.Strea
 		return fmt.Errorf("failed to build incremental condition: %w", err)
 	}
 
-	var rows *sql.Rows
-	rows, err = m.client.QueryContext(ctx, incrementalQuery, queryArgs...)
-	if err != nil {
-		return fmt.Errorf("failed to execute incremental query: %w", err)
-	}
-	defer rows.Close()
+	setter := jdbc.NewReader(ctx, incrementalQuery, func(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+		return m.client.QueryContext(ctx, query, args...)
+	}, queryArgs...)
 
-	// Scan rows and process
-	for rows.Next() {
-		record := make(types.Record)
-		rowBytes, err := jdbc.MapScan(rows, record, m.dataTypeConverter, mysqlColumnSizer)
-		if err != nil {
-			return fmt.Errorf("failed to scan record: %w", err)
-		}
-
-		if err := processFn(ctx, record, rowBytes); err != nil {
-			return fmt.Errorf("process error: %w", err)
-		}
+	if err := jdbc.MapScanConcurrent(setter, m.dataTypeConverter, processFn, mysqlColumnSizer); err != nil {
+		return fmt.Errorf("incremental process error: %w", err)
 	}
 
-	return rows.Err()
+	return nil
 }
 
 func (m *MySQL) FetchMaxCursorValues(ctx context.Context, stream types.StreamInterface) (any, any, error) {
