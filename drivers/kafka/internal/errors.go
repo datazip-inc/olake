@@ -102,7 +102,7 @@ func classify(err error) *errs.Failure {
 	}
 
 	// The code travels whether or not it is mapped. protocolErr.Retriable is deliberately not
-	// read: the repo drives retries through constants.ErrNonRetryable.
+	// read: the repo drives retries through constants.ErrRetryable.
 	f := errs.Failure{Code: strconv.FormatInt(int64(protocolErr.Code), 10)}
 	if category, ok := kerrCategories[protocolErr.Code]; ok {
 		f.Category = category

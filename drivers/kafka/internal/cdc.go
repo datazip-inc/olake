@@ -269,7 +269,7 @@ func (k *Kafka) processKafkaMessages(ctx context.Context, reader *kgo.Client, st
 				// any fetch error (including parent ctx cancellation) is non-retryable.
 				// For more info, go through the documentation: https://pkg.go.dev/github.com/twmb/franz-go/pkg/kgo#Fetches.Errors
 				if err := fetches.Err(); err != nil {
-					return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrNonRetryable, err)
+					return fmt.Errorf("%w: error reading message in Kafka CDC sync: %w", constants.ErrRetryable, err)
 				}
 
 				// wrap batch into iterator
@@ -419,7 +419,7 @@ func (k *Kafka) syncCommittedOffsetsWithMetadata(ctx context.Context, readerID i
 		partitionMeta, ok := k.readerManager.GetPartitionMeta(kafkapkg.PartitionMetadataKey(currentTopic, currentPartitionID))
 		if !ok {
 			return false, errs.Precondition(errs.StateInvalid, codePartitionMetadataAbsent,
-				fmt.Errorf("%w: assigned partition %s:%d missing from partition metadata", constants.ErrNonRetryable, currentTopic, currentPartitionID))
+				fmt.Errorf("%w: assigned partition %s:%d missing from partition metadata", constants.ErrRetryable, currentTopic, currentPartitionID))
 		}
 
 		streamID := partitionMeta.Stream.ID()
