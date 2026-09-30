@@ -31,6 +31,10 @@ type Stream struct {
 	Schema *TypeSchema `json:"type_schema,omitempty"`
 	// Supported sync modes from driver for the respective Stream
 	SupportedSyncModes *Set[SyncMode] `json:"supported_sync_modes,omitempty"`
+	// Delete formats every target query engine can read, cheapest first. Discover without
+	// target engines is unconstrained and lists every format OLake can write. Absent only
+	// on catalogs written before target query engines existed.
+	AvailableUpdateTypes []UpdateType `json:"available_update_types,omitempty"`
 	// Primary key if available
 	SourceDefinedPrimaryKey *Set[string] `json:"source_defined_primary_key,omitempty"`
 	// Available cursor fields supported by driver
@@ -163,10 +167,10 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 // available_streams.json, selected_streams.json, and streams.json from that one merge.
 // oldCatalog is the prior new-format catalog; oldLegacyCatalog is the prior streams.json,
 // Both nil means first-ever discover.
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, oldLegacyCatalog *LegacyCatalog, driver string) {
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, oldLegacyCatalog *LegacyCatalog, driver string, engines []QueryEngine) {
 	message := Message{
 		Type:    CatalogMessage,
-		Catalog: GetWrappedCatalog(streams, driver),
+		Catalog: GetWrappedCatalog(streams, driver, engines),
 	}
 	logger.Info(message)
 
@@ -174,7 +178,7 @@ func LogCatalog(streams []*Stream, oldCatalog *Catalog, oldLegacyCatalog *Legacy
 	if priorCatalog == nil && oldLegacyCatalog != nil {
 		priorCatalog = legacyToCanonical(oldLegacyCatalog)
 	}
-	merged := mergeCatalogs(priorCatalog, message.Catalog)
+	merged := mergeCatalogs(priorCatalog, message.Catalog, engines)
 
 	if err := merged.writeSplitFiles(); err != nil {
 		logger.Fatal(err)

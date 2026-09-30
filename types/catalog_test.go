@@ -162,6 +162,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 						{
 							StreamName:     "stream1",
 							PartitionRegex: "",
+							UpdateType:     "eq",
 						},
 					},
 				},
@@ -192,6 +193,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 						{
 							StreamName:     "collection1",
 							PartitionRegex: "",
+							UpdateType:     "eq",
 						},
 					},
 				},
@@ -263,11 +265,13 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 							PartitionRegex: "",
 							SyncMode:       SyncMode("incremental"),
 							CursorField:    "updated_at",
+							UpdateType:     "eq",
 						},
 						{
 							StreamName:     "orders",
 							PartitionRegex: "",
 							SyncMode:       SyncMode("cdc"),
+							UpdateType:     "eq",
 						},
 					},
 				},
@@ -277,7 +281,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetWrappedCatalog(tc.streams, tc.driver)
+			result := GetWrappedCatalog(tc.streams, tc.driver, nil)
 			compareCatalogs(t, tc.expected, result, tc.name)
 
 			if len(tc.streams) > 0 {
@@ -412,6 +416,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							AppendMode:      new(true),
 							Normalization:   new(true),
 							SelectedColumns: createSelectedColumns([]string{"id"}, false), // "name" dropped (not in new schema)
+							UpdateType:      "eq",
 						},
 					},
 				},
@@ -509,6 +514,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      new(true),
 							Normalization:   new(true),
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
@@ -601,6 +607,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							Filter:          "test_filter > 10",
 							AppendMode:      new(true),
 							Normalization:   new(true),
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
@@ -704,6 +711,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							PartitionRegex:  "user_partition",
 							Filter:          "test_filter > 10",
 							Normalization:   new(true),
+							UpdateType:      "eq",
 							SelectedColumns: createSelectedColumns([]string{"id", "name"}, false),
 						},
 					},
@@ -773,6 +781,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							StreamName:      "users",
 							Normalization:   new(true),
 							SelectedColumns: createSelectedColumns([]string{"id"}, false), // "name" dropped, "email" new+not-sync
+							UpdateType:      "eq",                                         // legacy blank recorded as equality
 						},
 					},
 				},
@@ -852,6 +861,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 							DestinationDatabase: "custom:public",
 							DestinationTable:    "custom_users",
 							Normalization:       new(true),
+							UpdateType:          "eq", // legacy blank recorded as equality
 						},
 					},
 				},
@@ -890,8 +900,8 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 				// stream c is NOT added to selected_streams -- user must opt in explicitly.
 				// a and b carry the OLD metadata forward (not the new catalog's metadata).
 				SelectedStreams: map[string][]StreamMetadata{
-					"ns1": {{StreamName: "a", DestinationDatabase: "pg:ns1"}},
-					"ns2": {{StreamName: "b", DestinationDatabase: "pg:ns2"}},
+					"ns1": {{StreamName: "a", DestinationDatabase: "pg:ns1", UpdateType: "eq"}},
+					"ns2": {{StreamName: "b", DestinationDatabase: "pg:ns2", UpdateType: "eq"}},
 				},
 			},
 		},
@@ -899,7 +909,7 @@ func TestCatalogMergeCatalogs(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog)
+			result := mergeCatalogs(tc.oldCatalog, tc.newCatalog, nil)
 			compareCatalogs(t, tc.expected, result, tc.name)
 		})
 	}
@@ -1871,7 +1881,7 @@ func TestLogCatalog(t *testing.T) {
 			},
 			// selected_streams.json is sparse: normalization/append_mode are left to the defaults
 			expectedSelected: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", SyncMode: INCREMENTAL, CursorField: "updated_at"}},
+				"public": {{StreamName: "users", SyncMode: INCREMENTAL, CursorField: "updated_at", UpdateType: "eq"}},
 			},
 			// streams.json spells out every field: defaults and all columns
 			expectedLegacy: &LegacyCatalog{
@@ -1898,8 +1908,8 @@ func TestLogCatalog(t *testing.T) {
 				{Stream: &Stream{Name: "users", Namespace: "sales", Schema: oldSchema()}},
 			},
 			expectedSelected: map[string][]StreamMetadata{
-				"public": {{StreamName: "orders"}, {StreamName: "zebra"}},
-				"sales":  {{StreamName: "accounts"}, {StreamName: "users"}},
+				"public": {{StreamName: "orders", UpdateType: "eq"}, {StreamName: "zebra", UpdateType: "eq"}},
+				"sales":  {{StreamName: "accounts", UpdateType: "eq"}, {StreamName: "users", UpdateType: "eq"}},
 			},
 			expectedLegacy: &LegacyCatalog{
 				Streams: []*ConfiguredStream{
@@ -1941,7 +1951,7 @@ func TestLogCatalog(t *testing.T) {
 			},
 			// email is new in the schema and sync_new_columns is true, so it is added
 			expectedSelected: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", SyncMode: INCREMENTAL, CursorField: "updated_at", Normalization: new(true), SelectedColumns: createSelectedColumns([]string{"email", "id"}, true)}},
+				"public": {{StreamName: "users", SyncMode: INCREMENTAL, CursorField: "updated_at", Normalization: new(true), UpdateType: "eq", SelectedColumns: createSelectedColumns([]string{"email", "id"}, true)}},
 			},
 			expectedLegacy: &LegacyCatalog{
 				Streams: []*ConfiguredStream{
@@ -1975,7 +1985,7 @@ func TestLogCatalog(t *testing.T) {
 			},
 			// legacy values become explicit, so the defaults cannot change them
 			expectedSelected: map[string][]StreamMetadata{
-				"public": {{StreamName: "users", PartitionRegex: "user_partition", Normalization: new(false), AppendMode: new(true), SelectedColumns: createSelectedColumns([]string{"id"}, false)}},
+				"public": {{StreamName: "users", PartitionRegex: "user_partition", Normalization: new(false), AppendMode: new(true), UpdateType: "eq", SelectedColumns: createSelectedColumns([]string{"id"}, false)}},
 			},
 			expectedLegacy: &LegacyCatalog{
 				Streams: []*ConfiguredStream{
@@ -1993,7 +2003,7 @@ func TestLogCatalog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, t.TempDir())
 
-			LogCatalog(tc.discovered, tc.oldCatalog, tc.oldLegacyCatalog, "postgres")
+			LogCatalog(tc.discovered, tc.oldCatalog, tc.oldLegacyCatalog, "postgres", nil)
 
 			// available_streams.json: streams[] only
 			var available Catalog

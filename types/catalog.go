@@ -172,14 +172,22 @@ func (c *Catalog) WriteToFile(path string) error {
 	return logger.FileLoggerWithPath(c, path)
 }
 
-func GetWrappedCatalog(streams []*Stream, _ string) *Catalog {
+func GetWrappedCatalog(streams []*Stream, _ string, engines []QueryEngine) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
+	// The default delete format is the cheapest one every target engine can read.
+	available := AvailableUpdateTypes(engines)
+	updateType := PreferredUpdateType(available)
 
 	for _, stream := range streams {
 		stream.RefreshSelectableColumns()
+		stream.AvailableUpdateTypes = available
+		if stream.DefaultStreamProperties != nil {
+			stream.DefaultStreamProperties.UpdateType = updateType
+		}
+
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
 		})
@@ -188,6 +196,7 @@ func GetWrappedCatalog(streams []*Stream, _ string) *Catalog {
 			StreamName:     stream.Name,
 			PartitionRegex: "",
 			SyncMode:       stream.SyncMode,
+			UpdateType:     string(updateType),
 		}
 		if stream.SyncMode == INCREMENTAL {
 			metadata.CursorField = stream.CursorField
@@ -211,7 +220,7 @@ func streamMapByID(streams []*ConfiguredStream) map[string]*ConfiguredStream {
 // 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
 // 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
 // 4. Everything else: Keep as new catalog
-func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
+func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
@@ -234,6 +243,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 					if oldConfigured != nil {
 						MergeSelectedColumns(&metadata, oldConfigured.Stream, newStream)
 					}
+					mergeUpdateType(&metadata, streamID, engines)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -273,6 +283,32 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog) *Catalog {
 	})
 
 	return newCatalog
+}
+
+// mergeUpdateType keeps a previously configured delete format only while every current
+// target query engine can still read it. An unreadable choice is cleared rather than
+// replaced: switching delete formats can force a table recreate, so the user must pick the
+// new one explicitly, and a blank update_type fails validation until they do.
+func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine) {
+	// A blank value predates update_type and always meant equality (see
+	// ConfiguredStream.GetUpdateType). Record it, so blank is left to mean "needs a choice".
+	if metadata.UpdateType == "" {
+		metadata.UpdateType = string(UpdateTypeEquality)
+	}
+
+	// Without target engines nothing constrains the choice.
+	if len(engines) == 0 {
+		return
+	}
+
+	available := AvailableUpdateTypes(engines)
+	if slices.Contains(available, UpdateType(metadata.UpdateType)) {
+		return
+	}
+
+	logger.Warnf("Stream %s update mode %s is not readable by the selected query engines; cleared, choose one of %v",
+		streamID, metadata.UpdateType, available)
+	metadata.UpdateType = ""
 }
 
 // MergeSelectedColumns updates an existing selected_columns list against the new schema.
@@ -337,7 +373,7 @@ func getDestDBPrefix(streams []*ConfiguredStream) (constantValue bool, prefix st
 
 // GetStreamsDelta compares two catalogs and returns a new catalog with streams that have differences.
 // Only selected streams are compared.
-// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, use_source_column_names
+// 1. Compares properties from selected_streams: normalization, partition_regex, filter, append_mode, use_source_column_names, update_type (dv -> other, pos -> dv)
 // 2. Compares properties from streams: destination_database, destination_table, cursor_field, sync_mode
 // 3. For now, any new stream present in new catalog is added to the difference. Later collision detection will happen.
 //
@@ -405,13 +441,19 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 			// sync mode change
 			// destination table change
 
-			// NOTE: we are not droping table if there is delete mode change
+			// NOTE: delete mode changes keep the table, except dv -> other and pos -> dv (see dvDelta)
 			// TODO: log the differences for user reference
 			oldDestinationDatabase := resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
 			oldDestinationTable := resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
 			isDifferent := func() bool {
 				oldConfigured := &ConfiguredStream{Stream: oldStream.Stream, StreamMetadata: oldMetadata}
 				newConfigured := &ConfiguredStream{Stream: newStream.Stream, StreamMetadata: newMetadata}
+
+				// leaving dv: v3 forbids the Parquet positional deletes eq/pos write; pos -> dv: not supported yet (only eq -> dv is migrated)
+				oldUpdateType := utils.Ternary(oldMetadata.UpdateType == "", UpdateTypeEquality, UpdateType(oldMetadata.UpdateType)).(UpdateType)
+				newUpdateType := utils.Ternary(newMetadata.UpdateType == "", UpdateTypeEquality, UpdateType(newMetadata.UpdateType)).(UpdateType)
+				dvDelta := (oldUpdateType == UpdateTypeDeletionVector && newUpdateType != UpdateTypeDeletionVector) ||
+					(oldUpdateType == UpdateTypePosition && newUpdateType == UpdateTypeDeletionVector)
 
 				oldSyncMode := resolveConfigurableField(oldMetadata.SyncMode, oldStream.Stream.SyncMode)
 				newSyncMode := resolveConfigurableField(newMetadata.SyncMode, newStream.Stream.SyncMode)
@@ -432,7 +474,8 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					(oldSyncMode != newSyncMode) ||
 					(oldDestinationDatabase != newDestinationDatabase) ||
 					(oldDestinationTable != newDestinationTable) ||
-					cursorDelta
+					cursorDelta ||
+					dvDelta
 			}()
 
 			// if any difference, add stream to diff streams
