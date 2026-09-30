@@ -14,7 +14,6 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
-	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
 func (m *MySQL) prepareBinlogConn(ctx context.Context, mySQLGlobalState MySQLGlobalState, streamsToSync []types.StreamInterface) (*binlog.Connection, error) {
@@ -104,7 +103,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 	}
 
 	var finishedStreams []string
-	var recoveryPos mysql.Position
+	var recoveryState binlog.Binlog
 
 	for streamID, rawMtState := range metadataStates {
 		if rawMtState == nil {
@@ -116,19 +115,24 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 			if err != nil {
 				return nil, fmt.Errorf("failed to unmarshal metadata state: %w", err)
 			}
-			if mySQLGlobalState.State.ServerUUID != "" {
-				if err := mysqlMetadataState.ValidateServerUUID(mySQLGlobalState.State.ServerUUID); err != nil {
-					return nil, fmt.Errorf("invalid metadata for stream[%s]: %w", streamID, err)
-				}
+			comparison, err := mysqlMetadataState.Compare(mySQLGlobalState.State)
+			if err != nil {
+				return nil, fmt.Errorf("invalid metadata for stream[%s]: %w", streamID, err)
 			}
 
-			// Recovery is only needed when metadata is strictly AHEAD of state.
-			// metadata.Compare(state) > 0 means either:
-			//   - same file but metadata.Pos > state.Pos, OR
-			//   - metadata is on a later binlog file (e.g. mysql-bin.000043 vs .000042)
-			if mysqlMetadataState.Position.Compare(mySQLGlobalState.State.Position) > 0 {
-				// metadata ahead of state: genuine crash-recovery path
-				recoveryPos = mysqlMetadataState.Position
+			// Only destination progress strictly ahead of source state needs recovery.
+			if comparison > 0 {
+				if recoveryState.GTIDSet != nil {
+					comparison, err := mysqlMetadataState.Compare(recoveryState)
+					if err != nil {
+						return nil, err
+					}
+					if comparison != 0 {
+						return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
+							fmt.Errorf("GTID recovery checkpoints disagree across streams"))
+					}
+				}
+				recoveryState = mysqlMetadataState
 				finishedStreams = append(finishedStreams, streamID)
 			}
 			// state >= metadata: blank sync scenario — stream forward normally
@@ -152,6 +156,11 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 		remainingStreams = m.streams
 	}
 
+	// All selected streams already committed this GTID boundary; no binlog replay is needed.
+	recovered := recoveryState.GTIDSet != nil && len(remainingStreams) == 0
+	if recovered {
+		mySQLGlobalState.State = recoveryState
+	}
 	conn, err := m.prepareBinlogConn(ctx, mySQLGlobalState, remainingStreams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare binlog conn: %w", err)
@@ -160,16 +169,16 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 	// persist binlog connection for post cdc
 	m.BinlogConn = conn
 
-	err = m.BinlogConn.StreamMessages(ctx, m.client, recoveryPos, OnMessage)
-	if err != nil {
-		return nil, err
+	if !recovered {
+		if err := conn.StreamMessages(ctx, m.client, recoveryState, OnMessage); err != nil {
+			return nil, err
+		}
+	}
+	if recoveryState.GTIDSet == nil && recoveryState.Position.Name != "" {
+		conn.CurrentPos = recoveryState.Position
 	}
 
-	if recoveryPos.Name != "" {
-		m.BinlogConn.CurrentPos = recoveryPos
-	}
-
-	return binlog.Binlog{Position: m.BinlogConn.CurrentPos, ServerUUID: m.BinlogConn.ServerUUID}, nil
+	return conn.Checkpoint(), nil
 }
 
 func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
@@ -183,10 +192,7 @@ func (m *MySQL) PostCDC(ctx context.Context, _ int) error {
 	default:
 		m.state.SetGlobal(MySQLGlobalState{
 			ServerID: m.BinlogConn.ServerID,
-			State: binlog.Binlog{
-				Position:   m.BinlogConn.CurrentPos,
-				ServerUUID: m.BinlogConn.ServerUUID,
-			},
+			State:    m.BinlogConn.Checkpoint(),
 		})
 		return nil
 	}

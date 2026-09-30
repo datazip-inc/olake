@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -87,6 +88,67 @@ func TestMySQL_PostCDC(t *testing.T) {
 			}
 			if got := m.state.GetGlobal().State; got != state {
 				t.Fatalf("got checkpoint %+v, want %+v", got, state)
+			}
+		})
+	}
+}
+
+func TestMySQL_GTIDRecovery(t *testing.T) {
+	previousPath := viper.Get(constants.StatePath)
+	viper.Set(constants.StatePath, filepath.Join(t.TempDir(), "state.json"))
+	t.Cleanup(func() { viper.Set(constants.StatePath, previousPath) })
+	const sid = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+	start, end := sid+":1-2", sid+":1-3"
+	orders := &types.ConfiguredStream{Stream: types.NewStream("orders", "demo", nil)}
+	other := &types.ConfiguredStream{Stream: types.NewStream("other", "demo", nil)}
+	tests := []struct {
+		name      string
+		otherGTID string
+		wantError string
+	}{
+		{"all streams committed before state save", end, ""},
+		{"conflicting committed boundaries", sid + ":1-4", "disagree"},
+		{"incomparable histories", sid + ":1:3", "different transaction histories"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			initial := MySQLGlobalState{ServerID: 1001, State: binlog.Binlog{
+				Position: mysql.Position{Name: "bin.000009", Pos: 500}, ServerUUID: "a", GTIDSet: &start,
+			}}
+			checkpoint := binlog.Binlog{Position: mysql.Position{Name: "bin.000001", Pos: 100}, ServerUUID: "b", GTIDSet: &end}
+			metadata := map[string]any{}
+			for streamID, gtid := range map[string]string{orders.ID(): end, other.ID(): tt.otherGTID} {
+				value := checkpoint
+				value.GTIDSet = &gtid
+				data, err := json.Marshal(value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				metadata[streamID] = string(data)
+			}
+			m := &MySQL{config: &Config{Port: 3306},
+				state:   &types.State{RWMutex: &sync.RWMutex{}, Global: &types.GlobalState{State: initial}},
+				streams: []types.StreamInterface{orders, other}}
+			// No SQL client: completed destination commits must recover without reading old binlogs.
+			got, err := m.StreamChanges(context.Background(), 0, metadata, nil)
+			if tt.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("got %v, want %s", err, tt.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, checkpoint) {
+				t.Fatalf("got %+v, want %+v", got, checkpoint)
+			}
+			if err := m.PostCDC(context.Background(), 0); err != nil {
+				t.Fatal(err)
+			}
+			want := MySQLGlobalState{ServerID: initial.ServerID, State: checkpoint}
+			if !reflect.DeepEqual(m.state.GetGlobal().State, want) {
+				t.Fatalf("recovered source state differs: %+v", m.state.GetGlobal())
 			}
 		})
 	}

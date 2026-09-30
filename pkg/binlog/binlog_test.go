@@ -76,3 +76,18 @@ func TestBinlog_ValidateServerUUID(t *testing.T) {
 		})
 	}
 }
+
+func TestConnection_StreamMessages(t *testing.T) {
+	t.Run("GTIDs disabled after initialization", func(t *testing.T) {
+		gtid := testSID + ":1-2"
+		state := Binlog{Position: mysql.Position{Name: "mysql-bin.000001", Pos: 200}, GTIDSet: &gtid}
+		conn, err := NewConnection(context.Background(), &Config{ServerID: 1001}, state, nil, nil)
+		require.NoError(t, err)
+		t.Cleanup(conn.Cleanup)
+
+		err = conn.StreamMessages(context.Background(), nil, Binlog{Position: state.Position}, nil)
+		require.ErrorIs(t, err, constants.ErrNonRetryable)
+		require.Equal(t, errs.CDCPositionLost, errs.From(err).Category)
+		require.Equal(t, "mysql.gtid_disabled", errs.From(err).Code)
+	})
+}
