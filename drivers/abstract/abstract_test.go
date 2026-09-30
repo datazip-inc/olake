@@ -555,7 +555,7 @@ func TestDiscoverSampledTiers(t *testing.T) {
 	testCases := []struct {
 		name   string
 		sample func(ctx context.Context, streamID types.StreamID, limit int) error
-		// expectedColumns is each returned stream's tier columns; streams absent from it must be skipped
+		// expectedColumns is each returned stream's tier columns
 		expectedColumns  map[string][]string
 		expectedCalls    map[string][]int
 		expectedErr      bool
@@ -592,18 +592,18 @@ func TestDiscoverSampledTiers(t *testing.T) {
 			},
 			expectedColumns: map[string][]string{"a": {tierColumn(second)}, "b": {tierColumn(first)}, "c": {tierColumn(first)}},
 		},
-		// only a stream that never completed the first tier is left without a schema; the others
-		// wait for it at the tier barrier, so they keep the first tier
+		// a stream that never completed the first tier has no schema; returning the others would drop
+		// it from a merged catalog, so the timeout stays an error even though a and b finished
 		{
-			name: "timeout during the first tier skips unfinished streams",
+			name: "timeout during the first tier fails even when some streams finished it",
 			sample: func(ctx context.Context, streamID types.StreamID, _ int) error {
 				if streamID.Name == "c" {
 					return waitForTimeout(ctx)
 				}
 				return nil
 			},
-			expectedColumns: map[string][]string{"a": {tierColumn(first)}, "b": {tierColumn(first)}},
-			expectedCalls:   map[string][]int{"a": {first}, "b": {first}, "c": {first}},
+			expectedErr:      true,
+			expectedDeadline: true,
 		},
 		// with nothing to return, the timeout stays an error
 		{
@@ -702,4 +702,19 @@ func TestDiscoverSampledTiersCanceledParentFails(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, streams)
 	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// A timeout that stops the first tier before its samples are scheduled leaves streams without a
+// schema and no sample error; discover fails instead of returning without them.
+func TestDiscoverSampledTiersUnscheduledFirstTierFails(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	sampler := newStubSampler(discoverStreams, nil)
+	streams, err := NewAbstractDriver(context.Background(), sampler).Discover(ctx, 10, false)
+
+	require.Error(t, err)
+	assert.Nil(t, streams)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Empty(t, sampler.calls, "no sample should have been scheduled")
 }

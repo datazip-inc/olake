@@ -167,7 +167,9 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 // produceSampledSchemas fills streamMap with each stream's schema, built from DiscoverSampleTiers
 // records one tier at a time: every stream finishes a tier before any stream starts the next, and
 // a stream's schema from a tier replaces its schema from the previous tier. When the discover
-// timeout hits, each stream keeps the last tier it completed.
+// timeout hits after the first tier, each stream keeps the last tier it completed. A timeout during
+// the first tier fails discover: returning without the unfinished streams would drop them from a
+// merged catalog (--streams), losing their selection.
 func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler SampledSchemaProducer, maxDiscoverThreads int, streams []types.StreamID, streamMap *sync.Map) error {
 	threads := constants.DefaultThreadCount
 	if maxDiscoverThreads > 0 {
@@ -176,7 +178,7 @@ func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler Samp
 		threads = a.driver.MaxConnections()
 	}
 
-	for _, limit := range DiscoverSampleTiers {
+	for tier, limit := range DiscoverSampleTiers {
 		logger.Infof("discover: sampling up to %d records for %d streams", limit, len(streams))
 
 		// a finished errgroup cannot be reused, so every tier gets a new group
@@ -196,10 +198,19 @@ func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler Samp
 			return nil
 		})
 
-		if err := a.GlobalConnGroup.Block(); err != nil {
-			// discover timeout: keep every stream's last completed tier instead of failing discover
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) && !isSyncMapEmpty(streamMap) {
-				logDiscoverTimeout(limit, streams, streamMap)
+		err := a.GlobalConnGroup.Block()
+		// the timeout can stop scheduling a tier without failing any started sample, so a first tier
+		// that ends without an error still has to cover every stream
+		if err == nil && tier == 0 && ctx.Err() != nil {
+			if unsampled := unsampledStreams(streams, streamMap); len(unsampled) > 0 {
+				err = fmt.Errorf("streams %v were not sampled: %w", unsampled, ctx.Err())
+			}
+		}
+		if err != nil {
+			// discover timeout after the first tier: every stream has a schema, so keep each stream's
+			// last completed tier instead of failing discover
+			if tier > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				logger.Warnf("discover timeout reached while sampling %d records; streams keep their last completed tier (increase --timeout for a larger sample)", limit)
 				return nil
 			}
 			return fmt.Errorf("error occurred while waiting for connection group: %w", err)
@@ -208,28 +219,15 @@ func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler Samp
 	return nil
 }
 
-// logDiscoverTimeout reports the tier the discover timeout interrupted and the streams left without
-// any schema (only possible when the timeout hits during the first tier).
-func logDiscoverTimeout(limit int, streams []types.StreamID, streamMap *sync.Map) {
-	var skipped []string
+// unsampledStreams returns the streams that have no schema in streamMap.
+func unsampledStreams(streams []types.StreamID, streamMap *sync.Map) []string {
+	var unsampled []string
 	for _, streamID := range streams {
 		if _, found := streamMap.Load(streamID.String()); !found {
-			skipped = append(skipped, streamID.String())
+			unsampled = append(unsampled, streamID.String())
 		}
 	}
-	logger.Warnf("discover timeout reached while sampling %d records; streams keep their last completed tier (increase --timeout for a larger sample)", limit)
-	if len(skipped) > 0 {
-		logger.Warnf("discover timeout reached before %d streams completed the first tier, skipping them: %v", len(skipped), skipped)
-	}
-}
-
-func isSyncMapEmpty(m *sync.Map) bool {
-	empty := true
-	m.Range(func(_, _ any) bool {
-		empty = false
-		return false
-	})
-	return empty
+	return unsampled
 }
 
 func (a *AbstractDriver) Setup(ctx context.Context) error {
