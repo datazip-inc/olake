@@ -79,7 +79,7 @@ func isS3Path(path string) bool {
 }
 
 // applyConfigFolder rewrites flag paths to live under configFolder, keeping only the filename.
-// The worker sets CONFIG_FOLDER to the execution dir (/mnt/config or s3://bucket/[prefix/]hash)
+// The worker sets OLAKE_S3_CONFIG_FOLDER to the execution dir (/mnt/config or s3://bucket/[prefix/]hash)
 // so schedule-time hashes baked into CLI args are ignored.
 func applyConfigFolder(configFolder string, pathSets ...[]*string) {
 	if configFolder == "" {
