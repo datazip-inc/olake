@@ -682,9 +682,9 @@ func TestDiscoverSampledTiersRunBreadthFirst(t *testing.T) {
 	assert.True(t, slices.IsSorted(sampler.calls), "a tier started before the previous tier finished: %v", sampler.calls)
 }
 
-// A cancelled parent context (a signal, or sync --discover-schema) is not the discover timeout:
+// A canceled parent context (a signal, or sync --discover-schema) is not the discover timeout:
 // discover fails instead of returning the streams sampled so far.
-func TestDiscoverSampledTiersCancelledParentFails(t *testing.T) {
+func TestDiscoverSampledTiersCanceledParentFails(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
