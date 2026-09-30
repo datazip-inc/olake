@@ -7,10 +7,10 @@ import (
 	"github.com/datazip-inc/olake/types"
 )
 
-// DiscoverSampleTiers are the record counts a SampledSchemaProducer builds a stream's schema from,
-// smallest first. Discover runs one tier for every stream before starting the next, so when the
-// discover timeout hits after the first tier, every stream keeps the largest tier it completed.
-var DiscoverSampleTiers = []int{1, 100, 10000}
+// DiscoverSampleBuckets are the record counts a SampledSchemaProducer builds a stream's schema from,
+// smallest first. Discover runs one bucket for every stream before starting the next, so when the
+// discover timeout hits after the first bucket, every stream keeps the largest bucket it completed.
+var DiscoverSampleBuckets = []int{1, 100, 10000}
 
 // SampledSchemaProducer is implemented by drivers that infer a stream's schema by reading records.
 type SampledSchemaProducer interface {

@@ -242,12 +242,12 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	return streamNames, collections.Err()
 }
 
-// discover samples collections in tiers through ProduceSampledSchema
+// discover samples collections in buckets through ProduceSampledSchema
 var _ abstract.SampledSchemaProducer = (*Mongo)(nil)
 
 func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
-	tiers := abstract.DiscoverSampleTiers
-	return m.ProduceSampledSchema(ctx, streamID, tiers[len(tiers)-1])
+	buckets := abstract.DiscoverSampleBuckets
+	return m.ProduceSampledSchema(ctx, streamID, buckets[len(buckets)-1])
 }
 
 // TODO: Add support for time series mongodb collections

@@ -180,12 +180,12 @@ func (k *Kafka) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	return topicNames, nil
 }
 
-// discover samples topics in tiers through ProduceSampledSchema
+// discover samples topics in buckets through ProduceSampledSchema
 var _ abstract.SampledSchemaProducer = (*Kafka)(nil)
 
 func (k *Kafka) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
-	tiers := abstract.DiscoverSampleTiers
-	return k.ProduceSampledSchema(ctx, streamID, tiers[len(tiers)-1])
+	buckets := abstract.DiscoverSampleBuckets
+	return k.ProduceSampledSchema(ctx, streamID, buckets[len(buckets)-1])
 }
 
 // TODO: for avro, we use decode messages to get stream properties similar to JSON, we should directly use the avro schema to get stream properties

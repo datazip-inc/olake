@@ -164,11 +164,11 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 	return finalStreams, nil
 }
 
-// produceSampledSchemas fills streamMap with each stream's schema, built from DiscoverSampleTiers
-// records one tier at a time: every stream finishes a tier before any stream starts the next, and
-// a stream's schema from a tier replaces its schema from the previous tier. When the discover
-// timeout hits after the first tier, each stream keeps the last tier it completed. A timeout during
-// the first tier fails discover: returning without the unfinished streams would drop them from a
+// produceSampledSchemas fills streamMap with each stream's schema, built from DiscoverSampleBuckets
+// records one bucket at a time: every stream finishes a bucket before any stream starts the next, and
+// a stream's schema from a bucket replaces its schema from the previous bucket. When the discover
+// timeout hits after the first bucket, each stream keeps the last bucket it completed. A timeout during
+// the first bucket fails discover: returning without the unfinished streams would drop them from a
 // merged catalog (--streams), losing their selection.
 func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler SampledSchemaProducer, maxDiscoverThreads int, streams []types.StreamID, streamMap *sync.Map) error {
 	threads := constants.DefaultThreadCount
@@ -178,15 +178,19 @@ func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler Samp
 		threads = a.driver.MaxConnections()
 	}
 
-	for tier, limit := range DiscoverSampleTiers {
+	for bucket, limit := range DiscoverSampleBuckets {
+		// the context can end between buckets, when no running sample is left to report it
+		if bucket > 0 && ctx.Err() != nil {
+			return stopAfterFirstBucket(ctx, limit, ctx.Err())
+		}
 		logger.Infof("discover: sampling up to %d records for %d streams", limit, len(streams))
 
-		// a finished errgroup cannot be reused, so every tier gets a new group
+		// a finished errgroup cannot be reused, so every bucket gets a new group
 		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, threads)
 		utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, streamID types.StreamID) error {
 			stream, err := sampler.ProduceSampledSchema(ctx, streamID, limit)
 			// a sample that returns after the timeout may be cut short without an error (Kafka
-			// reads a poll deadline as "caught up"), so it never replaces the previous tier
+			// reads a poll deadline as "caught up"), so it never replaces the previous bucket
 			if err == nil && ctx.Err() != nil {
 				err = ctx.Err()
 			}
@@ -194,29 +198,40 @@ func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler Samp
 				return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrNonRetryable, streamID, err)
 			}
 
-			streamMap.Store(stream.ID(), stream) // replaces the previous tier's schema
+			streamMap.Store(stream.ID(), stream) // replaces the previous bucket's schema
 			return nil
 		})
 
 		err := a.GlobalConnGroup.Block()
-		// the timeout can stop scheduling a tier without failing any started sample, so a first tier
-		// that ends without an error still has to cover every stream
-		if err == nil && tier == 0 && ctx.Err() != nil {
-			if unsampled := unsampledStreams(streams, streamMap); len(unsampled) > 0 {
-				err = fmt.Errorf("streams %v were not sampled: %w", unsampled, ctx.Err())
+		// the context can stop scheduling a bucket without failing any started sample, so Block
+		// returns nil: a first bucket still has to cover every stream, a later one ended early
+		if err == nil && ctx.Err() != nil {
+			if bucket > 0 {
+				err = ctx.Err()
+			} else if unsampled := unsampledStreams(streams, streamMap); len(unsampled) > 0 {
+				logger.Errorf("discover timeout reached before sampling streams: %v", unsampled)
+				err = fmt.Errorf("%d streams were not sampled: %w", len(unsampled), ctx.Err())
 			}
 		}
 		if err != nil {
-			// discover timeout after the first tier: every stream has a schema, so keep each stream's
-			// last completed tier instead of failing discover
-			if tier > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				logger.Warnf("discover timeout reached while sampling %d records; streams keep their last completed tier (increase --timeout for a larger sample)", limit)
-				return nil
+			if bucket > 0 {
+				return stopAfterFirstBucket(ctx, limit, err)
 			}
 			return fmt.Errorf("error occurred while waiting for connection group: %w", err)
 		}
 	}
 	return nil
+}
+
+// stopAfterFirstBucket ends sampling after the first bucket. Every stream then has a schema, so the
+// discover timeout keeps each stream's last completed bucket instead of failing discover; any other
+// error, including a canceled parent context, still fails it.
+func stopAfterFirstBucket(ctx context.Context, limit int, err error) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		logger.Warnf("discover timeout reached before completing the %d-record bucket; streams keep their last completed bucket (increase --timeout for a larger sample)", limit)
+		return nil
+	}
+	return fmt.Errorf("error occurred while waiting for connection group: %w", err)
 }
 
 // unsampledStreams returns the streams that have no schema in streamMap.
