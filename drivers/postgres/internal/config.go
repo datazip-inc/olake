@@ -49,7 +49,8 @@ func (c *Config) Validate() error {
 	}
 
 	if c.Database == "" {
-		return fmt.Errorf("database name is required")
+		return errs.Precondition(errs.ConfigInvalid, codeDatabaseMissing,
+			fmt.Errorf("database name is required"))
 	}
 
 	if err := utils.ApplyMaxThreadsDefault(&c.MaxThreads); err != nil {

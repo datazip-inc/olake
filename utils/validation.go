@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/go-playground/locales/en"
 	ut "github.com/go-playground/universal-translator"
 	"github.com/go-playground/validator/v10"
@@ -43,28 +44,33 @@ func Validate[T any](structure T) error {
 	return nil
 }
 
+const (
+	codeMaxThreadsInvalid = "config.max_threads_invalid"
+	codeRetryCountInvalid = "config.retry_count_invalid"
+)
+
+// applyNonNegativeDefault rejects a negative value and applies fallback when the field is unset (0).
+func applyNonNegativeDefault(value *int, fallback int, name, code string) error {
+	if *value < 0 {
+		return errs.Precondition(errs.ConfigInvalid, code,
+			fmt.Errorf("%s is invalid: %d, must be non-negative", name, *value))
+	}
+	if *value == 0 {
+		*value = fallback
+	}
+	return nil
+}
+
 // ApplyMaxThreadsDefault rejects a negative max-threads value and applies
 // constants.DefaultThreadCount when the field is unset (0).
 func ApplyMaxThreadsDefault(maxThreads *int) error {
-	if *maxThreads < 0 {
-		return fmt.Errorf("max threads is invalid")
-	}
-	if *maxThreads == 0 {
-		*maxThreads = constants.DefaultThreadCount
-	}
-	return nil
+	return applyNonNegativeDefault(maxThreads, constants.DefaultThreadCount, "max threads", codeMaxThreadsInvalid)
 }
 
 // ApplyRetryCountDefault rejects a negative retry-count value and applies
 // constants.DefaultRetryCount when the field is unset (0).
 func ApplyRetryCountDefault(retryCount *int) error {
-	if *retryCount < 0 {
-		return fmt.Errorf("retry count is invalid")
-	}
-	if *retryCount == 0 {
-		*retryCount = constants.DefaultRetryCount
-	}
-	return nil
+	return applyNonNegativeDefault(retryCount, constants.DefaultRetryCount, "retry count", codeRetryCountInvalid)
 }
 
 func init() {
