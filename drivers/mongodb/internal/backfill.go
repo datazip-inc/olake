@@ -253,8 +253,8 @@ func (m *Mongo) splitChunks(ctx context.Context, collection *mongo.Collection, s
 		return chunks, nil
 	}
 
-	switch m.config.ChunkingStrategy {
-	case "timestamp":
+	switch {
+	case m.config.UseTimestampChunking():
 		return timestampStrategy()
 	default:
 		// check for _id type

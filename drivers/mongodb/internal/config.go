@@ -35,6 +35,12 @@ const (
 	AuthMechanismOIDC = "MONGODB-OIDC"
 )
 
+// UseTimestampChunking reports whether the timestamp chunking strategy is selected.
+// The spec enum uses "Timestamp", so the comparison is case-insensitive.
+func (c *Config) UseTimestampChunking() bool {
+	return strings.EqualFold(strings.TrimSpace(c.ChunkingStrategy), "timestamp")
+}
+
 func (c *Config) URI() string {
 	connectionPrefix := "mongodb"
 	if c.Srv {

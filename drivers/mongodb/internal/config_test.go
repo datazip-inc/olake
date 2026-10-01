@@ -426,3 +426,18 @@ func TestConfig_buildTLSConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestConfig_UseTimestampChunking(t *testing.T) {
+	tests := map[string]bool{
+		"Timestamp":    true, // value emitted by the spec enum
+		"timestamp":    true,
+		" Timestamp ":  true,
+		"Split Vector": false,
+		"":             false,
+	}
+	for strategy, want := range tests {
+		if got := (&Config{ChunkingStrategy: strategy}).UseTimestampChunking(); got != want {
+			t.Errorf("ChunkingStrategy %q: got %v, want %v", strategy, got, want)
+		}
+	}
+}
