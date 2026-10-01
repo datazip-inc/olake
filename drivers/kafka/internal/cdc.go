@@ -31,19 +31,6 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 		return fmt.Errorf("no valid streams found for CDC")
 	}
 
-	// Upsert: set SourceDefinedPrimaryKey from dedup_keys
-	for _, stream := range streams {
-		cfg, err := UpsertConfigFrom(stream.Self().StreamMetadata)
-		if err != nil {
-			return fmt.Errorf("stream[%s]: %s", stream.ID(), err)
-		}
-		if !cfg.Enabled {
-			continue
-		}
-		stream.GetStream().SourceDefinedPrimaryKey = types.NewSet(cfg.DedupKeys...)
-		logger.Infof("stream[%s]: upsert dedup keys %v", stream.ID(), cfg.DedupKeys)
-	}
-
 	var groupID string
 
 	// NOTE: in kafka we are giving priority of available consumer group id from state over config
