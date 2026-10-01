@@ -94,6 +94,8 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 		name_latin1 VARCHAR(100) CHARACTER SET latin1,
 		name_ucs2 VARCHAR(100) CHARACTER SET ucs2,
 		name_utf16le VARCHAR(100) CHARACTER SET utf16le,
+		name_latin1_cp1252 VARCHAR(100) CHARACTER SET latin1,
+		text_latin1_cp1252 TEXT CHARACTER SET latin1,
 		grade ENUM('naïve','café','résumé') CHARACTER SET latin1,
 		tags SET('sports','music','gaming','reading') DEFAULT NULL,
 		permissions SET('read','write','execute') CHARACTER SET latin1 DEFAULT NULL,
@@ -133,6 +135,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
 			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1_cp1252, text_latin1_cp1252,
 			tags, permissions,
 			excludedColumn
 		) VALUES (
@@ -150,6 +153,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1, 'active', 'high',
 			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é', '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é',
 			'sports,reading', 'read,write',
 			101
 		)`, integrationTestTable)
@@ -172,6 +176,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
 			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1_cp1252, text_latin1_cp1252,
 			tags, permissions,
 			excludedColumn
 		) VALUES (
@@ -189,6 +194,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			'2021-06-15 10:00:00', 0,
 			'filtered long varchar', 0, 'inactive', 'low',
 			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
+			'€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é', '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é',
 			'music', 'execute',
 			200
 		)`, integrationTestTable)
@@ -213,6 +219,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			created_timestamp, is_active,
 			long_varchar, name_bool, status, priority,
 			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1_cp1252, text_latin1_cp1252,
 			tags, permissions
 		) VALUES (
 			7, 7, 123456789012345,
@@ -229,6 +236,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			'2023-01-01 12:00:00', 1,
 			'long_varchar_val', 1, 'active', 'high',
 			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é', '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é',
 			'sports,reading', 'read,write'
 		)`, integrationTestTable)
 
@@ -260,6 +268,7 @@ func ExecuteQuery(ctx context.Context, t *testing.T, conf *testutils.TestConfig,
 			status = 'pending', priority = 'low',
 			name_latin1 = 'updated latin1', name_ucs2 = 'updated ucs2',
 			name_utf16le = 'updated utf16le', grade = 'café',
+			name_latin1_cp1252 = 'updated Ÿ Œ œ ’ ™ €', text_latin1_cp1252 = 'updated Ÿ Œ œ ’ ™ €',
 			tags = 'gaming,reading', permissions = 'read,write,execute',
 			excludedColumn = 102,
 			includedColumn = 202
@@ -336,6 +345,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool, status, priority,
 			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1_cp1252, text_latin1_cp1252,
 			tags, permissions,
 			excludedColumn
 		) VALUES (
@@ -352,6 +362,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			'mediumtext_val', 'longtext_val', '2023-01-01 12:00:00',
 			'2023-01-01 12:00:00', 1, 'long_varchar_val', 1, 'active', 'high',
 			'latin1_val', 'ucs2_val', 'utf16le_val', 'naïve',
+			'€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é', '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é',
 			'sports,reading', 'read,write',
 			100
 		)`, tableName, i, i)
@@ -375,6 +386,7 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			name_mediumtext, name_longtext, created_date,
 			created_timestamp, is_active, long_varchar, name_bool, status, priority,
 			name_latin1, name_ucs2, name_utf16le, grade,
+			name_latin1_cp1252, text_latin1_cp1252,
 			tags, permissions,
 			excludedColumn
 		) VALUES (
@@ -391,12 +403,22 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 			'filtered medium', 'filtered long', '2021-06-15 10:00:00',
 			'2021-06-15 10:00:00', 0, 'filtered long varchar', 0, 'inactive', 'low',
 			'filtered latin1', 'filtered ucs2', 'filtered utf16le', 'naïve',
+			'€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é', '€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é',
 			'music', 'execute',
 			200
 		)`, tableName)
 	_, err := db.ExecContext(ctx, filteredQuery)
 	require.NoError(t, err, "Failed to insert filtered test data row")
 }
+
+// latin1Cp1252Value is what the INSERTs write to the latin1 cp1252 columns: all 27 characters
+// MySQL's latin1 (cp1252) defines in 0x80-0x9F, the range where cp1252 and ISO-8859-1 differ,
+// then ® and é from the range they share. Decoding binlog latin1 as ISO-8859-1 turns the 27
+// into C1 control characters, so the CDC cases catch it; the TEXT column covers the []byte path.
+const latin1Cp1252Value = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é"
+
+// latin1Cp1252UpdatedValue is what the UPDATE writes to the same columns.
+const latin1Cp1252UpdatedValue = "updated Ÿ Œ œ ’ ™ €"
 
 // TODO: olake has no uint64 data type, so the id_bigint_unsigned_* values past MaxInt64 pin what
 // olake writes today, not what MySQL stored.
@@ -446,6 +468,8 @@ var ExpectedMySQLData = map[string]interface{}{
 	"name_latin1":                   "latin1_val",
 	"name_ucs2":                     "ucs2_val",
 	"name_utf16le":                  "utf16le_val",
+	"name_latin1_cp1252":            latin1Cp1252Value,
+	"text_latin1_cp1252":            latin1Cp1252Value,
 	"grade":                         "naïve",
 	"tags":                          "sports,reading",
 	"permissions":                   "read,write",
@@ -496,6 +520,8 @@ var ExpectedUpdatedData = map[string]interface{}{
 	"name_latin1":                   "updated latin1",
 	"name_ucs2":                     "updated ucs2",
 	"name_utf16le":                  "updated utf16le",
+	"name_latin1_cp1252":            latin1Cp1252UpdatedValue,
+	"text_latin1_cp1252":            latin1Cp1252UpdatedValue,
 	"grade":                         "café",
 	"tags":                          "gaming,reading",
 	"permissions":                   "read,write,execute",
@@ -546,6 +572,8 @@ var MySQLToDestinationSchema = map[string]string{
 	"name_latin1":                   "varchar",
 	"name_ucs2":                     "varchar",
 	"name_utf16le":                  "varchar",
+	"name_latin1_cp1252":            "varchar",
+	"text_latin1_cp1252":            "text",
 	"grade":                         "enum",
 	"tags":                          "set",
 	"permissions":                   "set",
@@ -596,6 +624,8 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"name_latin1":                   "varchar",
 	"name_ucs2":                     "varchar",
 	"name_utf16le":                  "varchar",
+	"name_latin1_cp1252":            "varchar",
+	"text_latin1_cp1252":            "text",
 	"grade":                         "enum",
 	"tags":                          "set",
 	"permissions":                   "set",
