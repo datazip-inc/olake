@@ -3,3 +3,8 @@
 # List only CVEs verified unfixable from pom.xml (stale copies shaded inside
 # third-party jars), one per line, each with a comment explaining why and when
 # it can be dropped.
+
+# parquet-jackson 1.18.1 (latest) shades jackson-databind 2.22.2 under shaded.parquet.*;
+# our own jackson-databind is 2.22.3. Drop when parquet-jackson ships databind >= 2.22.3.
+CVE-2026-91776
+CVE-2026-91777
