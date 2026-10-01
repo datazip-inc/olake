@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	"unicode/utf8"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
@@ -429,9 +428,6 @@ func (k *Kafka) canonicalizeKafkaKey(raw []byte) string {
 				return string(b)
 			}
 		}
-	}
-	if utf8.Valid(raw) {
-		return string(raw)
 	}
 	return base64.StdEncoding.EncodeToString(raw)
 }
