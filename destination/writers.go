@@ -126,7 +126,7 @@ func NewWriterPool(ctx context.Context, config *types.WriterConfig, syncStreams 
 			schema: nil,
 		}
 
-		if !stream.Self().StreamMetadata.AppendMode && stream.GetUpdateType().NeedsTableIndex(config.Type) {
+		if !stream.Self().AppendModeEnabled() && stream.GetUpdateType().NeedsTableIndex(config.Type) {
 			streamIndex, err := indexdb.Open(stream)
 			if err != nil {
 				pool.Shutdown(ctx)

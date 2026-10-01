@@ -48,6 +48,9 @@ type Stream struct {
 	// Normalized Destination Database and Table used as default values for destination database and table
 	DestinationDatabase string `json:"destination_database,omitempty"`
 	DestinationTable    string `json:"destination_table,omitempty"`
+	// Columns that can be selected for this stream, including OLake columns.
+	// Populated on discover from type_schema (source columns + OLake columns).
+	SelectableColumns []string `json:"selectable_columns,omitempty"`
 	// Default stream properties (connector level)
 	DefaultStreamProperties *DefaultStreamProperties `json:"default_stream_properties,omitempty"`
 }
@@ -106,6 +109,15 @@ func (s *Stream) WithSchema(schema *TypeSchema) *Stream {
 	return s
 }
 
+// RefreshSelectableColumns sets selectable_columns from the current schema,
+// including OLake columns.
+func (s *Stream) RefreshSelectableColumns() {
+	if s == nil || s.Schema == nil {
+		return
+	}
+	s.SelectableColumns = s.Schema.ColumnNames()
+}
+
 // Add or Update Column in Stream Type Schema
 func (s *Stream) UpsertField(column string, typ DataType, nullable bool, isOlakeColumn bool) {
 	types := []DataType{typ}
@@ -151,17 +163,24 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 	return output
 }
 
+// LogCatalog merges the fresh discover result with the prior catalog, then writes
+// available_streams.json, selected_streams.json, and streams.json from that one merge.
+// oldCatalog is the prior catalog (legacy streams.json already converted); nil means first-ever discover.
 func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string, engines []QueryEngine) {
 	message := Message{
 		Type:    CatalogMessage,
 		Catalog: GetWrappedCatalog(streams, driver, engines),
 	}
 	logger.Info(message)
-	// write catalog to the specified file
-	message.Catalog = mergeCatalogs(oldCatalog, message.Catalog, engines)
 
-	err := logger.FileLoggerWithPath(message.Catalog, viper.GetString(constants.StreamsPath))
-	if err != nil {
+	merged := mergeCatalogs(oldCatalog, message.Catalog, engines)
+
+	if err := merged.writeSplitFiles(); err != nil {
+		logger.Fatal(err)
+	}
+
+	streamsFilePath := viper.GetString(constants.StreamsPath)
+	if err := toLegacyCatalog(merged).WriteToFile(streamsFilePath); err != nil {
 		logger.Fatalf("failed to create streams file: %s", err)
 	}
 }

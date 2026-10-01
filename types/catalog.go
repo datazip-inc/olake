@@ -1,6 +1,7 @@
 package types
 
 import (
+	"cmp"
 	"fmt"
 	"reflect"
 	"slices"
@@ -8,7 +9,13 @@ import (
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/utils"
+	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/spf13/viper"
+)
+
+const (
+	codeAvailableStreamsEmpty = "catalog.available_streams_empty"
 )
 
 // Message is a dto for olake output row representation
@@ -52,16 +59,26 @@ type StreamMetadata struct {
 	ChunkColumn    string `json:"chunk_column,omitempty"`
 	PartitionRegex string `json:"partition_regex"`
 	StreamName     string `json:"stream_name"`
-	AppendMode     bool   `json:"append_mode,omitempty"`
-	Normalization  bool   `json:"normalization"`
+	AppendMode     *bool  `json:"append_mode,omitempty"`
+	Normalization  *bool  `json:"normalization,omitempty"`
 	UpdateType     string `json:"update_type,omitempty"`
 	// When enabled, source column names are preserved as-is; otherwise utils.Reformat() is applied to generate destination-safe lowercase column names.
-	UseSourceColumnNames bool `json:"use_source_column_names"`
+	UseSourceColumnNames bool `json:"use_source_column_names,omitempty"`
 	//legacy filter input
 	Filter string `json:"filter,omitempty"`
 	//new filter input
-	FilterConfig    *FilterConfig    `json:"filter_config,omitempty"`
-	SelectedColumns *SelectedColumns `json:"selected_columns"`
+	FilterConfig        *FilterConfig    `json:"filter_config,omitempty"`
+	SelectedColumns     *SelectedColumns `json:"selected_columns,omitempty"`
+	SyncMode            SyncMode         `json:"sync_mode,omitempty"`
+	CursorField         string           `json:"cursor_field,omitempty"`
+	DestinationDatabase string           `json:"destination_database,omitempty"`
+	DestinationTable    string           `json:"destination_table,omitempty"`
+}
+
+// resolveConfigurableField returns the first non-zero value.
+// Callers pass values in priority order: selected_streams, then streams[].
+func resolveConfigurableField[T comparable](values ...T) T {
+	return cmp.Or(values...)
 }
 
 type Catalog struct {
@@ -82,7 +99,80 @@ type StreamMix struct {
 	StreamWithPosUpdateType int `json:"stream_with_pos_update_type_count"`
 }
 
-func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) *Catalog {
+// ResolveCatalog loads the runtime catalog from disk in new or legacy format:
+//   - New format: availableStreamsFilePath + selectedStreamsFilePath
+//   - Legacy format: streamsFilePath
+//
+// Callers validate the flags first, so the new-format paths are either both set or both empty.
+func ResolveCatalog(streamsFilePath, availableStreamsFilePath, selectedStreamsFilePath string) (*Catalog, error) {
+	if availableStreamsFilePath != "" && selectedStreamsFilePath != "" {
+		catalog := &Catalog{}
+		if err := utils.UnmarshalFile(availableStreamsFilePath, catalog, false); err != nil {
+			return nil, fmt.Errorf("failed to read streams from %s: %w", availableStreamsFilePath, err)
+		}
+		if len(catalog.Streams) == 0 {
+			return nil, errs.Precondition(errs.CatalogError, codeAvailableStreamsEmpty,
+				fmt.Errorf("available_streams file %s has no streams[]", availableStreamsFilePath))
+		}
+
+		selectedCatalog := &Catalog{}
+		if err := utils.UnmarshalFile(selectedStreamsFilePath, selectedCatalog, false); err != nil {
+			return nil, fmt.Errorf("failed to read selected_streams from %s: %w", selectedStreamsFilePath, err)
+		}
+		// An empty selected_streams file selects nothing, like an explicit {} in streams.json.
+		// Keep that non-nil: a nil selection reads as "no prior selection" and discover re-selects every stream.
+		catalog.SelectedStreams = selectedCatalog.SelectedStreams
+		if catalog.SelectedStreams == nil {
+			catalog.SelectedStreams = map[string][]StreamMetadata{}
+		}
+
+		return catalog, nil
+	}
+
+	legacy, err := ResolveLegacyCatalog(streamsFilePath)
+	if err != nil {
+		return nil, err
+	}
+	return legacyToCanonical(legacy), nil
+}
+
+// sortByNamespaceStreamName sorts the catalog so it is written in the same order on every run.
+// It sorts streams[] by namespace, then stream name, and the streams under each
+// selected_streams namespace by stream_name. The namespace keys need no sorting:
+// encoding/json writes map keys in sorted order.
+func (c *Catalog) sortByNamespaceStreamName() {
+	// sort streams[] by namespace, then stream name
+	slices.SortFunc(c.Streams, func(left, right *ConfiguredStream) int {
+		return cmp.Or(
+			strings.Compare(left.Stream.Namespace, right.Stream.Namespace),
+			strings.Compare(left.Stream.Name, right.Stream.Name))
+	})
+
+	// sort the streams under each selected_streams namespace by stream_name
+	for namespace := range c.SelectedStreams {
+		slices.SortFunc(c.SelectedStreams[namespace], func(a, b StreamMetadata) int {
+			return strings.Compare(a.StreamName, b.StreamName)
+		})
+	}
+}
+
+// writeSplitFiles writes the catalog as available_streams.json and selected_streams.json.
+func (c *Catalog) writeSplitFiles() error {
+	if err := (&Catalog{Streams: c.Streams}).WriteToFile(viper.GetString(constants.AvailableStreamsPath)); err != nil {
+		return fmt.Errorf("failed to create available_streams file: %w", err)
+	}
+	if err := (&Catalog{SelectedStreams: c.SelectedStreams}).WriteToFile(viper.GetString(constants.SelectedStreamsPath)); err != nil {
+		return fmt.Errorf("failed to create selected_streams file: %w", err)
+	}
+	return nil
+}
+
+func (c *Catalog) WriteToFile(path string) error {
+	c.sortByNamespaceStreamName()
+	return logger.FileLoggerWithPath(c, path)
+}
+
+func GetWrappedCatalog(streams []*Stream, _ string, engines []QueryEngine) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
@@ -91,34 +181,36 @@ func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) 
 	available := AvailableUpdateTypes(engines)
 	updateType := PreferredUpdateType(available)
 
-	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
+		stream.RefreshSelectableColumns()
 		stream.AvailableUpdateTypes = available
 		if stream.DefaultStreamProperties != nil {
 			stream.DefaultStreamProperties.UpdateType = updateType
 		}
 
-		// Create ConfiguredStream and append to Streams
 		catalog.Streams = append(catalog.Streams, &ConfiguredStream{
 			Stream: stream,
 		})
 
-		selectedColumns := stream.Schema.ColumnNames()
-		selectedCols := &SelectedColumns{
-			Columns:        selectedColumns,
-			SyncNewColumns: true,
+		metadata := StreamMetadata{
+			StreamName:     stream.Name,
+			PartitionRegex: "",
+			SyncMode:       stream.SyncMode,
+			UpdateType:     string(updateType),
+			CursorField:    utils.Ternary(stream.SyncMode == INCREMENTAL, stream.CursorField, "").(string),
 		}
-
-		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
-			StreamName:      stream.Name,
-			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
-			Normalization:   IsDriverRelational(driver),
-			UpdateType:      string(updateType),
-			SelectedColumns: selectedCols,
-		})
+		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], metadata)
 	}
 
 	return catalog
+}
+
+func streamMapByID(streams []*ConfiguredStream) map[string]*ConfiguredStream {
+	streamMap := make(map[string]*ConfiguredStream, len(streams))
+	for _, stream := range streams {
+		streamMap[stream.Stream.ID()] = stream
+	}
+	return streamMap
 }
 
 // MergeCatalogs merges old catalog with new catalog based on the following rules:
@@ -131,19 +223,11 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 		return newCatalog
 	}
 
-	createStreamMap := func(catalog *Catalog) map[string]*ConfiguredStream {
-		streamMap := make(map[string]*ConfiguredStream)
-		for _, stream := range catalog.Streams {
-			streamMap[stream.Stream.ID()] = stream
-		}
-		return streamMap
-	}
-
-	oldStreams := createStreamMap(oldCatalog)
+	oldStreams := streamMapByID(oldCatalog.Streams)
 
 	// merge selected streams
 	if oldCatalog.SelectedStreams != nil {
-		newStreams := createStreamMap(newCatalog)
+		newStreams := streamMapByID(newCatalog.Streams)
 		selectedStreams := make(map[string][]StreamMetadata)
 
 		for namespace, metadataList := range oldCatalog.SelectedStreams {
@@ -152,9 +236,11 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 				_, exists := newStreams[streamID]
 
 				if exists {
-					oldStream := oldStreams[streamID].Stream
+					oldConfigured := oldStreams[streamID]
 					newStream := newStreams[streamID].Stream
-					MergeSelectedColumns(&metadata, oldStream, newStream)
+					if oldConfigured != nil {
+						MergeSelectedColumns(&metadata, oldConfigured.Stream, newStream)
+					}
 					mergeUpdateType(&metadata, streamID, engines)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
@@ -171,7 +257,6 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 	_ = utils.ForEach(newCatalog.Streams, func(newStream *ConfiguredStream) error {
 		oldStream, exists := oldStreams[newStream.Stream.ID()]
 		if exists {
-			// preserve metadata from old
 			newStream.Stream.SyncMode = oldStream.Stream.SyncMode
 			if oldStream.Stream.CursorField != "" {
 				newStream.Stream.CursorField = oldStream.Stream.CursorField
@@ -224,43 +309,35 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryE
 	metadata.UpdateType = ""
 }
 
-// MergeSelectedColumns merges the selected columns based on the following rules:
-// - If selectedColumns is not present or empty, initialize with columns from new schema
-// - Preserve previously selected columns
-// - If sync_new_columns is true, add newly discovered columns to the selected columns
-// takes old stream and new stream to merge the selected columns and old stream metadata
+// MergeSelectedColumns updates an existing selected_columns list against the new schema.
+// If selected_columns is absent or has no columns, it is left unset so sync keeps all columns.
+// Otherwise previously selected columns are preserved, OLake columns are always kept, and
+// newly discovered columns are added when sync_new_columns is true.
 func MergeSelectedColumns(metadata *StreamMetadata, oldStream *Stream, newStream *Stream) {
-	var columns []string
-
-	// No previous selection: initialize with all columns from new schema.
 	if metadata.SelectedColumns == nil || len(metadata.SelectedColumns.Columns) == 0 {
-		columns = newStream.Schema.ColumnNames()
-	} else {
-		previouslySelectedSet := NewSet(metadata.SelectedColumns.Columns...)
-		oldSchemaCols := NewSet(oldStream.Schema.ColumnNames()...)
+		return
+	}
 
-		// Iterate new schema: retain previously selected columns, add new ones if sync_new_columns enabled.
-		newStream.Schema.Properties.Range(func(key, value interface{}) bool {
-			col, ok := key.(string)
-			if !ok {
-				return true
-			}
-			prop := value.(*Property)
-			if prop.OlakeColumn || previouslySelectedSet.Exists(col) || (metadata.SelectedColumns.SyncNewColumns && !oldSchemaCols.Exists(col)) {
-				columns = append(columns, col)
-			}
+	var columns []string
+	previouslySelectedSet := NewSet(metadata.SelectedColumns.Columns...)
+	oldSchemaCols := NewSet(oldStream.Schema.ColumnNames()...)
+
+	newStream.Schema.Properties.Range(func(key, value interface{}) bool {
+		col, ok := key.(string)
+		if !ok {
 			return true
-		})
-	}
-
-	syncNewColumns := true
-	if metadata.SelectedColumns != nil {
-		syncNewColumns = metadata.SelectedColumns.SyncNewColumns
-	}
+		}
+		prop := value.(*Property)
+		if prop.OlakeColumn || previouslySelectedSet.Exists(col) || (metadata.SelectedColumns.SyncNewColumns && !oldSchemaCols.Exists(col)) {
+			columns = append(columns, col)
+		}
+		return true
+	})
+	slices.Sort(columns)
 
 	metadata.SelectedColumns = &SelectedColumns{
 		Columns:        columns,
-		SyncNewColumns: syncNewColumns,
+		SyncNewColumns: metadata.SelectedColumns.SyncNewColumns,
 	}
 }
 
@@ -364,24 +441,37 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 
 			// NOTE: delete mode changes keep the table, except dv -> other and pos -> dv (see dvDelta)
 			// TODO: log the differences for user reference
+			oldDestinationDatabase := resolveConfigurableField(oldMetadata.DestinationDatabase, oldStream.Stream.DestinationDatabase)
+			oldDestinationTable := resolveConfigurableField(oldMetadata.DestinationTable, oldStream.Stream.DestinationTable)
 			isDifferent := func() bool {
-				// check cursor field if SyncMode is incremental
-				cursorDelta := utils.Ternary(newStream.Stream.SyncMode == INCREMENTAL, oldStream.Stream.CursorField != newStream.Stream.CursorField, false).(bool)
+				oldConfigured := &ConfiguredStream{Stream: oldStream.Stream, StreamMetadata: oldMetadata}
+				newConfigured := &ConfiguredStream{Stream: newStream.Stream, StreamMetadata: newMetadata}
+
 				// leaving dv: v3 forbids the Parquet positional deletes eq/pos write; pos -> dv: not supported yet (only eq -> dv is migrated)
 				oldUpdateType := utils.Ternary(oldMetadata.UpdateType == "", UpdateTypeEquality, UpdateType(oldMetadata.UpdateType)).(UpdateType)
 				newUpdateType := utils.Ternary(newMetadata.UpdateType == "", UpdateTypeEquality, UpdateType(newMetadata.UpdateType)).(UpdateType)
 				dvDelta := (oldUpdateType == UpdateTypeDeletionVector && newUpdateType != UpdateTypeDeletionVector) ||
 					(oldUpdateType == UpdateTypePosition && newUpdateType == UpdateTypeDeletionVector)
 
-				return (oldMetadata.Normalization != newMetadata.Normalization) ||
+				oldSyncMode := resolveConfigurableField(oldMetadata.SyncMode, oldStream.Stream.SyncMode)
+				newSyncMode := resolveConfigurableField(newMetadata.SyncMode, newStream.Stream.SyncMode)
+				oldCursorField := resolveConfigurableField(oldMetadata.CursorField, oldStream.Stream.CursorField)
+				newCursorField := resolveConfigurableField(newMetadata.CursorField, newStream.Stream.CursorField)
+				newDestinationDatabase := resolveConfigurableField(newMetadata.DestinationDatabase, newStream.Stream.DestinationDatabase)
+				newDestinationTable := resolveConfigurableField(newMetadata.DestinationTable, newStream.Stream.DestinationTable)
+
+				// check cursor field if SyncMode is incremental
+				cursorDelta := newSyncMode == INCREMENTAL && oldCursorField != newCursorField
+
+				return (oldConfigured.NormalizationEnabled() != newConfigured.NormalizationEnabled()) ||
+					(oldConfigured.AppendModeEnabled() != newConfigured.AppendModeEnabled()) ||
 					(oldMetadata.PartitionRegex != newMetadata.PartitionRegex) ||
 					(oldMetadata.Filter != newMetadata.Filter) ||
 					(oldMetadata.UseSourceColumnNames != newMetadata.UseSourceColumnNames) ||
 					!reflect.DeepEqual(oldMetadata.FilterConfig, newMetadata.FilterConfig) ||
-					(oldMetadata.AppendMode != newMetadata.AppendMode) ||
-					(oldStream.Stream.SyncMode != newStream.Stream.SyncMode) ||
-					(oldStream.Stream.DestinationDatabase != newStream.Stream.DestinationDatabase) ||
-					(oldStream.Stream.DestinationTable != newStream.Stream.DestinationTable) ||
+					(oldSyncMode != newSyncMode) ||
+					(oldDestinationDatabase != newDestinationDatabase) ||
+					(oldDestinationTable != newDestinationTable) ||
 					cursorDelta ||
 					dvDelta
 			}()
@@ -394,9 +484,11 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 					Stream: &newStreamCopy,
 				}
 
-				// safely change for destination database and table if difference present
-				deltaStream.Stream.DestinationDatabase = oldStream.Stream.DestinationDatabase
-				deltaStream.Stream.DestinationTable = oldStream.Stream.DestinationTable
+				// keep the user's existing destination mapping in the diff output even when discover produced new values
+				deltaStream.Stream.DestinationDatabase = oldDestinationDatabase
+				deltaStream.Stream.DestinationTable = oldDestinationTable
+				newMetadata.DestinationDatabase = oldDestinationDatabase
+				newMetadata.DestinationTable = oldDestinationTable
 
 				diffStreams.Streams = append(diffStreams.Streams, deltaStream)
 				diffStreams.SelectedStreams[namespace] = append(
