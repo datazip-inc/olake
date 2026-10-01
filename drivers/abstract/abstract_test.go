@@ -5,8 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"slices"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/destination"
@@ -471,3 +476,302 @@ func (s stubDriver) StreamChanges(context.Context, int, map[string]any, CDCMsgFn
 	return nil, nil //nolint:nilnil // no metadata state to report
 }
 func (s stubDriver) PostCDC(context.Context, int) error { return nil }
+
+// discoverStreams are the streams stubSampler lists, all in one namespace.
+var discoverStreams = []types.StreamID{{Namespace: "db", Name: "a"}, {Namespace: "db", Name: "b"}, {Namespace: "db", Name: "c"}}
+
+// stubSampler is a sampling driver: each successful ProduceSampledSchema call returns a stream
+// whose only sampled column names the bucket, so a test can tell which bucket a stream ended at.
+type stubSampler struct {
+	stubDriver
+	streams []types.StreamID
+	// sample decides one call's outcome; nil samples every bucket successfully
+	sample func(ctx context.Context, streamID types.StreamID, limit int) error
+
+	mu       sync.Mutex
+	calls    []int            // limits in the order the calls started
+	byStream map[string][]int // limits each stream was sampled with
+}
+
+func newStubSampler(streams []types.StreamID, sample func(context.Context, types.StreamID, int) error) *stubSampler {
+	return &stubSampler{
+		stubDriver: stubDriver{typ: "mongodb"},
+		streams:    streams,
+		sample:     sample,
+		byStream:   make(map[string][]int),
+	}
+}
+
+func (s *stubSampler) GetStreamNames(context.Context) ([]types.StreamID, error) {
+	return s.streams, nil
+}
+
+// MaxRetries is 1 because RetryOnBackoff never calls a function given 0 attempts.
+func (s *stubSampler) MaxRetries() int { return 1 }
+
+func (s *stubSampler) ProduceSampledSchema(ctx context.Context, streamID types.StreamID, limit int) (*types.Stream, error) {
+	s.mu.Lock()
+	s.calls = append(s.calls, limit)
+	s.byStream[streamID.Name] = append(s.byStream[streamID.Name], limit)
+	s.mu.Unlock()
+
+	if s.sample != nil {
+		if err := s.sample(ctx, streamID, limit); err != nil {
+			return nil, err
+		}
+	}
+	stream := types.NewStream(streamID.Name, streamID.Namespace, nil)
+	stream.UpsertField(bucketColumn(limit), types.String, true, false)
+	return stream, nil
+}
+
+func bucketColumn(limit int) string {
+	return fmt.Sprintf("col_%d", limit)
+}
+
+// sampledColumns maps each discovered stream to the bucket columns in its schema.
+func sampledColumns(streams []*types.Stream) map[string][]string {
+	columns := make(map[string][]string, len(streams))
+	for _, stream := range streams {
+		var buckets []string
+		for _, column := range stream.Schema.ColumnNames() {
+			if strings.HasPrefix(column, "col_") {
+				buckets = append(buckets, column)
+			}
+		}
+		columns[stream.Name] = buckets
+	}
+	return columns
+}
+
+// waitForTimeout blocks a sample until the discover timeout, the way a slow source does.
+func waitForTimeout(ctx context.Context) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func TestDiscoverSampledBuckets(t *testing.T) {
+	first, second, last := DiscoverSampleBuckets[0], DiscoverSampleBuckets[1], DiscoverSampleBuckets[len(DiscoverSampleBuckets)-1]
+
+	testCases := []struct {
+		name   string
+		sample func(ctx context.Context, streamID types.StreamID, limit int) error
+		// expectedColumns is each returned stream's bucket columns
+		expectedColumns  map[string][]string
+		expectedCalls    map[string][]int
+		expectedErr      bool
+		expectedDeadline bool
+	}{
+		// a discover that finishes in time ends every stream at the last bucket, same as before buckets
+		{
+			name:            "all buckets complete within the timeout",
+			expectedColumns: map[string][]string{"a": {bucketColumn(last)}, "b": {bucketColumn(last)}, "c": {bucketColumn(last)}},
+			expectedCalls:   map[string][]int{"a": DiscoverSampleBuckets, "b": DiscoverSampleBuckets, "c": DiscoverSampleBuckets},
+		},
+		// each bucket replaces the previous one, so an interrupted bucket leaves the previous schema
+		{
+			name: "timeout during the second bucket keeps the first bucket",
+			sample: func(ctx context.Context, _ types.StreamID, limit int) error {
+				if limit == second {
+					return waitForTimeout(ctx)
+				}
+				return nil
+			},
+			expectedColumns: map[string][]string{"a": {bucketColumn(first)}, "b": {bucketColumn(first)}, "c": {bucketColumn(first)}},
+		},
+		// streams that finish the interrupted bucket keep it; the rest keep the bucket before
+		{
+			name: "streams that finish the interrupted bucket keep it",
+			sample: func(ctx context.Context, streamID types.StreamID, limit int) error {
+				if limit == second && streamID.Name == "a" {
+					return nil
+				}
+				if limit != first {
+					return waitForTimeout(ctx)
+				}
+				return nil
+			},
+			expectedColumns: map[string][]string{"a": {bucketColumn(second)}, "b": {bucketColumn(first)}, "c": {bucketColumn(first)}},
+		},
+		// a stream that never completed the first bucket has no schema; returning the others would drop
+		// it from a merged catalog, so the timeout stays an error even though a and b finished
+		{
+			name: "timeout during the first bucket fails even when some streams finished it",
+			sample: func(ctx context.Context, streamID types.StreamID, _ int) error {
+				if streamID.Name == "c" {
+					return waitForTimeout(ctx)
+				}
+				return nil
+			},
+			expectedErr:      true,
+			expectedDeadline: true,
+		},
+		// with nothing to return, the timeout stays an error
+		{
+			name: "timeout before any stream completes the first bucket fails",
+			sample: func(ctx context.Context, _ types.StreamID, _ int) error {
+				return waitForTimeout(ctx)
+			},
+			expectedErr:      true,
+			expectedDeadline: true,
+		},
+		// a sample cut short by the timeout without an error (Kafka's poll deadline) is not trusted
+		{
+			name: "sample returned after the timeout does not replace the previous bucket",
+			sample: func(ctx context.Context, _ types.StreamID, limit int) error {
+				if limit == second {
+					<-ctx.Done()
+				}
+				return nil
+			},
+			expectedColumns: map[string][]string{"a": {bucketColumn(first)}, "b": {bucketColumn(first)}, "c": {bucketColumn(first)}},
+		},
+		// errors other than the discover timeout still fail discover
+		{
+			name: "source error in a later bucket fails discover",
+			sample: func(_ context.Context, streamID types.StreamID, limit int) error {
+				if limit == second && streamID.Name == "b" {
+					return errors.New("not authorized")
+				}
+				return nil
+			},
+			expectedErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// the timeout only matters to cases that block; the rest finish well before it
+			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+			defer cancel()
+
+			sampler := newStubSampler(discoverStreams, tc.sample)
+			streams, err := NewAbstractDriver(context.Background(), sampler).Discover(ctx, 10, false)
+
+			if tc.expectedErr {
+				require.Error(t, err)
+				assert.Nil(t, streams)
+				assert.Equal(t, tc.expectedDeadline, errors.Is(err, context.DeadlineExceeded), "deadline error")
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedColumns, sampledColumns(streams))
+			if tc.expectedCalls != nil {
+				assert.Equal(t, tc.expectedCalls, sampler.byStream)
+			}
+		})
+	}
+}
+
+// Every stream finishes a bucket before any stream starts the next one.
+func TestDiscoverSampledBucketsRunBreadthFirst(t *testing.T) {
+	streams := make([]types.StreamID, 20)
+	for i := range streams {
+		streams[i] = types.StreamID{Namespace: "db", Name: fmt.Sprintf("s%d", i)}
+	}
+	sampler := newStubSampler(streams, func(_ context.Context, _ types.StreamID, _ int) error {
+		time.Sleep(time.Millisecond) // let calls of one bucket overlap
+		return nil
+	})
+
+	discovered, err := NewAbstractDriver(context.Background(), sampler).Discover(context.Background(), 4, false)
+
+	require.NoError(t, err)
+	assert.Len(t, discovered, len(streams))
+	assert.Len(t, sampler.calls, len(streams)*len(DiscoverSampleBuckets))
+	assert.True(t, slices.IsSorted(sampler.calls), "a bucket started before the previous bucket finished: %v", sampler.calls)
+}
+
+// A canceled parent context (a signal, or sync --discover-schema) is not the discover timeout:
+// discover fails instead of returning the streams sampled so far.
+func TestDiscoverSampledBucketsCanceledParentFails(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sampler := newStubSampler(discoverStreams, func(ctx context.Context, _ types.StreamID, limit int) error {
+		if limit == DiscoverSampleBuckets[1] {
+			cancel()
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		return nil
+	})
+
+	streams, err := NewAbstractDriver(context.Background(), sampler).Discover(ctx, 10, false)
+
+	require.Error(t, err)
+	assert.Nil(t, streams)
+	assert.ErrorIs(t, err, context.Canceled)
+}
+
+// A timeout that stops the first bucket before its samples are scheduled leaves streams without a
+// schema and no sample error; discover fails instead of returning without them.
+func TestDiscoverSampledBucketsUnscheduledFirstBucketFails(t *testing.T) {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+
+	sampler := newStubSampler(discoverStreams, nil)
+	streams, err := NewAbstractDriver(context.Background(), sampler).Discover(ctx, 10, false)
+
+	require.Error(t, err)
+	assert.Nil(t, streams)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.Empty(t, sampler.calls, "no sample should have been scheduled")
+}
+
+// endedCtx reports an error once end is called but never closes Done, so the contexts derived from it
+// never cancel: a test can end discover's context exactly between two buckets, after the running
+// samples have succeeded.
+type endedCtx struct {
+	context.Context
+	err atomic.Pointer[error]
+}
+
+func (c *endedCtx) end(err error) { c.err.Store(&err) }
+
+func (c *endedCtx) Err() error {
+	if err := c.err.Load(); err != nil {
+		return *err
+	}
+	return nil
+}
+
+// A context that ends between buckets schedules nothing in the next bucket, so no sample fails to
+// report it: the discover timeout keeps the completed bucket, any other end still fails discover.
+func TestDiscoverSampledBucketsContextEndsBetweenBuckets(t *testing.T) {
+	first := DiscoverSampleBuckets[0]
+
+	testCases := []struct {
+		name        string
+		endErr      error
+		expectedErr bool
+	}{
+		{name: "timeout keeps the first bucket", endErr: context.DeadlineExceeded},
+		{name: "canceled parent fails discover", endErr: context.Canceled, expectedErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &endedCtx{Context: context.Background()}
+			sampler := newStubSampler(discoverStreams, func(_ context.Context, _ types.StreamID, limit int) error {
+				if limit == first {
+					ctx.end(tc.endErr)
+				}
+				return nil
+			})
+
+			streams, err := NewAbstractDriver(context.Background(), sampler).Discover(ctx, 10, false)
+
+			assert.Equal(t, map[string][]int{"a": {first}, "b": {first}, "c": {first}}, sampler.byStream, "a bucket ran after the context ended")
+			if tc.expectedErr {
+				require.Error(t, err)
+				assert.Nil(t, streams)
+				assert.ErrorIs(t, err, tc.endErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, map[string][]string{"a": {bucketColumn(first)}, "b": {bucketColumn(first)}, "c": {bucketColumn(first)}}, sampledColumns(streams))
+		})
+	}
+}
