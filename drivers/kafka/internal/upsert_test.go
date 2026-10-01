@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"encoding/base64"
 	"errors"
 	"testing"
 
@@ -473,4 +474,49 @@ func TestGenerateOlakeIDNullVsMissingVsEmpty(t *testing.T) {
 	assert.Equal(t, missingName, emptyName, "missing and empty string must share the empty slot")
 	assert.NotEqual(t, nullName, missingName, "null is dropped; missing keeps the column slot")
 	assert.NotEqual(t, nullName, emptyName, "null is dropped; empty string is kept")
+}
+
+func TestCanonicalizeKafkaKey(t *testing.T) {
+	k := Kafka{}
+	tests := []struct {
+		name string
+		key  []byte
+		want string
+	}{
+		{
+			name: "nil",
+			key:  nil,
+			want: "",
+		},
+		{
+			name: "empty",
+			key:  []byte{},
+			want: "",
+		},
+		{
+			name: "plain string is base64",
+			key:  []byte("test"),
+			want: "dGVzdA==",
+		},
+		{
+			name: "json object is remarlshaled",
+			key:  []byte(`{"b":1,"a":2}`),
+			want: `{"a":2,"b":1}`,
+		},
+		{
+			name: "json with leading space",
+			key:  []byte(`	{"id":1}`),
+			want: `{"id":1}`,
+		},
+		{
+			name: "invalid json object falls back to base64",
+			key:  []byte(`{not-json}`),
+			want: base64.StdEncoding.EncodeToString([]byte(`{not-json}`)),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, k.canonicalizeKafkaKey(tt.key))
+		})
+	}
 }
