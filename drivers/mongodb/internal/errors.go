@@ -11,16 +11,26 @@ import (
 	"go.mongodb.org/mongo-driver/x/mongo/driver/topology"
 )
 
-// Codes for conditions this driver detects itself; the resume token is the only state it
-// validates before asking the server.
+// Codes for conditions this driver detects itself before asking the server — config
+// validation (auth policy) and CDC resume-token state.
 const (
-	codeResumeTokenMissing     = "mongodb.resume_token_missing" // #nosec G101 -- a failure code, not a credential
-	codeResumeTokenInvalid     = "mongodb.resume_token_invalid" // #nosec G101 -- a failure code, not a credential
-	codeHostsMissing           = "mongodb.hosts_missing"
-	codeDatabaseMissing        = "mongodb.database_missing"
-	codeUsernameMissing        = "mongodb.username_missing"
-	codeAuthDBMissing          = "mongodb.authdb_missing"
-	codeConfigValidationFailed = "mongodb.config_validation_failed"
+	codeResumeTokenMissing       = "mongodb.resume_token_missing" // #nosec G101 -- a failure code, not a credential
+	codeResumeTokenInvalid       = "mongodb.resume_token_invalid" // #nosec G101 -- a failure code, not a credential
+	codeHostsMissing             = "mongodb.hosts_missing"
+	codeDatabaseMissing          = "mongodb.database_missing"
+	codeAuthDBMissing            = "mongodb.authdb_missing"
+	codeConfigValidationFailed   = "mongodb.config_validation_failed"
+	codeAuthUsernameRequired     = "mongodb.auth_username_required"     // #nosec G101 -- a failure code, not a credential
+	codeAuthPasswordRequired     = "mongodb.auth_password_required"     // #nosec G101 -- a failure code, not a credential
+	codeAuthPasswordForbidden    = "mongodb.auth_password_forbidden"    // #nosec G101 -- a failure code, not a credential
+	codeAuthTLSRequired          = "mongodb.auth_tls_required"          // #nosec G101 -- a failure code, not a credential
+	codeAuthClientCertRequired   = "mongodb.auth_client_cert_required"  // #nosec G101 -- a failure code, not a credential
+	codeAuthMechanismUnsupported = "mongodb.auth_mechanism_unsupported" // #nosec G101 -- a failure code, not a credential
+	codeAuthMechanismConflict    = "mongodb.auth_mechanism_conflict"    // #nosec G101 -- a failure code, not a credential
+	codeAdditionalParamDuplicate = "mongodb.additional_param_duplicate"
+	codeAdditionalParamInvalid   = "mongodb.additional_param_invalid"
+	codeTLSConflict              = "mongodb.tls_conflict"
+	codeOIDCPropertiesInvalid    = "mongodb.oidc_properties_invalid"
 )
 
 // commandCodeCategories maps a MongoDB server error code to a failure category. Codes marked
