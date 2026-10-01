@@ -901,25 +901,31 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 
 	dbTestCases := []syncTestCase{
 		{
-			name:      "Full-Refresh",
-			operation: "",
-			useState:  false,
-			opSymbol:  "r",
-			expected:  cfg.ExpectedData,
+			name:                     "Full-Refresh",
+			operation:                "",
+			useState:                 false,
+			opSymbol:                 "r",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 5,
 		},
 		{
-			name:      "CDC - insert",
-			operation: "insert",
-			useState:  true,
-			opSymbol:  "c",
-			expected:  cfg.ExpectedData,
+			name:                     "CDC - insert",
+			operation:                "insert",
+			useState:                 true,
+			opSymbol:                 "c",
+			expected:                 cfg.ExpectedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 1,
 		},
 		{
-			name:      "CDC - update",
-			operation: "update",
-			useState:  true,
-			opSymbol:  "u",
-			expected:  cfg.ExpectedUpdatedData,
+			name:                     "CDC - update",
+			operation:                "update",
+			useState:                 true,
+			opSymbol:                 "u",
+			expected:                 cfg.ExpectedUpdatedData,
+			verifyNoDuplicates:       true,
+			expectedRowCountByOpType: 1,
 		},
 		{
 			name:      "CDC - delete",
@@ -971,6 +977,13 @@ func (cfg *IntegrationTest) testIcebergFullLoadAndCDC(
 				tc.name != "Full-Refresh",
 			); err != nil {
 				t.Fatalf("%s test failed: %v", tc.name, err)
+			}
+
+			// require.NotEmpty on the returned rows only proves at least one row landed and every
+			// returned row is correct; it does not catch a sync that silently drops a subset of
+			// rows. Assert the exact distinct-by-_olake_id count so a dropped row fails here too.
+			if tc.verifyNoDuplicates {
+				VerifyIcebergNoDuplicates(ctx, t, testTable, cfg.DestinationDB, tc.opSymbol, tc.expectedRowCountByOpType)
 			}
 		})
 	}
