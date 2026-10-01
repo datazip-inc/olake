@@ -188,15 +188,15 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		}
 
 		writer.data = append(writer.data, rec)
+		recordOpType := rec.OlakeColumns[constants.OpType].(string)
 		recordOlakeID := rec.OlakeColumns[constants.OlakeID].(string)
 		filePosition := writer.dataWriter.currentRowCount + int64(len(writer.data)-1)
 
 		if w.indexThread != nil {
-			if err := w.indexRecord(writer, recordOlakeID, rec.OlakeColumns, filePosition); err != nil {
+			if err := w.indexRecord(writer, recordOlakeID, recordOpType, rec.OlakeColumns, filePosition); err != nil {
 				return err
 			}
 		} else if w.upsertMode {
-			recordOpType := rec.OlakeColumns[constants.OpType].(string)
 			if recordOpType == "d" || recordOpType == "u" || recordOpType == "i" || recordOpType == "c" {
 				if _, exists := writer.olakeIDPosition[recordOlakeID]; !exists {
 					// first time, add to equality deletes and track position
@@ -222,7 +222,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 		}
 
 		// Normalise "i" → "c" in the data file so downstream consumers see a consistent op type.
-		if rec.OlakeColumns[constants.OpType] == "i" {
+		if recordOpType == "i" {
 			rec.OlakeColumns[constants.OpType] = "c"
 		}
 	}
@@ -231,9 +231,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 }
 
 // search for index for the record and emmit pos when found
-func (w *ArrowWriter) indexRecord(writer *Writer, olakeID string, olakeColumns map[string]any, filePosition int64) error {
-	opType := olakeColumns[constants.OpType].(string)
-
+func (w *ArrowWriter) indexRecord(writer *Writer, olakeID string, opType string, olakeColumns map[string]any, filePosition int64) error {
 	// if there are dedup keys, we need to index the record - kafka duplicate in same stream
 	// Look up u/i/d always (skip r). Look up c only when _olake_id is a source
 	// uniqueness key (PK or Kafka dedup_keys). PK-less streams hash the whole
