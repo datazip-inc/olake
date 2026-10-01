@@ -145,10 +145,10 @@ func TestValidateCatalogFlags(t *testing.T) {
 		{name: "nothing passed, required", required: true, expectErr: true, expectedCode: codeFlagMissing},
 		{name: "nothing passed, not required (discover)", required: false, expectErr: false},
 		{name: "legacy and new format together", streams: "streams.json", available: "available_streams.json", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeConflictingCatalogFlags},
-		{name: "legacy and available only", streams: "streams.json", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeFlagMissing},
-		{name: "available without selected", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeFlagMissing},
-		{name: "selected without available", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeFlagMissing},
-		{name: "selected without available, not required (discover)", selected: "selected_streams.json", required: false, expectErr: true, expectedCode: codeFlagMissing},
+		{name: "legacy and available only", streams: "streams.json", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeIncompleteCatalogFlagPair},
+		{name: "available without selected", available: "available_streams.json", required: true, expectErr: true, expectedCode: codeIncompleteCatalogFlagPair},
+		{name: "selected without available", selected: "selected_streams.json", required: true, expectErr: true, expectedCode: codeIncompleteCatalogFlagPair},
+		{name: "selected without available, not required (discover)", selected: "selected_streams.json", required: false, expectErr: true, expectedCode: codeIncompleteCatalogFlagPair},
 	}
 
 	for _, tc := range testCases {
@@ -182,8 +182,8 @@ func TestValidateDifferenceFlags(t *testing.T) {
 		{name: "nothing passed", expectErr: false},
 		{name: "legacy only", difference: "new_streams.json", expectErr: false},
 		{name: "new format pair", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: false},
-		{name: "available without selected", available: "new_available_streams.json", expectErr: true, expectedCode: codeFlagMissing},
-		{name: "selected without available", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeFlagMissing},
+		{name: "available without selected", available: "new_available_streams.json", expectErr: true, expectedCode: codeIncompleteDifferenceFlagPair},
+		{name: "selected without available", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeIncompleteDifferenceFlagPair},
 		{name: "legacy and new format together", difference: "new_streams.json", available: "new_available_streams.json", selected: "new_selected_streams.json", expectErr: true, expectedCode: codeConflictingDifferenceFlags},
 	}
 

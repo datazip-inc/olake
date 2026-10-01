@@ -35,7 +35,6 @@ var (
 	encryptionKey                  string
 	destinationType                string
 	catalog                        *types.Catalog
-	legacyCatalog                  *types.LegacyCatalog
 	state                          *types.State
 	timeout                        int64 // timeout in seconds
 	destinationConfig              *types.WriterConfig
@@ -59,6 +58,8 @@ var RootCmd = &cobra.Command{
 		viper.SetDefault(constants.ConfigFolder, os.TempDir())
 		viper.SetDefault(constants.StatePath, filepath.Join(os.TempDir(), "state.json"))
 		viper.SetDefault(constants.StreamsPath, filepath.Join(os.TempDir(), "streams.json"))
+		viper.SetDefault(constants.AvailableStreamsPath, filepath.Join(os.TempDir(), "available_streams.json"))
+		viper.SetDefault(constants.SelectedStreamsPath, filepath.Join(os.TempDir(), "selected_streams.json"))
 		viper.SetDefault(constants.DifferencePath, filepath.Join(os.TempDir(), "difference_streams.json"))
 		if !noSave {
 			configFolder := utils.Ternary(configPath == "not-set", filepath.Dir(destinationConfigPath), filepath.Dir(configPath)).(string)
@@ -185,11 +186,13 @@ func init() {
 
 const (
 	// Codes for conditions the CLI detects itself, before any connector is reached.
-	codeFlagMissing                = "config.flag_missing"
-	codeConflictingCatalogFlags    = "config.conflicting_catalog_flags"
-	codeConflictingDifferenceFlags = "config.conflicting_difference_flags"
-	codeNoValidStreams             = "catalog.no_valid_streams"
-	codeNoStreams                  = "catalog.no_streams_discovered"
+	codeFlagMissing                  = "config.flag_missing"
+	codeConflictingCatalogFlags      = "config.conflicting_catalog_flags"
+	codeConflictingDifferenceFlags   = "config.conflicting_difference_flags"
+	codeIncompleteCatalogFlagPair    = "config.incomplete_catalog_flag_pair"
+	codeIncompleteDifferenceFlagPair = "config.incomplete_difference_flag_pair"
+	codeNoValidStreams               = "catalog.no_valid_streams"
+	codeNoStreams                    = "catalog.no_streams_discovered"
 	// codeQueryEngineInvalid marks a target query engine selection the CLI cannot serve.
 	codeQueryEngineInvalid = "catalog.query_engine_invalid"
 	// recovered panic as an internal error
@@ -202,6 +205,10 @@ func validateCatalogFlags(streamsFlagRequired bool) error {
 	hasLegacy := streamsPath != ""
 	hasAvailable, hasSelected := availableStreamsPath != "", selectedStreamsPath != ""
 	hasNew := hasAvailable && hasSelected
+	if hasAvailable != hasSelected {
+		return errs.Precondition(errs.ConfigInvalid, codeIncompleteCatalogFlagPair,
+			fmt.Errorf("--available-streams and --selected-streams must be passed"))
+	}
 	if streamsFlagRequired && !hasLegacy && !hasNew {
 		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
 			fmt.Errorf("--streams or --available-streams and --selected-streams not passed"))
@@ -209,10 +216,6 @@ func validateCatalogFlags(streamsFlagRequired bool) error {
 	if hasLegacy && hasNew {
 		return errs.Precondition(errs.ConfigInvalid, codeConflictingCatalogFlags,
 			fmt.Errorf("--streams cannot be combined with --available-streams/--selected-streams"))
-	}
-	if hasAvailable != hasSelected {
-		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
-			fmt.Errorf("--available-streams and --selected-streams must be passed"))
 	}
 	if hasLegacy {
 		logger.Warn("--streams is deprecated and will be removed in a future release; use --available-streams and --selected-streams instead")
@@ -231,7 +234,7 @@ func validateDifferenceFlags() error {
 			fmt.Errorf("--difference cannot be combined with --difference-available-streams/--difference-selected-streams"))
 	}
 	if hasAvailable != hasSelected {
-		return errs.Precondition(errs.ConfigInvalid, codeFlagMissing,
+		return errs.Precondition(errs.ConfigInvalid, codeIncompleteDifferenceFlagPair,
 			fmt.Errorf("--difference-available-streams and --difference-selected-streams must be passed"))
 	}
 	return nil

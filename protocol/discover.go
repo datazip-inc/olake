@@ -53,14 +53,8 @@ var discoverCmd = &cobra.Command{
 		}
 		destinationDatabasePrefix = utils.Ternary(destinationDatabasePrefix == "", connector.Type(), destinationDatabasePrefix).(string)
 		viper.Set(constants.DestinationDatabasePrefix, destinationDatabasePrefix)
-		if streamsPath != "" {
-			legacyCatalog, err = types.ResolveLegacyCatalog(streamsPath)
-			if err != nil {
-				return err
-			}
-		}
-		if availableStreamsPath != "" && selectedStreamsPath != "" {
-			catalog, err = types.ResolveCatalog("", availableStreamsPath, selectedStreamsPath)
+		if streamsPath != "" || (availableStreamsPath != "" && selectedStreamsPath != "") {
+			catalog, err = types.ResolveCatalog(streamsPath, availableStreamsPath, selectedStreamsPath)
 			if err != nil {
 				return err
 			}
@@ -102,7 +96,7 @@ var discoverCmd = &cobra.Command{
 			return errs.Precondition(errs.ObjectNotFound, codeNoStreams,
 				errors.New("no streams found in connector"))
 		}
-		types.LogCatalog(streams, catalog, legacyCatalog, connector.Type(), queryEngines)
+		types.LogCatalog(streams, catalog, connector.Type(), queryEngines)
 
 		// Discover Telemetry Tracking
 		// Added this check to avoid the sleep when tracking telemetry is disabled
@@ -123,10 +117,6 @@ func convertLegacyStreams() error {
 	legacy, err := types.ResolveLegacyCatalog(streamsPath)
 	if err != nil {
 		return err
-	}
-	if len(legacy.SelectedStreams) == 0 {
-		return errs.Precondition(errs.CatalogError, codeNoValidStreams,
-			fmt.Errorf("streams file %s has no selected_streams to convert", streamsPath))
 	}
 	if err := types.WriteConvertedCatalog(legacy); err != nil {
 		return err

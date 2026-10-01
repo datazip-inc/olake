@@ -165,20 +165,15 @@ func StreamsToMap(streams ...*Stream) map[string]*Stream {
 
 // LogCatalog merges the fresh discover result with the prior catalog, then writes
 // available_streams.json, selected_streams.json, and streams.json from that one merge.
-// oldCatalog is the prior new-format catalog; oldLegacyCatalog is the prior streams.json,
-// Both nil means first-ever discover.
-func LogCatalog(streams []*Stream, oldCatalog *Catalog, oldLegacyCatalog *LegacyCatalog, driver string, engines []QueryEngine) {
+// oldCatalog is the prior catalog (legacy streams.json already converted); nil means first-ever discover.
+func LogCatalog(streams []*Stream, oldCatalog *Catalog, driver string, engines []QueryEngine) {
 	message := Message{
 		Type:    CatalogMessage,
 		Catalog: GetWrappedCatalog(streams, driver, engines),
 	}
 	logger.Info(message)
 
-	priorCatalog := oldCatalog
-	if priorCatalog == nil && oldLegacyCatalog != nil {
-		priorCatalog = legacyToCanonical(oldLegacyCatalog)
-	}
-	merged := mergeCatalogs(priorCatalog, message.Catalog, engines)
+	merged := mergeCatalogs(oldCatalog, message.Catalog, engines)
 
 	if err := merged.writeSplitFiles(); err != nil {
 		logger.Fatal(err)

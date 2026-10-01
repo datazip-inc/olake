@@ -1775,10 +1775,14 @@ func TestResolveCatalog(t *testing.T) {
 			expectedCode: codeAvailableStreamsEmpty,
 		},
 		{
-			name:         "selected_streams file with no selected_streams returns error",
-			available:    &Catalog{Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}}},
-			selected:     &Catalog{},
-			expectedCode: codeSelectedStreamsEmpty,
+			// an empty selected_streams file selects nothing; it must stay a non-nil empty map
+			name:      "new format: empty selected_streams resolves to an empty selection",
+			available: &Catalog{Streams: []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}}},
+			selected:  &Catalog{},
+			expected: &Catalog{
+				Streams:         []*ConfiguredStream{{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema()}}},
+				SelectedStreams: map[string][]StreamMetadata{},
+			},
 		},
 	}
 
@@ -1812,6 +1816,9 @@ func TestResolveCatalog(t *testing.T) {
 				assert.Empty(t, resolved.Streams)
 				assert.Empty(t, resolved.SelectedStreams)
 				return
+			}
+			if tc.expected.SelectedStreams != nil {
+				assert.NotNil(t, resolved.SelectedStreams)
 			}
 			compareCatalogs(t, tc.expected, resolved, tc.name)
 		})
@@ -1860,10 +1867,9 @@ func TestLogCatalog(t *testing.T) {
 	defaults := &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality}
 
 	testCases := []struct {
-		name             string
-		discovered       []*Stream
-		oldCatalog       *Catalog
-		oldLegacyCatalog *LegacyCatalog
+		name       string
+		discovered []*Stream
+		oldCatalog *Catalog
 		// expected file contents; streams[] are compared in order
 		expectedAvailable []*ConfiguredStream
 		expectedSelected  map[string][]StreamMetadata
@@ -1965,18 +1971,18 @@ func TestLogCatalog(t *testing.T) {
 			expectedSelectableColumns: map[string][]string{"public.users": {"email", "id"}},
 		},
 		{
-			// no prior available/selected files, only streams.json: the upgrade path for a legacy user
+			// prior catalog as ResolveCatalog yields it for a legacy streams.json: the upgrade path for a legacy user
 			name: "existing legacy user: selected_streams.json seeded from the legacy selection",
 			discovered: []*Stream{
 				{Name: "users", Namespace: "public", Schema: newSchema(), SyncMode: CDC, DefaultStreamProperties: defaults},
 				{Name: "orders", Namespace: "public", Schema: newSchema(), SyncMode: FULLREFRESH, DefaultStreamProperties: defaults},
 			},
-			oldLegacyCatalog: &LegacyCatalog{
+			oldCatalog: &Catalog{
 				Streams: []*ConfiguredStream{
 					{Stream: &Stream{Name: "users", Namespace: "public", Schema: oldSchema(), SyncMode: INCREMENTAL, CursorField: "updated_at", DestinationDatabase: "analytics", DestinationTable: "users"}},
 				},
-				SelectedStreams: map[string][]LegacyStreamMetadata{
-					"public": {{StreamName: "users", Normalization: false, AppendMode: true, PartitionRegex: "user_partition", SelectedColumns: createSelectedColumns([]string{"id"}, false)}},
+				SelectedStreams: map[string][]StreamMetadata{
+					"public": {{StreamName: "users", Normalization: new(false), AppendMode: new(true), PartitionRegex: "user_partition", SelectedColumns: createSelectedColumns([]string{"id"}, false)}},
 				},
 			},
 			expectedAvailable: []*ConfiguredStream{
@@ -2003,7 +2009,7 @@ func TestLogCatalog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, t.TempDir())
 
-			LogCatalog(tc.discovered, tc.oldCatalog, tc.oldLegacyCatalog, "postgres", nil)
+			LogCatalog(tc.discovered, tc.oldCatalog, "postgres", nil)
 
 			// available_streams.json: streams[] only
 			var available Catalog

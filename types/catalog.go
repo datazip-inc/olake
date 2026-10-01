@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	codeSelectedStreamsEmpty  = "catalog.selected_streams_empty"
 	codeAvailableStreamsEmpty = "catalog.available_streams_empty"
 )
 
@@ -120,11 +119,12 @@ func ResolveCatalog(streamsFilePath, availableStreamsFilePath, selectedStreamsFi
 		if err := utils.UnmarshalFile(selectedStreamsFilePath, selectedCatalog, false); err != nil {
 			return nil, fmt.Errorf("failed to read selected_streams from %s: %w", selectedStreamsFilePath, err)
 		}
-		if len(selectedCatalog.SelectedStreams) == 0 {
-			return nil, errs.Precondition(errs.CatalogError, codeSelectedStreamsEmpty,
-				fmt.Errorf("selected_streams file %s has no selected_streams", selectedStreamsFilePath))
-		}
+		// An empty selected_streams file selects nothing, like an explicit {} in streams.json.
+		// Keep that non-nil: a nil selection reads as "no prior selection" and discover re-selects every stream.
 		catalog.SelectedStreams = selectedCatalog.SelectedStreams
+		if catalog.SelectedStreams == nil {
+			catalog.SelectedStreams = map[string][]StreamMetadata{}
+		}
 
 		return catalog, nil
 	}
@@ -197,9 +197,7 @@ func GetWrappedCatalog(streams []*Stream, _ string, engines []QueryEngine) *Cata
 			PartitionRegex: "",
 			SyncMode:       stream.SyncMode,
 			UpdateType:     string(updateType),
-		}
-		if stream.SyncMode == INCREMENTAL {
-			metadata.CursorField = stream.CursorField
+			CursorField:    utils.Ternary(stream.SyncMode == INCREMENTAL, stream.CursorField, "").(string),
 		}
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], metadata)
 	}
