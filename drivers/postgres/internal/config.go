@@ -33,6 +33,9 @@ type CDC struct {
 	InitialWaitTime int    `json:"initial_wait_time"`
 	// Publications used when OutputPlugin is pgoutput
 	Publication string `json:"publication"`
+	// PostRead recovers values Postgres leaves out of an UPDATE (unchanged TOAST) by
+	// reading the row's previous version from the destination. Iceberg "pos" mode only.
+	PostRead bool `json:"post_read"`
 }
 
 func (c *Config) Validate() error {

@@ -91,6 +91,10 @@ public class OlakeRpcServer {
         serverBuilder.addService(new OlakeTableIndexer(sharedSessions));
         LOGGER.info("Registered OlakeTableIndexer service");
 
+        // Reads stored values back for columns Postgres left out of an UPDATE (TOAST recovery).
+        serverBuilder.addService(new io.olake.iceberg.rpc.OlakeToastReader(sharedSessions));
+        LOGGER.info("Registered OlakeToastReader service");
+
             // Legacy ingester is always registered (Check, GET_OR_CREATE_TABLE, DROP_TABLE
             // and the default RECORDS path all flow through it).
             OlakeRowsIngester ori = new OlakeRowsIngester(icebergCatalog, sharedSessions);
