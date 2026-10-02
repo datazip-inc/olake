@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -27,6 +28,17 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 	if isLegacy {
 		// Legacy filters are pushed down to SQL (see pkg/jdbc SQLFilter); skip re-filtering here.
 		logger.Warnf("legacy filter detected, skipping filtering records")
+		return records, nil
+	}
+	// If all records are deletes, return the records unchanged.
+	allDeletes := true
+	for _, record := range records {
+		if op, _ := record.OlakeColumns[constants.OpType].(string); op != "d" {
+			allDeletes = false
+			break
+		}
+	}
+	if allDeletes {
 		return records, nil
 	}
 	logger.Infof("filtering records with filter: %+v", filter)
@@ -53,6 +65,12 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 		keep := make([]bool, len(records))
 
 		err := utils.Concurrent(ctx, records, concurrency, func(_ context.Context, record types.RawRecord, i int) error {
+			// If the record is a delete, keep it
+			if op, _ := record.OlakeColumns[constants.OpType].(string); op == "d" {
+				keep[i] = true
+				return nil
+			}
+			// Otherwise, check if the record matches the filter conditions
 			match := matches(record, conditions, filter.LogicalOperator)
 			if match {
 				keep[i] = true
