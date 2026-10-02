@@ -536,7 +536,7 @@ func (p *Parquet) FlattenAndCleanData(ctx context.Context, records []types.RawRe
 
 				persistedTypes := p.schema[columnName].Types()
 				if _, exist := utils.ArrayContains(persistedTypes, func(elem types.DataType) bool {
-					return elem == detectedType
+					return typeutils.ValueFitsColumn(columnValue, detectedType, elem)
 				}); !exist {
 					diffFound.Store(true)
 					break

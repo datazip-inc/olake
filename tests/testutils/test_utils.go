@@ -77,6 +77,7 @@ type TestConfig struct {
 	PartitionRegex  string
 	FilterConfig    string
 	ColumnToExclude string
+	PrimaryKey      string
 }
 
 type TestConfigOption func(*TestConfig)

@@ -2,12 +2,15 @@ package testutils
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/apache/spark-connect-go/v35/spark/sql"
+	"github.com/minio/minio-go/v7"
 )
 
 const (
@@ -76,4 +79,73 @@ func DropIcebergTable(t *testing.T, tableName, icebergDB string) {
 		return
 	}
 	t.Logf("Successfully dropped Iceberg table: %s", fullTableName)
+}
+
+// icebergSchema is the part of an Iceberg metadata file that names column types. A field's type
+// is a string for a primitive and an object for a struct, list or map.
+type icebergSchema struct {
+	SchemaID int `json:"schema-id"`
+	Fields   []struct {
+		Name string          `json:"name"`
+		Type json.RawMessage `json:"type"`
+	} `json:"fields"`
+}
+
+// IcebergSchemaTypes returns a table's current schema as column -> Iceberg type ("fixed[16]",
+// "binary", "long", ...), read from the metadata file the table's metadata log points at. Spark
+// reports Iceberg's fixed[n] as plain binary, so this is the only view in which a fixed width can
+// be asserted.
+func IcebergSchemaTypes(ctx context.Context, spark sql.SparkSession, fullTableName string) (map[string]string, error) {
+	df, err := spark.Sql(ctx, fmt.Sprintf("SELECT file FROM %s.metadata_log_entries ORDER BY timestamp DESC LIMIT 1", fullTableName))
+	if err != nil {
+		return nil, fmt.Errorf("failed to query the metadata log of %s: %s", fullTableName, err)
+	}
+	rows, err := df.Collect(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read the metadata log of %s: %s", fullTableName, err)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("%s has no metadata log entry", fullTableName)
+	}
+	location, _ := rows[0].Value("file").(string)
+	bucket, key, found := strings.Cut(strings.TrimPrefix(location, "s3a://"), "/")
+	if !strings.HasPrefix(location, "s3a://") || !found {
+		return nil, fmt.Errorf("%s: metadata location %q is not an s3a path", fullTableName, location)
+	}
+	client, err := NewMinIOClient()
+	if err != nil {
+		return nil, err
+	}
+	object, err := client.GetObject(ctx, bucket, key, minio.GetObjectOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch %s: %s", location, err)
+	}
+	defer func() { _ = object.Close() }()
+	var metadata struct {
+		CurrentSchemaID int             `json:"current-schema-id"`
+		Schemas         []icebergSchema `json:"schemas"`
+		Schema          *icebergSchema  `json:"schema"` // format version 1 carries a single schema
+	}
+	if err := json.NewDecoder(object).Decode(&metadata); err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %s", location, err)
+	}
+	current := metadata.Schema
+	for i := range metadata.Schemas {
+		if metadata.Schemas[i].SchemaID == metadata.CurrentSchemaID {
+			current = &metadata.Schemas[i]
+		}
+	}
+	if current == nil {
+		return nil, fmt.Errorf("%s: schema %d not found in %s", fullTableName, metadata.CurrentSchemaID, location)
+	}
+	types := make(map[string]string, len(current.Fields))
+	for _, field := range current.Fields {
+		var primitive string
+		if json.Unmarshal(field.Type, &primitive) == nil {
+			types[field.Name] = primitive
+		} else {
+			types[field.Name] = string(field.Type)
+		}
+	}
+	return types, nil
 }

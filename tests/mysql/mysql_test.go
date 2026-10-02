@@ -43,6 +43,7 @@ func mysqlBaseConfig(t *testing.T, opts ...testutils.TestConfigOption) *integrat
 		TestConfig:                mysqlTestConfig(t, opts...),
 		ExpectedData:              ExpectedMySQLData,
 		DestinationDataTypeSchema: MySQLToDestinationSchema,
+		TypeMapping:               MySQLTypeMapping,
 		DefaultCDCColumnsSchema:   ExpectedMySQLDefaultCDCColumnsSchema,
 	}
 }
@@ -54,9 +55,21 @@ func TestMySQLDiscover(t *testing.T) {
 func TestMySQLSync(t *testing.T) {
 	t.Parallel()
 	cfg := mysqlBaseConfig(t)
-	cfg.ExpectedUpdatedData = ExpectedUpdatedData
+	cfg.CursorField = "id_cursor_binary:id_smallint"
+	cfg.ExpectedUpdatedData = ExpectedUpdatedData()
 	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
 	cfg.TestSync(t)
+}
+
+func TestMySQLPartitionSync(t *testing.T) {
+	t.Parallel()
+	cfg := mysqlBaseConfig(t)
+	cfg.PrimaryKey = "id_cursor_binary"
+	cfg.PartitionRegex = "/{data_fixed_binary,identity}"
+	cfg.ExpectedUpdatedData = ExpectedUpdatedData()
+	cfg.ExpectedUpdatedData["_olake_id"] = binaryCursorOlakeID(1)
+	cfg.UpdatedDestinationDataTypeSchema = EvolvedMySQLToDestinationSchema
+	cfg.TestCommonSync(t)
 }
 
 func TestMySQL2PC(t *testing.T) {

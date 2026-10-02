@@ -507,3 +507,34 @@ var ExpectedPostgresDefaultCDCColumnsSchema = map[string]string{
 	"_cdc_timestamp": "timestamp",
 	"_cdc_lsn":       "string",
 }
+
+// PostgresTypeMapping maps the source types PostgresToDestinationSchema declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var PostgresTypeMapping = map[string]string{
+	"bigint":           "bigint",
+	"bigserial":        "bigint",
+	"boolean":          "boolean",
+	"char":             "string",
+	"character":        "string",
+	"circle":           "string",
+	"date":             "timestamp",
+	"double":           "double",
+	"double precision": "double",
+	"int":              "int",
+	"integer":          "int",
+	"interval":         "string",
+	"json":             "string",
+	"jsonb":            "string",
+	"name":             "string",
+	"point":            "string",
+	"polygon":          "string",
+	"real":             "float",
+	"smallint":         "int",
+	"text":             "string",
+	"timestamp":        "timestamp",
+	"timestamptz":      "timestamp",
+	"uuid":             "string",
+	"varbit":           "string",
+	"varchar":          "string",
+	"xml":              "string",
+}

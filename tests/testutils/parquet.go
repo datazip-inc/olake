@@ -1,13 +1,16 @@
 package testutils
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/parquet-go/parquet-go"
 )
 
 const ParquetTestBucket = "warehouse"
@@ -39,6 +42,44 @@ func ListParquetObjects(ctx context.Context, client *minio.Client, parquetDB, ta
 		}
 	}
 	return objects, nil
+}
+
+// ParquetColumnKinds reads the footer of every parquet file directly in a table's folder and
+// returns, per file, each column's physical type: BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY(16), INT64
+// and so on. Spark reports every byte column as binary, so a fixed width can only be asserted
+// here.
+func ParquetColumnKinds(ctx context.Context, client *minio.Client, parquetDB, tableName string) (map[string]map[string]string, error) {
+	objects, err := ListParquetObjects(ctx, client, parquetDB, tableName)
+	if err != nil {
+		return nil, err
+	}
+	kinds := make(map[string]map[string]string, len(objects))
+	for _, object := range objects {
+		reader, err := client.GetObject(ctx, ParquetTestBucket, object.Key, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch %s: %s", object.Key, err)
+		}
+		data, err := io.ReadAll(reader)
+		_ = reader.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read %s: %s", object.Key, err)
+		}
+		file, err := parquet.OpenFile(bytes.NewReader(data), int64(len(data)))
+		if err != nil {
+			return nil, fmt.Errorf("failed to open %s: %s", object.Key, err)
+		}
+		columns := map[string]string{}
+		for _, path := range file.Schema().Columns() {
+			leaf, _ := file.Schema().Lookup(path...)
+			kind := leaf.Node.Type().Kind().String()
+			if leaf.Node.Type().Kind() == parquet.FixedLenByteArray {
+				kind = fmt.Sprintf("%s(%d)", kind, leaf.Node.Type().Length())
+			}
+			columns[strings.Join(path, ".")] = kind
+		}
+		kinds[object.Key] = columns
+	}
+	return kinds, nil
 }
 
 // parquetTablePath is the MinIO key prefix a stream's parquet files are written under.

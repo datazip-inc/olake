@@ -72,6 +72,16 @@ func (f Fields) Header() (header []string) {
 	return
 }
 
+// ValueFitsColumn checks if a value of detectedType fits the column type, so the column need not change.
+func ValueFitsColumn(value any, detectedType, columnType types.DataType) bool {
+	if detectedType == types.Null || detectedType == columnType {
+		return true
+	}
+	width, _ := types.BytesWidth(columnType)
+	bytesValue, isBytes := value.([]byte)
+	return width > 0 && isBytes && len(bytesValue) <= width
+}
+
 // Returns change, typeChange, mutations
 func (f Fields) Process(record types.Record) (bool, bool, Fields) {
 	changeDetected := false
@@ -82,7 +92,7 @@ func (f Fields) Process(record types.Record) (bool, bool, Fields) {
 		detectedType := TypeFromValue(value)
 		if val, found := f[key]; found {
 			currentType := val.getType()
-			if detectedType != types.Null && currentType != detectedType { // compare current type
+			if !ValueFitsColumn(value, detectedType, currentType) { // compare current type
 				f[key].Merge(NewField(detectedType)) // merged data types for this field
 				updatedType := f[key].getType()
 				if updatedType != currentType {
