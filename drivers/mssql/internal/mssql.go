@@ -32,6 +32,8 @@ type MSSQL struct {
 	isReadReplica bool
 	sshClient     *ssh.Client
 	primaryClient *sqlx.DB
+	// prerequisites holds the CDC setup checks evaluated in Setup; enforced by AbstractDriver.Read.
+	prerequisites types.Prerequisites
 }
 
 // GetConfigRef implements abstract.DriverInterface.
@@ -103,6 +105,9 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		}
 		logger.Info("connected to primary node successfully for capture instance management")
 	}
+
+	// needs isReadReplica and primaryClient, both set above
+	m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks())
 	return nil
 }
 

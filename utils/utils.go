@@ -9,9 +9,11 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -72,6 +74,20 @@ func Ternary(cond bool, a, b any) any {
 		return a
 	}
 	return b
+}
+
+// HumanDuration renders a retention window for display: "12 hours", "1 day", "7.5 days".
+func HumanDuration(d time.Duration) string {
+	unit, n := "hour", d.Hours()
+	if d >= 24*time.Hour {
+		unit, n = "day", n/24
+	}
+	n = math.Round(n*10) / 10
+	s := strconv.FormatFloat(n, 'f', -1, 64) + " " + unit
+	if n != 1 {
+		s += "s"
+	}
+	return s
 }
 
 // return the average of the given values.

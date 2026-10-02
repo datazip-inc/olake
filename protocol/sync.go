@@ -117,6 +117,12 @@ var syncCmd = &cobra.Command{
 			state.Streams = selectedStreamsMetadata.NewStreamsState
 		}
 
+		// Before full-refresh streams are cleared below: a CDC sync that cannot start must not
+		// drop destination data first.
+		if perr := connector.ValidateCDCPrerequisites(selectedStreamsMetadata.CDCStreams); perr != nil {
+			return perr
+		}
+
 		// for clearing streams
 		dropStreams := []types.StreamInterface{}
 		dropStreams = append(dropStreams, selectedStreamsMetadata.FullLoadStreams...)
