@@ -244,7 +244,9 @@ jobs:
     runs-on: 16gb-runner
     # The whole workflow's approval, deliberately on the only job that spends a 16gb runner: one
     # prompt releases every driver, and "Re-run failed jobs" re-enters it so a replay costs another.
-    environment: integration_tests
+    # PRs into master pass an empty environment name and skip that prompt.
+    environment:
+      name: ${{ case(github.base_ref == 'master', '', 'integration_tests') }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
