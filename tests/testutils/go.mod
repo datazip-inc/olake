@@ -8,6 +8,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.34
 	github.com/parquet-go/parquet-go v0.29.0
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/mod v0.40.0
 	golang.org/x/sync v0.22.0
 )
 
@@ -44,7 +45,6 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/exp v0.0.0-20250506013437-ce4c2cf36ca6 // indirect
-	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
