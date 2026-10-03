@@ -602,6 +602,7 @@ const IcebergUISchema = `{
         "Hive",
         "Generic REST",
         "Lakekeeper",
+        "SeaweedFS",
         "Nessie",
         "S3 Tables",
         "Unity",
