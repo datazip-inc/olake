@@ -95,6 +95,7 @@ var DriversRequiringIncrementalFormatter = []DriverType{Oracle, DB2, MSSQL}
 var RESTCatalogs = []string{
 	"rest",
 	"lakekeeper",
+	"seaweedfs",
 	"nessie",
 	"s3tables",
 	"unity",
