@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"testing"
@@ -45,97 +46,10 @@ func TestIsKafkaKeyOnlyDedup(t *testing.T) {
 	}
 }
 
-func TestNewUpsertConfig(t *testing.T) {
-	tests := []struct {
-		name                 string
-		meta                 types.StreamMetadata
-		dedupKeys            []string
-		wantErr              bool
-		wantEnabled          bool
-		wantTombstoneDeletes bool
-	}{
-		{
-			name:                 "append mode skips dedup validation",
-			meta:                 types.StreamMetadata{AppendMode: true},
-			dedupKeys:            nil,
-			wantErr:              false,
-			wantEnabled:          false,
-			wantTombstoneDeletes: false,
-		},
-		{
-			name:                 "false append_mode without dedup keys stays append",
-			meta:                 types.StreamMetadata{AppendMode: false},
-			dedupKeys:            nil,
-			wantErr:              false,
-			wantEnabled:          false,
-			wantTombstoneDeletes: false,
-		},
-		{
-			name:      "upsert whitespace dedup key errors",
-			meta:      types.StreamMetadata{AppendMode: false},
-			dedupKeys: []string{"  "},
-			wantErr:   true,
-		},
-		{
-			name:                 "only kafka key enables tombstone deletes",
-			meta:                 types.StreamMetadata{AppendMode: false},
-			dedupKeys:            []string{Key},
-			wantErr:              false,
-			wantEnabled:          true,
-			wantTombstoneDeletes: true,
-		},
-		{
-			name:                 "message column dedup is upsert only",
-			meta:                 types.StreamMetadata{AppendMode: false},
-			dedupKeys:            []string{"id"},
-			wantErr:              false,
-			wantEnabled:          true,
-			wantTombstoneDeletes: false,
-		},
-		{
-			name:                 "kafka key + column as dedup",
-			meta:                 types.StreamMetadata{AppendMode: false},
-			dedupKeys:            []string{Key, "id"},
-			wantErr:              false,
-			wantEnabled:          true,
-			wantTombstoneDeletes: false,
-		},
-		{
-			name:                 "zero metadata (no selected_streams) stays append",
-			meta:                 types.StreamMetadata{},
-			dedupKeys:            nil,
-			wantErr:              false,
-			wantEnabled:          false,
-			wantTombstoneDeletes: false,
-		},
-		{
-			name:                 "append_mode true with leftover dedup keys stays append",
-			meta:                 types.StreamMetadata{AppendMode: true},
-			dedupKeys:            []string{"id"},
-			wantErr:              false,
-			wantEnabled:          false,
-			wantTombstoneDeletes: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg, err := NewUpsertConfig(tt.meta, tt.dedupKeys)
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantEnabled, cfg.Enabled)
-			assert.Equal(t, tt.wantTombstoneDeletes, cfg.AllowTombstoneDeletes)
-		})
-	}
-}
-
 func TestCheckDedupKeysExist(t *testing.T) {
 	tests := []struct {
 		name        string
-		cfg         UpsertConfig
+		dedupKeys   []string
 		data        map[string]any
 		kafkaKey    string
 		keyFields   map[string]any
@@ -144,11 +58,8 @@ func TestCheckDedupKeysExist(t *testing.T) {
 		check       func(t *testing.T, data map[string]any)
 	}{
 		{
-			name: "value has id with empty kafka key",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id"},
-			},
+			name:      "value has id with empty kafka key",
+			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"id":   "101",
 				"name": "sam",
@@ -159,11 +70,8 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			},
 		},
 		{
-			name: "value has id with kafka key present",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id"},
-			},
+			name:      "value has id with kafka key present",
+			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"id":   "101",
 				"name": "sam",
@@ -172,11 +80,8 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			kafkaKey: "random_key",
 		},
 		{
-			name: "Id(passed as dedup key) is missing, dedup not taken from kafka key",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id"},
-			},
+			name:      "Id(passed as dedup key) is missing, dedup not taken from kafka key",
+			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"name": "noId",
 				"age":  2000,
@@ -185,11 +90,8 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			wantMissing: true,
 		},
 		{
-			name: "all selected dedup are null -- fail",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id"},
-			},
+			name:      "all selected dedup are null -- fail",
+			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"id":   nil,
 				"name": "sam",
@@ -198,22 +100,16 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			wantErr: errNullDedupKeys,
 		},
 		{
-			name: "dedup key = kafka key(nil) -- fails",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{Key},
-			},
+			name:      "dedup key = kafka key(nil) -- fails",
+			dedupKeys: []string{Key},
 			data: map[string]any{
 				Key: nil,
 			},
 			wantErr: errNullDedupKeys,
 		},
 		{
-			name: "selected dedup field value is empty string - works",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id"},
-			},
+			name:      "selected dedup field value is empty string - works",
+			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"id":   "",
 				"name": "sam",
@@ -221,11 +117,8 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			},
 		},
 		{
-			name: "dedupe fields some are absent",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id", "name"},
-			},
+			name:      "dedupe fields some are absent",
+			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":  "101",
 				"age": 20,
@@ -236,11 +129,8 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			},
 		},
 		{
-			name: "dedupe fields are partial null",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id", "name"},
-			},
+			name:      "dedupe fields are partial null",
+			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   "101",
 				"name": nil,
@@ -248,11 +138,8 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			},
 		},
 		{
-			name: "all selected fields are present and all null - fail",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id", "name"},
-			},
+			name:      "all selected fields are present and all null - fail",
+			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   nil,
 				"name": nil,
@@ -261,11 +148,8 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			wantErr: errNullDedupKeys,
 		},
 		{
-			name: "fill id from keyFields",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id"},
-			},
+			name:      "fill id from keyFields",
+			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"name": nil,
 				"age":  20,
@@ -278,42 +162,30 @@ func TestCheckDedupKeysExist(t *testing.T) {
 			},
 		},
 		{
-			name: "fill _kafka_key from kafkaKey(string of Key)",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{Key},
-			},
-			data:     nil,
-			kafkaKey: "key1",
+			name:      "fill _kafka_key from kafkaKey(string of Key)",
+			dedupKeys: []string{Key},
+			data:      nil,
+			kafkaKey:  "key1",
 			check: func(t *testing.T, data map[string]any) {
 				assert.Equal(t, "key1", data[Key])
 			},
 		},
 		{
-			name: "empty kafkaKey doesnot fill _kafka_key(part of data)",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{Key},
-			},
+			name:        "empty kafkaKey doesnot fill _kafka_key(part of data)",
+			dedupKeys:   []string{Key},
 			data:        nil,
 			kafkaKey:    "",
 			wantMissing: true,
 		},
 		{
-			name: "nil data and no field names present",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id"},
-			},
+			name:        "nil data and no field names present",
+			dedupKeys:   []string{"id"},
 			data:        nil,
 			wantMissing: true,
 		},
 		{
-			name: "value from data over value from keyFields(from JSON of Key)",
-			cfg: UpsertConfig{
-				Enabled:   true,
-				DedupKeys: []string{"id"},
-			},
+			name:      "value from data over value from keyFields(from JSON of Key)",
+			dedupKeys: []string{"id"},
 			data: map[string]any{
 				"id":   "from-value",
 				"name": nil,
@@ -329,7 +201,7 @@ func TestCheckDedupKeysExist(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := tt.cfg.checkDedupKeysExist(tt.data, tt.kafkaKey, tt.keyFields)
+			data, err := checkDedupKeysExist(tt.dedupKeys, tt.data, tt.kafkaKey, tt.keyFields)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 				return
@@ -438,10 +310,7 @@ func TestGenerateOlakeIDFromExistingKeys(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := UpsertConfig{
-				DedupKeys: tt.dedupKeys,
-			}
-			olakeID := cfg.generateOlakeIDFromExistingKeys(tt.data)
+			olakeID := generateOlakeIDFromExistingKeys(tt.dedupKeys, tt.data)
 			assert.Equal(t, tt.want, olakeID)
 			if tt.notEqualAppend {
 				appendID := utils.GetKeysHash(map[string]any{
@@ -455,16 +324,15 @@ func TestGenerateOlakeIDFromExistingKeys(t *testing.T) {
 }
 
 func TestGenerateOlakeIDNullVsMissingVsEmpty(t *testing.T) {
-	cfg := UpsertConfig{DedupKeys: []string{"id", "name"}}
-
-	nullName := cfg.generateOlakeIDFromExistingKeys(map[string]any{
+	dedupKeys := []string{"id", "name"}
+	nullName := generateOlakeIDFromExistingKeys(dedupKeys, map[string]any{
 		"id":   "42",
 		"name": nil,
 	})
-	missingName := cfg.generateOlakeIDFromExistingKeys(map[string]any{
+	missingName := generateOlakeIDFromExistingKeys(dedupKeys, map[string]any{
 		"id": "42",
 	})
-	emptyName := cfg.generateOlakeIDFromExistingKeys(map[string]any{
+	emptyName := generateOlakeIDFromExistingKeys(dedupKeys, map[string]any{
 		"id":   "42",
 		"name": "",
 	})
@@ -519,4 +387,18 @@ func TestCanonicalizeKafkaKey(t *testing.T) {
 			assert.Equal(t, tt.want, k.canonicalizeKafkaKey(tt.key))
 		})
 	}
+}
+
+func TestPreCDCWhitespaceDedupKey(t *testing.T) {
+	k := &Kafka{}
+	stream := &types.ConfiguredStream{
+		Stream: types.NewStream("t", "topics", nil),
+		StreamMetadata: types.StreamMetadata{
+			AppendMode: false,
+			DedupKeys:  []string{"  "},
+		},
+	}
+	err := k.PreCDC(context.Background(), []types.StreamInterface{stream})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty field name")
 }

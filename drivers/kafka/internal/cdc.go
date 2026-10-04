@@ -30,6 +30,14 @@ func (k *Kafka) PreCDC(ctx context.Context, streams []types.StreamInterface) err
 	if len(streams) == 0 {
 		return fmt.Errorf("no valid streams found for CDC")
 	}
+	for _, stream := range streams {
+		if !stream.ResolveUpsertOp() {
+			continue
+		}
+		if err := validateDedupKey(stream.Self().StreamMetadata.DedupKeys); err != nil {
+			return fmt.Errorf("stream[%s]: %w", stream.ID(), err)
+		}
+	}
 
 	var groupID string
 
@@ -118,12 +126,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 		}
 
 		stream := currentPartitionMeta.Stream
-		cfg, err := UpsertConfigFrom(stream.Self().StreamMetadata)
-		if err != nil {
-			return false, err
-		}
+		dedupKeys := stream.Self().StreamMetadata.DedupKeys
 		bytesRead := int64(len(record.Message.Key) + len(record.Message.Value))
-		if !cfg.Enabled {
+		if !stream.ResolveUpsertOp() {
 			//append only
 			if record.Data != nil {
 				if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "create", record.Data, nil, bytesRead)); err != nil {
@@ -160,9 +165,9 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 			}
 
 			if record.Message.Value == nil {
-				if cfg.AllowTombstoneDeletes {
+				if isKafkaKeyOnlyDedup(dedupKeys) {
 					//dedup is only _kafka_key (present and not null) - tombstone deletes are valid
-					data, err := cfg.checkDedupKeysExist(record.Data, kafkaKey, record.KeyFields)
+					data, err := checkDedupKeysExist(dedupKeys, record.Data, kafkaKey, record.KeyFields)
 					if err != nil {
 						//key - null
 						if errors.Is(err, errNullDedupKeys) {
@@ -173,7 +178,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 						// key - absent
 					} else {
 						extraColumns := map[string]any{
-							constants.OlakeID: cfg.generateOlakeIDFromExistingKeys(data),
+							constants.OlakeID: generateOlakeIDFromExistingKeys(dedupKeys, data),
 						}
 						if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "delete", data, extraColumns, bytesRead)); err != nil {
 							return false, err
@@ -199,7 +204,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 				}
 			} else if record.Data != nil {
 				// Non null value: Upsert when atleast one selected dedup key exist, all absent - append, all null - fail sync
-				data, err := cfg.checkDedupKeysExist(record.Data, kafkaKey, record.KeyFields)
+				data, err := checkDedupKeysExist(dedupKeys, record.Data, kafkaKey, record.KeyFields)
 				if err != nil {
 					// all present dedup fields null - fail sync
 					if errors.Is(err, errNullDedupKeys) {
@@ -214,7 +219,7 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 				} else {
 					// atleast one non-null - upsert (partial null/empty/whitespace included in hash)
 					extraColumns := map[string]any{
-						constants.OlakeID: cfg.generateOlakeIDFromExistingKeys(data),
+						constants.OlakeID: generateOlakeIDFromExistingKeys(dedupKeys, data),
 					}
 					if err := processFn(ctx, abstract.NewCDCChange(stream, record.Message.Timestamp, "update", data, extraColumns, bytesRead)); err != nil {
 						return false, err

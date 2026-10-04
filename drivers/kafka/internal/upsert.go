@@ -3,49 +3,19 @@ package driver
 import (
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
-
-	"github.com/datazip-inc/olake/types"
 )
 
 var errNullDedupKeys = errors.New("all dedup keys are null")
 
-type UpsertConfig struct {
-	Enabled               bool
-	DedupKeys             []string
-	AllowTombstoneDeletes bool
-}
-
-func NewUpsertConfig(meta types.StreamMetadata, dedupKeys []string) (UpsertConfig, error) {
-	// case 1 - dedup key is only _kafka_key -- upsert + tombstone deletes on
-	// case 2 - dedup key selection [_kafka_key(choice) + columns] -- upsert only (no tombstones)
-	cfg := UpsertConfig{
-		Enabled:               !meta.AppendMode && len(dedupKeys) > 0,
-		DedupKeys:             dedupKeys,
-		AllowTombstoneDeletes: isKafkaKeyOnlyDedup(dedupKeys),
-	}
-	return cfg, cfg.Validate()
-}
-
-func UpsertConfigFrom(meta types.StreamMetadata) (UpsertConfig, error) {
-	return NewUpsertConfig(meta, meta.DedupKeys)
-}
-
-// isKafkaKeyOnlyDedup: checks if user selects only _kafka_key as dedup key
-// need to enable upsert +  delete; anything else is upsert only
+// isKafkaKeyOnlyDedup checks if user selects only _kafka_key as dedup key
+// need to enable upsert + delete; anything else is upsert only
 func isKafkaKeyOnlyDedup(dedupKeys []string) bool {
 	return len(dedupKeys) == 1 && dedupKeys[0] == Key
 }
 
-func (c UpsertConfig) Validate() error {
-	if !c.Enabled {
-		return nil
-	}
-	if len(c.DedupKeys) == 0 {
-		return fmt.Errorf("upsert mode: dedup key is required")
-	}
-	for _, key := range c.DedupKeys {
+func validateDedupKey(dedupKeys []string) error {
+	for _, key := range dedupKeys {
 		if strings.TrimSpace(key) == "" {
 			return fmt.Errorf("upsert mode: dedup key contains an empty field name")
 		}
@@ -53,15 +23,15 @@ func (c UpsertConfig) Validate() error {
 	return nil
 }
 
-func (c UpsertConfig) checkDedupKeysExist(data map[string]any, kafkaKey string, keyFields map[string]any) (map[string]any, error) {
+func checkDedupKeysExist(dedupKeys []string, data map[string]any, kafkaKey string, keyFields map[string]any) (map[string]any, error) {
 	if data == nil {
 		data = map[string]any{}
 	}
-	for _, pk := range c.DedupKeys {
+	for _, pk := range dedupKeys {
 		if _, ok := data[pk]; ok {
 			continue
 		}
-		//from parsed JSON key
+		// from parsed JSON key
 		if keyFields != nil {
 			if val, ok := keyFields[pk]; ok {
 				data[pk] = val
@@ -76,7 +46,7 @@ func (c UpsertConfig) checkDedupKeysExist(data map[string]any, kafkaKey string, 
 
 	anyPresent := false
 	anyNonNull := false
-	for _, pk := range c.DedupKeys {
+	for _, pk := range dedupKeys {
 		val, ok := data[pk]
 		if !ok {
 			continue
@@ -96,12 +66,11 @@ func (c UpsertConfig) checkDedupKeysExist(data map[string]any, kafkaKey string, 
 	return nil, fmt.Errorf("missing dedup keys")
 }
 
-func (c UpsertConfig) generateOlakeIDFromExistingKeys(data map[string]any) string {
-	keys := append([]string(nil), c.DedupKeys...)
-	sort.Strings(keys)
-	parts := make([]string, 0, len(keys))
+// generateOlakeIDFromExistingKeys generates the olake ID from the existing dedup keys and data
+func generateOlakeIDFromExistingKeys(dedupKeys []string, data map[string]any) string {
+	parts := make([]string, 0, len(dedupKeys))
 	parts = append(parts, "upsert")
-	for _, pk := range c.DedupKeys {
+	for _, pk := range dedupKeys {
 		v, ok := data[pk]
 		if !ok {
 			parts = append(parts, pk+"=")
