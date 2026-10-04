@@ -143,7 +143,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 		writer := writers[change.Stream.ID()]
 		olakeColumns := map[string]any{
 			constants.OlakeID:        utils.GetKeysHash(change.Data, change.Stream.GetStream().SourceDefinedPrimaryKey.Array()...),
-			constants.OpType:         mapChangeKindToOperationType(change.Kind, dedupInserts[change.Stream.ID()]),
+			constants.OpType:         mapChangeKindToOperationType(change.Kind, dedupInserts[change.Stream.ID()], change.Stream),
 			constants.CdcTimestamp:   change.Timestamp,
 			constants.OlakeTimestamp: time.Now().UTC(),
 		}
@@ -164,10 +164,14 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 // mapInsertOpType returns the _op_type string for a CDC change.
 // Inserts emit "i" during the backfill overlap window (dedupInserts=true) and "c" otherwise.
-func mapChangeKindToOperationType(kind string, dedupInserts bool) string {
-	switch kind {
-	case "delete":
+func mapChangeKindToOperationType(kind string, dedupInserts bool, stream types.StreamInterface) string {
+	if kind == "delete" {
 		return "d"
+	}
+	if stream.ResolveUpsertOp() {
+		return "u"
+	}
+	switch kind {
 	case "update":
 		return "u"
 	default:

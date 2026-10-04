@@ -232,14 +232,7 @@ func (w *ArrowWriter) extract(ctx context.Context, records []types.RawRecord) er
 
 // search for index for the record and emmit pos when found
 func (w *ArrowWriter) indexRecord(writer *Writer, olakeID string, opType string, olakeColumns map[string]any, filePosition int64) error {
-	// if there are dedup keys, we need to index the record - kafka duplicate in same stream
-	// Look up u/i/d always (skip r). Look up c only when _olake_id is a source
-	// uniqueness key (PK or Kafka dedup_keys). PK-less streams hash the whole
-	// row, so a second identical insert must not POS-delete the first copy.
-
-	hasDedupKeys := len(w.stream.Self().StreamMetadata.DedupKeys) > 0
-	hasIdentityKey := w.stream.GetStream().SourceDefinedPrimaryKey.Len() > 0
-	if w.upsertMode && opType != "r" && (opType != "c" || hasDedupKeys || hasIdentityKey) {
+	if w.upsertMode && opType != "r" && opType != "c" {
 		previous, found, err := w.indexThread.Lookup(olakeID)
 		if err != nil {
 			return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)

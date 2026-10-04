@@ -17,6 +17,7 @@ type StreamInterface interface {
 	GetDestinationTable() string
 	GetPartitionRegex() string
 	GetUpdateType() UpdateType
+	ResolveUpsertOp() bool
 	// Column selection helpers (driven by StreamMetadata.SelectedColumns)
 	RetainSelectedColumns() func(map[string]interface{}) map[string]interface{}
 	IsSelectedColumn() func(string) bool
