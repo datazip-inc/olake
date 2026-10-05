@@ -701,7 +701,9 @@ func (cfg *IntegrationTest) resetTable(ctx context.Context, t *testing.T) error 
 		if err := resetStateFile(cfg.TestConfig); err != nil {
 			return err
 		}
-		_ = os.RemoveAll(filepath.Join(cfg.TestConfig.HostTestDataPath, "olake-table-index"))
+		if err := dvClearTableIndex(ctx, t, cfg); err != nil {
+			return fmt.Errorf("failed to clear table index: %w", err)
+		}
 	}
 	if cfg.TestConfig.Driver == string(constants.DB2) {
 		// to populate stats for DB2
@@ -1817,6 +1819,8 @@ func (cfg *IntegrationTest) RunUpsertIcebergExpectFail(t *testing.T, suite, seed
 		return cfg.runSyncAndVerify(ctx, t, testTable, false, "iceberg", "", "c", cfg.ExpectedData, true)
 	}); err == nil {
 		t.Fatal("all-null dedup keys must fail sync")
+	} else if !strings.Contains(err.Error(), "all dedup keys are null") {
+		t.Fatalf("expected all dedup keys are null, got: %v", err)
 	}
 }
 

@@ -85,10 +85,10 @@ var (
 	upsertKey          = []byte(`{"key":"upsert-key"}`)
 	upsertAdd          = jsonValue
 	upsertUpdate       = jsonUpdatedValue
-	upsertColumnAdd    = []byte(`{"customer_id":"c1","order_id":"o1","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`)
-	upsertColumnUpdate = []byte(`{"customer_id":"c1","order_id":"o1","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
-	upsertOutOfFilter  = []byte(`{"int_value": 100,"float_value": 150.0,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
-	upsertRepartition  = []byte(`{"int_value": 200,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	upsertColumnAdd    = []byte(`{"customer_id":"c1","order_id":"o1","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101}`)
+	upsertColumnUpdate = []byte(`{"customer_id":"c1","order_id":"o1","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	upsertOutOfFilter  = []byte(`{"int_value": 100,"float_value": 150.0,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
+	upsertRepartition  = []byte(`{"int_value": 200,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101, "col_included": 102}`)
 
 	// Avro
 	avroKey   = []byte(`{"key":"avro-key"}`)
@@ -238,7 +238,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestCon
 	case "upsert_empty":
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{
 			Key:       upsertKey,
-			Value:     []byte(`{"customer_id":"","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`),
+			Value:     []byte(`{"customer_id":"","int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101}`),
 			Partition: 0,
 		})
 		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
@@ -246,7 +246,7 @@ func ExecuteQueryJSON(ctx context.Context, t *testing.T, conf *testutils.TestCon
 	case "upsert_null":
 		writeMessagesWithRetry(ctx, t, client, &kgo.Record{
 			Key:       upsertKey,
-			Value:     []byte(`{"customer_id":null,"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","string_value": "test_string", "col_excluded": 101}`),
+			Value:     []byte(`{"customer_id":null,"int_value": 100,"float_value": 99.99,"boolean": true,"timestamp_value": "2026-03-22T14:30:00Z","timestamp_micro_value": "2026-03-22T14:30:00.573605Z","string_value": "test_string", "col_excluded": 101}`),
 			Partition: 0,
 		})
 		t.Logf("Added 1 message to topic '%s' on partition %d", topic, 0)
@@ -660,6 +660,16 @@ var KafkaToDestinationJSONSchema = map[string]string{
 
 var ExpectedKafkaUpdatedJSONData = map[string]interface{}{
 	"int_value":             int64(100),
+	"float_value":           float64(99.99),
+	"boolean":               true,
+	"timestamp_value":       arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"timestamp_micro_value": arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 573605000, time.UTC).UnixNano() / int64(time.Microsecond)),
+	"string_value":          "test_string",
+	"col_included":          int64(102),
+}
+
+var ExpectedKafkaRepartitionJSONData = map[string]interface{}{
+	"int_value":             int64(200),
 	"float_value":           float64(99.99),
 	"boolean":               true,
 	"timestamp_value":       arrow.Timestamp(time.Date(2026, 3, 22, 14, 30, 0, 0, time.UTC).UnixNano() / int64(time.Microsecond)),
