@@ -426,40 +426,19 @@ func (k *Kafka) canonicalizeKafkaKey(raw []byte) string {
 
 func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, string, map[string]interface{}, error) {
 	// helper to parse data bytes (value or key)
-	parseData := func(data []byte) (interface{}, error) {
-		// if data is not in confluent wire format, it is assumed to be standard json currently
-		if isConfluentWireFormat(data) {
-			if k.schemaRegistryClient == nil {
-				return decodeJSONMessage(data[5:])
-			}
-
-			// get schemaID
-			schemaID := binary.BigEndian.Uint32(data[1:5])
-
-			// fetch schema
-			schema, err := k.schemaRegistryClient.FetchSchema(schemaID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to fetch schema %d: %w", schemaID, err)
-			}
-
-			// decode data based on format
-			switch schema.SchemaType {
-			case types.SchemaTypeAvro:
-				return decodeAvroMessage(data[5:], schema.Codec)
-			case types.SchemaTypeJSON:
-				return decodeJSONMessage(data[5:])
-			default:
-				return nil, fmt.Errorf("unsupported schema type: %s", schema.SchemaType)
-			}
+	parseData := func(data []byte) (decoded interface{}, message []byte, err error) {
+		message, codec, err := k.messageToDecode(data)
+		if err != nil {
+			return nil, nil, err
 		}
-
-		return decodeJSONMessage(data)
+		decoded, err = decodeMessage(message, codec)
+		return decoded, message, err
 	}
 
 	// 1. Parse Message Value
 	var messageValue map[string]interface{}
 	if message.Value != nil {
-		valDecoded, err := parseData(message.Value)
+		valDecoded, _, err := parseData(message.Value)
 		if err != nil {
 			return nil, "", nil, err
 		}
@@ -474,7 +453,7 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 	var keyValue string
 	var keyFields map[string]interface{}
 	if len(message.Key) > 0 {
-		parsedKey, err := parseData(message.Key)
+		parsedKey, messageKey, err := parseData(message.Key)
 		if err != nil {
 			// standard fallback: raw key as string
 			keyValue = k.canonicalizeKafkaKey(message.Key)
@@ -486,26 +465,51 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 				keyValue = k.canonicalizeKafkaKey(v)
 			case map[string]interface{}:
 				keyFields = v
-				keyJSON, msgErr := json.Marshal(v)
-				if msgErr != nil {
-					logger.Warnf("failed to marshal decoded key at offset %d: %s, using raw string", message.Offset, msgErr)
-					keyValue = k.canonicalizeKafkaKey(message.Key)
-				} else {
-					keyValue = string(keyJSON)
-				}
+				keyValue = string(messageKey)
 			default:
-				keyJSON, err := json.Marshal(v)
-				if err != nil {
-					logger.Warnf("failed to marshal decoded key at offset %d: %s, using raw string", message.Offset, err)
-					keyValue = k.canonicalizeKafkaKey(message.Key)
-				} else {
-					keyValue = k.canonicalizeKafkaKey(keyJSON)
-				}
+				keyValue = k.canonicalizeKafkaKey(messageKey)
 			}
 		}
 	}
 
 	return messageValue, keyValue, keyFields, nil
+}
+
+func (k *Kafka) messageToDecode(data []byte) (message []byte, codec *goavro.Codec, err error) {
+	// if data is not in confluent wire format, it is assumed to be standard json currently
+	if isConfluentWireFormat(data) {
+		message = data[5:]
+		if k.schemaRegistryClient == nil {
+			return message, nil, nil
+		}
+
+		// get schemaID
+		schemaID := binary.BigEndian.Uint32(data[1:5])
+
+		// fetch schema
+		schema, err := k.schemaRegistryClient.FetchSchema(schemaID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to fetch schema %d: %w", schemaID, err)
+		}
+
+		switch schema.SchemaType {
+		case types.SchemaTypeAvro:
+			return message, schema.Codec, nil
+		case types.SchemaTypeJSON:
+			return message, nil, nil
+		default:
+			return nil, nil, fmt.Errorf("unsupported schema type: %s", schema.SchemaType)
+		}
+	}
+	return data, nil, nil
+}
+
+// decode kafka message either as json or avro
+func decodeMessage(message []byte, codec *goavro.Codec) (interface{}, error) {
+	if codec != nil {
+		return decodeAvroMessage(message, codec)
+	}
+	return decodeJSONMessage(message)
 }
 
 // decode kafka json message
