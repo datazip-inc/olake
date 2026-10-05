@@ -13,6 +13,7 @@ import (
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
+	"github.com/datazip-inc/olake/utils/logger"
 )
 
 // codeWriterPanicRecovered names a panic recovered inside a writer thread, distinct from sync command.
@@ -97,26 +98,32 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 		return nil, nil
 	}
 
-	// Set max connections for the ProduceSchema
-	if maxDiscoverThreads > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
-	} else if a.driver.MaxConnections() > 0 {
-		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
-	}
-
 	var streamMap sync.Map
 
-	utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream types.StreamID) error {
-		streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
-		if err != nil {
-			return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrNonRetryable, stream, err)
+	if sampler, ok := a.driver.(SampledSchemaProducer); ok {
+		if err := a.produceSampledSchemas(ctx, sampler, maxDiscoverThreads, streams, &streamMap); err != nil {
+			return nil, err
 		}
-		streamMap.Store(streamSchema.ID(), streamSchema)
-		return nil
-	})
+	} else {
+		// Set max connections for the ProduceSchema
+		if maxDiscoverThreads > 0 {
+			a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, maxDiscoverThreads)
+		} else if a.driver.MaxConnections() > 0 {
+			a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, a.driver.MaxConnections())
+		}
 
-	if err := a.GlobalConnGroup.Block(); err != nil {
-		return nil, fmt.Errorf("error occurred while waiting for connection group: %w", err)
+		utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, stream types.StreamID) error {
+			streamSchema, err := a.driver.ProduceSchema(ctx, stream) // use conn group context which is discoverCtx
+			if err != nil {
+				return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrNonRetryable, stream, err)
+			}
+			streamMap.Store(streamSchema.ID(), streamSchema)
+			return nil
+		})
+
+		if err := a.GlobalConnGroup.Block(); err != nil {
+			return nil, fmt.Errorf("error occurred while waiting for connection group: %w", err)
+		}
 	}
 
 	var finalStreams []*types.Stream
@@ -158,6 +165,87 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 	})
 
 	return finalStreams, nil
+}
+
+// produceSampledSchemas fills streamMap with each stream's schema, built from DiscoverSampleBuckets
+// records one bucket at a time: every stream finishes a bucket before any stream starts the next, and
+// a stream's schema from a bucket replaces its schema from the previous bucket. When the discover
+// timeout hits after the first bucket, each stream keeps the last bucket it completed. A timeout during
+// the first bucket fails discover: returning without the unfinished streams would drop them from a
+// merged catalog (--streams), losing their selection.
+func (a *AbstractDriver) produceSampledSchemas(ctx context.Context, sampler SampledSchemaProducer, maxDiscoverThreads int, streams []types.StreamID, streamMap *sync.Map) error {
+	threads := constants.DefaultThreadCount
+	if maxDiscoverThreads > 0 {
+		threads = maxDiscoverThreads
+	} else if a.driver.MaxConnections() > 0 {
+		threads = a.driver.MaxConnections()
+	}
+
+	for bucket, limit := range DiscoverSampleBuckets {
+		// the context can end between buckets, when no running sample is left to report it
+		if bucket > 0 && ctx.Err() != nil {
+			return stopAfterFirstBucket(ctx, limit, ctx.Err())
+		}
+		logger.Infof("discover: sampling up to %d records for %d streams", limit, len(streams))
+
+		// a finished errgroup cannot be reused, so every bucket gets a new group
+		a.GlobalConnGroup = utils.NewCGroupWithLimit(ctx, threads)
+		utils.ConcurrentInGroupWithRetry(a.GlobalConnGroup, streams, a.driver.MaxRetries(), func(ctx context.Context, _ int, streamID types.StreamID) error {
+			stream, err := sampler.ProduceSampledSchema(ctx, streamID, limit)
+			// a sample that returns after the timeout may be cut short without an error (Kafka
+			// reads a poll deadline as "caught up"), so it never replaces the previous bucket
+			if err == nil && ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			if err != nil {
+				return fmt.Errorf("%w: failed to produce schema for stream %s: %w", constants.ErrNonRetryable, streamID, err)
+			}
+
+			streamMap.Store(stream.ID(), stream) // replaces the previous bucket's schema
+			return nil
+		})
+
+		err := a.GlobalConnGroup.Block()
+		// the context can stop scheduling a bucket without failing any started sample, so Block
+		// returns nil: a first bucket still has to cover every stream, a later one ended early
+		if err == nil && ctx.Err() != nil {
+			if bucket > 0 {
+				err = ctx.Err()
+			} else if unsampled := unsampledStreams(streams, streamMap); len(unsampled) > 0 {
+				logger.Errorf("discover timeout reached before sampling streams: %v", unsampled)
+				err = fmt.Errorf("%d streams were not sampled: %w", len(unsampled), ctx.Err())
+			}
+		}
+		if err != nil {
+			if bucket > 0 {
+				return stopAfterFirstBucket(ctx, limit, err)
+			}
+			return fmt.Errorf("error occurred while waiting for connection group: %w", err)
+		}
+	}
+	return nil
+}
+
+// stopAfterFirstBucket ends sampling after the first bucket. Every stream then has a schema, so the
+// discover timeout keeps each stream's last completed bucket instead of failing discover; any other
+// error, including a canceled parent context, still fails it.
+func stopAfterFirstBucket(ctx context.Context, limit int, err error) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		logger.Warnf("discover timeout reached before completing the %d-record bucket; streams keep their last completed bucket (increase --timeout for a larger sample)", limit)
+		return nil
+	}
+	return fmt.Errorf("error occurred while waiting for connection group: %w", err)
+}
+
+// unsampledStreams returns the streams that have no schema in streamMap.
+func unsampledStreams(streams []types.StreamID, streamMap *sync.Map) []string {
+	var unsampled []string
+	for _, streamID := range streams {
+		if _, found := streamMap.Load(streamID.String()); !found {
+			unsampled = append(unsampled, streamID.String())
+		}
+	}
+	return unsampled
 }
 
 func (a *AbstractDriver) Setup(ctx context.Context) error {
