@@ -29,18 +29,28 @@ func oplogEntry(seconds uint32) bson.D {
 }
 
 func TestMongoPrerequisiteChecks(t *testing.T) {
-	required := map[string]bool{}
-	for _, c := range (&Mongo{}).prerequisiteChecks() {
-		required[c.Name] = c.Required
-		assert.NotEmpty(t, c.Description, c.Name)
-		assert.NotEmpty(t, c.Recommended, c.Name)
-		assert.NotNil(t, c.Check, c.Name)
+	collect := func(cdcSelected bool) map[string]bool {
+		required := map[string]bool{}
+		for _, c := range (&Mongo{}).prerequisiteChecks(cdcSelected) {
+			required[c.Name] = c.Required
+			assert.NotEmpty(t, c.Description, c.Name)
+			assert.NotEmpty(t, c.Recommended, c.Name)
+			assert.NotNil(t, c.Check, c.Name)
+		}
+		return required
 	}
-	// no CDC intent in the config yet, so nothing may block setup
+
+	// update_method selects CDC: change streams must work, retention stays advisory
+	assert.Equal(t, map[string]bool{
+		"change_streams":  true,
+		"oplog_retention": false,
+	}, collect(true))
+
+	// a config predating update_method is reported on but never blocked
 	assert.Equal(t, map[string]bool{
 		"change_streams":  false,
 		"oplog_retention": false,
-	}, required)
+	}, collect(false))
 }
 
 func TestMongoCheckChangeStreams(t *testing.T) {

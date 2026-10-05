@@ -27,10 +27,20 @@ const MongoDBUISchema = `{
         { "max_threads": 12, "backoff_retry_count": 12 },
         { "chunking_strategy": 12, "use_iam": 12 },
         { "ssl": 12, "additional_params": 12 },
-        { "ssh_config": 12 }
+        { "update_method": 12, "ssh_config": 12 }
     ],
     "srv": {
         "ui:widget": "boolean"
+    },
+    "update_method": {
+        "ui:widget": "radio",
+        "ui:options": {
+            "title": false,
+            "description": false
+        },
+        "type": {
+            "ui:widget": "hidden"
+        }
     },
     "use_iam": {
         "ui:widget": "boolean"

@@ -39,7 +39,7 @@ func bitRow(value bool) *sqlmock.Rows {
 func TestMSSQLPrerequisiteChecks(t *testing.T) {
 	names := func(m *MSSQL) map[string]bool {
 		required := map[string]bool{}
-		for _, c := range m.prerequisiteChecks() {
+		for _, c := range m.prerequisiteChecks(false) {
 			required[c.Name] = c.Required
 			assert.NotEmpty(t, c.Description, c.Name)
 			assert.NotEmpty(t, c.Recommended, c.Name)
@@ -48,13 +48,27 @@ func TestMSSQLPrerequisiteChecks(t *testing.T) {
 		return required
 	}
 
-	// no CDC intent in the config yet, so nothing may block setup
+	// a config predating update_method is reported on but never blocked
 	t.Run("primary", func(t *testing.T) {
 		assert.Equal(t, map[string]bool{
 			"database_cdc":        false,
 			"cdc_capture_job":     false,
 			"view_database_state": false,
 		}, names(&MSSQL{config: &Config{}}))
+	})
+
+	// update_method selects CDC: every check that gates CDC becomes blocking
+	t.Run("cdc selected marks checks required", func(t *testing.T) {
+		required := map[string]bool{}
+		for _, c := range (&MSSQL{config: &Config{ManageCaptureInstances: true}}).prerequisiteChecks(true) {
+			required[c.Name] = c.Required
+		}
+		assert.Equal(t, map[string]bool{
+			"database_cdc":           true,
+			"capture_instance_admin": true,
+			"cdc_capture_job":        true,
+			"view_database_state":    false, // advisory: duplicates in append mode, not a CDC blocker
+		}, required)
 	})
 
 	t.Run("manage capture instances adds db_owner check", func(t *testing.T) {

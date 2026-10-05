@@ -160,7 +160,12 @@ func (m *MySQL) Setup(ctx context.Context) error {
 			cdc.InitialWaitTime = minCDCInitialWaitTime
 		}
 
+		// The config selects CDC, so an unmet requirement fails the connection test rather than
+		// leaving a source that cannot sync.
 		m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks())
+		if err := abstract.RequireCDCPrerequisites(m.Type(), m.prerequisites); err != nil {
+			return err
+		}
 
 		m.CDCSupport = true
 		m.cdcConfig = *cdc

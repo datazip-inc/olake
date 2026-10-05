@@ -213,6 +213,22 @@ func UnmarshalFile(file string, dest any, credsFile bool) error {
 	return nil
 }
 
+// UpdateMethodType returns the "type" of an update_method config object, so a driver can tell
+// CDC from standard replication. It returns "" when the field is absent, which is how configs
+// saved before the driver had an update_method read: the driver decides what to do with that.
+func UpdateMethodType(updateMethod any) string {
+	if updateMethod == nil {
+		return ""
+	}
+	var method struct {
+		Type string `json:"type"`
+	}
+	if err := Unmarshal(updateMethod, &method); err != nil {
+		return ""
+	}
+	return method.Type
+}
+
 func IsOfType(object any, decidingKey string) (bool, error) {
 	objectMap := make(map[string]any)
 	if err := Unmarshal(object, &objectMap); err != nil {

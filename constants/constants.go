@@ -29,6 +29,10 @@ const (
 	// RecommendedCDCLogRetention is the change-log retention (binlog, oplog) recommended so a
 	// paused sync can resume without a full resync.
 	RecommendedCDCLogRetention = 7 * 24 * time.Hour
+	// UpdateMethodCDC and UpdateMethodStandalone are the "type" values of the update_method
+	// config object, which is how a source selects CDC.
+	UpdateMethodCDC        = "CDC"
+	UpdateMethodStandalone = "Standalone"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8

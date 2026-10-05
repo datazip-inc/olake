@@ -11,25 +11,23 @@ import (
 	mssql "github.com/microsoft/go-mssqldb"
 )
 
-// The MSSQL config has no CDC selection yet, so checks must not block full-refresh users.
-// Flip once the config carries CDC intent.
-const cdcIntentInConfig = false
-
 const (
 	errSelectDenied   = 229 // SELECT permission denied on object
 	errDatabaseDenied = 916 // login cannot access msdb
 )
 
-func (m *MSSQL) prerequisiteChecks() []abstract.Prerequisite {
+// prerequisiteChecks builds the checks. required is false for a config that predates
+// update_method, so a legacy source is reported on but never blocked.
+func (m *MSSQL) prerequisiteChecks(required bool) []abstract.Prerequisite {
 	checks := []abstract.Prerequisite{{
-		Name: "database_cdc", Required: cdcIntentInConfig, Recommended: "enabled",
+		Name: "database_cdc", Required: required, Recommended: "enabled",
 		Description: "CDC is not enabled on the database, so no change tables exist to read.",
 		Check:       m.checkDatabaseCDC,
 	}}
 
 	if m.config.ManageCaptureInstances {
 		checks = append(checks, abstract.Prerequisite{
-			Name: "capture_instance_admin", Required: cdcIntentInConfig, Recommended: "db_owner",
+			Name: "capture_instance_admin", Required: required, Recommended: "db_owner",
 			Description: "Manage Capture Instance is on, but the user cannot create capture instances when the schema changes.",
 			Check:       m.checkDBOwner,
 		})
@@ -39,7 +37,7 @@ func (m *MSSQL) prerequisiteChecks() []abstract.Prerequisite {
 	if !m.isReadReplica {
 		checks = append(checks,
 			abstract.Prerequisite{
-				Name: "cdc_capture_job", Required: cdcIntentInConfig,
+				Name: "cdc_capture_job", Required: required,
 				Recommended: "capture job present, SELECT on msdb.dbo.cdc_jobs",
 				Description: "Without a readable capture job, changes are not captured or OLake cannot pick a safe start position.",
 				Check:       m.checkCaptureJob,

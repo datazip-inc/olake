@@ -164,6 +164,40 @@
             "description": "Additional MongoDB connection string parameters (e.g., authMechanism). Each parameter will be added to the connection URI.",
             "additionalProperties": true
         },
+        "update_method": {
+            "title": "Update Method",
+            "description": "Define how OLake captures data updates from your source",
+            "oneOf": [
+                {
+                    "type": "object",
+                    "title": "CDC",
+                    "description": "Capture changes from the oplog using MongoDB change streams",
+                    "properties": {
+                        "type": {
+                            "const": "CDC"
+                        }
+                    },
+                    "required": [
+                        "type"
+                    ],
+                    "additionalProperties": false
+                },
+                {
+                    "type": "object",
+                    "title": "Standalone",
+                    "description": "Read with full refresh or incremental queries only",
+                    "properties": {
+                        "type": {
+                            "const": "Standalone"
+                        }
+                    },
+                    "required": [
+                        "type"
+                    ],
+                    "additionalProperties": false
+                }
+            ]
+        },
         "ssh_config": {
             "title": "SSH Config",
             "description": "OLake uses SSH to connect to the database.",

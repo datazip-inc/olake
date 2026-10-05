@@ -15,10 +15,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// The MongoDB config has no CDC selection yet, so checks must not block full-refresh users.
-// Flip once the config carries CDC intent.
-const cdcIntentInConfig = false
-
 const (
 	prerequisiteTimeout = 30 * time.Second
 
@@ -26,10 +22,12 @@ const (
 	errCodeChangeStreamsDisabled = 40573 // not a replica set / sharded cluster
 )
 
-func (m *Mongo) prerequisiteChecks() []abstract.Prerequisite {
+// prerequisiteChecks builds the checks. required is false for a config that predates
+// update_method, so a legacy source is reported on but never blocked.
+func (m *Mongo) prerequisiteChecks(required bool) []abstract.Prerequisite {
 	return []abstract.Prerequisite{
 		{
-			Name: "change_streams", Required: cdcIntentInConfig,
+			Name: "change_streams", Required: required,
 			Recommended: "replica set or sharded cluster, read role on the database",
 			Description: "OLake cannot open a change stream, so CDC cannot run.",
 			Check:       m.checkChangeStreams,

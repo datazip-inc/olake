@@ -148,7 +148,12 @@ func (p *Postgres) Setup(ctx context.Context) error {
 			cdc.InitialWaitTime = defaultCDCInitialWaitTime
 		}
 
+		// The config selects CDC, so an unmet requirement fails the connection test rather than
+		// leaving a source that cannot sync.
 		p.prerequisites = abstract.RunPrerequisites(ctx, p.prerequisiteChecks(cdc))
+		if err := abstract.RequireCDCPrerequisites(p.Type(), p.prerequisites); err != nil {
+			return err
+		}
 		p.CDCSupport = true
 		p.cdcConfig = *cdc
 	} else {

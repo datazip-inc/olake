@@ -136,7 +136,10 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 		}
 
 		// priority to default sync mode (cdc -> incremental -> strict_cdc)
-		if convStream.SupportedSyncModes.Exists(types.CDC) && a.driver.CDCSupported() {
+		// CDCSupported is the configured intent; the prerequisites say whether the server can
+		// actually do CDC, so a source that cannot is not defaulted to a mode that would fail.
+		if convStream.SupportedSyncModes.Exists(types.CDC) && a.driver.CDCSupported() &&
+			len(a.Prerequisites().FailedRequired()) == 0 {
 			convStream.SyncMode = types.CDC
 		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
 			convStream.SyncMode = types.INCREMENTAL
@@ -285,9 +288,6 @@ func (a *AbstractDriver) Read(ctx context.Context, pool *destination.WriterPool,
 
 	// run cdc sync
 	if len(cdcStreams) > 0 {
-		if err := a.ValidateCDCPrerequisites(cdcStreams); err != nil {
-			return err
-		}
 		if a.driver.CDCSupported() {
 			if err := a.RunChangeStream(ctx, pool, cdcStreams...); err != nil {
 				return fmt.Errorf("failed to run change stream: %w", err)

@@ -171,15 +171,46 @@ func (m *Mongo) Setup(ctx context.Context) error {
 	}
 
 	m.client = conn
-	// no need to check from discover if it have cdc support or not
-	m.CDCSupport = true
-	m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks())
+
+	if err := m.setupCDC(ctx); err != nil {
+		return err
+	}
 	// check for default backoff count
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount == 0, 1, m.config.RetryCount+1).(int)
 	pingCtx, cancel := context.WithTimeout(ctx, 1*time.Minute)
 	defer cancel()
 
 	return m.client.Ping(pingCtx, options.Client().ReadPreference)
+}
+
+// setupCDC evaluates the change-stream prerequisites and records whether CDC can run.
+func (m *Mongo) setupCDC(ctx context.Context) error {
+	var cdcSelected bool
+	switch utils.UpdateMethodType(m.config.UpdateMethod) {
+	case constants.UpdateMethodStandalone:
+		logger.Info("Standard Replication is selected")
+		return nil
+	case constants.UpdateMethodCDC:
+		logger.Info("Found CDC Configuration")
+		cdcSelected = true
+	default:
+		// Config predates update_method: change streams stay available, and the prerequisites
+		// are reported without blocking anything (legacy sources must keep syncing).
+		logger.Info("No update method configured, keeping change streams available for this source")
+	}
+
+	m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks(cdcSelected))
+	if cdcSelected {
+		// The config selects CDC, so an unmet requirement fails the connection test rather than
+		// leaving a source that cannot sync.
+		if err := abstract.RequireCDCPrerequisites(m.Type(), m.prerequisites); err != nil {
+			return err
+		}
+	}
+	// Reached only once the required checks pass, or for a legacy config whose checks are
+	// advisory: those sources kept change streams before update_method existed.
+	m.CDCSupport = true
+	return nil
 }
 
 func (m *Mongo) Close(ctx context.Context) error {

@@ -65,18 +65,28 @@ func RunPrerequisites(ctx context.Context, checks []Prerequisite) types.Prerequi
 	return results
 }
 
+// RequireCDCPrerequisites returns a precondition error when a required check did not pass. A
+// driver calls it from Setup when the config explicitly selects CDC, so that test connection
+// fails instead of reporting a source that cannot sync.
+func RequireCDCPrerequisites(driverType string, prerequisites types.Prerequisites) error {
+	failed := prerequisites.FailedRequired()
+	if len(failed) == 0 {
+		return nil
+	}
+	return errs.Precondition(errs.CDCPreconditionFailed,
+		fmt.Sprintf("%s.cdc_prerequisites_failed", driverType),
+		fmt.Errorf("required CDC prerequisites not met: %s", strings.Join(failed, ", ")))
+}
+
 // ValidateCDCPrerequisites fails when CDC streams are selected and a required check did not pass.
-// Full-refresh and incremental-only syncs are never blocked.
+// Full-refresh and incremental-only syncs are never blocked. Called from the sync command before
+// it clears full-refresh streams, so a CDC sync that cannot start never drops destination data
+// first; a config that explicitly selects CDC has already failed in Setup.
 func (a *AbstractDriver) ValidateCDCPrerequisites(cdcStreams []types.StreamInterface) error {
 	if len(cdcStreams) == 0 {
 		return nil
 	}
-	if failed := a.Prerequisites().FailedRequired(); len(failed) > 0 {
-		return errs.Precondition(errs.CDCPreconditionFailed,
-			fmt.Sprintf("%s.cdc_prerequisites_failed", a.driver.Type()),
-			fmt.Errorf("required CDC prerequisites not met: %s", strings.Join(failed, ", ")))
-	}
-	return nil
+	return RequireCDCPrerequisites(a.driver.Type(), a.Prerequisites())
 }
 
 // Prerequisites returns the checks recorded by the driver's Setup, if it runs any.

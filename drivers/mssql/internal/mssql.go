@@ -77,15 +77,6 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 	}
 
 	m.config.RetryCount = utils.Ternary(m.config.RetryCount <= 0, 1, m.config.RetryCount+1).(int)
-	// Enable CDC support if database-level CDC is enabled
-	cdcSupported, err := m.isDatabaseCDCEnabled(ctx)
-	if err != nil {
-		logger.Warnf("failed to check CDC support: %s", err)
-	}
-	if !cdcSupported {
-		logger.Warnf("CDC is not supported")
-	}
-	m.cdcSupported = cdcSupported
 
 	m.isReadReplica = m.detectReadReplica(ctx)
 	if m.isReadReplica {
@@ -106,8 +97,31 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 		logger.Info("connected to primary node successfully for capture instance management")
 	}
 
+	var cdcSelected bool
+	switch utils.UpdateMethodType(m.config.UpdateMethod) {
+	case constants.UpdateMethodStandalone:
+		logger.Info("Standard Replication is selected")
+		return nil
+	case constants.UpdateMethodCDC:
+		logger.Info("Found CDC Configuration")
+		cdcSelected = true
+	default:
+		// Config predates update_method: CDC stays available, and the prerequisites are
+		// reported without blocking anything (legacy sources must keep syncing).
+		logger.Info("No update method configured, keeping CDC available for this source")
+	}
 	// needs isReadReplica and primaryClient, both set above
-	m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks())
+	m.prerequisites = abstract.RunPrerequisites(ctx, m.prerequisiteChecks(cdcSelected))
+	if cdcSelected {
+		// The config selects CDC, so an unmet requirement fails the connection test rather than
+		// leaving a source that cannot sync.
+		if err := abstract.RequireCDCPrerequisites(m.Type(), m.prerequisites); err != nil {
+			return err
+		}
+	}
+	// Reached only once the required checks pass, or for a legacy config whose checks are
+	// advisory: those sources kept CDC before update_method existed.
+	m.cdcSupported = true
 	return nil
 }
 
