@@ -47,9 +47,8 @@ public class OlakeToastReader extends ToastReadServiceGrpc.ToastReadServiceImplB
       long rows = 0;
 
       for (ReadRowsRequest.FileRows file : request.getFilesList()) {
-        List<Long> positions = RowReader.normalize(file.getPositionsList());
-        RowReader.read(session.icebergTable, file.getFilePath(), positions, columns, emitter::accept);
-        rows += positions.size();
+        RowReader.read(session.icebergTable, file.getFilePath(), file.getPositionsList(), columns, emitter::accept);
+        rows += file.getPositionsCount();
       }
 
       emitter.finish();
@@ -67,15 +66,11 @@ public class OlakeToastReader extends ToastReadServiceGrpc.ToastReadServiceImplB
   public void flushOpenFiles(FlushOpenFilesRequest request, StreamObserver<FlushOpenFilesResponse> responseObserver) {
     try {
       IcebergSession session = requireSession(request.getThreadId());
-      long flushed = 0;
-      if (session.op.hasOpenWriter()) {
-        // Same call schema evolution uses: files close and stay in this thread's commit,
-        // so their rows can be read now.
-        session.op.completeWriter();
-        flushed = 1;
-      }
+      // Same call schema evolution uses: files close and stay in this thread's commit,
+      // so their rows can be read now.
+      session.op.completeWriter();
 
-      responseObserver.onNext(FlushOpenFilesResponse.newBuilder().setFlushedFiles(flushed).build());
+      responseObserver.onNext(FlushOpenFilesResponse.getDefaultInstance());
       responseObserver.onCompleted();
     } catch (Exception e) {
       String message = String.format("failed to flush open files for thread %s: %s", request.getThreadId(), e.getMessage());
@@ -101,22 +96,16 @@ public class OlakeToastReader extends ToastReadServiceGrpc.ToastReadServiceImplB
   private static final class BatchEmitter {
     private static final long READY_WAIT_MILLIS = 500;
 
-    private final StreamObserver<ReadRowsBatch> responseObserver;
     private final ServerCallStreamObserver<ReadRowsBatch> call;
     private final Object readyLock = new Object();
     private ReadRowsBatch.Builder batch = ReadRowsBatch.newBuilder();
     private int batchBytes;
 
     private BatchEmitter(StreamObserver<ReadRowsBatch> responseObserver) {
-      this.responseObserver = responseObserver;
-      this.call = responseObserver instanceof ServerCallStreamObserver
-          ? (ServerCallStreamObserver<ReadRowsBatch>) responseObserver
-          : null;
-
-      if (call != null) {
-        call.setOnReadyHandler(this::wakeUp);
-        call.setOnCancelHandler(this::wakeUp);
-      }
+      // a gRPC server always hands a server-call observer, which reports client readiness
+      this.call = (ServerCallStreamObserver<ReadRowsBatch>) responseObserver;
+      call.setOnReadyHandler(this::wakeUp);
+      call.setOnCancelHandler(this::wakeUp);
     }
 
     private void accept(String filePath, RowReader.Row row) {
@@ -143,16 +132,12 @@ public class OlakeToastReader extends ToastReadServiceGrpc.ToastReadServiceImplB
 
     private void send() {
       awaitReady();
-      responseObserver.onNext(batch.build());
+      call.onNext(batch.build());
       batch = ReadRowsBatch.newBuilder();
       batchBytes = 0;
     }
 
     private void awaitReady() {
-      if (call == null) {
-        return;
-      }
-
       synchronized (readyLock) {
         while (!call.isReady()) {
           if (call.isCancelled()) {

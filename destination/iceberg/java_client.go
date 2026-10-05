@@ -270,16 +270,15 @@ func (s *serverInstance) SendClientRequest(ctx context.Context, payload interfac
 
 // FlushOpenFiles asks Java to close threadID's open data files without committing, so
 // ReadRows can read rows written earlier in this sync.
-func (s *serverInstance) FlushOpenFiles(ctx context.Context, threadID string) (int64, error) {
+func (s *serverInstance) FlushOpenFiles(ctx context.Context, threadID string) error {
 	reqCtx, cancel := context.WithTimeout(ctx, constants.GRPCRequestTimeout)
 	defer cancel()
 
-	response, err := s.toastReadClient.FlushOpenFiles(reqCtx, &proto.FlushOpenFilesRequest{ThreadId: threadID})
-	if err != nil {
-		return 0, fmt.Errorf("failed to flush open data files: %w", err)
+	if _, err := s.toastReadClient.FlushOpenFiles(reqCtx, &proto.FlushOpenFilesRequest{ThreadId: threadID}); err != nil {
+		return fmt.Errorf("failed to flush open data files: %w", err)
 	}
 
-	return response.GetFlushedFiles(), nil
+	return nil
 }
 
 // Shutdown kills the JVM and releases its port. Safe to call from defer.

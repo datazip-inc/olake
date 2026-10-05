@@ -2,7 +2,6 @@ package io.olake.iceberg.tableIndex;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,7 +62,7 @@ public final class RowReader {
   }
 
   /**
-   * Reads {@code positions} (ascending) of one data file and hands each row to {@code consumer}.
+   * Reads {@code positions} (ascending, unique) of one data file and hands each row to {@code consumer}.
    * Positions past the end of the file are ignored.
    */
   public static void read(Table table, String filePath, List<Long> positions, List<String> columns, RowConsumer consumer)
@@ -299,18 +298,5 @@ public final class RowReader {
         }
       };
     }
-  }
-
-  /** Row positions of one file, ascending and without duplicates. */
-  public static List<Long> normalize(Collection<Long> positions) {
-    List<Long> ordered = new ArrayList<>(positions);
-    ordered.sort(Long::compare);
-    List<Long> unique = new ArrayList<>(ordered.size());
-    for (Long position : ordered) {
-      if (unique.isEmpty() || !unique.get(unique.size() - 1).equals(position)) {
-        unique.add(position);
-      }
-    }
-    return unique;
   }
 }

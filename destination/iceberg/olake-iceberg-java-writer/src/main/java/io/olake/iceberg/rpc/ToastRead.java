@@ -5566,12 +5566,6 @@ public final class ToastRead {
   public interface FlushOpenFilesResponseOrBuilder extends
       // @@protoc_insertion_point(interface_extends:io.olake.iceberg.rpc.FlushOpenFilesResponse)
       com.google.protobuf.MessageOrBuilder {
-
-    /**
-     * <code>int64 flushed_files = 1;</code>
-     * @return The flushedFiles.
-     */
-    long getFlushedFiles();
   }
   /**
    * Protobuf type {@code io.olake.iceberg.rpc.FlushOpenFilesResponse}
@@ -5608,17 +5602,6 @@ public final class ToastRead {
               io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse.class, io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse.Builder.class);
     }
 
-    public static final int FLUSHED_FILES_FIELD_NUMBER = 1;
-    private long flushedFiles_ = 0L;
-    /**
-     * <code>int64 flushed_files = 1;</code>
-     * @return The flushedFiles.
-     */
-    @java.lang.Override
-    public long getFlushedFiles() {
-      return flushedFiles_;
-    }
-
     private byte memoizedIsInitialized = -1;
     @java.lang.Override
     public final boolean isInitialized() {
@@ -5633,9 +5616,6 @@ public final class ToastRead {
     @java.lang.Override
     public void writeTo(com.google.protobuf.CodedOutputStream output)
                         throws java.io.IOException {
-      if (flushedFiles_ != 0L) {
-        output.writeInt64(1, flushedFiles_);
-      }
       getUnknownFields().writeTo(output);
     }
 
@@ -5645,10 +5625,6 @@ public final class ToastRead {
       if (size != -1) return size;
 
       size = 0;
-      if (flushedFiles_ != 0L) {
-        size += com.google.protobuf.CodedOutputStream
-          .computeInt64Size(1, flushedFiles_);
-      }
       size += getUnknownFields().getSerializedSize();
       memoizedSize = size;
       return size;
@@ -5664,8 +5640,6 @@ public final class ToastRead {
       }
       io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse other = (io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse) obj;
 
-      if (getFlushedFiles()
-          != other.getFlushedFiles()) return false;
       if (!getUnknownFields().equals(other.getUnknownFields())) return false;
       return true;
     }
@@ -5677,9 +5651,6 @@ public final class ToastRead {
       }
       int hash = 41;
       hash = (19 * hash) + getDescriptor().hashCode();
-      hash = (37 * hash) + FLUSHED_FILES_FIELD_NUMBER;
-      hash = (53 * hash) + com.google.protobuf.Internal.hashLong(
-          getFlushedFiles());
       hash = (29 * hash) + getUnknownFields().hashCode();
       memoizedHashCode = hash;
       return hash;
@@ -5810,8 +5781,6 @@ public final class ToastRead {
       @java.lang.Override
       public Builder clear() {
         super.clear();
-        bitField0_ = 0;
-        flushedFiles_ = 0L;
         return this;
       }
 
@@ -5838,16 +5807,8 @@ public final class ToastRead {
       @java.lang.Override
       public io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse buildPartial() {
         io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse result = new io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse(this);
-        if (bitField0_ != 0) { buildPartial0(result); }
         onBuilt();
         return result;
-      }
-
-      private void buildPartial0(io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse result) {
-        int from_bitField0_ = bitField0_;
-        if (((from_bitField0_ & 0x00000001) != 0)) {
-          result.flushedFiles_ = flushedFiles_;
-        }
       }
 
       @java.lang.Override
@@ -5894,9 +5855,6 @@ public final class ToastRead {
 
       public Builder mergeFrom(io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse other) {
         if (other == io.olake.iceberg.rpc.ToastRead.FlushOpenFilesResponse.getDefaultInstance()) return this;
-        if (other.getFlushedFiles() != 0L) {
-          setFlushedFiles(other.getFlushedFiles());
-        }
         this.mergeUnknownFields(other.getUnknownFields());
         onChanged();
         return this;
@@ -5923,11 +5881,6 @@ public final class ToastRead {
               case 0:
                 done = true;
                 break;
-              case 8: {
-                flushedFiles_ = input.readInt64();
-                bitField0_ |= 0x00000001;
-                break;
-              } // case 8
               default: {
                 if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                   done = true; // was an endgroup tag
@@ -5941,39 +5894,6 @@ public final class ToastRead {
         } finally {
           onChanged();
         } // finally
-        return this;
-      }
-      private int bitField0_;
-
-      private long flushedFiles_ ;
-      /**
-       * <code>int64 flushed_files = 1;</code>
-       * @return The flushedFiles.
-       */
-      @java.lang.Override
-      public long getFlushedFiles() {
-        return flushedFiles_;
-      }
-      /**
-       * <code>int64 flushed_files = 1;</code>
-       * @param value The flushedFiles to set.
-       * @return This builder for chaining.
-       */
-      public Builder setFlushedFiles(long value) {
-
-        flushedFiles_ = value;
-        bitField0_ |= 0x00000001;
-        onChanged();
-        return this;
-      }
-      /**
-       * <code>int64 flushed_files = 1;</code>
-       * @return This builder for chaining.
-       */
-      public Builder clearFlushedFiles() {
-        bitField0_ = (bitField0_ & ~0x00000001);
-        flushedFiles_ = 0L;
-        onChanged();
         return this;
       }
       @java.lang.Override
@@ -6098,14 +6018,14 @@ public final class ToastRead {
       "th\030\001 \001(\t\022\020\n\010position\030\002 \001(\003\0221\n\006values\030\003 \003" +
       "(\0132!.io.olake.iceberg.rpc.ColumnValue\"*\n" +
       "\025FlushOpenFilesRequest\022\021\n\tthread_id\030\001 \001(" +
-      "\t\"/\n\026FlushOpenFilesResponse\022\025\n\rflushed_f" +
-      "iles\030\001 \001(\0032\331\001\n\020ToastReadService\022X\n\010ReadR" +
-      "ows\022%.io.olake.iceberg.rpc.ReadRowsReque" +
-      "st\032#.io.olake.iceberg.rpc.ReadRowsBatch0" +
-      "\001\022k\n\016FlushOpenFiles\022+.io.olake.iceberg.r" +
-      "pc.FlushOpenFilesRequest\032,.io.olake.iceb" +
-      "erg.rpc.FlushOpenFilesResponseB\032B\tToastR" +
-      "eadZ\riceberg/protob\006proto3"
+      "\t\"\030\n\026FlushOpenFilesResponse2\331\001\n\020ToastRea" +
+      "dService\022X\n\010ReadRows\022%.io.olake.iceberg." +
+      "rpc.ReadRowsRequest\032#.io.olake.iceberg.r" +
+      "pc.ReadRowsBatch0\001\022k\n\016FlushOpenFiles\022+.i" +
+      "o.olake.iceberg.rpc.FlushOpenFilesReques" +
+      "t\032,.io.olake.iceberg.rpc.FlushOpenFilesR" +
+      "esponseB\032B\tToastReadZ\riceberg/protob\006pro" +
+      "to3"
     };
     descriptor = com.google.protobuf.Descriptors.FileDescriptor
       .internalBuildGeneratedFileFrom(descriptorData,
@@ -6152,7 +6072,7 @@ public final class ToastRead {
     internal_static_io_olake_iceberg_rpc_FlushOpenFilesResponse_fieldAccessorTable = new
       com.google.protobuf.GeneratedMessageV3.FieldAccessorTable(
         internal_static_io_olake_iceberg_rpc_FlushOpenFilesResponse_descriptor,
-        new java.lang.String[] { "FlushedFiles", });
+        new java.lang.String[] { });
   }
 
   // @@protoc_insertion_point(outer_class_scope)

@@ -303,7 +303,6 @@ func (x *FlushOpenFilesRequest) GetThreadId() string {
 
 type FlushOpenFilesResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	FlushedFiles  int64                  `protobuf:"varint,1,opt,name=flushed_files,json=flushedFiles,proto3" json:"flushed_files,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -336,13 +335,6 @@ func (x *FlushOpenFilesResponse) ProtoReflect() protoreflect.Message {
 // Deprecated: Use FlushOpenFilesResponse.ProtoReflect.Descriptor instead.
 func (*FlushOpenFilesResponse) Descriptor() ([]byte, []int) {
 	return file_toast_read_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *FlushOpenFilesResponse) GetFlushedFiles() int64 {
-	if x != nil {
-		return x.FlushedFiles
-	}
-	return 0
 }
 
 type ReadRowsRequest_FileRows struct {
@@ -488,9 +480,8 @@ const file_toast_read_proto_rawDesc = "" +
 	"\bposition\x18\x02 \x01(\x03R\bposition\x129\n" +
 	"\x06values\x18\x03 \x03(\v2!.io.olake.iceberg.rpc.ColumnValueR\x06values\"4\n" +
 	"\x15FlushOpenFilesRequest\x12\x1b\n" +
-	"\tthread_id\x18\x01 \x01(\tR\bthreadId\"=\n" +
-	"\x16FlushOpenFilesResponse\x12#\n" +
-	"\rflushed_files\x18\x01 \x01(\x03R\fflushedFiles2\xd9\x01\n" +
+	"\tthread_id\x18\x01 \x01(\tR\bthreadId\"\x18\n" +
+	"\x16FlushOpenFilesResponse2\xd9\x01\n" +
 	"\x10ToastReadService\x12X\n" +
 	"\bReadRows\x12%.io.olake.iceberg.rpc.ReadRowsRequest\x1a#.io.olake.iceberg.rpc.ReadRowsBatch0\x01\x12k\n" +
 	"\x0eFlushOpenFiles\x12+.io.olake.iceberg.rpc.FlushOpenFilesRequest\x1a,.io.olake.iceberg.rpc.FlushOpenFilesResponseB\x1aB\tToastReadZ\riceberg/protob\x06proto3"

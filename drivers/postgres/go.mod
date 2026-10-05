@@ -12,6 +12,7 @@ require (
 	github.com/jackc/pglogrepl v0.0.0-20250322012620-f1e2b1498ed6
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/lib/pq v1.10.9
+	github.com/spf13/viper v1.20.1
 	golang.org/x/crypto v0.56.0
 )
 
@@ -108,7 +109,6 @@ require (
 	github.com/sourcegraph/conc v0.3.0 // indirect
 	github.com/spf13/afero v1.14.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
-	github.com/spf13/viper v1.20.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect

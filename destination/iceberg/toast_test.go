@@ -190,7 +190,7 @@ func TestResolve(t *testing.T) {
 		table              testTable
 		steps              []resolveStep
 		expectedLookups    int
-		expectedFromMemory int64
+		expectedRecovered  int64
 		expectedFromTable  int64
 		expectedUnresolved int64
 	}{
@@ -205,6 +205,7 @@ func TestResolve(t *testing.T) {
 			}},
 			expectedLookups:   1,
 			expectedFromTable: 1,
+			expectedRecovered: 1,
 		},
 		// the inserted row is not in the index yet; only the batch itself knows the value
 		{
@@ -216,7 +217,7 @@ func TestResolve(t *testing.T) {
 				},
 				expected: []map[string]any{nil, {"payload": "inserted"}},
 			}},
-			expectedFromMemory: 1,
+			expectedRecovered: 1,
 		},
 		// the index still points at the old version, so a lookup would return a stale value
 		{
@@ -230,7 +231,52 @@ func TestResolve(t *testing.T) {
 				},
 				expected: []map[string]any{nil, {"payload": "new value"}},
 			}},
-			expectedFromMemory: 1,
+			expectedRecovered: 1,
+		},
+		// a value written after a queued read is newer; the read's answer must not replace it in carry
+		{
+			name:      "a read answer does not overwrite a newer value from the same batch",
+			locations: committed,
+			table:     testTable{{"a.parquet", 0, "payload"}: "old value"},
+			steps: []resolveStep{
+				{
+					records: []types.RawRecord{
+						testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
+						testRecord("1", "u", map[string]any{"id": 1, "payload": "new value"}),
+					},
+					expected: []map[string]any{{"payload": "old value"}, {"payload": "new value"}},
+				},
+				{
+					records:  []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")},
+					expected: []map[string]any{{"payload": "new value"}},
+				},
+			},
+			expectedLookups:   1,
+			expectedRecovered: 2,
+			expectedFromTable: 1,
+		},
+		// a row deleted after a queued read stays deleted; the read's answer must not revive it
+		{
+			name:      "a read answer does not revive a row deleted later in the batch",
+			locations: committed,
+			table:     testTable{{"a.parquet", 0, "payload"}: "old value"},
+			steps: []resolveStep{
+				{
+					records: []types.RawRecord{
+						testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload"),
+						testRecord("1", "d", map[string]any{"id": 1}),
+					},
+					expected: []map[string]any{{"payload": "old value"}, nil},
+				},
+				{
+					records:  []types.RawRecord{testRecord("1", "u", map[string]any{"id": 1, "payload": placeholder}, "payload")},
+					expected: []map[string]any{{"payload": placeholder}},
+				},
+			},
+			expectedLookups:    1,
+			expectedFromTable:  1,
+			expectedUnresolved: 1,
+			expectedRecovered:  1,
 		},
 		// the second record waits on the first one's read instead of issuing its own
 		{
@@ -245,7 +291,8 @@ func TestResolve(t *testing.T) {
 				expected: []map[string]any{{"payload": "stored"}, {"payload": "stored"}},
 			}},
 			expectedLookups:   1,
-			expectedFromTable: 2,
+			expectedFromTable: 1,
+			expectedRecovered: 2,
 		},
 		// batches without a marker still update the carry; skipping them would hand the
 		// third batch the value read in the first one
@@ -264,9 +311,9 @@ func TestResolve(t *testing.T) {
 					expected: []map[string]any{{"payload": "changed"}},
 				},
 			},
-			expectedLookups:    1,
-			expectedFromTable:  1,
-			expectedFromMemory: 1,
+			expectedLookups:   1,
+			expectedFromTable: 1,
+			expectedRecovered: 2,
 		},
 		// same as above for a delete followed by a re-insert
 		{
@@ -284,9 +331,9 @@ func TestResolve(t *testing.T) {
 					expected: []map[string]any{{"payload": "C"}},
 				},
 			},
-			expectedLookups:    1,
-			expectedFromTable:  1,
-			expectedFromMemory: 1,
+			expectedLookups:   1,
+			expectedFromTable: 1,
+			expectedRecovered: 2,
 		},
 		// a deleted row's columns are gone; its old values must not come back
 		{
@@ -311,7 +358,7 @@ func TestResolve(t *testing.T) {
 				},
 				expected: []map[string]any{nil, nil, {"payload": "re-inserted"}},
 			}},
-			expectedFromMemory: 1,
+			expectedRecovered: 1,
 		},
 		// a filtered row, or an update that changed the primary key
 		{
@@ -364,6 +411,7 @@ func TestResolve(t *testing.T) {
 			expectedLookups:    2,
 			expectedFromTable:  1,
 			expectedUnresolved: 1,
+			expectedRecovered:  1,
 		},
 		// both columns come out of the same stored JSON row; each must get its own key
 		{
@@ -380,8 +428,9 @@ func TestResolve(t *testing.T) {
 					"doc":     json.RawMessage(`{"k":1}`),
 				}},
 			}},
-			expectedLookups:   2,
+			expectedLookups:   1,
 			expectedFromTable: 2,
+			expectedRecovered: 2,
 		},
 		// streams that never produce a marker must cost nothing
 		{
@@ -416,7 +465,7 @@ func TestResolve(t *testing.T) {
 			}
 
 			assert.Equal(t, tc.expectedLookups, writer.lookups, "lookups")
-			assert.Equal(t, tc.expectedFromMemory, resolver.fromMemory, "from memory")
+			assert.Equal(t, tc.expectedRecovered, resolver.recovered, "recovered")
 			assert.Equal(t, tc.expectedFromTable, resolver.fromTable, "from table")
 			assert.Equal(t, tc.expectedUnresolved, resolver.unresolved, "unresolved")
 		})

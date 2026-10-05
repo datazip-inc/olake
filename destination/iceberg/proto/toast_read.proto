@@ -56,6 +56,4 @@ message FlushOpenFilesRequest {
   string thread_id = 1;
 }
 
-message FlushOpenFilesResponse {
-  int64 flushed_files = 1;
-}
+message FlushOpenFilesResponse {}

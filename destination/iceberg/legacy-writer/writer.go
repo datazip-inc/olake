@@ -60,12 +60,11 @@ func (w *LegacyWriter) EnsureReadable(ctx context.Context, paths []string) error
 		return nil
 	}
 
-	flushed, err := w.server.FlushOpenFiles(ctx, w.options.ThreadID)
-	if err != nil {
+	if err := w.server.FlushOpenFiles(ctx, w.options.ThreadID); err != nil {
 		return err
 	}
 
-	logger.Debugf("Thread[%s]: flushed %d open data file(s) to read unavailable column values", w.options.ThreadID, flushed)
+	logger.Debugf("Thread[%s]: closed open data files to read unavailable column values", w.options.ThreadID)
 	clear(w.openFiles)
 
 	return nil

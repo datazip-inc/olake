@@ -17,21 +17,9 @@ import (
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
-// toastResolver fills the columns a change could not carry — Postgres omits unchanged
-// out-of-line (TOASTed) columns from an UPDATE unless the table's replica identity is
-// FULL — with the value already stored in the row's previous version.
-//
-// Where that previous version lives is exactly what the stream index answers, so the
-// resolver only exists for positional-delete upsert threads. Two sources are used, in
-// this order:
-//
-//	carry: values this thread wrote earlier in the same sync, kept in memory because
-//	       rows in a data file that is still open cannot be read back.
-//	table: one batched ReadRows call that reads the columns out of the committed (or
-//	       closed) data files, grouped by file so the Java side can skip whole pages.
-//
-// A batch in which no record carries an unavailable column costs one length check per
-// record, so streams that never produce the marker are unaffected.
+// toastResolver fills columns Postgres left out of an UPDATE (unchanged TOAST) with the
+// value from the row's previous version: from carry if this sync wrote the row, else read
+// from the destination at the location the row index (pos or dv) gives.
 type toastResolver struct {
 	writer Writer
 	// reader reads stored values out of data files (Java side).
@@ -46,9 +34,9 @@ type toastResolver struct {
 	carry      map[string]*carryRow // olake id -> values this thread wrote
 	carryBytes int64
 
-	fromMemory int64
-	fromTable  int64
-	unresolved int64
+	recovered  int64 // values filled into records
+	fromTable  int64 // values read from the destination
+	unresolved int64 // values left as the placeholder
 }
 
 // carryEntryOverhead approximates the memory cost of one carried row.
@@ -65,32 +53,10 @@ type carryRow struct {
 	values  map[string]any
 }
 
-// pendingValue is the result of one read, shared by every record waiting on it.
-type pendingValue struct {
-	value    any
-	resolved bool
-}
-
-// readKey identifies one read. jsonKey is set when the whole row is stored as JSON.
+// readKey identifies one source column of one stored row.
 type readKey struct {
-	filePath string
-	position int64
+	location types.RowLocation
 	column   string
-	jsonKey  string
-}
-
-// rowKey identifies one row of the destination table.
-type rowKey struct {
-	filePath string
-	position int64
-}
-
-// waiter is a record column to fill once its read returns.
-type waiter struct {
-	record  *types.RawRecord
-	olakeID string
-	column  string
-	read    *pendingValue
 }
 
 func newToastResolver(threadID string, stream types.StreamInterface, writer Writer, reader proto.ToastReadServiceClient) *toastResolver {
@@ -112,11 +78,12 @@ func (r *toastResolver) Resolve(ctx context.Context, records []types.RawRecord) 
 		return nil
 	}
 
-	reads := make(map[readKey]*pendingValue)
-	var waiting []waiter
+	if err := r.readMissing(ctx, records); err != nil {
+		return err
+	}
 
-	// Records are handled in order: each one only sees what earlier changes wrote, which
-	// keeps several changes to one row in the same batch correct.
+	// Records are applied in order on top of carry, which now holds each row's state from
+	// before the batch, so every record sees exactly what the changes before it wrote.
 	for idx := range records {
 		record := &records[idx]
 		olakeID := record.OlakeColumns[constants.OlakeID].(string)
@@ -130,41 +97,14 @@ func (r *toastResolver) Resolve(ctx context.Context, records []types.RawRecord) 
 			if _, selected := record.Data[column]; !selected {
 				continue // column not synced
 			}
-
 			if row := r.carry[olakeID]; row != nil {
-				if row.deleted {
-					// deleted earlier in this sync: old values must not come back
-					r.unresolved++
-					continue
-				}
-				if carried, inCarry := row.values[column]; inCarry {
-					// an earlier record in this batch already queued the read: share it
-					if pending, isPending := carried.(*pendingValue); isPending {
-						if !pending.resolved {
-							waiting = append(waiting, waiter{record: record, olakeID: olakeID, column: column, read: pending})
-							continue
-						}
-						carried = pending.value
-					}
-					record.Data[column] = carried
-					r.fromMemory++
+				if value, carried := row.values[column]; carried {
+					record.Data[column] = value
+					r.recovered++
 					continue
 				}
 			}
-
-			location, found, err := r.writer.Lookup(olakeID)
-			if err != nil {
-				return fmt.Errorf("failed to look up row[%s] in index: %w", olakeID, err)
-			}
-			if !found {
-				// no previous version: a filtered row, or the UPDATE changed the primary key
-				r.unresolved++
-				continue
-			}
-
-			read := r.queueRead(location, column, reads)
-			r.remember(olakeID, column, read)
-			waiting = append(waiting, waiter{record: record, olakeID: olakeID, column: column, read: read})
+			r.unresolved++
 		}
 
 		// Remember the values this record does carry, for the next change to the row.
@@ -175,25 +115,74 @@ func (r *toastResolver) Resolve(ctx context.Context, records []types.RawRecord) 
 		}
 	}
 
-	if len(reads) > 0 {
-		if err := r.readValues(ctx, reads); err != nil {
-			return err
+	r.trim()
+
+	return nil
+}
+
+// readMissing reads from the destination the values carry cannot answer and adds them to
+// carry. Only a row's first record in the batch can need a read: every later record of the
+// row is answered by what the earlier ones wrote.
+func (r *toastResolver) readMissing(ctx context.Context, records []types.RawRecord) error {
+	seen := make(map[string]struct{})
+	wanted := make(map[readKey]string) // read -> olake id of the row it belongs to
+
+	for idx := range records {
+		record := &records[idx]
+		olakeID := record.OlakeColumns[constants.OlakeID].(string)
+		if _, done := seen[olakeID]; done {
+			continue
+		}
+		seen[olakeID] = struct{}{}
+
+		row := r.carry[olakeID]
+		if row != nil && row.deleted {
+			continue // deleted earlier in this sync: old values must not come back
 		}
 
-		for _, slot := range waiting {
-			if !slot.read.resolved || isUnavailable(slot.read.value) {
-				// forget the failed read so the next change to the row tries again
-				r.forget(slot.olakeID, slot.column)
-				r.unresolved++
+		var missing []string
+		for _, column := range record.UnavailableColumns {
+			if _, selected := record.Data[column]; !selected {
 				continue
 			}
-			slot.record.Data[slot.column] = slot.read.value
-			r.remember(slot.olakeID, slot.column, slot.read.value)
-			r.fromTable++
+			if row != nil {
+				if _, carried := row.values[column]; carried {
+					continue
+				}
+			}
+			missing = append(missing, column)
+		}
+		if len(missing) == 0 {
+			continue
+		}
+
+		location, found, err := r.writer.Lookup(olakeID)
+		if err != nil {
+			return fmt.Errorf("failed to look up row[%s] in index: %w", olakeID, err)
+		}
+		if !found {
+			continue // no previous version: a filtered row, or the UPDATE changed the primary key
+		}
+		for _, column := range missing {
+			wanted[readKey{location: location, column: column}] = olakeID
 		}
 	}
 
-	r.trim()
+	if len(wanted) == 0 {
+		return nil
+	}
+
+	values, err := r.readValues(ctx, wanted)
+	if err != nil {
+		return err
+	}
+	for key, value := range values {
+		if isUnavailable(value) {
+			continue // the stored version has the placeholder too
+		}
+		r.remember(wanted[key], key.column, value)
+		r.fromTable++
+	}
 
 	return nil
 }
@@ -214,22 +203,6 @@ func (r *toastResolver) track(records []types.RawRecord) bool {
 	return len(r.tracked) > 0
 }
 
-// queueRead returns the read for this column of the row at location, adding it to the
-// batch's reads the first time it is asked for.
-func (r *toastResolver) queueRead(location types.RowLocation, column string, reads map[readKey]*pendingValue) *pendingValue {
-	destColumn, jsonKey := r.projection(column)
-	// without normalization every column comes from the same JSON column; jsonKey tells them apart
-	identity := readKey{filePath: location.FilePath, position: location.Position, column: destColumn, jsonKey: jsonKey}
-	if read, queued := reads[identity]; queued {
-		return read
-	}
-
-	read := &pendingValue{}
-	reads[identity] = read
-
-	return read
-}
-
 // projection returns the destination column holding a source column, and the JSON key
 // to pick out of it when normalization is off.
 func (r *toastResolver) projection(column string) (destColumn, key string) {
@@ -239,25 +212,25 @@ func (r *toastResolver) projection(column string) (destColumn, key string) {
 	return constants.StringifiedData, column
 }
 
-// readValues reads all queued values in one streamed call, after closing any data file
-// this thread still has open among the ones to read.
-func (r *toastResolver) readValues(ctx context.Context, reads map[readKey]*pendingValue) error {
+// readValues reads the wanted values in one streamed call, after closing any data file
+// this thread still has open among the ones to read. Values that cannot be read are left out.
+func (r *toastResolver) readValues(ctx context.Context, wanted map[readKey]string) (map[readKey]any, error) {
 	columnIndex := make(map[string]int)
 	var columns []string
 	positions := make(map[string]map[int64]struct{})
-	byRow := make(map[rowKey][]readKey)
+	byRow := make(map[types.RowLocation][]readKey)
 
-	for identity := range reads {
-		if _, known := columnIndex[identity.column]; !known {
-			columnIndex[identity.column] = len(columns)
-			columns = append(columns, identity.column)
+	for key := range wanted {
+		destColumn, _ := r.projection(key.column)
+		if _, known := columnIndex[destColumn]; !known {
+			columnIndex[destColumn] = len(columns)
+			columns = append(columns, destColumn)
 		}
-		if positions[identity.filePath] == nil {
-			positions[identity.filePath] = make(map[int64]struct{})
+		if positions[key.location.FilePath] == nil {
+			positions[key.location.FilePath] = make(map[int64]struct{})
 		}
-		positions[identity.filePath][identity.position] = struct{}{}
-		row := rowKey{filePath: identity.filePath, position: identity.position}
-		byRow[row] = append(byRow[row], identity)
+		positions[key.location.FilePath][key.location.Position] = struct{}{}
+		byRow[key.location] = append(byRow[key.location], key)
 	}
 
 	paths := make([]string, 0, len(positions))
@@ -268,7 +241,7 @@ func (r *toastResolver) readValues(ctx context.Context, reads map[readKey]*pendi
 
 	// a file still being written has no footer and cannot be read
 	if err := r.writer.EnsureReadable(ctx, paths); err != nil {
-		return err
+		return nil, err
 	}
 
 	request := &proto.ReadRowsRequest{ThreadId: r.threadID, Columns: columns}
@@ -285,32 +258,33 @@ func (r *toastResolver) readValues(ctx context.Context, reads map[readKey]*pendi
 	// value. Java keeps each message to 64 rows or 16 MB.
 	stream, err := r.reader.ReadRows(ctx, request, grpc.MaxCallRecvMsgSize(math.MaxInt32))
 	if err != nil {
-		return fmt.Errorf("failed to read unavailable column values: %w", err)
+		return nil, fmt.Errorf("failed to read unavailable column values: %w", err)
 	}
 
+	values := make(map[readKey]any, len(wanted))
 	for {
 		batch, err := stream.Recv()
 		if err == io.EOF {
-			return nil
+			return values, nil
 		}
 		if err != nil {
-			return fmt.Errorf("failed to read unavailable column values: %w", err)
+			return nil, fmt.Errorf("failed to read unavailable column values: %w", err)
 		}
 
 		for _, row := range batch.GetRows() {
-			for _, identity := range byRow[rowKey{filePath: row.GetFilePath(), position: row.GetPosition()}] {
-				index := columnIndex[identity.column]
+			for _, key := range byRow[types.RowLocation{FilePath: row.GetFilePath(), Position: row.GetPosition()}] {
+				destColumn, jsonKey := r.projection(key.column)
+				index := columnIndex[destColumn]
 				if index >= len(row.GetValues()) {
 					continue // reply does not match the request
 				}
-				value, err := decodeValue(row.GetValues()[index], identity.jsonKey)
+				value, err := decodeValue(row.GetValues()[index], jsonKey)
 				if err != nil {
 					// keep the placeholder: a retry would read the same bytes again
-					logger.Debugf("Thread[%s]: cannot decode %s of %s row %d: %s", r.threadID, identity.column, row.GetFilePath(), row.GetPosition(), err)
+					logger.Debugf("Thread[%s]: cannot decode %s of %s row %d: %s", r.threadID, destColumn, row.GetFilePath(), row.GetPosition(), err)
 					continue
 				}
-				reads[identity].value = value
-				reads[identity].resolved = true
+				values[key] = value
 			}
 		}
 	}
@@ -345,17 +319,6 @@ func (r *toastResolver) tombstone(olakeID string) {
 	r.carry[olakeID] = &carryRow{deleted: true}
 }
 
-// forget removes one carried column whose read returned nothing.
-func (r *toastResolver) forget(olakeID, column string) {
-	row := r.carry[olakeID]
-	if row == nil {
-		return
-	}
-
-	r.account(-valueSize(row.values[column]))
-	delete(row.values, column)
-}
-
 // account adds delta carried bytes to this thread and to the process total.
 func (r *toastResolver) account(delta int64) {
 	r.carryBytes += delta
@@ -384,12 +347,12 @@ func (r *toastResolver) drop() {
 func (r *toastResolver) Close() {
 	r.drop()
 
-	if r.fromMemory+r.fromTable+r.unresolved == 0 {
+	if r.recovered+r.unresolved == 0 {
 		return
 	}
 
-	logger.Debugf("Thread[%s]: recovered %d unavailable column value(s) from this sync and %d from the destination table, %d could not be recovered",
-		r.threadID, r.fromMemory, r.fromTable, r.unresolved)
+	logger.Debugf("Thread[%s]: recovered %d unavailable column value(s), read %d from the destination table, %d could not be recovered",
+		r.threadID, r.recovered, r.fromTable, r.unresolved)
 }
 
 func valueSize(value any) int64 {
@@ -400,8 +363,6 @@ func valueSize(value any) int64 {
 		return int64(len(typed))
 	case json.RawMessage:
 		return int64(len(typed))
-	case *pendingValue:
-		return 0
 	default:
 		return 16
 	}

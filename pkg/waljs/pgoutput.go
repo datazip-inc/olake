@@ -20,14 +20,12 @@ import (
 
 // pgoutputReplicator implements Replicator for pgoutput
 type pgoutputReplicator struct {
-	socket      *Socket
-	publication string
-	// postRead marks the columns Postgres left out of an UPDATE, so the destination
-	// can recover them. Off by default.
-	postRead             bool
+	socket               *Socket
+	publication          string
 	txnCommitTime        time.Time                             // transaction commit time
 	relationIDToMsgMap   map[uint32]*pglogrepl.RelationMessage // map to store relation id
 	transactionCompleted bool                                  // if both begin and commit message received, then transaction is completed
+	postRead             bool                                  // mark columns Postgres left out of an UPDATE so the destination can recover them
 }
 
 func (p *pgoutputReplicator) Socket() *Socket {
@@ -43,7 +41,7 @@ func (p *pgoutputReplicator) StreamChanges(ctx context.Context, db *sqlx.DB, ins
 
 	logger.Infof("pgoutput starting from lsn=%s target=%s", p.socket.ConfirmedFlushLSN, p.socket.CurrentWalPosition)
 	if p.postRead {
-		logger.Info("post_read enabled: column values postgres omits from an update are recovered from the destination, for iceberg streams using positional deletes")
+		logger.Info("post_read enabled: column values postgres omits from an update are recovered from the destination, for iceberg streams using positional deletes or deletion vectors")
 	}
 
 	cdcStartTime := time.Now()

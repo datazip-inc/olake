@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -375,13 +376,7 @@ func (w *ArrowWriter) Lookup(olakeID string) (types.RowLocation, bool, error) {
 // can be read before the commit.
 func (w *ArrowWriter) EnsureReadable(ctx context.Context, paths []string) error {
 	for partitionKey, writer := range w.writers {
-		if writer == nil || writer.dataWriter == nil || writer.dataWriter.currentRowCount == 0 {
-			continue
-		}
-
-		if _, wanted := utils.ArrayContains(paths, func(path string) bool {
-			return path == writer.dataWriter.filePath
-		}); !wanted {
+		if !slices.Contains(paths, writer.dataWriter.filePath) {
 			continue
 		}
 

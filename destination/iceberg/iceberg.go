@@ -33,7 +33,7 @@ type Iceberg struct {
 	server        *serverInstance          // shared Java server instance (per-process singleton)
 	schema        map[string]string        // schema for current thread associated with Java writer (col -> type)
 	writer        Writer                   // writer instance
-	toast         *toastResolver           // recovers values the source could not send; nil unless positional deletes are in use
+	toast         *toastResolver           // recovers values the source could not send; nil unless the stream keeps a row index (pos or dv)
 	// Why Schema On Thread Level?
 	// Schema on thread level is identical to the writer instance available in the Java server.
 	// It defines when to complete the Java writer and when schema evolution is required.
