@@ -37,6 +37,7 @@ const (
 	kafkaRebalanceBulkMessageCount = int64(100_000)
 )
 
+// TODO: update Integration tests to use streams v2 (selected_streams and available_streams)
 type IntegrationTest struct {
 	TestConfig                       *TestConfig
 	ExpectedData                     map[string]interface{}
