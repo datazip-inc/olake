@@ -81,9 +81,21 @@ public class IcebergUtil {
 
   public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
                                          Schema schema, String writeFormat, List<Map<String, String>> partitionTransforms) {
+    return createIcebergTable(icebergCatalog, tableIdentifier, schema, writeFormat, partitionTransforms, 2);
+  }
 
-    LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}", tableIdentifier, schema,
-        schema.identifierFieldNames());
+  /**
+   * @param formatVersion table format version to create at. Deletion vectors need 3;
+   *                      every other delete mode works on 2. Callers derive this from
+   *                      {@code DeleteMode.minimumFormatVersion()} - see
+   *                      {@code OlakeRowsIngester.loadOrCreateTable}.
+   */
+  public static Table createIcebergTable(Catalog icebergCatalog, TableIdentifier tableIdentifier,
+                                         Schema schema, String writeFormat, List<Map<String, String>> partitionTransforms,
+                                         int formatVersion) {
+
+    LOGGER.warn("Creating table:'{}'\nschema:{}\nrowIdentifier:{}\nformatVersion:{}", tableIdentifier, schema,
+        schema.identifierFieldNames(), formatVersion);
 
     ensureNamespace(icebergCatalog, tableIdentifier);
 
@@ -91,7 +103,7 @@ public class IcebergUtil {
     if (partitionTransforms.isEmpty()) {
       // No partitioning - create a table as before
       return icebergCatalog.buildTable(tableIdentifier, schema)
-              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(FORMAT_VERSION, String.valueOf(formatVersion))
               .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
               .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
               .create();
@@ -151,7 +163,7 @@ public class IcebergUtil {
       
       // Create the table with the partition spec
       return icebergCatalog.buildTable(tableIdentifier, schema)
-              .withProperty(FORMAT_VERSION, "2")
+              .withProperty(FORMAT_VERSION, String.valueOf(formatVersion))
               .withProperty(DEFAULT_FILE_FORMAT, writeFormat.toLowerCase(Locale.ENGLISH))
               .withPartitionSpec(specBuilder.build())
               .withSortOrder(IcebergUtil.getIdentifierFieldsAsSortOrder(schema))
