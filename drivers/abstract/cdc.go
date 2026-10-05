@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
@@ -120,7 +121,7 @@ func (a *AbstractDriver) streamChanges(mainCtx context.Context, pool *destinatio
 
 	for _, stream := range streams {
 		threadID := generateThreadID(stream.ID(), "")
-		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true))
+		w, writerMeta, createErr := pool.NewWriter(cdcCtx, stream, destination.WithThreadID(threadID), destination.WithApplyFilter(true), destination.WithKeepDeletesThroughFilter(slices.Contains(constants.CDCKeepDeletesThroughFilterDrivers, constants.DriverType(a.driver.Type()))))
 		if createErr != nil {
 			return fmt.Errorf("failed to create CDC writer for stream %s: %w", stream.ID(), createErr)
 		}

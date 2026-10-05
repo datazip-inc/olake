@@ -83,6 +83,10 @@ const (
 
 // Drivers where filters are applied in memory after full refresh data is read.
 var FullRefreshPostReadFilterDrivers = []DriverType{S3, Kafka}
+
+// Kafka tombstones have no filter columns. CDC deletes still go through the filter.
+var CDCKeepDeletesThroughFilterDrivers = []DriverType{Kafka}
+
 var RelationalDrivers = []DriverType{Postgres, MySQL, Oracle, DB2, MSSQL}
 
 var ParallelCDCDrivers = []DriverType{MongoDB, MSSQL}

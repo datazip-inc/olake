@@ -21,7 +21,7 @@ type parsedCondition struct {
 
 // FilterRecords applies filtering ONLY for new filters.
 // For legacy filters, records are returned unchanged.
-func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any, resolve func(string) string) ([]types.RawRecord, error) {
+func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.FilterConfig, isLegacy bool, schema any, resolve func(string) string, keepDeletesThroughFilter bool) ([]types.RawRecord, error) {
 	if len(filter.Conditions) == 0 {
 		return records, nil
 	}
@@ -30,16 +30,17 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 		logger.Warnf("legacy filter detected, skipping filtering records")
 		return records, nil
 	}
-	// If all records are deletes, return the records unchanged.
-	allDeletes := true
-	for _, record := range records {
-		if op, _ := record.OlakeColumns[constants.OpType].(string); op != "d" {
-			allDeletes = false
-			break
+	if keepDeletesThroughFilter {
+		allDeletes := true
+		for _, record := range records {
+			if op, _ := record.OlakeColumns[constants.OpType].(string); op != "d" {
+				allDeletes = false
+				break
+			}
 		}
-	}
-	if allDeletes {
-		return records, nil
+		if allDeletes {
+			return records, nil
+		}
 	}
 	logger.Infof("filtering records with filter: %+v", filter)
 	conditions := make([]parsedCondition, len(filter.Conditions))
@@ -66,13 +67,13 @@ func FilterRecords(ctx context.Context, records []types.RawRecord, filter types.
 
 		err := utils.Concurrent(ctx, records, concurrency, func(_ context.Context, record types.RawRecord, i int) error {
 			// If the record is a delete, keep it
-			if op, _ := record.OlakeColumns[constants.OpType].(string); op == "d" {
-				keep[i] = true
-				return nil
+			if keepDeletesThroughFilter {
+				if op, _ := record.OlakeColumns[constants.OpType].(string); op == "d" {
+					keep[i] = true
+					return nil
+				}
 			}
-			// Otherwise, check if the record matches the filter conditions
-			match := matches(record, conditions, filter.LogicalOperator)
-			if match {
+			if matches(record, conditions, filter.LogicalOperator) {
 				keep[i] = true
 			}
 			return nil
