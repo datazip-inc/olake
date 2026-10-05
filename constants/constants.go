@@ -28,6 +28,9 @@ const (
 	DifferencePath         = "DIFFERENCE_STREAMS_PATH"
 	// DestinationDatabasePrefix is used as prefix for destination database name
 	DestinationDatabasePrefix = "DESTINATION_DATABASE_PREFIX"
+	// TableIndexRequired is set by a source that reads rows back through the destination's
+	// table index (Postgres post_read), so only update types that keep the index are offered.
+	TableIndexRequired = "TABLE_INDEX_REQUIRED"
 	// EffectiveParquetSize is the effective size in bytes considering 256mb targeted parquet size, compression ratio as 8
 	EffectiveParquetSize        = int64(256) * 1024 * 1024 * int64(8)
 	DB2StateTimestampFormat     = "2006-01-02 15:04:05.000000"
