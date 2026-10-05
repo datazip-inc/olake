@@ -106,19 +106,19 @@ func (a *AbstractDriver) Incremental(mainCtx context.Context, pool *destination.
 				if !ok {
 					return errs.Precondition(errs.StateInvalid,
 						fmt.Sprintf("%s.metadata_state_invalid", a.driver.Type()),
-						fmt.Errorf("failed to unmarshal previous metadata state of type[%T]", prevMetadataState.State))
+						fmt.Errorf("%w: failed to unmarshal previous metadata state of type[%T]", constants.ErrNonRetryable, prevMetadataState.State))
 				}
 
 				var mtState map[string]any
 				if err := json.Unmarshal([]byte(stateString), &mtState); err != nil {
-					return fmt.Errorf("failed to unmarshal previous metadata state: %w", err)
+					return fmt.Errorf("%w: failed to unmarshal previous metadata state: %w", constants.ErrNonRetryable, err)
 				}
 
 				// detect cursor value difference
 				if mtState[primaryCursor] == nil || (secondaryCursor != "" && mtState[secondaryCursor] == nil) {
 					return errs.Precondition(errs.StateInvalid,
 						fmt.Sprintf("%s.cursor_field_changed", a.driver.Type()),
-						fmt.Errorf("cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", stream.ID(), threadID))
+						fmt.Errorf("%w: cursor value is nil in the metadata state for stream[%s] and thread[%s], cursor field got changed. Please run clear destination first", constants.ErrNonRetryable, stream.ID(), threadID))
 				}
 
 				logger.Infof("Stream[%s] cursor(s) mismatch, updating cursor(s) in state", stream.ID())
@@ -175,11 +175,11 @@ func (a *AbstractDriver) getIncrementCursorFromState(primaryCursorField string, 
 	// typecast in case state was read from file
 	primaryCursorValue, err := ReformatCursorValue(primaryCursorField, primaryStateCursorValue, stream)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to typecast primary cursor value: %w", err)
+		return nil, nil, fmt.Errorf("%w: failed to typecast primary cursor value: %w", constants.ErrNonRetryable, err)
 	}
 	secondaryCursorValue, err := ReformatCursorValue(secondaryCursorField, secondaryStateCursorValue, stream)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to typecast secondary cursor value: %w", err)
+		return nil, nil, fmt.Errorf("%w: failed to typecast secondary cursor value: %w", constants.ErrNonRetryable, err)
 	}
 	return primaryCursorValue, secondaryCursorValue, nil
 }

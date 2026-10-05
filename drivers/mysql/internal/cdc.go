@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/datazip-inc/olake/constants"
 	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/pkg/binlog"
 	"github.com/datazip-inc/olake/types"
@@ -89,18 +90,18 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 	savedState := m.state.GetGlobal()
 	if savedState == nil || savedState.State == nil {
 		return nil, errs.Precondition(errs.StateInvalid, codeGlobalStateInvalid,
-			fmt.Errorf("invalid global state; state is missing"))
+			fmt.Errorf("%w: invalid global state; state is missing", constants.ErrNonRetryable))
 	}
 
 	var mySQLGlobalState MySQLGlobalState
 	if err := utils.Unmarshal(savedState.State, &mySQLGlobalState); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal global state: %w", err)
+		return nil, fmt.Errorf("%w: failed to unmarshal global state: %w", constants.ErrNonRetryable, err)
 	}
 
 	// validate server id
 	if mySQLGlobalState.ServerID == 0 {
 		return nil, errs.Precondition(errs.StateInvalid, codeServerIDMissing,
-			fmt.Errorf("invalid global state; server_id is missing"))
+			fmt.Errorf("%w: invalid global state; server_id is missing", constants.ErrNonRetryable))
 	}
 
 	var finishedStreams []string
@@ -114,7 +115,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 			var mysqlMetadataState binlog.Binlog
 			err := json.Unmarshal([]byte(mtState), &mysqlMetadataState)
 			if err != nil {
-				return nil, fmt.Errorf("failed to unmarshal metadata state: %w", err)
+				return nil, fmt.Errorf("%w: failed to unmarshal metadata state: %w", constants.ErrNonRetryable, err)
 			}
 
 			// Recovery is only needed when metadata is strictly AHEAD of state.
@@ -129,7 +130,7 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 			// state >= metadata: blank sync scenario — stream forward normally
 		} else {
 			return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
-				fmt.Errorf("failed to typecast raw metadata state of type[%T] to string", rawMtState))
+				fmt.Errorf("%w: failed to typecast raw metadata state of type[%T] to string", constants.ErrNonRetryable, rawMtState))
 		}
 	}
 
