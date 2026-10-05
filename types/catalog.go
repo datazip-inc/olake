@@ -172,7 +172,7 @@ func (c *Catalog) WriteToFile(path string) error {
 	return logger.FileLoggerWithPath(c, path)
 }
 
-func GetWrappedCatalog(streams []*Stream, _ string, engines []QueryEngine) *Catalog {
+func GetWrappedCatalog(streams []*Stream, engines []QueryEngine) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
@@ -448,13 +448,11 @@ func GetStreamsDelta(oldStreams, newStreams *Catalog) *Catalog {
 				newConfigured := &ConfiguredStream{Stream: newStream.Stream, StreamMetadata: newMetadata}
 
 				// leaving dv: v3 forbids the Parquet positional deletes eq/pos write; pos -> dv: not supported yet (only eq -> dv is migrated)
-				oldUpdateType := utils.Ternary(oldMetadata.UpdateType == "", UpdateTypeEquality, UpdateType(oldMetadata.UpdateType)).(UpdateType)
-				newUpdateType := utils.Ternary(newMetadata.UpdateType == "", UpdateTypeEquality, UpdateType(newMetadata.UpdateType)).(UpdateType)
+				oldUpdateType, newUpdateType := oldConfigured.GetUpdateType(), newConfigured.GetUpdateType()
 				dvDelta := (oldUpdateType == UpdateTypeDeletionVector && newUpdateType != UpdateTypeDeletionVector) ||
 					(oldUpdateType == UpdateTypePosition && newUpdateType == UpdateTypeDeletionVector)
 
-				oldSyncMode := resolveConfigurableField(oldMetadata.SyncMode, oldStream.Stream.SyncMode)
-				newSyncMode := resolveConfigurableField(newMetadata.SyncMode, newStream.Stream.SyncMode)
+				oldSyncMode, newSyncMode := oldConfigured.GetSyncMode(), newConfigured.GetSyncMode()
 				oldCursorField := resolveConfigurableField(oldMetadata.CursorField, oldStream.Stream.CursorField)
 				newCursorField := resolveConfigurableField(newMetadata.CursorField, newStream.Stream.CursorField)
 				newDestinationDatabase := resolveConfigurableField(newMetadata.DestinationDatabase, newStream.Stream.DestinationDatabase)

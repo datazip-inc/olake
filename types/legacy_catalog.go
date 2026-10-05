@@ -103,7 +103,7 @@ func (c *LegacyCatalog) WriteToFile(path string) error {
 // Catalog — the same merge result available_streams.json/selected_streams.json are written
 // from. Two things the legacy shape always spells out explicitly, that the canonical shape
 // leaves implicit:
-//   - normalization/append_mode/update_type: nil on StreamMetadata falls back to the stream's
+//   - normalization/append_mode: nil on StreamMetadata falls back to the stream's
 //     own DefaultStreamProperties (set once at discover time by the driver layer).
 //   - selected_columns: nil/empty means "all columns"; streams.json writes the current column
 //     list instead of omitting the field, matching pre-split behavior.
@@ -132,27 +132,10 @@ func toLegacyCatalog(canonical *Catalog) *LegacyCatalog {
 
 // toLegacyStreamMetadata converts one canonical StreamMetadata into its streams.json shape.
 // stream supplies the current schema for the "all columns" fallback, and its
-// DefaultStreamProperties for the normalization/append_mode/update_type fallback.
+// DefaultStreamProperties for the normalization/append_mode fallback. update_type is copied
+// as-is: a blank value means discover cleared it, and the user must choose a new one.
 func toLegacyStreamMetadata(metadata StreamMetadata, stream *Stream) LegacyStreamMetadata {
-	defaults := DefaultStreamProperties{}
-	if stream.DefaultStreamProperties != nil {
-		defaults = *stream.DefaultStreamProperties
-	}
-
-	normalization := defaults.Normalization
-	if metadata.Normalization != nil {
-		normalization = *metadata.Normalization
-	}
-
-	appendMode := defaults.AppendMode
-	if metadata.AppendMode != nil {
-		appendMode = *metadata.AppendMode
-	}
-
-	updateType := string(defaults.UpdateType)
-	if metadata.UpdateType != "" {
-		updateType = metadata.UpdateType
-	}
+	configured := &ConfiguredStream{Stream: stream, StreamMetadata: metadata}
 
 	selectedColumns := metadata.SelectedColumns
 	if selectedColumns == nil || len(selectedColumns.Columns) == 0 {
@@ -167,9 +150,9 @@ func toLegacyStreamMetadata(metadata StreamMetadata, stream *Stream) LegacyStrea
 		ChunkColumn:          metadata.ChunkColumn,
 		PartitionRegex:       metadata.PartitionRegex,
 		StreamName:           metadata.StreamName,
-		AppendMode:           appendMode,
-		Normalization:        normalization,
-		UpdateType:           updateType,
+		AppendMode:           configured.AppendModeEnabled(),
+		Normalization:        configured.NormalizationEnabled(),
+		UpdateType:           metadata.UpdateType,
 		UseSourceColumnNames: metadata.UseSourceColumnNames,
 		Filter:               metadata.Filter,
 		FilterConfig:         metadata.FilterConfig,

@@ -322,11 +322,11 @@ func classifyStreams(catalog *types.Catalog, streams []*types.Stream, state *typ
 		return false
 	})
 
-	// in case of split-write, streams.json & selected_streams.json are maintained separately.
-	// so we need to check if all the selected streams are present in the streams[]
+	// available_streams.json and selected_streams.json are edited separately, so a selected
+	// stream can be missing from streams[].
 	for id := range selectedStreamsMap {
 		if _, ok := matchedSelected[id]; !ok {
-			logger.Warnf("Skipping; selected stream %s has no matching entry in streams[]. Rediscover or check streams.json.", id)
+			logger.Warnf("Skipping; selected stream %s has no matching entry in streams[]. Rediscover or check the streams file.", id)
 		}
 	}
 	// Clear previous state streams for non-selected streams.

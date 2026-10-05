@@ -113,14 +113,12 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 	testCases := []struct {
 		name     string
 		streams  []*Stream
-		driver   string
 		expected *Catalog
 	}{
 		// empty streams slice should return empty catalog
 		{
 			name:    "empty streams",
 			streams: []*Stream{},
-			driver:  "postgres",
 			expected: &Catalog{
 				Streams:         []*ConfiguredStream{},
 				SelectedStreams: make(map[string][]StreamMetadata),
@@ -130,7 +128,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 		{
 			name:    "nil streams slice",
 			streams: nil,
-			driver:  "mysql",
 			expected: &Catalog{
 				Streams:         []*ConfiguredStream{},
 				SelectedStreams: make(map[string][]StreamMetadata),
@@ -146,7 +143,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 					Schema:    &TypeSchema{Properties: sync.Map{}},
 				},
 			},
-			driver: "postgres",
 			expected: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -177,7 +173,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 					Schema:    &TypeSchema{Properties: sync.Map{}},
 				},
 			},
-			driver: "mongodb",
 			expected: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -227,7 +222,6 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 					DestinationTable:        "fact_orders",
 				},
 			},
-			driver: "postgres",
 			expected: &Catalog{
 				Streams: []*ConfiguredStream{
 					{
@@ -281,7 +275,7 @@ func TestCatalogGetWrappedCatalog(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := GetWrappedCatalog(tc.streams, tc.driver, nil)
+			result := GetWrappedCatalog(tc.streams, nil)
 			compareCatalogs(t, tc.expected, result, tc.name)
 
 			if len(tc.streams) > 0 {
@@ -2009,7 +2003,7 @@ func TestLogCatalog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			streamsPath, availablePath, selectedPath := setLogCatalogPaths(t, t.TempDir())
 
-			LogCatalog(tc.discovered, tc.oldCatalog, "postgres", nil)
+			LogCatalog(tc.discovered, tc.oldCatalog, nil)
 
 			// available_streams.json: streams[] only
 			var available Catalog
@@ -2037,4 +2031,21 @@ func TestLogCatalog(t *testing.T) {
 			assert.Equal(t, tc.expectedLegacy.SelectedStreams, legacy.SelectedStreams)
 		})
 	}
+}
+
+// A blank update_type means discover cleared it for the target query engines. streams.json must
+// keep it blank, not fill in the stream default, so sync still asks the user to choose.
+func TestToLegacyStreamMetadataKeepsClearedUpdateType(t *testing.T) {
+	stream := &Stream{
+		Name:                    "users",
+		Namespace:               "public",
+		Schema:                  oldSchema(),
+		DefaultStreamProperties: &DefaultStreamProperties{Normalization: true, UpdateType: UpdateTypeEquality},
+	}
+
+	legacy := toLegacyStreamMetadata(StreamMetadata{StreamName: "users"}, stream)
+
+	assert.Empty(t, legacy.UpdateType)
+	assert.True(t, legacy.Normalization)
+	assert.False(t, legacy.AppendMode)
 }
