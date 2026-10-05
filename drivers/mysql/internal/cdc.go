@@ -122,17 +122,20 @@ func (m *MySQL) StreamChanges(ctx context.Context, _ int, metadataStates map[str
 
 			// Only destination progress strictly ahead of source state needs recovery.
 			if comparison > 0 {
-				if recoveryState.GTIDSet != nil {
+				if recoveryState.Position.Name != "" || recoveryState.GTIDSet != nil {
 					comparison, err := mysqlMetadataState.Compare(recoveryState)
 					if err != nil {
 						return nil, err
 					}
 					if comparison != 0 {
 						return nil, errs.Precondition(errs.StateInvalid, codeMetadataStateInvalid,
-							fmt.Errorf("GTID recovery checkpoints disagree across streams"))
+							fmt.Errorf("recovery checkpoints disagree across streams"))
 					}
 				}
-				recoveryState = mysqlMetadataState
+				// Keep the migration mapping when file and GTID metadata describe the same boundary.
+				if recoveryState.GTIDSet == nil || mysqlMetadataState.GTIDSet != nil {
+					recoveryState = mysqlMetadataState
+				}
 				finishedStreams = append(finishedStreams, streamID)
 			}
 			// state >= metadata: blank sync scenario — stream forward normally

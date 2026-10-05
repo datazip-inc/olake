@@ -35,7 +35,15 @@ type Binlog struct {
 	Position   mysql.Position `json:"position"`
 	ServerUUID string         `json:"server_uuid,omitempty"`
 	// A present empty set is a GTID checkpoint; nil denotes file/offset state.
-	GTIDSet *string `json:"gtid_set,omitempty"`
+	GTIDSet   *string        `json:"gtid_set,omitempty"`
+	Migration *GTIDMigration `json:"gtid_migration,omitempty"`
+}
+
+// GTIDMigration retains the original file boundary for older destination checkpoints.
+type GTIDMigration struct {
+	Position   mysql.Position `json:"position"`
+	ServerUUID string         `json:"server_uuid"`
+	GTIDSet    string         `json:"gtid_set"`
 }
 
 // CDCChange represents a change event captured from the binlog.

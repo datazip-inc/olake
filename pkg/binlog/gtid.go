@@ -30,8 +30,11 @@ func (b Binlog) Compare(other Binlog) (int, error) {
 		return b.Position.Compare(other.Position), nil
 	}
 	if b.GTIDSet == nil || other.GTIDSet == nil {
-		return 0, errs.Precondition(errs.StateInvalid, "mysql.checkpoint_mode_mismatch",
-			fmt.Errorf("%w: cannot compare GTID and file/offset checkpoints", constants.ErrNonRetryable))
+		if b.GTIDSet != nil {
+			return b.compareFileCheckpoint(other)
+		}
+		comparison, err := other.compareFileCheckpoint(b)
+		return -comparison, err
 	}
 	set, err := parseGTIDSet(*b.GTIDSet)
 	if err != nil {
@@ -92,7 +95,6 @@ func (t *gtidTransaction) consume(event *replication.BinlogEvent) (mysql.GTIDSet
 		replication.XA_PREPARE_LOG_EVENT, replication.TRANSACTION_PAYLOAD_EVENT:
 		return nil, fmt.Errorf("%w: unsupported event %s in MySQL GTID sync", constants.ErrNonRetryable, event.Header.EventType)
 	}
-	var completed mysql.GTIDSet
 	switch e := event.Event.(type) {
 	case *replication.GTIDEvent:
 		if t.active {
@@ -114,17 +116,14 @@ func (t *gtidTransaction) consume(event *replication.BinlogEvent) (mysql.GTIDSet
 			t.begun = true
 			return nil, nil
 		}
-		if !t.begun || query == "COMMIT" || query == "ROLLBACK" {
-			completed = e.GSet
-		} else {
+		if t.begun && query != "COMMIT" && query != "ROLLBACK" {
 			return nil, nil
 		}
 	case *replication.XIDEvent:
-		completed = e.GSet
 	default:
 		return nil, nil
 	}
-	if !t.active || completed == nil {
+	if !t.active {
 		return nil, fmt.Errorf("missing GTID at MySQL transaction boundary")
 	}
 	t.active, t.begun = false, false

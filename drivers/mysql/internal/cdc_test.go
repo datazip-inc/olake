@@ -153,3 +153,45 @@ func TestMySQL_GTIDRecovery(t *testing.T) {
 		})
 	}
 }
+
+func TestMySQL_MigrationRecovery(t *testing.T) {
+	previousPath := viper.Get(constants.StatePath)
+	viper.Set(constants.StatePath, filepath.Join(t.TempDir(), "state.json"))
+	t.Cleanup(func() { viper.Set(constants.StatePath, previousPath) })
+	gtid := "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa:1-3"
+	checkpoint := binlog.Binlog{Position: mysql.Position{Name: "bin.000001", Pos: 900}, ServerUUID: "a", GTIDSet: &gtid,
+		Migration: &binlog.GTIDMigration{Position: mysql.Position{Name: "bin.000001", Pos: 900}, ServerUUID: "a", GTIDSet: gtid}}
+	orders := &types.ConfiguredStream{Stream: types.NewStream("orders", "demo", nil)}
+	other := &types.ConfiguredStream{Stream: types.NewStream("other", "demo", nil)}
+	for _, owner := range []string{"a", ""} {
+		t.Run("legacy source owner "+owner, func(t *testing.T) {
+			initial := MySQLGlobalState{ServerID: 1001, State: binlog.Binlog{Position: mysql.Position{Name: "bin.000001", Pos: 400}, ServerUUID: owner}}
+			m := &MySQL{config: &Config{Port: 3306},
+				state:   &types.State{RWMutex: &sync.RWMutex{}, Global: &types.GlobalState{State: initial}},
+				streams: []types.StreamInterface{orders, other}}
+			data, err := json.Marshal(checkpoint)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Migration committed before source-state save; recovery needs no SQL connection.
+			fileData, err := json.Marshal(binlog.Binlog{Position: checkpoint.Position, ServerUUID: owner})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := m.StreamChanges(context.Background(), 0, map[string]any{orders.ID(): string(data), other.ID(): string(fileData)}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, checkpoint) {
+				t.Fatalf("got %+v, want %+v", got, checkpoint)
+			}
+			if err := m.PostCDC(context.Background(), 0); err != nil {
+				t.Fatal(err)
+			}
+			want := MySQLGlobalState{ServerID: initial.ServerID, State: checkpoint}
+			if !reflect.DeepEqual(m.state.GetGlobal().State, want) {
+				t.Fatalf("got state %+v, want %+v", m.state.GetGlobal(), want)
+			}
+		})
+	}
+}
