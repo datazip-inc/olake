@@ -11,6 +11,7 @@ import (
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/errs"
 	"github.com/datazip-inc/olake/utils/logger"
+	"github.com/goccy/go-json"
 	"github.com/spf13/viper"
 )
 
@@ -53,6 +54,14 @@ type StatusRow struct {
 type SelectedColumns struct {
 	Columns        []string `json:"columns"`
 	SyncNewColumns bool     `json:"sync_new_columns"`
+}
+
+// MarshalJSON writes columns in sorted order so the file is stable across runs.
+// called implicitly by json.Marshal when writing SelectedColumns to file
+func (s SelectedColumns) MarshalJSON() ([]byte, error) {
+	sorted := slices.Sorted(slices.Values(s.Columns))
+	type alias SelectedColumns // alias to avoid recursive call
+	return json.Marshal(alias{Columns: sorted, SyncNewColumns: s.SyncNewColumns})
 }
 
 type StreamMetadata struct {
