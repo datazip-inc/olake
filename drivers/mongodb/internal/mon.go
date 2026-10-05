@@ -242,10 +242,20 @@ func (m *Mongo) GetStreamNames(ctx context.Context) ([]types.StreamID, error) {
 	return streamNames, collections.Err()
 }
 
-// TODO: Add support for time series mongodb collections
+// discover samples collections in buckets through ProduceSampledSchema
+var _ abstract.SampledSchemaProducer = (*Mongo)(nil)
+
 func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*types.Stream, error) {
+	buckets := abstract.DiscoverSampleBuckets
+	return m.ProduceSampledSchema(ctx, streamID, buckets[len(buckets)-1])
+}
+
+// TODO: Add support for time series mongodb collections
+// ProduceSampledSchema builds the collection's schema from its first and last limit documents in
+// natural order.
+func (m *Mongo) ProduceSampledSchema(ctx context.Context, streamID types.StreamID, limit int) (*types.Stream, error) {
 	produceCollectionSchema := func(ctx context.Context, db *mongo.Database, streamName string) (*types.Stream, error) {
-		logger.Infof("producing type schema for stream [%s]", streamName)
+		logger.Infof("producing type schema for stream [%s] from %d documents", streamName, limit)
 
 		// initialize stream
 		collection := db.Collection(streamName)
@@ -255,8 +265,8 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 
 		// Define find options for fetching documents in ascending and descending order.
 		findOpts := []*options.FindOptions{
-			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: 1}}),
-			options.Find().SetLimit(10000).SetSort(bson.D{{Key: "$natural", Value: -1}}),
+			options.Find().SetLimit(int64(limit)).SetSort(bson.D{{Key: "$natural", Value: 1}}),
+			options.Find().SetLimit(int64(limit)).SetSort(bson.D{{Key: "$natural", Value: -1}}),
 		}
 
 		return stream, utils.Concurrent(ctx, findOpts, len(findOpts), func(ctx context.Context, findOpt *options.FindOptions, _ int) error {
@@ -282,7 +292,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 		})
 	}
 	database := m.client.Database(m.config.Database)
-	// Either wait for covering 100k records from both sides for all streams
+	// Either wait for covering limit records from both sides for all streams
 	// Or wait till discoverCtx exits
 	stream, err := produceCollectionSchema(ctx, database, streamID.Name)
 	if err != nil {
@@ -305,7 +315,7 @@ func (m *Mongo) ProduceSchema(ctx context.Context, streamID types.StreamID) (*ty
 		stream.WithSyncMode(types.CDC, types.STRICTCDC)
 	}
 
-	return stream, err
+	return stream, nil
 }
 
 func filterMongoObject(doc bson.M) {

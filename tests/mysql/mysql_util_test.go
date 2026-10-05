@@ -73,6 +73,8 @@ var seedColumns = []seedColumn{
 	{name: "priority", datatype: "ENUM('low','medium','high') DEFAULT 'low'", value: "'high'", filtered: "'low'", updated: "'low'"},
 	{name: "name_ucs2", datatype: "VARCHAR(100) CHARACTER SET ucs2", value: "'ucs2_val'", filtered: "'filtered ucs2'", updated: "'updated ucs2'"},
 	{name: "name_utf16le", datatype: "VARCHAR(100) CHARACTER SET utf16le", value: "'utf16le_val'", filtered: "'filtered utf16le'", updated: "'updated utf16le'"},
+	{name: "name_latin1_cp1252", datatype: "VARCHAR(100) CHARACTER SET latin1", value: "'" + latin1Cp1252Value + "'", filtered: "'" + latin1Cp1252Value + "'", updated: "'" + latin1Cp1252UpdatedValue + "'"},
+	{name: "text_latin1_cp1252", datatype: "TEXT CHARACTER SET latin1", value: "'" + latin1Cp1252Value + "'", filtered: "'" + latin1Cp1252Value + "'", updated: "'" + latin1Cp1252UpdatedValue + "'"},
 	{name: "grade", datatype: "ENUM('naïve','café','résumé') CHARACTER SET latin1", value: "'naïve'", filtered: "'naïve'", updated: "'café'"},
 	{name: "name_latin1", datatype: "VARCHAR(100) CHARACTER SET latin1", value: "'latin1_val'", filtered: "'filtered latin1'", updated: "'updated latin1'"},
 	{name: "permissions", datatype: "SET('read','write','execute') CHARACTER SET latin1 DEFAULT NULL", value: "'read,write'", filtered: "'execute'", updated: "'read,write,execute'"},
@@ -396,6 +398,15 @@ func insertTestData(ctx context.Context, t *testing.T, db *sqlx.DB, tableName st
 	require.NoError(t, err, "Failed to insert filtered test data row")
 }
 
+// latin1Cp1252Value is what the INSERTs write to the latin1 cp1252 columns: all 27 characters
+// MySQL's latin1 (cp1252) defines in 0x80-0x9F, the range where cp1252 and ISO-8859-1 differ,
+// then ® and é from the range they share. Decoding binlog latin1 as ISO-8859-1 turns the 27
+// into C1 control characters, so the CDC cases catch it; the TEXT column covers the []byte path.
+const latin1Cp1252Value = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ ® é"
+
+// latin1Cp1252UpdatedValue is what the UPDATE writes to the same columns.
+const latin1Cp1252UpdatedValue = "updated Ÿ Œ œ ’ ™ €"
+
 // The id_int_unsigned / id_integer_unsigned values are deliberately ABOVE int32 range (max
 // INT UNSIGNED is 4294967295). That is what makes state version 4 observable: at v>=4 the driver
 // reinterprets the raw bits as uint32 and the value survives as int64, while at v<=3 it strips the
@@ -450,6 +461,8 @@ var ExpectedMySQLData = map[string]interface{}{
 	"name_latin1":                   "latin1_val",
 	"name_ucs2":                     "ucs2_val",
 	"name_utf16le":                  "utf16le_val",
+	"name_latin1_cp1252":            latin1Cp1252Value,
+	"text_latin1_cp1252":            latin1Cp1252Value,
 	"grade":                         "naïve",
 	"tags":                          "sports,reading",
 	"permissions":                   "read,write",
@@ -505,6 +518,8 @@ func ExpectedUpdatedData() map[string]interface{} {
 		"name_latin1":                   "updated latin1",
 		"name_ucs2":                     "updated ucs2",
 		"name_utf16le":                  "updated utf16le",
+		"name_latin1_cp1252":            latin1Cp1252UpdatedValue,
+		"text_latin1_cp1252":            latin1Cp1252UpdatedValue,
 		"grade":                         "café",
 		"tags":                          "gaming,reading",
 		"permissions":                   "read,write,execute",
@@ -563,6 +578,8 @@ var MySQLToDestinationSchema = map[string]string{
 	"name_latin1":                   "varchar",
 	"name_ucs2":                     "varchar",
 	"name_utf16le":                  "varchar",
+	"name_latin1_cp1252":            "varchar",
+	"text_latin1_cp1252":            "text",
 	"grade":                         "enum",
 	"tags":                          "set",
 	"permissions":                   "set",
@@ -619,6 +636,8 @@ var EvolvedMySQLToDestinationSchema = map[string]string{
 	"name_latin1":                   "varchar",
 	"name_ucs2":                     "varchar",
 	"name_utf16le":                  "varchar",
+	"name_latin1_cp1252":            "varchar",
+	"text_latin1_cp1252":            "text",
 	"grade":                         "enum",
 	"tags":                          "set",
 	"permissions":                   "set",
