@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/datazip-inc/olake/constants"
@@ -210,6 +211,20 @@ type Property struct {
 	Type                  *Set[DataType] `json:"type,omitempty"`
 	DestinationColumnName string         `json:"destination_column_name,omitempty"`
 	OlakeColumn           bool           `json:"olake_column,omitempty"`
+}
+
+// MarshalJSON writes Type in sorted order so catalog files are stable across runs.
+func (p *Property) MarshalJSON() ([]byte, error) {
+	var types []DataType
+	if p.Type != nil {
+		types = p.Type.Array()
+		slices.SortFunc(types, func(a, b DataType) int { return strings.Compare(string(a), string(b)) })
+	}
+	type alias Property // alias to avoid recursive call
+	return json.Marshal(&struct {
+		*alias
+		Type []DataType `json:"type,omitempty"`
+	}{alias: (*alias)(p), Type: types})
 }
 
 // returns datatype according to typecast tree if multiple type present
