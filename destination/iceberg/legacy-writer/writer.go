@@ -50,28 +50,32 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 	// A single loop over protoSchema covers both cases.
 	protoRecords := make([]*proto.IcebergPayload_IceRecord, 0, len(records))
 	sentRecords := make([]types.RawRecord, 0, len(records))
+	seenRecords := make(map[string]struct{}, len(records))
 	for _, record := range records {
 		if record.Data == nil {
 			continue
 		}
 
 		opType := record.OlakeColumns[constants.OpType].(string)
+		olakeID, _ := record.OlakeColumns[constants.OlakeID].(string)
 		var deleteFilePath *string
 		var deletePosition *int64
 
 		// check if we need to write pos for the current record
 		// lookup u/i/d only. skip r and c
 		if w.indexThread != nil && opType != "r" && opType != "c" {
-			olakeID := record.OlakeColumns[constants.OlakeID].(string)
 			previous, found, err := w.indexThread.Lookup(olakeID)
 			if err != nil {
 				return fmt.Errorf("failed to look up row[%s] in index: %s", olakeID, err)
 			}
+			_, existsInBatch := seenRecords[olakeID]
 			if found {
 				filePath := previous.FilePath
 				position := previous.Position
 				deleteFilePath = &filePath
 				deletePosition = &position
+			}
+			if found || existsInBatch {
 				if opType != "d" {
 					opType = "u"
 				}
@@ -109,6 +113,9 @@ func (w *LegacyWriter) Write(ctx context.Context, records []types.RawRecord) err
 
 		protoRecords = append(protoRecords, iceRecord)
 		sentRecords = append(sentRecords, record)
+		if olakeID != "" {
+			seenRecords[olakeID] = struct{}{}
+		}
 	}
 
 	if len(protoRecords) == 0 {
