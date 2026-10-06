@@ -129,6 +129,7 @@ func TestKafkaUpsert(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := kafkaJSONBaseConfig(t)
 			if !tc.json {
 				cfg = kafkaAvroBaseConfig(t)
@@ -272,6 +273,7 @@ func TestKafkaUpsert(t *testing.T) {
 	}
 	for _, tc := range icebergTestCases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			cfg := kafkaJSONBaseConfig(t)
 			cfg.DedupKeys = tc.dedup
 			if tc.expectFail {
