@@ -82,13 +82,14 @@ type StreamMix struct {
 	StreamWithPosUpdateType int `json:"stream_with_pos_update_type_count"`
 }
 
-func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) *Catalog {
+func GetWrappedCatalog(streams []*Stream, driver string, constraints UpdateTypeConstraints) *Catalog {
 	catalog := &Catalog{
 		Streams:         []*ConfiguredStream{},
 		SelectedStreams: make(map[string][]StreamMetadata),
 	}
-	// The default delete format is the cheapest one every target engine can read.
-	available := AvailableUpdateTypes(engines)
+	// The default delete format is the cheapest one every target engine can read and the
+	// destination can apply.
+	available := constraints.Available()
 	updateType := PreferredUpdateType(available)
 
 	// Loop through each stream and populate Streams and SelectedStreams
@@ -126,7 +127,7 @@ func GetWrappedCatalog(streams []*Stream, driver string, engines []QueryEngine) 
 // 2. SelectedColumns: Retain columns present in both old and new schemas, add NEW columns if sync_new_columns is true
 // 3. SyncMode: Use from oldCatalog if the stream exists in old catalog
 // 4. Everything else: Keep as new catalog
-func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Catalog {
+func mergeCatalogs(oldCatalog, newCatalog *Catalog, constraints UpdateTypeConstraints) *Catalog {
 	if oldCatalog == nil {
 		return newCatalog
 	}
@@ -155,7 +156,7 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 					oldStream := oldStreams[streamID].Stream
 					newStream := newStreams[streamID].Stream
 					MergeSelectedColumns(&metadata, oldStream, newStream)
-					mergeUpdateType(&metadata, streamID, engines)
+					mergeUpdateType(&metadata, streamID, constraints)
 
 					selectedStreams[namespace] = append(selectedStreams[namespace], metadata)
 				}
@@ -199,27 +200,23 @@ func mergeCatalogs(oldCatalog, newCatalog *Catalog, engines []QueryEngine) *Cata
 }
 
 // mergeUpdateType keeps a previously configured delete format only while every current
-// target query engine can still read it. An unreadable choice is cleared rather than
-// replaced: switching delete formats can force a table recreate, so the user must pick the
-// new one explicitly, and a blank update_type fails validation until they do.
-func mergeUpdateType(metadata *StreamMetadata, streamID string, engines []QueryEngine) {
+// target query engine can still read it and the destination can still apply it. Anything
+// else is cleared rather than replaced: switching delete formats can force a table
+// recreate, so the user must pick the new one explicitly, and a blank update_type fails
+// validation until they do.
+func mergeUpdateType(metadata *StreamMetadata, streamID string, constraints UpdateTypeConstraints) {
 	// A blank value predates update_type and always meant equality (see
 	// ConfiguredStream.GetUpdateType). Record it, so blank is left to mean "needs a choice".
 	if metadata.UpdateType == "" {
 		metadata.UpdateType = string(UpdateTypeEquality)
 	}
 
-	// Without target engines nothing constrains the choice.
-	if len(engines) == 0 {
-		return
-	}
-
-	available := AvailableUpdateTypes(engines)
+	available := constraints.Available()
 	if slices.Contains(available, UpdateType(metadata.UpdateType)) {
 		return
 	}
 
-	logger.Warnf("Stream %s update mode %s is not readable by the selected query engines; cleared, choose one of %v",
+	logger.Warnf("Stream %s update mode %s is not supported by the selected query engines or the destination; cleared, choose one of %v",
 		streamID, metadata.UpdateType, available)
 	metadata.UpdateType = ""
 }

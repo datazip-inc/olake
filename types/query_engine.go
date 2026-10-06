@@ -73,7 +73,7 @@ func QueryEngineCatalog() map[string]interface{} {
 }
 
 // ParseQueryEngines normalizes raw values and rejects unknown names: a typo that silently
-// dropped an engine would widen AvailableUpdateTypes and let an unreadable format through.
+// dropped an engine would widen the available formats and let an unreadable one through.
 func ParseQueryEngines(values []string) ([]QueryEngine, error) {
 	engines := make([]QueryEngine, 0, len(values))
 	for _, value := range values {
@@ -92,12 +92,19 @@ func ParseQueryEngines(values []string) ([]QueryEngine, error) {
 	return engines, nil
 }
 
-// AvailableUpdateTypes returns the writable delete formats every engine can read, cheapest
-// first. No engines means the choice is unconstrained.
-func AvailableUpdateTypes(engines []QueryEngine) []UpdateType {
+// UpdateTypeConstraints are every input that narrows a stream's delete formats: the target
+// query engines limit what can be read, the destination catalog what can be written.
+type UpdateTypeConstraints struct {
+	Engines []QueryEngine
+	Catalog string
+}
+
+// Available returns the writable delete formats every engine can read and the catalog can
+// apply, cheapest first. No constraints leaves every writable format.
+func (c UpdateTypeConstraints) Available() []UpdateType {
 	available := make([]UpdateType, 0, len(writableUpdateTypes))
 	for _, updateType := range writableUpdateTypes {
-		if readableByAll(engines, updateType) {
+		if readableByAll(c.Engines, updateType) && supportedByCatalog(c.Catalog, updateType) {
 			available = append(available, updateType)
 		}
 	}
