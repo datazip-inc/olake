@@ -465,7 +465,7 @@ func (k *Kafka) parseKafkaData(message *kgo.Record) (map[string]interface{}, str
 				keyValue = k.canonicalizeKafkaKey(v)
 			case map[string]interface{}:
 				keyFields = v
-				keyValue = string(messageKey)
+				keyValue = k.canonicalizeKafkaKey(messageKey)
 			default:
 				keyValue = k.canonicalizeKafkaKey(messageKey)
 			}

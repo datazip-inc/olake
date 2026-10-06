@@ -73,6 +73,39 @@ func TestParseKafkaData(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "json object key with spaces is canonicalized",
+			record: &kgo.Record{
+				Value: []byte(`{"a":1}`),
+				Key:   []byte(`{"id":   "k1"}`),
+			},
+			wantKey:       `{"id":"k1"}`,
+			wantKeyFields: map[string]interface{}{"id": "k1"},
+			wantValue:     map[string]interface{}{"a": json.Number("1")},
+		},
+		{
+			name: "json object key field order is canonicalized",
+			record: &kgo.Record{
+				Value: []byte(`{"a":1}`),
+				Key:   []byte(`{"b":1,"a":2}`),
+			},
+			wantKey: `{"a":2,"b":1}`,
+			wantKeyFields: map[string]interface{}{
+				"a": json.Number("2"),
+				"b": json.Number("1"),
+			},
+			wantValue: map[string]interface{}{"a": json.Number("1")},
+		},
+		{
+			name: "tombstone spaced object key matches create",
+			record: &kgo.Record{
+				Value: nil,
+				Key:   []byte(`{"id": "k1"}`),
+			},
+			wantValue:     nil,
+			wantKey:       `{"id":"k1"}`,
+			wantKeyFields: map[string]interface{}{"id": "k1"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
