@@ -100,3 +100,23 @@ IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'olake_mssql_test_2pc' AND i
 BEGIN
     EXEC sys.sp_cdc_enable_db;
 END;
+GO
+
+-------------------------------------------------------------------------------
+-- Streams v1 sync suite (--catalog), run alongside the default sync suite. Its
+-- own database for the same reason as the 2PC suite. Remove with streams v1
+-- support.
+-------------------------------------------------------------------------------
+IF DB_ID('olake_mssql_test_v1') IS NULL
+BEGIN
+    CREATE DATABASE olake_mssql_test_v1;
+END;
+GO
+
+USE olake_mssql_test_v1;
+GO
+
+IF EXISTS (SELECT 1 FROM sys.databases WHERE name = 'olake_mssql_test_v1' AND is_cdc_enabled = 0)
+BEGIN
+    EXEC sys.sp_cdc_enable_db;
+END;

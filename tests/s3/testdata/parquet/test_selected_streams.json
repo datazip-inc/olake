@@ -1,0 +1,1 @@
+{"selected_streams":{"s3":[{"partition_regex":"","stream_name":"s3_parquet_test_table_olake","update_type":"eq","sync_mode":"incremental","cursor_field":"_last_modified_time"}]}}
