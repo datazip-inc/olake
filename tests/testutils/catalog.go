@@ -13,13 +13,13 @@ type catalogFiles struct {
 }
 
 // catalog is the working catalog discover writes and sync reads.
-func (c *TestConfig) catalog() catalogFiles {
-	return catalogFiles{streamsV1: c.StreamsV1, streams: c.HostCatalogPath, available: c.HostAvailablePath, selected: c.HostSelectedPath}
+func (t *TestConfig) catalog() catalogFiles {
+	return catalogFiles{streamsV1: t.StreamsV1, streams: t.HostCatalogPath, available: t.HostAvailablePath, selected: t.HostSelectedPath}
 }
 
 // fixtureCatalog is the committed catalog a fresh discover must reproduce.
-func (c *TestConfig) fixtureCatalog() catalogFiles {
-	return catalogFiles{streamsV1: c.StreamsV1, streams: c.HostTestCatalogPath, available: c.HostTestAvailablePath, selected: c.HostTestSelectedPath}
+func (t *TestConfig) fixtureCatalog() catalogFiles {
+	return catalogFiles{streamsV1: t.StreamsV1, streams: t.HostTestCatalogPath, available: t.HostTestAvailablePath, selected: t.HostTestSelectedPath}
 }
 
 func (f catalogFiles) String() string {
