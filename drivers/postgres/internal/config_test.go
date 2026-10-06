@@ -110,6 +110,21 @@ func TestConfig_Validate(t *testing.T) {
 			},
 			expectErr: true,
 		},
+		{
+			name: "empty ssl object normalizes to disable in connection uri",
+			config: &Config{
+				Host:             "localhost",
+				Port:             5432,
+				Username:         "postgres",
+				Password:         "secret",
+				Database:         "postgres",
+				SSLConfiguration: &utils.SSLConfig{},
+			},
+			expectErr: false,
+			expectedContains: []string{
+				"sslmode=disable",
+			},
+		},
 	}
 
 	for _, tt := range tests {
