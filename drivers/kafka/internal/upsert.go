@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/datazip-inc/olake/utils"
 )
 
 var errNullDedupKeys = errors.New("all dedup keys are null")
@@ -68,6 +70,10 @@ func checkDedupKeysExist(dedupKeys []string, data map[string]any, kafkaKey strin
 
 // generateOlakeIDFromExistingKeys generates the olake ID from the existing dedup keys and data
 func generateOlakeIDFromExistingKeys(dedupKeys []string, data map[string]any) string {
+	if len(dedupKeys) > 1 {
+		keys := append([]string{}, dedupKeys...)
+		return utils.GetKeysHash(data, keys...)
+	}
 	parts := make([]string, 0, len(dedupKeys))
 	parts = append(parts, "upsert")
 	for _, pk := range dedupKeys {

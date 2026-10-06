@@ -228,83 +228,83 @@ func TestGenerateOlakeIDFromExistingKeys(t *testing.T) {
 		notEqualAppend bool
 	}{
 		{
-			name:      "partial null name, same id as missing name - null so drop from olakeID",
+			name:      "null name hashes like missing name",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   "42",
 				"name": nil,
 			},
-			want: "upsert|id=42",
+			want: "2d93fb3e566ffaa3495538d858ba9eb6",
 		},
 		{
-			name: "missing name same id as partial null - missing column name included with empty value in olakeID",
+			name: "missing name hashes like null name",
 			dedupKeys: []string{
 				"id", "name",
 			},
 			data: map[string]any{
 				"id": "42",
 			},
-			want: "upsert|id=42|name=",
+			want: "2d93fb3e566ffaa3495538d858ba9eb6",
 		},
 		{
-			name:      "empty string name is kept as empty slot - include column name with empy value in olakeID",
+			name:      "empty string name hashes differently from null",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   "42",
 				"name": "",
 			},
-			want: "upsert|id=42|name=",
+			want: "28790432152f698b954bc343d2957ad7",
 		},
 		{
-			name:      "null id is dropped, name kept",
+			name:      "null id hashes like missing id",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   nil,
 				"name": "sam",
 			},
-			want: "upsert|name=sam",
+			want: "8fe70e84b495a91d1fd6f5ddb8af8256",
 		},
 		{
-			name:      "missing id keeps empty slot, name kept",
+			name:      "missing id hashes like null id",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"name": "sam",
 			},
-			want: "upsert|id=|name=sam",
+			want: "8fe70e84b495a91d1fd6f5ddb8af8256",
 		},
 		{
-			name:      "empty string id is kept as empty slot, name kept",
+			name:      "empty string id hashes differently from null",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
 				"id":   "",
 				"name": "sam",
 			},
-			want: "upsert|id=|name=sam",
+			want: "2b6fb895922079ebeeb2db70c050c78c",
 		},
 		{
-			name:      "only customer_id does not effect with only order_id",
+			name:      "only customer_id does not collide with only order_id",
 			dedupKeys: []string{"customer_id", "order_id"},
 			data: map[string]any{
 				"customer_id": "42",
 			},
-			want: "upsert|customer_id=42|order_id=",
+			want: "2d93fb3e566ffaa3495538d858ba9eb6",
 		},
 		{
-			name:      "only order_id does not effect with only customer_id",
+			name:      "only order_id does not collide with only customer_id",
 			dedupKeys: []string{"customer_id", "order_id"},
 			data: map[string]any{
 				"order_id": "42",
 			},
-			want: "upsert|customer_id=|order_id=42",
+			want: "fda611170999dbc1e9721762dab86de9",
 		},
 		{
 			name:      "composite upsert id is not append offset 5 partition 0",
 			dedupKeys: []string{"customer_id", "order_id"},
 			data: map[string]any{
-				"customer_id": "5",
-				"order_id":    "0",
+				"customer_id": "c1",
+				"order_id":    "o1",
 			},
-			want:           "upsert|customer_id=5|order_id=0",
+			want:           "ed4e0393723d1ff733dd7719b98bedec",
 			notEqualAppend: true,
 		},
 	}
@@ -337,11 +337,10 @@ func TestGenerateOlakeIDNullVsMissingVsEmpty(t *testing.T) {
 		"name": "",
 	})
 
-	assert.Equal(t, "upsert|id=42", nullName)
-	assert.Equal(t, "upsert|id=42|name=", missingName)
-	assert.Equal(t, missingName, emptyName, "missing and empty string must share the empty slot")
-	assert.NotEqual(t, nullName, missingName, "null is dropped; missing keeps the column slot")
-	assert.NotEqual(t, nullName, emptyName, "null is dropped; empty string is kept")
+	assert.Equal(t, nullName, missingName, "GetKeysHash: null and missing are both <nil>")
+	assert.NotEqual(t, nullName, emptyName, "empty string is not <nil>")
+	assert.Equal(t, "2d93fb3e566ffaa3495538d858ba9eb6", nullName)
+	assert.Equal(t, "28790432152f698b954bc343d2957ad7", emptyName)
 }
 
 func TestCanonicalizeKafkaKey(t *testing.T) {
