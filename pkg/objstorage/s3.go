@@ -8,10 +8,9 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/smithy-go"
+	"github.com/datazip-inc/olake/pkg/objstorage/s3client"
 	"github.com/datazip-inc/olake/utils/logger"
 )
 
@@ -34,50 +33,27 @@ type s3Store struct {
 // S3-compatible endpoint. Static credentials are used when both key fields
 // are provided; otherwise the AWS default credential chain applies.
 func NewS3Store(ctx context.Context, cfg S3Config) (Store, error) {
-	configOpts := []func(*config.LoadOptions) error{
-		config.WithRegion(cfg.Region),
+	clientCfg := s3client.Config{
+		Region:          cfg.Region,
+		AccessKeyID:     cfg.AccessKeyID,
+		SecretAccessKey: cfg.SecretAccessKey,
+		Endpoint:        cfg.Endpoint,
 	}
 
-	// Use static credentials if provided, otherwise fall back to default credential chain
-	// Default chain includes: IAM roles, instance profiles, environment variables, shared config
-	if cfg.AccessKeyID != "" && cfg.SecretAccessKey != "" {
+	if clientCfg.UsesStaticCredentials() {
 		logger.Info("Using static credentials for S3 authentication")
-		configOpts = append(configOpts, config.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(
-				cfg.AccessKeyID,
-				cfg.SecretAccessKey,
-				"",
-			),
-		))
 	} else {
 		logger.Info("Using default credential chain (IAM role, instance profile, env vars, or shared config)")
 	}
-
-	awsCfg, err := config.LoadDefaultConfig(ctx, configOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS config: %w", err)
-	}
-
-	var client *s3.Client
 	if cfg.Endpoint != "" {
-		// SigV4 signing requires a non-empty region; S3-compatible services accept
-		// any value. Applied after LoadDefaultConfig so regions resolved from the
-		// environment or shared config still win.
-		if awsCfg.Region == "" {
-			awsCfg.Region = "us-east-1"
-		}
 		logger.Infof("Connecting to S3-compatible endpoint: %s", cfg.Endpoint)
-		client = s3.NewFromConfig(awsCfg, func(o *s3.Options) {
-			o.BaseEndpoint = aws.String(cfg.Endpoint)
-			o.UsePathStyle = true // Required for MinIO and some S3-compatible services
-			// SDK-default CRC32 integrity checksums (service/s3 >= v1.73) are not
-			// implemented by several S3-compatible services (R2, older MinIO, GCS interop)
-			o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
-			o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
-		})
 	} else {
 		logger.Infof("Connecting to AWS S3 in region: %s", cfg.Region)
-		client = s3.NewFromConfig(awsCfg)
+	}
+
+	client, err := s3client.NewS3Client(ctx, clientCfg)
+	if err != nil {
+		return nil, err
 	}
 
 	return &s3Store{client: client, bucket: cfg.Bucket}, nil
