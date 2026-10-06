@@ -22,7 +22,8 @@ type Prerequisite struct {
 }
 
 // PrerequisiteReporter is implemented by drivers that run prerequisite checks during Setup.
-// Setup records the results and never fails because of them; Read enforces required checks.
+// Setup records the results and fails on unmet required checks only when the config
+// explicitly selects CDC.
 type PrerequisiteReporter interface {
 	Prerequisites() types.Prerequisites
 }
@@ -79,9 +80,9 @@ func RequireCDCPrerequisites(driverType string, prerequisites types.Prerequisite
 }
 
 // ValidateCDCPrerequisites fails when CDC streams are selected and a required check did not pass.
-// Full-refresh and incremental-only syncs are never blocked. Called from the sync command before
-// it clears full-refresh streams, so a CDC sync that cannot start never drops destination data
-// first; a config that explicitly selects CDC has already failed in Setup.
+// Full-refresh and incremental-only syncs are never blocked. Only checks marked Required can fail
+// here: a config that explicitly selects CDC has already failed in Setup, and a config that
+// predates update_method records advisory checks, so it passes as it did before.
 func (a *AbstractDriver) ValidateCDCPrerequisites(cdcStreams []types.StreamInterface) error {
 	if len(cdcStreams) == 0 {
 		return nil

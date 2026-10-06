@@ -8,6 +8,7 @@ import (
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/datazip-inc/olake/pkg/jdbc"
+	"github.com/datazip-inc/olake/types"
 	"github.com/jmoiron/sqlx"
 	mssql "github.com/microsoft/go-mssqldb"
 	"github.com/stretchr/testify/assert"
@@ -83,6 +84,36 @@ func TestMSSQLPrerequisiteChecks(t *testing.T) {
 			"database_cdc": false,
 		}, names(&MSSQL{config: &Config{}, isReadReplica: true}))
 	})
+}
+
+// a config predating update_method keeps CDC only when the database has it enabled; other
+// advisory failures must not hide CDC
+func TestMSSQLLegacyCDCSupported(t *testing.T) {
+	tests := []struct {
+		name          string
+		prerequisites types.Prerequisites
+		want          bool
+	}{
+		{
+			name: "database cdc enabled",
+			prerequisites: types.Prerequisites{
+				{Name: "cdc_capture_job", Passed: false},
+				{Name: prerequisiteDatabaseCDC, Passed: true},
+			},
+			want: true,
+		},
+		{
+			name:          "database cdc disabled",
+			prerequisites: types.Prerequisites{{Name: prerequisiteDatabaseCDC, Passed: false}},
+			want:          false,
+		},
+		{name: "no checks recorded", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, legacyCDCSupported(tc.prerequisites))
+		})
+	}
 }
 
 func TestMSSQLCheckDatabaseCDC(t *testing.T) {

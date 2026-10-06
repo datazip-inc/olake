@@ -119,9 +119,10 @@ func (m *MSSQL) Setup(ctx context.Context) error {
 			return err
 		}
 	}
-	// Reached only once the required checks pass, or for a legacy config whose checks are
-	// advisory: those sources kept CDC before update_method existed.
-	m.cdcSupported = true
+	// Reached once the required checks pass (CDC selected), or for a legacy config whose checks
+	// are advisory. Legacy sources keep CDC only when the database has it enabled, so discovery
+	// defaults to incremental instead of a CDC mode that would fail in PreCDC.
+	m.cdcSupported = cdcSelected || legacyCDCSupported(m.prerequisites)
 	return nil
 }
 

@@ -136,10 +136,7 @@ func (a *AbstractDriver) Discover(ctx context.Context, maxDiscoverThreads int, s
 		}
 
 		// priority to default sync mode (cdc -> incremental -> strict_cdc)
-		// CDCSupported is the configured intent; the prerequisites say whether the server can
-		// actually do CDC, so a source that cannot is not defaulted to a mode that would fail.
-		if convStream.SupportedSyncModes.Exists(types.CDC) && a.driver.CDCSupported() &&
-			len(a.Prerequisites().FailedRequired()) == 0 {
+		if convStream.SupportedSyncModes.Exists(types.CDC) && a.driver.CDCSupported() {
 			convStream.SyncMode = types.CDC
 		} else if convStream.SupportedSyncModes.Exists(types.INCREMENTAL) {
 			convStream.SyncMode = types.INCREMENTAL

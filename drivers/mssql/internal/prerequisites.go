@@ -14,13 +14,16 @@ import (
 const (
 	errSelectDenied   = 229 // SELECT permission denied on object
 	errDatabaseDenied = 916 // login cannot access msdb
+
+	// prerequisiteDatabaseCDC also decides CDC support for a config that predates update_method
+	prerequisiteDatabaseCDC = "database_cdc"
 )
 
 // prerequisiteChecks builds the checks. required is false for a config that predates
 // update_method, so a legacy source is reported on but never blocked.
 func (m *MSSQL) prerequisiteChecks(required bool) []abstract.Prerequisite {
 	checks := []abstract.Prerequisite{{
-		Name: "database_cdc", Required: required, Recommended: "enabled",
+		Name: prerequisiteDatabaseCDC, Required: required, Recommended: "enabled",
 		Description: "CDC is not enabled on the database, so no change tables exist to read.",
 		Check:       m.checkDatabaseCDC,
 	}}
@@ -50,6 +53,17 @@ func (m *MSSQL) prerequisiteChecks(required bool) []abstract.Prerequisite {
 		)
 	}
 	return checks
+}
+
+// legacyCDCSupported reports CDC support for a config that predates update_method: only the
+// database-level CDC flag decides it, as before prerequisite checks existed.
+func legacyCDCSupported(prerequisites types.Prerequisites) bool {
+	for _, c := range prerequisites {
+		if c.Name == prerequisiteDatabaseCDC {
+			return c.Passed
+		}
+	}
+	return false
 }
 
 func (m *MSSQL) checkDatabaseCDC(ctx context.Context) (string, bool, error) {
