@@ -144,7 +144,12 @@ func (k *Kafka) StreamChanges(ctx context.Context, readerID int, metadataStates 
 				}
 			}
 			if kafkaKey == "" && len(record.Message.Key) > 0 {
-				kafkaKey = k.canonicalizeKafkaKey(record.Message.Key)
+				rawKey := record.Message.Key
+				// strip magic 0x00 and schema id from confluent wire format
+				if isConfluentWireFormat(rawKey) {
+					rawKey = rawKey[5:]
+				}
+				kafkaKey = k.canonicalizeKafkaKey(rawKey)
 			}
 
 			appendByOffsetPartition := func(data map[string]any) error {
