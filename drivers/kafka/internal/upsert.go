@@ -1,6 +1,8 @@
 package driver
 
 import (
+	//nolint:gosec // G401: md5 used for non-crypto hashing
+	"crypto/md5"
 	"errors"
 	"fmt"
 	"strings"
@@ -70,22 +72,15 @@ func checkDedupKeysExist(dedupKeys []string, data map[string]any, kafkaKey strin
 
 // generateOlakeIDFromExistingKeys generates the olake ID from the existing dedup keys and data
 func generateOlakeIDFromExistingKeys(dedupKeys []string, data map[string]any) string {
-	if len(dedupKeys) > 1 {
-		keys := append([]string{}, dedupKeys...)
-		return utils.GetKeysHash(data, keys...)
-	}
-	parts := make([]string, 0, len(dedupKeys))
-	parts = append(parts, "upsert")
-	for _, pk := range dedupKeys {
-		v, ok := data[pk]
-		if !ok {
-			parts = append(parts, pk+"=")
-			continue
+	if len(dedupKeys) == 1 && dedupKeys[0] == Key {
+		s := fmt.Sprint(data[Key])
+		trimmed := strings.TrimSpace(s)
+		if len(trimmed) == 0 || trimmed[0] != '{' || !utils.IsJSON(s) {
+			return s
 		}
-		if v == nil {
-			continue
-		}
-		parts = append(parts, pk+"="+fmt.Sprint(v))
+		//nolint:gosec // G401: md5 used for non-crypto hashing
+		return fmt.Sprintf("%x", md5.Sum([]byte(s)))
 	}
-	return strings.Join(parts, "|")
+	keys := append([]string{}, dedupKeys...)
+	return utils.GetKeysHash(data, keys...)
 }

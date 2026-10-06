@@ -228,6 +228,18 @@ func TestGenerateOlakeIDFromExistingKeys(t *testing.T) {
 		notEqualAppend bool
 	}{
 		{
+			name:      "plain kafka key is not hashed",
+			dedupKeys: []string{Key},
+			data:      map[string]any{Key: "azE="},
+			want:      "azE=",
+		},
+		{
+			name:      "json kafka key is md5 of canonical json",
+			dedupKeys: []string{Key},
+			data:      map[string]any{Key: `{"id":"j1"}`},
+			want:      "61f0c9bca503f6cebb8bfce0b5b05244",
+		},
+		{
 			name:      "null name hashes like missing name",
 			dedupKeys: []string{"id", "name"},
 			data: map[string]any{
