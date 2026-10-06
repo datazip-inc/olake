@@ -50,7 +50,7 @@ func TestSignalAwareRootContextCancelsOnSignal(t *testing.T) {
 	// asserts the context cancels with context.Canceled within a bounded
 	// timeout.
 	if os.Getenv("OLAKE_SIGNAL_CONTEXT_HELPER") == "1" {
-		ctx := signalAwareRootContext(context.Background())
+		ctx := signalAwareRootContext()
 
 		var signal syscall.Signal
 
