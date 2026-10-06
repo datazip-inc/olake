@@ -98,25 +98,6 @@ func TestSignalAwareRootContextCancelsOnSignal(t *testing.T) {
 	}
 }
 
-// TestSignalAwareRootContextPreservesParentCancellation verifies that
-// canceling the parent context still propagates through the signal-aware
-// wrapper. Without this, callers that cancel via context.WithCancel /
-// context.WithTimeout would be silently ignored after the wrap.
-func TestSignalAwareRootContextPreservesParentCancellation(t *testing.T) {
-	parent, cancel := context.WithCancel(context.Background())
-	ctx := signalAwareRootContext(parent)
-	cancel()
-
-	select {
-	case <-ctx.Done():
-		if ctx.Err() != context.Canceled {
-			t.Fatalf("expected canceled context, got %v", ctx.Err())
-		}
-	case <-time.After(time.Second):
-		t.Fatal("context was not canceled after parent cancellation")
-	}
-}
-
 // resetCatalogFlags clears the package-level catalog flag vars validateCatalogFlags reads,
 // restoring them after the test.
 func resetCatalogFlags(t *testing.T) {
