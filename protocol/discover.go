@@ -109,12 +109,11 @@ func resolveUpdateTypeConstraints() error {
 	}
 
 	constraints := types.UpdateTypeConstraints{Engines: engines, Catalog: catalogType}
-	// An empty intersection cannot be written at all, so fail here rather than emitting a
-	// catalog whose streams offer no delete format.
+	// Only upsert needs a delete format; append writes none, so the job stays valid and
+	// streams default to append.
 	if len(constraints.Available()) == 0 {
-		return errs.Precondition(errs.ConfigInvalid, codeUpdateTypeUnsatisfiable,
-			fmt.Errorf("no delete format is readable by all of the selected query engines %v and writable to destination catalog %q",
-				engines, catalogType))
+		logger.Warnf("No delete format is readable by all of the selected query engines %v and writable to destination catalog %q; streams will default to append mode",
+			engines, catalogType)
 	}
 
 	updateTypeConstraints = constraints

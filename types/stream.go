@@ -33,8 +33,9 @@ type Stream struct {
 	SupportedSyncModes *Set[SyncMode] `json:"supported_sync_modes,omitempty"`
 	// Delete formats every target query engine can read and the destination can apply,
 	// cheapest first. Discover without either is unconstrained and lists every format OLake
-	// can write. Absent only on catalogs written before target query engines existed.
-	AvailableUpdateTypes []UpdateType `json:"available_update_types,omitempty"`
+	// can write. Empty means none qualifies, so the stream can only append; nil means the
+	// catalog predates target query engines. Not omitempty: empty must not read back as nil.
+	AvailableUpdateTypes []UpdateType `json:"available_update_types"`
 	// Primary key if available
 	SourceDefinedPrimaryKey *Set[string] `json:"source_defined_primary_key,omitempty"`
 	// Available cursor fields supported by driver

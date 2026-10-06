@@ -43,9 +43,12 @@ func TestResolveUpdateTypeConstraints(t *testing.T) {
 		},
 		{
 			// Databricks reads only deletion vectors and Athena none, so no format fits both.
-			name:    "engines without a common delete format fail the run",
-			flag:    []string{"databricks", "athena"},
-			wantErr: true,
+			// Append needs no delete format, so discover still succeeds.
+			name: "engines without a common delete format still discover",
+			flag: []string{"databricks", "athena"},
+			expected: types.UpdateTypeConstraints{
+				Engines: []types.QueryEngine{types.QueryEngineDatabricks, types.QueryEngineAthena},
+			},
 		},
 		{
 			name:        "destination catalog is read from --destination",

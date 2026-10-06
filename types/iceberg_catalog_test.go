@@ -131,3 +131,70 @@ func TestMergeUpdateTypeClearsCatalogUnsupportedValue(t *testing.T) {
 
 	assert.Equal(t, "", metadata.UpdateType)
 }
+
+// With no delete format left, streams must default to append or the catalog fails sync.
+func TestGetWrappedCatalogDefaultsToAppendWhenNothingQualifies(t *testing.T) {
+	streams := []*Stream{{
+		Name: "users", Namespace: "public", Schema: NewTypeSchema(),
+		DefaultStreamProperties: &DefaultStreamProperties{},
+	}}
+
+	// Athena cannot read deletion vectors, the only format Unity offers.
+	catalog := GetWrappedCatalog(streams, "postgres", UpdateTypeConstraints{
+		Engines: []QueryEngine{QueryEngineAthena}, Catalog: "unity",
+	})
+
+	selected := catalog.SelectedStreams["public"][0]
+	assert.True(t, selected.AppendMode)
+	assert.Equal(t, "", selected.UpdateType)
+	assert.True(t, streams[0].DefaultStreamProperties.AppendMode)
+	assert.Equal(t, []UpdateType{}, streams[0].AvailableUpdateTypes)
+}
+
+// Empty and absent mean opposite things: nothing qualifies vs. a catalog predating the field.
+func TestAvailableUpdateTypesEmptySurvivesJSON(t *testing.T) {
+	var empty Stream
+	require.NoError(t, json.Unmarshal([]byte(`{"available_update_types":[]}`), &empty))
+	assert.NotNil(t, empty.AvailableUpdateTypes)
+	assert.Empty(t, empty.AvailableUpdateTypes)
+
+	var legacy Stream
+	require.NoError(t, json.Unmarshal([]byte(`{}`), &legacy))
+	assert.Nil(t, legacy.AvailableUpdateTypes)
+
+	out, err := json.Marshal(&Stream{AvailableUpdateTypes: []UpdateType{}})
+	require.NoError(t, err)
+	assert.Contains(t, string(out), `"available_update_types":[]`)
+}
+
+func TestValidateUpdateTypeWithNothingAvailable(t *testing.T) {
+	testCases := []struct {
+		name      string
+		available []UpdateType
+		metadata  StreamMetadata
+		wantErr   bool
+	}{
+		// Append writes no deletes, so an empty list cannot block it.
+		{name: "append stream passes", available: []UpdateType{}, metadata: StreamMetadata{AppendMode: true}},
+		{name: "upsert stream is rejected", available: []UpdateType{}, metadata: StreamMetadata{UpdateType: "pos"}, wantErr: true},
+		// Blank would otherwise default to equality and slip through.
+		{name: "blank upsert stream is rejected", available: []UpdateType{}, metadata: StreamMetadata{}, wantErr: true},
+		// Legacy catalogs only check writability.
+		{name: "legacy nil list allows a writable mode", available: nil, metadata: StreamMetadata{UpdateType: "pos"}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := &ConfiguredStream{
+				StreamMetadata: tc.metadata,
+				Stream:         &Stream{AvailableUpdateTypes: tc.available},
+			}
+			err := stream.ValidateUpdateType()
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

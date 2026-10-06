@@ -91,12 +91,16 @@ func GetWrappedCatalog(streams []*Stream, driver string, constraints UpdateTypeC
 	// destination can apply.
 	available := constraints.Available()
 	updateType := PreferredUpdateType(available)
+	// With no delete format available upsert is impossible, so default to append, which
+	// needs none; the generated catalog then syncs without edits.
+	appendOnly := len(available) == 0
 
 	// Loop through each stream and populate Streams and SelectedStreams
 	for _, stream := range streams {
 		stream.AvailableUpdateTypes = available
 		if stream.DefaultStreamProperties != nil {
 			stream.DefaultStreamProperties.UpdateType = updateType
+			stream.DefaultStreamProperties.AppendMode = stream.DefaultStreamProperties.AppendMode || appendOnly
 		}
 
 		// Create ConfiguredStream and append to Streams
@@ -112,7 +116,7 @@ func GetWrappedCatalog(streams []*Stream, driver string, constraints UpdateTypeC
 
 		catalog.SelectedStreams[stream.Namespace] = append(catalog.SelectedStreams[stream.Namespace], StreamMetadata{
 			StreamName:      stream.Name,
-			AppendMode:      utils.Ternary(driver == string(constants.Kafka), true, false).(bool),
+			AppendMode:      driver == string(constants.Kafka) || appendOnly,
 			Normalization:   IsDriverRelational(driver),
 			UpdateType:      string(updateType),
 			SelectedColumns: selectedCols,
@@ -216,8 +220,16 @@ func mergeUpdateType(metadata *StreamMetadata, streamID string, constraints Upda
 		return
 	}
 
-	logger.Warnf("Stream %s update mode %s is not supported by the selected query engines or the destination; cleared, choose one of %v",
-		streamID, metadata.UpdateType, available)
+	// Append streams never use the value, so clearing it needs no warning.
+	switch {
+	case metadata.AppendMode:
+	case len(available) == 0:
+		logger.Warnf("Stream %s update mode %s is not supported by the selected query engines or the destination, and no other mode is; cleared, switch the stream to append mode",
+			streamID, metadata.UpdateType)
+	default:
+		logger.Warnf("Stream %s update mode %s is not supported by the selected query engines or the destination; cleared, choose one of %v",
+			streamID, metadata.UpdateType, available)
+	}
 	metadata.UpdateType = ""
 }
 

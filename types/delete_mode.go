@@ -41,14 +41,15 @@ func (m UpdateType) Validate() error {
 
 // ValidateAgainst reports whether m is a delete format OLake can write and one the stream
 // still offers. Target query engines are a discover-time input that is never persisted, so
-// the list computed from them is the only record a later sync can check against. An empty
-// list means the catalog predates target query engines, so only writability is checked.
+// the list computed from them is the only record a later sync can check against. A nil list
+// means the catalog predates target query engines, so only writability is checked; an empty
+// one rejects every mode.
 func (m UpdateType) ValidateAgainst(available []UpdateType) error {
 	if err := m.Validate(); err != nil {
 		return err
 	}
 
-	if len(available) > 0 && !slices.Contains(available, m) {
+	if available != nil && !slices.Contains(available, m) {
 		return fmt.Errorf("update mode %q is not readable by the target query engines; available are %v", m, available)
 	}
 

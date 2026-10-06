@@ -169,9 +169,7 @@ const (
 	codeQueryEngineInvalid = "catalog.query_engine_invalid"
 	// codeDestinationConfigInvalid marks a destination config discover cannot read.
 	codeDestinationConfigInvalid = "config.destination_invalid"
-	// codeUpdateTypeUnsatisfiable marks engines and destination that share no delete format.
-	codeUpdateTypeUnsatisfiable = "catalog.update_type_unsatisfiable"
-	codeNoStreams               = "catalog.no_streams_discovered"
+	codeNoStreams                = "catalog.no_streams_discovered"
 	// recovered panic as an internal error
 	codePanicRecovered = "sync.panic_recovered"
 )
