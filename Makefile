@@ -34,7 +34,7 @@ DOCKER_BUILD ?= docker build
 $(addsuffix .build,$(addprefix docker.,$(DRIVERS))): docker.%.build:
 	$(DOCKER_BUILD) $(addprefix --platform ,$(call local_driver_platforms,$*)) \
 		--build-arg DRIVER_NAME=$* \
-		-t olakego/source-$*:$(IMAGE_TAG) .
+		-t olake/source-$*:$(IMAGE_TAG) .
 
 gomod:
 	find . -name go.mod -execdir go mod tidy \;
@@ -426,7 +426,7 @@ help:
 	@printf "  %-44s %s\n" "prepare.<driver> | prepare.all" "provision host build deps (db2: IBM clidriver; else no-op)"
 	@echo ""
 	@echo "Docker images:"
-	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "docker.$(d).build" "build the $(d) driver image (olakego/source-$(d):$(IMAGE_TAG))";)
+	@$(foreach d,$(DRIVERS),printf "  %-44s %s\n" "docker.$(d).build" "build the $(d) driver image (olake/source-$(d):$(IMAGE_TAG))";)
 	@echo ""
 	@echo "Tests (auto-provision the stacks they need):"
 	@printf "  %-44s %s\n" "iceberg.jar" "build the Iceberg writer JAR (skips maven when up to date)"
