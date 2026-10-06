@@ -10,9 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This package's init runs RootCmd.Execute, so the file logger is already pointed at ./logs
-// before a test can redirect it. classifyStreams logs its skips, which creates that directory;
-// drop it afterwards rather than leaving it in the tree.
+// classifyStreams logs its skips, which can create ./logs; drop it afterwards
+// rather than leaving it in the tree.
 func discardStrayLogs(t *testing.T) {
 	t.Helper()
 	if _, err := os.Stat("logs"); err == nil {
