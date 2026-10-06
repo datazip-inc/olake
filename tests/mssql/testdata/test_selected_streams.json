@@ -1,0 +1,1 @@
+{"selected_streams":{"dbo":[{"partition_regex":"","stream_name":"mssql_test_table_olake","update_type":"eq","sync_mode":"cdc"},{"partition_regex":"","stream_name":"systranschemas","update_type":"eq","sync_mode":"cdc"}]}}

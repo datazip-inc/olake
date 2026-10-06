@@ -41,12 +41,17 @@ func TestDB2Discover(t *testing.T) {
 	db2BaseConfig(t).TestDiscover(t)
 }
 
-func TestDB2Sync(t *testing.T) {
-	t.Parallel()
+// db2SyncConfig adds to db2BaseConfig what the sync suites verify after the update sync.
+func db2SyncConfig(t *testing.T) *testutils.IntegrationTest {
 	cfg := db2BaseConfig(t)
 	cfg.ExpectedUpdatedData = ExpectedUpdatedDB2Data
 	cfg.UpdatedDestinationDataTypeSchema = UpdatedDB2ToDestinationSchema
-	cfg.TestSync(t)
+	return cfg
+}
+
+func TestDB2Sync(t *testing.T) {
+	t.Parallel()
+	db2SyncConfig(t).TestSync(t)
 }
 
 func TestDB22PC(t *testing.T) {
