@@ -391,3 +391,15 @@ var UpdatedDB2ToDestinationSchema = map[string]string{
 	"col_vargraphic": "string",
 	"includedcolumn": "integer",
 }
+
+// DB2TypeMapping maps the source types DB2ToDestinationSchema declare to the type they land as in
+// the destination. A declared type missing here fails the suite with "No mapping defined".
+var DB2TypeMapping = map[string]string{
+	"bigint":    "bigint",
+	"boolean":   "boolean",
+	"double":    "double",
+	"float":     "float",
+	"integer":   "int",
+	"string":    "string",
+	"timestamp": "timestamp",
+}

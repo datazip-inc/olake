@@ -1,6 +1,7 @@
 package arrowwriter
 
 import (
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/destination/iceberg/proto"
+	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils/typeutils"
 	"github.com/twmb/murmur3"
 )
@@ -21,9 +23,12 @@ import (
 //
 // Supported Transforms:
 //   - Identity, Void: 			All data types
-//   - Bucket: 				int, long, string, timestamptz
-//   - Truncate: 				int, long, string
+//   - Bucket: 				int, long, string, timestamptz, binary, fixed
+//   - Truncate: 				int, long, string, binary
 //   - Year, Month, Day, Hour: 	timestamptz
+//
+// Bytes partition the way Iceberg reads them: a bucket hashes the stored bytes, a truncate keeps
+// their first width bytes, and the path carries the base64 Iceberg prints for a binary value.
 
 const NULL = "null"
 
@@ -112,6 +117,13 @@ func identityTransform(val any, colType string) (pathStr string, typedVal any, e
 		typedVal = t.UnixMicro()
 		return pathStr, typedVal, nil
 	default:
+		if width, isBytes := types.IcebergBytesWidth(colType); isBytes {
+			b, err := typeutils.ReformatBytes(val, width)
+			if err != nil {
+				return "", nil, fmt.Errorf("failed to read bytes for identity transform (colType %q, valType %T): %s", colType, val, err)
+			}
+			return base64.StdEncoding.EncodeToString(b), b, nil
+		}
 		return fmt.Sprintf("%v", val), val, nil
 	}
 }
@@ -185,7 +197,15 @@ func bucketTransform(val any, num int, colType string) (pathStr string, typedVal
 		}
 		h = hashString(str)
 	default:
-		return "", nil, fmt.Errorf("unsupported colType %q for bucket transform", colType)
+		width, isBytes := types.IcebergBytesWidth(colType)
+		if !isBytes {
+			return "", nil, fmt.Errorf("unsupported colType %q for bucket transform", colType)
+		}
+		b, err := typeutils.ReformatBytes(val, width)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to read bytes for bucket transform (colType %q, valType %T): %s", colType, val, err)
+		}
+		h = murmur3.Sum32(b)
 	}
 
 	masked := int(h & 0x7FFFFFFF)
@@ -231,7 +251,18 @@ func truncateTransform(val any, n int, colType string) (pathStr string, typedVal
 		truncated := string(runes[:n])
 		return truncated, truncated, nil
 	default:
-		return "", nil, fmt.Errorf("unsupported colType %q for truncate transform", colType)
+		width, isBytes := types.IcebergBytesWidth(colType)
+		if !isBytes || width > 0 {
+			return "", nil, fmt.Errorf("unsupported colType %q for truncate transform", colType)
+		}
+		b, err := typeutils.ReformatBytes(val, 0)
+		if err != nil {
+			return "", nil, fmt.Errorf("failed to read bytes for truncate transform (colType %q, valType %T): %s", colType, val, err)
+		}
+		if len(b) > n {
+			b = b[:n]
+		}
+		return base64.StdEncoding.EncodeToString(b), b, nil
 	}
 }
 
@@ -310,6 +341,8 @@ func toProtoPartitionValues(values []any) ([]*proto.ArrowPayload_FileMetadata_Pa
 			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_StringValue{StringValue: v}
 		case bool:
 			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_BoolValue{BoolValue: v}
+		case []byte:
+			pv.Value = &proto.ArrowPayload_FileMetadata_PartitionValue_BytesValue{BytesValue: v}
 		default:
 			return nil, fmt.Errorf("unsupported partition value type: %T", v)
 		}

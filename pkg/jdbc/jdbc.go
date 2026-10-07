@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/datazip-inc/olake/constants"
+	"github.com/datazip-inc/olake/drivers/abstract"
 	"github.com/datazip-inc/olake/types"
 	"github.com/datazip-inc/olake/utils"
 	"github.com/datazip-inc/olake/utils/logger"
@@ -421,6 +422,7 @@ func MySQLTableSchemaQuery() string {
 			COLUMN_NAME, 
 			COLUMN_TYPE,
 			DATA_TYPE, 
+			CHARACTER_MAXIMUM_LENGTH,
 			IS_NULLABLE,
 			COLUMN_KEY
 		FROM 
@@ -1438,8 +1440,16 @@ func BuildIncrementalQuery(ctx context.Context, opts DriverOptions) (string, []a
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), false, lastCursorValue, opts)
 		}
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err := abstract.DecodeCursorValue(cursorField, cursorType, lastCursorValue)
+		if err != nil {
+			return "", nil, err
+		}
 		quotedColumn := QuoteIdentifier(cursorField, opts.Driver)
-		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), lastCursorValue, nil
+		return fmt.Sprintf("%s > %s", quotedColumn, placeholder(argumentPosition)), cursorValue, nil
 	}
 
 	// Build primary cursor condition
@@ -1479,13 +1489,21 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 
 	var maxPrimaryCursorValue, maxSecondaryCursorValue any
 
-	bytesConverter := func(value any) any {
+	bytesConverter := func(cursorType types.DataType, value any) any {
 		switch v := value.(type) {
 		case []byte:
+			if isBytes, _ := types.IsBytes(cursorType); isBytes {
+				return v
+			}
 			return string(v)
 		default:
 			return v
 		}
+	}
+
+	primaryCursorType, err := stream.Schema().GetType(primaryCursor)
+	if err != nil {
+		return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", primaryCursor, err)
 	}
 
 	cursorValueQuery := utils.Ternary(secondaryCursor == "",
@@ -1493,18 +1511,22 @@ func GetMaxCursorValues(ctx context.Context, client *sqlx.DB, driverType constan
 		fmt.Sprintf("SELECT MAX(%s), MAX(%s) FROM %s", primaryCursorQuoted, secondaryCursorQuoted, quotedTable)).(string)
 
 	if secondaryCursor != "" {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
+		secondaryCursorType, err := stream.Schema().GetType(secondaryCursor)
+		if err != nil {
+			return nil, nil, fmt.Errorf("cursor field %s not found in schema: %w", secondaryCursor, err)
+		}
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue, &maxSecondaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan the cursor values: %w", err)
 		}
-		maxSecondaryCursorValue = bytesConverter(maxSecondaryCursorValue)
+		maxSecondaryCursorValue = bytesConverter(secondaryCursorType, maxSecondaryCursorValue)
 	} else {
-		err := client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
+		err = client.QueryRowContext(ctx, cursorValueQuery).Scan(&maxPrimaryCursorValue)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan primary cursor value: %w", err)
 		}
 	}
-	return bytesConverter(maxPrimaryCursorValue), maxSecondaryCursorValue, nil
+	return bytesConverter(primaryCursorType, maxPrimaryCursorValue), maxSecondaryCursorValue, nil
 }
 
 // ThresholdFilter is used to update the filter for initial run of incremental sync during backfill.
@@ -1520,6 +1542,14 @@ func ThresholdFilter(ctx context.Context, opts DriverOptions) (string, []any, er
 	createThresholdCondition := func(argumentPosition int, cursorField string, cursorValue any) (string, any, error) {
 		if slices.Contains(constants.DriversRequiringIncrementalFormatter, opts.Driver) {
 			return IncrementalValueFormatter(ctx, cursorField, placeholder(argumentPosition), true, cursorValue, opts)
+		}
+		cursorType, err := opts.Stream.Schema().GetType(cursorField)
+		if err != nil {
+			return "", nil, fmt.Errorf("cursor field %s not found in schema: %w", cursorField, err)
+		}
+		cursorValue, err = abstract.DecodeCursorValue(cursorField, cursorType, cursorValue)
+		if err != nil {
+			return "", nil, err
 		}
 		conditionFilter := fmt.Sprintf("%s <= %s", QuoteIdentifier(cursorField, opts.Driver), placeholder(argumentPosition))
 		return conditionFilter, cursorValue, nil

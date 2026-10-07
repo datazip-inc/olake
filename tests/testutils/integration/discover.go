@@ -104,7 +104,8 @@ func verifyDiscoveredStreams(t *testing.T, expectedPath, actualPath string) {
 			gotJSON, err := json.Marshal(got[key])
 			require.NoError(t, err)
 			require.Truef(t, testutils.NormalizedEqual(string(wantJSON), string(gotJSON)),
-				"%s: discovered %q does not match expected_streams.json\nExpected:\n%s\nGot:\n%s", section, key, wantJSON, gotJSON)
+				"%s: discovered %q does not match expected_streams.json\n%s\nExpected:\n%s\nGot:\n%s",
+				section, key, require.MapDiff("field", "expected", "discovered", wantEntry, got[key]), wantJSON, gotJSON)
 		}
 	}
 	compare("streams", indexStreams(expected), indexStreams(actual))

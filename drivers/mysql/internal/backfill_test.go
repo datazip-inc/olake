@@ -126,7 +126,7 @@ func TestIsNumericAndEvenDistributed(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			bounds := isNumericAndEvenDistributed(tc.minVal, tc.maxVal, tc.approxRowCount, tc.chunkSize, tc.dataType)
+			bounds := isNumericAndEvenDistributed(tc.minVal, tc.maxVal, tc.approxRowCount, tc.chunkSize, tc.dataType, mysqlTypeToDataTypes())
 			if (bounds != nil) != tc.expected {
 				t.Fatalf("expected bounds=%t, got %v", tc.expected, bounds)
 			}

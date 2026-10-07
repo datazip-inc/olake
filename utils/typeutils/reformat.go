@@ -99,6 +99,9 @@ func ReformatValue(dataType types.DataType, v any) (any, error) {
 		// make it an array
 		return []any{v}, nil
 	default:
+		if isBytes, width := types.IsBytes(dataType); isBytes {
+			return ReformatBytes(v, width)
+		}
 		return v, nil
 	}
 }
@@ -113,6 +116,35 @@ func ParseFilterValue(dataType types.DataType, v any) (any, error) {
 	default:
 		return ReformatValue(dataType, v)
 	}
+}
+
+// ReformatBytes converts v to bytes, zero-padded to width when width > 0; a value longer than width is an error.
+func ReformatBytes(v any, width int) ([]byte, error) {
+	var b []byte
+	switch val := v.(type) {
+	case []byte:
+		b = val
+	case *[]byte:
+		if val == nil {
+			return nil, ErrNullValue
+		}
+		b = *val
+	case string:
+		b = []byte(val)
+	default:
+		return nil, fmt.Errorf("failed to change %T to bytes: unsupported type", v)
+	}
+	if width > 0 {
+		if len(b) > width {
+			return nil, fmt.Errorf("%s holds at most %d bytes, got %d", types.FixedBinaryOf(width), width, len(b))
+		}
+		if len(b) < width {
+			padded := make([]byte, width)
+			copy(padded, b)
+			b = padded
+		}
+	}
+	return b, nil
 }
 
 func ReformatBool(v interface{}) (bool, error) {
