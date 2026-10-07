@@ -1,12 +1,15 @@
 package constants
 
+import (
+	_ "embed"
+	"encoding/json"
+	"log"
+)
+
 // State version constants for backward compatibility
 // State files can have different versions to support migration and backward compatibility
 // when the state file format or behavior changes.
 
-// LatestStateVersion is the current version of the state file format.
-// This version is used when creating new state files.
-//
 // Version History:
 //   - Version 0: Legacy format (backward compatibility)
 //     * More lenient date/timestamp parsing behavior
@@ -42,9 +45,31 @@ package constants
 //     * Unsigned 32-bit: earlier read as a signed int32 and mapped to Int32, so values above 2^31-1 wrapped negative. Now widened to Int64, matching pg/mysql.
 //     * Older state keeps both previous behaviors so existing destination columns do not change type on upgrade.
 
-// tests/testutils/constants keeps a temporary copy of this value; update it there as well when bumping the version.
-// TODO: remove this file after state version is moved to secrets
-const LatestStateVersion = 7
+var (
+	// LatestStateVersion is the current version of the state file format.
+	// This version is used when creating new state files.
+	LatestStateVersion int
 
-// Used as the current version of the state when the program is running
-var LoadedStateVersion = LatestStateVersion
+	// Used as the current version of the state when the program is running
+	LoadedStateVersion int
+
+	//go:embed state-versions.json
+	rawStateVersions []byte
+)
+
+// init initializes static information only: the version this build writes. The version a running
+// sync is pinned at comes from its state file, via SetLoadedStateVersion.
+func init() {
+	var doc struct {
+		LatestStateVersion int `json:"latest_state_version"`
+	}
+	// stdlib log, not utils/logger: logger imports this package, and is not initialized at init time.
+	if err := json.Unmarshal(rawStateVersions, &doc); err != nil {
+		log.Fatalf("constants/state-versions.json is not valid JSON: %s", err)
+	}
+	if doc.LatestStateVersion <= 0 {
+		log.Fatal("constants/state-versions.json must set latest_state_version to a positive integer")
+	}
+	LatestStateVersion = doc.LatestStateVersion
+	LoadedStateVersion = LatestStateVersion
+}
