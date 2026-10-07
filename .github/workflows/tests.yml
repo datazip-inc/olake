@@ -286,7 +286,7 @@ jobs:
         run: make -j4 --output-sync=target test.compatibility DRIVERS="$DRIVERS" COMPATIBILITY_BASELINE="${{ matrix.baseline }}"
 
   backward-compatibility-with-old-releases:
-    name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility with All Older Releases with a State Version Update
+    name: ${{ fromJSON(needs.approve.outputs.driver-labels)[matrix.driver] }} Backward Compatibility with Older Releases
     needs: approve
     runs-on: 16gb-runner
     environment: ${{ github.event_name == 'pull_request' && needs.approve.outputs.attempt != github.run_attempt && 'integration_tests' || '' }}
