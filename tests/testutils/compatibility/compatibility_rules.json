@@ -21,7 +21,7 @@
         {"data_types": ["latin1"], "exclude_below": "v0.11.4", "note": "the binlog path decoded latin1 as ISO-8859-1 instead of MySQL's cp1252 until #1280, so bytes 0x80-0x9F arrived as C1 controls; below v0.7.2 latin1 also failed as invalid UTF-8, like ucs2/utf16le"},
         {"data_types": ["set"], "assert_value_from": "v0.7.2", "note": "M1: SET columns emitted the numeric bitmask on the binlog path before the fix"},
         {"data_types": ["unsigned mediumint"], "assert_value_from": "v0.9.3", "note": "unsigned MEDIUMINT was sign-extended on the binlog path before v0.9.3 (-1 where the value is 16777215)"},
-        {"data_types": ["binary(16)", "varbinary", "blob"], "exclude_below": "v0.11.4", "note": "binary columns were carried as text before binary support (#1183): non-UTF-8 bytes fail the legacy writer's gRPC marshal and the retry backoff looks like a hang"},
+        {"data_types": ["binary(16)", "varbinary", "blob"], "exclude_below": "v0.12.1", "note": "binary columns were carried as text before binary support (#1183): non-UTF-8 bytes fail the legacy writer's gRPC marshal and the retry backoff looks like a hang"},
         {"data_types": ["unsigned bigint"], "exclude_below": "v0.9.0", "note": "BIGINT UNSIGNED at or above 2^63 reaches the incremental scan as a byte slice; before v0.9.0 (state v6, ReformatInt64) it cannot be converted: v0.3.11's Iceberg writer fatals on the mixed long/string batch and a candidate on an older state file retries into a hang"}
       ],
       "destination_rules": [
